@@ -47,30 +47,56 @@ def stage_reserves(capability):
 
 
 def compact_evidence(value, text_limit, *, nodes=2048):
-    """Bound model views, not stored source. Each omitted slice has an exact digest."""
-    remaining = [nodes]
+    """Bound traversal and model views while keeping the original evidence retained."""
+    if type(nodes) is not int or nodes < 1 or type(text_limit) is not int or text_limit < 1:
+        raise ValueError('Evidence view limits must be positive integers')
+    remaining = nodes
     omissions = []
+
+    def omit(entry):
+        # Wide evidence must not create an unbounded omission ledger either.
+        if len(omissions) < 255:
+            omissions.append(entry)
+        elif len(omissions) == 255:
+            omissions.append({'pointer': '', 'reason': 'VIEW_OMISSION_LIMIT', 'additional_omissions': 1})
+        else:
+            omissions[-1]['additional_omissions'] += 1
+
     def visit(item, path, depth):
-        remaining[0] -= 1
-        if remaining[0] < 0 or depth > 16:
-            omissions.append({'pointer': path, 'reason': 'VIEW_NODE_LIMIT'})
+        nonlocal remaining
+        remaining -= 1
+        if depth > 16:
+            omit({'pointer': path, 'reason': 'VIEW_DEPTH_LIMIT'})
             return {'available_in_retained_evidence': True, 'view_omitted': True}
         if isinstance(item, str) and len(item.encode()) > text_limit:
             # Never split a Unicode codepoint. The hash identifies the full
             # retained value; the model sees explicitly incomplete source.
             raw = item.encode()
             prefix = raw[:text_limit].decode('utf-8', 'ignore')
-            omissions.append({'pointer': path, 'reason': 'TOKEN_BUDGET', 'sha256': fingerprint(item), 'byte_length': len(raw), 'visible_bytes': len(prefix.encode())})
-            return {'excerpt': prefix, 'complete': False, 'retained_sha256': fingerprint(item), 'retained_bytes': len(raw)}
+            source_digest = fingerprint(item)
+            omit({'pointer': path, 'reason': 'TOKEN_BUDGET', 'sha256': source_digest, 'byte_length': len(raw), 'visible_bytes': len(prefix.encode())})
+            return {'excerpt': prefix, 'complete': False, 'retained_sha256': source_digest, 'retained_bytes': len(raw)}
         if isinstance(item, dict):
-            return {key: visit(child, path + '/' + key.replace('~', '~0').replace('/', '~1'), depth + 1) for key, child in item.items()}
+            result = {}
+            for key, child in item.items():
+                if remaining <= 0:
+                    break
+                result[key] = visit(child, path + '/' + key.replace('~', '~0').replace('/', '~1'), depth + 1)
+            if len(result) < len(item):
+                omit({'pointer': path, 'reason': 'VIEW_NODE_LIMIT', 'retained_count': len(item), 'visible_count': len(result)})
+            return result
         if isinstance(item, list):
-            kept = item[:64]
-            if len(item) > len(kept):
-                omissions.append({'pointer': path, 'reason': 'VIEW_ITEM_LIMIT', 'retained_count': len(item), 'visible_count': len(kept)})
-            return [visit(child, path + '/' + str(index), depth + 1) for index, child in enumerate(kept)]
+            result = []
+            for index, child in enumerate(item):
+                if remaining <= 0 or index >= 64:
+                    break
+                result.append(visit(child, path + '/' + str(index), depth + 1))
+            if len(result) < len(item):
+                omit({'pointer': path, 'reason': 'VIEW_ITEM_LIMIT' if len(result) == 64 else 'VIEW_NODE_LIMIT',
+                      'retained_count': len(item), 'visible_count': len(result)})
+            return result
         return item
-    return visit(value, '', 0), omissions[:256]
+    return visit(value, '', 0), omissions
 
 
 def fit_engineering_payload(payload, capability, counter):
@@ -86,18 +112,22 @@ def fit_engineering_payload(payload, capability, counter):
     envelope = json.loads(original['messages'][-1]['content'])
     retained = {name: envelope.get(name) for name in ('evidence', 'historical_memory', 'code_graph')}
     # Bounded, strictly decreasing views. There is no identical oversized replay.
-    for limit in (4096, 2048, 1024, 512, 256):
+    source_digest = fingerprint(retained)
+    for limit, nodes in ((4096, 2048), (2048, 1024), (1024, 512), (512, 256), (256, 128)):
         candidate = copy.deepcopy(original)
         body = copy.deepcopy(envelope)
-        projected, omissions = compact_evidence(retained, limit)
+        projected, omissions = compact_evidence(retained, limit, nodes=nodes)
+        # A field omitted at the root must replace its original too; otherwise
+        # an exhausted view budget would accidentally restore the full source.
+        projected = {name: projected.get(name, {'available_in_retained_evidence': True, 'view_omitted': True}) for name in retained}
         body.update(projected)
-        body['evidence_view'] = {'complete': False, 'retained_digest': fingerprint(retained), 'omissions': omissions,
+        body['evidence_view'] = {'complete': False, 'retained_digest': source_digest, 'omissions': omissions,
                                  'instruction': 'Omitted evidence remains stored. Do not claim it was inspected or that uncovered requirements passed.'}
         candidate['messages'][-1]['content'] = canonical(body)
         try:
             budget = plan_tokens(candidate, capability, counter, **reserves)
-            return candidate, budget, {'reason': 'CONTEXT_BUDGET', 'source_digest': fingerprint(retained),
-                                      'view_digest': fingerprint(projected), 'text_slice_bytes': limit,
+            return candidate, budget, {'reason': 'CONTEXT_BUDGET', 'source_digest': source_digest,
+                                      'view_digest': fingerprint(projected), 'text_slice_bytes': limit, 'view_node_limit': nodes,
                                       'omissions': omissions, 'objective_preserved': True, 'completion_reserves_preserved': True}
         except ExecutionBindingError as error:
             if error.code != 'EXECUTION_CONTEXT_EXHAUSTED':

@@ -106,7 +106,7 @@ internal fun GitHubLiveProgressCard(timeline: List<dev.chungjungsoo.gptmobile.da
     }
     val lines = remember(timeline, task, search != null) { gitHubActivityLines(timeline, task, searchActive = search != null) }
     var visibleEntries by remember(task, expanded) { androidx.compose.runtime.mutableIntStateOf(20) }
-    Column(Modifier.fillMaxWidth().padding(horizontal = 28.dp, vertical = 8.dp)) {
+    Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
         val visibleLines = remember(lines, visibleEntries) { gitHubVisibleActivityLines(lines, compact = true, entryLimit = visibleEntries) }
         val latestPreview = visibleLines.lastIndex.takeIf { active && it >= 0 && !visibleLines[it].statusSummary } ?: -1
         val motion = rememberGitHubProgressMotion(latestPreview >= 0)
@@ -117,7 +117,7 @@ internal fun GitHubLiveProgressCard(timeline: List<dev.chungjungsoo.gptmobile.da
             visibleLines.forEachIndexed { index, item ->
                 androidx.compose.runtime.key(item.progressId ?: item.content, item.statusSummary) {
                     if (item.statusSummary) {
-                        GitHubActivitySummary(item.content, expanded)
+                        GitHubActivitySummary(item.content)
                     } else {
                         GitHubActivityPreview(item.content, latest = index == latestPreview, motion = motion, search = search.takeIf { index == latestPreview && dev.chungjungsoo.gptmobile.data.github.GitHubProgressPresentation.liveKey(item.content) == null })
                     }
@@ -128,15 +128,13 @@ internal fun GitHubLiveProgressCard(timeline: List<dev.chungjungsoo.gptmobile.da
 }
 
 @Composable
-private fun GitHubActivitySummary(text: String, expanded: Boolean) {
+private fun GitHubActivitySummary(text: String) {
     val entry = remember { Animatable(0f) }
     LaunchedEffect(Unit) { entry.animateTo(1f, tween(300, easing = androidx.compose.animation.core.LinearEasing)) }
     Text(
         text,
         style = MaterialTheme.typography.titleSmall,
         color = MaterialTheme.colorScheme.onSurface,
-        maxLines = if (expanded) Int.MAX_VALUE else 6,
-        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
         // Translation changes only drawing, not text composition or measurement.
         modifier = Modifier.graphicsLayer { translationY = (-6).dp.toPx() * (1f - entry.value) }
             .testTag("github_activity_summary")

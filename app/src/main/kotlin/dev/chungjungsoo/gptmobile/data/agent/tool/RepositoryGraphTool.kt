@@ -41,6 +41,8 @@ internal class RepositoryGraphTool(
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
+            val admission = failure as? dev.chungjungsoo.gptmobile.data.github.GatewayGraphAdmissionException
+            val code = admission?.code ?: "REPOSITORY_GRAPH_UNAVAILABLE"
             val readAction = arguments["action"] !in setOf(JsonPrimitive("index"), JsonPrimitive("note"))
             // A transport/readiness failure of a status read may trigger one independent,
             // authorized native read. Typed readiness does not include graph policy,
@@ -63,8 +65,30 @@ internal class RepositoryGraphTool(
                 callId,
                 ToolResultContent.Json(
                     buildJsonObject {
-                        put("code", "REPOSITORY_GRAPH_UNAVAILABLE")
+                        put("code", code)
                         put("graph_available", false)
+                        put(
+                            "state",
+                            if (admission != null) {
+                                "PRECHECK_REJECTED"
+                            } else if (fallback?.isError == false) {
+                                "DEGRADED"
+                            } else {
+                                "UNAVAILABLE"
+                            }
+                        )
+                        put(
+                            "recovery_kind",
+                            if (admission != null) {
+                                "RESTORE_SELECTED_CONFIGURATION_OR_GRANTS"
+                            } else if (unavailable) {
+                                "RESTORE_SELECTED_GATEWAY_READINESS"
+                            } else {
+                                "INSPECT_GRAPH_REJECTION"
+                            }
+                        )
+                        put("automatic_retry", false)
+                        put("next_action", if (admission != null) admission.message.orEmpty() else "Check the selected gateway host GitHub connection, durable storage, graph readiness and protocol. Refresh status after recovery. Do not substitute a different profile or treat native status as graph coverage.")
                         put("graph_complete", false)
                         put("message", if (unavailable && readAction) "Repository graph evidence is unavailable. Authorized native repository reads remain independent of the graph connection. Resolve the selected revision, inspect branches, commits, source paths, PRs and checks as needed; their receipts do not establish graph coverage or executed tests." else "Repository graph access failed. Resolve the reported admission, validation or transport problem for this operation; no graph write or policy rejection was retried through another provider.")
                         put("failure_type", failure.javaClass.simpleName)
@@ -90,7 +114,8 @@ internal class RepositoryGraphTool(
                     }
                 ),
                 true,
-                errorCode = "REPOSITORY_GRAPH_UNAVAILABLE"
+                errorCode = code,
+                dispatched = admission == null
             )
         }
     }

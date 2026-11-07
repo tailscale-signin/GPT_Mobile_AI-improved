@@ -10,8 +10,14 @@ internal object GitHubFailurePolicy {
     val codes = setOf(
         "AUTH_REQUIRED", "GITHUB_PRIMARY_RATE_LIMITED", "GITHUB_SECONDARY_RATE_LIMITED", "GITHUB_SSO_REQUIRED",
         "GITHUB_BRANCH_RULES_BLOCKED", "GITHUB_ENDPOINT_PERMISSION_REQUIRED", "GITHUB_FORBIDDEN_UNKNOWN",
-        "GITHUB_NOT_FOUND_OR_INACCESSIBLE", "GITHUB_CONFLICT", "GITHUB_VALIDATION_FAILED", "GITHUB_TRANSIENT_SERVER", "GITHUB_HTTP_ERROR"
+        "GITHUB_NOT_FOUND_OR_INACCESSIBLE", "GITHUB_CONFLICT", "GITHUB_VALIDATION_FAILED", "GITHUB_TRANSIENT_SERVER", "GITHUB_HTTP_ERROR",
+        "PERMISSION_DENIED", "PERMISSION_REVOKED", "GRAPH_CONFIGURATION_REQUIRED", "INVALID_ARGUMENTS"
     )
+    private val typedCode = Regex("\\b(?:" + codes.joinToString("|") + ")\\b", RegexOption.IGNORE_CASE)
+
+    fun recordedCode(text: String): String? = typedCode.find(text.take(32_768))?.value?.uppercase(java.util.Locale.ROOT)
+
+    fun requiresCorrection(code: String): Boolean = code in codes && !isRateLimited(code) && code != "GITHUB_TRANSIENT_SERVER"
 
     fun classify(status: Int, message: String = "", remaining: String? = null, retryAfter: String? = null, sso: String? = null): String = when {
         status == 401 -> "AUTH_REQUIRED"
@@ -43,13 +49,20 @@ internal object GitHubFailurePolicy {
     }
 
     fun recoveryHint(code: String): String = when (code) {
-        "AUTH_REQUIRED" -> "Reconnect the same GitHub account and verify credential expiry; no repeated request can repair authentication."
+        "AUTH_REQUIRED" -> "Review the recorded dispatch stage and the selected GitHub connection. A local permission rejection does not prove token expiry; reconnect the same account when GitHub actually rejected its credential. Do not repeat the unchanged request."
+        "PERMISSION_DENIED" -> "Review the selected profile's GitHub tool and conversation grants. The request was blocked by local permissions; changing models or repeatedly reconnecting GitHub does not grant access."
+        "PERMISSION_REVOKED" -> "The selected GitHub connection or grant was removed. Restore that connection or explicitly select an authorized one before resuming saved work."
+        "GRAPH_CONFIGURATION_REQUIRED" -> "Configure repository graph support and persistent engineering memory for the selected private gateway profile. Keep the selected AI profile; native reads do not establish graph coverage."
+        "INVALID_ARGUMENTS" -> "Use the current tool schema and observed resource identifiers to correct this request. Repeating identical invalid arguments will not help."
         "GITHUB_NOT_FOUND_OR_INACCESSIBLE" -> "GitHub 404 can mean absent or inaccessible. Verify owner/repository, exact ref/resource ID and the account's repository access; do not treat it as proven deletion or retry unchanged."
         "GITHUB_VALIDATION_FAILED" -> "Inspect the reported resource/field/code, discover current branches or IDs, and correct this action's required fields. A deterministic validation failure is not retried unchanged."
         "GITHUB_ENDPOINT_PERMISSION_REQUIRED" -> "Inspect the endpoint's accepted GitHub permissions and installation repository access. Repository push access does not establish this endpoint's read or write permission."
         "GITHUB_SSO_REQUIRED" -> "Authorize this GitHub App or token with the organization SSO before retrying."
         "GITHUB_BRANCH_RULES_BLOCKED" -> "Use the repository's permitted branch and PR workflow; token changes cannot override branch rules."
         "GITHUB_CONFLICT" -> "Refresh the affected resource and its expected revision before constructing a corrected request; do not repeat an uncertain write."
+        "GITHUB_PRIMARY_RATE_LIMITED", "GITHUB_SECONDARY_RATE_LIMITED" -> "Wait for the recorded reset or Retry-After deadline, then resume authorized reads. Reconcile any uncertain write before continuing; a rate limit does not revoke access."
+        "GITHUB_FORBIDDEN_UNKNOWN" -> "GitHub denied this operation without an established cause. Inspect the endpoint permissions, organization access and retained response; do not change credentials or retry unchanged without new evidence."
+        "GITHUB_TRANSIENT_SERVER" -> "GitHub reported a temporary service failure. Resume replay-safe reads after bounded backoff; reconcile a dispatched write before any further mutation."
         else -> "Inspect the retained request and response evidence before retrying."
     }
 }

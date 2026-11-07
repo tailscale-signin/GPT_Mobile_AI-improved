@@ -1,11 +1,14 @@
 package dev.chungjungsoo.gptmobile.data.diagnostics
 
 import dev.chungjungsoo.gptmobile.data.chat.ArchivedTextCodec
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -71,5 +74,47 @@ class DiagnosticStoredValueTest {
         val result = diagnosticStoredValue(value, 16 * 1024, omissions::add)
         assertTrue(result.toString().contains("omitted"))
         assertEquals(listOf("NESTED_DIAGNOSTIC_DEPTH_LIMIT"), omissions)
+    }
+
+    @Test fun largeStructuredTimelinesSurvivePlainAndArchivedProjection() {
+        val source = JsonArray(
+            List(6000) { index ->
+                JsonObject(mapOf("tool" to JsonPrimitive("read"), "receipt" to JsonPrimitive(index)))
+            }
+        )
+        val text = source.toString()
+        val archive = ArchivedTextCodec.encode(text)
+        assertTrue(archive.startsWith(ArchivedTextCodec.PREFIX))
+        listOf(text, archive).forEach { stored ->
+            val omissions = mutableListOf<String>()
+            val projected = diagnosticStoredValue(stored, 1_048_576, omissions::add)
+            assertEquals(source, projected)
+            assertTrue(omissions.isEmpty())
+        }
+    }
+
+    @Test fun shapeBudgetCountsValuesWithoutChargingKeysSeparatorsOrQuotedPunctuation() {
+        val source = """{"quoted:key":"punctuation:,[{\"\\","values":[true,-12.3e+4,null]}"""
+        Json.parseToJsonElement(source)
+        assertNull(diagnosticJsonShapeFailure(source, maximumNodes = 6, maximumDepth = 2))
+        assertEquals("DIAGNOSTIC_NODE_LIMIT", diagnosticJsonShapeFailure(source, maximumNodes = 5))
+        assertEquals("NESTED_DIAGNOSTIC_DEPTH_LIMIT", diagnosticJsonShapeFailure(source, maximumDepth = 1))
+    }
+
+    @Test fun denseValuesStillHaveAnExplicitNodeBudgetBeforeParsing() {
+        val omissions = mutableListOf<String>()
+        val source = List(65_536) { "null" }.joinToString(",", "[", "]")
+        val projected = diagnosticStoredValue(source, 1_048_576, omissions::add)
+        assertEquals(listOf("DIAGNOSTIC_NODE_LIMIT"), omissions)
+        assertTrue(projected.toString().contains("omitted"))
+    }
+
+    @Test fun alreadyProjectedTreesAreReusedAndBudgetTruncationKeepsOnlyProcessedFields() {
+        val source = Json.parseToJsonElement("""{"first":"1234","nested":[true,2,{"value":"text"}]}""")
+        assertSame(source, DiagnosticValueProjector(4096) { error(it) }.element(source))
+        val omissions = mutableListOf<String>()
+        val limited = DiagnosticValueProjector(12, omissions::add).element(source)
+        assertEquals(Json.parseToJsonElement("""{"first":"1234"}"""), limited)
+        assertEquals(listOf("DIAGNOSTIC_NODE_OR_CHARACTER_LIMIT"), omissions)
     }
 }

@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.workspace
 
 import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticValueProjector
 import dev.chungjungsoo.gptmobile.data.diagnostics.diagnosticJsonShapeFailure
+import dev.chungjungsoo.gptmobile.data.diagnostics.diagnosticNodeBudget
 import dev.chungjungsoo.gptmobile.data.diagnostics.redactChatDebugData
 import java.nio.charset.CharacterCodingException
 import java.security.MessageDigest
@@ -96,7 +97,7 @@ internal suspend fun readWorkspaceDiagnosticPayload(
         } catch (_: CharacterCodingException) {
             return missing("PROTECTED_PAYLOAD_INVALID_UTF8")
         }
-        val shapeFailure = diagnosticJsonShapeFailure(text)
+        val shapeFailure = diagnosticJsonShapeFailure(text, diagnosticNodeBudget(maximumBytes))
         if (shapeFailure != null) return missing(shapeFailure)
         val value = try {
             Json.parseToJsonElement(text) as? JsonObject

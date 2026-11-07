@@ -29,21 +29,21 @@ class GatewayGraphRepository @Inject constructor(
     }
 
     suspend fun execute(context: GitHubConversationContext, arguments: JsonObject): JsonObject {
-        val connection = requireNotNull(connections.getConnection(context.connectionUid)) { "The GitHub connection was removed." }
+        val connection = connections.getConnection(context.connectionUid)
+            ?: throw GatewayGraphAdmissionException("PERMISSION_REVOKED", "The selected GitHub connection was removed. Reconnect or explicitly select an authorized connection.")
         val profile = settings.fetchPlatformV2s().singleOrNull { it.uid == context.mainProfileUid }
-        require(GitHubAutonomousEngineeringPolicy.supportsSavedJobs(profile)) { "Repository graphs require your private Llama or Ollama gateway profile." }
+        if (!GitHubAutonomousEngineeringPolicy.supportsSavedJobs(profile)) throw GatewayGraphAdmissionException("GRAPH_CONFIGURATION_REQUIRED", "Repository graphs require the explicitly selected private Llama or Ollama gateway profile.")
         val selected = requireNotNull(profile)
         val originalFeatures = settings.getFeatureSettings()
         val effectiveProfile = GitHubChatPolicy.platform(selected, originalFeatures, context)
-        check(!effectiveProfile.disableAllTools && !effectiveProfile.disableRemoteTools) { "Tools are disabled for this profile." }
+        if (effectiveProfile.disableAllTools || effectiveProfile.disableRemoteTools) throw GatewayGraphAdmissionException("PERMISSION_DENIED", "Tools are disabled for the selected profile.")
         val features = GitHubChatPolicy.features(originalFeatures, selected.uid, context)
         val override = features.githubProfileOverrides[selected.uid] ?: GitHubChatProfileOverride()
-        check(
-            features.isToolPluginEnabledForProfile(selected.uid, ToolPluginId.GITHUB) &&
-                features.isToolPluginEnabledForProfile(selected.uid, ToolPluginId.connection(context.connectionUid))
-        ) { "The GitHub plugin is disabled for this profile." }
-        check(override.githubTools && override.engineeringMemory != GitHubEngineeringMemoryMode.SESSION_ONLY) { "Enable persistent engineering memory and GitHub tools to use a repository graph." }
-        check(connection.type == "GITHUB") { "The selected connection is not GitHub." }
+        if (!features.isToolPluginEnabledForProfile(selected.uid, ToolPluginId.GITHUB) || !features.isToolPluginEnabledForProfile(selected.uid, ToolPluginId.connection(context.connectionUid)) || !override.githubTools) {
+            throw GatewayGraphAdmissionException("PERMISSION_DENIED", "The GitHub plugin or tools are disabled for the selected profile.")
+        }
+        if (override.engineeringMemory == GitHubEngineeringMemoryMode.SESSION_ONLY) throw GatewayGraphAdmissionException("GRAPH_CONFIGURATION_REQUIRED", "Enable persistent engineering memory for the selected profile to use its repository graph.")
+        if (connection.type != "GITHUB") throw GatewayGraphAdmissionException("GRAPH_CONFIGURATION_REQUIRED", "The selected connection is not GitHub.")
         val gateway = settings.engineeringGateway(selected.uid)
         val config = gateway.engineeringConfig()
         val principal = client.requireGraphReady(config)

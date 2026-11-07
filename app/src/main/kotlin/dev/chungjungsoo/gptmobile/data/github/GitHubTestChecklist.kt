@@ -54,22 +54,33 @@ internal object GitHubTestChecklist {
             if (observations.drop(index + 1).none { it["success"] == JsonPrimitive(true) && it.text("tool") == recovery.text("tool") && it["arguments"] == recovery["arguments"] }) return@mapIndexedNotNull null
             receipt.text("tool") to receipt["arguments"]
         }.toSet()
-        return observations.filter { it["success"] == JsonPrimitive(true) }.flatMap { receipt ->
-            val view = (receipt["view"] as? JsonObject) ?: (receipt["result"] as? JsonObject) ?: return@flatMap emptyList()
-            buildList {
-                // The complete original and its normalized remote recipes were
-                // persisted atomically in this trusted receipt. Display fragments
-                // add no new evidence and must not drain the call budget.
-                if (receipt["retained_result_complete"] == JsonPrimitive(true) && receipt["result_sha256"] is JsonPrimitive && receipt["retained_remote_continuations"] is JsonArray) {
-                    (receipt["retained_remote_continuations"] as JsonArray).forEach { entry -> ((entry as? JsonObject)?.get("call") as? JsonObject)?.let(::add) }
-                    return@buildList
-                }
+        return observations.flatMap(::issuedPages).distinct().filter { it.text("tool") to it["arguments"] !in completed + recovered }
+    }
+
+    private fun issuedPages(receipt: JsonObject): List<JsonObject> {
+        if (receipt["success"] != JsonPrimitive(true)) return emptyList()
+        val view = (receipt["view"] as? JsonObject) ?: (receipt["result"] as? JsonObject) ?: return emptyList()
+        return buildList {
+            // Complete original data satisfies display traversal, never remote pagination.
+            if (receipt["retained_result_complete"] == JsonPrimitive(true) && receipt["result_sha256"] is JsonPrimitive && receipt["retained_remote_continuations"] is JsonArray) {
+                (receipt["retained_remote_continuations"] as JsonArray).forEach { entry -> ((entry as? JsonObject)?.get("call") as? JsonObject)?.let(::add) }
+            } else {
                 (view["continuation_call"] as? JsonObject)?.let(::add)
                 if (view["local_page_complete"] != JsonPrimitive(false)) {
                     (view["remote_continuations"] as? JsonArray).orEmpty().forEach { entry -> ((entry as? JsonObject)?.get("call") as? JsonObject)?.let(::add) }
                 }
             }
-        }.distinct().filter { it.text("tool") to it["arguments"] !in completed + recovered }
+        }
+    }
+
+    private fun remoteSamples(observations: List<JsonObject>): Int {
+        val issued = observations.flatMap(::issuedPages).map { it.text("tool") to it["arguments"] }.toSet()
+        return observations.count { receipt ->
+            val args = receipt["arguments"] as? JsonObject ?: return@count false
+            "view_cursor" !in args &&
+                !(receipt.text("tool").substringBefore("__") == "github_ci" && args.text("action") == "definitions" && "index_cursor" in args) &&
+                ((args["page"] as? JsonPrimitive)?.longOrNull?.let { it > 1 } == true || receipt.text("tool") to args in issued)
+        }
     }
 
     /** Consume issued local fragments while their bounded cache entry is still live. */
@@ -78,11 +89,15 @@ internal object GitHubTestChecklist {
         fun same(receipt: JsonObject, recipe: JsonObject) = receipt.text("tool") == recipe.text("tool") && receipt["arguments"] == recipe["arguments"]
         fun permitted(recipe: JsonObject): Boolean {
             val args = recipe["arguments"] as? JsonObject ?: return false
-            return tools.any { it.name == recipe.text("tool") && dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator.errors(args, it.inputSchema).isEmpty() } &&
-                dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary.isReplayableRead(recipe.text("tool"), args)
+            val name = recipe.text("tool")
+            val graphWrite = name.substringBefore("__") == "repository_graph" && args.text("action") in setOf("index", "note")
+            return !graphWrite &&
+                tools.any { it.modelVisible && it.name == name && dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator.errors(args, it.inputSchema).isEmpty() } &&
+                dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary.isReplayableRead(name, args) &&
+                !dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary.isBranchSelection(name, args)
         }
         val exhaustive = GitHubChecklistScope.exhaustive(task)
-        val sampled = observations.count { (it["arguments"] as? JsonObject)?.containsKey("view_cursor") != true && ((it["arguments"] as? JsonObject)?.get("page") as? JsonPrimitive)?.longOrNull?.let { n -> n > 1 } == true }
+        val sampled = remoteSamples(observations)
         for (page in pendingPages(receipts)) {
             val args = page["arguments"] as? JsonObject ?: continue
             if (localOnly && "view_cursor" !in args || !permitted(page)) continue
@@ -131,9 +146,9 @@ internal object GitHubTestChecklist {
             // Preserve local view fragments, but cap sampled remote pages for ordinary tests.
             if (!exhaustive && "view_cursor" !in args && sampled >= 8) continue
             if (!exhaustive && !required && sampled >= 2) continue
-            if ("view_cursor" in args || exhaustive || args.text("action") in setOf("branches", "workflows", "list", "commits", "runs")) {
-                return call(page.text("tool"), args)
-            }
+            // Every exact issued, authorized read is eligible, including tags,
+            // issue history/comments and log-offset pages. All share the same cap.
+            return call(page.text("tool"), args)
         }
         return null
     }
@@ -163,29 +178,25 @@ internal object GitHubTestChecklist {
         }
         if (liveRead != null) return liveRead
         if (acquisitionAllowed) continuation(task, tools, receipts, localOnly = true)?.let { return it }
-        val watch = tools.firstOrNull { it.name.substringBefore("__") == "github_watch_checks" }
+        val watch = tools.firstOrNull { it.modelVisible && it.name.substringBefore("__") == "github_watch_checks" }
         val selectedHead = observations.asReversed().firstNotNullOfOrNull { receipt ->
             if (!matches(receipt, capabilities.first()) || receipt["success"] != JsonPrimitive(true)) null else data(receipt)?.get("commit_sha")
         }
         if (watch != null && selectedHead != null) {
-            for (receipt in observations.asReversed().filter { it["success"] == JsonPrimitive(true) && it.text("tool").substringBefore("__") == "github_ci" }) {
-                val root = data(receipt) ?: continue
-                val runs = (root["workflow_runs"] as? JsonArray)?.mapNotNull { it as? JsonObject } ?: listOf(root)
-                for (run in runs) {
-                    if (run["head_sha"] != selectedHead || run.text("status") !in setOf("queued", "in_progress", "waiting", "pending", "requested")) continue
-                    val id = run["id"] ?: continue
-                    val args = buildJsonObject {
-                        put("run_id", id)
-                        put("commit_sha", selectedHead)
-                    }
-                    if (observations.none { it.text("tool") == watch.name && (it["arguments"] as? JsonObject)?.get("run_id") == id }) return call(watch.name, args)
+            for (run in GitHubObservedWorkflowRuns.current(observations, selectedHead as? JsonPrimitive)) {
+                if (run.text("status") !in setOf("queued", "in_progress", "waiting", "pending", "requested")) continue
+                val id = run["id"] ?: continue
+                val args = buildJsonObject {
+                    put("run_id", id)
+                    put("commit_sha", selectedHead)
                 }
+                if (dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator.errors(args, watch.inputSchema).isEmpty() && observations.none { it.text("tool") == watch.name && (it["arguments"] as? JsonObject)?.get("run_id") == id }) return call(watch.name, args)
             }
         }
         for (capability in capabilities.filter { it.automatic }) {
             if (!acquisitionAllowed && capability.action != "checks") continue
             if (observations.any { matches(it, capability) }) continue
-            val tool = tools.firstOrNull { it.name.substringBefore("__") == capability.tool } ?: continue
+            val tool = tools.firstOrNull { it.modelVisible && it.name.substringBefore("__") == capability.tool } ?: continue
             val head = observations.asReversed().firstNotNullOfOrNull { receipt ->
                 if (!matches(receipt, capabilities.first()) || receipt["success"] != JsonPrimitive(true)) return@firstNotNullOfOrNull null
                 val root = receipt["result"] as? JsonObject
@@ -267,7 +278,7 @@ internal object GitHubTestChecklist {
                     eligible.isEmpty() && observed.isNotEmpty() -> "Current catalog excludes the historical receipts; reauthorize this operation before using them as proof."
                     transportMissing -> "Saved, local or mocked responses cannot qualify this remote operation; an authorized live read or verified mutation is still required."
                     incomplete -> "The endpoint responded but traversal or log availability remains incomplete; follow the saved continuation or wait for the recorded state change."
-                    failures.isNotEmpty() && (successes.isEmpty() || latest?.get("success") == JsonPrimitive(false)) -> "Resolve recorded errors: " + failures.map { it.text("error_code") }.distinct().joinToString(", ") + ". " + recoveryAdvice(failures.map { it.text("error_code") }.toSet())
+                    failures.isNotEmpty() && (successes.isEmpty() || latest?.get("success") == JsonPrimitive(false)) -> "Resolve recorded errors: " + failures.map { it.text("error_code") }.distinct().joinToString(", ") + ". " + GitHubVerificationRecovery.advice(failures)
                     capability.tool == "github_decide" -> "Requires a genuine user decision; an integration test must not manufacture a blocking question."
                     capability.tool == "github_watch_checks" -> "Requires an observed pull request or workflow run and the active chat subscription."
                     !readOnly(capability) -> "Requires an owned isolated fixture and operation-specific authorization; fixture cleanup must be verified before completion."
@@ -304,7 +315,7 @@ internal object GitHubTestChecklist {
                         "readiness",
                         buildJsonObject {
                             put("discovered", discovered)
-                            val denied = latest?.text("error_code")?.let { code -> code.contains("PERMISSION") || code.contains("AUTHORIZATION") || code.contains("SCOPE_MISMATCH") } == true
+                            val denied = latest?.text("error_code")?.let { code -> GitHubVerificationRecovery.authorizationBlocked(code) } == true
                             put(
                                 "authorization",
                                 if (denied) {
@@ -349,15 +360,6 @@ internal object GitHubTestChecklist {
                 }
             }
         )
-    }
-
-    private fun recoveryAdvice(codes: Set<String>): String = when {
-        codes.any { it.contains("PERMISSION") || it.contains("AUTHORIZATION") || it.contains("SCOPE_MISMATCH") } -> "Review the selected repository and connection permissions; unchanged authorization failures are not retried."
-        codes.any { it.startsWith("SAVED_VIEW_") || it == "RETAINED_RESULT_CAPACITY" } -> "Use the exact retained read-only recovery recipe once; retain the unavailable result if reopening fails. Never replay a write to recover its output."
-        "INVALID_ARGUMENTS" in codes -> "Use identifiers and required fields from the matching inventory and current tool schema; retry only corrected read arguments."
-        "GITHUB_NOT_FOUND_OR_HIDDEN" in codes -> "Check the observed resource, permissions and retention; a missing response does not prove deletion. Log sampling permits one different executed job."
-        codes.any { it.contains("RATE_LIMIT") } -> "Wait until the recorded retry deadline before an authorized read."
-        else -> "Inspect the retained error and its exact resource; reconcile an uncertain write before attempting another mutation."
     }
 
     /** API completion never implies device, benchmark or application-wide acceptance. */
@@ -438,6 +440,7 @@ internal object GitHubTestChecklist {
         put("pagination_policy", "Reuse complete persisted originals and their exact remote recipes; consume display fragments only when no complete original was retained; up to 32 definition pages per revision independently of two remote inventory samples, or eight while locating an issue dependency, unless complete inventory is explicitly requested; restore retained pages locally before one bounded read-only source recovery")
         put("acceptance", JsonArray(listOf("Each requested capability has a result or explicit untested/blocker reason", "Every claim cites matching branch/PR/SHA receipts", "Complete durable sources or required local fragments, and remote pages, consumed or explicitly pending", "Application test results bound to newly executed runs at tested SHA", "Coverage, measured score or limitation, failures and solutions retained", "Authorized isolated write fixtures verified and cleaned up").map(::JsonPrimitive)))
         put("pending_pages", JsonArray(pendingPages(receipts)))
+        put("pagination_resume", paginationResume(task, receipts, tools, remainingToolCalls))
         put("fixtures", GitHubSelfTestFixtures.checkpoint(receipts))
         put("inventory_coverage", inventoryCoverage(receipts))
         put("evidence_count", trusted(receipts).size)
@@ -463,11 +466,54 @@ internal object GitHubTestChecklist {
         if (visible.size < rows.size) append("\nShowing ${visible.size} representative blockers. All ${rows.size} capability rows and receipt IDs remain in the conversation export; request a detailed report to display them.\n")
         inventoryCoverage(receipts).forEach { raw ->
             val item = raw as JsonObject
-            append("\n**${item.text("operation")} inventory:** ${item.text("retrieved")} of ${item.text("total")} retrieved; ${item.text("coverage")}.\n")
+            val filters = item["filters"] as? JsonObject
+            val scope = filters.orEmpty().entries.joinToString(", ") { (key, value) -> "$key=${(value as? JsonPrimitive)?.contentOrNull.orEmpty().replace(Regex("[\\p{Cntrl}<>`*\\[\\]|]"), " ")}" }
+            append("\n**${item.text("tool").substringBefore("__")} / ${item.text("operation")} inventory:** ${item.text("retrieved")} of ${item.text("total")} retrieved; ${item.text("coverage")}." + scope.takeIf(String::isNotBlank)?.let { " Filters: $it." }.orEmpty() + "\n")
         }
         val pages = pendingPages(receipts)
-        if (pages.isNotEmpty()) append("\n**Pending pagination:** ${pages.size} issued continuation(s) remain unread; inventory completeness is not established. Complete retained sources satisfy display-fragment traversal; unread remote pages remain pending.\n")
+        if (pages.isNotEmpty()) {
+            append("\n**Pending pagination:** ${pages.size} issued continuation(s) remain unread; inventory completeness is not established. Complete retained sources satisfy display-fragment traversal; unread remote pages remain pending.\n")
+            val resume = paginationResume(task, receipts, tools)
+            append("Pagination mode: ${resume.text("mode")}. ${resume.text("next_action")}\n")
+        }
         append("\n**Solutions / next actions:** finish pending reads using the saved continuation arguments; resolve recorded failures; exercise missing writes on an authorized isolated branch or test repository; execute application tests at the exact SHA and retain run/job links. Watch pending checks to a bounded deadline, then keep a pending checkpoint. Cleanup requires verifying fixture ownership. Merge and cancellation are never implied for existing work.\n")
+    }
+
+    /** Exact resumable reads remain separate from intentional smoke-test sampling. */
+    fun paginationResume(task: String, receipts: Map<String, JsonObject>, tools: List<AgentToolDefinition>, remainingToolCalls: Int? = null): JsonObject {
+        val pending = pendingPages(receipts)
+        val observations = trusted(receipts)
+        val exhaustive = GitHubChecklistScope.exhaustive(task)
+        val remaining = GitHubChecklistBudget.remaining(receipts, remainingToolCalls)
+        val next = if (remaining == null || remaining > GitHubChecklistBudget.VERIFICATION_RESERVE) continuation(task, tools, receipts, localOnly = true) ?: continuation(task, tools, receipts, localOnly = false) else null
+        val rejected = pending.count { page -> observations.lastOrNull { it["tool"] == page["tool"] && it["arguments"] == page["arguments"] }?.get("success") == JsonPrimitive(false) }
+        return buildJsonObject {
+            put("mode", if (exhaustive) "COMPLETE_INVENTORY_REQUESTED" else "BOUNDED_SMOKE_SAMPLE")
+            put("pending_count", pending.size)
+            put("failed_page_count", rejected)
+            put("remote_samples_spent", remoteSamples(observations))
+            put("complete", pending.isEmpty())
+            next?.let {
+                put(
+                    "next_call",
+                    buildJsonObject {
+                        put("tool", it.name)
+                        put("arguments", it.arguments)
+                    }
+                )
+            }
+            put(
+                "next_action",
+                when {
+                    pending.isEmpty() -> "No issued continuation remains; inspect independent inventory coverage for gaps."
+                    remaining != null && remaining <= GitHubChecklistBudget.VERIFICATION_RESERVE -> "Acquisition budget is reserved for verification/cleanup. Resume from saved read recipes with an explicitly authorized new budget; no ceiling was increased."
+                    next != null -> "Continue the exact next_call read under the existing authorization and budget. No writes, decisions, workflow dispatch or merges are implied."
+                    rejected > 0 -> "Resolve the failed page's exact permission, validation or availability blocker before resuming. Unchanged failures are not retried."
+                    !exhaustive -> "Ordinary integration tests sample remote inventory within bounded limits. Request testing all tools and completing pending pagination to traverse retained read recipes; other permissions and budgets still apply."
+                    else -> "No currently authorized read recipe is executable. Restore the exact tool/schema/connection, then resume the saved checkpoint; do not invent a cursor or infer completeness."
+                }
+            )
+        }
     }
 
     fun inventoryCoverage(receipts: Map<String, JsonObject>): JsonArray {
@@ -539,7 +585,10 @@ internal object GitHubTestChecklist {
                     pending.none(::belongs) &&
                     !unresolvedFailure
                 buildJsonObject {
+                    put("tool", key.first)
                     put("operation", key.second.orEmpty())
+                    put("page_count", byPage.size)
+                    put("pending_continuations", pending.count(::belongs))
                     put("filters", key.third)
                     put("retrieved", identities.size)
                     put("total", total?.toString() ?: "unknown total")

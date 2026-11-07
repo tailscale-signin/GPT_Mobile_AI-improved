@@ -6,7 +6,7 @@ import org.junit.Test
 class GitHubProgressPresentationTest {
     @Test fun previewComparisonUsesDisplayedTextAndNormalizedWhitespace() {
         assertEquals(GitHubProgressPresentation.lineKey("Reading the source files."), GitHubProgressPresentation.lineKey("  READING   the source files... "))
-        assertEquals(GitHubProgressPresentation.lineKey("Reviewing schema receipt"), GitHubProgressPresentation.lineKey("Reviewing dispatch checkpoint"))
+        org.junit.Assert.assertNotEquals(GitHubProgressPresentation.lineKey("Reviewing schema receipt"), GitHubProgressPresentation.lineKey("Reviewing dispatch checkpoint"))
     }
 
     @Test fun previewSymbolsDistinguishWebFileEditsChecksAndWaiting() {
@@ -39,7 +39,7 @@ class GitHubProgressPresentationTest {
     }
 
     @Test fun previewHidesInternalExecutionVocabulary() {
-        assertEquals("Reviewing the work and checking the next step.", GitHubProgressPresentation.preview("Validating schema receipt before dispatch"))
+        assertEquals("Validating tool definition recorded result before request", GitHubProgressPresentation.preview("Validating schema receipt before dispatch"))
         assertEquals("Reviewing the source files.", GitHubProgressPresentation.preview("Reviewing the source files."))
         assertEquals("", GitHubProgressPresentation.preview("  "))
     }

@@ -355,8 +355,8 @@ private class StreamingMessageBuffer(
             statusSummary = true
         )
         if (githubProgress) {
-            if (timeline.none { it.statusSummary && it.content == item.content.take(600) }) {
-                timeline += item.copy(content = item.content.take(600), progressCheckpoint = true)
+            if (timeline.none { it.statusSummary && it.content == item.content.take(1200) }) {
+                timeline += item.copy(content = item.content.take(1200), progressCheckpoint = true)
             }
             chunk.preview?.takeIf(String::isNotBlank)?.let { preview ->
                 if (!repeatsGitHubPreview(preview)) {

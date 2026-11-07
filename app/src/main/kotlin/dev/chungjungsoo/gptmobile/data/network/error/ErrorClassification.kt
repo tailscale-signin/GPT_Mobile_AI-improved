@@ -38,6 +38,7 @@ enum class ErrorCategory {
     SERVICE_UNAVAILABLE,
     CIRCUIT_BREAKER_OPEN,
     SERIALIZATION_ERROR,
+    REQUEST_REJECTED,
     CLIENT_CANCELLED,
     UNKNOWN
 }
@@ -72,10 +73,27 @@ object ErrorClassification {
         }
         val msg = causes.joinToString(" ") { it.message.orEmpty() }.lowercase()
         val dnsFailure = causes.any { it is java.net.UnknownHostException } || "unable to resolve host" in msg || "dns_recovery" in msg
+        val githubCode = dev.chungjungsoo.gptmobile.data.github.GitHubFailurePolicy.recordedCode(msg)
 
         return when {
             throwable is kotlinx.coroutines.CancellationException -> ClassifiedError(ErrorCategory.CLIENT_CANCELLED, ErrorSeverity.LOW, false, 0, "Request was cancelled.", throwable)
             "gateway_outcome_unknown" in msg -> ClassifiedError(ErrorCategory.REMOTE_OUTCOME_UNKNOWN, ErrorSeverity.HIGH, false, 0, "The gateway may already have performed actions. Reconcile the saved job and remote results before resuming; do not repeat this request.", throwable, errorCode = "GATEWAY_OUTCOME_UNKNOWN")
+            dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.unknownOutcomeCodes.any { msg.contains(it.lowercase(java.util.Locale.ROOT)) } -> ClassifiedError(ErrorCategory.REMOTE_OUTCOME_UNKNOWN, ErrorSeverity.HIGH, false, 0, "A dispatched operation has an unknown outcome. Reconcile the exact saved result before another write; do not repeat the request.", throwable, errorCode = "RECONCILIATION_REQUIRED")
+            githubCode != null -> ClassifiedError(
+                category = when {
+                    githubCode == "AUTH_REQUIRED" -> ErrorCategory.AUTHENTICATION_FAILED
+                    githubCode in setOf("PERMISSION_DENIED", "PERMISSION_REVOKED", "GITHUB_SSO_REQUIRED", "GITHUB_ENDPOINT_PERMISSION_REQUIRED") -> ErrorCategory.PERMISSION_REQUIRED
+                    dev.chungjungsoo.gptmobile.data.github.GitHubFailurePolicy.isRateLimited(githubCode) -> ErrorCategory.RATE_LIMIT_EXCEEDED
+                    githubCode == "GITHUB_TRANSIENT_SERVER" -> ErrorCategory.SERVICE_UNAVAILABLE
+                    else -> ErrorCategory.REQUEST_REJECTED
+                },
+                severity = ErrorSeverity.MEDIUM,
+                isRetryable = false,
+                suggestedBackoffMs = 0,
+                userMessage = dev.chungjungsoo.gptmobile.data.github.GitHubFailurePolicy.recoveryHint(githubCode),
+                originalThrowable = throwable,
+                errorCode = githubCode
+            )
             causes.any { it is dev.chungjungsoo.gptmobile.data.network.LocalServiceUnavailableException } -> {
                 val failure = causes.filterIsInstance<dev.chungjungsoo.gptmobile.data.network.LocalServiceUnavailableException>().first()
                 ClassifiedError(

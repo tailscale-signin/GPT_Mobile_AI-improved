@@ -1598,6 +1598,7 @@ internal fun ChatMessagePair(
         isSourceResponse -> selectedProfile.status == CombinedResponseStatus.GENERATING
         else -> isActiveMessage && loadingStates.getOrElse(displayPlatformIndex) { ChatViewModel.LoadingState.Idle } == ChatViewModel.LoadingState.Loading
     }
+    val isResponseLoading = if (hasCombinedTabs) isCurrentPlatformLoading else shouldShowAssistantResponseProgress(isCurrentPlatformLoading, activeAgentRun != null, agentRun?.status)
     val reviewRetryBlock = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.reviewRetryBlock(
         assistantTimeline.lastOrNull { it.runError != null }?.runError ?: agentRun?.terminalError
     )
@@ -1747,18 +1748,14 @@ internal fun ChatMessagePair(
                     } else {
                         stringResource(R.string.audit_generate_again)
                     },
-                    isLoading = if (hasCombinedTabs) {
-                        isCurrentPlatformLoading
-                    } else {
-                        activeAgentRun != null || (isCurrentPlatformLoading && agentRun?.status !in setOf(AgentRunStatus.COMPLETED, AgentRunStatus.FAILED, AgentRunStatus.INTERRUPTED, AgentRunStatus.CANCELED, AgentRunStatus.PARTIAL, AgentRunStatus.EVIDENCE_MISSING, AgentRunStatus.BLOCKED))
-                    },
+                    isLoading = isResponseLoading,
                     isError = agentRun?.status == AgentRunStatus.FAILED && isAssistantErrorMessage(assistantContent),
                     isFavorite = selectedAssistantMessage?.isFavorite ?: false,
                     debugMode = debugMode,
                     showExecutionTrace = !isCombinedConversation,
                     githubTask = message.content.takeIf { LocalChatProgressInHeader.current && !hasCombinedTabs },
                     responseIcon = if (LocalChatProgressInHeader.current && !hasCombinedTabs) {
-                        { GPTMobileIcon(loading = isCurrentPlatformLoading, github = LocalChatProgressInHeader.current) }
+                        { GPTMobileIcon(loading = isResponseLoading, github = true) }
                     } else {
                         null
                     },

@@ -1,0 +1,48 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "223b7c9f1dbf1ecaa77b65936ca112817cfb6a9b",
+  "working_branch": "fix/github-verification-recovery-2026-11-06",
+  "intent": "Repair code-level verification-report failures without bypassing permission, mutation-fixture, evidence or execution-budget boundaries.",
+  "input": {
+    "report_revision": "e1c85e10370d0e40f80e68c6875656117fdc5ffa",
+    "full_receipts_available": false,
+    "observed_auth_failures": 1,
+    "observed_graph_failures": 1,
+    "reported_blocked_capabilities": 43,
+    "reported_pending_continuations": 16
+  },
+  "state": "IMPLEMENTED_HOST_REGRESSION_VERIFIED_ANDROID_CI_REQUIRED",
+  "work_packages": [
+    "local_permission_classification",
+    "typed_graph_admission",
+    "current_workflow_dependency_selection",
+    "bounded_issued_read_continuations",
+    "truthful_resume_and_inventory_reporting"
+  ],
+  "validation": {
+    "focused_host": {
+      "result": "PASSED",
+      "tests": 60,
+      "heap_mib": 256,
+      "kotlin": "2.4.20",
+      "boundary": "Actual planner/scope/schema/read classification/receipt/fallback code with host DTO/storage/answer-policy adapters; not Android or live service qualification."
+    },
+    "android_unit_and_full_ci": "NOT_YET_EXECUTED_ON_REPAIR_HEAD",
+    "canonical_fast": "PENDING_COMPLETE_CHECKOUT",
+    "historical_remote_pages": "NOT_EXECUTED",
+    "live_authentication_and_gateway": "NOT_MEASURED",
+    "physical_device": "NOT_MEASURED"
+  },
+  "preserved_constraints": [
+    "selected profile and connection",
+    "current grants",
+    "uncertain-write reconciliation",
+    "fixture ownership and cleanup",
+    "call/result/heap budgets",
+    "exact-head CI",
+    "no release/version mutation"
+  ],
+  "next_action": "Run full current-head CI and inspect actionable failures; preserve blocked operator/device prerequisites and obtain exact run/job evidence before any merge."
+}

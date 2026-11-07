@@ -27,6 +27,9 @@ internal object GitHubFailureSummary {
                     "WORKING_BRANCH_REQUIRED" -> "Select an authorized working branch, resolve its head and restage against its observed content."
                     "GITHUB_NOT_FOUND_OR_HIDDEN", "GITHUB_NOT_FOUND_OR_INACCESSIBLE" -> "Verify the observed resource ID and access once. Active-job logs remain pending; do not invent IDs or blindly retry a 404."
                     "BUDGET_EXHAUSTED" -> "Resume unfinished work with a fresh bounded allowance; preserve completed receipts."
+                    in GitHubFailurePolicy.codes -> GitHubFailurePolicy.recoveryHint(code)
+                    "REPOSITORY_GRAPH_UNAVAILABLE" -> "Check graph readiness on the selected gateway and continue separately authorized native reads. Their success does not establish graph coverage."
+                    in dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.unknownOutcomeCodes -> "Reconcile the exact saved remote operation before another mutation. A lost response is not permission to repeat the write."
                     else -> "Inspect the retained error receipt and correct its cause before retrying."
                 }
                 append("| ").append(code.replace(Regex("[^A-Za-z0-9_]"), "").take(80)).append(" | ").append(count).append(" | ").append(action).append(" |\n")

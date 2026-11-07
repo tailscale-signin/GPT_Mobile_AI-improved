@@ -144,6 +144,7 @@ class BatchExecutor:
         if not self.admission.acquire(blocking=False):
             raise TimeoutError('Batch capacity occupied')
         cancel = cancel_event if cancel_event is not None else threading.Event()
+        halted = threading.Event()
         results = dict(receipts or {})
         if not set(results) <= {node['id'] for node in nodes}:
             self.admission.release()
@@ -157,27 +158,47 @@ class BatchExecutor:
                       'failed': sum(failed(value) for value in results.values()),
                       'elapsed_ms': round((time.monotonic() - started) * 1000),
                       'message': f'Batch {len(results)}/{len(nodes)} · {len(active)} running · {len(pending)} queued'})
+        def stopping():
+            return halted.is_set() or cancel.is_set()
+
+        def wait_backoff(delay):
+            until = time.monotonic() + delay
+            while not stopping():
+                remaining = until - time.monotonic()
+                if remaining <= 0:
+                    return False
+                cancel.wait(min(.1, remaining))
+            return True
+
         def run(node):
             before = time.monotonic()
             for attempt in range(3):
-                if cancel.is_set():
+                if stopping():
                     raise InterruptedError('Batch canceled')
                 try:
                     return invoke(node), (time.monotonic() - before) * 1000, attempt
+                except InterruptedError:
+                    halted.set()
+                    raise
                 except Exception as error:
                     delay = retry_delay(error, attempt)
                     if delay is None or attempt == 2:
                         # No source, arguments, credentials or exception text in telemetry.
                         return {'isError': True, 'error': {'code': 'BATCH_READ_FAILED', 'type': type(error).__name__}}, (time.monotonic() - before) * 1000, attempt
-                    if cancel.wait(delay):
+                    if wait_backoff(delay):
                         raise InterruptedError('Batch canceled during retry backoff')
         try:
             with ThreadPoolExecutor(max_workers=self.maximum, thread_name_prefix='github-batch') as pool:
                 report()
                 while pending or active:
-                    if cancel.is_set():
-                        raise InterruptedError('Batch canceled; completed receipts retained')
-                    for node in pending[:]:
+                    if stopping():
+                        halted.set()
+                    # Stop dispatch immediately, then drain admitted reads. A
+                    # successful in-flight response still needs a durable receipt.
+                    for node in pending[:] if not halted.is_set() else []:
+                        if stopping():
+                            halted.set()
+                            break
                         if not set(node['depends_on']) <= results.keys():
                             continue
                         if any(failed(results[dep]) for dep in node['depends_on']):
@@ -204,13 +225,21 @@ class BatchExecutor:
                         pending.remove(node)
                     report()
                     if not active:
+                        if halted.is_set():
+                            break
                         if pending:
                             raise ValueError('Batch dependencies cannot advance')
                         break
                     done, _ = wait(active, timeout=.1, return_when=FIRST_COMPLETED)
                     for future in done:
                         node = active.pop(future)
-                        result, elapsed, retries = future.result()
+                        try:
+                            result, elapsed, retries = future.result()
+                        except InterruptedError:
+                            # Cancellation is not a completed read failure. Keep
+                            # this node pending for an explicit resumed batch.
+                            halted.set()
+                            continue
                         results[node['id']] = result
                         checkpoint(results)
                         if failed(result) or retries or elapsed >= 15000:
@@ -220,6 +249,8 @@ class BatchExecutor:
                             if healthy >= width:
                                 width, healthy = min(self.maximum, width + 1), 0
                         report()
+            if stopping():
+                raise InterruptedError('Batch canceled; completed receipts retained')
             return results
         finally:
             self.admission.release()

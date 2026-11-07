@@ -73,7 +73,7 @@ internal object FrameTimingRecorder {
         var lastReportMs = SystemClock.elapsedRealtime()
         val effects = FrameEffectsObservation(FrameEffectPressure.guard, lastReportMs)
         val display = activity.display
-        val frameBudgetNs = (1_000_000_000.0 / (display?.refreshRate ?: 60f)).toLong()
+        var frameBudgetNs = FrameDeadlineBudget.fromRefreshRate(display?.refreshRate)
         var previousMemory: DiagnosticExportMemory? = null
         var minimumDeadlineNs = Long.MAX_VALUE
         var maximumDeadlineNs = 0L
@@ -82,7 +82,7 @@ internal object FrameTimingRecorder {
         val activityName = activity.javaClass.simpleName
         val listener = Window.OnFrameMetricsAvailableListener { _, metrics, lost ->
             val duration = metrics.getMetric(FrameMetrics.TOTAL_DURATION).coerceAtLeast(0)
-            val observedDeadline = metrics.getMetric(FrameMetrics.DEADLINE).takeIf { it > 0 }
+            val observedDeadline = FrameDeadlineBudget.observed(metrics.getMetric(FrameMetrics.DEADLINE))
             val deadline = observedDeadline ?: frameBudgetNs
             val nowMs = SystemClock.elapsedRealtime()
             // First draws are expected to include startup work. Keep them in the raw
@@ -122,6 +122,9 @@ internal object FrameTimingRecorder {
                 minimumDeadlineNs = Long.MAX_VALUE
                 maximumDeadlineNs = 0
                 fallbackDeadlines = 0
+                // Refresh the fallback once per reporting window, not through a display
+                // query for every frame. Valid observed deadlines always take precedence.
+                frameBudgetNs = FrameDeadlineBudget.fromRefreshRate(display?.refreshRate)
             }
         }
         listeners[activity] = ObservedWindow(listener, effects)

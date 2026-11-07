@@ -34,7 +34,11 @@ internal object GitHubProgressPresentation {
     }
 
     /** Counters are state, not another event in the public activity history. */
-    fun liveKey(text: String): String? = if (Regex("""^Checks:\s*\d+/\d+\s+complete\b""", RegexOption.IGNORE_CASE).containsMatchIn(text.trim())) "github-check-counts" else null
+    fun liveKey(text: String): String? {
+        val kind = Regex("""^(checks?|files?|steps?|pages?|jobs?)\s*:?\s*\d+\s*/\s*\d+\b""", RegexOption.IGNORE_CASE)
+            .find(text.trim())?.groupValues?.get(1)?.lowercase(java.util.Locale.ROOT)?.removeSuffix("s") ?: return null
+        return "github-$kind-counts"
+    }
 
     /** Compare displayed lines, including whitespace and formatting differences. */
     fun lineKey(text: String): String = preview(text).replace(Regex("\\s+"), " ").trim().trimEnd('.', '…').lowercase(java.util.Locale.ROOT)
@@ -42,15 +46,16 @@ internal object GitHubProgressPresentation {
     private val duration = Regex("""\b\d{1,4}:\d{2}(?::\d{2})?\b|\b\d+\s*(?:ms|s|seconds?|minutes?|hours?)\s+elapsed\b|\belapsed\s*[:=]\s*\d+\s*(?:ms|s|seconds?|minutes?|hours?)?""", RegexOption.IGNORE_CASE)
     private val prefix = Regex("""^status\b\s*(?:[:·|—-]\s*)?""", RegexOption.IGNORE_CASE)
 
-    private val technicalDetail = Regex("(?i)\\b(receipt|dispatch|schema|token|checkpoint|prefill|reconcil|provenance|gateway|tool_|github_)")
+    private val internalOperation = Regex("\\b(?:github_|tool_)[A-Za-z0-9_]+\\b")
+    private val publicWords = mapOf("receipts" to "recorded results", "receipt" to "recorded result", "dispatch" to "request", "schema" to "tool definition", "checkpoint" to "saved progress", "prefill" to "model preparation", "provenance" to "source evidence")
 
     fun preview(raw: String): String {
         val text = raw.trim()
         if (text.isBlank()) return ""
-        return when {
-            technicalDetail.containsMatchIn(text) -> "Reviewing the work and checking the next step."
-            else -> text
-        }
+        val redacted = dev.chungjungsoo.gptmobile.data.diagnostics.redactChatDebugData(kotlinx.serialization.json.JsonPrimitive(text)) as kotlinx.serialization.json.JsonPrimitive
+        var visible = internalOperation.replace(redacted.content) { it.value.removePrefix("github_").removePrefix("tool_").replace('_', ' ') }
+        publicWords.forEach { (internal, public) -> visible = visible.replace(Regex("\\b$internal\\b", RegexOption.IGNORE_CASE), public) }
+        return visible
     }
 
     fun activity(raw: String): String {

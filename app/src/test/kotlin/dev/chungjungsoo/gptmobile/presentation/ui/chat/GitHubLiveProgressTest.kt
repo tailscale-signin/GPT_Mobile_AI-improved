@@ -111,6 +111,38 @@ class GitHubLiveProgressTest {
         compose.onAllNodesWithTag("github_latest_preview").assertCountEquals(0)
     }
 
+    @Test fun countersChangeInTheSameSingleLineRowsWithoutMovingOrDuplicatingThem() {
+        var timeline by mutableStateOf(listOf(line("I will verify the checks and changed files.", true), line("Check 2/8"), line("Files 1/3")))
+        compose.mainClock.autoAdvance = false
+        compose.setContent { MaterialTheme { GitHubLiveProgressCard(timeline) } }
+        compose.mainClock.advanceTimeBy(1600)
+        val checks = compose.onNodeWithText("Check 2/8").fetchSemanticsNode()
+        val files = compose.onNodeWithText("Files 1/3").fetchSemanticsNode()
+        compose.runOnIdle { timeline = timeline + line("Check 3/8") + line("Files 2/3") }
+        compose.mainClock.advanceTimeBy(32)
+        val updatedChecks = compose.onNodeWithText("Check 3/8").fetchSemanticsNode()
+        val updatedFiles = compose.onNodeWithText("Files 2/3").fetchSemanticsNode()
+        assertEquals(checks.id, updatedChecks.id)
+        assertEquals(files.id, updatedFiles.id)
+        assertEquals(checks.boundsInRoot.top, updatedChecks.boundsInRoot.top, .1f)
+        assertEquals(files.boundsInRoot.top, updatedFiles.boundsInRoot.top, .1f)
+        compose.onNodeWithText("Check 2/8").assertDoesNotExist()
+        compose.onNodeWithText("Files 1/3").assertDoesNotExist()
+        compose.onAllNodesWithTag("github_preview_row").assertCountEquals(2)
+        val layouts = mutableListOf<TextLayoutResult>()
+        compose.onNodeWithText("Check 3/8").performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+        assertEquals(1, layouts.single().lineCount)
+    }
+
+    @Test fun detailedSummariesRemainCompleteInCompactActivity() {
+        val summary = "I verified the files changed by this request.\n".repeat(8) + "The remaining check is still running."
+        compose.setContent { MaterialTheme { GitHubLiveProgressCard(listOf(line(summary, true).copy(modelAuthored = true)), expanded = false) } }
+        val layouts = mutableListOf<TextLayoutResult>()
+        compose.onNodeWithTag("github_activity_summary").performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+        assertEquals(Int.MAX_VALUE, layouts.single().layoutInput.maxLines)
+        assertTrue(layouts.single().lineCount > 6)
+    }
+
     @Test fun eachPreviewHasAnOutlineIconInOneAlignedLeadingColumn() {
         compose.mainClock.autoAdvance = false
         compose.setContent {

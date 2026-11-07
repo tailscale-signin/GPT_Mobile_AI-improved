@@ -85,6 +85,66 @@ class AppAuditPluginServicesTest {
     }
 
     @Test
+    fun blankGatewayTokensWithoutReferencesUseActualUnauthenticatedCapabilityRoute() = runBlocking {
+        val fixture = requireNotNull(javaClass.classLoader?.getResourceAsStream("gateway-v15-capabilities-full.json")).bufferedReader().use { it.readText() }
+        for (token in listOf(null, "", " \t\r\n")) {
+            var calls = 0
+            HttpClient(
+                MockEngine { request ->
+                    calls++
+                    assertEquals("GET", request.method.value)
+                    assertEquals("/private/v1/gateway/capabilities", request.url.encodedPath)
+                    assertEquals(null, request.headers["Authorization"])
+                    respond(fixture, HttpStatusCode.OK)
+                }
+            ).use { client ->
+                val network = mockk<NetworkClient>()
+                every { network() } returns client
+                val setup = Setup(GatewayAPIImpl(network))
+                coEvery { setup.settings.fetchPlatformV2s() } returns listOf(profile().copy(token = token, secretRef = null))
+                val entry = setup.source.plan(AppAuditOptions(true, listOf("selected"))).single { it.probeId == AppAuditPluginProbeSource.GATEWAY_CAPABILITIES }
+                assertEquals(AppAuditPrerequisite.READY, entry.prerequisite)
+                val result = setup.source.execute(entry, context())
+                assertEquals("GATEWAY_CAPABILITY_VERIFIED", result.reasonCode)
+                assertEquals(AppAuditDispatchEvidence.CONFIRMED, result.dispatchEvidence)
+                assertEquals(1, calls)
+                confirmVerified(setup.vault)
+            }
+        }
+    }
+
+    @Test
+    fun mcpNoneIgnoresRetainedAuthReferenceButStillBindsProtectedEndpoint() = runBlocking {
+        for (protectedEndpoint in listOf(false, true)) {
+            val setup = Setup()
+            val connection = connection().copy(
+                secretRef = "unused_auth_ref",
+                endpointUrl = if (protectedEndpoint) EndpointSecrets.masked("https://private.example/mcp?key=PRIVATE_QUERY") else connection().endpointUrl
+            )
+            coEvery { setup.vault.recordRevision("unused_auth_ref") } returns null
+            coEvery { setup.vault.recordRevision("other_unused_auth_ref") } returns null
+            setup.configure(listOf(connection))
+            val entry = setup.source.plan(AppAuditOptions(true)).single { it.probeId == AppAuditPluginProbeSource.MCP_DISCOVERY }
+            assertEquals(AppAuditPrerequisite.READY, entry.prerequisite)
+            val current = connection.copy(secretRef = "other_unused_auth_ref")
+            setup.configure(listOf(current))
+            coEvery { setup.resolver.discoverMcpTools(current, forceRefresh = true, awaitCompletion = true) } returns emptyList()
+            assertEquals("MCP_EMPTY_CATALOG", setup.source.execute(entry, context()).reasonCode)
+            coVerify(exactly = 0) { setup.vault.recordRevision("unused_auth_ref") }
+            coVerify(exactly = 0) { setup.vault.recordRevision("other_unused_auth_ref") }
+            if (protectedEndpoint) {
+                coEvery { setup.vault.recordRevision(EndpointSecrets.reference(current.connectionUid)) } returns "b".repeat(64)
+                var markers = 0
+                val changed = setup.source.execute(entry, context { markers++ })
+                assertEquals("PLUGIN_CONFIGURATION_CHANGED", changed.reasonCode)
+                assertEquals(AppAuditDispatchEvidence.NOT_DISPATCHED, changed.dispatchEvidence)
+                assertEquals(0, markers)
+            }
+            coVerify(exactly = 1) { setup.resolver.discoverMcpTools(current, forceRefresh = true, awaitCompletion = true) }
+        }
+    }
+
+    @Test
     fun sameReferenceCredentialOrProtectedEndpointReplacementBlocksFrozenMcpBeforeMarker() = runBlocking {
         for (authType in listOf(ToolConnectionAuthType.BEARER, ToolConnectionAuthType.OAUTH, ToolConnectionAuthType.NONE)) {
             val setup = Setup()

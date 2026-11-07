@@ -196,5 +196,34 @@
         "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/data/security/SecretVaultInstrumentedTest.kt": "c8aafa6d47525554e89d0ce3c21f5144101b7c7c7edf094934799f7b0b494069"
       }
     }
+  },
+  "auth_absence_follow_up": {
+    "base_sha": "7e2ca401ea17c0436490f8d1a2b7f1f391363ffe",
+    "intent": "Match actual gateway blank-token and MCP NONE credential semantics without omitting protected endpoint authority.",
+    "authorization": "Root explicitly requests a narrow adapter follow-up and behavioral regressions.",
+    "findings": [
+      "GatewayAPIImpl adds Authorization only for a nonblank token.",
+      "AgentToolResolver.mcpConfig ignores secretRef for MCP AuthType.NONE but always resolves masked endpoint-query credentials."
+    ],
+    "status": "PASSED",
+    "changes": [
+      "Allow null, empty and whitespace gateway tokens with no saved reference as unauthenticated metadata requests, matching GatewayAPIImpl. Nonblank untracked plaintext remains blocked.",
+      "For MCP AuthType.NONE, omit the unused auth reference from both opaque revision lookup and the durable descriptor. Protected endpoint-query credentials remain bound."
+    ],
+    "baseline": {
+      "failed_before": 2,
+      "reason": "Both new cases expected READY but received NOT_CONFIGURED against the previously verified7e2 source jar.",
+      "log": "/workspace/scratch/22f000a845c8/app-audit-plugin-host/durable-authority/auth-absence-baseline/baseline.log"
+    },
+    "validation": {
+      "focused_service_tests": 21,
+      "passed": 21,
+      "seconds": 16.118,
+      "ktlint": "PASS for both changed Kotlin files",
+      "diff_check": "PASS",
+      "scope": "Complete updated production service adapter and actual test class; unchanged planner, vault, real gateway client, serializer and full route fixtures verified against the81-case dependency manifest. No broad suite rerun before parent final integration.",
+      "source_manifest_sha256": "77f87117f6879e77effb099a19ed674d219d46f2235c8c8b8e6fd4a59de50027",
+      "compiled_jar_sha256": "3554645d2282479b3940b270e659d7886e0dcfa0ce1d32a65237a117dc6704a8"
+    }
   }
 }

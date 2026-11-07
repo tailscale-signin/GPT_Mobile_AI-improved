@@ -111,7 +111,8 @@ internal class AppAuditPluginServices @Inject constructor(
                     features.isToolPluginEnabled(ToolPluginId.connection(connection.connectionUid)) &&
                     (connection.type != ToolConnectionType.MCP || features.remoteMcpConnections)
                 val isMcp = connection.type == ToolConnectionType.MCP
-                val credentialIdentity = credentialIdentity(listOfNotNull(connection.secretRef, EndpointSecrets.protectedReference(connection)))
+                val authReference = connection.secretRef.takeUnless { isMcp && connection.authType == ToolConnectionAuthType.NONE }
+                val credentialIdentity = credentialIdentity(listOfNotNull(authReference, EndpointSecrets.protectedReference(connection)))
                 val ready = (!isMcp || !connection.endpointUrl.isNullOrBlank()) && (connection.authType == ToolConnectionAuthType.NONE || connection.secretRef != null) && credentialIdentity != null
                 add(
                     AppAuditPluginTarget(
@@ -120,7 +121,7 @@ internal class AppAuditPluginServices @Inject constructor(
                         if (isMcp) "mcp_connection" else "configured_connection",
                         ready,
                         enabled,
-                        appAuditTargetDigest("$connection:$enabled:$credentialIdentity"),
+                        appAuditTargetDigest("${connection.copy(secretRef = authReference)}:$enabled:$credentialIdentity"),
                         unavailableReason = if (credentialIdentity == null) "PLUGIN_CREDENTIAL_IDENTITY_UNAVAILABLE" else "PLUGIN_NOT_CONFIGURED",
                         liveReadPrecheck = if (isMcp) recoveryBlock(connection) else null,
                         liveRead = if (isMcp) ({ discover(connection) }) else null
@@ -157,7 +158,7 @@ internal class AppAuditPluginServices @Inject constructor(
         // stale cached profile cannot silently substitute another connection or credential.
         val owner = profile.providerConnectionUid?.let { uid -> safely { settings.getProviderConnection(uid) } ?: return null }
         if (owner != null && (owner.apiUrl != profile.apiUrl || owner.secretRef != profile.secretRef)) return null
-        if (profile.token != null && profile.secretRef == null) return null
+        if (!profile.token.isNullOrBlank() && profile.secretRef == null) return null
         return credentialIdentity(listOfNotNull(profile.secretRef))
     }
 

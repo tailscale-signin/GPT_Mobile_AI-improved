@@ -162,7 +162,7 @@
   },
   "gateway_response_followup": {
     "requested": "AI response text theme colour is missing for gateway use and incorrectly appears for a remote model; connect gateway attribution to gateway software.",
-    "state": "IMPLEMENTED_LOCAL_CORE_VERIFIED_PENDING_EXACT_HEAD_CI",
+    "state": "CI_REGRESSIONS_REPAIRED_PENDING_FRESH_EXACT_HEAD_CI",
     "base_head": "ada9fbf3c90458041343155f5a24c7f596afdef2",
     "findings": [
       "Generic provider request IDs were treated as gateway header evidence.",
@@ -219,6 +219,47 @@
       "The affected private gateway deployment and physical-device rendering are not accessible from this workspace."
     ],
     "checkpoint_utc": "2026-11-07T03:07:53.850136+00:00",
-    "independent_review": "Transport ordering, body-proof isolation, per-response reset, hidden-notice badge exclusion and test compile shapes reviewed; no remaining source blocker."
+    "independent_review": "Transport ordering, body-proof isolation, per-response reset, hidden-notice badge exclusion and test compile shapes reviewed; no remaining source blocker.",
+    "ci_followup": {
+      "failed_head": "2014859ade0cace8b1b76d999908744db95ef2f2",
+      "run": 42332937824,
+      "job": 128283439015,
+      "tests": 7225,
+      "passed": 7215,
+      "failed": 5,
+      "skipped": 5,
+      "skips": "Existing cases deferred to dedicated constrained-heap runs; those later steps did not run after the suite failed.",
+      "findings": [
+        "Combined recovery guidance omitted explicit same-account/credential-expiry and rate-limit nonrevocation wording required by both parent regressions.",
+        "An empty SSE response emitted its new source observation after the terminal free-provider error.",
+        "The Responses capability-retry fixture still assumed exactly one event before local response observations were introduced."
+      ],
+      "repairs": [
+        "Preserve both parents actionable guidance while retaining dispatch-aware unknown-write precedence.",
+        "Publish an empty-response observation immediately after the SSE loop, before terminal errors, degraded-stream output or retry decisions; add malformed-only ordering coverage.",
+        "Require exactly two events in the Responses retry fixture: unverified local observation first and completion last; retain all submitted-body and sampling assertions."
+      ],
+      "new_ci_required": true,
+      "checkpoint_utc": "2026-11-07T03:42:31.966810+00:00",
+      "local_validation": {
+        "github_failure_guidance": {
+          "baseline_failures": 3,
+          "fixed_tests_passed": 38,
+          "original_assertions": "UNCHANGED"
+        },
+        "independent_review": "CLEAR; terminal ordering, exact Responses event count, replay guards and original assertions preserved.",
+        "canonical_fast": {
+          "tests": 329,
+          "status": "PASSED"
+        },
+        "ktlint": {
+          "files": 4,
+          "version": "1.3.1",
+          "status": "PASSED"
+        },
+        "architecture_index": "PASSED",
+        "whitespace": "PASSED"
+      }
+    }
   }
 }

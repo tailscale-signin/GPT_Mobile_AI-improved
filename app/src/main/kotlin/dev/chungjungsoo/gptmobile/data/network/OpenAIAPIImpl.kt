@@ -448,6 +448,10 @@ class OpenAIAPIImpl @Inject constructor(
                             }
                             if (receivedError) break
                         }
+                        // Observe an empty response before its terminal error or retry decision.
+                        if (firstChunk) {
+                            emit(ChatCompletionChunk(gatewayMetadata = gatewayMetadata))
+                        }
                         if (!receivedTerminal) throw java.io.EOFException("STREAM_INTERRUPTED: provider closed SSE before a completion marker")
                         usageReceipt.completed(!receivedError && parseFailures == 0)
                         if (parseFailures > 0 && !receivedError) {
@@ -465,10 +469,6 @@ class OpenAIAPIImpl @Inject constructor(
                                 if (config.freeDiagnostics?.recorded != true) dev.chungjungsoo.gptmobile.data.free.FreeProviderDiagnostics.record(config, preparedRequest.model, if (receivedError) "Provider returned an error" else "No visible answer received", status = 200, retryAt = dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.status.value[free]?.retryAt, terminal = true)
                             }
                             freeResponseOutcome(free, receivedAnswer, receivedToolCalls, receivedError, reachedOutputLimit, receivedReasoning)?.let { emit(it) }
-                        }
-                        // Preserve the route observation even when the stream has no decoded chunks.
-                        if (firstChunk) {
-                            emit(ChatCompletionChunk(gatewayMetadata = gatewayMetadata))
                         }
                     }
                 } catch (error: Exception) {

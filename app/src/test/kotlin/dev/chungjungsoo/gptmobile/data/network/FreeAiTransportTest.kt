@@ -171,12 +171,13 @@ class FreeAiTransportTest {
     }
 
     @Test
-    fun `empty and reasoning-only streams fail while visible token-limited answers offer continuation`() = runBlocking {
-        for (outcome in listOf("empty", "reasoning", "answer")) {
+    fun `empty malformed and reasoning-only streams fail while visible token-limited answers offer continuation`() = runBlocking {
+        for (outcome in listOf("empty", "malformed", "reasoning", "answer")) {
             val engine = MockEngine {
                 val data = when (outcome) {
                     "reasoning" -> "data: {\"choices\":[{\"delta\":{\"reasoning\":\"Thinking\"},\"finish_reason\":\"length\"}]}\n\n"
                     "answer" -> "data: {\"choices\":[{\"delta\":{\"content\":\"A useful partial answer.\"},\"finish_reason\":\"length\"}]}\n\n"
+                    "malformed" -> "data: {invalid-json}\n\n"
                     else -> ""
                 }
                 respond(data + "data: [DONE]\n\n", headers = headersOf(HttpHeaders.ContentType, "text/event-stream"))
@@ -186,13 +187,21 @@ class FreeAiTransportTest {
                 val network = mockk<NetworkClient>()
                 every { network.invoke() } returns client
                 val result = OpenAIAPIImpl(network).streamChatCompletion(request(), 10, ProviderRequestConfig(FreeAiProvider.KILO.apiUrl, null, freeProvider = FreeAiProvider.KILO)).toList()
+                val observation = result.indexOfFirst { it.gatewayMetadata != null }
+                assertTrue(observation >= 0 && observation < result.lastIndex)
+                assertFalse(requireNotNull(result[observation].gatewayMetadata).transportVerified)
                 if (outcome == "answer") {
                     assertEquals("length", result.last().choices!!.single().finishReason)
                     assertTrue(result.last().applicationNotice!!.contains("continue?"))
                     assertTrue(result.flatMap { it.choices.orEmpty() }.any { it.delta.content == "A useful partial answer." })
                     assertTrue(result.all { it.error == null })
                 } else {
-                    assertEquals(if (outcome == "reasoning") "reasoning_budget_exhausted" else "no_visible_answer", result.last().error?.type)
+                    val expectedError = when (outcome) {
+                        "reasoning" -> "reasoning_budget_exhausted"
+                        "malformed" -> "stream_degraded"
+                        else -> "no_visible_answer"
+                    }
+                    assertEquals(expectedError, result.last().error?.type)
                     assertTrue(result.all { it.applicationNotice == null })
                     assertTrue(result.flatMap { it.choices.orEmpty() }.all { it.delta.content.isNullOrBlank() })
                 }

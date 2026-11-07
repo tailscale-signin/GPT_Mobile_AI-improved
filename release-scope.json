@@ -650,6 +650,7 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/llama/LlamaInferenceProbeEvidenceTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/ChatCompletionTransportTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/FreeAiRequestLimiterTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/FreeAiTransportTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/GatewayModelAdmissionTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/LocalConnectionPreflightTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/LocalEndpointConnectionPolicyTest.kt",

@@ -206,8 +206,8 @@
     }
   ],
   "source_publication": {
-    "source_branch_head": "fde06d7c7d6b4bb177ef56cab94435af696184dc",
-    "tree": "3c9ee7c0133e91ef7bc6c42cf458fcf1dcdc65b9",
+    "source_branch_head": "9f217772f2a2b83d6dd4f1c9f67a4efb46bc3fcc",
+    "tree": "1453e7fc1095f7484a0c42a645f56324ee781992",
     "method": "Git data publication; every source commit tree matched the reviewed local tree, and the branch was read back before checkout reconciliation.",
     "local_to_published_commits": [
       {
@@ -314,12 +314,19 @@
         "local_sha": "fdaef8e2bcb7b2d586b2b477ff6040333a5e867c",
         "remote_sha": "f32a7f2d6f1ebea03247fd1d004ca6174cbb8177",
         "tree": "f031aa1c8e3ff35c39585829108adcf525f9d69c"
+      },
+      {
+        "local_sha": "6efd426db1fcf7e482de9fb3312fba33a9c614ea",
+        "remote_sha": "9f217772f2a2b83d6dd4f1c9f67a4efb46bc3fcc",
+        "tree": "1453e7fc1095f7484a0c42a645f56324ee781992"
       }
     ]
   },
   "pull_request": {
     "number": 811,
-    "head_sha": "bf8e5f764bbbc8cac942e31ee0709344e0b02ac5",
+    "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/811",
+    "source_head_sha": "9f217772f2a2b83d6dd4f1c9f67a4efb46bc3fcc",
+    "recorded_before_merge": true,
     "draft": false,
     "merged": false
   },
@@ -333,12 +340,13 @@
     ],
     "merge_requires": "All applicable exact-head CI gates and current head/base/policy checks; no bypass.",
     "motion_diagnosis": "Pinned Compose test APIs synchronize before runOnIdle actions; the initial disabled state has no animation coroutine to publish the scale Snapshot write during a manual clock advance. Explicit idle synchronization after changing scale is verified by the actual-source host reproducer while preserving stationary and resumed-motion assertions. No production motion change is proposed.",
-    "prepared_source_commit": "f32a7f2d6f1ebea03247fd1d004ca6174cbb8177",
     "original_work_package_commits": {
       "server": "608f0d61a84e3984df111e7dd433548dde5f4afe",
       "status": "cffa12334684743283e3d59fc1d2dd4ddad7391c",
       "android_capabilities": "d3ed6a83d66d83f0b88456752f18baadd9eeee53",
       "compose_test": "1e0207babcff8a7a75e822de27f7a4574cb190af"
-    }
+    },
+    "source_commit": "9f217772f2a2b83d6dd4f1c9f67a4efb46bc3fcc",
+    "ci_candidate_note": "The manifest/checkpoint commit extends this published source; exact CI head is resolved from PR811 and must be rechecked before merge."
   }
 }

@@ -247,5 +247,63 @@
       ],
       "scope": "Actual transport, retry, preflight, gateway negotiation, capacity and recovery source; explicit Android, accounting, journal and unused-service boundaries. Does not qualify Compose or the complete Android app."
     }
+  },
+  "composer_graphics_followup": {
+    "parent_head": "54faf9a197e1ee897901e56106802d920a5fd41e",
+    "concurrent_source_preserved": true,
+    "observed_android_ci": {
+      "canonical_run_id": 42421300099,
+      "canonical_unit_job_id": 128550194406,
+      "audit_run_id": 42421197131,
+      "audit_unit_job_id": 128549860037,
+      "tests": 7672,
+      "passed": 7664,
+      "failed": 3,
+      "skipped": 5,
+      "transport_tests_passed": 47,
+      "gateway_negotiation_tests_passed": 16,
+      "emulator_api34_tests_passed": 56,
+      "emulator_api36_tests_passed": 56,
+      "android_lint": "PASSED",
+      "codeql": "PASSED",
+      "gateway_matrix": "ALL_FOUR_PASSED",
+      "installer": "PASSED",
+      "apk_catalog_contracts": "PASSED",
+      "review_benchmark_packaging": "PASSED",
+      "largest_checked_dex_method_code_units": 15900,
+      "dex_limit_code_units": 16383,
+      "full_unit_result": "FAILED_THREE_COMPOSER_TEARDOWN_CASES",
+      "does_not_qualify_later_head": true,
+      "head": "515d9b064eda674feaea1f411b1ee8d4af4a7d0d"
+    },
+    "cause": "Android14 Magnifier destroys a null BLAST surface supplied by Robolectric4.17 when native graphics and real draw traversals are not both enabled on API34.",
+    "repair": "Fixture-only native graphics and an outer RuleChain resource that enables the supported real-draw property before Activity creation, retains it through teardown, and restores the exact prior value or absence.",
+    "test_bodies_and_actual_focus_helper_unchanged": true,
+    "lifecycle_tests": 8,
+    "production_focus_source_unchanged": true,
+    "pinned_framework_api_and_rule_order_reviewed": true,
+    "local_android_execution": "UNAVAILABLE_REQUIRES_CURRENT_HEAD_CI",
+    "fixture_sha256": "2eee46b767a690acce14757ea3a9f62dd2c7e0947ef7f7982412b693707fb5e7",
+    "exact_head_android_ci": "REQUIRED_AFTER_PUBLICATION",
+    "canonical_fast": {
+      "passed": true,
+      "tests": 398,
+      "literal_regex_checks": 1284,
+      "dynamic_regex_patterns_not_evaluated": 77,
+      "xml_files": 30,
+      "scope": "Combined54faf9a1 source plus composer fixture correction; all fast gates passed."
+    },
+    "fixture_ktlint_passed": true,
+    "production_inventory_valid": true,
+    "all_eight_bodies_and_focus_helper_verified_unchanged": true,
+    "preserved_concurrent_mcp_audit_update": {
+      "head": "54faf9a197e1ee897901e56106802d920a5fd41e",
+      "tree": "3b845f202da4a4d8f79c00bd06d5a1eccad7b295",
+      "files": 59,
+      "overlap_with_fixture_and_ledger": false,
+      "preserved": true,
+      "production_inventory_files": 2244,
+      "production_inventory_areas": 26
+    }
   }
 }

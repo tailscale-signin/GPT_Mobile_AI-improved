@@ -40,14 +40,37 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.ExternalResource
+import org.junit.rules.RuleChain
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
 class ComposerInputLifecycleTest {
-    @get:Rule val compose = createComposeRule()
+    private val compose = createComposeRule()
+
+    // Keep surfaces available through the inner Compose rule's Activity teardown.
+    @get:Rule val rules: RuleChain = RuleChain.outerRule(
+        object : ExternalResource() {
+            private var previousRealDrawTraversals: String? = null
+
+            override fun before() {
+                // API 34 magnifiers use BLAST surfaces. Robolectric returns null
+                // for those surfaces unless native graphics and real drawing are enabled.
+                previousRealDrawTraversals = System.getProperty(REAL_DRAW_TRAVERSALS)
+                System.setProperty(REAL_DRAW_TRAVERSALS, "true")
+            }
+
+            override fun after() {
+                val previous = previousRealDrawTraversals
+                if (previous == null) System.clearProperty(REAL_DRAW_TRAVERSALS) else System.setProperty(REAL_DRAW_TRAVERSALS, previous)
+            }
+        }
+    ).around(compose)
 
     @Test fun sendingReleasesFocusBeforeDispatchAndPreservesTheExactDraft() {
         var focused = false
@@ -260,5 +283,9 @@ class ComposerInputLifecycleTest {
             it.config.getOrNull(SemanticsProperties.ContentDescription)?.contains("Message input") == true
         }
         assertFalse("Editor still owns focus at dispatch", editor.config[SemanticsProperties.Focused])
+    }
+
+    private companion object {
+        const val REAL_DRAW_TRAVERSALS = "robolectric.useRealDrawTraversals"
     }
 }

@@ -80,7 +80,7 @@ absence is not permission to invent selectors or repeat writes.
 | F19 | Timeline reuses the captured journal; source/chunk hashes and counts are verified; serialization and hashing are bounded; resume refreshes partial derived stages | Frozen-source adapter regression, corrupt-source rollback, cancellation/resume, coverage, and 64 MiB heap gate |
 | F20 | Immutable profile revision, configured/requested/serialized reasoning, backend-reported model, and endpoint digest remain distinct from unmeasured runtime facts | Reasoning receipt, provenance DTO, parser, transport, and invocation-ledger tests |
 | F21 | Resumed and corrective repository prompts use the accepted task and bounded execution ledger instead of accumulated plans | Exact selector, constraint, latest-intent, bounded-count, and private-body exclusion tests |
-| F22 | Composer input ownership is released before send, at externally started runs, and on disposal without clearing the draft or stealing another editor's focus | Six Compose lifecycle regressions, including actual focus at dispatch and keyboard mode; Android CI required |
+| F22 | Composer input ownership is released before send, at externally started runs, and on disposal without clearing the draft or stealing another editor's focus | Eight Compose lifecycle regressions, including actual focus at dispatch, keyboard mode and traversal; Android CI required |
 | F23 | Routine omissions become compact changes; bounded inventory snapshots are exported; actual authority failures retain detailed warnings | Snapshot/diff/clear/privacy tests and staged-export adapter tests |
 
 ## CI integration follow-up
@@ -157,6 +157,43 @@ classes. The compiled source hashes match the working tree. The six composer
 cases require actual Android/Compose CI; the host transport result does not
 qualify them. Canonical fast validation again passes 398 tests, and all six
 changed/generated Kotlin files pass formatting.
+
+## Composer graphics fixture follow-up
+
+The concurrent `515d9b064eda674feaea1f411b1ee8d4af4a7d0d` update is preserved.
+It makes the non-editable focus destination temporarily eligible, so it does not
+add an ordinary keyboard traversal stop, and strengthens transport and input
+ownership assertions. Its full Android suite executed 7,672 tests: 7,664 passed,
+three failed, and five were skipped. Independent canonical and diagnostic results
+agree. All 47 transport/rejection/recovery tests and all 16 gateway-negotiation
+tests pass in the real Android build. Both emulator variants pass 56 tests in 20
+instrumentation groups; lint, CodeQL, all gateway jobs, installer, catalog
+contracts, review/benchmark builds and packaged runtime/privacy/DEX checks pass.
+
+The three remaining failures occur during composer Activity teardown, with a
+null magnifier surface. Pinned Android 14 and Robolectric 4.17 sources establish
+the cause: the magnifier unconditionally destroys its BLAST surface, but the
+legacy test setup returns no surface. At API 34, Robolectric requires both native
+graphics and real draw traversals to provide that surface.
+
+The lifecycle fixture now enables native graphics and wraps the Compose rule in
+an outer `RuleChain` resource. It enables `robolectric.useRealDrawTraversals`
+before Activity creation, retains it through Activity/Compose teardown, and
+restores the exact previous property value or absence afterward. Only the combined
+chain is registered as a rule. All eight test bodies and their synchronous
+actual-focus assertion helper remain unchanged; production focus behavior is
+unchanged. The pinned JUnit 4.13.2 and Compose 1.12.1 rule contracts confirm the
+cleanup order. Actual execution of this corrected fixture still requires CI on
+the follow-up commit; local formatting and framework-source review do not qualify
+the eight lifecycle cases.
+
+The concurrent `54faf9a197e1ee897901e56106802d920a5fd41e` MCP/audit update is
+also preserved in full. It adds bounded OAuth recovery, exact-configuration
+connection repair, typed local/protocol failures and a qualification worklist,
+and narrows conversational diagnostic intent without replacing repository work.
+It has no overlapping path with the composer fixture and this ledger update.
+The final fixture correction is applied on top of that combined source; the
+complete resulting head requires fresh Android CI.
 
 ## Measurement boundaries
 

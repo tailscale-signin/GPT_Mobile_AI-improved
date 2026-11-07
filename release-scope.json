@@ -1001,6 +1001,7 @@
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/security/EndpointSecrets.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/security/EndpointSecretsTest.kt",
     "docs/repairs/app-audit-interruption-ui-20261107-task.json",
-    "docs/repairs/app-audit-promotion-recovery-2026-11-07-task.json"
+    "docs/repairs/app-audit-promotion-recovery-2026-11-07-task.json",
+    "docs/repairs/app-audit-store-ci-2026-11-07-task.json"
   ]
 }

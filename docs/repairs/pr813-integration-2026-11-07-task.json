@@ -95,6 +95,20 @@
       "python_tests_passed": 398,
       "changed_source_ktlint_passed": true,
       "inventories_refreshed": true
+    },
+    "android_compilation": {
+      "head": "156ca471af822bc6a0619fb7395ab869d151a535",
+      "passed": true,
+      "job_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/42408948092/job/128512673813"
+    },
+    "room_test_compilation_followup": {
+      "head": "156ca471af822bc6a0619fb7395ab869d151a535",
+      "status": "COMPILATION_FAILED",
+      "cause": "Three heterogeneous SQL bind arrays inferred a reified intersection. Explicit arrayOf<Any> preserves the same bound values.",
+      "exact_expressions_kotlin_2_4_20_compiled": true,
+      "changed_test_ktlint_passed": true,
+      "canonical_fast_passed": true,
+      "python_tests_passed": 398
     }
   },
   "accepted_scope": [
@@ -113,8 +127,9 @@
     "line reads with max_lines or EOF continuation"
   ],
   "pending": [
-    "publish the validated output-token type correction",
-    "wait for required checks on the new published head",
+    "publish the validated diagnostic test typing correction",
+    "mark the repaired draft ready for review",
+    "run required checks on the next published head",
     "merge with exact-head precondition and verify resulting main"
   ],
   "checkpoint_semantics": "Source-validation snapshot. The exact published commit, required checks and merge outcome are authoritative in PR 813 and its current checks."

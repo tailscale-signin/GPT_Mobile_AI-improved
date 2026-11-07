@@ -132,7 +132,7 @@ class DiagnosticDatabaseSourceTest {
         val chat = database.chatRoomDao().addChatRoom(ChatRoomV2(title = "Newest first")).toInt()
         repeat(30) { index ->
             workspace.saveSynthesisCheckpoint("history-$index", chat, "run", buildJsonObject { put("history", index) })
-            database.openHelper.writableDatabase.execSQL("UPDATE workspace_records SET updatedAt = ? WHERE id = ?", arrayOf(index.toLong(), "history-$index"))
+            database.openHelper.writableDatabase.execSQL("UPDATE workspace_records SET updatedAt = ? WHERE id = ?", arrayOf<Any>(index.toLong(), "history-$index"))
         }
         var cursor: JsonObject? = null
         val prefix = mutableListOf<String>()
@@ -157,9 +157,9 @@ class DiagnosticDatabaseSourceTest {
         database.agentPersistenceDao().insertRun(AgentRun("latest-run", chat, user, assistant, "profile", "provider", "actual-model", status = "PARTIAL", terminalError = "GITHUB_TASK_INCOMPLETE"))
         database.openHelper.writableDatabase.execSQL(
             "INSERT INTO run_policy_snapshots (chatId, digest, schemaVersion, kind, policyRevision, taskDigest, authorityDigest, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            arrayOf(chat, "accepted-policy", 1, "github", "revision", "task", "authority", "{\"policy\":\"latest accepted policy\"}")
+            arrayOf<Any>(chat, "accepted-policy", 1, "github", "revision", "task", "authority", "{\"policy\":\"latest accepted policy\"}")
         )
-        database.openHelper.writableDatabase.execSQL("INSERT INTO agent_run_policy_refs (runId, chatId, digest) VALUES (?, ?, ?)", arrayOf("latest-run", chat, "accepted-policy"))
+        database.openHelper.writableDatabase.execSQL("INSERT INTO agent_run_policy_refs (runId, chatId, digest) VALUES (?, ?, ?)", arrayOf<Any>("latest-run", chat, "accepted-policy"))
         val history = buildJsonObject { put("historical_payload", "x".repeat(128 * 1024)) }
         repeat(144) { workspace.saveSynthesisCheckpoint("history-$it", chat, "old-run", history) }
         workspace.saveProtectedSynthesisCheckpoint("github-tool-budget:latest", chat, "latest-run", buildJsonObject { put("remaining_calls", 17) })

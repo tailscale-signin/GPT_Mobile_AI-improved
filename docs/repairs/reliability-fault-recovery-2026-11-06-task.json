@@ -402,5 +402,59 @@
       },
       "independent_review": "CLEAR; exact global resource inputs and unchanged action/tests verified; literal readiness statuses recorded accurately."
     }
+  },
+  "search_fixture_isolation_followup": {
+    "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+    "base_branch": "main",
+    "base_sha": "c313a9897afe6e0a7cff609cdcf33d83fad83a90",
+    "parent_head": "34e4e80f48816471f54b1c1c25635d78e252b036",
+    "working_branch": "repair/web-search-fixture-final",
+    "remote_branch": "fix/reliability-fault-recovery-2026-11-06",
+    "parent_prs": [
+      808,
+      809
+    ],
+    "intent": "Isolate test-owned authentication failure state between HTTP fixtures while preserving production behavior and every applicable verification gate.",
+    "state": "IMPLEMENTED_LOCAL_VALIDATION_PASSED_PENDING_EXACT_HEAD_CI",
+    "observed_failure": {
+      "run": 42342949867,
+      "job": 128314497784,
+      "artifact": 13562574864,
+      "artifact_sha256": "cf50d158d74ed6f08fba6836b54da85e3608779a607010eb16f1ebf667b8e711",
+      "tests": 7225,
+      "failures": 1,
+      "errors": 0,
+      "skipped": 5,
+      "test": "WebSearchToolTest.perplexity search sends search api payload and normalizes result",
+      "expected": "Bearer perplexity-key",
+      "actual": "Empty recorded Authorization; original fixture port was not retained"
+    },
+    "reproduction": "Forced same endpoint/token across fixture lifetimes reproduced cached AUTH_REQUIRED and zero dispatch; teardown reset restored the real CIO Bearer request while same-fixture backoff remained one request.",
+    "historical_cause_confidence": "Exact CI port reuse is inferred; deterministic fixture isolation defect is reproduced.",
+    "preserved": [
+      "Production source and transport/authentication semantics",
+      "Within-test cross-instance authentication backoff",
+      "All provider payload and header assertions",
+      "All API34/API36 tests, readiness guards, resources and timeouts",
+      "All workflow checks and required verification"
+    ],
+    "new_exact_head_ci_required": true,
+    "checkpoint_utc": "2026-11-07T06:03:27.132459+00:00",
+    "local_validation": {
+      "focused_search_cases": 29,
+      "focused_status": "PASSED",
+      "negative_control": "New fixture-lifecycle regression fails with only teardown reset disabled",
+      "original_assertion_calls_preserved": 113,
+      "owned_constructor_sites": 15,
+      "independent_review": "CLEAR on frozen test-only diff 57e39ff079730df4126ed5837f7e286099d390f260628a50ced3b9f2d0551236",
+      "canonical_fast": {
+        "status": "PASSED",
+        "passed": 346
+      },
+      "ktlint_1_3_1": "PASSED",
+      "release_scope": "PASSED",
+      "whitespace": "PASSED"
+    },
+    "source_commit": "d1ca4b9a23240edf4778f5810598f2efe0882eff"
   }
 }

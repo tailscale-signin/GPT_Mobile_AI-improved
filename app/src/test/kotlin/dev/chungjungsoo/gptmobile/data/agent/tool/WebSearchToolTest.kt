@@ -6,6 +6,7 @@ import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import io.ktor.client.engine.cio.CIO
 import java.net.InetSocketAddress
+import java.net.URI
 import java.net.URLDecoder
 import java.time.Clock
 import java.time.Instant
@@ -44,7 +45,7 @@ class WebSearchToolTest {
     @Test fun `invalid requests and missing credentials have no dispatched side effect`() = runBlocking {
         val endpoint = server("/preflight", "{}")
         val client = NetworkClient(CIO).also { networkClients += it }
-        val missing = WebSearchTool(WebSearchProviderConfig(WebSearchProvider.BRAVE, "", endpoint.url("/preflight")), client, clock).execute("missing", arguments())
+        val missing = WebSearchTool(WebSearchProviderConfig(WebSearchProvider.BRAVE, "", endpoint.url("/preflight")), client, clock).owned().execute("missing", arguments())
         assertTrue(missing.isError)
         assertEquals("AUTH_REQUIRED", missing.errorCode)
         assertEquals(false, missing.dispatched)
@@ -70,7 +71,7 @@ class WebSearchToolTest {
                 clock,
                 autoSearchEndpointTemplates = listOf(endpoint.url("/typed?q={query}")),
                 autoSearchBlockedUntilMs = AtomicLong(0L)
-            )
+            ).owned()
             val first = search.execute("first", arguments())
             val second = search.execute("second", arguments())
             assertTrue(first.isError)
@@ -90,11 +91,11 @@ class WebSearchToolTest {
         val client = NetworkClient(CIO).also { networkClients += it }
         val config = WebSearchProviderConfig(WebSearchProvider.PERPLEXITY, "bad-key", server.url("/search"))
         val args = buildJsonObject { put("query", "test") }
-        WebSearchTool(config, client, clock).execute("first", args)
+        WebSearchTool(config, client, clock).owned().execute("first", args)
         val later = Clock.offset(clock, java.time.Duration.ofDays(1))
-        val blocked = WebSearchTool(config, client, later).execute("second", args)
+        val blocked = WebSearchTool(config, client, later).owned().execute("second", args)
         assertTrue(blocked.content.toString().contains("AUTH_REQUIRED"))
-        val changed = WebSearchTool(config.copy(bearerToken = "corrected-key"), client, later).execute("third", args)
+        val changed = WebSearchTool(config.copy(bearerToken = "corrected-key"), client, later).owned().execute("third", args)
         assertTrue(changed.content.toString().contains("HTTP 401"))
     }
 
@@ -102,7 +103,7 @@ class WebSearchToolTest {
         val endpoint = server("/shared", "challenge", 202)
         val client = NetworkClient(CIO).also { networkClients += it }
         val cooldown = AtomicLong(0)
-        fun search() = WebSearchTool(WebSearchProviderConfig(WebSearchProvider.AUTO, "", ""), client, clock, autoSearchEndpointTemplates = listOf(endpoint.url("/shared?q={query}"), endpoint.url("/shared?q={query}")), autoSearchBlockedUntilMs = cooldown)
+        fun search() = WebSearchTool(WebSearchProviderConfig(WebSearchProvider.AUTO, "", ""), client, clock, autoSearchEndpointTemplates = listOf(endpoint.url("/shared?q={query}"), endpoint.url("/shared?q={query}")), autoSearchBlockedUntilMs = cooldown).owned()
         search().execute("first", arguments())
         val cached = search().execute("other-profile", arguments())
         assertEquals("CHALLENGE", cached.errorCode)
@@ -114,8 +115,8 @@ class WebSearchToolTest {
         val endpoint = server("/repair", "{}", 401)
         val client = NetworkClient(CIO).also { networkClients += it }
         val config = WebSearchProviderConfig(WebSearchProvider.PERPLEXITY, "repair-test", endpoint.url("/repair"))
-        WebSearchTool(config, client, clock).execute("first", arguments())
-        val retry = WebSearchTool(config, client, clock)
+        WebSearchTool(config, client, clock).owned().execute("first", arguments())
+        val retry = WebSearchTool(config, client, clock).owned()
         retry.execute("blocked", arguments())
         assertEquals(1, endpoint.requestCount)
         retry.resetAccessFailureAfterRepair()
@@ -129,11 +130,11 @@ class WebSearchToolTest {
         val client = NetworkClient(CIO).also { networkClients += it }
         val config = WebSearchProviderConfig(WebSearchProvider.PERPLEXITY, "billing-key", server.url("/search"))
         val args = buildJsonObject { put("query", "test") }
-        WebSearchTool(config, client, clock).execute("first", args)
-        val blocked = WebSearchTool(config, client, Clock.offset(clock, java.time.Duration.ofMinutes(4))).execute("second", args)
+        WebSearchTool(config, client, clock).owned().execute("first", args)
+        val blocked = WebSearchTool(config, client, Clock.offset(clock, java.time.Duration.ofMinutes(4))).owned().execute("second", args)
         assertTrue(blocked.content.toString().contains("AUTH_REQUIRED"))
         assertEquals(1, server.requestCount)
-        val retried = WebSearchTool(config, client, Clock.offset(clock, java.time.Duration.ofMinutes(6))).execute("third", args)
+        val retried = WebSearchTool(config, client, Clock.offset(clock, java.time.Duration.ofMinutes(6))).owned().execute("third", args)
         assertTrue(retried.content.toString().contains("HTTP 402"))
         assertEquals(2, server.requestCount)
     }
@@ -255,7 +256,7 @@ class WebSearchToolTest {
             clock,
             autoSearchEndpointTemplates = listOf(lite.url("/lite/?q={query}")),
             autoSearchBlockedUntilMs = AtomicLong(0L)
-        ).execute("lite", arguments())
+        ).owned().execute("lite", arguments())
         assertTrue(!successful.isError)
         val liteResult = (successful.content as ToolResultContent.Json).value.jsonObject.getValue("results").jsonArray.single().jsonObject
         assertEquals("Kotlin docs", liteResult.getValue("title").jsonPrimitive.content)
@@ -270,7 +271,7 @@ class WebSearchToolTest {
             clock,
             autoSearchEndpointTemplates = listOf(blocked.url("/blocked?q={query}")),
             autoSearchBlockedUntilMs = gate
-        )
+        ).owned()
         blockedTool.execute("blocked-1", arguments())
         blockedTool.execute("blocked-2", arguments())
         assertEquals(1, blocked.requestCount)
@@ -278,12 +279,42 @@ class WebSearchToolTest {
 
     private val servers = mutableListOf<HttpServer>()
     private val networkClients = mutableListOf<NetworkClient>()
+    private val ownedTools = mutableListOf<WebSearchTool>()
     private val clock = Clock.fixed(Instant.parse("2026-08-01T12:00:00Z"), ZoneOffset.UTC)
 
     @After
     fun stopServers() {
+        // A later fixture can reuse a stopped server's port and otherwise inherit its auth block.
+        ownedTools.forEach { it.resetAccessFailureAfterRepair() }
         servers.forEach { it.stop(0) }
         networkClients.forEach { it().close() }
+    }
+
+    @Test
+    fun fixtureTeardownReleasesAuthBlockBeforeEndpointReuse() = runBlocking {
+        val previousFixture = WebSearchToolTest()
+        val endpointUrl = try {
+            val rejected = previousFixture.server("/search", "{}", status = 401)
+            val endpoint = rejected.url("/search")
+            val first = previousFixture.tool(WebSearchProvider.PERPLEXITY, endpoint).execute("first", arguments())
+            val blocked = previousFixture.tool(WebSearchProvider.PERPLEXITY, endpoint).execute("blocked", arguments())
+            assertEquals("AUTH_REQUIRED", first.errorCode)
+            assertEquals("AUTH_REQUIRED", blocked.errorCode)
+            assertEquals(false, blocked.dispatched)
+            assertEquals(1, rejected.requestCount)
+            endpoint
+        } finally {
+            previousFixture.stopServers()
+        }
+        val healthy = server("/search", """{"results":[]}""", port = URI(endpointUrl).port)
+        assertEquals(endpointUrl, healthy.url("/search"))
+
+        val result = tool(WebSearchProvider.PERPLEXITY, endpointUrl).execute("healthy", arguments())
+
+        assertTrue(!result.isError)
+        assertEquals("Bearer perplexity-key", healthy.request.authorization)
+        assertEquals(1, healthy.requestCount)
+        assertEquals(0, (result.content as ToolResultContent.Json).value.jsonObject.getValue("results").jsonArray.size)
     }
 
     @Test
@@ -571,7 +602,7 @@ class WebSearchToolTest {
     fun pastedSearchKeysAreTrimmedBeforeSending() = runBlocking {
         val server = server("/search", """{"results":[]}""")
         val client = NetworkClient(CIO).also { networkClients += it }
-        WebSearchTool(WebSearchProviderConfig(WebSearchProvider.EXA, "  exa-key\n", server.url("/search")), client, clock)
+        WebSearchTool(WebSearchProviderConfig(WebSearchProvider.EXA, "  exa-key\n", server.url("/search")), client, clock).owned()
             .execute("trim-call", arguments())
         assertEquals("exa-key", server.request.apiKey)
     }
@@ -583,8 +614,10 @@ class WebSearchToolTest {
             config = WebSearchProviderConfig(provider, "${provider.name.lowercase()}-key", endpointUrl),
             networkClient = networkClient,
             clock = clock
-        )
+        ).owned()
     }
+
+    private fun WebSearchTool.owned(): WebSearchTool = also { ownedTools += it }
 
     private fun arguments(): JsonObject = buildJsonObject {
         put("query", "latest kotlin")
@@ -593,8 +626,8 @@ class WebSearchToolTest {
         put("recencyDays", 2)
     }
 
-    private fun server(path: String, response: String, status: Int = 200): RecordingServer {
-        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+    private fun server(path: String, response: String, status: Int = 200, port: Int = 0): RecordingServer {
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", port), 0)
         val recorder = RecordingServer(server)
         server.createContext(path) { exchange ->
             recorder.requestCount += 1

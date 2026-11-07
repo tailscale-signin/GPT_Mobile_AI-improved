@@ -222,7 +222,7 @@ internal class GitHubResultViews(
                 dispatched = false
             )
         }
-        val conflictingContext = context.any { (key, value) ->
+        val conflictingFields = context.filter { (key, value) ->
             val expected = entry.context[key]
             if (key in setOf("owner", "repo")) {
                 expected !is JsonPrimitive || value !is JsonPrimitive || !expected.isString || !value.isString || !expected.content.equals(value.content, true)
@@ -230,13 +230,15 @@ internal class GitHubResultViews(
                 expected != value
             }
         }
-        if (conflictingContext) {
+        if (conflictingFields.isNotEmpty()) {
             return AgentToolResult(
                 callId,
                 ToolResultContent.Json(
                     buildJsonObject {
                         put("schema", "github.arguments.v1")
                         put("operation", operation)
+                        put("reason", "SAVED_VIEW_CONTEXT_MISMATCH")
+                        put("conflicting_fields", JsonArray(conflictingFields.keys.sorted().map(::JsonPrimitive)))
                         put("message", "Saved-page context differs from the retained request. Use only the exact view_cursor; a saved read cannot change repository, revision, action or read selectors. Nothing was dispatched.")
                         put("correction_call", savedCall(modelName, cursor))
                     }

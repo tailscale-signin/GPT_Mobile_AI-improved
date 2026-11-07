@@ -46,15 +46,58 @@ internal object GitHubTestChecklist {
         val observations = trusted(receipts)
         val completed = observations.filter { it["success"] == JsonPrimitive(true) }.map { it.text("tool") to it["arguments"] }.toSet()
         val recovered = observations.mapIndexedNotNull { index, receipt ->
-            if (receipt["success"] == JsonPrimitive(true) || receipt.text("error_code") !in setOf("SAVED_VIEW_UNAVAILABLE", "SAVED_VIEW_CURSOR_ALTERED", "SAVED_VIEW_WRONG_OPERATION")) return@mapIndexedNotNull null
-            val root = data(receipt) ?: return@mapIndexedNotNull null
-            val recovery = (root["correction_call"] ?: root["recovery_call"] ?: root["source_recovery_call"]) as? JsonObject ?: return@mapIndexedNotNull null
-            val recoveryArgs = recovery["arguments"] as? JsonObject ?: return@mapIndexedNotNull null
-            if (!dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary.isReplayableRead(recovery.text("tool"), recoveryArgs)) return@mapIndexedNotNull null
+            val recovery = savedReadRecovery(receipt) ?: return@mapIndexedNotNull null
             if (observations.drop(index + 1).none { it["success"] == JsonPrimitive(true) && it.text("tool") == recovery.text("tool") && it["arguments"] == recovery["arguments"] }) return@mapIndexedNotNull null
             receipt.text("tool") to receipt["arguments"]
         }.toSet()
         return observations.flatMap(::issuedPages).distinct().filter { it.text("tool") to it["arguments"] !in completed + recovered }
+    }
+
+    /** An argument repair is admissible only for an exact local cursor returned by this facade. */
+    private fun savedReadRecovery(receipt: JsonObject): JsonObject? {
+        if (receipt["success"] == JsonPrimitive(true)) return null
+        val root = data(receipt) ?: return null
+        val recovery = (root["correction_call"] ?: root["recovery_call"] ?: root["source_recovery_call"]) as? JsonObject ?: return null
+        val args = recovery["arguments"] as? JsonObject ?: return null
+        val name = recovery.text("tool")
+        when (receipt.text("error_code")) {
+            "SAVED_VIEW_UNAVAILABLE", "SAVED_VIEW_CURSOR_ALTERED", "SAVED_VIEW_WRONG_OPERATION" -> Unit
+            "INVALID_ARGUMENTS" -> {
+                val rejected = receipt["arguments"] as? JsonObject ?: return null
+                val cursor = rejected["view_cursor"] as? JsonPrimitive ?: return null
+                if (receipt["dispatched"] != JsonPrimitive(false) ||
+                    root.text("schema") != "github.arguments.v1" ||
+                    root.text("operation") != receipt.text("tool").substringBefore("__") ||
+                    root["correction_call"] != recovery ||
+                    name != receipt.text("tool") ||
+                    !cursor.isString ||
+                    cursor.content.isBlank() ||
+                    args.keys != setOf("view_cursor") ||
+                    args["view_cursor"] != cursor
+                ) {
+                    return null
+                }
+            }
+            else -> return null
+        }
+        if (!dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary.isReplayableRead(name, args) ||
+            dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary.isBranchSelection(name, args) ||
+            name.substringBefore("__") == "repository_graph" &&
+            args.text("action") in setOf("index", "note")
+        ) {
+            return null
+        }
+        return recovery
+    }
+
+    private fun recoverySource(recipe: JsonObject): Pair<String, JsonObject>? {
+        val args = recipe["arguments"] as? JsonObject ?: return null
+        val cursor = (args["view_cursor"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+        return recipe.text("tool") to if (args.keys == setOf("view_cursor") && cursor != null) {
+            buildJsonObject { put("saved_view", cursor.substringBefore(':')) }
+        } else {
+            args
+        }
     }
 
     private fun issuedPages(receipt: JsonObject): List<JsonObject> {
@@ -98,26 +141,28 @@ internal object GitHubTestChecklist {
         }
         val exhaustive = GitHubChecklistScope.exhaustive(task)
         val sampled = remoteSamples(observations)
+        // A rejected call can contain extra selectors and therefore differ from
+        // the original cursor-only recipe. Recover from the trusted rejection,
+        // not equality with that malformed request. No arguments are inferred.
+        val lastAttempts = mutableMapOf<Pair<String, JsonObject>, Int>()
+        observations.forEachIndexed { index, receipt -> recoverySource(receipt)?.let { lastAttempts[it] = index } }
+        val considered = mutableSetOf<Pair<String, JsonObject>>()
+        for ((index, failed) in observations.withIndex()) {
+            val recovery = savedReadRecovery(failed) ?: continue
+            val source = recoverySource(recovery) ?: continue
+            if (!considered.add(source)) continue
+            val args = recovery["arguments"] as JsonObject
+            if (localOnly && "view_cursor" !in args || !permitted(recovery) || same(failed, recovery)) continue
+            // The durable receipts spend one correction per saved view or exact
+            // recovery recipe. A later offset or process restart cannot reset it.
+            if ((lastAttempts[source] ?: -1) > index) continue
+            return call(recovery.text("tool"), args)
+        }
         for (page in pendingPages(receipts)) {
             val args = page["arguments"] as? JsonObject ?: continue
             if (localOnly && "view_cursor" !in args || !permitted(page)) continue
             val priorIndex = observations.indexOfLast { same(it, page) }
-            if (priorIndex >= 0) {
-                val failed = observations[priorIndex]
-                if (failed.text("error_code") !in setOf("SAVED_VIEW_UNAVAILABLE", "SAVED_VIEW_CURSOR_ALTERED", "SAVED_VIEW_WRONG_OPERATION")) continue
-                val root = data(failed) ?: continue
-                val recovery = (root["correction_call"] ?: root["recovery_call"] ?: root["source_recovery_call"]) as? JsonObject ?: continue
-                if (!permitted(recovery) || recovery == page) continue
-                // One correction/reopen per retained source, even if a later cursor is lost.
-                val firstFailure = observations.indexOfFirst { observation ->
-                    observation["success"] != JsonPrimitive(true) &&
-                        data(observation)?.let { result ->
-                            listOf("correction_call", "recovery_call", "source_recovery_call").any { result[it] == recovery }
-                        } == true
-                }
-                if (observations.drop(firstFailure + 1).any { same(it, recovery) }) continue
-                return call(recovery.text("tool"), recovery["arguments"] as JsonObject)
-            }
+            if (priorIndex >= 0) continue
             // Required local fragments and issue dependencies are never stopped by
             // an unrelated inventory's sampling allowance.
             val issueDependency = page.text("tool").substringBefore("__") == "github_issue" &&
@@ -577,14 +622,8 @@ internal object GitHubTestChecklist {
                 val unresolvedFailure = trusted.withIndex().any { (index, failed) ->
                     if (failed["success"] == JsonPrimitive(true) || !belongs(failed)) return@any false
                     val later = trusted.drop(index + 1)
-                    val result = data(failed)
-                    val recovery = (result?.get("correction_call") ?: result?.get("recovery_call") ?: result?.get("source_recovery_call")) as? JsonObject
-                    val recoveryArgs = recovery?.get("arguments") as? JsonObject
-                    val reopened = failed.text("error_code") in setOf("SAVED_VIEW_UNAVAILABLE", "SAVED_VIEW_CURSOR_ALTERED", "SAVED_VIEW_WRONG_OPERATION") &&
-                        recovery != null &&
-                        recoveryArgs != null &&
-                        dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary.isReplayableRead(recovery.text("tool"), recoveryArgs) &&
-                        later.any { it["success"] == JsonPrimitive(true) && it["tool"] == recovery["tool"] && it["arguments"] == recoveryArgs }
+                    val recovery = savedReadRecovery(failed)
+                    val reopened = recovery != null && later.any { it["success"] == JsonPrimitive(true) && it["tool"] == recovery["tool"] && it["arguments"] == recovery["arguments"] }
                     !reopened && later.none { it["success"] == JsonPrimitive(true) && it["tool"] == failed["tool"] && it["arguments"] == failed["arguments"] }
                 }
                 val complete = contiguous &&

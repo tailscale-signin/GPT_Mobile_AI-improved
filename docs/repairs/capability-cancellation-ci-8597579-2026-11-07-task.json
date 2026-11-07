@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "fix/diagnostic-remediation-8597579-2026-11-07",
+  "base_sha": "b1647150e449a15b50f21c5bcebc6f7ef35949b7",
+  "parent_pr": 811,
+  "working_branch": "work/capability-cancellation-ci-8597579",
+  "intent": "Repair the capability cancellation regression's unsupported outer-exception identity assumption while retaining cancellation propagation, original caller details, and one-request/no-retry coverage.",
+  "state": "IMPLEMENTED_AND_HOST_VALIDATED",
+  "owned_paths": [
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayCapabilityDiscoveryTest.kt"
+  ],
+  "confirmed_ci_evidence": {
+    "pr_validation_run": 42376267952,
+    "unit_job": 128414459199,
+    "unit_artifact": 13576541839,
+    "unit_artifact_sha256": "b845c461fac8c930ad2ed7df50bea7e14844291fca7e2efc0a0cc52c03925801",
+    "unit_results": "7309 testcases: 7303 passed, one cancellation identity assertion failed, five dedicated heap-gate cases skipped, zero errors.",
+    "jvm_assertions": "The actual Gradle Test Executor command includes -ea.",
+    "host_reproduction": "Unchanged production host jar passes all seven discovery tests without -ea, reproduces the sole identity failure with -ea, and passes all seven with -ea plus stacktrace recovery explicitly disabled."
+  },
+  "validation": {
+    "capability_suites_with_assertions_and_recovery_enabled": "PASS: 31 tests, 2.484 seconds, -ea and kotlinx.coroutines.debug=on with stacktrace.recovery=true.",
+    "capability_suites_with_assertions_and_recovery_disabled": "PASS: 31 tests, 3.188 seconds, -ea and kotlinx.coroutines.debug=on with stacktrace.recovery=false.",
+    "canonical_fast": "PASS: 378 tests plus repository, dependency, regex, resource, and whitespace checks.",
+    "ktlint": "PASS: ktlint 1.3.1 on the changed Kotlin test.",
+    "independent_review": "PASS: cancellation propagation, bounded causal identity, one metadata GET, and no-retry assertions reviewed without findings.",
+    "android_runtime": "Full exact-head Android CI is required after integration; no local Android SDK is available."
+  },
+  "production_changes": false,
+  "remote_mutations": false,
+  "private_diagnostics_committed": false,
+  "task_store": "engineering_agent_checkpoints (existing engineering task store)",
+  "recorded_at_utc": "2026-11-07T13:41:40Z"
+}

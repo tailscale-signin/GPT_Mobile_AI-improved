@@ -16,7 +16,6 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
-import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -93,14 +92,23 @@ class GatewayCapabilityDiscoveryTest {
         val cancellation = CancellationException("caller stopped")
         var calls = 0
         HttpClient(
-            MockEngine {
+            MockEngine { request ->
                 calls++
+                assertEquals("GET", request.method.value)
+                assertEquals("/v1/gateway/capabilities", request.url.encodedPath)
                 throw cancellation
             }
         ).use { http ->
             val network = mockk<NetworkClient>()
             every { network() } returns http
-            assertSame(cancellation, runCatching { GatewayAPIImpl(network).getCapabilities(config) }.exceptionOrNull())
+            val failure = runCatching { GatewayAPIImpl(network).getCapabilities(config) }.exceptionOrNull()
+            assertTrue(failure is CancellationException)
+            assertEquals(cancellation.message, failure?.message)
+            // Coroutine stack-trace recovery may copy an exception across a suspension boundary.
+            assertTrue(
+                "The caller cancellation is retained directly or as a cause",
+                generateSequence(failure) { it.cause }.take(8).any { it === cancellation }
+            )
             assertEquals(1, calls)
             verify(exactly = 0) { network.evictIdleConnections() }
         }

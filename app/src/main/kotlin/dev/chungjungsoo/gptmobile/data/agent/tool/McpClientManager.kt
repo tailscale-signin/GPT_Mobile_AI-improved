@@ -258,7 +258,10 @@ class McpClientManager internal constructor(
             null
         }
         val producer = synchronized(catalogueProducers) {
-            catalogueProducers[key] ?: catalogueScope.async(start = kotlinx.coroutines.CoroutineStart.LAZY) {
+            // Awaiters can observe a terminal producer before its completion handler
+            // removes it. Only share live discovery; explicit refresh must not inherit
+            // an already-completed failure from that cleanup window.
+            catalogueProducers[key]?.takeUnless { it.isCompleted } ?: catalogueScope.async(start = kotlinx.coroutines.CoroutineStart.LAZY) {
                 withTimeout(catalogueTimeoutMs) {
                     val epoch = catalogue.epoch
                     val tools = fetchCatalogue(config, forceRefresh).toList()

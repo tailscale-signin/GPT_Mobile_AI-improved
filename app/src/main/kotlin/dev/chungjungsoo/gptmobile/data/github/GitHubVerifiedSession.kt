@@ -44,6 +44,9 @@ internal class GitHubVerifiedSession(
     private var lastChecklist: JsonObject? = null
     private class ProgressCheckpointFailure(cause: Exception, val originalFailure: ProviderEvent.Failed?) : Exception(cause)
 
+    private fun failureCauses(error: Throwable): Sequence<Throwable> =
+        generateSequence(error) { current -> current.cause?.takeUnless { it === current } }.take(16)
+
     private suspend fun retainProgress(tools: List<AgentToolDefinition>, failure: ProviderEvent.Failed? = null) {
         try {
             withContext(computationDispatcher) {
@@ -52,7 +55,7 @@ internal class GitHubVerifiedSession(
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Exception) {
-            val accessFailure = generateSequence<Throwable>(error) { it.cause }.firstOrNull {
+            val accessFailure = failureCauses(error).firstOrNull {
                 it is dev.chungjungsoo.gptmobile.data.context.DispatchPolicyChangedException ||
                     it is dev.chungjungsoo.gptmobile.data.context.ProviderWaitAuthorityChanged ||
                     it is dev.chungjungsoo.gptmobile.data.agent.SavedEvidenceAccessDenied
@@ -219,6 +222,14 @@ internal class GitHubVerifiedSession(
     }.catch { error ->
         // Flow.catch preserves collector failures and cancellation. A failed
         // progress checkpoint stops work before any further provider/tool action.
+        val policy = failureCauses(error)
+            .filterIsInstance<dev.chungjungsoo.gptmobile.data.context.DispatchPolicyChangedException>().firstOrNull()
+        if (policy != null) {
+            // Do not ask the old profile to regenerate or acquire more evidence.
+            // Earlier durable receipts remain available to a newly authorized run.
+            emit(GitHubTaskLifecycle.configurationInvalidated(policy))
+            return@catch
+        }
         if (error !is ProgressCheckpointFailure) throw error
         val original = error.originalFailure
         if (original != null) {

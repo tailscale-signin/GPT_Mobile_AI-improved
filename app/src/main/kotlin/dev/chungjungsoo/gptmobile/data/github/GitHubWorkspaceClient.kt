@@ -32,6 +32,7 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 
 @Serializable
@@ -138,8 +139,12 @@ class GitHubWorkspaceClient(
     }
     suspend fun taskSnapshot(): GitHubTaskSnapshot? = repositorySession.snapshot()
     suspend fun taskContext(): GitHubRepositoryContext? = repositorySession.context()
-    internal suspend fun trackExecution(action: String, arguments: JsonObject, reconcile: (suspend () -> JsonElement?)? = null, block: suspend () -> JsonElement): JsonObject =
-        executionJournal.run(action, arguments, reconcile = reconcile, block = block).jsonObject
+    internal suspend fun trackExecution(action: String, arguments: JsonObject, reconcile: (suspend () -> JsonElement?)? = null, block: suspend () -> JsonElement): JsonObject {
+        if (action != "publish_release") return executionJournal.run(action, arguments, reconcile = reconcile, block = block).jsonObject
+        val retained = hasRetainedRequestClaim(action, arguments)
+        requireReleaseDispatchMigration(arguments.takeIf { retained }, enforce = !retained)
+        return runReleaseExecution(action, arguments, reconcile = reconcile, block = block)
+    }
 
     private data class ReleaseDispatchReceipt(val root: String, val workflowId: String, val sourceSha: String, val tagName: String, val correlationId: String)
 
@@ -1430,69 +1435,72 @@ class GitHubWorkspaceClient(
                 args["expected_head_sha"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }?.let {
                     require(it == sourceSha) { "Release source head changed; inspect and approve the current revision before publication." }
                 }
-                val dispatchTime = java.time.Instant.now().toString()
-                val correlationId = java.util.UUID.randomUUID().toString()
                 val versionPreflight = validateReleaseVersionHint(root, sourceSha, tagName)
-                // The outer publish_release execution journal is the durable per-operation
-                // fence. Dispatching through the generic payload-only HTTP fence
-                // would return the previous run for a *different*, explicitly
-                // authorized execution_id using identical workflow inputs.
-                // Never retry a lost acknowledgement: the outer journal keeps
-                // that execution uncertain until remote reconciliation.
-                val dispatchResponse = requestUntracked(
-                    "$root/actions/workflows/${segment(workflowId)}/dispatches",
-                    HttpMethod.Post,
+                val result = trackReleaseDispatch(root, workflowId, ref, args) {
+                    val dispatchTime = java.time.Instant.now().toString()
+                    val correlationId = java.util.UUID.randomUUID().toString()
+                    // Retain the complete exact run receipt under the canonical operation.
+                    // Display fields cannot release it; an unresolved payload also blocks a new ID.
+                    val dispatchResponse = requestUntracked(
+                        "$root/actions/workflows/${segment(workflowId)}/dispatches",
+                        HttpMethod.Post,
+                        buildJsonObject {
+                            put("ref", ref)
+                            put("return_run_details", true)
+                            args["inputs"]?.let {
+                                require(it is JsonObject) { "inputs must be an object." }
+                                put("inputs", it)
+                            }
+                        },
+                        authenticated = true
+                    )
+                    val dispatchedRunId = (dispatchResponse as? JsonObject)?.get("workflow_run_id")?.jsonPrimitive?.content?.toLongOrNull()?.takeIf { it > 0 }
+                    if (dispatchedRunId != null) {
+                        if (dispatchedRuns.size >= 128) dispatchedRuns.clear()
+                        dispatchedRuns[dispatchedRunId] = ReleaseDispatchReceipt(root, workflowId, sourceSha, tagName, correlationId)
+                        retainDispatchReceipt(dispatchedRunId, dispatchedRuns.getValue(dispatchedRunId))
+                    }
+                    responseCache.invalidateMutable(root)
                     buildJsonObject {
+                        put(
+                            "dispatch_receipt",
+                            buildJsonObject {
+                                put("workflow_id", workflowId)
+                                put("source_sha", sourceSha)
+                                put("tag_name", tagName)
+                                put("dispatched_at", dispatchTime)
+                                put("correlation_id", correlationId)
+                                dispatchedRunId?.let { put("workflow_run_id", it) }
+                                put("run_correlation", if (dispatchedRunId == null) "UNKNOWN_NO_RUN_RECEIPT_RETURNED" else "GITHUB_DISPATCH_RESPONSE")
+                            }
+                        )
+                        put("status", "workflow_dispatched")
+                        put("strategy", "workflow")
+                        put("tag_name", tagName)
                         put("ref", ref)
-                        put("return_run_details", true)
-                        args["inputs"]?.let {
-                            require(it is JsonObject) { "inputs must be an object." }
-                            put("inputs", it)
-                        }
-                    },
-                    authenticated = true
-                )
-                val dispatchedRunId = (dispatchResponse as? JsonObject)?.get("workflow_run_id")?.jsonPrimitive?.content?.toLongOrNull()?.takeIf { it > 0 }
-                if (dispatchedRunId != null) {
-                    if (dispatchedRuns.size >= 128) dispatchedRuns.clear()
-                    dispatchedRuns[dispatchedRunId] = ReleaseDispatchReceipt(root, workflowId, sourceSha, tagName, correlationId)
-                    retainDispatchReceipt(dispatchedRunId, dispatchedRuns.getValue(dispatchedRunId))
+                        put("workflow", workflow)
+                        put("version_preflight", versionPreflight ?: JsonNull)
+                        put("verification_action", "release_status")
+                        put(
+                            "verification_args",
+                            buildJsonObject {
+                                put("action", "release_status")
+                                put("owner", args["owner"] ?: JsonNull)
+                                put("repo", args["repo"] ?: JsonNull)
+                                put("tag_name", tagName)
+                                put("workflow_id", workflowId)
+                                put("expected_head_sha", sourceSha)
+                                dispatchedRunId?.let { put("workflow_run_id", it) }
+                            }
+                        )
+                        put("message", "Release workflow accepted. Use release_status to verify publication and assets.")
+                    }
                 }
-                responseCache.invalidateMutable(root)
-                return buildJsonObject {
-                    put(
-                        "dispatch_receipt",
-                        buildJsonObject {
-                            put("workflow_id", workflowId)
-                            put("source_sha", sourceSha)
-                            put("tag_name", tagName)
-                            put("dispatched_at", dispatchTime)
-                            put("correlation_id", correlationId)
-                            dispatchedRunId?.let { put("workflow_run_id", it) }
-                            put("run_correlation", if (dispatchedRunId == null) "UNKNOWN_NO_RUN_RECEIPT_RETURNED" else "GITHUB_DISPATCH_RESPONSE")
-                        }
-                    )
-                    put("status", "workflow_dispatched")
-                    put("strategy", "workflow")
-                    put("tag_name", tagName)
-                    put("ref", ref)
-                    put("workflow", workflow)
-                    put("version_preflight", versionPreflight ?: JsonNull)
-                    put("verification_action", "release_status")
-                    put(
-                        "verification_args",
-                        buildJsonObject {
-                            put("action", "release_status")
-                            put("owner", args["owner"] ?: JsonNull)
-                            put("repo", args["repo"] ?: JsonNull)
-                            put("tag_name", tagName)
-                            put("workflow_id", workflowId)
-                            put("expected_head_sha", sourceSha)
-                            dispatchedRunId?.let { put("workflow_run_id", it) }
-                        }
-                    )
-                    put("message", "Release workflow accepted. Use release_status to verify publication and assets.")
+                val receipt = result["dispatch_receipt"] as? JsonObject
+                require(receipt?.get("tag_name") == JsonPrimitive(tagName) && receipt["source_sha"] == JsonPrimitive(sourceSha)) {
+                    "This execution's retained dispatch belongs to a different tag or source. Inspect its exact receipt; a separately reviewed publication requires a new execution ID after reconciling the earlier operation."
                 }
+                return result
             }
             if (strategy == "workflow") error("No active release workflow was found. Specify workflow_id or use release_strategy=direct.")
         }
@@ -1953,6 +1961,224 @@ class GitHubWorkspaceClient(
         }
         return result
     }
+
+    private suspend fun trackReleaseDispatch(root: String, workflowId: String, ref: String, args: JsonObject, block: suspend () -> JsonElement): JsonObject {
+        val inputs = args["inputs"] ?: JsonObject(emptyMap())
+        require(inputs is JsonObject) { "inputs must be an object." }
+        val payload = buildJsonObject {
+            put("repository", root.lowercase(java.util.Locale.ROOT))
+            put("workflow_id", workflowId)
+            put("ref", ref)
+            put("inputs", inputs)
+        }
+        val identity = buildJsonObject {
+            put("identity_version", 1)
+            put("payload", payload)
+            put("execution_id", args["execution_id"]?.jsonPrimitive?.content.orEmpty().trim())
+        }
+        val action = "publish_release.dispatch"
+        val result = runReleaseExecution(action, identity, singleHttpRequest = true) {
+            // Reserve the canonical receipt before installing its payload pointer.
+            requireLegacyReleaseHttpClaims(root, workflowId, ref, inputs)
+            claimReleaseDispatchPayload(payload, action, identity)
+            block()
+        }
+        if (result["execution"]?.jsonObject?.get("status")?.jsonPrimitive?.content != "COMPLETED") throw releaseDispatchBlocked()
+        return result
+    }
+
+    private suspend fun runReleaseExecution(action: String, identity: JsonObject, singleHttpRequest: Boolean = false, reconcile: (suspend () -> JsonElement?)? = null, block: suspend () -> JsonElement): JsonObject {
+        var beforeWriteFailure: Exception? = null
+        return try {
+            executionJournal.run(action, identity, reconcile = reconcile, singleHttpRequest = singleHttpRequest) {
+                try {
+                    block()
+                } catch (failure: Exception) {
+                    if (currentCoroutineContext()[GitHubMutationAttempts]?.uncertainOrAccepted != true) {
+                        // A denied payload claim or read preflight did not send this operation.
+                        // Preserve any original unknown receipt, but allow this rejected request
+                        // to resume after its admission blocker is actually reconciled.
+                        beforeWriteFailure = failure
+                        throw GitHubRequestRejected(0, "Release stopped before any mutation was accepted or became uncertain.")
+                    }
+                    throw failure
+                }
+            }.jsonObject
+        } catch (rejected: GitHubRequestRejected) {
+            throw (beforeWriteFailure ?: rejected)
+        }
+    }
+
+    /** A new operation ID is allowed only after the preceding identical POST is settled. */
+    private suspend fun claimReleaseDispatchPayload(payload: JsonObject, action: String, identity: JsonObject) {
+        fun key(scope: String) = "execution:" + GitHubRepositoryStateStore.digest("$scope|publish_release.payload|${GitHubExecutionJournal.canonical(payload)}")
+        val operationId = GitHubRepositoryStateStore.digest("$executionScope|$action|${GitHubExecutionJournal.canonical(identity)}")
+        var previous: JsonObject? = null
+        for (scope in requestScopes()) {
+            val retained = repositoryState.read(scope, key(scope))
+            if (retained != null) {
+                val operation = (retained["operation_id"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+                    ?.takeIf { it.matches(Regex("[a-f0-9]{64}")) } ?: throw releaseDispatchBlocked()
+                // This block can own the same operation only after its old claim was
+                // rejected. An uncertain/completed claim never re-enters the journal block.
+                if (!(scope == executionScope && operation == operationId) && !releaseDispatchSettled(repositoryState.read(scope, "execution:$operation"))) throw releaseDispatchBlocked()
+            }
+            if (scope == executionScope) previous = retained
+        }
+        val claim = java.util.UUID.randomUUID().toString()
+        val claimed = repositoryState.update(executionScope, key(executionScope)) { current ->
+            // A concurrent claimant wins even if it appeared after the settled read above.
+            if (current != previous) {
+                checkNotNull(current) { "The protected release payload guard disappeared." }
+            } else {
+                buildJsonObject {
+                    put("schema_version", 1)
+                    // This fixed-size pointer is not a response reservation or a completed operation.
+                    put("status", "PROTECTED_GUARD")
+                    put("correlation_id", claim)
+                    put("operation_id", operationId)
+                }
+            }
+        }
+        if (claimed["correlation_id"] != JsonPrimitive(claim)) throw releaseDispatchBlocked()
+    }
+
+    private fun releaseDispatchSettled(row: JsonObject?, legacyRelease: Boolean = false): Boolean {
+        if (row?.get("status") == JsonPrimitive("REJECTED")) return true
+        if (row?.get("status") != JsonPrimitive("COMPLETED") || "result" !in row) return false
+        val result = row["result"] as? JsonObject ?: return false
+        if (result["receipt_bounded"] == JsonPrimitive(true)) return false
+        fun JsonObject.positive(key: String) = (this[key] as? JsonPrimitive)?.longOrNull?.let { it > 0 } == true
+        fun JsonObject.text(key: String) = (this[key] as? JsonPrimitive)?.content.orEmpty()
+        val receipt = result["dispatch_receipt"] as? JsonObject
+        if (result["status"] == JsonPrimitive("workflow_dispatched") && receipt != null) {
+            return receipt["run_correlation"] == JsonPrimitive("GITHUB_DISPATCH_RESPONSE") &&
+                receipt.positive("workflow_run_id") &&
+                receipt.positive("workflow_id") &&
+                receipt.text("source_sha").matches(Regex("[a-fA-F0-9]{40}")) &&
+                receipt.text("correlation_id").isNotBlank() &&
+                receipt.text("tag_name").isNotBlank()
+        }
+        if (row["remote_reconciled"] == JsonPrimitive(true) && result["workflow_correlation"] == JsonPrimitive("DISPATCH_RECEIPT_AND_SOURCE_VERIFIED")) {
+            val run = result["latest_workflow_run"] as? JsonObject ?: return false
+            return run.positive("id") &&
+                run.text("head_sha").matches(Regex("[a-fA-F0-9]{40}")) &&
+                run["event"] == JsonPrimitive("workflow_dispatch") &&
+                result.text("dispatch_correlation_id").isNotBlank()
+        }
+        // Only old outer publish_release rows can contain a direct Releases API result.
+        if (!legacyRelease || row["action"] != JsonPrimitive("publish_release")) return false
+        val release = result["release"] as? JsonObject ?: return false
+        return result.text("status") in setOf("created", "published_existing_draft", "already_published", "draft_exists") &&
+            result.text("strategy") in setOf("release_api", "existing_release") &&
+            release.positive("id") &&
+            release.text("tag_name").isNotBlank()
+    }
+
+    /** Freeze the bounded pre-upgrade inventory before adding any new outer release claim. */
+    private suspend fun requireReleaseDispatchMigration(exactArguments: JsonObject? = null, enforce: Boolean = true) {
+        for (scope in requestScopes()) {
+            val markerKey = "execution:" + GitHubRepositoryStateStore.digest("$scope|publish_release.dispatch-migration|v1")
+            val exactId = exactArguments?.let { GitHubRepositoryStateStore.digest("$scope|publish_release|${GitHubExecutionJournal.canonical(it)}") }
+                ?.takeIf { id -> repositoryState.read(scope, "execution:$id")?.let { !releaseDispatchSettled(it, legacyRelease = true) } == true }
+            var marker = repositoryState.read(scope, markerKey) ?: run {
+                val context = repositoryState.read(scope, "execution-context")
+                val rows = context?.get("executions") as? JsonArray
+                val unreadable = context != null && rows == null || context == null && repositoryState.contains(scope, "execution-context")
+                val legacy = rows.orEmpty().filter { raw ->
+                    val action = ((raw as? JsonObject)?.get("action") as? JsonPrimitive)?.takeIf { it.isString }?.content
+                    action.isNullOrBlank() || action == "publish_release"
+                }
+                val ids = legacy.mapNotNull { raw ->
+                    ((raw as? JsonObject)?.get("execution_id") as? JsonPrimitive)?.takeIf { it.isString && it.content.matches(Regex("[a-f0-9]{64}")) }
+                }
+                repositoryState.update(scope, markerKey) { previous ->
+                    previous ?: buildJsonObject {
+                        put("schema_version", 1)
+                        put("status", "PROTECTED_GUARD")
+                        put("inventory_complete", !unreadable && legacy.size <= 32 && ids.size == legacy.size)
+                        put("legacy_execution_ids", JsonArray(ids.take(32)))
+                    }
+                }
+            }
+            if (exactId != null && exactId !in (marker["legacy_execution_ids"] as? JsonArray).orEmpty().map { (it as? JsonPrimitive)?.content }) {
+                // The original arguments can identify a protected legacy claim even
+                // after its bounded display/context row disappeared. Keep that knowledge.
+                marker = latchReleaseMigrationClaim(scope, exactId)
+            }
+            if (!enforce) continue
+            if (marker["inventory_complete"] != JsonPrimitive(true)) throw releaseDispatchBlocked()
+            val ids = marker["legacy_execution_ids"] as? JsonArray ?: throw releaseDispatchBlocked()
+            if (ids.size > 32) throw releaseDispatchBlocked()
+            for (raw in ids) {
+                val id = (raw as? JsonPrimitive)?.takeIf { it.isString }?.content
+                    ?.takeIf { it.matches(Regex("[a-f0-9]{64}")) } ?: throw releaseDispatchBlocked()
+                // Cached context or a formerly completed marker cannot override a lost receipt body.
+                val row = repositoryState.read(scope, "execution:$id")
+                val settled = if (row?.get("action") == JsonPrimitive("http.POST")) legacyReleaseHttpSettled(row) else releaseDispatchSettled(row, legacyRelease = true)
+                if (!settled) throw releaseDispatchBlocked()
+            }
+        }
+    }
+
+    private suspend fun latchReleaseMigrationClaim(scope: String, id: String): JsonObject {
+        val key = "execution:" + GitHubRepositoryStateStore.digest("$scope|publish_release.dispatch-migration|v1")
+        return repositoryState.update(scope, key) { current ->
+            val known = current?.get("legacy_execution_ids") as? JsonArray
+            val ids = (known.orEmpty() + JsonPrimitive(id)).distinct()
+            buildJsonObject {
+                current.orEmpty().forEach { (field, value) -> put(field, value) }
+                put("status", "PROTECTED_GUARD")
+                put("inventory_complete", current?.get("inventory_complete") == JsonPrimitive(true) && known != null && ids.size <= 32)
+                put("legacy_execution_ids", JsonArray(ids.take(32)))
+            }
+        }
+    }
+
+    private fun legacyReleaseHttpSettled(row: JsonObject): Boolean {
+        if (row["status"] == JsonPrimitive("REJECTED")) return true
+        val result = row["result"] as? JsonObject ?: return false
+        return row["status"] == JsonPrimitive("COMPLETED") &&
+            result["receipt_bounded"] != JsonPrimitive(true) &&
+            ((result["workflow_run_id"] as? JsonPrimitive)?.longOrNull?.let { it > 0 } == true || row["remote_reconciled"] == JsonPrimitive(true) && releaseDispatchSettled(row))
+    }
+
+    /** Pre-canonical release dispatches may still have an exact protected HTTP claim. */
+    private suspend fun requireLegacyReleaseHttpClaims(root: String, workflowId: String, ref: String, inputs: JsonObject) {
+        val body = buildJsonObject {
+            put("ref", ref)
+            put("return_run_details", true)
+            put("inputs", inputs)
+        }
+        val bodies = if (inputs.isEmpty()) listOf(body, JsonObject(body - "inputs")) else listOf(body)
+        val paths = listOf(root, root.lowercase(java.util.Locale.ROOT)).distinct().map { "$it/actions/workflows/${segment(workflowId)}/dispatches" }
+        for (scope in requestScopes()) {
+            for (path in paths) {
+                for (candidate in bodies) {
+                    for (identity in listOf(requestIdentity(path, HttpMethod.Post, candidate), legacyRequestIdentity(path, candidate))) {
+                        val id = GitHubRepositoryStateStore.digest("$scope|http.POST|${GitHubExecutionJournal.canonical(identity)}")
+                        val row = repositoryState.read(scope, "execution:$id") ?: continue
+                        if (!legacyReleaseHttpSettled(row)) {
+                            // The invocation-format hash is identifiable on this call only.
+                            // Latch it before changed presentation arguments hide it again.
+                            latchReleaseMigrationClaim(scope, id)
+                            throw releaseDispatchBlocked()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun releaseDispatchBlocked() = GitHubExecutionBlocked(
+        buildJsonObject {
+            put("schema", "github.execution.v1")
+            put("status", "RECONCILE_REQUIRED")
+            put("code", "GITHUB_RELEASE_DISPATCH_UNRESOLVED")
+            put("dispatched", false)
+            put("message", "A retained release dispatch is unresolved or its authoritative receipt is unavailable. Reconcile its exact saved operation and remote state before another dispatch. Changing display arguments or execution IDs does not settle a lost response.")
+        }
+    )
 
     private fun requestIdentity(path: String, method: HttpMethod, body: JsonObject?): JsonObject = buildJsonObject {
         put("method", method.value)

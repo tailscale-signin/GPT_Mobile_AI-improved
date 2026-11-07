@@ -28,7 +28,8 @@
     "Bind REST mutation claims to their actual HTTP payload, preserve exact legacy fences and proof-based recovery, connect GraphQL reconciliation to task acceptance, and retain deterministic workflow-error blocking across error-code upgrades.",
     "Fix Android conversation and diagnostic archive sharing with a FileProvider readability preflight, internal-cache fallback when external files are unavailable, narrow chooser ClipData grants and executable Android regression tests.",
     "Render the pinned, selected-gateway GitHub repository graph as interactive theme-colored bubbles in the Status tab, using actual indexed architecture communities or nodes with explicit no-index, stale and truncated states.",
-    "Preserve independent user-authorized workflow dispatch identities and exact run receipts; retire the temporary review workflow, include related regressions in release scope and batch durable diagnostic verification lookups to address the Windows stress bottleneck without reducing integrity or time limits."
+    "Preserve independent user-authorized workflow dispatch identities and exact run receipts; retire the temporary review workflow, include related regressions in release scope and batch durable diagnostic verification lookups to address the Windows stress bottleneck without reducing integrity or time limits.",
+    "Close the final release-dispatch changed-argument replay gap with protected payload reconciliation, and verify exact draft release identities and downloaded assets before publication."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; its remaining acceptance cases are not represented as passed.",
@@ -838,6 +839,9 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerificationReportRecoveryTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/permissions/GitHubAuthorizationBoundaryTest.kt",
     "docs/repairs/github-verification-recovery-2026-11-06-task.json",
-    "docs/repairs/github-verification-recovery-2026-11-06.md"
+    "docs/repairs/github-verification-recovery-2026-11-06.md",
+    "docs/repairs/diagnostic-final-reconciliation-2026-11-07.md",
+    "scripts/tests/test_published_release.py",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubDispatchReceiptTest.kt"
   ]
 }

@@ -31,9 +31,10 @@
   "validation": {
     "ktlint": "PASS: pinned ktlint 1.3.1 on both changed Kotlin files.",
     "source_identity": "All 38 production, test and boundary source hashes match the compiled harness manifest.",
-    "canonical_fast": "Required on the combined integration before publication.",
+    "canonical_fast": "PASS: integrated source passes378 canonical host tests and associated repository checks.",
     "android_runtime": "Fresh exact-head Android workflows remain required after integration.",
-    "host_boundary": "Real MCP manager, transports, health, recovery and network contracts; Android/Room/persistence adapters remain explicit host boundaries."
+    "host_boundary": "Real MCP manager, transports, health, recovery and network contracts; Android/Room/persistence adapters remain explicit host boundaries.",
+    "independent_review": "PASS: unfinished-producer coalescing, identity-checked cleanup, unchanged health/cooldown policy and deterministic HTTP-dispatch regression reviewed without findings."
   },
   "private_diagnostics_committed": false,
   "remote_mutations": false,

@@ -38,7 +38,8 @@
     "Keep cross-authority research sharing limited to receipted public captures; retain accepted task identity and spent-work counters without transferring private derived context or completion authority.",
     "Repair November 7 saved-page recovery, stale-authority execution boundaries, MCP recovery guidance and export MIME lookup; retain completed and uncertain receipts when later authorization changes.",
     "Keep GitHub progress visible with system animations disabled and qualify bounded repeated gateway disconnect, journal reload and result retrieval.",
-    "Restore mixed-type gateway feature compatibility with literal-Boolean feature negotiation, sanitized schema diagnostics, complete actual-route Android fixtures and shared explicit gateway status selection."
+    "Restore mixed-type gateway feature compatibility with literal-Boolean feature negotiation, sanitized schema diagnostics, complete actual-route Android fixtures and shared explicit gateway status selection.",
+    "Fix explicit MCP refresh racing completed catalogue cleanup, and reduce the agent loop DEX size with invocation-local state and non-inline stages while preserving recovery, authority, receipt and budget behavior."
   ],
   "limitations": [
     "Android GPU qualification requires compatible-device receipts for actual offload, prefill, decode, repeated requests and cancel/recovery; host tests do not establish those results.",
@@ -78,7 +79,8 @@
     "The diagnostics log rendering changes require physical-device frame measurements to quantify their effect. Forward rollback proposals require a reviewed new release; published tags are never rewritten.",
     "Tool health reports version-bound observations from actual executions; it does not actively probe services or guarantee present availability.",
     "Unified Reliability v2 is not complete; its remaining acceptance cases are not represented as passed.",
-    "Voice speech services, GitHub prompt anchoring during physical gestures/IME/rotation, process death and reboot still require device acceptance. This release does not claim those cases passed."
+    "Voice speech services, GitHub prompt anchoring during physical gestures/IME/rotation, process death and reboot still require device acceptance. This release does not claim those cases passed.",
+    "The November7 c285 emulator statistics workload retained API34 gaps of one unacknowledged start and one recorded-in-progress entry, and API36 one unacknowledged start. Functional acceptance passed but performance remains unqualified; later exact-head evidence must be inspected independently."
   ],
   "requiredWorkflows": [
     "Build Android APK",
@@ -925,6 +927,9 @@
     "docs/repairs/gateway-capability-compat-8597579-2026-11-07.md",
     "docs/repairs/diagnostic-motion-ci-8597579-2026-11-07-task.json",
     "docs/repairs/capability-cancellation-ci-8597579-2026-11-07-task.json",
-    "docs/repairs/capability-cancellation-ci-8597579-2026-11-07.md"
+    "docs/repairs/capability-cancellation-ci-8597579-2026-11-07.md",
+    "docs/repairs/mcp-discovery-refresh-ci-8597579-2026-11-07-task.json",
+    "docs/repairs/runner-dex-size-8597579-2026-11-07-task.json",
+    "docs/repairs/runner-dex-size-8597579-2026-11-07.md"
   ]
 }

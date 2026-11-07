@@ -5,7 +5,7 @@
   "base_sha": "91dfce15bc481c4bbdb088bcadd28489436dbb1b",
   "working_branch": "fix/diagnostic-remediation-8597579-2026-11-07",
   "intent": "Implement the requested diagnostic-driven reliability and usability improvements on a new branch, preserve existing safety and verification contracts, and qualify the exact resulting revision.",
-  "state": "CANCELLATION_TEST_REPAIR_VALIDATED_EXACT_HEAD_CI_PENDING",
+  "state": "RUNNER_SIZE_AND_MCP_REFRESH_REPAIRS_VALIDATED_EXACT_HEAD_CI_PENDING",
   "inputs": {
     "diagnostic_sha256": "b539a1e3f3f9642ac5b1ecf779d08e9baa1d65f28dadec4001a415bbc638127d",
     "diagnostic_app_commit": "91dfce15bc481c4bbdb088bcadd28489436dbb1b",
@@ -187,6 +187,49 @@
       "tests": 378,
       "seconds": 17.714,
       "scope": "Integrated assertions-enabled cancellation regression, explicit release scope and source checks; no production or gateway bytes changed from b164."
+    },
+    "mcp_completed_producer_repair": {
+      "status": "PASSED_HOST",
+      "tests": 77,
+      "baseline_failure": "New deterministic cleanup-window regression fails unchanged manager; other76 cases pass.",
+      "jvm": "Assertions/debug/recovery enabled",
+      "source_sha256": "f31fbc5ed257a090d562935f22a02c5d7c2c1e71bea99e0d4d3cbab8a5c28023",
+      "independent_review": "NO_FINDINGS",
+      "scope": "Actual MCP/network production source with explicit Android/Room/persistence adapters."
+    },
+    "runner_dex_repair": {
+      "status": "PASSED_HOST_AND_CALIBRATED_D8",
+      "focused_tests": 23,
+      "broad_tests": 94,
+      "old_code_units": 24310,
+      "new_code_units": 6244,
+      "largest_runner_method_units": 8970,
+      "exclusive_limit": 16383,
+      "d8_version": "9.4.24 from checksum-verified AGP9.4.1",
+      "baseline_matches_packaged_apk": true,
+      "source_sha256": "6ea4df1952d281d3eeb73f8ae5ab4aed1b19b580c25775c2125b10a85da333c0",
+      "independent_review": "NO_FINDINGS",
+      "scope": "Complete actual runner; Android/Room/Combined adapters and one resolver-dependent delegation case remain outside this host scope."
+    },
+    "c285_emulator_functional": {
+      "status": "PASSED_FUNCTIONAL_PERFORMANCE_UNQUALIFIED",
+      "tests_per_api": 55,
+      "api34_measurement_gaps": {
+        "unacknowledged_starts": 1,
+        "recorded_in_progress": 1
+      },
+      "api36_measurement_gaps": {
+        "unacknowledged_starts": 1,
+        "recorded_in_progress": 0
+      },
+      "gap_origin": "Observed real-repository runtime workload, not injected negative fixtures; exact cause not established by logs."
+    },
+    "canonical_fast_ci_repairs": {
+      "status": "PASSED",
+      "tests": 378,
+      "seconds": 19.067,
+      "command": "bash scripts/validate-local.sh fast",
+      "scope": "Integrated MCP completed-producer fix, invocation-local runner extraction, repair ledger and exact release scope; all source, dependency, policy, regex, resource, icon and provenance checks pass."
     }
   },
   "not_yet_measured": [
@@ -218,11 +261,19 @@
         "assertions/debug on, recovery on",
         "assertions/debug on, recovery off"
       ]
+    },
+    {
+      "scope": "Runner state lifetime, statement order, behavior and calibrated D8; MCP completed-producer refresh race and deterministic regression",
+      "reviewers": [
+        "diagnostic_ui",
+        "diagnostic_gateway"
+      ],
+      "status": "NO_FINDINGS"
     }
   ],
   "source_publication": {
-    "source_branch_head": "2f6f1e99e4e5d0d4ed0d64ca529902a42b5ede74",
-    "tree": "f7f235e08f513012ab242cd22f43d5e92aedf087",
+    "source_branch_head": "de2daf514c81b8a680e96ae706902bdc22d8cd2b",
+    "tree": "1a413a3f225bab65df6f69e37078a0daff3e05b6",
     "method": "Git data publication; every source commit tree matched the reviewed local tree, and the branch was read back before checkout reconciliation.",
     "local_to_published_commits": [
       {
@@ -344,6 +395,21 @@
         "local_sha": "b741980b950933630d115fbed64ef112c9c74826",
         "remote_sha": "2f6f1e99e4e5d0d4ed0d64ca529902a42b5ede74",
         "tree": "f7f235e08f513012ab242cd22f43d5e92aedf087"
+      },
+      {
+        "local_sha": "817cbc8afd1b17c15eb595b1649c1c0bbee8e76d",
+        "remote_sha": "c285a86803e940c469ff8a4d23770547143d0511",
+        "tree": "24d86d28569dd9de0cd119fa0f787bc5a2206b8e"
+      },
+      {
+        "local_sha": "04c14d40666099c90dbaded9ac6711507a44717e",
+        "remote_sha": "519bac8099f8f3d53062fc4d2098f63d08dc515c",
+        "tree": "07cc015e298ded37793261660e687ee0121e09f7"
+      },
+      {
+        "local_sha": "a3a54ae5d52993d821ab007739b3e0f056284ad1",
+        "remote_sha": "de2daf514c81b8a680e96ae706902bdc22d8cd2b",
+        "tree": "1a413a3f225bab65df6f69e37078a0daff3e05b6"
       }
     ],
     "gateway_manifest_source_commit": "9f217772f2a2b83d6dd4f1c9f67a4efb46bc3fcc"
@@ -351,7 +417,7 @@
   "pull_request": {
     "number": 811,
     "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/811",
-    "source_head_sha": "2f6f1e99e4e5d0d4ed0d64ca529902a42b5ede74",
+    "source_head_sha": "de2daf514c81b8a680e96ae706902bdc22d8cd2b",
     "recorded_before_merge": true,
     "draft": false,
     "merged": false
@@ -372,8 +438,8 @@
       "android_capabilities": "d3ed6a83d66d83f0b88456752f18baadd9eeee53",
       "compose_test": "1e0207babcff8a7a75e822de27f7a4574cb190af"
     },
-    "source_commit": "2f6f1e99e4e5d0d4ed0d64ca529902a42b5ede74",
-    "ci_candidate_note": "The final review-checkpoint commit extends this source. Read the live PR head and all current checks before merge; b164 results are historical.",
+    "source_commit": "de2daf514c81b8a680e96ae706902bdc22d8cd2b",
+    "ci_candidate_note": "The final review-checkpoint commit extends this source. Read the live PR head and all current checks before merge; c285 and earlier results are historical.",
     "cancellation_test_repair": {
       "base_sha": "b1647150e449a15b50f21c5bcebc6f7ef35949b7",
       "work_package_commit": "188d2318809eff5ef6bba807930a061fdd59bce4",
@@ -404,6 +470,44 @@
       "independent_review": "NO_FINDINGS",
       "remaining": "All mandatory workflows must pass on the new published head; old-head success does not substitute.",
       "published_source_commit": "2f6f1e99e4e5d0d4ed0d64ca529902a42b5ede74"
+    },
+    "runner_size_and_mcp_refresh": {
+      "base_sha": "c285a86803e940c469ff8a4d23770547143d0511",
+      "mcp_source_commit": "519bac8099f8f3d53062fc4d2098f63d08dc515c",
+      "runner_source_commit": "de2daf514c81b8a680e96ae706902bdc22d8cd2b",
+      "runner_work_package_commit": "eb234cdc01cdc53b381da56cb9726b05f7e83a61",
+      "c285_pr_units": {
+        "tests": 7309,
+        "passed": 7304,
+        "failures": 0,
+        "errors": 0,
+        "heap_assumption_skips": 5
+      },
+      "c285_audit_units": {
+        "tests": 7309,
+        "passed": 7303,
+        "failures": 1,
+        "errors": 0,
+        "heap_assumption_skips": 5,
+        "failure": "Explicit MCP refresh reused a completed discovery producer and sent no new request."
+      },
+      "packaged_failure": {
+        "method": "AgentRunner.executeLoop",
+        "code_units": 24310,
+        "exclusive_limit": 16383
+      },
+      "pending": "Full exact-head Android and packaged-APK validation after integration; no prior-head result substitutes.",
+      "c285_dedicated_heaps": {
+        "tests": 11,
+        "suites": 5,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0,
+        "ordinary_skipped_cases_matched": 5,
+        "artifact": 13577588244,
+        "artifact_sha256": "66e6a89ac6ffc9c308887fd1e83402fbd4f0a17a4cdd089f186796b3914dd08a"
+      },
+      "c285_android_lint": "PASSED"
     }
   }
 }

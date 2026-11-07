@@ -18,6 +18,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -102,8 +103,7 @@ class BenchmarkExecutionCoordinator @Inject constructor(
                 // not stop it before Android receives the foreground notification.
                 recovery?.join()
                 recoveryFailure?.let { throw it }
-                withTimeout(10_000) { prepare() }
-                withTimeout(10_000) { ready.await() }
+                prepareAndAwaitForeground(id, ready, prepare)
                 withContext(Dispatchers.IO) {
                     check(preferences.edit().putBoolean(KEY_RUNNING, true).putString("session_id", id).putString("status", "RUNNING").commit()) {
                         "Could not save benchmark execution ownership."
@@ -162,6 +162,26 @@ class BenchmarkExecutionCoordinator @Inject constructor(
         errorMutable.value = null
         job.start()
         return job
+    }
+
+    private suspend fun prepareAndAwaitForeground(id: String, ready: CompletableDeferred<Unit>, prepare: suspend () -> Unit) {
+        var event = "PREPARATION_TIMEOUT"
+        try {
+            withTimeout(10_000) { prepare() }
+            event = "FOREGROUND_READINESS_TIMEOUT"
+            withTimeout(10_000) { ready.await() }
+        } catch (failure: TimeoutCancellationException) {
+            currentCoroutineContext().ensureActive()
+            val interrupted = withContext(NonCancellable) {
+                benchmarkCheckpointWithinDeadline(5_000) { benchmarkStore.interruptBeforeExecution(id, event) }
+            }
+            if (stopReason == null) {
+                val cause = if (event == "PREPARATION_TIMEOUT") "Benchmark preparation exceeded its time limit." else "Android did not acknowledge background benchmark tracking."
+                val retained = interrupted ?: benchmarkStore.batches.value.firstOrNull { it.id == id }
+                errorMutable.value = if (retained?.canResume == true) "$cause Recorded results are retained; remaining work can be resumed." else cause
+            }
+            throw failure
+        }
     }
 
     private fun publishFailure(failure: Throwable) {

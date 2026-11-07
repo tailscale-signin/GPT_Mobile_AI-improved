@@ -1,0 +1,46 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "fix/diagnostic-remediation-8597579-2026-11-07",
+  "base_sha": "c980ad3b4c13f8d9dd8bb4b5a393f4263d3b197f",
+  "implementation_parent": "2463af00397d76c80d60fb5f865f3defd45e6a11",
+  "parent_pr": 811,
+  "working_branch": "work/app-audit-core-2026-11-07",
+  "intent": "Persist a resumable interruption when a saved benchmark manifest cannot proceed because its bounded preparation or foreground service promotion never completes, before execution ownership becomes idle.",
+  "state": "IMPLEMENTED_AND_FOCUSED_VERIFIED_FOR_INTEGRATION",
+  "owned_paths": [
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkExecutionCoordinator.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkStore.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditStoreIntegrationTest.kt"
+  ],
+  "preservation": [
+    "Keep the same ten-second preparation and foreground promotion bounds and one existing execution owner.",
+    "Preserve explicit stop origin, prior committed receipts and unknown outcomes.",
+    "No runner invocation or replay occurs before service readiness.",
+    "Persist the still-owned prepared batch disposition before publishing idle.",
+    "No generated source inventory, gate, dependency or remote-ref changes."
+  ],
+  "task_store": "engineering_agent_checkpoints (existing engineering task store)",
+  "remote_mutations": false,
+  "diagnosis": "A saved manifest remained QUEUED after either startup child timeout canceled its owner; completion only persisted preferences. The durable batch had no remaining execution owner and was not resumable until process recovery.",
+  "implementation": [
+    "Handle the preparation and foreground-readiness child timeouts while the parent execution remains active; report their distinct fixed causes.",
+    "Use the existing canonical store mutex to interrupt only a still-QUEUED batch with no active ordinal, model item, or audit probe.",
+    "Preserve the latest accepted plan, settled and unknown results, original counters, and any explicit stop origin.",
+    "Complete the bounded interruption checkpoint before ownership cleanup; retain SERVICE_INTERRUPTION and the distinct canonical PREPARATION_TIMEOUT or FOREGROUND_READINESS_TIMEOUT event.",
+    "An own timeout always receives the appropriate fixed stage explanation unless this attempt was explicitly stopped; retained-results guidance is conditional on a real resumable saved batch."
+  ],
+  "validation": {
+    "baseline_host": "Reproduced on complete unmodified coordinator across six targeted cases: five expected failures cover saved audit/model readiness timeouts, preparation after manifest commit, preparation without a manifest, and failed resume acknowledgement; normal foreground acknowledgement passes. All timeout cases retain the real ten-second production bounds.",
+    "canonical_fast": "PASS: 387 tests in 45.194 seconds on final production source. Source inventory regenerated locally and excluded from commit. Android regex check: 1229 literal patterns, 73 dynamic patterns not evaluated, zero errors; physical QNN device execution remains unverified.",
+    "ktlint": "PASS: pinned ktlint 1.3.1 on coordinator, store, and integration tests; git diff --check clean.",
+    "full_android": "Four actual Room integration regressions added, including real readiness timeout plus failed resume admission, no-replay successful resume and reopen, queued-only atomic preservation, preparation after commit, and preparation without a manifest. No local Android SDK; execution requires full Android CI.",
+    "remote_mutations": false,
+    "actual_coordinator_host": "PASS: 6/6 cases in 50.823 seconds with unchanged real ten-second gates; complete coordinator and exact checkpoint/store-interruption methods compiled without substitution. Test bodies are byte-identical to baseline. Android/preferences/Room DAO and runner-invocation boundaries are explicit; not Room/device/probe execution evidence.",
+    "independent_review": "UI review confirms ownership stays reserved through checkpoint, no pre-readiness runner invocation, preserved old stopped evidence and resumability, and fixed stage-specific explanations without fabricated saved results. No remaining concrete finding.",
+    "source_sha256": {
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkExecutionCoordinator.kt": "019505c1d467900cabf06c67e50961a6e55cb52f03fbcbc642733970434ae0ef",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkStore.kt": "5473c94f334389edc164aae276524f55161c24ba8ede00773f8e75fa31397a22"
+    }
+  }
+}

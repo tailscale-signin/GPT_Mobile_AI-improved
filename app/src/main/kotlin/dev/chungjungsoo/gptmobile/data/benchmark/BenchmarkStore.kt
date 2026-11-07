@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.room.Room
 import dagger.hilt.android.qualifiers.ApplicationContext
+import dev.chungjungsoo.gptmobile.data.audit.interrupted
 import dev.chungjungsoo.gptmobile.data.audit.recoverAppAuditBatch
 import dev.chungjungsoo.gptmobile.data.localruntime.QualificationStatus
 import dev.chungjungsoo.gptmobile.data.localruntime.RuntimePlanDecisionRecord
@@ -333,6 +334,31 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
             }
         }
         scheduleMirror()
+    }
+
+    /** Startup never admitted execution; retain the latest manifest before releasing its owner. */
+    internal suspend fun interruptBeforeExecution(id: String, event: String): BenchmarkBatch? = withContext(Dispatchers.IO) {
+        require(event in setOf("PREPARATION_TIMEOUT", "FOREGROUND_READINESS_TIMEOUT"))
+        mutex.withLock {
+            try {
+                loadLocked()
+                val batch = dao.batches().firstOrNull { it.id == id }?.let { json.decodeFromString<BenchmarkBatch>(it.payload) } ?: return@withLock null
+                if (batch.state != BenchmarkBatchState.QUEUED || batch.activeOrdinal != null || batch.items.any { it.state == BenchmarkQueueState.RUNNING } || batch.audit?.activeProbeId != null) return@withLock null
+                val now = System.currentTimeMillis()
+                val origin = batch.stopOrigin ?: BenchmarkStopOrigin.SERVICE_INTERRUPTION
+                val interrupted = batch.copy(
+                    state = if (origin == BenchmarkStopOrigin.USER_STOP) BenchmarkBatchState.STOPPED else BenchmarkBatchState.INTERRUPTED,
+                    stopOrigin = origin,
+                    endedAt = now,
+                    audit = batch.audit?.interrupted(now, origin.name)
+                )
+                checkpointLocked(interrupted, null, emptyList(), event)
+                interrupted
+            } catch (failure: Exception) {
+                if (failure is kotlinx.coroutines.CancellationException) throw failure
+                throw BenchmarkStorageFailure(failure)
+            }
+        }
     }
 
     internal suspend fun recordStop(id: String, origin: BenchmarkStopOrigin, ordinal: Int?): Boolean = withContext(Dispatchers.IO) {

@@ -176,16 +176,15 @@ the cause: the magnifier unconditionally destroys its BLAST surface, but the
 legacy test setup returns no surface. At API 34, Robolectric requires both native
 graphics and real draw traversals to provide that surface.
 
-The lifecycle fixture now enables native graphics and wraps the Compose rule in
-an outer `RuleChain` resource. It enables `robolectric.useRealDrawTraversals`
-before Activity creation, retains it through Activity/Compose teardown, and
-restores the exact previous property value or absence afterward. Only the combined
-chain is registered as a rule. All eight test bodies and their synchronous
-actual-focus assertion helper remain unchanged; production focus behavior is
-unchanged. The pinned JUnit 4.13.2 and Compose 1.12.1 rule contracts confirm the
-cleanup order. Actual execution of this corrected fixture still requires CI on
-the follow-up commit; local formatting and framework-source review do not qualify
-the eight lifecycle cases.
+That checkpoint enabled native graphics and wrapped the Compose rule in
+an outer `RuleChain` resource. It enabled `robolectric.useRealDrawTraversals`
+before Activity creation, retained it through Activity/Compose teardown, and
+restored the exact previous property value or absence afterward. Only the combined
+chain was registered as a rule. All eight test bodies and their synchronous
+actual-focus assertion helper remained unchanged; production focus behavior was
+unchanged. The pinned JUnit 4.13.2 and Compose 1.12.1 rule contracts confirmed the
+cleanup order. Subsequent actual execution exposed the native crash described
+below, so this experiment was superseded rather than treated as a passing repair.
 
 The concurrent `54faf9a197e1ee897901e56106802d920a5fd41e` MCP/audit update is
 also preserved in full. It adds bounded OAuth recovery, exact-configuration
@@ -208,7 +207,7 @@ the keyboard case was skipped after the abort. Six remaining composer cases and
 both `ConflatedRenderPreparationTest` cases are absent. All 88 cases in the 11
 changed MCP classes and all 63 transport/negotiation cases passed in both runs.
 
-The focus fixture returns to explicit legacy graphics and replaces only the
+The next checkpoint returned to explicit legacy graphics and replaced only the
 unsupported API 34 BLAST surface factory with a class-scoped shadow. Its surface
 objects use Robolectric's existing `ShadowSurface`, including validity and
 release tracking. Android's actual magnifier creation, dismissal and teardown,
@@ -242,6 +241,101 @@ the fixture now invokes that same constructor with Robolectric's
 `ReflectionHelpers.callConstructor`. A full local Compose attempt stops during
 Gradle plugin resolution, before compilation or tests. The SDK compilation check
 does not substitute for running all nine fixture cases in current-head CI.
+
+## Complete-suite bitmap and coroutine follow-up
+
+Both Android runs on `2ddeff93db245b6571d2fde1bd4fd007faec8e77` now finish
+the full unit suite without the native worker abort. Each produces 1,225 XML
+reports covering 7,742 cases and five ordinary skips. The canonical run records
+7,733 passes and four failures; the independent audit records 7,734 passes and
+three failures. All nine composer cases are present, including the passing real
+BLAST allocation/release regression. Both previously absent conflated-rendering
+cases pass. The 88 changed MCP cases and all 63 transport/negotiation cases pass
+in both executions. These complete results remain failing gates.
+
+The three common composer failures occur when magnifier capture reaches Compose
+vector drawing. Compose invokes the six-argument Android bitmap factory with
+display metrics and color space. Robolectric 4.17's legacy bitmap shadow has the
+five-argument color-space overload, but lacks that six-argument entry point.
+The real Android body therefore reaches an unsupported native allocation and
+dereferences a null bitmap. This is distinct from both the original missing
+BLAST surface and the later native-renderer crash.
+
+The repair registers an API-34-only bitmap subclass through the affected tests'
+`@Config`, without a picker that would replace the explicit override. It adds
+only the missing factory, retains Android's rejection of mutable hardware
+bitmaps, delegates allocation to the existing legacy color-space factory, and
+applies density when display metrics are supplied. Direct Android and actual
+Compose `ImageBitmap` regressions exercise the registration and allocation
+path. The legacy fixture does not establish native pixel fidelity or device
+rendering qualification.
+
+All six focused Android boundary cases pass without skips: three new bitmap
+cases, including the actual Compose `ImageBitmap` path, and the three incoming
+Surface/Magnifier cases. They compile against SDK 37 and execute on pinned
+Robolectric 4.17/API 34 with Compose 1.12.1 and verified dependency hashes. A
+negative control runs the identical bitmap tests without the new shadow: both
+allocation cases reproduce the CI null-bitmap stack, while the input-validation
+case passes. All nine full composer interaction cases still require current-head
+Android CI; the focused result does not replace them.
+
+The fourth failure is independent of graphics: the canonical dashboard test
+reports an uncaught coroutine exception before its next test starts. The
+preceding gateway-selection case calls refresh, which reaches an unstubbed
+diagnostic-page read on `Dispatchers.IO`. Its cancellation was not joined before
+teardown reset `Dispatchers.Main`. The fixture now supplies an explicit empty
+diagnostic page and awaits the ViewModel job's cancellation in each existing
+`finally` block, before Main is reset. All original routing, request-count,
+cancellation and state assertions remain in place.
+
+All three gateway-status cases pass in a focused host run compiling nine current
+production files, including the real ViewModel, monitor and diagnostics facade,
+with pinned Lifecycle 2.11.0 and coroutines 1.11.0. Eight explicit host boundaries
+cover unrelated infrastructure; an unstubbed diagnostic storage call fails
+loudly. Source hashes remain unchanged. The full Android suite remains required.
+
+The concurrent `5acf0eaed06ed34d7972752e40c8ffd733eacea3` gateway-continuity
+change is preserved. Its stronger SurfaceTexture-backed BLAST fixture, explicit
+surface ownership cleanup, three actual Surface/Magnifier boundary tests, and
+all nine existing composer cases are retained. Its durable jobs, conversation
+replay, model-specific availability, Room 50 migration and exact release scope
+remain part of the combined branch. Authoritative generated Room schema and
+full Android checks are required for that combined source.
+
+The combined head's Android generation succeeds, but production compilation
+finds one stale profile-card call in `SelectPlatformDialog`: after the card gained
+optional gateway parameters, its trailing lambda binds to the final Boolean
+parameter instead of `onInsights`. The same two compiler diagnostics appear in
+the canonical, catalog, Marketplace, emulator and CodeQL builds. The call now
+names each existing argument explicitly. Selection, favorite and insight actions
+retain their original bodies; optional gateway presentation retains its defaults.
+The production source inventory is regenerated for the corrected call.
+
+The exact Room 50 JSON exported by canonical run `42430153257` is included,
+with archive and file hashes verified. Its producer checked out PR merge
+`cc51458a6cfc1e5389ce43f7b5e18712ae90c68b`, combining `5acf0eae` with the
+recorded `3ac89cea` base. The schema adds exactly eight gateway tables; all 48
+existing entity definitions and the views are unchanged. Executing the 18 actual
+migration statements in SQLite yields matching columns, defaults, primary keys,
+indexes and foreign keys. This structural check does not replace the current-head
+Room integration tests and generated-schema CI gate.
+
+The `2ddeff93` API 34 emulator job passed 56 cases in 20 instrumentation groups,
+but its performance artifact reports 98 acknowledged starts, two unacknowledged
+starts, 98 successful records and one in-progress record: `coverageGap=true`.
+Those measurements remain incomplete and `measurement_only` on a nonrepresentative
+emulator. API 36 and the separate review-APK job were cancelled after the branch
+advanced; their partial output is not a current-head success receipt.
+
+The final combined working source passes all 400 canonical fast tests, 1,304
+literal-regex checks and 30 XML checks, with 77 dynamic patterns outside static
+evaluation. All five changed Kotlin files pass formatting; architecture and the
+2,265-file / 26-area inventory validate, as do 1,146 exact release paths. One
+intermediate fast attempt hit two subprocess-startup deadlines during concurrent
+compiler validation; all seven deadline/retry cases pass in isolation and the
+complete final fast rerun passes without changing timeouts or assertions. The
+published follow-up still requires fresh full Android, Room, heap, lint, emulator
+and packaged-APK checks.
 
 ## Measurement boundaries
 

@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "bdebcefeca7bbef4dd2bbbdf10fb9e0c7a1cc12cf10f995837a1cc93606755c2",
+  "source_digest": "96ad2a0d7eb18990e8e619ebf065ed41b8e1c2e7f3b7b62abfd2fca06cc61e49",
   "file_count": 2265,
-  "indexed_line_count": 351046,
+  "indexed_line_count": 351053,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -40,7 +40,7 @@
       "id": "chat_ui",
       "label": "Chat, rendering and interaction",
       "file_count": 488,
-      "indexed_line_count": 85227
+      "indexed_line_count": 85234
     },
     {
       "id": "accessibility_and_localization",
@@ -12162,8 +12162,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/SelectPlatformDialog.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "c426a10a5e80010f4eeffadd4306bda9fe775da440c7cd58ff00ef699866fb8d",
-      "indexed_lines": 165
+      "sha256": "237fcf6b5fd4223e1dd3b06bb42f51cfab7101bda3f39263d976a7da80f8d68c",
+      "indexed_lines": 172
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/SelectPlatformProfileCard.kt",

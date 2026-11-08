@@ -148,8 +148,8 @@
       "packaged_variants": 3
     }
   },
-  "reconciled_remote_head": "87709e6f5ff91befb4ede0f30fcbd1d48999afe7",
-  "reconciled_remote_change": "Preserved concurrent persisted-watch identity, selected-revision staging, late planner admission, one-time output allowance and full-checkpoint regression repairs; retained stronger local branch safety assertions. Also preserved guarded owned content fixtures on selected feature branches and the identical required-platformType test correction from 87709e6f5ff91befb4ede0f30fcbd1d48999afe7.",
+  "reconciled_remote_head": "5acf0eaed06ed34d7972752e40c8ffd733eacea3",
+  "reconciled_remote_change": "Preserved all prior concurrent task, transport, focus and MCP/audit repairs, plus the 5acf durable gateway jobs, conversation replay, model-specific availability, Room50 migration and scoped Surface/Magnifier fixtures. Added only the demonstrated bitmap and coroutine fixture repairs, profile-card call-site compile correction and exact CI-exported schema.",
   "verification_boundaries": [
     "Focused JVM suites compile current production implementations with explicit Android/service boundaries; full Android CI remains required.",
     "Diagnostic suite counts overlap and must not be summed into a unique-test count.",
@@ -174,7 +174,10 @@
   "reconciled_remote_history": [
     "423b917196419605a6c789810d3d469c55d09ce8",
     "b34c7dc01368584a480a20a83d15f0f573a11f15",
-    "87709e6f5ff91befb4ede0f30fcbd1d48999afe7"
+    "87709e6f5ff91befb4ede0f30fcbd1d48999afe7",
+    "515d9b064eda674feaea1f411b1ee8d4af4a7d0d",
+    "54faf9a197e1ee897901e56106802d920a5fd41e",
+    "5acf0eaed06ed34d7972752e40c8ffd733eacea3"
   ],
   "ci_followup": {
     "parent_head": "87709e6f5ff91befb4ede0f30fcbd1d48999afe7",
@@ -387,5 +390,179 @@
       "dependency_hashes_verified": true,
       "hidden_surface_constructor_called_with": "ReflectionHelpers.callConstructor"
     }
+  },
+  "composer_bitmap_coroutine_followup": {
+    "parent_head": "5acf0eaed06ed34d7972752e40c8ffd733eacea3",
+    "parent_tree": "9461fa731ebeb9a979e7c6f5f4a90261336fa334",
+    "preserved_concurrent_scope": "Durable gateway jobs and conversation replay, model-specific availability, Room50 migration and SurfaceTexture-backed BLAST lifecycle fixture with three actual Surface/Magnifier tests.",
+    "predecessor_ci": {
+      "head": "2ddeff93db245b6571d2fde1bd4fd007faec8e77",
+      "full_execution_completed_without_native_abort": true,
+      "canonical_run_id": 42428186129,
+      "canonical_job_id": 128570992613,
+      "canonical_artifact_id": 13597002615,
+      "canonical_artifact_sha256": "65e45dd39bdfbb22f6184a00a2f0890a78c66f6abde479914286a05f13485ad1",
+      "audit_run_id": 42428186157,
+      "audit_job_id": 128571018085,
+      "audit_artifact_id": 13597226942,
+      "audit_artifact_sha256": "718fdb1b894a32e612944e5fecaf8686ec535a53caca7f4d8f193dfbefe13ff3",
+      "xml_reports_each": 1225,
+      "tests_each": 7742,
+      "ordinary_skips_each": 5,
+      "canonical_passed": 7733,
+      "canonical_failed": 4,
+      "audit_passed": 7734,
+      "audit_failed": 3,
+      "composer_cases_present_each": 9,
+      "composer_passed_each": 6,
+      "composer_failed_each": 3,
+      "conflated_render_cases_passed_each": 2,
+      "changed_mcp_cases_passed_each": 88,
+      "transport_negotiation_cases_passed_each": 63,
+      "api34_instrumentation_cases_passed": 56,
+      "api34_instrumentation_groups": 20,
+      "api34_performance": {
+        "qualification": "measurement_only",
+        "representative_device": false,
+        "acknowledged_starts": 98,
+        "unacknowledged_starts": 2,
+        "recorded_total": 99,
+        "recorded_success": 98,
+        "recorded_in_progress": 1,
+        "coverage_gap": true
+      },
+      "api36": "CANCELLED_AFTER_BRANCH_ADVANCE",
+      "separate_review_apk": "CANCELLED_AFTER_BRANCH_ADVANCE",
+      "does_not_qualify_later_head": true
+    },
+    "bitmap_cause": "Compose Api26Bitmap invokes the six-argument Android Bitmap factory missing from pinned Robolectric4.17 ShadowLegacyBitmap; the real Android body then receives null from unsupported native allocation.",
+    "bitmap_repair": "SDK34-only explicit legacy bitmap subclass, no shadow picker; implement the missing factory, reject HARDWARE, delegate existing color-space allocation and apply supplied density.",
+    "coroutine_cause": "Unstubbed diagnosticPage in the preceding GatewayStatus selection case reaches real IO; cancel without join lets its continuation resume after Main reset, failing the next runTest before entry.",
+    "coroutine_repair": "Stub an empty diagnostic page and cancelAndJoin the ViewModel job in each existing finally before unmocking/resetting Main; retain every original assertion.",
+    "production_focus_unchanged": true,
+    "local_validation": "PASSED_WITH_EXPLICIT_HOST_BOUNDARIES",
+    "exact_combined_head_android_ci": "REQUIRED_AFTER_PUBLICATION",
+    "generated_room50_schema": {
+      "source_head": "5acf0eaed06ed34d7972752e40c8ffd733eacea3",
+      "canonical_run_id": 42430153257,
+      "canonical_job_id": 128577082702,
+      "artifact_id": 13597173670,
+      "archive_sha256": "e93b04803ad9a9c4087d491b9a04bf3eb513daaa0bb7032b6c7b6e5f53b2d807",
+      "file": "app/schemas/dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2/50.json",
+      "file_sha256": "07aa423477019550ad9c2f42c5a9c9aa0e31250ff66ecd9fc646c02e48710f50",
+      "bytes": 170782,
+      "entities": 56,
+      "room_identity_hash": "1396b336d370193e752a182123c96b35",
+      "migration_comparison": {
+        "passed": true,
+        "sql_statements_executed": 18,
+        "added_entities": 8,
+        "existing_entities_unchanged": 48,
+        "removed_entities": 0,
+        "views_unchanged": true,
+        "sqlite_columns_defaults_pk_indexes_foreign_keys_match": true
+      },
+      "full_room_execution": "REQUIRED_ON_FOLLOWUP_HEAD",
+      "preserved_exact_generated_bytes": true,
+      "producer_checkout": "cc51458a6cfc1e5389ce43f7b5e18712ae90c68b",
+      "producer_checkout_kind": "GitHub PR merge of source head into base3ac89ceafd9083f67da30e92f9f93aae27be4600"
+    },
+    "device_rendering_and_live_gateway": "NOT_QUALIFIED",
+    "canonical_fast": {
+      "passed": true,
+      "tests": 400,
+      "literal_regex_checks": 1304,
+      "dynamic_regex_patterns_not_evaluated": 77,
+      "xml_files": 30
+    },
+    "production_inventory": {
+      "valid": true,
+      "files": 2265,
+      "areas": 26
+    },
+    "exact_release_paths": 1146,
+    "combined_source_compiler_followup": {
+      "head": "5acf0eaed06ed34d7972752e40c8ffd733eacea3",
+      "canonical_job_id": 128577082702,
+      "same_error_confirmed_in_jobs": [
+        128576927088,
+        128576927067,
+        128576953655,
+        128576926874
+      ],
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/SelectPlatformDialog.kt",
+      "cause": "An existing trailing callback lambda bound to the newly appended animateGatewayName Boolean parameter, leaving onInsights missing.",
+      "repair": "Name every existing card argument, including onInsights, preserving the same selection/favorite/details callbacks and default optional gateway presentation.",
+      "local_ktlint": "PASSED",
+      "full_compilation": "REQUIRED_ON_FOLLOWUP_HEAD"
+    },
+    "bitmap_surface_host_validation": {
+      "passed": true,
+      "tests": 6,
+      "bitmap_and_compose_image_bitmap_tests": 3,
+      "surface_magnifier_tests": 3,
+      "skipped": 0,
+      "compile_sdk": 37,
+      "runtime_sdk": 34,
+      "robolectric": "4.17",
+      "compose": "1.12.1",
+      "jdk": 21,
+      "kotlin": "2.4.20",
+      "dependency_hashes_verified": true,
+      "baseline_identical_bitmap_tests_without_bridge": {
+        "tests": 3,
+        "failed": 2,
+        "passed": 1,
+        "failures_reproduce_actual_ci_native_allocation_null": true
+      },
+      "source_sha256": {
+        "app/src/test/java/dev/chungjungsoo/gptmobile/presentation/ui/chat/ComposerBitmapShadow.java": "76304d45f4e8449fc59e86f8abcffd253ee3f50adf9454d8da546595df578df9",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ComposerBitmapShadowTest.kt": "3b216480836ec6e0e03d014dd8995a55a714e0fd640c1edf11fe02ab3a0906c4",
+        "app/src/test/java/dev/chungjungsoo/gptmobile/presentation/ui/chat/ComposerSurfaceQueueShadow.java": "6fb5e58b3d06ebb04d203b76e73d895f486d0b593577a8303e42fcc488197143",
+        "app/src/test/java/dev/chungjungsoo/gptmobile/presentation/ui/chat/ComposerSurfaceQueueShadowTest.java": "09e2dc48a2e057e7eadaaa755f2534598c81a8ba30faeea96eae7d7eb9b0db65"
+      },
+      "scope": "Actual repository bitmap and Surface/Magnifier shadow/test classes, public SDK 37 compilation, Robolectric 4.17 API 34 execution and pinned Compose 1.12.1 ImageBitmap; not full Compose input lifecycle execution",
+      "full_nine_compose_interaction_cases": "REQUIRE_CURRENT_HEAD_ANDROID_CI"
+    },
+    "gateway_status_host_validation": {
+      "passed": true,
+      "tests": 3,
+      "actual_production_files": 9,
+      "repository_test_files": 1,
+      "unchanged_fixture_helper_files": 1,
+      "explicit_host_boundaries_or_excerpts": 8,
+      "lifecycle": "2.11.0",
+      "coroutines": "1.11.0",
+      "actual_view_model_monitor_and_diagnostics_facade": true,
+      "unselected_diagnostic_storage_fails_loudly": true,
+      "source_drift": false,
+      "all_original_assertions_unchanged": true,
+      "test_sha256": "56bd4c0de91e6ffb13dfed686e8b543b2c1b8c74d7584adcabd64e47185857cd",
+      "full_android_execution": "REQUIRED_ON_FOLLOWUP_HEAD"
+    },
+    "local_fast_timing_recheck": {
+      "first_followup_fast_tests_passed": 400,
+      "later_parallel_compilation_attempt": {
+        "tests": 400,
+        "errors": 2,
+        "affected_tests": [
+          "test_deadline_terminates_a_stalled_descendant_and_never_retries_it",
+          "test_dependency_backoff_uses_the_same_total_deadline"
+        ],
+        "observation": "Short-deadline subprocess fixtures expired before their child could write its startup marker while compiler harnesses were active; no source/assertion/timeout changes."
+      },
+      "isolated_gradle_retry_tests_passed": 7,
+      "final_complete_fast_recheck": {
+        "passed": true,
+        "tests": 400,
+        "duration_seconds": 29.799,
+        "production_deadlines_or_test_assertions_changed": false
+      }
+    },
+    "changed_kotlin_formatting": {
+      "passed": true,
+      "files": 5
+    },
+    "architecture_index_valid": true
   }
 }

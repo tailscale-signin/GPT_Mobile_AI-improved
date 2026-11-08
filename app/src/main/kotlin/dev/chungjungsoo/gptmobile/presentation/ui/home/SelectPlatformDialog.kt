@@ -123,10 +123,17 @@ internal fun SelectPlatformDialog(
                         }
                     }
                     items(visible, key = { it.uid }) { profile ->
-                        SelectPlatformProfileCard(profile, profile.uid in selected, insights[profile.uid]?.takeIf { it.matches(profile) }, onPlatformSelect, { onTogglePlatformFavorite(profile.id) }) {
-                            detailsUid = profile.uid
-                            detailsContext = priceContextKey(profile)
-                        }
+                        SelectPlatformProfileCard(
+                            profile = profile,
+                            selected = profile.uid in selected,
+                            insight = insights[profile.uid]?.takeIf { it.matches(profile) },
+                            onToggle = onPlatformSelect,
+                            onFavorite = { onTogglePlatformFavorite(profile.id) },
+                            onInsights = {
+                                detailsUid = profile.uid
+                                detailsContext = priceContextKey(profile)
+                            }
+                        )
                     }
                     if (visible.isEmpty()) {
                         item(key = "empty") {

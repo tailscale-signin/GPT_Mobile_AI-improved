@@ -50,7 +50,7 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34], application = Application::class, shadows = [ComposerSurfaceQueueShadow::class])
+@Config(sdk = [34], application = Application::class, shadows = [ComposerSurfaceQueueShadow::class, ComposerBitmapShadow::class])
 @GraphicsMode(GraphicsMode.Mode.LEGACY)
 class ComposerInputLifecycleTest {
     val compose = createComposeRule()

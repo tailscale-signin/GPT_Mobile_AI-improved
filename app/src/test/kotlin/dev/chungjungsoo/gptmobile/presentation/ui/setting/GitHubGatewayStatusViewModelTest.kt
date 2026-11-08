@@ -10,6 +10,7 @@ import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayClientDiagnostics
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayDashboardClient
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayDashboardObservation
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayDashboardPhase
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayDiagnosticPage
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayDiagnosticStatus
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayNetworkRecoveryMonitor
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayReadinessObservation
@@ -26,8 +27,9 @@ import io.mockk.unmockkObject
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.awaitCancellation
-import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -60,6 +62,7 @@ class GitHubGatewayStatusViewModelTest {
         mockkObject(GatewayClientDiagnostics)
         every { GatewayClientDiagnostics.diagnosticStatus } returns MutableStateFlow(GatewayDiagnosticStatus())
         coEvery { GatewayClientDiagnostics.diagnosticStatusFor(any()) } returns GatewayDiagnosticStatus()
+        coEvery { GatewayClientDiagnostics.diagnosticPage(any(), any(), any(), any(), any()) } returns GatewayDiagnosticPage(emptyList(), null, 0)
         every { GatewayClientDiagnostics.refreshDiagnostics(any()) } returns Unit
         justRun { client.refresh() }
         coEvery { client.readiness(any(), any()) } coAnswers {
@@ -101,7 +104,7 @@ class GitHubGatewayStatusViewModelTest {
             assertEquals(listOf("ready", "dashboard"), requested.map { it.first })
             assertTrue(requested.all { it.second.apiUrl == gateway.apiUrl && it.second.token == gateway.token })
         } finally {
-            model.viewModelScope.cancel()
+            model.viewModelScope.coroutineContext[Job]!!.cancelAndJoin()
         }
     }
 
@@ -146,7 +149,7 @@ class GitHubGatewayStatusViewModelTest {
             assertEquals(other.token, requested.last().second.token)
             assertTrue(requested.none { it.second.profileUid == inference.uid })
         } finally {
-            model.viewModelScope.cancel()
+            model.viewModelScope.coroutineContext[Job]!!.cancelAndJoin()
         }
     }
 
@@ -176,7 +179,7 @@ class GitHubGatewayStatusViewModelTest {
             assertEquals(requestsAfterRemoval, requested.size)
             assertTrue(requested.none { it.second.profileUid in setOf(inference.uid, other.uid) })
         } finally {
-            model.viewModelScope.cancel()
+            model.viewModelScope.coroutineContext[Job]!!.cancelAndJoin()
         }
     }
 

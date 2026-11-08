@@ -1,8 +1,11 @@
 # Interrupted work, approval recovery and service qualification
 
-Repository: `tailscale-signin/GPT_Mobile_AI-improved`  
-Branch: `fix/gateway-readiness-diagnostics-2026-11-08`  
-Implementation base: `f1dc03894fbc250945634d6a1f11e6149926c469`  
+Repository: `tailscale-signin/GPT_Mobile_AI-improved`
+
+Branch: `fix/gateway-readiness-diagnostics-2026-11-08`
+
+Implementation base: `f1dc03894fbc250945634d6a1f11e6149926c469`
+
 Existing pull request: #814
 
 This follow-up implements the actionable software changes from the supplied interrupted OpenRouter/GitHub review and the earlier gateway/Android diagnostic review. It extends the repairs already described in [gateway-readiness-diagnostics-2026-11-08.md](gateway-readiness-diagnostics-2026-11-08.md), [gateway-recovery-authority-2026-11-08.md](gateway-recovery-authority-2026-11-08.md) and [android-diagnostic-performance-2026-11-08.md](android-diagnostic-performance-2026-11-08.md). The task JSON records validation independently from deployment qualification.

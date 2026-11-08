@@ -5310,7 +5310,7 @@ class ChatRepositoryImpl(
                     put("model", platform.model)
                     put("task_binding", verifiedEvidence.checkpointBinding())
                     put("accepted_task", verifiedEvidence.acceptedTaskRequest() ?: githubEffectiveTask)
-                    githubContext?.let {
+                    chatToolConfig?.github?.let {
                         put("repository", "${it.owner}/${it.repo}")
                         put("selected_ref", it.ref)
                         put("captured_head_sha", it.commitSha)

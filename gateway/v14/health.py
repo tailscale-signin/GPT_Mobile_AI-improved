@@ -136,6 +136,10 @@ def readiness(runtime, state, model=''):
         'toolConnectionCount': None})
     ready = (not service['draining'] and journal in {'ready', 'disabled'} and backend['generationReady'] is True
              and (not model or backend['modelAvailable'] is True))
+    can_queue = bool(ready and journal == 'ready' and getattr(runtime, 'gateway_durable_queue_installed', False)
+                     and service.get('queueAvailable') is True)
+    backend.update(canQueue=can_queue, canAccept=bool(ready and (
+        service.get('activeWorkers', 0) < service.get('maxWorkers', 0) or can_queue)))
     return {'schemaVersion': 1, 'ready': ready, 'version': runtime.GATEWAY_VERSION,
             'instanceId': state.instance_id, 'checks': {'journal': journal, 'backend': backend['backend']},
             'capabilities': backend, 'service': service, 'durableJobs': runtime.GATEWAY_DURABLE_JOBS,

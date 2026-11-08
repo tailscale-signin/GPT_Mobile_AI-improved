@@ -1,0 +1,210 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "pull_request": 813,
+  "base_branch": "main",
+  "base_sha": "3ac89ceafd9083f67da30e92f9f93aae27be4600",
+  "reconciled_remote_head": "2ddeff93db245b6571d2fde1bd4fd007faec8e77",
+  "working_branch": "fix/diagnostic-remediation-8597579-2026-11-07",
+  "local_branch": "repair/pr813-gateway-continuity-2026-11-07",
+  "task_store": "engineering_agent_checkpoints",
+  "task_store_key": "gateway-continuity-2026-11-07",
+  "state": "READY_FOR_CURRENT_HEAD_CI_SCHEMA_CAPTURE",
+  "merge_requested": true,
+  "original_repair_checkpoint": "pr813-integration-2026-11-07-task.json",
+  "contract": "gateway/contracts/continuity-v1.json",
+  "owners": {
+    "root": "Android service lifecycle, normal Send/Stop routing, integration review, validation and publication",
+    "ci_review": "Gateway lifecycle, durable queue, shared catalog/conversations, HTTP contracts and server tests",
+    "integration_review": "Android Room migration, saved bindings/replay, Jobs UI and canonical conversation navigation",
+    "checkout_and_rules": "Composer fixture, shared readiness repository, NewChat ordering/availability presentation"
+  },
+  "accepted_requirements": [
+    "Fresh correct-model gateway readiness promotes saved profiles without changing selected execution or favorite order",
+    "Theme-primary six-second name fade, steady green Online badge, reduced-motion and large-text handling",
+    "Gateway-wide cached Jobs tab with Running, Queued, Needs attention and Recent groups",
+    "Accurate total elapsed time from acceptance, explicit stale status and no network/database work on timer ticks",
+    "Read-only open/reconnect restores original canonical conversation/profile/model/repository/branch",
+    "Durable acceptance survives Android background, swipe-away, process death, force stop and connection loss",
+    "Eligible normal GitHub Send uses gateway-owned workflow while preserving read/plan/implement scope",
+    "Lost submission responses reconcile the same stable command without duplicate work",
+    "Explicit Stop reports requested versus confirmed cancellation and remains separate from lifecycle detach",
+    "Accepted queue entries survive worker contention; active/waiting jobs cannot be evicted",
+    "Snapshot/watermark replay handles duplicates, gaps, profile edits and gateway process restarts",
+    "Phone-only tools and approvals remain visible recoverable waits",
+    "Legacy engineering bindings migrate to normalized Room storage without changing request identities"
+  ],
+  "validation": {
+    "expanded_current_head": "LOCAL_FOCUSED_AND_FAST_GATES_PASSED_ANDROID_CI_SCHEMA_CAPTURE_REQUIRED",
+    "composer_fixture": {
+      "source": "Scoped SurfaceTexture-backed legacy BLAST Surface factory; no Magnifier/focus stub or native real-draw traversal",
+      "boundary_tests": 3,
+      "boundary_passed": 3,
+      "compose_cases_preserved": 9,
+      "compose_execution": "PENDING_CURRENT_HEAD_CI",
+      "log": "composer-surface-host/exact-tests.log"
+    },
+    "physical_device": "NOT_AVAILABLE_NOT_QUALIFIED",
+    "availability_host": {
+      "tests": 27,
+      "failures": 0,
+      "source": "Actual availability/policy/parser/order Kotlin sources with bounded Android boundaries",
+      "limitation": "Not Android Compose/Hilt or physical device qualification",
+      "log": "availability-host/root-policy-recheck.log"
+    },
+    "server_existing_engineering": {
+      "tests": 19,
+      "failures": 0,
+      "source": "Actual modified production Python engineering state machine",
+      "new_continuity_suite": "IN_PROGRESS"
+    },
+    "profile_metadata_host": {
+      "tests": 20,
+      "failures": 0,
+      "source": "Actual GatewayAPIImpl and control negotiation against Ktor MockEngine",
+      "limitation": "Not full Android/Hilt compilation",
+      "log": "profile-metadata-host/tests.log"
+    },
+    "android_continuity_host_predecessor": {
+      "tests": 30,
+      "failures": 0,
+      "limitation": "Before latest identity/mapping/replay edits; final-source rerun required. Does not qualify Room migration."
+    },
+    "server_continuity_predecessor": {
+      "tests": 24,
+      "failures": 0,
+      "limitation": "Latest trailing-part gap regression and canonical isolated suite pending"
+    },
+    "server_canonical": {
+      "python_suites": 50,
+      "tests": 587,
+      "passed": 586,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 1,
+      "skip_reason": "No bindable non-loopback LAN IPv4 interface",
+      "browser_passed": 7,
+      "log": "server-continuity-canonical.log"
+    },
+    "server_final_focused": {
+      "tests": 26,
+      "passed": 26,
+      "production_changed_since_canonical": false,
+      "additional_scope": "Actual HTTP interior/trailing gap fixtures and one regression",
+      "source_files_verified_unchanged": 192,
+      "log": "server-continuity-freeze.log"
+    },
+    "authentication": {
+      "tests": 25,
+      "passed": 25,
+      "log": "server-continuity-authentication.log"
+    },
+    "local_full_android": {
+      "result": "STOPPED_EXIT_130_DURING_DEPENDENCY_RESOLUTION",
+      "kotlin_compilation": false,
+      "ksp_generation": false,
+      "room_50_schema_generated": false,
+      "test_execution": false,
+      "log": "android-local-validation/run.log"
+    },
+    "server_base_metadata": {
+      "tests": 27,
+      "passed": 27,
+      "production_change": "Add original admitted base as three projection fields; execution/provider/source behavior unchanged",
+      "canonical_rerun": "REQUIRED_IN_CURRENT_HEAD_CI",
+      "log": "server-continuity-base.log"
+    },
+    "android_continuity_host_final": {
+      "tests": 42,
+      "passed": 42,
+      "failures": 0,
+      "skipped": 0,
+      "breakdown": {
+        "replay": 10,
+        "repository": 14,
+        "actual_server_wire": 8,
+        "multipart": 5,
+        "jobs_observation": 4,
+        "rejected_polling": 1
+      },
+      "presentation_tests_passed": 2,
+      "exact_server_fixtures": 22,
+      "source_files_verified_unchanged": 52,
+      "limitation": "Actual Kotlin source with explicit Android/Room boundaries; eight real Room/Robolectric cases require current-head CI",
+      "log": "gateway-continuity-host/tests.log",
+      "source_receipt_sha256": "29aaf599764fa6144daf385362c15f5602f7ae0e0f0c89a7c92ad455911c60ad"
+    },
+    "sqlite_migration_probe": {
+      "source_schema": 49,
+      "target_schema": 50,
+      "ddl_statements": 18,
+      "dao_queries_compiled": 41,
+      "foreign_key_check": "clean",
+      "limitation": "SQLite probe; not an executed Android Room migration test"
+    },
+    "source_inventories": {
+      "production_files": 2265,
+      "areas": 26,
+      "architecture_check": "passed",
+      "gateway_manifest": "regenerated_at_parent_2ddeff93d"
+    },
+    "repository_fast_first_attempt": {
+      "tests": 400,
+      "failures": 1,
+      "cause": "Android full capability fixture differed from the refreshed actual gateway fixture",
+      "repair": "Copied the exact generated gateway capability fixture to the existing Android resource; equality assertion unchanged",
+      "rerun_log": "gateway-continuity-fast-final.log"
+    },
+    "kotlin_format": {
+      "files": 61,
+      "passed": true,
+      "log": "gateway-continuity-ktlint.log"
+    },
+    "repository_fast_final": {
+      "tests": 400,
+      "failures": 0,
+      "errors": 0,
+      "passed": true,
+      "literal_regex_patterns": 1304,
+      "dynamic_regex_patterns_not_evaluated": 77,
+      "xml_resources": 30,
+      "log": "gateway-continuity-fast-final.log"
+    }
+  },
+  "pending": [
+    "publish with fresh exact-head lease preserving concurrent work",
+    "obtain and commit actual CI-generated Room50 schema",
+    "repair any current-head compiler/test failures",
+    "qualify current-head Android, heap, gateway, emulator, security and packaging checks",
+    "merge through normal GitHub rules after fresh head/base/review validation",
+    "verify resulting main and open PR inventory"
+  ],
+  "observed_remote_head": "2ddeff93db245b6571d2fde1bd4fd007faec8e77",
+  "remote_reconciliation_pending": false,
+  "implemented_root": [
+    "Foreground-service timeout uses interruption, not explicit cancellation",
+    "Eligible normal GitHub Send persists original messages/run before exact command handoff",
+    "Saved or uncertain command ownership prevents duplicate local execution",
+    "Visible-screen reconnect performs read-only recovery and never sends Stop on detach",
+    "Explicit Stop displays requested/confirmed/unavailable outcome",
+    "Coordinator delegates owned job recovery to the conversation engine and targets explicit Stop by original request ID",
+    "Read/plan/implement selection honors tool disable flags and conservative read-only constraints",
+    "Chat master tool-disable is checked at routing and immediately before gateway admission",
+    "A visible unconfirmed admission preserves the next draft and reads the original command before another turn"
+  ],
+  "new_root_regressions": {
+    "ChatViewModelStartupTest": 5,
+    "GatewayCoordinatorRecoveryTest": 4,
+    "AgentRunForegroundLifecycleTest": 2,
+    "status": "WRITTEN_ANDROID_EXECUTION_PENDING"
+  },
+  "validation_integrity_incident": {
+    "commit": "e2089ce7f93db4d142416d53378c68a314f623c1",
+    "cause": "Test fixture inherited GIT_DIR/GIT_WORK_TREE and mutated local metadata",
+    "remote_writes": false,
+    "snapshot_files_verified_unchanged": 5065,
+    "restored_head": "54faf9a197e1ee897901e56106802d920a5fd41e",
+    "recovery_ref": "refs/recovery/20261108-fixture-incident",
+    "canonical_rerun_required": false
+  }
+}

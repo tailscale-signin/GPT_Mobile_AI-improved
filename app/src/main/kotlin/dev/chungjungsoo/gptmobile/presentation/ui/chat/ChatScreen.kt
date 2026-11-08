@@ -128,6 +128,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.agent.ActiveAgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.ACTIVE_REVISION_LATEST
@@ -400,6 +401,15 @@ private fun ChatScreenContent(
     val chatPlatformModels by chatViewModel.chatPlatformModels.collectAsStateWithLifecycle()
     val availableChatTools by chatViewModel.availableChatTools.collectAsStateWithLifecycle()
     val chatToolConfig by chatViewModel.chatToolConfig.collectAsStateWithLifecycle()
+    val gatewayConversation by chatViewModel.gatewayConversation.collectAsStateWithLifecycle()
+    val gatewayLifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    LaunchedEffect(chatRoom.id, chatToolConfig.github != null, gatewayLifecycle) {
+        if (chatToolConfig.github != null) {
+            gatewayLifecycle.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                chatViewModel.observeGatewayConversation(chatRoom.id)
+            }
+        }
+    }
     val githubDecisions by chatViewModel.githubDecisions.collectAsStateWithLifecycle()
     val githubWaiting by chatViewModel.waitingGitHubDecisions.collectAsStateWithLifecycle()
     GitHubChatPresenceEffect(chatRoom.id.takeIf { chatToolConfig.github != null })
@@ -1017,6 +1027,11 @@ private fun ChatScreenContent(
                 }
                 if (chatToolConfig.github != null) {
                     val activeMessage = groupedMessages.assistantMessages.flatten().lastOrNull { it.currentRunId in activeAgentRuns }
+                    if (gatewayConversation.requestId != null || gatewayConversation.currentJob != null) {
+                        item(key = "gateway-conversation-state") {
+                            GatewayConversationStatusCard(gatewayConversation, chatViewModel::reconnectGatewayConversation, chatViewModel::cancelActiveRuns)
+                        }
+                    }
                     chatToolConfig.github?.let { github ->
                         item(key = "gateway-engineering-jobs") { GatewayEngineeringPanel(chatRoom.id, github, appAllPlatforms.firstOrNull { it.uid == github.mainProfileUid }, debugMode = debugMode) }
                     }
@@ -1097,7 +1112,7 @@ private fun ChatScreenContent(
                         }.orEmpty(),
                         chatEnabled = canUseChat,
                         sendButtonEnabled = selectedAttachments.none { it.status != ChatAttachmentDraft.Status.Ready },
-                        isRunning = !isIdle,
+                        isRunning = !isIdle || gatewayConversation.currentJob?.let { !it.terminal && "cancel" in it.permittedActions } == true,
                         queuedPromptCount = queuedPromptCount,
                         selectedAttachments = selectedAttachments,
                         onFileSelected = { filePath -> chatViewModel.addSelectedFile(filePath) },

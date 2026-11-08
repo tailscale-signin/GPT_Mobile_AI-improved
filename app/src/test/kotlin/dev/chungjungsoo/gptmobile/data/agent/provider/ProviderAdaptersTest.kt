@@ -1003,7 +1003,7 @@ class ProviderAdaptersTest {
             events
         )
         assertNull(api.responseRequests.single().tools)
-        assertEquals(ProviderRequestConfig(profile.apiUrl, profile.token, profileUid = profile.uid, profileRevision = dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.profileRevision(profile), configuredProfileReasoning = profile.reasoning, providerType = "OPENAI"), api.configs.single())
+        assertEquals(ProviderRequestConfig(profile.apiUrl, profile.token, profileUid = profile.uid, profileName = profile.name, profileRevision = dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.profileRevision(profile), configuredProfileReasoning = profile.reasoning, providerType = "OPENAI"), api.configs.single())
     }
 
     @Test
@@ -1094,8 +1094,9 @@ class ProviderAdaptersTest {
                     )
                 )
             )
+            val profile = platform(ClientType.LLAMA).copy(name = "Local · 東京 🦙")
             val session = OpenAICompatibleAdapter(api, FakeGroqAPI(), encoder)
-                .openSession(turns(), platform(ClientType.LLAMA), RequestConstraints(reasoningModeOverride = mode))
+                .openSession(turns(), profile, RequestConstraints(reasoningModeOverride = mode))
 
             session.streamRound(listOf(definition), emptyList()).toList()
             session.streamRound(emptyList(), listOf(AgentToolExchange(listOf(call), listOf(result)))).toList()
@@ -1106,6 +1107,8 @@ class ProviderAdaptersTest {
             assertEquals(expectedHeaders + ("X-Gateway-Allow-Local-Tools" to "false"), api.configs.first().extraHeaders)
             assertEquals(expectedHeaders + mapOf("X-Gateway-Job-ID" to "job-123", "X-Gateway-Allow-Local-Tools" to "false"), api.configs.last().extraHeaders)
             assertEquals(listOf(effectiveMode, effectiveMode), api.configs.map { it.reasoningMode })
+            assertEquals(listOf(profile.uid, profile.uid), api.configs.map { it.profileUid })
+            assertEquals(listOf(profile.name, profile.name), api.configs.map { it.profileName })
             assertEquals("none", api.chatRequests.last().toolChoice)
             assertTrue(api.chatRequests.last().tools.isNullOrEmpty())
             val finalMessages = api.chatRequests.last().messages
@@ -1346,6 +1349,7 @@ class ProviderAdaptersTest {
             "https://provider.example/v1",
             "secret",
             profileUid = profile.uid,
+            profileName = profile.name,
             profileRevision = dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.profileRevision(profile),
             configuredProfileReasoning = profile.reasoning,
             providerType = "GROQ"

@@ -1,0 +1,59 @@
+{
+  "gateway_id": "gw_d1665bfbcbf744408387656fdd6379dd",
+  "principal_id": "owner",
+  "conversation_id": "conv_49c3233513a34cb1860751081f489a01",
+  "revision": 2,
+  "items": [
+    {
+      "sequence": 1,
+      "message_id": "conv_49c3233513a34cb1860751081f489a01:user:eng_557253c461734d4188fb2f4ecb956bb9",
+      "conversation_id": "conv_49c3233513a34cb1860751081f489a01",
+      "job_id": "eng_557253c461734d4188fb2f4ecb956bb9",
+      "role": "user",
+      "kind": "user",
+      "content": "Repair the build",
+      "created_at_ms": 1794052800000,
+      "logical_message_id": "conv_49c3233513a34cb1860751081f489a01:user:eng_557253c461734d4188fb2f4ecb956bb9",
+      "part_index": 0,
+      "part_count": 1,
+      "content_sha256": "8fc85d0b26692ddfecf749e8fb277a18ee523819c75bb9e72b414173499eabf8"
+    },
+    {
+      "sequence": 2,
+      "message_id": "conv_49c3233513a34cb1860751081f489a01:fixture-part-final:part:0",
+      "conversation_id": "conv_49c3233513a34cb1860751081f489a01",
+      "job_id": "eng_557253c461734d4188fb2f4ecb956bb9",
+      "role": "assistant",
+      "kind": "final",
+      "content": "Retained answer with Unicode 🌍. Retained answer with Unicode ",
+      "created_at_ms": 1794052800000,
+      "logical_message_id": "conv_49c3233513a34cb1860751081f489a01:fixture-part-final",
+      "part_index": 0,
+      "part_count": 7,
+      "content_sha256": "838be2323e845f2685e8baa30588855a3338ea94bac43b474c81e32ebaf7069d"
+    },
+    {
+      "sequence": 3,
+      "message_id": "conv_49c3233513a34cb1860751081f489a01:fixture-part-final:part:1",
+      "conversation_id": "conv_49c3233513a34cb1860751081f489a01",
+      "job_id": "eng_557253c461734d4188fb2f4ecb956bb9",
+      "role": "assistant",
+      "kind": "final",
+      "content": "🌍. Retained answer with Unicode 🌍. Retained answer with Un",
+      "created_at_ms": 1794052800000,
+      "logical_message_id": "conv_49c3233513a34cb1860751081f489a01:fixture-part-final",
+      "part_index": 1,
+      "part_count": 7,
+      "content_sha256": "838be2323e845f2685e8baa30588855a3338ea94bac43b474c81e32ebaf7069d"
+    }
+  ],
+  "next_cursor": "eyJhZnRlciI6MywiY29udmVyc2F0aW9uX2lkIjoiY29udl80OWMzMjMzNTEzYTM0Y2IxODYwNzUxMDgxZjQ4OWEwMSIsImdhdGV3YXlfaWQiOiJnd19kMTY2NWJmYmNiZjc0NDQwODM4NzY1NmZkZDYzNzlkZCIsImtpbmQiOiJtZXNzYWdlcyIsInByaW5jaXBhbCI6IjYyMmYwNmNiY2QyZTdlNjE2MzdlMTcyMTJlNzE0ZTZjNzIxZDJkZDVhOWY3YmMxYWVjOTExYjY1YjM0ZWRjZjUiLCJ2ZXJzaW9uIjoxfVCWON6E1Ye9frcfg3Enz6rbU4z9ZLdRuhDR0CiCypNT",
+  "has_more": true,
+  "earliest_sequence": 1,
+  "latest_sequence": 8,
+  "history_complete": true,
+  "history_limitation": null,
+  "gap": false,
+  "gap_details": null,
+  "server_time_ms": 1794052800000
+}

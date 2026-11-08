@@ -58,6 +58,7 @@ class GatewayEngineeringClient internal constructor(private val http: HttpClient
                 GatewayClientDiagnostics.observe(diagnostic, response.status.value) { response.headers[it] }
                 if (path == "capabilities" && response.status.value in setOf(404, 501)) throw UnsupportedEngineeringGateway()
                 val payload = response.boundedMetadata(if (path == "capabilities") 128 * 1024 else 2_000_000)
+                val serverError = if (response.status.isSuccess()) null to null else gatewayErrorDetails(payload)
                 if (!response.status.isSuccess()) {
                     val error = runCatching { json.parseToJsonElement(payload) as? JsonObject }.getOrNull()
                     val detail = error?.get("error") as? JsonObject ?: error?.get("detail") as? JsonObject ?: error
@@ -66,14 +67,18 @@ class GatewayEngineeringClient internal constructor(private val http: HttpClient
                         throw GatewayExecutionRejected(code, response.status.value)
                     }
                 }
-                check(response.status.isSuccess()) {
-                    when (response.status.value) {
-                        401, 403 -> "Gateway engineering access is not authorized. Check the gateway connection and engineering scope."
-                        404 -> "This gateway does not expose the saved engineering job. Check the selected gateway and account."
-                        409 -> "The job or PR changed. Refresh and review its current commit before confirming."
-                        503 -> "The gateway needs its host GitHub connection configured, or is at capacity. Your request is retained."
-                        else -> "Gateway engineering request failed (HTTP ${response.status.value}). The job may still be running; reconnect to check."
-                    }
+                if (!response.status.isSuccess()) {
+                    throw GatewayEngineeringHttpFailure(
+                        response.status.value,
+                        serverError.second ?: when (response.status.value) {
+                            401, 403 -> "Gateway engineering access is not authorized. Check the gateway connection and engineering scope."
+                            404 -> "This gateway does not expose the saved engineering job. Check the selected gateway and account."
+                            409 -> "The job or PR changed. Refresh and review its current commit before confirming."
+                            503 -> "The gateway needs its host GitHub connection configured, or is at capacity. Your request is retained."
+                            else -> "Gateway engineering request failed (HTTP ${response.status.value}). The job may still be running; reconnect to check."
+                        },
+                        serverError.first
+                    )
                 }
                 payload
             }
@@ -198,6 +203,8 @@ class GatewayEngineeringClient internal constructor(private val http: HttpClient
         return json.decodeFromString(request(config, "jobs/${job.id}/$action", body.toString(), action == "approve"))
     }
 }
+
+class GatewayEngineeringHttpFailure(val status: Int, message: String, val code: String? = null) : IllegalStateException(code?.let { "$it: $message" } ?: message)
 
 /** Availability only: policy, identity, TLS and authorization failures must not use this type. */
 internal open class GatewayGraphUnavailableException(message: String) : IllegalStateException(message)

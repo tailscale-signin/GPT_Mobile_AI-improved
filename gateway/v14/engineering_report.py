@@ -4,6 +4,19 @@ from collections import Counter
 
 def build_report(job, state, verification):
     data = job['data']
+    scope = job['request'].get('scope', 'implement')
+    if scope in {'read', 'plan'}:
+        result = data.get('scope_result') or {}
+        delivered = state == 'COMPLETED' and data.get('scope_verification', {}).get('delivered') is True
+        return {'schema_version': 1, 'job_id': job['id'], 'request_id': job['request']['request_id'],
+                'status': 'COMPLETED_READ' if delivered and scope == 'read' else 'COMPLETED_PLAN' if delivered else 'PARTIAL_UNVERIFIED',
+                'scope': scope, 'summary': result.get('answer') or job.get('message'),
+                'repository': job['request']['repository'], 'branch': job['request']['branch'],
+                'head_sha': data.get('head_sha'), 'binding_id': job['request'].get('execution_binding_id'),
+                'inspected_paths': result.get('paths', []), 'limitations': result.get('limitations', []),
+                'scope_verification': data.get('scope_verification'), 'repository_mutations': 0,
+                'tests_executed': False, 'merge_performed': False, 'latest_execution_receipt': data.get('latest_execution_receipt'),
+                'latest_evidence': data.get('latest_evidence'), 'benchmark_status': 'NOT_MEASURED', 'device_performance': 'NOT_MEASURED'}
     requirements = verification.get('requirements', [])
     counts = dict(Counter(row['status'] for row in requirements))
     completed = state == 'COMPLETED' and verification.get('passed') is True

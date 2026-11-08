@@ -1,0 +1,45 @@
+package dev.chungjungsoo.gptmobile.data.github
+
+import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
+
+/** Admission still verifies host tools, grants and the exact execution binding. */
+internal object GatewayOwnedTurnPolicy {
+    fun configured(profile: PlatformV2?, context: GitHubConversationContext?, features: AppFeatureSettings): Boolean =
+        profile != null &&
+            context?.mainProfileUid == profile.uid &&
+            !profile.disableAllTools &&
+            !profile.disableRemoteTools &&
+            GitHubAutonomousEngineeringPolicy.supportsSavedJobs(profile) &&
+            features.githubProfileOverrides[profile.uid]?.let { it.githubTools && !it.engineeringGatewayProfileUid.isNullOrBlank() } == true
+
+    /** Only the new instruction can authorize implementation; quoted history is data. */
+    fun scope(request: String): String {
+        val instruction = request.replace(Regex("(?s)```.*?(?:```|$)"), " ")
+            .lineSequence().filterNot { it.trimStart().startsWith('>') }.joinToString("\n")
+            .trim().lowercase(java.util.Locale.ROOT)
+        if (Regex("\\b(?:(?:read|review|audit|inspect)[- ]only|plan(?:ning)? only|no (?:code )?(?:changes|writes))\\b").containsMatchIn(instruction) ||
+            Regex("\\b(?:do not|don't|never)\\s+(?:(?:edit|modify|change|write|implement)\\b|make\\s+(?:any\\s+)?(?:code\\s+)?changes\\b)").containsMatchIn(instruction) ||
+            Regex("\\bwithout\\s+(?:editing|modifying|changing|writing|implementing)\\b").containsMatchIn(instruction)
+        ) {
+            return if (Regex("\\b(?:plan|design|propos\\w*)\\b").containsMatchIn(instruction)) "plan" else "read"
+        }
+        val polite = instruction.replace(Regex("^(?:(?:please|can you|could you|would you|help me)\\s+)+"), "")
+        if (Regex("^(?:how|what|why|where|when|which|is|are|does|did|should|would)\\b").containsMatchIn(polite)) {
+            return if (Regex("^(?:how|should|would)\\b|^what\\b.*\\b(?:plan|design|approach|would|should)\\b").containsMatchIn(polite)) "plan" else "read"
+        }
+        if (Regex("^(?:plan|design|outline|propose|explain|review|audit|analy[sz]e|inspect|summari[sz]e)\\b").containsMatchIn(polite) &&
+            !Regex("\\b(?:and|then)\\s+(?:implement|apply|fix|build|make|add)\\b").containsMatchIn(polite)
+        ) {
+            return "plan"
+        }
+        return if (Regex("(?:^|[.!?\\n]\\s*)(?:please\\s+)?(?:implement|fix|repair|add|build|create|update|change|remove|delete|refactor|apply|merge|commit)\\b").containsMatchIn(polite) ||
+            Regex("\\b(?:and|then)\\s+(?:implement|apply|fix|build|make|add)\\b").containsMatchIn(polite) ||
+            Regex("\\b(?:test|exercise|verify)\\b[^.!?\\n]{0,160}\\b(?:permitted|authorized|owned|disposable)\\b[^.!?\\n]{0,80}\\b(?:mutations|writes|fixture)\\b").containsMatchIn(polite)
+        ) {
+            "implement"
+        } else {
+            "read"
+        }
+    }
+}

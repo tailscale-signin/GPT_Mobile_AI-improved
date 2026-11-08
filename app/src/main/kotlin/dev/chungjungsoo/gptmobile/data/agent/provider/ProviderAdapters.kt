@@ -154,6 +154,7 @@ class OpenAIResponsesAdapter @Inject constructor(
                         apiUrl = platform.apiUrl,
                         token = activeKey,
                         profileUid = platform.uid,
+                        profileName = platform.name,
                         profileRevision = dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.profileRevision(platform),
                         configuredProfileReasoning = platform.reasoning,
                         providerType = platform.compatibleType.name,
@@ -403,6 +404,7 @@ class OpenAICompatibleAdapter @Inject constructor(
         fun requestConfiguration(activeKey: String, requestTools: List<ChatFunctionTool>?, freshOnce: Boolean, llamaGatewayHeaders: Map<String, String>): ProviderRequestConfig = ProviderRequestConfig(
             apiUrl = platform.apiUrl,
             profileUid = platform.uid,
+            profileName = platform.name,
             profileRevision = dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.profileRevision(platform),
             configuredProfileReasoning = platform.reasoning,
             providerType = platform.compatibleType.name,
@@ -1325,6 +1327,7 @@ class AnthropicMessagesAdapter @Inject constructor(
                     val config = ProviderRequestConfig(
                         apiUrl = platform.apiUrl,
                         profileUid = platform.uid,
+                        profileName = platform.name,
                         profileRevision = dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.profileRevision(platform),
                         configuredProfileReasoning = platform.reasoning,
                         providerType = platform.compatibleType.name,
@@ -1583,6 +1586,7 @@ class GeminiAdapter @Inject constructor(
                         apiUrl = platform.apiUrl,
                         token = activeKey,
                         profileUid = platform.uid,
+                        profileName = platform.name,
                         profileRevision = dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.profileRevision(platform),
                         configuredProfileReasoning = platform.reasoning,
                         providerType = platform.compatibleType.name,

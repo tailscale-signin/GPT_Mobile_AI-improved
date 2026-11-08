@@ -159,8 +159,10 @@ class AgentRunForegroundService : Service() {
 
     override fun onTimeout(startId: Int, fgsType: Int) {
         stopReason = "PLATFORM_TIMEOUT"
-        AppLogRecorder.record("AgentService", "PLATFORM_TIMEOUT · startId=$startId · type=$fgsType · checkpointed evidence retained", "W")
-        agentRunCoordinator.cancelAll()
+        AppLogRecorder.record("AgentService", "PLATFORM_TIMEOUT · startId=$startId · type=$fgsType · observation interrupted · accepted gateway work retained", "W")
+        // Android is ending this observer's lifetime, not issuing the user's Stop
+        // command. Retain remote identities and the resumable local checkpoint.
+        agentRunCoordinator.interruptAll()
         releaseWakeLock()
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         isForeground = false

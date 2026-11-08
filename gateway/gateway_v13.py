@@ -915,6 +915,8 @@ def cleanup_job_registry():
             for job_id, job
             in job_registry.items()
             if (
+                job.get('status') in {'completed', 'failed', 'cancelled', 'canceled', 'interrupted'}
+                and
                 job.get(
                     "finished_at"
                 )
@@ -938,7 +940,8 @@ def cleanup_job_registry():
             > JOB_REGISTRY_MAX_ITEMS
         ):
             ordered = sorted(
-                job_registry.items(),
+                ((key, value) for key, value in job_registry.items()
+                 if value.get('status') in {'completed', 'failed', 'cancelled', 'canceled', 'interrupted'}),
                 key=lambda item:
                     item[1].get(
                         "created_at",
@@ -968,6 +971,7 @@ def register_gateway_job(
     hard_cancel_event,
     task_text=None,
     request_id=None,
+    admission_snapshot=None,
 ):
     """Register a new root job or resume an existing root job."""
 
@@ -978,6 +982,8 @@ def register_gateway_job(
         existing = job_registry.get(job_id)
 
         if existing is not None:
+            if admission_snapshot is not None:
+                existing['_conversation_messages'] = admission_snapshot.get('messages', [])
             if existing.get("pending_client_tool_call_ids"):
                 # The admission boundary validated every result before resume.
                 # A consumed handoff is not the current segment's saved result.
@@ -1012,6 +1018,10 @@ def register_gateway_job(
             "job_id": job_id,
             "generation": uuid.uuid4().hex,
             "request_id": request_id,
+            "principal_id": current_device.get(),
+            "profile_id": (admission_snapshot or {}).get('profile_id', ''),
+            "profile_name": (admission_snapshot or {}).get('profile_name', ''),
+            "_conversation_messages": admission_snapshot.get('messages', []) if admission_snapshot is not None else None,
             "model": model,
             "mode": mode,
             "task_text": task_text,
@@ -1021,6 +1031,8 @@ def register_gateway_job(
             "phase": "starting",
             "message": "Job registered",
             "created_at": now,
+            "started_at": None,
+            "scheduling_state": "queued",
             "updated_at": now,
             "finished_at": None,
             "disconnected": False,
@@ -1082,6 +1094,8 @@ def update_gateway_job(
             ("repository_tool_calls", "repository_tool_calls"),
             ("checkpoint", "checkpoint"),
             ("request_id", "request_id"),
+            ("scheduling_state", "scheduling_state"),
+            ("started_at", "started_at"),
         ):
             if (
                 source_key in event
@@ -1157,11 +1171,15 @@ def finish_gateway_job(
     status_code,
     result,
     error=None,
+    *,
+    expected_generation=None,
 ):
     with job_registry_lock:
         job = job_registry.get(job_id)
         if job is None:
             return
+        if expected_generation is not None and job.get('generation') != expected_generation:
+            raise GatewayContractError('The completing worker no longer owns this job generation.', 'job_generation_changed', 409)
 
         now = time.time()
         job["status_code"] = status_code
@@ -1191,6 +1209,7 @@ def finish_gateway_job(
             job["_result"] = result
             job["finished_at"] = None
             job["status"] = "waiting_for_client_tool"
+            job['scheduling_state'] = 'waiting'
             job["stage"] = "waiting_for_client_tool"
             job["message"] = "Waiting for remote client tool result"
             job["result_available"] = False
@@ -1228,6 +1247,7 @@ def finish_gateway_job(
             job["_result"] = result
 
         job["result_available"] = result is not None
+        job['scheduling_state'] = job['status']
 
         if result is not None:
             job["result_preview"] = _job_result_preview(result)
@@ -1350,7 +1370,7 @@ def durable_cleanup_old_jobs(connection=None):
         old_ids = [
             row["job_id"]
             for row in conn.execute(
-                "SELECT job_id FROM gateway_jobs WHERE updated_at < ?",
+                "SELECT job_id FROM gateway_jobs WHERE updated_at < ? AND status IN ('completed','failed','cancelled','canceled','interrupted')",
                 (cutoff,),
             ).fetchall()
         ]
@@ -1431,11 +1451,12 @@ def init_durable_job_store():
                     status = str(public.get("status") or row["status"] or "")
                     pending_client = public.get("pending_client_tool_call_ids")
                     durable_handoff = status == "waiting_for_client_tool" and isinstance(pending_client, list) and bool(pending_client) and all(isinstance(call_id, str) and call_id for call_id in pending_client)
-                    was_interrupted = status in {"running", "resuming"} or status == "waiting_for_client_tool" and not durable_handoff
+                    was_interrupted = status in {"running", "resuming", "queued"} or status == "waiting_for_client_tool" and not durable_handoff
                     if was_interrupted:
                         # Never blindly replay a job after a process restart: it may
                         # already have performed a mutation before the crash.
                         public["status"] = "failed"
+                        public['scheduling_state'] = 'interrupted'
                         public["stage"] = "failed"
                         public["message"] = (
                             "Gateway restarted while this job was active; "
@@ -18701,6 +18722,7 @@ async def stream_chat_with_keepalive(
     gateway_job_id,
     gateway_request_id,
     singleflight_follower=False,
+    admission_snapshot=None,
 ):
     """
     OpenAI-compatible SSE stream with single-flight worker sharing.
@@ -18849,7 +18871,7 @@ async def stream_chat_with_keepalive(
             threading.Event()
         )
 
-        register_gateway_job(
+        admitted_job = register_gateway_job(
             gateway_job_id,
             model,
             stream_job_mode,
@@ -18859,7 +18881,9 @@ async def stream_chat_with_keepalive(
                 stream_task_text,
             request_id=
                 gateway_request_id,
+            admission_snapshot=admission_snapshot,
         )
+        admitted_generation = admitted_job['generation']
 
         def progress_callback(
             event,
@@ -18999,11 +19023,11 @@ async def stream_chat_with_keepalive(
                 try:
                     status_code, result = done_task.result()
                 except asyncio.CancelledError:
-                    finish_gateway_job(gateway_job_id, 499, None, error="Worker task cancelled")
+                    finish_gateway_job(gateway_job_id, 499, None, error="Worker task cancelled", expected_generation=admitted_generation)
                 except Exception as e:
-                    finish_gateway_job(gateway_job_id, 500, None, error=e)
+                    finish_gateway_job(gateway_job_id, 500, None, error=e, expected_generation=admitted_generation)
                 else:
-                    finish_gateway_job(gateway_job_id, status_code, result)
+                    finish_gateway_job(gateway_job_id, status_code, result, expected_generation=admitted_generation)
             except Exception as e:
                 # A failed commit is not a model failure to overwrite or a
                 # successful answer to stream. Share the failure with followers.
@@ -19331,6 +19355,11 @@ async def chat_completions(
         return JSONResponse(status_code=exc.status, content={"error": {
             "message": str(exc), "type": "gateway_contract_error", "code": exc.code}})
     incoming_payload.pop("_gateway_performance", None)
+    admission_snapshot = getattr(request.state, 'gateway_admission_snapshot', None)
+    if admission_snapshot is None:
+        admission_snapshot = {'profile_id': '', 'profile_name': '', 'messages': [
+            json.loads(json.dumps(message)) for message in incoming_payload.get('messages', [])
+            if isinstance(message, dict) and message.get('role') in {'user', 'assistant', 'tool'}]}
 
     wants_stream = bool(
         incoming_payload.get(
@@ -19440,6 +19469,7 @@ async def chat_completions(
                 gateway_request_id,
                 singleflight_follower=
                     singleflight_follower,
+                admission_snapshot=admission_snapshot,
             ),
             media_type=
                 "text/event-stream",
@@ -19538,7 +19568,7 @@ async def chat_completions(
         )
     )
 
-    register_gateway_job(
+    admitted_job = register_gateway_job(
         gateway_job_id,
         str(incoming_payload.get("model", "")),
         classify_job_mode(task_text),
@@ -19546,7 +19576,9 @@ async def chat_completions(
         nonstream_hard_cancel,
         task_text=task_text,
         request_id=gateway_request_id,
+        admission_snapshot=admission_snapshot,
     )
+    admitted_generation = admitted_job['generation']
 
     progress_sequence = get_job_last_sequence(
         gateway_job_id
@@ -19575,28 +19607,38 @@ async def chat_completions(
             enriched,
         )
 
-    try:
-        status_code, result = await asyncio.to_thread(
-            process_chat_payload,
-            incoming_payload,
-            nonstream_cancel,
-            nonstream_progress_callback,
-            nonstream_hard_cancel,
-        )
-    except Exception as e:
-        finish_gateway_job(
-            gateway_job_id,
-            500,
-            None,
-            error=e,
-        )
-        raise
+    def execute_and_commit():
+        # The worker owns persistence. Cancelling the HTTP waiter must not lose
+        # the final result of a still-running, durably admitted model/tool loop.
+        try:
+            status_code, result = process_chat_payload(incoming_payload, nonstream_cancel,
+                                                       nonstream_progress_callback, nonstream_hard_cancel)
+        except Exception as error:
+            finish_gateway_job(gateway_job_id, 500, None, error=error, expected_generation=admitted_generation)
+            raise
+        finish_gateway_job(gateway_job_id, status_code, result, expected_generation=admitted_generation)
+        return status_code, result
 
-    finish_gateway_job(
-        gateway_job_id,
-        status_code,
-        result,
-    )
+    task = asyncio.create_task(asyncio.to_thread(execute_and_commit))
+    worker_entry = {'task': task, 'cancel_event': nonstream_cancel, 'hard_cancel_event': nonstream_hard_cancel,
+                    'job_mode': classify_job_mode(task_text), 'clients': 1, 'created_at': time.time(), 'finished_at': None}
+    if SINGLEFLIGHT_ENABLED:
+        with singleflight_lock:
+            singleflight_workers[gateway_job_id] = worker_entry
+    def worker_done(done):
+        try:
+            if not done.cancelled():
+                worker_entry['persistence_error'] = done.exception()
+        finally:
+            mark_singleflight_worker_finished(gateway_job_id, done)
+    task.add_done_callback(worker_done)
+    try:
+        status_code, result = await asyncio.shield(task)
+    except asyncio.CancelledError:
+        mark_gateway_job_disconnected(gateway_job_id)
+        if not should_continue_after_disconnect(classify_job_mode(task_text), gateway_job_id):
+            nonstream_cancel.set()
+        raise
 
     if status_code != 200:
         return JSONResponse(

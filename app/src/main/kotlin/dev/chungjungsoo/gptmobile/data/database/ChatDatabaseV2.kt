@@ -32,6 +32,14 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 
 @Database(
     entities = [
+        dev.chungjungsoo.gptmobile.data.github.GatewayScopeRecord::class,
+        dev.chungjungsoo.gptmobile.data.github.GatewayConversationRecord::class,
+        dev.chungjungsoo.gptmobile.data.github.GatewayJobRecord::class,
+        dev.chungjungsoo.gptmobile.data.github.GatewayMessageRecord::class,
+        dev.chungjungsoo.gptmobile.data.github.GatewayReplayCursor::class,
+        dev.chungjungsoo.gptmobile.data.github.GatewayCommandRecord::class,
+        dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringRecord::class,
+        dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringUpdateRecord::class,
         dev.chungjungsoo.gptmobile.data.universalmarketplace.MarketplaceSavedSearch::class,
         dev.chungjungsoo.gptmobile.data.universalmarketplace.MarketplaceBookmark::class,
         dev.chungjungsoo.gptmobile.data.amazon.AmazonObservationEntity::class,
@@ -81,7 +89,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
         dev.chungjungsoo.gptmobile.data.memory.MemoryGraphObservationRecord::class,
         dev.chungjungsoo.gptmobile.data.memory.MemoryGraphRelationRecord::class
     ],
-    version = 49,
+    version = 50,
     exportSchema = true
 )
 @TypeConverters(
@@ -94,6 +102,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
     CombinedModelResponseListConverter::class
 )
 abstract class ChatDatabaseV2 : RoomDatabase() {
+    abstract fun gatewayWorkDao(): dev.chungjungsoo.gptmobile.data.github.GatewayWorkDao
     abstract fun marketplaceSavesDao(): dev.chungjungsoo.gptmobile.data.universalmarketplace.MarketplaceSavesDao
     abstract fun replyPublicationDao(): dev.chungjungsoo.gptmobile.data.chat.ReplyPublicationDao
     abstract fun conversationFolderDao(): dev.chungjungsoo.gptmobile.data.chat.ConversationFolderDao

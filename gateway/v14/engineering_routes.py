@@ -17,6 +17,8 @@ from v14.execution_binding import ExecutionBindingError
 
 def install_engineering_routes(app, service):
     server_build = "sha256:" + hashlib.sha256((Path(__file__).resolve().parents[1] / "manifest-v14.json").read_bytes()).hexdigest()
+    def public_job(job):
+        return service.job_response(job)
     def principal(request):
         user = request.state.principal
         if not user.local_admin and 'engineering' not in user.scopes:

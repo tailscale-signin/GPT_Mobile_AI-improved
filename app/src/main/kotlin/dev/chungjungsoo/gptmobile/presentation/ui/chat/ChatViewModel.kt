@@ -40,6 +40,9 @@ import dev.chungjungsoo.gptmobile.data.database.entity.rebuildAssistantTimelineF
 import dev.chungjungsoo.gptmobile.data.database.entity.resetActiveRevision
 import dev.chungjungsoo.gptmobile.data.database.entity.selectRevision
 import dev.chungjungsoo.gptmobile.data.database.entity.snapshotLatestAssistantRevision
+import dev.chungjungsoo.gptmobile.data.github.GatewayConversationObservation
+import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringRepository
+import dev.chungjungsoo.gptmobile.data.github.GatewayOwnedTurnPolicy
 import dev.chungjungsoo.gptmobile.data.localmodel.LocalModelStatus
 import dev.chungjungsoo.gptmobile.data.model.AvailableChatTool
 import dev.chungjungsoo.gptmobile.data.model.ChatAttachment
@@ -122,7 +125,8 @@ class ChatViewModel @Inject constructor(
     private val combinedCollectionDecisions: dev.chungjungsoo.gptmobile.data.agent.CombinedCollectionDecisionStore? = null,
     private val gitHubDecisions: dev.chungjungsoo.gptmobile.data.github.GitHubChatDecisions? = null,
     private val gitHubDecisionNotifications: dev.chungjungsoo.gptmobile.data.github.GitHubDecisionNotifications? = null,
-    private val diagnosticDatabase: dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticDatabaseSource? = null
+    private val diagnosticDatabase: dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticDatabaseSource? = null,
+    private val gatewayEngineering: GatewayEngineeringRepository? = null
 ) : ViewModel() {
     private val diagnosticPrivacyOwner = java.util.UUID.randomUUID().toString()
     private val visibleHistoryTurns = MutableStateFlow(if (savedStateHandle.get<Int>("targetMessageId") != null) Int.MAX_VALUE else 40)
@@ -477,6 +481,13 @@ class ChatViewModel @Inject constructor(
                 dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings()
             )
 
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val gatewayConversation: StateFlow<GatewayConversationObservation> = _chatRoom
+        .map { it.id }.distinctUntilChanged()
+        .flatMapLatest { chatId ->
+            if (chatId > 0) gatewayEngineering?.observeConversation(chatId) ?: flowOf(GatewayConversationObservation()) else flowOf(GatewayConversationObservation())
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), GatewayConversationObservation())
+
     val nextMessageProfileUid = savedStateHandle.getStateFlow<String?>("nextMessageProfileUid", null)
 
     fun selectNextMessageProfile(uid: String?) {
@@ -668,7 +679,26 @@ class ChatViewModel @Inject constructor(
             attempt.finish("PROFILE_UNAVAILABLE")
             return
         }
-        if (isGenerationBusy() || !hasUnpausedProfile() || _pendingPrompts.value.isNotEmpty()) {
+        val gatewayProfile = acceptedProfiles.filterNot { it in _disabledPlatformUids.value }.singleOrNull()
+            ?.let { uid -> _platformsInApp.value.singleOrNull { it.uid == uid } }
+        val gatewayTurn = gatewayEngineering != null &&
+            !_chatRoom.value.isTemporary &&
+            acceptedTools.combined == null &&
+            !acceptedTools.allToolsDisabled &&
+            GatewayOwnedTurnPolicy.configured(gatewayProfile, acceptedTools.github, featureSettings.value)
+        val pendingGateway = gatewayConversation.value
+        if (gatewayTurn && pendingGateway.requestId != null && pendingGateway.conversationId == null && pendingGateway.currentJob == null && pendingGateway.submissionState in setOf("PREPARED", "SUBMITTING", "UNKNOWN")) {
+            _attachmentNotice.value = "Confirming the previous gateway submission. Your new draft is kept until its saved conversation is known."
+            reconnectGatewayConversation()
+            attempt.finish("GATEWAY_ADMISSION_UNCONFIRMED")
+            return
+        }
+        if (gatewayTurn && (attachments.isNotEmpty() || questionText.length > 16_000)) {
+            _attachmentNotice.value = "This gateway workflow accepts a text request of up to 16,000 characters. Your draft and attachments are kept."
+            attempt.finish("GATEWAY_REQUEST_UNSUPPORTED")
+            return
+        }
+        if ((!gatewayTurn && (isGenerationBusy() || _pendingPrompts.value.isNotEmpty())) || !hasUnpausedProfile()) {
             if (durablePromptQueue != null) {
                 if (queueSubmissionPending) {
                     attempt.finish("QUEUE_SAVE_IN_PROGRESS")
@@ -961,7 +991,52 @@ class ChatViewModel @Inject constructor(
     }
 
     fun cancelActiveRuns() {
-        _chatRoom.value.id.takeIf { it > 0 }?.let(agentRunCoordinator::cancelChat)
+        val chatId = _chatRoom.value.id.takeIf { it > 0 } ?: return
+        val remote = gatewayConversation.value
+        if (gatewayEngineering != null && (remote.currentJob?.terminal == false || remote.requestId != null && remote.currentJob == null)) {
+            viewModelScope.launch {
+                try {
+                    val outcome = gatewayEngineering.stopConversation(chatId)
+                    _attachmentNotice.value = outcome.message
+                    gatewayEngineering.reconnectConversation(chatId)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    _attachmentNotice.value = "The gateway has not confirmed cancellation. Reconnect to check the saved job."
+                }
+            }
+        } else {
+            agentRunCoordinator.cancelChat(chatId)
+        }
+    }
+
+    /** Visible-screen observation only. Cancellation of this loop never stops remote work. */
+    suspend fun observeGatewayConversation(chatId: Int) {
+        val repository = gatewayEngineering ?: return
+        if (chatId <= 0) return
+        while (_chatRoom.value.id == chatId) {
+            try {
+                repository.reconnectConversation(chatId)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // The repository retains the identity and marks its cached observation stale.
+            }
+            delay(5_000)
+        }
+    }
+
+    fun reconnectGatewayConversation() {
+        val chatId = _chatRoom.value.id.takeIf { it > 0 } ?: return
+        viewModelScope.launch {
+            try {
+                gatewayEngineering?.reconnectConversation(chatId)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                _attachmentNotice.value = "The gateway is unavailable. Its saved job and the cached conversation are retained."
+            }
+        }
     }
 
     fun stopResearchAttempt(rootWorkId: String) {
@@ -2554,6 +2629,16 @@ class ChatViewModel @Inject constructor(
         val readinessLease = dev.chungjungsoo.gptmobile.data.readiness.ReadinessWorkloadSignals.enter()
         viewModelScope.launch {
             var acceptedRunIds = emptyList<String>()
+            var gatewayCandidateRunId: String? = null
+            suspend fun gatewayOwnsAcceptedTurn(): Boolean = withContext(kotlinx.coroutines.NonCancellable) {
+                val candidate = gatewayCandidateRunId ?: return@withContext false
+                try {
+                    gatewayEngineering?.ownsRequest(candidate) == true
+                } catch (_: Exception) {
+                    // An unavailable local ownership receipt cannot authorize duplicate execution.
+                    true
+                }
+            }
             suspend fun failUndispatched(reason: String) {
                 withContext(kotlinx.coroutines.NonCancellable) {
                     acceptedRunIds.forEach { runId ->
@@ -2651,7 +2736,7 @@ class ChatViewModel @Inject constructor(
                             )
                         )
                     },
-                    startProvider = { persisted ->
+                    startProvider = provider@{ persisted ->
                         acceptedRunIds = persisted.runs.map { it.runId }
                         attempt.accepted(acceptedRunIds, persisted.chatRoom.id, persisted.userMessage.id)
                         _agentRunsById.update { it + persisted.runs.associateBy(AgentRun::runId) }
@@ -2721,6 +2806,38 @@ class ChatViewModel @Inject constructor(
                                 requestedModels = platforms.associate { it.value.uid to it.value.model }
                             )
                         }
+                        val gatewayProfile = platforms.singleOrNull()?.value
+                        val github = dispatchTools.github
+                        if (gatewayEngineering != null &&
+                            !persisted.chatRoom.isTemporary &&
+                            dispatchTools.combined == null &&
+                            !dispatchTools.allToolsDisabled &&
+                            !_chatToolConfig.value.allToolsDisabled &&
+                            GatewayOwnedTurnPolicy.configured(gatewayProfile, github, settingRepository.getFeatureSettings())
+                        ) {
+                            require(persisted.userMessage.attachments.isEmpty()) { "The saved gateway workflow requires a text request. Your original message is retained." }
+                            val run = persisted.runs.single()
+                            gatewayCandidateRunId = run.runId
+                            val binding = gatewayEngineering.submitNormalTurn(
+                                chatId = persisted.chatRoom.id,
+                                context = requireNotNull(github),
+                                profile = requireNotNull(gatewayProfile),
+                                requestId = run.runId,
+                                content = persisted.userMessage.content,
+                                scope = GatewayOwnedTurnPolicy.scope(persisted.userMessage.content),
+                                userMessageId = persisted.userMessage.id,
+                                assistantMessageId = persisted.assistantMessages.single().id,
+                                localRunId = run.runId,
+                                admissionAllowed = { _chatRoom.value.id == persisted.chatRoom.id && !_chatToolConfig.value.allToolsDisabled }
+                            )
+                            acceptedRunIds = emptyList()
+                            _attachmentNotice.value = when {
+                                binding.job == null -> "Gateway request saved. Check Jobs for its admission status."
+                                binding.job.schedulingState == "queued" -> "Queued on gateway. You can leave this conversation."
+                                else -> "Saved on gateway. You can leave this conversation and return to its result."
+                            }
+                            return@provider
+                        }
                         agentRunCoordinator.start(
                             platforms.mapIndexed { runIndex, (_, platform) ->
                                 AgentRunRequest(
@@ -2747,10 +2864,14 @@ class ChatViewModel @Inject constructor(
                 )
             } catch (cancelled: CancellationException) {
                 attempt.finish("PREPARATION_CANCELLED")
-                failUndispatched("PREPARATION_CANCELLED_BEFORE_HANDOFF")
+                if (!gatewayOwnsAcceptedTurn()) failUndispatched("PREPARATION_CANCELLED_BEFORE_HANDOFF")
                 throw cancelled
             } catch (error: Exception) {
                 attempt.finish("PREPARATION_FAILED")
+                if (gatewayOwnsAcceptedTurn()) {
+                    _attachmentNotice.value = "Confirming the saved gateway request. Reconnect will recover its result without sending it again."
+                    return@launch
+                }
                 failUndispatched("PREPARATION_FAILED_BEFORE_HANDOFF: ${error.javaClass.simpleName}")
                 val user = _groupedMessages.value.userMessages.getOrNull(turnIndex)
                 if (user != null && user.id <= 0 && question.text.isEmpty()) question.edit { append(user.content) }

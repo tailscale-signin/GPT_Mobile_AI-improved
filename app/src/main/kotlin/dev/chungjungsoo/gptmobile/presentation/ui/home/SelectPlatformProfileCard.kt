@@ -44,6 +44,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAvailability
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAvailabilityStatus
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -54,17 +56,23 @@ internal fun SelectPlatformProfileCard(
     insight: ProfileInsight?,
     onToggle: (String) -> Unit,
     onFavorite: () -> Unit,
-    onInsights: () -> Unit
+    onInsights: () -> Unit,
+    gatewayAvailability: GatewayAvailability? = null,
+    animateGatewayName: Boolean = false
 ) {
     val health by dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.status.collectAsState()
     val now by dev.chungjungsoo.gptmobile.presentation.common.freeProviderClock()
     val unavailable = androidx.compose.runtime.remember(profile, health, now) { dev.chungjungsoo.gptmobile.data.network.FreeProviderPreflight.check(profile) }
     val favoriteLabel = stringResource(if (profile.isFavorite) R.string.picker_remove_favorite else R.string.picker_add_favorite)
     val lines = if (LocalDensity.current.fontScale >= 1.3f) 3 else 1
+    val online = gatewayAvailability?.status in setOf(GatewayAvailabilityStatus.ONLINE, GatewayAvailabilityStatus.BUSY_QUEUE)
+    val nameOpacity by rememberGatewayNameOpacity(online && animateGatewayName)
+    val cardColor = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow
+    val nameColor = if (online) gatewayProfileNameColor(MaterialTheme.colorScheme.primary, cardColor, MaterialTheme.colorScheme.onSurface) else MaterialTheme.colorScheme.onSurface
     Surface(
         Modifier.fillMaxWidth().testTag("profile_card_${profile.uid}"),
         shape = RoundedCornerShape(16.dp),
-        color = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
+        color = cardColor,
         border = BorderStroke(1.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant)
     ) {
         BoxWithConstraints {
@@ -88,7 +96,7 @@ internal fun SelectPlatformProfileCard(
                     Checkbox(checked = selected, onCheckedChange = null, enabled = selected || unavailable == null)
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(profile.name, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = lines, overflow = TextOverflow.Ellipsis)
+                            Text(profile.name, Modifier.weight(1f).alpha(nameOpacity), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = nameColor)
                             if (profile.isFavorite) Icon(Icons.Rounded.Star, stringResource(R.string.picker_favorite), Modifier.size(16.dp), tint = MaterialTheme.colorScheme.tertiary)
                         }
                         unavailable?.let { blocked ->
@@ -97,6 +105,10 @@ internal fun SelectPlatformProfileCard(
                             Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Text(profile.model, style = MaterialTheme.typography.bodySmall.copy(textDirection = TextDirection.Ltr), color = MaterialTheme.colorScheme.primary, maxLines = lines, overflow = TextOverflow.Ellipsis)
+                        gatewayAvailability?.let { GatewayAvailabilityBadge(it, profile.uid) }
+                        if (gatewayAvailability?.status == GatewayAvailabilityStatus.ATTENTION) {
+                            Text(gatewayAvailability.message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
                 }
                 insight?.compact()?.let { compact ->

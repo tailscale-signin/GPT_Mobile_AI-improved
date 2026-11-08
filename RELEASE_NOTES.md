@@ -1,5 +1,7 @@
 ## Unreleased reliability follow-up
 
+Gateway continuity adds model-specific online-first profiles, a gateway-wide Jobs tab, durable conversation and command recovery, accepted-work queue retention, and normal GitHub Send through the configured gateway. Original profile/model/repository bindings remain attached to each saved job. Reconnect reads the same work, and platform timeouts interrupt observation separately from explicit Stop. Large transcripts use verified bounded parts and Room schema 50 preserves legacy request identities. See [the implementation and qualification ledger](docs/repairs/gateway-continuity-2026-11-07.md). The release identity remains unchanged.
+
 The PR 813 integration repair adds independent GitHub acceptance criteria, a measured integration report, complete preset discovery, explicit branch targeting, durable stage-and-commit, bounded inline CI watching and flexible line reads. Owned synthetic content fixtures retain cleanup authority across interruptions. Forced live reads bypass source caches, oversized diagnostic exports resume with durable cursors and complete logical records, and current verification snapshots replace repeated full history. Reasoning-OFF remains a hard request policy; task incompleteness is separate from provider failure. Completed responses use smaller visual pages and frame reports retain lifecycle coverage. See [the integration repair and verification ledger](docs/repairs/pr813-integration-2026-11-07.md). This work does not publish a release or claim physical-device performance qualification.
 
 A separate post-PR-806 branch repairs server-cooldown/TLS retry admission, durable retry timing, cancellation-safe batch receipts, schema-bound MCP readiness, missing event replay and bounded context projection. Android reports now distinguish authentication and graph recovery. Gateway answer colour and badges now require response-bound gateway evidence, clear stale attribution between responses, and confirm recognized gateway capabilities with diagnostics disabled. No new version is published by this change; full current-head CI and physical deployment qualification remain separate requirements. See `docs/repairs/reliability-fault-recovery-2026-11-06.md`.
@@ -64,6 +66,8 @@ Implementation reports: [diagnostic workflow](docs/repairs/diagnostic-workflow-e
 The existing signed-release pipeline verifies exact-commit tests, required main checks, packaged runtimes, privacy, signing-certificate continuity, APK/AAB identities, checksums, provenance and downloaded publication assets. Earlier green revisions do not qualify this candidate. No release, tag or successful device measurement is implied by preparation of these notes.
 
 ## Qualification and remaining work
+
+- Gateway continuity requires matching Android and gateway versions. Physical-phone force-stop/reopen, production queue contention, private model availability and measured rendering performance remain deployment qualification; host and CI evidence are recorded separately.
 
 - The historical three MCP discovery problem targets and 49 execution/suite gaps require fresh affected-installation or authorized harness evidence. Source fixes, generated qualification plans and unrelated CI passes do not convert them into successful runtime checks.
 

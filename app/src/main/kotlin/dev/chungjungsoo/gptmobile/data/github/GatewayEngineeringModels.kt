@@ -91,7 +91,12 @@ data class GatewayEngineeringRequest(
     val acceptance: List<GatewayEngineeringAcceptance> = emptyList(),
     @SerialName("profile_id") val profileId: String? = null,
     @SerialName("memory_mode") val memoryMode: GitHubEngineeringMemoryMode = GitHubEngineeringMemoryMode.HYBRID,
-    @SerialName("execution_binding_id") val executionBindingId: String? = null
+    @SerialName("execution_binding_id") val executionBindingId: String? = null,
+    val scope: String = "implement",
+    @SerialName("profile_name") val profileName: String? = null,
+    @SerialName("conversation_id") val conversationId: String? = null,
+    @SerialName("source_branch") val sourceBranch: String? = null,
+    @SerialName("source_sha") val sourceSha: String? = null
 )
 
 @Serializable
@@ -130,9 +135,24 @@ data class GatewayEngineeringJob(
     @SerialName("execution_binding") val executionBinding: JsonObject? = null,
     @SerialName("latest_execution_receipt") val latestExecutionReceipt: JsonObject? = null,
     @SerialName("blocked_reason") val blockedReason: JsonObject? = null,
-    @SerialName("final_report") val finalReport: JsonObject? = null
+    @SerialName("final_report") val finalReport: JsonObject? = null,
+    @SerialName("gateway_id") val gatewayId: String? = null,
+    @SerialName("principal_id") val principalId: String? = null,
+    @SerialName("conversation_id") val conversationId: String? = null,
+    @SerialName("job_id") val jobId: String? = null,
+    @SerialName("command_id") val commandId: String? = null,
+    @SerialName("accepted_at_ms") val acceptedAtMs: Long? = null,
+    @SerialName("server_time_ms") val serverTimeMs: Long? = null,
+    @SerialName("scheduling_state") val schedulingState: String? = null,
+    @SerialName("queue_position") val queuePosition: Int? = null,
+    @SerialName("permitted_actions") val permittedActions: List<String> = emptyList(),
+    @SerialName("conversation_revision") val conversationRevision: Long? = null,
+    @SerialName("source_branch") val sourceBranch: String? = null,
+    @SerialName("source_sha") val sourceSha: String? = null,
+    @SerialName("working_branch") val workingBranch: String? = null,
+    val base: String? = null
 ) {
-    val terminal: Boolean get() = state in setOf("COMPLETED", "CANCELLED")
+    val terminal: Boolean get() = schedulingState in setOf("completed", "failed", "cancelled", "interrupted") || state in setOf("COMPLETED", "CANCELLED", "FAILED", "INTERRUPTED")
     val progress: Float get() = (milestonesCompleted.toFloat() / milestonesTotal.coerceAtLeast(1)).coerceIn(0f, 1f)
 }
 
@@ -150,7 +170,14 @@ data class GatewayEngineeringBinding(
     val principalId: String? = null,
     val localChatId: Int? = null,
     val executionSelection: GatewayExecutionSelection? = null,
-    val executionAdmission: GatewayExecutionAdmission? = null
+    val executionAdmission: GatewayExecutionAdmission? = null,
+    val gatewayId: String? = null,
+    val identityScope: String? = null,
+    val conversationId: String? = null,
+    val originalContext: GitHubConversationContext? = null,
+    val userMessageId: Int? = null,
+    val assistantMessageId: Int? = null,
+    val localRunId: String? = null
 ) {
     /** Remote request identity stays immutable when a backup maps local conversation IDs. */
     val chatId: Int get() = localChatId ?: request.chatId

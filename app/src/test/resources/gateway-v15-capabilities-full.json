@@ -20,7 +20,9 @@
     "X-Gateway-Client-Diagnostics",
     "X-Gateway-Diagnostic-Session",
     "X-Gateway-Diagnostic-Started",
-    "traceparent"
+    "traceparent",
+    "X-Gateway-Profile-ID",
+    "X-Gateway-Profile-Name-Base64"
   ],
   "auth": {
     "apiKeyRequired": false,
@@ -31,6 +33,16 @@
     "manifestVersion": 1,
     "sourceCommit": "0000000000000000000000000000000000000000",
     "status": "development"
+  },
+  "continuity": {
+    "available": true,
+    "commandReconciliation": true,
+    "conversationMessages": true,
+    "engineeringRestartPolicy": "reconcile_and_resume",
+    "jobCatalog": true,
+    "messageParts": true,
+    "ordinaryRestartPolicy": "interrupt_without_replay",
+    "protocolVersion": 1
   },
   "contractVersion": 1,
   "contracts": {
@@ -166,6 +178,7 @@
     "versionedJournal": true,
     "workflow_tool_profiles": true
   },
+  "gatewayId": "gw_00000000000000000000000000000000",
   "gatewayVersion": "15.0.0",
   "gateway_version": "15.0.0",
   "headers": {

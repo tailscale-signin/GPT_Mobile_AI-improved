@@ -78,7 +78,8 @@ class Admission:
         async def deny(code, status=403):
             await JSONResponse({"error": {"code": code}}, status_code=status, headers={"Cache-Control": "no-store", "X-Gateway-Admission-Error": code})(scope, receive, send)
         pairs = [(k.decode("latin1").lower(), v.decode("latin1")) for k, v in scope.get("headers", [])]
-        sensitive = {"host", "origin", "authorization", "tailscale-user-login", "x-gateway-csrf", "x-gateway-management"}
+        sensitive = {"host", "origin", "authorization", "tailscale-user-login", "x-gateway-csrf", "x-gateway-management",
+                     "x-gateway-profile-id", "x-gateway-profile-name-base64"}
         if any(sum(k == name for k, _ in pairs) > 1 for name in sensitive):
             return await deny("duplicate_admission_header", 400)
         headers = dict(pairs)
@@ -110,6 +111,8 @@ class Admission:
             if not principal.local_admin:
                 return await deny("local_admin_required")
         engineering_path = path.startswith("/gateway/engineering/")
+        continuity_path = path in {'/gateway/identity', '/gateway/job-catalog'} or path.startswith(('/gateway/conversations/', '/gateway/commands/'))
+        continuity_write = path.startswith('/gateway/conversations/') and path.endswith('/messages') and scope['method'] == 'POST'
         diagnostics_path = path in {"/gateway/debug/events", "/gateway/debug/export"}
         diagnostics_write = path == "/gateway/debug/events" and scope["method"] == "POST"
         if engineering_path and not principal.local_admin and "engineering" not in principal.scopes:
@@ -118,12 +121,18 @@ class Admission:
             public_reads = {"/models", "/gateway/capabilities", "/gateway/ready", "/gateway/live", "/gateway/v13", "/gateway/v14", "/gateway/v15", "/gateway/connections", "/gateway/tools", "/gateway/session", "/gateway/dashboard"}
             job_path = path == "/gateway/jobs" or path.startswith("/gateway/jobs/")
             if scope["method"] in {"GET", "HEAD"}:
-                if path not in public_reads and not job_path and not engineering_path and not diagnostics_path:
+                if path not in public_reads and not job_path and not engineering_path and not diagnostics_path and not continuity_path:
                     return await deny("remote_surface_not_admitted")
-            elif not engineering_path and not diagnostics_write and path != "/chat/completions" and not (job_path and path.endswith("/cancel") and scope["method"] == "POST"):
+            elif not engineering_path and not diagnostics_write and not continuity_write and path != "/chat/completions" and not (job_path and path.endswith("/cancel") and scope["method"] == "POST"):
                 return await deny("local_admin_required")
         required = "engineering" if engineering_path and not principal.local_admin else "jobs" if path.startswith("/gateway/jobs") else "tools" if path.startswith(("/gateway/tools", "/gateway/mcp", "/tools")) else "chat"
-        if required not in principal.scopes and not (diagnostics_path and "diagnostics" in principal.scopes):
+        if continuity_path:
+            granted = bool(principal.scopes) if path == '/gateway/identity' else principal.local_admin or bool(principal.scopes & {'jobs', 'engineering'})
+            if continuity_write:
+                granted = principal.local_admin or 'engineering' in principal.scopes
+        else:
+            granted = required in principal.scopes or diagnostics_path and 'diagnostics' in principal.scopes
+        if not granted:
             return await deny("scope_not_granted")
         # The retained runtime can select PC tools automatically. A limited user
         # cannot use chat until a separately tested tool-free runtime is available.

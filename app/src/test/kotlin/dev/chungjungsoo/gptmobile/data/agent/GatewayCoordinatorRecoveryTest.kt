@@ -3,6 +3,8 @@ package dev.chungjungsoo.gptmobile.data.agent
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringRepository
+import dev.chungjungsoo.gptmobile.data.github.GatewayStopOutcome
 import dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAPI
@@ -49,7 +51,7 @@ class GatewayCoordinatorRecoveryTest {
                 true
             }
         }
-        fun coordinator() = AgentRunCoordinator(mockk(), chats, gateway, settings, mockk(relaxed = true))
+        fun coordinator(engineering: GatewayEngineeringRepository? = null) = AgentRunCoordinator(mockk(), chats, gateway, settings, mockk(relaxed = true), gatewayEngineering = engineering)
     }
 
     @Test fun completedLongRunningJobIsReadBeforeAnyRecoveryAgeDecision() = runTest {
@@ -60,6 +62,49 @@ class GatewayCoordinatorRecoveryTest {
         coVerify(exactly = 1) { f.gateway.getJobResult("saved-job", any()) }
         coVerify(exactly = 0) { f.gateway.getCapabilities(any()) }
         coVerify(exactly = 0) { f.gateway.cancelJob(any(), any()) }
+    }
+
+    @Test fun conversationOwnedJobsUseTheirOriginalRecoveryEngineWithoutOrdinaryResultAdoption() = runTest {
+        val f = Fixture(old = true, github = true)
+        val engineering = mockk<GatewayEngineeringRepository>(relaxed = true)
+        coEvery { engineering.ownsRequest("run") } returns true
+        f.coordinator(engineering).recoverInterruptedGatewayRuns()
+        coVerify(exactly = 1) { engineering.reconnectConversation(1) }
+        coVerify(exactly = 0) { f.gateway.getJobResult(any(), any()) }
+        coVerify(exactly = 0) { f.chats.restoreGatewayAnswer(any(), any(), any(), any(), any(), any()) }
+        coVerify(exactly = 0) { f.chats.finishInterruptedAgentRun(any(), any(), any(), any()) }
+        coVerify(exactly = 0) { engineering.stopRequest(any()) }
+    }
+
+    @Test fun unreadableOwnershipCannotAuthorizeTheOrdinaryEngineToReplaceAResult() = runTest {
+        val f = Fixture(old = true)
+        val engineering = mockk<GatewayEngineeringRepository>(relaxed = true)
+        coEvery { engineering.ownsRequest("run") } throws java.io.IOException("Ownership database unavailable")
+        f.coordinator(engineering).recoverInterruptedGatewayRuns()
+        coVerify(exactly = 0) { f.gateway.getJobResult(any(), any()) }
+        coVerify(exactly = 0) { f.chats.finishInterruptedAgentRun(any(), any(), any(), any()) }
+    }
+
+    @Test fun explicitStopTargetsTheSavedCommandAndWaitsForItsAuthoritativeOutcome() = runTest {
+        val f = Fixture()
+        val engineering = mockk<GatewayEngineeringRepository>(relaxed = true)
+        coEvery { f.chats.waitingRemoteAgentRuns() } returns listOf(f.run.copy(status = AgentRunStatus.WAITING_REMOTE_JOB))
+        coEvery { engineering.ownsRequest("run") } returns true
+        coEvery { engineering.stopRequest("run") } returns GatewayStopOutcome("REQUESTED", "Cancellation has not been confirmed.")
+        f.coordinator(engineering).cancelChatAndJoin(1)
+        coVerify(exactly = 1) { engineering.stopRequest("run") }
+        coVerify(exactly = 0) { f.gateway.cancelJob(any(), any()) }
+        coVerify(exactly = 0) { f.chats.finishActiveAgentRun(any(), any(), any(), any()) }
+    }
+
+    @Test fun deletingALocalConversationDoesNotSendAnImplicitRemoteStop() = runTest {
+        val f = Fixture()
+        val engineering = mockk<GatewayEngineeringRepository>(relaxed = true)
+        coEvery { f.chats.waitingRemoteAgentRuns() } returns listOf(f.run.copy(status = AgentRunStatus.WAITING_REMOTE_JOB))
+        coEvery { engineering.ownsRequest("run") } returns true
+        f.coordinator(engineering).cancelChatAndJoin(1, dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin.CHAT_DELETED)
+        coVerify(exactly = 0) { engineering.stopRequest(any()) }
+        coVerify(exactly = 0) { f.chats.finishActiveAgentRun(any(), any(), any(), any()) }
     }
 
     @Test fun healthyLongRunningJobIsNeverCancelledJustBecauseTheAppRestartedLate() = runTest {

@@ -195,6 +195,7 @@ internal object CompleteBackupDatabase {
         val sections = selection.normalized().sections
         return buildSet {
             if (CompleteBackupSection.CONVERSATIONS in sections) {
+                addAll(dev.chungjungsoo.gptmobile.data.database.GatewayWorkDatabaseSchema.tables)
                 add("chats_v2")
                 addAll(listOf("conversation_folders", "conversation_folder_members", "conversation_folder_moves", "reply_publications"))
                 add("workspace_records")

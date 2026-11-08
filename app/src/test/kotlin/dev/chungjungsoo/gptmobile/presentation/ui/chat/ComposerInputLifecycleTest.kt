@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
 import android.app.Application
 import android.view.Surface
+import android.view.SurfaceControl
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.text.input.rememberTextFieldState
@@ -41,20 +42,28 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.ExternalResource
+import org.junit.rules.RuleChain
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
-import org.robolectric.annotation.Implementation
-import org.robolectric.annotation.Implements
-import org.robolectric.shadows.ShadowBlastBufferQueue
-import org.robolectric.util.ReflectionHelpers
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34], application = Application::class, shadows = [ComposerInputLifecycleTest.ComposerBlastBufferQueueShadow::class])
+@Config(sdk = [34], application = Application::class, shadows = [ComposerSurfaceQueueShadow::class])
 @GraphicsMode(GraphicsMode.Mode.LEGACY)
 class ComposerInputLifecycleTest {
-    @get:Rule val compose = createComposeRule()
+    val compose = createComposeRule()
+
+    @get:Rule val surfacesAndCompose = RuleChain.outerRule(object : ExternalResource() {
+        override fun before() {
+            assertEquals(0, ComposerSurfaceQueueShadow.liveSurfaceCount())
+        }
+
+        override fun after() {
+            ComposerSurfaceQueueShadow.releaseAllSurfaces()
+        }
+    }).around(compose)
 
     @Test fun sendingReleasesFocusBeforeDispatchAndPreservesTheExactDraft() {
         var focused = false
@@ -260,21 +269,19 @@ class ComposerInputLifecycleTest {
         compose.runOnIdle { assertEquals("Retained draft", input.text.toString()) }
     }
 
-    private fun assertEditorReleasedFocus(owner: SemanticsOwner) {
-        // Read fresh semantics on the dispatch thread; the reporting callback alone
-        // must not be able to conceal an editor that still owns the input session.
-        val editor = owner.getAllSemanticsNodes(mergingEnabled = true).single {
-            it.config.getOrNull(SemanticsProperties.ContentDescription)?.contains("Message input") == true
-        }
-        assertFalse("Editor still owns focus at dispatch", editor.config[SemanticsProperties.Focused])
-    }
-
     @Test fun platformBufferQueueSurfacesRetainTheirReleaseLifecycle() {
         // Call the Android object, not the shadow, to verify the hidden API mapping.
         val queueClass = Class.forName("android.graphics.BLASTBufferQueue")
         val queue = queueClass.getConstructor(String::class.java, Boolean::class.javaPrimitiveType)
             .newInstance("composer-lifecycle-test", false)
         try {
+            queueClass.getMethod(
+                "update",
+                SurfaceControl::class.java,
+                Int::class.javaPrimitiveType,
+                Int::class.javaPrimitiveType,
+                Int::class.javaPrimitiveType
+            ).invoke(queue, null, 64, 32, 1)
             for (factory in listOf("createSurface", "createSurfaceWithHandle")) {
                 val surface = queueClass.getMethod(factory).invoke(queue) as Surface
                 try {
@@ -289,17 +296,12 @@ class ComposerInputLifecycleTest {
         }
     }
 
-    /**
-     * Robolectric's API 34 BLAST factory returns null in legacy graphics. Supply
-     * its existing lifecycle-aware Surface shadow without starting native HWUI.
-     * Android Magnifier creation/dismissal and Compose input cleanup remain real.
-     */
-    @Implements(className = "android.graphics.BLASTBufferQueue", isInAndroidSdk = false, minSdk = 34, maxSdk = 34)
-    class ComposerBlastBufferQueueShadow : ShadowBlastBufferQueue() {
-        @Implementation
-        protected override fun createSurface(): Surface = ReflectionHelpers.callConstructor(Surface::class.java)
-
-        @Implementation
-        protected override fun createSurfaceWithHandle(): Surface = ReflectionHelpers.callConstructor(Surface::class.java)
+    private fun assertEditorReleasedFocus(owner: SemanticsOwner) {
+        // Read fresh semantics on the dispatch thread; the reporting callback alone
+        // must not be able to conceal an editor that still owns the input session.
+        val editor = owner.getAllSemanticsNodes(mergingEnabled = true).single {
+            it.config.getOrNull(SemanticsProperties.ContentDescription)?.contains("Message input") == true
+        }
+        assertFalse("Editor still owns focus at dispatch", editor.config[SemanticsProperties.Focused])
     }
 }

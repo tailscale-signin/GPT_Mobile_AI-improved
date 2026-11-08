@@ -61,7 +61,11 @@ internal data class GatewayReadinessObservation(
     val generationReady: Boolean?,
     val selectedModelAvailable: Boolean?,
     val draining: Boolean,
-    val receivedAtMillis: Long
+    val receivedAtMillis: Long,
+    val availableWorkers: Long? = null,
+    val canAccept: Boolean? = null,
+    val canQueue: Boolean? = null,
+    val modelLoading: Boolean? = null
 )
 
 internal fun parseGatewayReadiness(value: JsonObject, status: Int, model: String?, receivedAtMillis: Long): GatewayReadinessObservation {
@@ -78,7 +82,19 @@ internal fun parseGatewayReadiness(value: JsonObject, status: Int, model: String
     val generation = (capabilities["generationReady"] as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull
     val available = (capabilities["modelAvailable"] as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull
     require(!ready || generation == true && (model.isNullOrBlank() || available == true)) { "Gateway readiness lacks model evidence." }
-    return GatewayReadinessObservation(instance, ready, generation, available, (value["service"] as? JsonObject)?.flag("draining") == true, receivedAtMillis)
+    val capacity = ((value["components"] as? JsonObject)?.get("workerCapacity") as? JsonObject)
+    return GatewayReadinessObservation(
+        instance,
+        ready,
+        generation,
+        available,
+        (value["service"] as? JsonObject)?.flag("draining") == true,
+        receivedAtMillis,
+        capacity?.count("availableWorkers"),
+        (capabilities["canAccept"] as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull,
+        (capabilities["canQueue"] as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull,
+        (capabilities["modelLoading"] as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull
+    )
 }
 
 /** Missing, invalid, and explicitly unavailable measurements remain unknown. */

@@ -31,6 +31,11 @@ class JournalTests(unittest.TestCase):
         self.db = Path(self.temp) / 'jobs.sqlite3'
         self.store = DeviceStore(Path(self.temp) / 'auth.sqlite3')
         self.runtime = self.gateway.runtime
+        # Each fixture represents a fresh server lifetime. Admission state is
+        # process-local; a preceding TestClient shutdown must not leak draining
+        # or reserved worker slots into a new temporary journal.
+        for name, value in {'draining': False, 'workers': {}, 'queued': set(), 'admitted': set()}.items():
+            self.stack.enter_context(patch.object(self.gateway.service, name, value))
         for name, value in {
             'GATEWAY_JOB_DB_PATH': self.db, 'GATEWAY_DURABLE_JOBS': True,
             'durable_job_initialized': False, 'startup_services_started': False,
@@ -38,6 +43,7 @@ class JournalTests(unittest.TestCase):
             'singleflight_workers': {}, 'singleflight_request_index': {},
             'durable_job_metrics': dict.fromkeys(self.runtime.durable_job_metrics, 0),
             'device_store': self.store,
+            'gateway_draining': False,
         }.items():
             self.stack.enter_context(patch.object(self.runtime, name, value))
         self.stack.enter_context(patch('v14.identity.device_store', self.store))

@@ -1,5 +1,7 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.home
 
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -10,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -30,6 +33,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -37,11 +42,16 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.MultiSearchResearchSelection
 import dev.chungjungsoo.gptmobile.data.model.NewChatType
@@ -49,6 +59,9 @@ import dev.chungjungsoo.gptmobile.data.model.ResearchContentScope
 import dev.chungjungsoo.gptmobile.data.model.collectReusableProfileLabels
 import dev.chungjungsoo.gptmobile.data.model.parseProfileLabels
 import dev.chungjungsoo.gptmobile.data.model.researchStartBlockReason
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAvailability
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAvailabilityStatus
+import dev.chungjungsoo.gptmobile.data.network.gateway.gatewayAvailabilityTargets
 import dev.chungjungsoo.gptmobile.data.pricing.decimalRate
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDropdownMenu as DropdownMenu
 import dev.chungjungsoo.gptmobile.presentation.common.ProfileLabelChip
@@ -94,6 +107,9 @@ internal fun NewChatProfileScreen(
     val approvingResearch by viewModel.approvingResearch.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
     val insights by insightViewModel.insights.collectAsStateWithLifecycle()
+    val gatewayStates by viewModel.gatewayAvailability.collectAsStateWithLifecycle()
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val screenLifecycle by lifecycleOwner.lifecycle.currentStateFlow.collectAsStateWithLifecycle(minActiveState = Lifecycle.State.CREATED)
     val kind = viewModel.type ?: NewChatType.SINGLE
     var query by rememberSaveable { mutableStateOf("") }
     var filterName by rememberSaveable { mutableStateOf(ProfileFilter.ALL.name) }
@@ -129,7 +145,7 @@ internal fun NewChatProfileScreen(
             )
         }
     }
-    val visible = remember(baseOrder, query, labelKey, filter, features, researchPolicy) {
+    val filtered = remember(baseOrder, query, labelKey, filter, features, researchPolicy) {
         baseOrder.filter { profile ->
             val matchingType = when (filter) {
                 ProfileFilter.ALL -> true
@@ -147,6 +163,33 @@ internal fun NewChatProfileScreen(
                 profileMatchesQuery(profile, query) &&
                 (labelKey == null || parseProfileLabels(profile.labels).any { it.key == labelKey })
         }
+    }
+    val gatewayAvailability = remember(profiles, features, kind, gatewayStates, screenLifecycle) {
+        gatewayAvailabilityTargets(profiles, features, kind == NewChatType.GITHUB).associate { target ->
+            target.profileUid to (
+                gatewayStates[target.profileUid]?.takeIf { it.identity == target.identity }?.at(System.currentTimeMillis())
+                    ?: GatewayAvailability(target.identity, if (target.problem == null) GatewayAvailabilityStatus.CHECKING else GatewayAvailabilityStatus.ATTENTION, target.problem ?: "Checking model availability…")
+                )
+        }
+    }
+    val desiredOrder = remember(filtered, gatewayAvailability, sort) {
+        val available = gatewayAvailability.filterValues { it.status in setOf(GatewayAvailabilityStatus.ONLINE, GatewayAvailabilityStatus.BUSY_QUEUE) }.keys
+        promoteAvailableProfileUids(filtered.map { it.uid }, available, filtered.filter { it.isFavorite }.mapTo(mutableSetOf()) { it.uid }.takeIf { sort == ProfileSort.FAVORITES })
+    }
+    val listState = rememberLazyListState()
+    var touching by remember { mutableStateOf(false) }
+    val accessibilityInteracting = rememberProfileAccessibilityInteraction()
+    // Explicit user sorting/filtering starts a new order even during accessibility navigation.
+    var retainedOrder by remember(sort, filter, query, labelKey) { mutableStateOf(emptyList<String>()) }
+    val displayedOrder = retainProfileOrder(retainedOrder, desiredOrder, touching || listState.isScrollInProgress || accessibilityInteracting)
+    SideEffect { if (retainedOrder != displayedOrder) retainedOrder = displayedOrder }
+    val visible = remember(filtered, displayedOrder) {
+        val byUid = filtered.associateBy { it.uid }
+        displayedOrder.mapNotNull(byUid::get)
+    }
+    val visibleRowUids by remember { derivedStateOf { listState.layoutInfo.visibleItemsInfo.mapNotNull { it.key as? String }.toSet() } }
+    LaunchedEffect(viewModel, lifecycleOwner) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) { viewModel.observeGateways() }
     }
     val blockers = viewModel.researchBlockers()
     val combined = kind.executionMode(currentSelection.size) == dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode.COMBINED
@@ -166,6 +209,20 @@ internal fun NewChatProfileScreen(
 
     var optionsOpen by rememberSaveable { mutableStateOf(false) }
     Scaffold(
+        modifier = Modifier.pointerInput(Unit) {
+            try {
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                    touching = true
+                    do {
+                        val event = awaitPointerEvent(PointerEventPass.Final)
+                    } while (event.changes.any { it.pressed })
+                    touching = false
+                }
+            } finally {
+                touching = false
+            }
+        },
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             Column {
@@ -227,6 +284,7 @@ internal fun NewChatProfileScreen(
         }
     ) { insets ->
         LazyColumn(
+            state = listState,
             modifier = Modifier.fillMaxSize().padding(insets).testTag("new_chat_profiles_screen"),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -251,7 +309,9 @@ internal fun NewChatProfileScreen(
                     insight = insights[profile.uid]?.takeIf { it.matches(profile) },
                     onToggle = viewModel::toggleProfile,
                     onFavorite = { viewModel.toggleFavorite(profile.uid) },
-                    onInsights = { detailsUid = profile.uid }
+                    onInsights = { detailsUid = profile.uid },
+                    gatewayAvailability = gatewayAvailability[profile.uid],
+                    animateGatewayName = profile.uid in visibleRowUids && !optionsOpen && detailsUid == null
                 )
             }
         }

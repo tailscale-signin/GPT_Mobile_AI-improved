@@ -61,7 +61,8 @@ class SharedMultiChatCreationTest {
             val viewModel = NewChatViewModel(
                 SavedStateHandle(mapOf("new_chat_type" to "MULTI_CHAT", "new_chat_uids" to listOf("a", "b"))),
                 settings,
-                chats
+                chats,
+                availabilityRepository()
             )
             store.put("new-chat", viewModel)
             var route = ""
@@ -100,7 +101,7 @@ class SharedMultiChatCreationTest {
                 }
             }
             val chats = proxy<ChatRepository> { name, _ -> error("Chat must be scoped to a repository before $name") }
-            val viewModel = NewChatViewModel(SavedStateHandle(mapOf("new_chat_type" to "GITHUB", "new_chat_uids" to listOf("coder"))), settings, chats)
+            val viewModel = NewChatViewModel(SavedStateHandle(mapOf("new_chat_type" to "GITHUB", "new_chat_uids" to listOf("coder"))), settings, chats, availabilityRepository())
             store.put("github-chat", viewModel)
             var route = ""
             viewModel.start { route = it }
@@ -112,6 +113,10 @@ class SharedMultiChatCreationTest {
             Dispatchers.resetMain()
         }
     }
+
+    private fun availabilityRepository() = dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAvailabilityRepository(
+        dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAvailabilityProbe { _, _ -> error("Creating a chat must not probe a gateway.") }
+    )
 
     private inline fun <reified T> proxy(crossinline invoke: (String, Array<out Any?>) -> Any?): T =
         Proxy.newProxyInstance(T::class.java.classLoader, arrayOf(T::class.java)) { _, method, args ->

@@ -11,6 +11,9 @@ import dev.chungjungsoo.gptmobile.data.model.NewChatType
 import dev.chungjungsoo.gptmobile.data.model.ResearchContentScope
 import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
 import dev.chungjungsoo.gptmobile.data.model.researchStartBlockReason
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAvailability
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAvailabilityRepository
+import dev.chungjungsoo.gptmobile.data.network.gateway.gatewayAvailabilityTargets
 import dev.chungjungsoo.gptmobile.data.repository.ChatRepository
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import javax.inject.Inject
@@ -18,6 +21,9 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -26,7 +32,8 @@ import kotlinx.coroutines.launch
 class NewChatViewModel @Inject constructor(
     private val savedStateHandle: SavedStateHandle,
     private val settings: SettingRepository,
-    private val chats: ChatRepository
+    private val chats: ChatRepository,
+    private val availability: GatewayAvailabilityRepository
 ) : ViewModel() {
     val profiles = settings.observePlatformV2s()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -42,6 +49,17 @@ class NewChatViewModel @Inject constructor(
     val approvingResearch = _approvingResearch.asStateFlow()
     private val _error = MutableStateFlow<String?>(null)
     val error = _error.asStateFlow()
+    private val mutableGatewayAvailability = MutableStateFlow<Map<String, GatewayAvailability>>(emptyMap())
+    internal val gatewayAvailability = mutableGatewayAvailability.asStateFlow()
+
+    /** The screen owns this collection; opening a profile never starts inference or a saved job. */
+    internal suspend fun observeGateways() {
+        combine(profiles, features, typeName) { savedProfiles, configuration, type ->
+            gatewayAvailabilityTargets(savedProfiles, configuration, type == NewChatType.GITHUB.name)
+        }.distinctUntilChanged().collectLatest { targets ->
+            availability.observe(targets).collect { mutableGatewayAvailability.value = it }
+        }
+    }
 
     val type: NewChatType?
         get() = NewChatType.entries.firstOrNull { it.name == typeName.value }

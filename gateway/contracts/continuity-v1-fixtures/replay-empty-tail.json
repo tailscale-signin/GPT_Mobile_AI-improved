@@ -1,0 +1,16 @@
+{
+  "gateway_id": "gw_d1665bfbcbf744408387656fdd6379dd",
+  "principal_id": "owner",
+  "conversation_id": "conv_aecfc1eee0ae4220da0cac748560fc07",
+  "revision": 4,
+  "items": [],
+  "next_cursor": "eyJhZnRlciI6NCwiY29udmVyc2F0aW9uX2lkIjoiY29udl9hZWNmYzFlZWUwYWU0MjIwZGEwY2FjNzQ4NTYwZmMwNyIsImdhdGV3YXlfaWQiOiJnd19kMTY2NWJmYmNiZjc0NDQwODM4NzY1NmZkZDYzNzlkZCIsImtpbmQiOiJtZXNzYWdlcyIsInByaW5jaXBhbCI6IjYyMmYwNmNiY2QyZTdlNjE2MzdlMTcyMTJlNzE0ZTZjNzIxZDJkZDVhOWY3YmMxYWVjOTExYjY1YjM0ZWRjZjUiLCJ2ZXJzaW9uIjoxfSe8QZDnrBUS0Gwo3Wbcl4ai7eCTTXI0aMsfxoPWo8cB",
+  "has_more": false,
+  "earliest_sequence": 1,
+  "latest_sequence": 4,
+  "history_complete": true,
+  "history_limitation": null,
+  "gap": false,
+  "gap_details": null,
+  "server_time_ms": 1794052800000
+}

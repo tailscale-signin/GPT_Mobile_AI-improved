@@ -114,7 +114,8 @@ class AgentRunCoordinator @Inject constructor(
     private val synthesisPlanner: CombinedSynthesisPlanner? = null,
     private val researchSessions: dev.chungjungsoo.gptmobile.data.research.ResearchSessionStore? = null,
     private val providerWaits: ProviderWaitStore? = null,
-    private val collectionDecisions: CombinedCollectionDecisionStore? = null
+    private val collectionDecisions: CombinedCollectionDecisionStore? = null,
+    private val gatewayEngineering: dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringRepository? = null
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val jobs = ConcurrentHashMap<String, Job>()
@@ -432,6 +433,20 @@ class AgentRunCoordinator @Inject constructor(
         }
     }
 
+    private suspend fun gatewayOwnsRequest(runId: String): Boolean {
+        val repository = gatewayEngineering ?: return false
+        return try {
+            repository.ownsRequest(runId)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            AppLogRecorder.record("Agent", "GATEWAY_OWNERSHIP_READ_UNAVAILABLE · run=$runId · reason=${failure.javaClass.simpleName}", "W")
+            // An unreadable ownership journal cannot authorize another recovery
+            // engine to replace the saved run or classify it as cancelled.
+            true
+        }
+    }
+
     private suspend fun remoteWaitingRuns(): List<AgentRun> = try {
         chatRepository.waitingRemoteAgentRuns()
     } catch (cancelled: CancellationException) {
@@ -448,6 +463,24 @@ class AgentRunCoordinator @Inject constructor(
 
     private suspend fun terminalizeAndCancel(runIds: Set<String>, isInterrupted: Boolean, origin: dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin = dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin.USER_WHOLE_RUN) {
         if (runIds.isEmpty()) return
+        val gatewayOwned = runIds.filter { !jobs.containsKey(it) && !deferredStarts.containsKey(it) && gatewayOwnsRequest(it) }.toSet()
+        if (gatewayOwned.isNotEmpty()) {
+            if (!isInterrupted && origin == dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin.USER_WHOLE_RUN) {
+                for (requestId in gatewayOwned) {
+                    try {
+                        gatewayEngineering?.stopRequest(requestId)
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (failure: Exception) {
+                        AppLogRecorder.record("Agent", "GATEWAY_STOP_UNCONFIRMED · run=$requestId · reason=${failure.javaClass.simpleName}", "W")
+                    }
+                }
+            }
+            // A platform interruption or local deletion cannot become a remote
+            // Stop command. Its authoritative final state comes from replay.
+            terminalizeAndCancel(runIds - gatewayOwned, isInterrupted, origin)
+            return
+        }
         val waitingRemote = remoteWaitingRuns().filter { it.runId in runIds }.associateBy { it.runId }
         val researchRoots = runIds.mapNotNull { researchLifecycles[it] }.distinctBy { it.rootWorkId }
         val cancelCombined = !isInterrupted &&
@@ -531,7 +564,20 @@ class AgentRunCoordinator @Inject constructor(
             gatewayRecoveryNetworkEpoch = networkEpoch
             gatewayRecoveryAttemptAtMs.clear()
         }
+        val reconnectedConversations = mutableSetOf<Int>()
         for (run in chatRepository.getRecoverableGatewayRuns()) {
+            if (gatewayOwnsRequest(run.runId)) {
+                if (reconnectedConversations.add(run.chatId)) {
+                    try {
+                        gatewayEngineering?.reconnectConversation(run.chatId)
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (failure: Exception) {
+                        AppLogRecorder.record("Agent", "GATEWAY_CONVERSATION_RECONNECT_PENDING · chat=${run.chatId} · reason=${failure.javaClass.simpleName}", "W")
+                    }
+                }
+                continue
+            }
             // A live stream remains the owner of its answer. Recovery only adopts interrupted work.
             if (!GatewayOutcomeRecovery.canReadSavedResult(run) || jobs.containsKey(run.runId)) continue
             val jobId = run.gatewayJobId ?: continue

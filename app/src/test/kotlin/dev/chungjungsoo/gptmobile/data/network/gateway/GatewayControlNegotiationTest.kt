@@ -8,13 +8,16 @@ import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
 import io.mockk.every
 import io.mockk.mockk
+import java.util.Base64
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -91,10 +94,104 @@ class GatewayControlNegotiationTest {
         val api = Fake().apply { failure = GatewayCapabilityDiscoveryException("Direct inference has no gateway service") }
         val negotiation = GatewayControlNegotiation(api)
         for (provider in listOf("LLAMA", "OLLAMA", "CUSTOM", "OPENAI")) {
-            val config = ProviderRequestConfig("https://${provider.lowercase()}.headerless-direct.example/v1", "selected-account", providerType = provider, extraHeaders = mapOf("X-Client" to "app"))
+            val config = ProviderRequestConfig("https://${provider.lowercase()}.headerless-direct.example/v1", "selected-account", providerType = provider, profileUid = "saved-profile", profileName = "Local · 東京 🦙", extraHeaders = mapOf("X-Client" to "app"))
             assertEquals(config, negotiation.prepare(config))
+            assertEquals(config, negotiation.prepare(config.copy(extraHeaders = config.extraHeaders + mapOf("x-gateway-profile-id" to "untrusted", "X-Gateway-Profile-Name-Base64" to "dW50cnVzdGVk"))))
         }
         assertEquals(0, api.probes)
+    }
+
+    @Test fun unicodeDisplayLabelsAreCapturedOnlyAfterTheRealGatewayAcceptsTheirHeaders() = runBlocking {
+        val fixture = requireNotNull(javaClass.classLoader?.getResourceAsStream("gateway-v15-capabilities-full.json")).bufferedReader().use { it.readText() }
+        val accepted = listOf("X-Gateway-Profile-ID", "x-gateway-profile-name-base64")
+        val payload = JsonObject(Json.parseToJsonElement(fixture).jsonObject + ("accepted_request_headers" to JsonArray(accepted.map(::JsonPrimitive)))).toString()
+        val config = ProviderRequestConfig(
+            "https://profile-label-negotiation.example/v1",
+            "selected-account",
+            profileUid = "selected-profile_2",
+            profileName = " Local · 東京 🦙 ",
+            extraHeaders = mapOf("X-Gateway-Cache-Reuse" to "1024", "x-gateway-profile-id" to "untrusted", "X-Gateway-Profile-Name-Base64" to "dW50cnVzdGVk")
+        )
+        var probes = 0
+        HttpClient(
+            MockEngine { request ->
+                probes++
+                assertEquals("GET", request.method.value)
+                assertEquals("/v1/gateway/capabilities", request.url.encodedPath)
+                assertEquals("Bearer selected-account", request.headers["Authorization"])
+                assertEquals(null, request.headers["X-Gateway-Profile-ID"])
+                assertEquals(null, request.headers["X-Gateway-Profile-Name-Base64"])
+                respond(payload)
+            }
+        ).use { http ->
+            val network = mockk<NetworkClient>()
+            every { network() } returns http
+            val prepared = GatewayControlNegotiation(GatewayAPIImpl(network)).prepare(config)
+            assertEquals("selected-profile_2", prepared.extraHeaders["X-Gateway-Profile-ID"])
+            val encoded = requireNotNull(prepared.extraHeaders["X-Gateway-Profile-Name-Base64"])
+            assertTrue(encoded.matches(Regex("[A-Za-z0-9_-]+")))
+            assertEquals(config.profileName, Base64.getUrlDecoder().decode(encoded).toString(Charsets.UTF_8))
+            assertEquals(2, prepared.extraHeaders.size)
+            assertEquals(GatewayClientDiagnostics.routeIdentity(config), GatewayClientDiagnostics.routeIdentity(prepared))
+            assertEquals(config.token, prepared.token)
+            assertEquals(config.profileUid, prepared.profileUid)
+            assertEquals(1, probes)
+        }
+    }
+
+    @Test fun eachDisplayHeaderRequiresItsOwnAcceptanceAndDirectRoutesNeverReceiveThem() = runBlocking {
+        val possibilities = listOf(null, emptyList(), listOf("X-Gateway-Profile-ID"), listOf("X-Gateway-Profile-Name-Base64"))
+        for ((index, headers) in possibilities.withIndex()) {
+            val api = Fake(headers?.let { GatewayCapabilities(gatewayVersion = "15.0.0", acceptedRequestHeaders = it) })
+            val config = ProviderRequestConfig("https://profile-label-unaccepted-$index.example/v1", null, profileUid = "saved", profileName = "Saved profile", extraHeaders = mapOf("X-Gateway-Cache-Reuse" to "1024"))
+            val prepared = GatewayControlNegotiation(api).prepare(config)
+            assertEquals(headers.orEmpty().toSet(), prepared.extraHeaders.keys)
+            assertEquals(1, api.probes)
+        }
+    }
+
+    @Test fun displayMetadataBoundsUseUtf8BytesAndUnsafeIdentifiersCannotBecomeHeaders() = runBlocking {
+        val accepted = listOf("X-Gateway-Profile-ID", "X-Gateway-Profile-Name-Base64")
+        val api = Fake(GatewayCapabilities(gatewayVersion = "15.0.0", acceptedRequestHeaders = accepted))
+        val negotiation = GatewayControlNegotiation(api)
+        val config = ProviderRequestConfig("https://profile-label-bounds.example/v1", null, profileUid = "p".repeat(160), profileName = "é".repeat(512), extraHeaders = mapOf("X-Gateway-Cache-Reuse" to "1024"))
+        val prepared = negotiation.prepare(config)
+        assertEquals(config.profileUid, prepared.extraHeaders[accepted[0]])
+        val bytes = Base64.getUrlDecoder().decode(prepared.extraHeaders[accepted[1]])
+        assertEquals(1024, bytes.size)
+        assertEquals(config.profileName, bytes.toString(Charsets.UTF_8))
+        for (uid in listOf("", "p".repeat(161), "unsafe\r\nX-Injected: yes", "東京", "with space")) {
+            val bounded = negotiation.prepare(config.copy(profileUid = uid, profileName = "é".repeat(513)))
+            assertTrue(bounded.extraHeaders.isEmpty())
+        }
+        for (name in listOf(" ", "\uD800", "a".repeat(1025), "name\nsecond line", "name\u0085")) {
+            assertEquals(setOf(accepted[0]), negotiation.prepare(config.copy(profileName = name)).extraHeaders.keys)
+        }
+        assertEquals(1, api.probes)
+    }
+
+    @Test fun capturedDisplayMetadataDoesNotReenableDiagnosticsOrChangeCapabilityIdentity() = runBlocking {
+        val enabled = LocalDiagnosticsPolicy.enabled
+        try {
+            LocalDiagnosticsPolicy.setEnabled(true)
+            val headers = listOf("X-Gateway-Profile-ID", "X-Gateway-Profile-Name-Base64", GatewayClientDiagnostics.CLIENT_HEADER, "traceparent")
+            val api = Fake(GatewayCapabilities(gatewayVersion = "15.0.0", acceptedRequestHeaders = headers))
+            val negotiation = GatewayControlNegotiation(api)
+            val captured = GatewayClientDiagnostics.withHeaders(ProviderRequestConfig("https://profile-label-diagnostics.example/v1", "account", profileUid = "first", profileName = "First", providerType = "LLAMA"), "model")
+            GatewayClientDiagnostics.observeInstance(captured, "8".repeat(32))
+            LocalDiagnosticsPolicy.setEnabled(false)
+            val first = negotiation.prepare(captured)
+            val renamed = negotiation.prepare(captured.copy(profileUid = "second", profileName = "Renamed 東京"))
+            assertEquals(setOf(headers[0], headers[1]), first.extraHeaders.keys)
+            assertEquals(setOf(headers[0], headers[1]), renamed.extraHeaders.keys)
+            assertEquals("second", renamed.extraHeaders[headers[0]])
+            assertEquals("Renamed 東京", Base64.getUrlDecoder().decode(renamed.extraHeaders[headers[1]]).toString(Charsets.UTF_8))
+            assertEquals(GatewayClientDiagnostics.routeIdentity(first), GatewayClientDiagnostics.routeIdentity(renamed))
+            assertFalse(api.configurations.single().extraHeaders.keys.any { it.startsWith("X-Gateway-", true) || it.equals("traceparent", true) || it.equals("X-Request-ID", true) })
+            assertEquals(1, api.probes)
+        } finally {
+            LocalDiagnosticsPolicy.setEnabled(enabled)
+        }
     }
 
     @Test fun knownGatewaysWithoutControlsStillVerifyTheirSelectedRoute() = runBlocking {

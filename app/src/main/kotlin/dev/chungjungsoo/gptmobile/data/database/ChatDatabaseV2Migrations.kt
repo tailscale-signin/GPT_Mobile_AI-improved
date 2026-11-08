@@ -516,6 +516,12 @@ object ChatDatabaseV2Migrations {
         }
     }
 
+    val MIGRATION_49_50 = object : Migration(49, 50) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            GatewayWorkDatabaseSchema.create(db)
+        }
+    }
+
     val ALL_MIGRATIONS: Array<Migration> = arrayOf(
         MIGRATION_10_11,
         MIGRATION_11_12,
@@ -555,7 +561,8 @@ object ChatDatabaseV2Migrations {
         MIGRATION_45_46,
         MIGRATION_46_47,
         MIGRATION_47_48,
-        MIGRATION_48_49
+        MIGRATION_48_49,
+        MIGRATION_49_50
     )
     private fun columns(db: SupportSQLiteDatabase, table: String): Set<String> = db.query("PRAGMA table_info(`$table`)").use { cursor -> buildSet { while (cursor.moveToNext()) add(cursor.getString(1)) } }
     private fun addColumnIfMissing(db: SupportSQLiteDatabase, table: String, column: String, definition: String) {

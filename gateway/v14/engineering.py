@@ -19,6 +19,7 @@ from v14.inference_scheduler import install_scheduler
 from v14.engineering_artifacts import EngineeringArtifacts
 from v14.engineering_operations import EngineeringOperations
 from v14.debug import capture_context_snapshot, execution_diagnostic_context
+from v14.continuity import ContinuityStore, millis
 
 PHASES = ('PLAN', 'READ', 'IMPLEMENT', 'REVIEW', 'COMMIT', 'OPEN_PR', 'CI', 'PROMOTE', 'MERGE_READY', 'MERGE', 'VERIFY', 'COMPLETED')
 PAUSED = {'MERGE_READY', 'NEEDS_INPUT', 'COMPLETED', 'CANCELLED'}
@@ -35,10 +36,19 @@ def principal_authorized(config, principal, devices):
 
 
 def validate_request(request):
-    allowed = {'repository', 'branch', 'base', 'objective', 'model', 'duration_hours', 'repair_attempts', 'chat_id', 'request_id', 'acceptance', 'profile_id', 'memory_mode', 'execution_binding_id', 'execution_budget'}
+    allowed = {'repository', 'branch', 'base', 'objective', 'model', 'duration_hours', 'repair_attempts', 'chat_id', 'request_id', 'acceptance', 'profile_id', 'memory_mode', 'execution_binding_id', 'execution_budget',
+               'scope', 'profile_name', 'conversation_id', 'source_branch', 'source_sha'}
     if not isinstance(request, dict) or set(request) - allowed:
         raise ValueError('Unsupported engineering request fields')
     result = dict(request)
+    scope = result.get('scope', 'implement')
+    if scope not in {'read', 'plan', 'implement'}:
+        raise ValueError('Select read, plan or implement scope explicitly')
+    for key, maximum in (('profile_name', 256), ('conversation_id', 128)):
+        if key in result and (not isinstance(result[key], str) or not 1 <= len(result[key]) <= maximum or any(ord(c) < 32 for c in result[key])):
+            raise ValueError('Invalid ' + key)
+    if 'source_sha' in result and (not isinstance(result['source_sha'], str) or not SHA.fullmatch(result['source_sha'])):
+        raise ValueError('Source revision must be an exact commit SHA')
     binding_id = result.get('execution_binding_id')
     if binding_id is not None and (not isinstance(binding_id, str) or not re.fullmatch(r'bind_[a-f0-9]{32}', binding_id)):
         raise ExecutionBindingError('EXECUTION_BINDING_INVALID', 'Use the verified binding returned by this gateway.')
@@ -55,13 +65,16 @@ def validate_request(request):
         raise ValueError('Invalid engineering profile scope')
     if not re.fullmatch(r'[A-Za-z0-9-]+/[A-Za-z0-9_.-]+', str(result.get('repository', ''))):
         raise ValueError('Select a valid repository')
-    for key in ('branch', 'base'):
+    for key in ('branch', 'base', *(['source_branch'] if 'source_branch' in result else [])):
         value = result.get(key, 'main' if key == 'base' else '')
         if not isinstance(value, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_./-]{0,199}', value) or any(x in value for x in ('..', '//', '@{')) or value.endswith(('/', '.', '.lock')):
             raise ValueError('Invalid branch')
         result[key] = value
-    if result['branch'] == result['base']:
-        raise ValueError('Engineering jobs require a separate working branch')
+    if result['branch'] == result['base'] and scope == 'implement':
+        if result.get('scope') != 'implement' or not result.get('source_sha'):
+            raise ValueError('Engineering jobs require a separate working branch or explicit implementation with a pinned source')
+        result.setdefault('source_branch', result['branch'])
+        result['branch'] = 'codex/gateway-' + digest([result.get('request_id'), result['repository'], result['source_sha']])[:20]
     for key, maximum in (('objective', 16000), ('model', 200), ('request_id', 128)):
         if not isinstance(result.get(key), str) or not 1 <= len(result[key].strip()) <= maximum:
             raise ValueError('Missing or oversized ' + key)
@@ -103,6 +116,7 @@ class EngineeringStore:
     def __init__(self, runtime, now=time.time):
         self.runtime, self.now = runtime, now
         self.bindings = None
+        self.continuity = ContinuityStore(self)
 
     def tx(self, operation):
         if not self.runtime.GATEWAY_DURABLE_JOBS:
@@ -127,6 +141,7 @@ class EngineeringStore:
                     db.execute('CREATE TABLE IF NOT EXISTS engineering_model_attempts ('
                                'id TEXT PRIMARY KEY, job_id TEXT NOT NULL, binding_id TEXT NOT NULL, revision INTEGER NOT NULL, '
                                'state TEXT NOT NULL, dispatched INTEGER NOT NULL, reserved_tokens INTEGER NOT NULL, payload TEXT NOT NULL)')
+                    self.continuity.schema(db)
                     return operation(db)
             finally:
                 db.close()
@@ -163,7 +178,7 @@ class EngineeringStore:
         return self.tx(lambda db: [json.loads(row[0]) for row in db.execute(
             'SELECT data FROM engineering_events WHERE job_id=? AND revision>? AND revision<=? ORDER BY revision LIMIT 201', (job_id, after, through))])
 
-    def create(self, principal, request):
+    def create(self, principal, request, *, followup=None, command_hash=None):
         request = validate_request(request)
         request_hash = digest(request)
         existing = self.existing_request(principal, request)
@@ -189,13 +204,29 @@ class EngineeringStore:
                 if old[3] != request_hash:
                     raise ValueError('Request identity was reused with different settings')
                 return self.decode(old[:3])
+            if followup is not None:
+                conversation = self.continuity._conversation(db, principal, request['conversation_id'])
+                if conversation[2] != followup['expected_revision']:
+                    raise ExecutionBindingError('CONVERSATION_REVISION_CHANGED', 'Refresh the conversation before submitting this follow-up.', 409)
+                prior = db.execute('SELECT data FROM engineering_jobs WHERE id=? AND principal=?', (conversation[6], principal)).fetchone()
+                if prior is None:
+                    raise ExecutionBindingError('FOLLOW_UP_NOT_AVAILABLE', 'The preceding job binding is unavailable.', 409)
+                previous = json.loads(prior[0])
+                job.update(continuation_of=previous['id'], continuation_branch=previous['request']['branch'])
+                prior_head = previous.get('data', {}).get('head_sha')
+                if isinstance(prior_head, str) and SHA.fullmatch(prior_head):
+                    job['continuation_head_sha'] = prior_head
+            elif request.get('conversation_id'):
+                raise ExecutionBindingError('FOLLOW_UP_COMMAND_REQUIRED', 'Use the revision-fenced conversation message endpoint for an existing conversation.', 409)
             if db.execute("SELECT COUNT(*) FROM engineering_jobs WHERE state NOT IN ('COMPLETED','CANCELLED')").fetchone()[0] >= 32:
                 raise ValueError('Engineering job capacity reached')
             if db.execute('SELECT COUNT(*) FROM engineering_jobs').fetchone()[0] >= 4096:
                 raise ValueError('Engineering history capacity reached; archive the journal before starting another job')
+            self.continuity.admit_engineering(db, job, request_hash, command_hash=command_hash)
             db.execute('INSERT INTO engineering_jobs VALUES(?,?,?,?,?,0,?,NULL,?)',
                        (job['id'], principal, request['request_id'], request_hash, 'PLAN', now, json.dumps(job)))
             self.event(db, job, 'PLAN', 0, now)
+            self.continuity.record_engineering(db, job, 'PLAN', 0)
             return dict(job, state='PLAN', revision=0)
         return self.tx(insert)
 
@@ -226,6 +257,7 @@ class EngineeringStore:
     def recover(self):
         # The composition root holds the process-wide state-directory lock.
         self.tx(lambda db: db.execute('UPDATE engineering_jobs SET lease=NULL'))
+        self.continuity.backfill()
 
     def wake_checks(self, principal):
         self.tx(lambda db: db.execute('UPDATE engineering_jobs SET next_at=? WHERE principal=? AND state=? AND lease IS NULL', (self.now(), principal, 'CI')))
@@ -237,6 +269,8 @@ class EngineeringStore:
             job = self.decode(row)
             if not job or job['state'] in PAUSED:
                 return None
+            job.setdefault('started_at', self.now())
+            db.execute('UPDATE engineering_jobs SET data=? WHERE id=?', (json.dumps({key: value for key, value in job.items() if key not in {'state', 'revision'}}), job_id))
             db.execute('UPDATE engineering_jobs SET lease=? WHERE id=? AND lease IS NULL', (lease, job_id))
             db.execute('INSERT INTO engineering_owner_epochs VALUES(?,1) ON CONFLICT(job_id) DO UPDATE SET epoch=epoch+1', (job_id,))
             epoch = db.execute('SELECT epoch FROM engineering_owner_epochs WHERE job_id=?', (job_id,)).fetchone()[0]
@@ -247,6 +281,7 @@ class EngineeringStore:
             job['_legacy_dispatch_receipt'] = receipt is not None and receipt[0] == 'DISPATCHING'
             job['_execution_lease'] = lease
             job['_owner_epoch'] = epoch
+            self.continuity.record_engineering(db, job, job['state'], job['revision'], lease)
             return job, lease, recovering
         return self.tx(claim)
 
@@ -271,6 +306,7 @@ class EngineeringStore:
             if not unchanged:
                 self.event(db, job, phase, job['revision'] + 1, self.now())
             db.execute("UPDATE engineering_receipts SET status='CONFIRMED',output_json=? WHERE job_id=? AND revision=?", (output_json, job['id'], job['revision']))
+            self.continuity.record_engineering(db, job, phase, job['revision'] + 1)
             return True
         return self.tx(save)
 
@@ -338,6 +374,7 @@ class EngineeringStore:
                 raise ValueError('Unsupported job action')
             db.execute('UPDATE engineering_jobs SET data=?,state=?,revision=revision+1,next_at=?,lease=NULL WHERE id=?', (json.dumps(job), state, self.now(), job_id))
             self.event(db, job, state, job['revision'] + 1, self.now())
+            self.continuity.record_engineering(db, job, state, job['revision'] + 1)
             return dict(job, state=state, revision=job['revision'] + 1)
         return self.tx(update)
 
@@ -354,6 +391,7 @@ class EngineeringStore:
                                  (state, self.now(), json.dumps(job), job['id'], job['revision'], 'MERGE_READY'))
             if changed.rowcount:
                 self.event(db, job, state, job['revision'] + 1, self.now())
+                self.continuity.record_engineering(db, job, state, job['revision'] + 1)
         self.tx(update)
 
 
@@ -417,6 +455,17 @@ class EngineeringService:
     def prepare_binding(self, principal, selection, gateway_endpoint=None):
         return self.bindings.prepare(principal, selection, gateway_endpoint)
 
+    def job_response(self, job):
+        projection = self.store.continuity.enrich_job(job) or {}
+        # Preserve the established engineering fields and aliases. Catalog
+        # metadata is additive and never substitutes today's selected profile.
+        result = public_job(job)
+        for key, value in projection.items():
+            if key not in result or result[key] is None:
+                result[key] = value
+        result['server_time_ms'] = millis(self.store.now())
+        return result
+
     def binding_capabilities(self, principal, binding_id):
         binding, _, capabilities = self.bindings.validate(principal, binding_id, force=True)
         return {'binding': binding, 'capabilities': capabilities}
@@ -438,6 +487,8 @@ class EngineeringService:
         return binding, route, capability
 
     def validate_mutation(self, job):
+        if job['request'].get('scope', 'implement') != 'implement':
+            raise ExecutionBindingError('ENGINEERING_SCOPE_READ_ONLY', 'This accepted conversation scope cannot dispatch repository mutations.')
         self.store.assert_claim(job)
         if job['state'] not in MUTATIONS:
             raise ExecutionBindingError('EXECUTION_OPERATION_PHASE_INVALID', 'This stage has no authority to dispatch a repository mutation.')
@@ -545,6 +596,8 @@ class EngineeringService:
     def _tick_claimed(self, job, lease, recovering):
         phase, output, delay = job['state'], {}, 0
         try:
+            if job['request'].get('scope', 'implement') != 'implement' and phase not in {'PLAN', 'READ'}:
+                raise ExecutionBindingError('ENGINEERING_SCOPE_READ_ONLY', 'This job has no authority to enter a mutation workflow.')
             self.artifacts.restore_stage(job)
             limit = EngineeringSupervisor.limit(job, self.store.now()) if self.authorized(job) else 'Gateway engineering permission was revoked'
             if limit:
@@ -611,9 +664,22 @@ class EngineeringService:
                 # authority from today's settings or a reused display name.
                 if phase in {'PLAN', 'READ', 'IMPLEMENT', 'REVIEW'}:
                     self.validate_execution(job, force=recovering)
+                if job['request'].get('scope', 'implement') != 'implement' and phase not in {'PLAN', 'READ'}:
+                    raise ExecutionBindingError('ENGINEERING_SCOPE_READ_ONLY', 'This job has no authority to enter a mutation workflow.')
                 output = self.backend.step(job, phase)
                 job['data'].update(output)
-                if phase == 'IMPLEMENT':
+                if phase == 'READ' and job['request'].get('scope', 'implement') in {'read', 'plan'}:
+                    summarize = getattr(self.backend, 'summarize_read', None)
+                    if not callable(summarize):
+                        raise ExecutionBindingError('READ_PLAN_EXECUTION_UNSUPPORTED', 'The selected host adapter cannot safely finish a read/planning-only conversation.')
+                    summary = summarize(job)
+                    job['data']['scope_result'] = summary
+                    job['data']['scope_verification'] = {'scope': job['request']['scope'], 'repository_mutations': 0,
+                        'head_sha': job['data'].get('head_sha'), 'read_paths': sorted(job['data'].get('files', {})),
+                        'execution_integrity': job['data'].get('execution_integrity'), 'delivered': True}
+                    phase = 'COMPLETED'
+                    job['message'] = 'Read-only repository answer retained' if job['request']['scope'] == 'read' else 'Repository plan retained; implementation requires a new explicit instruction'
+                elif phase == 'IMPLEMENT':
                     patch = digest(output.get('changes', []))
                     if not output.get('changes') or patch in job['patches']:
                         job['stalls'] += 1
@@ -644,7 +710,7 @@ class EngineeringService:
                                       'REVIEW': 'Selected-model review of proposed changes', 'COMMIT': 'Publishing the reviewed branch changes',
                                       'OPEN_PR': 'Preparing the draft pull request', 'CI': 'Waiting for CI validation',
                                       'COMPLETED': 'Merge verified; engineering result published'}.get(phase, phase)
-                elif phase == 'COMPLETED':
+                elif phase == 'COMPLETED' and job['request'].get('scope', 'implement') == 'implement':
                     job['message'] = 'Approved merge and workflow evidence verified. Feature acceptance is limited to configured paths/checks; unexecuted benchmarks remain Not measured.'
         except Exception as error:
             output = {'error_type': type(error).__name__}
@@ -658,7 +724,12 @@ class EngineeringService:
             if not transient:
                 job['stalls'] += 1
             # Mutations stay uncertain; no automatic replay after a lost response.
-            if job['state'] in MUTATIONS and getattr(self.backend, 'physical_operation_journal', False) and not self.operations.dispatched(job):
+            if isinstance(error, ExecutionBindingError) and error.code == 'ENGINEERING_SCOPE_READ_ONLY':
+                phase = 'NEEDS_INPUT'
+                output['dispatched'] = False
+                job['message'] = str(error)
+                job['data']['blocked_reason'] = {'code': error.code, 'retryable': False, 'dispatched': False}
+            elif job['state'] in MUTATIONS and getattr(self.backend, 'physical_operation_journal', False) and not self.operations.dispatched(job):
                 phase = 'NEEDS_INPUT'
                 output['dispatched'] = False
                 job['message'] = 'The write was rejected before dispatch. Confirmed work is retained. ' + str(getattr(error, 'code', type(error).__name__))
@@ -805,7 +876,13 @@ def public_job(job):
     state = job['state']
     completed = len(job.get('milestones', []))
     readiness = data.get('readiness') or {}
-    return {'id': job['id'], 'repository': job['request']['repository'], 'branch': job['request']['branch'],
+    return {'id': job['id'], 'job_id': job['id'], 'repository': job['request']['repository'], 'branch': job['request']['branch'],
+            'scope': job['request'].get('scope', 'implement'), 'profile_id': job['request'].get('profile_id'),
+            'profile_name': job['request'].get('profile_name'), 'model': job['request']['model'],
+            'source_branch': job['request'].get('source_branch', job['request']['branch']), 'source_sha': job['request'].get('source_sha'),
+            'working_branch': job['request']['branch'], 'base': job['request']['base'], 'conversation_id': job.get('conversation_id'),
+            'gateway_id': job.get('gateway_id'), 'principal_id': job['principal'], 'command_id': job['request']['request_id'],
+            'accepted_at_ms': millis(job['created_at']), 'server_time_ms': millis(time.time()),
             'chat_id': job['request'].get('chat_id', 0), 'state': state, 'revision': job['revision'],
             'created_at': job['created_at'], 'finished_at': job['updated_at'] if state in {'COMPLETED', 'CANCELLED'} else None, 'deadline': job['deadline'], 'message': job['message'],
             'milestones_completed': completed, 'milestones_total': len(PHASES) - 2,

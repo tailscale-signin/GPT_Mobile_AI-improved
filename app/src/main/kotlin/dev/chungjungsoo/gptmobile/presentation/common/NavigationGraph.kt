@@ -73,6 +73,28 @@ fun SetupNavGraph(
     toolConnectionsViewModel: ToolConnectionsViewModel,
     onLaunchOAuth: (String) -> Unit = {}
 ) {
+    val external = androidx.compose.ui.platform.LocalUriHandler.current
+    var transcript by remember { mutableStateOf<String?>(null) }
+    val handler = remember(external) {
+        object : androidx.compose.ui.platform.UriHandler {
+            override fun openUri(uri: String) {
+                val key = uri.removePrefix("gptmobile://gateway-transcript/")
+                if (key != uri && key.matches(Regex("[a-f0-9]{64}"))) transcript = key else external.openUri(uri)
+            }
+        }
+    }
+    androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalUriHandler provides handler) {
+        SetupNavGraphContent(navController, toolConnectionsViewModel, onLaunchOAuth)
+        transcript?.let { dev.chungjungsoo.gptmobile.presentation.ui.setting.GatewayTranscriptDialog(it, onDismiss = { transcript = null }) }
+    }
+}
+
+@Composable
+private fun SetupNavGraphContent(
+    navController: NavHostController,
+    toolConnectionsViewModel: ToolConnectionsViewModel,
+    onLaunchOAuth: (String) -> Unit = {}
+) {
     val currentEntry by navController.currentBackStackEntryAsState()
     SettingsGlassBackdropHost(isSettingsDestination(currentEntry?.destination?.route)) {
         dev.chungjungsoo.gptmobile.presentation.navigation.AppNavigationShell(navController, currentEntry?.destination?.route) {

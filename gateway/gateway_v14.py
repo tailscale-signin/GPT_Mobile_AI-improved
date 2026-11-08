@@ -6,6 +6,7 @@ import re
 import asyncio
 import uuid
 import json
+import sqlite3
 import importlib.metadata
 from pathlib import Path
 
@@ -43,6 +44,8 @@ from v14.engineering import EngineeringStore, EngineeringService, principal_auth
 from gateway_security import device_store
 from v14.engineering_backend import GitHubEngineeringBackend
 from v14.engineering_routes import install_engineering_routes
+from v14.continuity_routes import install_continuity_routes
+from v14.continuity import profile_metadata
 from v14.usage import install_usage
 
 runtime.GATEWAY_VERSION = VERSION
@@ -77,6 +80,7 @@ activity = ActivityTracker(os.getenv("GATEWAY_ACTIVITY_STATE"))
 activity.install_tools(runtime)
 engineering = EngineeringService(EngineeringStore(runtime), GitHubEngineeringBackend(runtime))
 runtime.gateway_engineering = engineering
+runtime.gateway_continuity = engineering.store.continuity
 engineering.authorized = lambda job: principal_authorized(config, job['principal'], device_store)
 engineering.backend.cancelled = lambda job_id: (engineering.store.get(job_id) or {}).get('state') == 'CANCELLED'
 from v14.code_graph.tools import install_graph_tool
@@ -92,6 +96,7 @@ app.add_middleware(Admission, config=config)
 app.add_middleware(DebugMiddleware, store=debug_log, instance_id=service.instance_id)
 install_debug_routes(app, debug_log)
 install_engineering_routes(app, engineering)
+install_continuity_routes(app, engineering, service, config)
 from v14.maintenance import install_maintenance
 install_maintenance(app, runtime, service, engineering)
 
@@ -129,6 +134,9 @@ async def chat(request: Request):
     try:
         payload = await request.json()
         runtime.validate_chat_request(payload)
+        request.state.gateway_admission_snapshot = dict(profile_metadata(request.headers), messages=[
+            json.loads(json.dumps(message)) for message in payload.get('messages', [])
+            if isinstance(message, dict) and message.get('role') in {'user', 'assistant', 'tool'}])
         stage = "run_control_validation"
         try:
             request_deadline(payload)
@@ -206,6 +214,15 @@ def capabilities(model=""):
         build.update(packaged_build)
     result = runtime.gateway_capabilities()
     diagnostic_snapshot = debug_log.snapshot()
+    installation_id = None
+    if runtime.GATEWAY_DURABLE_JOBS:
+        try:
+            installation_id = engineering.bindings.installation_id()
+        except (DurableCommitError, sqlite3.Error, OSError, ValueError):
+            # Basic capability negotiation must remain available when the
+            # durable journal is disabled or unhealthy. Do not advertise an
+            # installation identity or continuity that was never persisted.
+            pass
     result.update({"gatewayVersion": VERSION, "contractVersion": 1,
                    "build": build,
                    "accepted_request_headers": ["X-Gateway-Job-ID", "X-Gateway-Performance-Profile", "X-Gateway-Slot-Pinning", "X-Gateway-Slot-Count", "X-Gateway-Cache-Prompt", "X-Gateway-Cache-Reuse", "X-Gateway-Reasoning-Effort", "X-Gateway-Tool-Optimization", "X-Gateway-Tool-Surface-Limit", "X-Gateway-Stable-Tool-Surface", "X-Gateway-Intermediate-Max-Tokens", "X-Gateway-Soft-Synthesis-Round", "X-Gateway-Result-Char-Limit", "X-Gateway-Delegated-Worker", "X-Gateway-Allow-Local-Tools", "X-Gateway-Request-Role", "X-Gateway-Attempt-ID", "X-Gateway-Client-Diagnostics", "X-Gateway-Diagnostic-Session", "X-Gateway-Diagnostic-Started", "traceparent"],
@@ -215,6 +232,12 @@ def capabilities(model=""):
                    "identityScope": "shared-network" if config.mode == "open_network" else "user" if config.mode == "trusted_proxy" else "local-machine",
                    "diagnostics": {key: diagnostic_snapshot.get(key) for key in ("protocolVersion", "clientMetadata", "bidirectionalEvents", "retainedLineLimit", "recordByteLimit", "debugEnabled", "storageReady", "storageChecked")},
                    "instanceId": service.instance_id,
+                   "gatewayId": installation_id,
+                   "continuity": {"protocolVersion": 1, "available": installation_id is not None,
+                                  "jobCatalog": installation_id is not None, "conversationMessages": installation_id is not None,
+                                  "commandReconciliation": installation_id is not None, "messageParts": True,
+                                  "ordinaryRestartPolicy": "interrupt_without_replay",
+                                  "engineeringRestartPolicy": "reconcile_and_resume"},
                    "memory": {"authority": "client", "protocolVersion": 1, "workspaceAdapterEnabled": False},
                    "supportedMcpEras": ["legacy", "2026-07-28"], "eventVersions": [runtime.GATEWAY_PROGRESS_PROTOCOL],
                    "mcpTransportAdapters": {"stdio": ["legacy", "2026-07-28"], "streamableHttp": [], "continuationCapabilities": []},
@@ -228,13 +251,14 @@ def capabilities(model=""):
                                     modernMcp=True, clientMemoryAuthority=True, packageValidation=True,
                                     validatedToolArguments=True, githubClientOwnedFastPath=True,
                                     githubImmutableReadCache=True, githubPerformanceMetrics=True, intelligentToolBatch=True, mobileDashboard=True,
-                                    batchDependencies=True, batchDurableReceipts=True, durableEngineeringJobs=True,
+                                    batchDependencies=True, batchDurableReceipts=True, durableEngineeringJobs=installation_id is not None,
                                     shaBoundMergeApproval=True, engineeringSupervisor=True, repositoryCodeGraph=True,
                                     loopbackBrowserCsrf=config.mode == "loopback", boundedAdmission=True,
                                     versionedJournal=True, mcpCircuitBreakers=True, supervisedShutdown=True,
                                     selectedModelLimits=True)})
     if model:
         result['selectedModel'] = engineering.capabilities.selected_model(model)
+    result['accepted_request_headers'].extend(['X-Gateway-Profile-ID', 'X-Gateway-Profile-Name-Base64'])
     return result
 
 

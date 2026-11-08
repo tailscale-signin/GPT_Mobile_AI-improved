@@ -24,14 +24,46 @@ class GatewayEngineeringRepository @Inject constructor(
     @ApplicationContext private val context: Context,
     private val settings: SettingRepository,
     private val client: GatewayEngineeringClient,
-    private val notifications: GitHubDecisionNotifications
+    private val notifications: GitHubDecisionNotifications,
+    private val store: GatewayWorkStore,
+    private val conversations: GatewayConversationRepository
 ) {
     private val synchronization = Mutex()
     private val scheduling = Mutex()
     private val lastPoll = mutableMapOf<String, Long>()
 
-    suspend fun bindings(chatId: Int? = null): List<GatewayEngineeringBinding> = settings.getFeatureSettings().gatewayEngineeringJobs
-        .filter { chatId == null || it.chatId == chatId }
+    suspend fun bindings(chatId: Int? = null): List<GatewayEngineeringBinding> = store.bindings(chatId)
+
+    fun observeConversation(chatId: Int) = conversations.observeConversation(chatId)
+
+    suspend fun ownsRequest(requestId: String): Boolean = conversations.ownsRequest(requestId)
+
+    suspend fun reconnectConversation(chatId: Int) {
+        conversations.reconnectConversation(chatId)
+        for (binding in bindings(chatId).filter { it.job != null && it.conversationId == null }) observe(binding.request.requestId)
+    }
+
+    suspend fun stopConversation(chatId: Int) = conversations.stopConversation(chatId)
+
+    suspend fun stopRequest(requestId: String) = conversations.stopRequest(requestId)
+
+    suspend fun submitNormalTurn(
+        chatId: Int,
+        context: GitHubConversationContext,
+        profile: dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2,
+        requestId: String,
+        content: String,
+        scope: String,
+        userMessageId: Int,
+        assistantMessageId: Int,
+        base: String = context.ref,
+        localRunId: String? = null,
+        admissionAllowed: () -> Boolean = { true }
+    ): GatewayEngineeringBinding = try {
+        conversations.submitNormalTurn(chatId, context, profile, requestId, content, scope, userMessageId, assistantMessageId, base, localRunId, admissionAllowed)
+    } finally {
+        kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable + kotlinx.coroutines.Dispatchers.IO) { schedule() }
+    }
 
     suspend fun options(): GatewayEngineeringSettings = settings.getFeatureSettings().githubEngineeringSettings
 
@@ -53,6 +85,7 @@ class GatewayEngineeringRepository @Inject constructor(
         require(objective.isNotBlank() && objective.length <= 16000 && branch != base)
         val profile = settings.fetchPlatformV2s().single { it.uid == context.mainProfileUid && it.enabled }
         require(GitHubAutonomousEngineeringPolicy.supportsSavedJobs(profile)) { "Autonomous jobs require a local Llama or Ollama engineering profile. Remote profiles cannot start them." }
+        check(GatewayOwnedTurnPolicy.configured(profile, context, settings.getFeatureSettings())) { "Remote GitHub tools are disabled for this profile." }
         val preferences = settings.getFeatureSettings().githubProfileOverrides[profile.uid] ?: GitHubChatProfileOverride()
         val gateway = settings.engineeringGateway(profile.uid)
         val principal = client.principal(gateway.engineeringConfig())
@@ -63,30 +96,31 @@ class GatewayEngineeringRepository @Inject constructor(
         // selection, never silently to the snapshot we are about to persist.
         val current = settings.fetchPlatformV2s().singleOrNull { it.uid == profile.uid && it.enabled }
             ?: error("The selected profile was disabled during admission.")
+        check(GatewayOwnedTurnPolicy.configured(current, context, settings.getFeatureSettings())) { "Remote GitHub tool consent changed during admission." }
         check(executionSelection(current, current.providerConnectionUid?.let { settings.getProviderConnection(it) }, selection.privacyScope) == selection) { "The selected profile changed during admission. Review it before starting." }
         check(settings.engineeringGateway(profile.uid).let { it.uid == gateway.uid && it.apiUrl == gateway.apiUrl }) { "The engineering gateway changed during admission." }
         val binding = GatewayEngineeringBinding(
             gateway.uid,
             gateway.apiUrl.trimEnd('/'),
             GatewayEngineeringRequest(
-                "${context.owner}/${context.repo}", branch, base, objective, profile.model, options.durationHours, options.repairAttempts, chatId, UUID.randomUUID().toString(), options.acceptance, profile.uid, preferences.engineeringMemory, admission.bindingId
+                "${context.owner}/${context.repo}", branch, base, objective, profile.model, options.durationHours, options.repairAttempts, chatId, UUID.randomUUID().toString(), options.acceptance, profile.uid, preferences.engineeringMemory, admission.bindingId,
+                profileName = profile.name, sourceBranch = context.ref, sourceSha = context.commitSha
             ),
             principalId = principal,
             executionSelection = selection,
-            executionAdmission = admission
+            executionAdmission = admission,
+            originalContext = context
         )
-        settings.mutateFeatureSettings {
-            check(it.gatewayEngineeringJobs.size < 64) { "Saved engineering jobs reached capacity." }
-            it.copy(githubEngineeringSettings = options.copy(acceptance = emptyList()), gatewayEngineeringJobs = it.gatewayEngineeringJobs + binding)
-        }
+        settings.mutateFeatureSettings { it.copy(githubEngineeringSettings = options.copy(acceptance = emptyList())) }
+        store.prepare(binding)
         schedule()
-        reconnect(binding.request.requestId)
+        conversations.submitPrepared(binding)
     }
 
     suspend fun schedule() = scheduling.withLock {
         // A missing/cancelled observer is not evidence that server execution
         // ended. Conversely, cancelled jobs do not justify recreating it.
-        if (bindings().none { it.job?.terminal == false || it.job?.let { job -> it.syncedRevision < job.revision } == true }) return@withLock
+        if (observableBindings().isEmpty()) return@withLock
         val manager = WorkManager.getInstance(context)
         val current = manager.getWorkInfosForUniqueWorkFlow(OBSERVER_WORK_NAME).first()
         if (current.any { !it.state.isFinished }) return@withLock
@@ -99,30 +133,30 @@ class GatewayEngineeringRepository @Inject constructor(
         )
     }
 
-    suspend fun reconnect(requestId: String): GatewayEngineeringBinding = poll(requestId, allowCreate = true, maxPages = 4).also { schedule() }
+    suspend fun reconnect(requestId: String): GatewayEngineeringBinding = observe(requestId).also { schedule() }
 
     /** Safe for foreground/background observers: never submits or resumes inference. */
-    suspend fun observe(requestId: String): GatewayEngineeringBinding = poll(requestId, allowCreate = false, maxPages = 2)
+    suspend fun observe(requestId: String): GatewayEngineeringBinding {
+        val binding = requireNotNull(store.binding(requestId))
+        if (binding.gatewayId != null || binding.conversationId != null || binding.job == null) {
+            val observed = conversations.observeRequest(requestId)
+            val job = observed.job
+            if (job != null && job.revision > observed.notifiedRevision && job.state in setOf("MERGE_READY", "NEEDS_INPUT", "COMPLETED")) {
+                notifications.prompt(job.id, observed.chatId, 0, "${job.repository} · ${job.message}")
+                return observed.copy(notifiedRevision = job.revision).also { save(it) }
+            }
+            return observed
+        }
+        return poll(requestId, maxPages = 2)
+    }
 
-    private suspend fun poll(requestId: String, allowCreate: Boolean, maxPages: Int): GatewayEngineeringBinding = synchronization.withLock {
+    private suspend fun poll(requestId: String, maxPages: Int): GatewayEngineeringBinding = synchronization.withLock {
         var binding = bindings().single { it.request.requestId == requestId }
-        if (binding.job == null && !allowCreate) return@withLock binding
+        if (binding.job == null) return@withLock binding
         if (binding.job?.terminal == true && binding.syncedRevision >= requireNotNull(binding.job).revision) return@withLock binding
         val config = config(binding)
         if (binding.job != null && System.nanoTime() / 1_000_000 - (lastPoll[requestId] ?: Long.MIN_VALUE / 2) < 2000) return@withLock binding
         check(binding.principalId == client.principal(config, requireReady = false)) { "The gateway account changed. Restore the original connection before reconnecting to this job." }
-        if (binding.job == null) {
-            val selection = requireNotNull(binding.executionSelection) { "This saved request predates strict execution binding. Select a profile explicitly before starting new work." }
-            val accepted = requireNotNull(binding.executionAdmission)
-            accepted.verify(selection)
-            check(binding.request.executionBindingId == accepted.bindingId)
-            client.bindingCapabilities(config, selection, accepted.bindingId)
-            // Reuse the persisted key after a lost create response. Never launch a duplicate job.
-            val job = client.create(config, binding.request)
-            check(job.id.matches(Regex("eng_[a-f0-9]{32}")) && job.repository == binding.request.repository && job.branch == binding.request.branch && job.chatId == binding.request.chatId && job.executionBindingId == accepted.bindingId && job.executionBinding == accepted.binding) { "Engineering create receipt does not match the saved request. Its original request identity was retained." }
-            binding = binding.copy(job = job)
-            save(binding)
-        }
         var more: Boolean
         var pages = 0
         do {
@@ -152,7 +186,7 @@ class GatewayEngineeringRepository @Inject constructor(
 
     suspend fun syncAll(): Boolean {
         var success = true
-        for (binding in bindings().filter { it.job != null && (it.job.terminal != true || it.syncedRevision < it.job.revision) }.sortedBy { lastPoll[it.request.requestId] ?: Long.MIN_VALUE }.take(16)) {
+        for (binding in observableBindings().sortedBy { lastPoll[it.request.requestId] ?: Long.MIN_VALUE }.take(16)) {
             try {
                 observe(binding.request.requestId)
             } catch (cancelled: CancellationException) {
@@ -162,6 +196,10 @@ class GatewayEngineeringRepository @Inject constructor(
             }
         }
         return success
+    }
+
+    private suspend fun observableBindings(): List<GatewayEngineeringBinding> = bindings().filter { binding ->
+        if (binding.job == null) store.dao.command(binding.request.requestId)?.state != "REJECTED" else !binding.job.terminal || binding.syncedRevision < binding.job.revision
     }
 
     /** This method is invoked by explicit UI buttons; it is never registered as an AI tool. */
@@ -183,10 +221,7 @@ class GatewayEngineeringRepository @Inject constructor(
     }
 
     private suspend fun save(binding: GatewayEngineeringBinding) {
-        settings.mutateFeatureSettings { current ->
-            check(current.gatewayEngineeringJobs.any { it.request.requestId == binding.request.requestId }) { "Engineering binding was removed." }
-            current.copy(gatewayEngineeringJobs = current.gatewayEngineeringJobs.map { if (it.request.requestId == binding.request.requestId) binding else it })
-        }
+        store.saveBinding(binding)
     }
 
     companion object {

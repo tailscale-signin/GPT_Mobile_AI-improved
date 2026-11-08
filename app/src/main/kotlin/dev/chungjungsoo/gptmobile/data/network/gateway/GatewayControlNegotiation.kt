@@ -11,7 +11,8 @@ import kotlinx.serialization.json.contentOrNull
 internal class GatewayControlNegotiation(private val api: GatewayAPI) {
     private val cache = RouteCapabilityCache<GatewayCapabilities>({ System.nanoTime() / 1_000_000 }, negativeTtl = 15_000)
     suspend fun prepare(config: ProviderRequestConfig): ProviderRequestConfig {
-        val permittedHeaders = GatewayClientDiagnostics.requestHeaders(config)
+        // Captured labels never trigger discovery or bypass negotiation through extraHeaders.
+        val permittedHeaders = GatewayClientDiagnostics.requestHeaders(config).filterKeys { it.lowercase() !in profileHeaders }
         val permitted = config.copy(extraHeaders = permittedHeaders)
         val requested = permittedHeaders.filterKeys { it.startsWith("X-Gateway-", true) }
         val knownGateway = GatewayClientDiagnostics.runtimeEpoch(config) != "unobserved"
@@ -44,10 +45,31 @@ internal class GatewayControlNegotiation(private val api: GatewayAPI) {
             if (isolation.keys.any { it.lowercase() !in accepted }) {
                 throw GatewayCapabilityDiscoveryException("GATEWAY_ISOLATION_UNAVAILABLE: The selected gateway did not confirm the required tool isolation controls. Check or update that gateway and retry; no model request was sent.")
             }
-            requested.filterKeys { it.lowercase() in accepted }
+            requested.filterKeys { it.lowercase() in accepted } + profileDisplayHeaders(config, accepted)
         }
         val sourceCommit = (capability?.build?.get("sourceCommit") as? JsonPrimitive)?.contentOrNull?.takeIf { it.matches(Regex("[a-f0-9]{40}")) }
         AppLogRecorder.record("Gateway", "CONTROL_NEGOTIATION · route=$identity · requested=${requested.keys.sorted()} · accepted=${transmitted.keys.sorted()} · serverCommit=${sourceCommit ?: "Not measured"} · effective=Not measured · gatewayVersion=${capability?.gatewayVersion ?: capability?.version ?: "unavailable"}")
         return permitted.copy(extraHeaders = permittedHeaders - requested.keys + transmitted)
+    }
+
+    private fun profileDisplayHeaders(config: ProviderRequestConfig, accepted: Set<String>): Map<String, String> = buildMap {
+        if (PROFILE_ID.lowercase() in accepted) {
+            config.profileUid?.takeIf { it.matches(profileUidPattern) }?.let { put(PROFILE_ID, it) }
+        }
+        if (PROFILE_NAME.lowercase() in accepted) {
+            config.profileName?.takeIf { it.isNotBlank() && it.length <= 1024 && it.none(Char::isISOControl) }?.let { name ->
+                val bytes = name.toByteArray(Charsets.UTF_8)
+                if (bytes.size <= 1024 && bytes.toString(Charsets.UTF_8) == name) {
+                    put(PROFILE_NAME, java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(bytes))
+                }
+            }
+        }
+    }
+
+    private companion object {
+        const val PROFILE_ID = "X-Gateway-Profile-ID"
+        const val PROFILE_NAME = "X-Gateway-Profile-Name-Base64"
+        val profileHeaders = setOf(PROFILE_ID.lowercase(), PROFILE_NAME.lowercase())
+        val profileUidPattern = Regex("[A-Za-z0-9_-]{1,160}")
     }
 }

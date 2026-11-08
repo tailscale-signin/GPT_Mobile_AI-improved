@@ -764,6 +764,90 @@ dependency verification or release qualification is changed by these fixture
 corrections. The five changed files are the three existing test fixtures and
 these two existing repair ledgers.
 
+## Real HTTP fixture route isolation follow-up
+
+The next complete CI cycle at `9bef7abedf02b6d27e727d76bb3510602c5499ee`
+qualifies the lifecycle and metadata-read corrections above. Both canonical and
+preview ordinary runs contain 1,273 XML reports and 8,095 cases: 8,090 pass,
+zero fail, and the same five dedicated-heap assumptions are skipped. All 99
+priority classes and 962 identities pass in both runs. The canonical Room 51
+export remains byte-identical to the committed schema; its unit/heap/APK job
+and Required verification both finish successfully.
+
+All five dedicated heap identities separately execute and pass. Four assert the
+actual runtime maximum heap is at most 256 MiB. The staged diagnostic case asserts
+at most 64 MiB and reports exactly 67,108,864 heap bytes while processing 20,000
+records / 163,840,000 source bytes and successfully resuming. The heap reports
+contain 11 passing executions, including six supporting cases; they are not 11
+additional unique heap requirements. The downloaded validation artifact digest
+verifies, and the terminal checkout identifies the same independently verified
+merge producer `b7327bca5ced2f86e7af34932fb1ea691ab26743`.
+
+The independent audit ordinary run contains the same complete inventory but
+retains one actual failure: `ChatCompletionTransportTest`'s text-block array and
+buffered-timing case dereferences a missing `choices` value. Its result is 8,089
+passes, one failure, zero errors and five skips. The audit did not retain the
+received error chunk, so the precise cause of that individual invocation cannot
+be recovered from its XML. The passing independent runs do not erase that result.
+
+A controlled comparison identifies a reachable fixture collision. Every helper
+invocation previously used an OS-assigned loopback port and a bare root URL with
+no token. One case records a valid gateway instance for that route. The
+process-wide gateway identity cache intentionally retains that proof; a later
+fixture at a reused port can consequently negotiate capabilities against a server
+that only returns completion payloads. Seeding that exact prior identity makes
+the original array/timing assertions fail at the same `choices` dereference:
+the real client sends `GET /gateway/capabilities`, receives
+`GATEWAY_CAPABILITY_UNAVAILABLE`, and produces no choices. This demonstrates the
+mechanism; attributing the audit invocation to it remains an inference.
+
+The helper now appends a unique per-invocation path to its existing local URL.
+Gateway route identity includes the complete path, and endpoint construction
+preserves it. The same real server still handles the request. In the controlled
+counterpart, the route begins unobserved, the client sends a completion POST, and
+the original assertions receive `PKG-a1b2c3d4` and the expected timing value.
+No production cache, gateway admission, retry, transport or parser behavior is
+changed. The existing client's cleanup remains adequate: each isolated helper
+executes one call and does not instantiate the lazy metadata-read client.
+
+The exact updated repository class then passes all 13 original tests, with normal
+exit, zero failures or skips and no source drift. All 13 test bodies and 58
+assertion lines are unchanged. The actual current production transport is reused
+only after checking all 18 compiled production source hashes and 94 directly
+supporting cached source hashes. This executes the real CIO client and local HTTP
+server. The negative and positive probes have explicit scratch-only route
+seeding and observations; they are not additional production tests or evidence of
+a live provider call.
+
+A bounded independent scan of 14 ephemeral real-server fixture files finds no
+additional demonstrated collision. Only `ProviderToolRejectionTest` also enters
+OpenAI gateway negotiation; its non-null fixture token gives it a different
+identity, and it does not emit or seed gateway instance proof. Adding a profile
+identifier alone would not solve the demonstrated collision because that field
+is intentionally outside shared route identity.
+
+The parent also passes all 60 device cases in 22 completed invocations on each of
+API 34 and API 36, including the original visual assertions, both gateway cards
+and both bound-client tests. Both downloaded artifact digests verify. The bound
+client receipts explicitly report closed HTTP stubs and zero live-account side
+effects; each journal records 100 acknowledged and 100 successful operations
+without a coverage gap. All three review APK variants pass runtime, JNI, privacy,
+alignment and DEX checks: 3,088 checked dispatch methods each, with a maximum of
+15,834 code units below the unchanged 16,383 limit.
+
+The parent's minified native smoke check also executes three required cases on
+an API 36 emulator: real semantic-memory encoder/ObjectBox JNI and actual CPU
+inference using the pinned `stories15M-q4_0` fixture. Two optional GPU capability
+cases skip because compatible hardware is absent. This establishes that narrow
+packaged native/CPU execution, not physical accelerator qualification, production
+model identity, quality or representative-device performance.
+
+The final local fast gate passes 404 tests, 1,328 literal-regex checks and 33
+resource-XML checks; 77 dynamic patterns remain outside static evaluation.
+This follow-up changes one existing test helper and these two existing repair
+ledgers. Fresh CI on the published tree remains authoritative; the complete
+parent evidence and the focused source comparison retain their own identities.
+
 ## Measurement boundaries
 
 The gateway reports `completion_buffered` because generated content still passes

@@ -222,7 +222,8 @@ class ChatCompletionTransportTest {
         server.start()
         val client = NetworkClient(CIO)
         try {
-            block(OpenAIAPIImpl(client), ProviderRequestConfig("http://127.0.0.1:${server.address.port}/", null)) { accept }
+            // A reused loopback port must not inherit a previous fixture's gateway identity.
+            block(OpenAIAPIImpl(client), ProviderRequestConfig("http://127.0.0.1:${server.address.port}/fixture-${java.util.UUID.randomUUID()}/", null)) { accept }
         } finally {
             client().close()
             server.stop(0)

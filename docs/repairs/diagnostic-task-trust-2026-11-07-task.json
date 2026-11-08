@@ -7,7 +7,7 @@
   "working_branch": "fix/diagnostic-remediation-8597579-2026-11-07",
   "pull_request": 813,
   "intent": "Implement all F01-F23 findings in the supplied diagnostic review, preserve existing branch changes, validate actual behavior, and publish to the requested branch.",
-  "state": "FIXTURE_FOLLOWUP_VALIDATED_FRESH_COMBINED_CI_REQUIRED",
+  "state": "ROUTE_ISOLATION_FOLLOWUP_VALIDATED_FRESH_PUBLISHED_CI_REQUIRED",
   "task_store": "engineering_agent_checkpoints",
   "task_store_key": "diagnostic-task-trust-2026-11-07",
   "accepted_scope": [
@@ -18,10 +18,21 @@
     "F22-F23: input lifecycle and compact diagnostic changes"
   ],
   "pending": [
-    "Verify fresh complete canonical, audit and preview Android units; Room 51; all five dedicated heap cases; both 60-case device runs; packaged APK and native smoke; lint, security and Required verification on the published combined source. Repair any demonstrated remaining failure."
+    "Verify fresh complete canonical, audit and preview Android units; Room 51; all five dedicated heap identities; both 60-case device runs; packaged APK/native smoke; lint, security and Required verification on the published route-isolation tree. The completed parent audit failure remains retained and is not waived."
   ],
   "validation": {
-    "device": "NOT_RUN_NO_CONNECTED_DEVICE",
+    "device": {
+      "verified_parent": "9bef7abedf02b6d27e727d76bb3510602c5499ee",
+      "emulator_apis": [
+        34,
+        36
+      ],
+      "cases_each": 60,
+      "invocations_each": 22,
+      "all_passed": true,
+      "physical_device": "NOT_EXECUTED",
+      "new_source_tree": "Fresh published-tree CI required; parent execution retains its own exact identity."
+    },
     "live_account_through_app": "NOT_RUN_NO_RUNNING_APK",
     "physical_performance": "NOT_MEASURED",
     "canonical_fast": {
@@ -63,8 +74,8 @@
       "records": 20000,
       "source_bytes": 163840000
     },
-    "full_android_local": "NOT_RUN_JDK21_AND_SDK37_UNAVAILABLE",
-    "exact_published_head_ci": "IN_PROGRESS",
+    "full_android_local": "Full Gradle validation is established by exact-source CI; focused current-source Kotlin execution uses the pinned Android runtime and explicitly verified cached supporting sources.",
+    "exact_published_head_ci": "PENDING_AFTER_ROUTE_ISOLATION_PUBLICATION; last published parent has canonical and Required success but one retained independent audit unit failure.",
     "task_catalog_evidence_jvm": {
       "passed": 249,
       "production_files": 90,
@@ -146,10 +157,21 @@
       "dex_warning_limit_code_units": 16383,
       "dex_checked_methods_per_apk": 2932,
       "packaged_variants": 3
+    },
+    "latest_canonical_fast": {
+      "source_parent": "9bef7abedf02b6d27e727d76bb3510602c5499ee",
+      "pending_change": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/ChatCompletionTransportTest.kt",
+      "passed": true,
+      "python_tests": 404,
+      "seconds": 24.574,
+      "android_regex_literals": 1328,
+      "android_dynamic_patterns_not_evaluated": 77,
+      "resource_xml_files": 33,
+      "log_sha256": "c143b365865211dd4acd902bdbbc6730e16aea783567764994a005273f1979e8"
     }
   },
-  "reconciled_remote_head": "b18ddc95c223e4703c07af44334bb8db547669bb",
-  "reconciled_remote_change": "Preserved c64 exact-model reasoning, typed gateway admission, bounded accounting/checkpoint/evidence, owned-fixture recovery, Android bound-transport, UI and voice integration and b18 manifest provenance. Corrected one lifecycle test scheduling race exposed before bcb full-unit cancellation; original production behavior and all assertions remain unchanged. Final caller review found two non-relaxed transport fixtures missing the new gatewayReadClient stub; both are wired to their existing closed HTTP engine without changing assertions or production behavior.",
+  "reconciled_remote_head": "9bef7abedf02b6d27e727d76bb3510602c5499ee",
+  "reconciled_remote_change": "Preserved the complete original F01-F23 remediation and all concurrent integration; retained canonical, heap, device, APK and native parent successes alongside the independent audit failure. Isolated the one demonstrated anonymous real-HTTP fixture route collision without changing production behavior or any assertion.",
   "verification_boundaries": [
     "Focused JVM suites compile current production implementations with explicit Android/service boundaries; full Android CI remains required.",
     "Diagnostic suite counts overlap and must not be summed into a unique-test count.",
@@ -158,10 +180,11 @@
   ],
   "checkpoint_semantics": "Source-validation snapshot before publication. Current branch identity, CI outcomes and PR state are authoritative in PR 813; earlier check results do not qualify a later commit.",
   "published_source": {
-    "commit": "d02f7f85824ab130b7c8c11c784bb960618eccb4",
-    "tree": "02da2cc9e3a5bc8df5c837e6b7bd8179c2c2a1cb",
-    "parent": "423b917196419605a6c789810d3d469c55d09ce8",
-    "remote_tree_matches_validated_local_tree": true
+    "commit": "9bef7abedf02b6d27e727d76bb3510602c5499ee",
+    "tree": "b142928afc316383b1399277d17a464b4c03bf39",
+    "parent": "b18ddc95c223e4703c07af44334bb8db547669bb",
+    "remote_tree_matches_validated_local_tree": true,
+    "semantics": "Last verified published parent before this source-validation snapshot; the next commit identity and fresh checks are authoritative in PR 813."
   },
   "scope_followup": {
     "parent_head": "a06bbe33d57c00d81a75aabefaa0d27fe50b96b9",
@@ -187,7 +210,11 @@
     "6058217056cec0fecc5bdea0733ae33a10baf45e",
     "0b5661fbe9652841f2f1f6968bcf5c697db4ba99",
     "525ff8bce34c27f0904591d263b8d4a74a0b280b",
-    "ba6c275291fd0c4721866aec1f7d1cc741d58705"
+    "ba6c275291fd0c4721866aec1f7d1cc741d58705",
+    "bcb72647703b8840ef4ae869804f90399bd0c97f",
+    "c64ffef97f02eee19f7fe968f28ac2599774f5ff",
+    "b18ddc95c223e4703c07af44334bb8db547669bb",
+    "9bef7abedf02b6d27e727d76bb3510602c5499ee"
   ],
   "ci_followup": {
     "parent_head": "87709e6f5ff91befb4ede0f30fcbd1d48999afe7",
@@ -2953,5 +2980,551 @@
       "qualification_or_limit_changes": 0
     },
     "diff_check": "PASS"
+  },
+  "original_remediation_source": {
+    "commit": "d02f7f85824ab130b7c8c11c784bb960618eccb4",
+    "tree": "02da2cc9e3a5bc8df5c837e6b7bd8179c2c2a1cb",
+    "parent": "423b917196419605a6c789810d3d469c55d09ce8",
+    "remote_tree_matches_validated_local_tree": true
+  },
+  "route_isolation_followup": {
+    "parent_head": "9bef7abedf02b6d27e727d76bb3510602c5499ee",
+    "parent_tree": "b142928afc316383b1399277d17a464b4c03bf39",
+    "base_sha": "3ac89ceafd9083f67da30e92f9f93aae27be4600",
+    "observed_failure": {
+      "run_id": 42450442733,
+      "job_id": 128638386469,
+      "class": "dev.chungjungsoo.gptmobile.data.network.ChatCompletionTransportTest",
+      "method": "text block arrays and buffered timing data remain usable",
+      "failure": "NullPointerException at choices!!; the audit XML did not retain the received error chunk."
+    },
+    "controlled_mechanism": "Seeding a prior verified gateway instance for the exact anonymous bare loopback URL makes the actual current client request gateway capabilities from the completion-only fixture, receive GATEWAY_CAPABILITY_UNAVAILABLE and fail the original choices dereference. A unique fixture path on the same server keeps the selected route unobserved and makes the unchanged text/timing assertions pass.",
+    "ci_attribution": "Demonstrated reachable mechanism. Exact attribution of the individual CI failure remains an inference because its error chunk was not retained.",
+    "repair": "One per-invocation UUID path added to withResponse ProviderRequestConfig URL and one explanatory comment.",
+    "production_changed": false,
+    "original_test_identities": 13,
+    "original_test_bodies_byte_identical": true,
+    "original_assertion_lines_unchanged": 58,
+    "assertions_removed_or_relaxed": false,
+    "timeouts_heap_dex_dependencies_or_release_limits_changed": false,
+    "source_sha256": {
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/ChatCompletionTransportTest.kt": "ef9c2ad51360db45a07bce1adab82cf599e94f616ba6618089784879b66a7393"
+    },
+    "cleanup_decision": "No lazy metadata-read client is instantiated by an isolated one-call fixture; existing ordinary-client close and server stop remain unchanged.",
+    "negative_control": {
+      "original_cases": 1,
+      "failed": 1,
+      "exit": 1,
+      "actual_request": "GET /gateway/capabilities",
+      "choices": null,
+      "original_assertions_preserved": true
+    },
+    "isolated_control": {
+      "original_cases": 1,
+      "passed": 1,
+      "exit": 0,
+      "actual_request": "POST /fixture-<uuid>/chat/completions",
+      "content": "PKG-a1b2c3d4",
+      "decode_tokens_per_second": 42.5,
+      "original_assertions_preserved": true
+    },
+    "exact_repository_class": {
+      "cases": 13,
+      "passed": 13,
+      "failures": 0,
+      "skips": 0,
+      "exit": 0,
+      "seconds": 3.540861129760742,
+      "source_drift": false,
+      "actual_current_production_sources_verified": 18,
+      "cached_direct_support_hashes_verified": 94,
+      "actual_transport": "CIO and real local HttpServer",
+      "production_substitutes": false
+    },
+    "bounded_fixture_review": {
+      "ephemeral_server_fixture_files": 14,
+      "additional_concrete_collision_found": false,
+      "other_gateway_negotiation_helper": "ProviderToolRejectionTest uses a distinct non-null token and does not seed or emit gateway instance identity.",
+      "route_isolation": "Full URL path survives route hashing and endpoint construction; a profileUid alone does not isolate shared route identity.",
+      "receipt": {
+        "file": "9bef-route-identity-fixture-review.json",
+        "sha256": "ea2a5a6ed46210f7b1b32081f859e4f46c3b0aa370e67f9f59013248f5e8b448"
+      }
+    },
+    "local_evidence": [
+      {
+        "file": "chat-route-isolation-host/comparison.json",
+        "sha256": "6c7d57358a72457fbdcaaa60d29dbe18c61f6288781df571124d56cd0815d19b"
+      },
+      {
+        "file": "chat-route-isolation-host/root-review.json",
+        "sha256": "c24311cdaef3513663f19a16b198fa05ce12e0f49d7c7a5aabbcaf89a565b19a"
+      },
+      {
+        "file": "chat-route-isolation-host/fixed-source/validation.json",
+        "sha256": "95246fef9cd35cd443ed595fef394dee3f2f75d75e3a5f176b0712249e46eecc"
+      },
+      {
+        "file": "chat-route-isolation-host/collision/tests.log",
+        "sha256": "41c716666c0ac578dc037a75d3bffd741128a72bc800a11b185aada07da7ae75"
+      },
+      {
+        "file": "chat-route-isolation-host/isolated/tests.log",
+        "sha256": "7b5929dc1a61d58fc0db0d2a123986a4fdfd2ed41998bd3c6c709b7b05d17053"
+      },
+      {
+        "file": "chat-route-isolation-host/fixed-source/tests.log",
+        "sha256": "4986ed0124c6e8360eb39340ec1c7407a0aac0b433256097885368cda28d8f54"
+      }
+    ],
+    "complete_parent_canonical": {
+      "head": "9bef7abedf02b6d27e727d76bb3510602c5499ee",
+      "tree": "b142928afc316383b1399277d17a464b4c03bf39",
+      "runId": 42450442726,
+      "jobId": 128638381824,
+      "unitStepConclusion": "success",
+      "unitStepCompletedAt": "2026-11-08T05:48:45Z",
+      "artifactId": 13606192635,
+      "zipSha256": "9eef272d0fa075f33b81a0a5268ccffe5133d82167a040a68bac2f3575b506f3",
+      "counts": {
+        "tests": 8095,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 5,
+        "passed": 8090
+      },
+      "xmlReports": 1273,
+      "priorityActualClasses": 99,
+      "priorityActualIdentities": 962,
+      "priorityPassed": 962,
+      "missingPriorityClasses": [],
+      "priorityIdentityMismatches": [],
+      "skipIdentities": [
+        "dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkColdStreamingExportHeapTest.fortyEightMiBOfColdCanonicalRoomHistoryStreamsWithoutHydrationOrMirrorParsing",
+        "dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkStreamingExportHeapTest.moreThanFortyMiBOfRawHistoryAndAttemptCopiesStreamsWithin256MiBHeap",
+        "dev.chungjungsoo.gptmobile.data.diagnostics.StagedDiagnosticCaptureHeapTest.streamsAndResumesHistoryLargerThanHeapWithIndependentFailure",
+        "dev.chungjungsoo.gptmobile.data.research.ResearchSessionStoreHeapTest.moreThanFortyMiBOfRetainedEvidenceStreamsWithoutLoadingAllSessionsInto256MiBHeap",
+        "dev.chungjungsoo.gptmobile.presentation.ui.chat.StreamingDebugBundleTest.fortyMiBTwoThousandMessageExportCompletesUnder256MiBHeapWithoutConversationTree"
+      ],
+      "failureIdentities": [],
+      "terminalJobConclusion": "success",
+      "terminalJobCompletedAt": "2026-11-08T05:59:47Z",
+      "schema51Sha256": "20761194ba2e9f96b8fb6769458fd05a089153baf08bbd46d5a6210769a0e708",
+      "schema51ByteIdentical": true
+    },
+    "complete_parent_preview": {
+      "head": "9bef7abedf02b6d27e727d76bb3510602c5499ee",
+      "tree": "b142928afc316383b1399277d17a464b4c03bf39",
+      "runId": 42450442731,
+      "jobId": 128638298788,
+      "unitStepConclusion": "success",
+      "unitStepCompletedAt": "2026-11-08T05:44:07Z",
+      "artifactId": 13606221805,
+      "zipSha256": "a41a917216e8d330955b9164cd1d21b265a04602897dc8dfb0a51be396b928f1",
+      "counts": {
+        "tests": 8095,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 5,
+        "passed": 8090
+      },
+      "xmlReports": 1273,
+      "priorityActualClasses": 99,
+      "priorityActualIdentities": 962,
+      "priorityPassed": 962,
+      "missingPriorityClasses": [],
+      "priorityIdentityMismatches": [],
+      "skipIdentities": [
+        "dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkColdStreamingExportHeapTest.fortyEightMiBOfColdCanonicalRoomHistoryStreamsWithoutHydrationOrMirrorParsing",
+        "dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkStreamingExportHeapTest.moreThanFortyMiBOfRawHistoryAndAttemptCopiesStreamsWithin256MiBHeap",
+        "dev.chungjungsoo.gptmobile.data.diagnostics.StagedDiagnosticCaptureHeapTest.streamsAndResumesHistoryLargerThanHeapWithIndependentFailure",
+        "dev.chungjungsoo.gptmobile.data.research.ResearchSessionStoreHeapTest.moreThanFortyMiBOfRetainedEvidenceStreamsWithoutLoadingAllSessionsInto256MiBHeap",
+        "dev.chungjungsoo.gptmobile.presentation.ui.chat.StreamingDebugBundleTest.fortyMiBTwoThousandMessageExportCompletesUnder256MiBHeapWithoutConversationTree"
+      ],
+      "failureIdentities": []
+    },
+    "complete_parent_audit": {
+      "head": "9bef7abedf02b6d27e727d76bb3510602c5499ee",
+      "tree": "b142928afc316383b1399277d17a464b4c03bf39",
+      "runId": 42450442733,
+      "jobId": 128638386469,
+      "unitStepConclusion": "failure",
+      "unitStepCompletedAt": "2026-11-08T05:53:00Z",
+      "artifactId": 13605619743,
+      "zipSha256": "2cadb8b42d9e14ee36858df26077967887d9c118d328fcaef343b5a50361be21",
+      "counts": {
+        "tests": 8095,
+        "failures": 1,
+        "errors": 0,
+        "skipped": 5,
+        "passed": 8089
+      },
+      "xmlReports": 1273,
+      "priorityActualClasses": 99,
+      "priorityActualIdentities": 962,
+      "priorityPassed": 961,
+      "missingPriorityClasses": [],
+      "priorityIdentityMismatches": [],
+      "skipIdentities": [
+        "dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkColdStreamingExportHeapTest.fortyEightMiBOfColdCanonicalRoomHistoryStreamsWithoutHydrationOrMirrorParsing",
+        "dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkStreamingExportHeapTest.moreThanFortyMiBOfRawHistoryAndAttemptCopiesStreamsWithin256MiBHeap",
+        "dev.chungjungsoo.gptmobile.data.diagnostics.StagedDiagnosticCaptureHeapTest.streamsAndResumesHistoryLargerThanHeapWithIndependentFailure",
+        "dev.chungjungsoo.gptmobile.data.research.ResearchSessionStoreHeapTest.moreThanFortyMiBOfRetainedEvidenceStreamsWithoutLoadingAllSessionsInto256MiBHeap",
+        "dev.chungjungsoo.gptmobile.presentation.ui.chat.StreamingDebugBundleTest.fortyMiBTwoThousandMessageExportCompletesUnder256MiBHeapWithoutConversationTree"
+      ],
+      "failureIdentities": [
+        {
+          "class": "dev.chungjungsoo.gptmobile.data.network.ChatCompletionTransportTest",
+          "case": "text block arrays and buffered timing data remain usable",
+          "kind": "failure",
+          "message": "java.lang.NullPointerException"
+        }
+      ]
+    },
+    "parent_dedicated_heaps": {
+      "head": "9bef7abedf02b6d27e727d76bb3510602c5499ee",
+      "tree": "b142928afc316383b1399277d17a464b4c03bf39",
+      "runId": 42450442726,
+      "jobId": 128638381824,
+      "jobConclusion": "success",
+      "jobCompletedAt": "2026-11-08T05:59:47Z",
+      "checkoutProducer": "b7327bca5ced2f86e7af34932fb1ea691ab26743",
+      "artifactId": 13606109448,
+      "zipSha256": "1b75c66b01c4c0d87db85bb1196dcd41c2709aa90179ca19fc3b2072f61f7f87",
+      "requiredHeapCaseCount": 5,
+      "requiredHeapCases": [
+        {
+          "identity": "dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkColdStreamingExportHeapTest.fortyEightMiBOfColdCanonicalRoomHistoryStreamsWithoutHydrationOrMirrorParsing",
+          "passed": true,
+          "runtimeUpperBoundBytes": 268435456,
+          "boundEvidence": "Executed test asserts Runtime.getRuntime().maxMemory() at or below this bound; not merely task configuration",
+          "observedExactMaxHeapBytes": null,
+          "sourcePath": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkColdStreamingExportHeapTest.kt",
+          "sourceSha256": "67889b07773c93f8eb44b029a7420bbde04b5667e5b3986f4bbfdaff823c2aee",
+          "xmlSha256": "76f7ec3dcd429a6a0920113abea6634e7ed3dec7f9216df8a88c38b263c98d2e"
+        },
+        {
+          "identity": "dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkStreamingExportHeapTest.moreThanFortyMiBOfRawHistoryAndAttemptCopiesStreamsWithin256MiBHeap",
+          "passed": true,
+          "runtimeUpperBoundBytes": 268435456,
+          "boundEvidence": "Executed test asserts Runtime.getRuntime().maxMemory() at or below this bound; not merely task configuration",
+          "observedExactMaxHeapBytes": null,
+          "sourcePath": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkStreamingExportHeapTest.kt",
+          "sourceSha256": "c1af22314f1002ab5852ad1b517997f0dc78015efb100545435291a08e39fe76",
+          "xmlSha256": "42aa3c7dc5c30f808a48a4f0afa464c4b1ab7938b81b81932475a90d467f31d5"
+        },
+        {
+          "identity": "dev.chungjungsoo.gptmobile.data.research.ResearchSessionStoreHeapTest.moreThanFortyMiBOfRetainedEvidenceStreamsWithoutLoadingAllSessionsInto256MiBHeap",
+          "passed": true,
+          "runtimeUpperBoundBytes": 268435456,
+          "boundEvidence": "Executed test asserts Runtime.getRuntime().maxMemory() at or below this bound; not merely task configuration",
+          "observedExactMaxHeapBytes": null,
+          "sourcePath": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/research/ResearchSessionStoreHeapTest.kt",
+          "sourceSha256": "2af1fb1cc4cd3a2b0f9bcbbd53750845e2d523214a0d7c0f3411d757a28c3e90",
+          "xmlSha256": "ee394570d67519c6a7e153e984f70220d3a670d02a3fc7db0a0a249cefeca553"
+        },
+        {
+          "identity": "dev.chungjungsoo.gptmobile.presentation.ui.chat.StreamingDebugBundleTest.fortyMiBTwoThousandMessageExportCompletesUnder256MiBHeapWithoutConversationTree",
+          "passed": true,
+          "runtimeUpperBoundBytes": 268435456,
+          "boundEvidence": "Executed test asserts Runtime.getRuntime().maxMemory() at or below this bound; not merely task configuration",
+          "observedExactMaxHeapBytes": null,
+          "sourcePath": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/StreamingDebugBundleTest.kt",
+          "sourceSha256": "7ca1b2c7c4291d5b72fccd7ee5d035007c9b897cac86a15cdce303b5f6b71a91",
+          "xmlSha256": "17145462377ab86f80429933491b1154c37c0d2684e8fe86f82543df32eb9a60"
+        },
+        {
+          "identity": "dev.chungjungsoo.gptmobile.data.diagnostics.StagedDiagnosticCaptureHeapTest.streamsAndResumesHistoryLargerThanHeapWithIndependentFailure",
+          "passed": true,
+          "runtimeUpperBoundBytes": 67108864,
+          "boundEvidence": "Executed test asserts Runtime.getRuntime().maxMemory() at or below this bound; not merely task configuration",
+          "observedExactMaxHeapBytes": 67108864,
+          "sourcePath": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/StagedDiagnosticCaptureHeapTest.kt",
+          "sourceSha256": "dd43a4add2264ae791ded34b163f4abd1a4da4303915a17cd78addd13346c4c8",
+          "xmlSha256": "ca35936a312eeb7c04fbdfa8dff627ee674f83d301df285c7387c76b367d9823",
+          "generatedSourceBytes": 163840000,
+          "records": 20000,
+          "resumed": true
+        }
+      ],
+      "allHeapXmlExecutions": 11,
+      "allHeapXmlFailures": 0,
+      "allHeapXmlSkips": 0,
+      "nativeAbortMarkers": [],
+      "terminalLogSha256": "0830c7d9ed325624d046c3f73219d391fcccc032c50f0ca3d860a760efff3765",
+      "apkGate": "Canonical review APK and packaged-runtime step completed success; extracted apk.log and apk-size-report.json retain its details.",
+      "qualification": "All five exact required heap cases executed and passed; the five ordinary-suite skips are not used as heap evidence. Four bounds are asserted<=256MiB; diagnostic heap actual max67108864 is also printed. No physical-device heap or GPU-performance claim."
+    },
+    "parent_required_verification": {
+      "job_id": 128645726920,
+      "conclusion": "success",
+      "completed_at": "2026-11-08T05:59:58Z",
+      "does_not_erase_independent_audit_failure": true
+    },
+    "parent_device": {
+      "34": {
+        "head": "9bef7abedf02b6d27e727d76bb3510602c5499ee",
+        "producer": "b7327bca5ced2f86e7af34932fb1ea691ab26743",
+        "tree": "b142928afc316383b1399277d17a464b4c03bf39",
+        "run_id": 42450442703,
+        "job_id": 128638298730,
+        "artifact_id": 13606285736,
+        "sha256_verified": "fb126393432fae3a09b4b46b620d4ca52494c6be817ce2ba51aad39f0ad748e5",
+        "cases_passed": 60,
+        "complete_invocations": 22,
+        "journalAcknowledged": 100,
+        "journalSuccessful": 100,
+        "journalCoverageGap": false,
+        "boundClientReceipts": "CURRENT_DEVICE_STUB_EXECUTION; Ktor MockEngine; zero live-account side effects",
+        "measurementOnly": true,
+        "representativeDevice": false
+      },
+      "36": {
+        "head": "9bef7abedf02b6d27e727d76bb3510602c5499ee",
+        "producer": "b7327bca5ced2f86e7af34932fb1ea691ab26743",
+        "tree": "b142928afc316383b1399277d17a464b4c03bf39",
+        "run_id": 42450442703,
+        "job_id": 128638298852,
+        "artifact_id": 13605708965,
+        "sha256_verified": "cab67d26674b028e863341f30bf9b27d18d36b3d43bb9fd08ec8987275808d93",
+        "cases_passed": 60,
+        "complete_invocations": 22,
+        "journalAcknowledged": 100,
+        "journalSuccessful": 100,
+        "journalCoverageGap": false,
+        "boundClientReceipts": "CURRENT_DEVICE_STUB_EXECUTION; Ktor MockEngine; zero live-account side effects",
+        "measurementOnly": true,
+        "representativeDevice": false
+      }
+    },
+    "parent_review_apk": {
+      "run_id": 42450442756,
+      "job_id": 128638299226,
+      "conclusion": "success",
+      "artifact_id": 13605783380,
+      "artifact_digest_source": "GitHub metadata; large ZIP not redundantly downloaded",
+      "artifact_sha256": "7f4a63c6e3809b126bb247edadc5ed8e5fa4c08a32577c11373e1d92f23e990a",
+      "variants": [
+        "arm64",
+        "universal",
+        "x86_64"
+      ],
+      "checked_dispatch_methods_each": 3088,
+      "maximum_code_units": 15834,
+      "limit_code_units": 16383,
+      "benchmark_compilation_only": true
+    },
+    "parent_native_smoke": {
+      "run_id": 42450442761,
+      "job_id": 128638299005,
+      "conclusion": "success",
+      "producer": "b7327bca5ced2f86e7af34932fb1ea691ab26743",
+      "execution": {
+        "device_kind": "GitHub-hosted Android emulator",
+        "api": 36,
+        "android_version": 16,
+        "abi": "x86_64",
+        "target": "google_apis",
+        "graphics": "swiftshader_indirect",
+        "build_type": "nativeSmoke",
+        "inherits_release_minification_and_resource_shrinking": true,
+        "signing": "debug key, isolated .nativesmoke application suffix",
+        "required_cases_passed": 3,
+        "optional_gpu_cases_capability_skipped": 2,
+        "instrumentation_final_codes": [
+          -1,
+          -1
+        ],
+        "required_cases": [
+          {
+            "class": "dev.chungjungsoo.gptmobile.data.memory.LocalSemanticMemoryInstrumentedTest",
+            "method": "nativeIndexSurvivesReopenAndHonorsScopeAndDeletion",
+            "status_codes": [
+              1,
+              0
+            ],
+            "started_at": "2026-11-08T05:43:27.1595096Z",
+            "completed_at": "2026-11-08T05:43:32.1914419Z",
+            "result": "PASS"
+          },
+          {
+            "class": "dev.chungjungsoo.gptmobile.data.localruntime.GgufNativeInstrumentedTest",
+            "method": "packagedCpuRuntimePreservesRepeatedSessionsAndPartialUsage",
+            "status_codes": [
+              1,
+              0
+            ],
+            "started_at": "2026-11-08T05:43:33.6942314Z",
+            "completed_at": "2026-11-08T05:43:39.8405515Z",
+            "result": "PASS"
+          },
+          {
+            "class": "dev.chungjungsoo.gptmobile.data.localruntime.GgufNativeInstrumentedTest",
+            "method": "packagedCpuRuntimeRendersCustomJinja",
+            "status_codes": [
+              1,
+              0
+            ],
+            "started_at": "2026-11-08T05:43:39.8774933Z",
+            "completed_at": "2026-11-08T05:43:44.6037842Z",
+            "result": "PASS"
+          }
+        ],
+        "optional_gpu_cases": [
+          {
+            "class": "dev.chungjungsoo.gptmobile.data.localruntime.GgufNativeInstrumentedTest",
+            "method": "packagedOpenClRuntimeGeneratesOnCompatibleDevice",
+            "status_codes": [
+              1,
+              -4
+            ],
+            "started_at": "2026-11-08T05:43:39.8418277Z",
+            "completed_at": "2026-11-08T05:43:39.8768066Z",
+            "result": "CAPABILITY_SKIP",
+            "reason": "org.junit.AssumptionViolatedException: Capability-based skip: this device has no compatible opencl GPU/IGPU"
+          },
+          {
+            "class": "dev.chungjungsoo.gptmobile.data.localruntime.GgufNativeInstrumentedTest",
+            "method": "packagedVulkanRuntimeGeneratesOnCompatibleDevice",
+            "status_codes": [
+              1,
+              -4
+            ],
+            "started_at": "2026-11-08T05:43:44.6056763Z",
+            "completed_at": "2026-11-08T05:43:44.7116414Z",
+            "result": "CAPABILITY_SKIP",
+            "reason": "org.junit.AssumptionViolatedException: Capability-based skip: this device has no compatible gpu GPU/IGPU"
+          }
+        ]
+      },
+      "qualification_limits": {
+        "gpu_backend_qualification": "NOT_QUALIFIED: workflow does not request requiredGgufBackends or --required-backends; both optional GPU cases actually skipped for missing compatible device capability",
+        "physical_gpu_opencl_qnn": "NOT_EXECUTED: x86_64 emulator is not physical-device GPU, OpenCL, Qualcomm QNN/HTP or GenieX qualification",
+        "production_language_model_weights": "NOT_EXECUTED: GGUF inference uses pinned 15M test fixtures outside the repository/APK, not large production or user-selected language-model weights",
+        "performance_quality_thermal": "NOT_QUALIFIED: no quality, sustained throughput, thermal/power or physical-device workload claim",
+        "canonical_encrypted_memory_durability": "Not established by this selected case; test source identifies separate MemoryDurabilityInstrumentedTest"
+      },
+      "receipt": {
+        "file": "native-9bef-qualification-receipt.json",
+        "sha256": "1605fdc7b9748798027f0747de56588d5edd8e852b1343465c6a537b245900e5"
+      }
+    },
+    "local_validation": {
+      "canonical_fast": {
+        "source_parent": "9bef7abedf02b6d27e727d76bb3510602c5499ee",
+        "pending_change": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/ChatCompletionTransportTest.kt",
+        "passed": true,
+        "python_tests": 404,
+        "seconds": 24.574,
+        "android_regex_literals": 1328,
+        "android_dynamic_patterns_not_evaluated": 77,
+        "resource_xml_files": 33,
+        "log_sha256": "c143b365865211dd4acd902bdbbc6730e16aea783567764994a005273f1979e8"
+      },
+      "formatting": {
+        "files": 1,
+        "passed": true,
+        "source_hash_stable": true
+      },
+      "architecture": "PASS",
+      "inventory": {
+        "passed": true,
+        "files": 2306,
+        "areas": 26
+      },
+      "release_scope": {
+        "qualification": "scoped",
+        "allowed_paths": 1374,
+        "new_paths_added": 0,
+        "validated_changed_paths_including_pending_worktree": 1233
+      },
+      "new_files_added": 0,
+      "changed_existing_files": 3
+    },
+    "fresh_current_head_ci": "Required after publication; parent and local comparison results are not represented as execution of the future commit.",
+    "parent_canonical_apk": {
+      "head": "9bef7abedf02b6d27e727d76bb3510602c5499ee",
+      "tree": "b142928afc316383b1399277d17a464b4c03bf39",
+      "producer": "b7327bca5ced2f86e7af34932fb1ea691ab26743",
+      "runId": 42450442726,
+      "jobId": 128638381824,
+      "jobConclusion": "success",
+      "jobCompletedAt": "2026-11-08T05:59:47Z",
+      "sizeBudgets": [
+        {
+          "file": "app-arm64-v8a-debug.apk",
+          "bytes": 224999729,
+          "budget_bytes": 335544320,
+          "passed": true
+        },
+        {
+          "file": "app-universal-debug.apk",
+          "bytes": 290875782,
+          "budget_bytes": 408944640,
+          "passed": true
+        },
+        {
+          "file": "app-x86_64-debug.apk",
+          "bytes": 154488106,
+          "budget_bytes": 262144000,
+          "passed": true
+        }
+      ],
+      "dexDispatchChecks": [
+        {
+          "apk": "app-arm64-v8a-debug.apk",
+          "checkedMethods": 3088,
+          "maximumCodeUnits": 15834,
+          "codeUnitLimit": 16383,
+          "violations": 0
+        },
+        {
+          "apk": "app-universal-debug.apk",
+          "checkedMethods": 3088,
+          "maximumCodeUnits": 15834,
+          "codeUnitLimit": 16383,
+          "violations": 0
+        },
+        {
+          "apk": "app-x86_64-debug.apk",
+          "checkedMethods": 3088,
+          "maximumCodeUnits": 15834,
+          "codeUnitLimit": 16383,
+          "violations": 0
+        }
+      ],
+      "runtimeChecks": [
+        "app-arm64-v8a-debug.apk: MediaPipe Java/JNI definitions verified across 27 DEX files",
+        "app-arm64-v8a-debug.apk: ObjectBox scored-query JNI definitions verified across 27 DEX files",
+        "app-arm64-v8a-debug.apk: 17 pinned runtime libraries verified; 18 Android host libraries passed 16KB LOAD alignment",
+        "app-universal-debug.apk: MediaPipe Java/JNI definitions verified across 27 DEX files",
+        "app-universal-debug.apk: ObjectBox scored-query JNI definitions verified across 27 DEX files",
+        "app-universal-debug.apk: 18 pinned runtime libraries verified; 26 Android host libraries passed 16KB LOAD alignment",
+        "app-x86_64-debug.apk: MediaPipe Java/JNI definitions verified across 27 DEX files",
+        "app-x86_64-debug.apk: ObjectBox scored-query JNI definitions verified across 27 DEX files",
+        "app-x86_64-debug.apk: 1 pinned runtime libraries verified; 8 Android host libraries passed 16KB LOAD alignment",
+        "app-arm64-v8a-debug.apk: telemetry upload components absent",
+        "app-universal-debug.apk: telemetry upload components absent",
+        "app-x86_64-debug.apk: telemetry upload components absent"
+      ],
+      "validationArtifactId": 13606109448,
+      "validationArtifactSha256": "1b75c66b01c4c0d87db85bb1196dcd41c2709aa90179ca19fc3b2072f61f7f87",
+      "apkArtifactId": 13606109433,
+      "apkArtifactReportedSha256": "18c6b43818b4dfae69529f4d8ae1abfa0495795d4650e9564d3df7917eb356dd",
+      "apkDownloadQualification": "Large APK ZIP not downloaded again; packaged checks are from the exact terminal canonical CI log and verified validation ZIP. APK digest is GitHub-reported metadata.",
+      "terminalLogSha256": "0830c7d9ed325624d046c3f73219d391fcccc032c50f0ca3d860a760efff3765",
+      "logParsing": "Strip timestamp prefixes and per-chunk leading UTF8 BOMs before decoding the three complete dispatch JSON objects. Original sanitized log is retained."
+    },
+    "parent_producer_identity": {
+      "sha": "b7327bca5ced2f86e7af34932fb1ea691ab26743",
+      "tree": "b142928afc316383b1399277d17a464b4c03bf39",
+      "parents": [
+        "3ac89ceafd9083f67da30e92f9f93aae27be4600",
+        "9bef7abedf02b6d27e727d76bb3510602c5499ee"
+      ],
+      "source": "GitHub immutable git commit API",
+      "observedCanonicalCheckout": "b7327bca5ced2f86e7af34932fb1ea691ab26743",
+      "matchesPublishedTree": true
+    }
   }
 }

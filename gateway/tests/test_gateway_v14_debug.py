@@ -190,6 +190,7 @@ class DebugHTTPTests(unittest.TestCase):
             response = remote.get('/health', headers={CLIENT_HEADER: '{"schemaVersion":1,"androidSdk":36}'})
         self.assertEqual(403, response.status_code)
         self.assertEqual('a' * 32, response.headers['X-Gateway-Instance-ID'])
+        self.assertEqual('remote_surface_not_admitted', response.headers['X-Gateway-Admission-Error'])
         self.assertNotIn('X-Gateway-Client-Diagnostics-Accepted', response.headers)
         rows = [json.loads(line) for line in self.store.export().splitlines()]
         self.assertEqual(403, rows[-1]['status'])

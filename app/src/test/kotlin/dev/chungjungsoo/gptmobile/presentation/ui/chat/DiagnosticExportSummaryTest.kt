@@ -44,6 +44,40 @@ class DiagnosticExportSummaryTest {
         assertFalse(summary.contains("Resume diagnostic capture"))
     }
 
+    @Test fun archiveContinuationExplainsNewTailAndStageCoverage() {
+        val root = buildJsonObject {
+            put("stages", JsonArray(listOf(stage("critical_logs", "COMPLETED", 2), stage("workspace", "PARTIAL", 40))))
+            put("continuationAvailable", true)
+            put("captureCompletionPercent", 50)
+        }
+        val summary = diagnosticExportSummary(root)
+        assertTrue(summary.contains("next archive part with new history records"))
+        assertTrue(summary.contains("Keep this archive"))
+        assertTrue(summary.contains("1 of 2 requested sections"))
+        assertTrue(summary.contains("does not measure the percentage of history"))
+        assertFalse(summary.contains("50%"))
+    }
+
+    @Test fun completedContinuationRetainsTheRequiredPriorArchiveFilename() {
+        val root = buildJsonObject {
+            put("stages", JsonArray(listOf(stage("critical_logs", "COMPLETED", 2), stage("workspace", "COMPLETED", 40))))
+            put("archivePart", 3)
+            put("externalPartsRequired", true)
+            put(
+                "previousArchive",
+                buildJsonObject {
+                    put("fileName", "previous-part-2.zip")
+                    put("sha256", "digest")
+                }
+            )
+        }
+        val summary = diagnosticExportSummary(root)
+        assertTrue(summary.contains("archive part 3"))
+        assertTrue(summary.contains("previous-part-2.zip"))
+        assertTrue(summary.contains("earlier linked parts"))
+        assertTrue(summary.contains("not repeated here"))
+    }
+
     private fun stage(id: String, status: String, evidence: Long, records: Long = evidence): JsonObject = buildJsonObject {
         put("id", id)
         put("status", status)

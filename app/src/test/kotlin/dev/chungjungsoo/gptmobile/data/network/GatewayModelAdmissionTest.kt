@@ -41,6 +41,7 @@ class GatewayModelAdmissionTest {
             ).use { http ->
                 val network = mockk<NetworkClient>()
                 every { network() } returns http
+                every { network.gatewayReadClient() } returns http
                 val wire = ModelRequestPreparation(network).prepare(
                     """{"model":"selected-model","messages":[{"role":"user","content":"Hello"}],"max_tokens":4096}""",
                     selected,

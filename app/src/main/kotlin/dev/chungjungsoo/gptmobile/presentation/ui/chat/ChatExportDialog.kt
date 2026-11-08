@@ -80,9 +80,9 @@ internal fun ChatExportDialog(
                         ExportFormatCard(
                             "Resume diagnostic capture",
                             ".zip",
-                            "Keep verified sections and retry unfinished sections",
+                            "Export the next part or continue an interrupted capture",
                             Icons.Rounded.Description,
-                            "Reuses intact completed sections from the last unfinished capture and retries missing sections. Each section keeps its own capture timestamp because the conversation may have changed."
+                            "Continues after the last complete history record. After an archive has been shared, the next part contains new history and references earlier files by name and digest. Keep all parts together. Interrupted captures retain their completed records, and the latest state is refreshed because the conversation may have changed."
                         ) { resume() }
                     }
                 }

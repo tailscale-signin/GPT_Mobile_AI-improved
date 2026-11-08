@@ -30,7 +30,8 @@ class GitHubVerificationRecoveryTest {
         val session = GitHubVerifiedSession(answer("35 operations, 97% success, 12 seconds"), book, "Do a stress test of all tools", { 8192 }, { error("No model formatter for test coverage") }, {}, {}, { 1000 })
         val events = session.streamRound(emptyList(), emptyList()).toList()
         val text = events.filterIsInstance<ProviderEvent.TextDelta>().single().text
-        assertTrue(text.contains("Test not executed"))
+        assertTrue(text.contains("Task outcome: partial acceptance"))
+        assertTrue(text.contains("Recorded tool receipts: 0; dispatched tool calls: 0"))
         assertFalse(text.contains("97%") || text.contains("35 operations") || text.contains("12 seconds"))
         val terminal = events.last() as ProviderEvent.Failed
         assertEquals("PARTIAL", terminal.taskOutcome)

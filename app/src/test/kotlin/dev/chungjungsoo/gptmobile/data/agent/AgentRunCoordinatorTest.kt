@@ -22,6 +22,14 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentRunCoordinatorTest {
+    @Test fun responseDeliveryCannotHideMissingOrIncompleteTaskAcceptance() {
+        assertEquals(AgentRunStatus.EVIDENCE_MISSING, acceptanceFailureStatus("GITHUB_EVIDENCE_RETENTION_INCOMPLETE: Missing receipt"))
+        assertEquals(AgentRunStatus.PARTIAL, acceptanceFailureStatus("GITHUB_TASK_INCOMPLETE: Required tests not run"))
+        assertEquals(AgentRunStatus.FAILED, acceptanceFailureStatus("HTTP 500 provider failed"))
+        assertEquals(AgentRunStatus.BLOCKED, acceptanceFailureStatus("GITHUB_REPOSITORY_TARGET_REQUIRED: Select a target"))
+        assertEquals(AgentRunStatus.BLOCKED, acceptanceFailureStatus("GITHUB_REPOSITORY_TARGET_AMBIGUOUS: Select a target"))
+    }
+
     @Test fun savedGatewayCompletionDoesNotCertifyTaskAcceptanceAndPartialNeverBecomesSuccess() {
         val complete = dev.chungjungsoo.gptmobile.data.network.gateway.GatewayResultDisposition.COMPLETE
         val partial = dev.chungjungsoo.gptmobile.data.network.gateway.GatewayResultDisposition.PARTIAL
@@ -29,6 +37,9 @@ class AgentRunCoordinatorTest {
         assertEquals(AgentRunStatus.EVIDENCE_MISSING, recoveredGatewayRunStatus(complete, true))
         assertEquals(AgentRunStatus.PARTIAL, recoveredGatewayRunStatus(partial, false))
         assertEquals(AgentRunStatus.EVIDENCE_MISSING, recoveredGatewayRunStatus(partial, true))
+        val failed = dev.chungjungsoo.gptmobile.data.network.gateway.GatewayResultDisposition.FAILED
+        assertEquals(AgentRunStatus.FAILED, recoveredGatewayRunStatus(failed, false))
+        assertEquals(AgentRunStatus.FAILED, recoveredGatewayRunStatus(failed, true))
     }
 
     @Test fun reviewInputBlockKeepsItsOwnTerminalStateAndStage() {

@@ -49,7 +49,7 @@ class GatewayCoordinatorRecoveryTest {
                 true
             }
         }
-        fun coordinator() = AgentRunCoordinator(mockk(), chats, gateway, settings, mockk(relaxed = true))
+        fun coordinator(engineering: GatewayChatSubmission? = null) = AgentRunCoordinator(mockk(), chats, gateway, settings, mockk(relaxed = true), gatewayChatSubmission = engineering)
     }
 
     @Test fun completedLongRunningJobIsReadBeforeAnyRecoveryAgeDecision() = runTest {
@@ -60,6 +60,49 @@ class GatewayCoordinatorRecoveryTest {
         coVerify(exactly = 1) { f.gateway.getJobResult("saved-job", any()) }
         coVerify(exactly = 0) { f.gateway.getCapabilities(any()) }
         coVerify(exactly = 0) { f.gateway.cancelJob(any(), any()) }
+    }
+
+    @Test fun conversationOwnedJobsUseTheirOriginalRecoveryEngineWithoutOrdinaryResultAdoption() = runTest {
+        val f = Fixture(old = true, github = true)
+        val engineering = mockk<GatewayChatSubmission>(relaxed = true)
+        coEvery { engineering.ownsRequest("run") } returns true
+        f.coordinator(engineering).recoverInterruptedGatewayRuns()
+        coVerify(exactly = 1) { engineering.refresh(1) }
+        coVerify(exactly = 0) { f.gateway.getJobResult(any(), any()) }
+        coVerify(exactly = 0) { f.chats.restoreGatewayAnswer(any(), any(), any(), any(), any(), any()) }
+        coVerify(exactly = 0) { f.chats.finishInterruptedAgentRun(any(), any(), any(), any()) }
+        coVerify(exactly = 0) { engineering.cancel(any()) }
+    }
+
+    @Test fun unreadableOwnershipCannotAuthorizeTheOrdinaryEngineToReplaceAResult() = runTest {
+        val f = Fixture(old = true)
+        val engineering = mockk<GatewayChatSubmission>(relaxed = true)
+        coEvery { engineering.ownsRequest("run") } throws java.io.IOException("Ownership database unavailable")
+        f.coordinator(engineering).recoverInterruptedGatewayRuns()
+        coVerify(exactly = 0) { f.gateway.getJobResult(any(), any()) }
+        coVerify(exactly = 0) { f.chats.finishInterruptedAgentRun(any(), any(), any(), any()) }
+    }
+
+    @Test fun explicitStopTargetsTheSavedCommandAndWaitsForItsAuthoritativeOutcome() = runTest {
+        val f = Fixture()
+        val engineering = mockk<GatewayChatSubmission>(relaxed = true)
+        coEvery { f.chats.waitingRemoteAgentRuns() } returns listOf(f.run.copy(status = AgentRunStatus.WAITING_REMOTE_JOB))
+        coEvery { engineering.ownsRequest("run") } returns true
+        coEvery { engineering.cancel(setOf("run")) } returns listOf(AgentRunNotice(1, "run", "Cancellation has not been confirmed.", true))
+        f.coordinator(engineering).cancelChatAndJoin(1)
+        coVerify(exactly = 1) { engineering.cancel(setOf("run")) }
+        coVerify(exactly = 0) { f.gateway.cancelJob(any(), any()) }
+        coVerify(exactly = 0) { f.chats.finishActiveAgentRun(any(), any(), any(), any()) }
+    }
+
+    @Test fun deletingALocalConversationDoesNotSendAnImplicitRemoteStop() = runTest {
+        val f = Fixture()
+        val engineering = mockk<GatewayChatSubmission>(relaxed = true)
+        coEvery { f.chats.waitingRemoteAgentRuns() } returns listOf(f.run.copy(status = AgentRunStatus.WAITING_REMOTE_JOB))
+        coEvery { engineering.ownsRequest("run") } returns true
+        f.coordinator(engineering).cancelChatAndJoin(1, dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin.CHAT_DELETED)
+        coVerify(exactly = 0) { engineering.cancel(any()) }
+        coVerify(exactly = 0) { f.chats.finishActiveAgentRun(any(), any(), any(), any()) }
     }
 
     @Test fun healthyLongRunningJobIsNeverCancelledJustBecauseTheAppRestartedLate() = runTest {
@@ -115,6 +158,28 @@ class GatewayCoordinatorRecoveryTest {
         assertEquals(AgentRunStatus.EVIDENCE_MISSING, f.state)
         assertTrue(f.error.orEmpty().contains("GATEWAY_RECOVERED_RESULT_UNVERIFIED"))
         coVerify(exactly = 1) { f.chats.restoreGatewayAnswer("run", "saved-job", "Saved answer", 42, AgentRunStatus.EVIDENCE_MISSING, any()) }
+    }
+
+    @Test fun savedFailureRetainsOriginalCauseWithoutRepeatedAutomaticReads() = runTest {
+        for (github in listOf(false, true)) {
+            val f = Fixture(github = github)
+            f.state = AgentRunStatus.FAILED
+            f.error = "GATEWAY_OUTCOME_UNKNOWN: stream disconnected"
+            coEvery { f.gateway.getJobResult("saved-job", any()) } returns f.complete.copy(
+                status = "failed",
+                structuredError = kotlinx.serialization.json.Json.parseToJsonElement("""{"code":"backend_template_invalid","message":"Jinja Exception: System message must be at the beginning","retryable":false,"failed_stage":"backend_template"}""") as kotlinx.serialization.json.JsonObject
+            )
+            val coordinator = f.coordinator()
+            coordinator.recoverInterruptedGatewayRuns()
+            assertEquals(AgentRunStatus.FAILED, f.state)
+            assertTrue(f.error.orEmpty().contains("GATEWAY_SAVED_RESULT_FAILED: BACKEND_TEMPLATE_INVALID"))
+            assertTrue(GatewayOutcomeRecovery.requiresReconciliation(f.error.orEmpty()))
+            assertTrue(!GatewayOutcomeRecovery.canReadSavedResult(f.run.copy(status = f.state, terminalError = f.error)))
+            coordinator.recoverInterruptedGatewayRuns()
+            coVerify(exactly = 1) { f.gateway.getJobResult("saved-job", any()) }
+            coVerify(exactly = 1) { f.chats.restoreGatewayAnswer("run", "saved-job", "Saved answer", 42, AgentRunStatus.FAILED, any()) }
+            coVerify(exactly = 0) { f.gateway.cancelJob(any(), any()) }
+        }
     }
 
     @Test fun streamFailureWithUnknownOutcomeStillReadsItsSavedJob() = runTest {

@@ -43,6 +43,7 @@ class AppAuditPresentationTest {
         assertTrue(result.countsText.contains("Untested or pending 2"))
         assertTrue(result.countsText.contains("Canceled 1"))
         assertTrue(result.coverageNotice.startsWith("Partial coverage: 6"))
+        assertEquals("Verified measured evidence: 1 local checks · 0 metadata checks · 0 tool executions · 0 model executions · 0 device measurements", result.evidenceText)
         assertEquals(8, result.components.sumOf { it.entries.size })
         assertFalse(result.components.flatMap { it.entries }.single { it.entry.id == cached.id }.includedInScore)
     }
@@ -149,5 +150,35 @@ class AppAuditPresentationTest {
         assertEquals("Connection name", names["connection:same-id"])
         assertNull(names["gateway:ambiguous"])
         assertNull(names["connection:missing"])
+    }
+
+    @Test fun discoveryFailuresExplainDifferentRepairPathsWithoutInventingTheCause() {
+        val schema = checkNotNull(appAuditReasonCodeMessage("MCP_DISCOVERY_SCHEMA_INVALID"))
+        val configuration = checkNotNull(appAuditReasonCodeMessage("MCP_DISCOVERY_CONFIGURATION"))
+        val unknown = checkNotNull(appAuditReasonCodeMessage("MCP_DISCOVERY_UNAVAILABLE"))
+        assertTrue(schema.contains("protocol-version"))
+        assertTrue(schema.contains("does not identify an individual tool"))
+        assertTrue(configuration.contains("HTTP status"))
+        assertTrue(configuration.contains("explicitly check"))
+        assertTrue(unknown.contains("cause is not established"))
+        assertFalse(unknown.contains("timeout expired"))
+        assertFalse(unknown.contains("expired token"))
+    }
+
+    @Test fun connectionRepairUsesCurrentExactIdentityAndDoesNotSubstituteNamesOrGatewayIds() {
+        val connection = auditEntry("catalog").copy(targetId = "connection:accepted")
+        val gateway = auditEntry("gateway").copy(targetId = "gateway:accepted")
+        fun item(entry: dev.chungjungsoo.gptmobile.data.audit.AppAuditPlanEntry, names: Map<String, String>) =
+            appAuditPresentation(auditRun(listOf(entry)), names).components.single().entries.single()
+        assertEquals("accepted", appAuditConnectionUid(item(connection, mapOf("connection:accepted" to "Renamed"))))
+        assertNull(appAuditConnectionUid(item(connection, mapOf("connection:different" to "Renamed"))))
+        assertNull(appAuditConnectionUid(item(gateway, mapOf("gateway:accepted" to "Renamed"))))
+    }
+
+    @Test fun retryGuidanceRetainsUnknownAndNonretryableDistinctions() {
+        assertTrue(appAuditRetryabilityText(false).contains("no automatic retry"))
+        assertTrue(appAuditRetryabilityText(false).contains("explicitly reconnect"))
+        assertTrue(appAuditRetryabilityText(true).contains("recovery conditions"))
+        assertTrue(appAuditRetryabilityText(null).contains("not determined"))
     }
 }

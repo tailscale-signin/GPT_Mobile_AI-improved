@@ -16,6 +16,7 @@ internal object GitHubTaskLifecycle {
         failure == null -> State.RUNNING
         failure.taskOutcome in setOf("BLOCKED", "CONFIGURATION_INVALIDATED") -> State.BLOCKED
         failure.errorCode == "GITHUB_REVIEW_BLOCKED" || failure.errorCode == "REVIEW_INPUT_REQUIRED" -> State.BLOCKED
+        ProfileFailureRecord.fromProvider(failure.message, failure.errorCode, failure.failureDetails).isTaskVerification -> State.PARTIAL
         !ProfileFailureRecord.fromProvider(failure.message, failure.errorCode, failure.failureDetails).retryAllowed -> State.BLOCKED
         receiptCount > 0 || failure.taskOutcome == "PARTIAL" -> State.PARTIAL
         else -> State.FAILED
@@ -56,6 +57,8 @@ internal object GitHubTaskLifecycle {
         val review = failure.errorCode?.startsWith("GITHUB_REVIEW_") == true || classification.phase == "answer_review"
         return buildJsonObject {
             put("failure_code", failure.errorCode ?: classification.category)
+            put("failure_domain", if (classification.isTaskVerification) "TASK_VERIFICATION" else "EXECUTION")
+            if (classification.isTaskVerification) put("continuation_required", true)
             put("failed_stage", details["failed_stage"] ?: JsonPrimitive(if (review) "answer_review" else classification.phase.ifBlank { "stage_not_recorded" }))
             details["dispatched"]?.let { put("failed_stage_dispatched", it) }
                 ?: classification.dispatched?.let { put("failed_stage_dispatched", it) }

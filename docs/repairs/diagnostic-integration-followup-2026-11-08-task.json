@@ -1,0 +1,169 @@
+{
+  "schema_version": 1,
+  "task_id": "diagnostic-integration-followup-2026-11-08",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "branch": "fix/diagnostic-remediation-8597579-2026-11-07",
+  "pull_request": 813,
+  "base_commit": "3ac89ceafd9083f67da30e92f9f93aae27be4600",
+  "reconciled_remote_head": "bcb72647703b8840ef4ae869804f90399bd0c97f",
+  "state": "LOCAL_GATES_PASSED_PUBLICATION_CHECKPOINT",
+  "source_inputs": {
+    "audit": "app-audit-1794088969017.json",
+    "diagnostics": "app-diagnostics-1943696544141940145.jsonl",
+    "diagnostic_rows": 3324,
+    "primary_events": 1383,
+    "continuations": 1936,
+    "duplicate_reference_batches": 5,
+    "raw_capture_committed": false
+  },
+  "preserved": [
+    "Original MCP typed OAuth/local-validation/cache/UI diagnostic repairs and scope-qualified audit arithmetic",
+    "Shared gateway availability, canonical Jobs/conversations, Room51 migration and server ownership",
+    "Recovery/account-authority changes525ff8 and provenanceba6",
+    "Concurrent complete-backup migration fixbcb726",
+    "Explicit Stop, fixed selected-model routing, privacy and duplicate-mutation protections"
+  ],
+  "new_packages": {
+    "gateway_admission_network": {
+      "local_commit": "99cd7ae1a18bf7c022f22a8b5dfa4770ee84f03f",
+      "actual_source_tests": 177,
+      "passed": 177,
+      "server_tests": 32,
+      "server_passed": 32,
+      "details": "docs/repairs/gateway-admission-diagnostics-2026-11-08-task.json"
+    },
+    "accounting_reasoning_checkpoints": {
+      "local_commit": "c318e129f37b27655a8139ffbf3ea1ac8003f032",
+      "actual_source_tests": 132,
+      "passed": 132,
+      "subsequent_changes": "All132 final-source tests pass, including real network freshness; all38 input hashes match."
+    },
+    "device_recovery_ui": {
+      "local_commit": "e014aff8d5f301c72841ba800a72838fb0edaede",
+      "actual_source_tests": 83,
+      "passed": 83,
+      "failed": 0,
+      "ignored": 0,
+      "excluded_compiled_api32_method": "AndroidSpeechQualificationTest.olderAndroidReportsUnverifiedSupportWithoutCallingTheNewApi"
+    },
+    "github_fixture_catalog_workflow_device_stub": {
+      "local_commit": "c8792d04809b0db5e72ef66673c5519b95415650",
+      "actual_source_tests": 251,
+      "passed": 251,
+      "workflow_guard_tests": 3,
+      "passed_workflow_guard_tests": 3,
+      "schema_utf8_bytes": 2989,
+      "schema_estimated_tokens": 997,
+      "unchanged_token_ceiling_exclusive": 1000,
+      "instrumented_methods": 2,
+      "instrumented_bodies_host_tested": true,
+      "actual_device_execution": "PENDING_EXACT_HEAD_CI"
+    },
+    "integrated_repository_provider_coordinator": {
+      "actual_source_tests": 157,
+      "passed": 157,
+      "failed": 0,
+      "compiled_inputs": 10,
+      "source_drift": [],
+      "production": "Actual ChatRepositoryImpl, providers, AgentRunCoordinator, gateway submission/cancellation and DI module compiled with current supporting sources. Full Android/Hilt/KSP remains separate."
+    }
+  },
+  "independent_review": {
+    "findings_fixed": [
+      "Expired outer capability observation cannot renew five-minute model/template cache",
+      "Writer authority captured before planning feature snapshot"
+    ],
+    "reviewed_invariants": [
+      "No refund from missing receipt or untrusted error text",
+      "Prior uncertain dispatch and observed execution prevent refund",
+      "Final accounting is NonCancellable",
+      "Checkpoint cancellation transfers a granted permit",
+      "Read-only identity errors do not replace retained uncertain command authority"
+    ],
+    "review_kind": "SOURCE_REVIEW_AND_PASSING_NEW_REGRESSIONS"
+  },
+  "validation_boundaries": [
+    "Focused suites overlap and are not one unique coverage count.",
+    "Source inventory is not executed line/branch coverage.",
+    "Host execution of an Android test body is not device execution.",
+    "Stub transport receipts are not live GitHub account observations.",
+    "An exact source build or simulated service is not installation on the user PC/phone.",
+    "Original49untested checks require their own authorized behavioral receipts."
+  ],
+  "remaining_environment_qualification": [
+    "Install matching PC gateway and APK, compare exact source and saved-work contracts from the phone connection",
+    "Fresh discovery and harmless tool invocation for original run-local MCP targets7,9,11 after identifying saved connections",
+    "Required configured plugin operations, selected-profile generation and end-to-end GitHub jobs",
+    "Device force-stop/background, gateway restart, disconnect/replay and uncertain-mutation reconciliation",
+    "Installed speech/TTS service/locale, actual network DNS and provider billing restoration",
+    "Physical release/profileable frame and checkpoint measurements"
+  ],
+  "not_performed": [
+    "merge",
+    "release",
+    "PC deployment",
+    "provider/account changes",
+    "live fixture mutation"
+  ],
+  "integrated_fast": {
+    "script_tests": 404,
+    "passed": 404,
+    "literal_regex_patterns": 1328,
+    "dynamic_regex_skipped": 77,
+    "resource_xml_files": 33,
+    "source_inventory_files": 2306,
+    "source_areas": 26,
+    "line_coverage_available": false,
+    "scope_check": "PASS; exact allowed paths extended only; version140/0.9.66.6 and scoped qualification unchanged",
+    "formatted_kotlin_gradle_files": 122,
+    "formatting": "PASS"
+  },
+  "verification_receipts": {
+    "diagnostic-gateway-host": {
+      "compile.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "test.log": "319e6e36be2005cbf9a0fa2a2be4bdc5e2f27e7a42553b2f0870e83845452dc5",
+      "source-hashes.json": "11979454ba3acd7657238eb67bcd109b5669cfa19b9bfb54c0c3950a8ff5fbec"
+    },
+    "diagnostic-accounting-host": {
+      "compile.log": "6dc1ee92ed97189ad15f3cfc71ddbf18234f813e837684b70f74543c74c06395",
+      "test.log": "51807dd3a4c58e0bfd3b4331f904848fbcd2ad5dc195ef682c7a96047a345ec1",
+      "source-hashes.json": "9e4906025c60883bcb152ce0dc7c0fb3e6bb0f7a27a8c802d09f81912c1062e2"
+    },
+    "diagnostic-recovery-ui-host": {
+      "compile.log": "a0e115f72827c1f1efb71e8ebefebf9ff31abf2461c21832eee270cdfea010e0",
+      "test.log": "300e182384ac7ce11d89cadbac4033e689bf9349bdba97fac38de7ae8790d87b",
+      "source-hashes.json": "ef3e244a3970b912d42c244222fa1093776e3e15b1bc073aaf8abd8ff2820e14"
+    },
+    "diagnostic-fixture-host": {
+      "compile.log": "294c4381fd2191b5eb35fb509d2a7ebb01ce65b8980513173f60df7ff54c2e46",
+      "test.log": "c14d7fcc6502b6091066b5e946d9aa68fde35f690b6a3b227daae29d91af32b7",
+      "source-hashes.json": "78cf2f8f7fc0edb0afc8051e7fdd725d2c624e3d2ad86932d7dd8ae796e0a558"
+    },
+    "diagnostic-integrated-host": {
+      "compile.log": "bc6562fdefc38b691351327b1c995425bae5ea19b7c23f7e81332fa2b96092d6",
+      "test.log": "f5db722c4c302d7c1c0d8437155c25c199ab585d8be21a33ef155f10f25e2f21",
+      "source-hashes.json": "b1b80a6f5498e04166f2a4ca0426402a0e35d79da3196ef4f0480cd47ee176ef"
+    }
+  },
+  "integrated_gateway": {
+    "modules": 52,
+    "cases": 629,
+    "passed": 628,
+    "skipped": 1,
+    "skip_reason": "NO_BINDABLE_LAN_IPV4_INTERFACE",
+    "failed": 0,
+    "node_cases": 7,
+    "node_passed": 7,
+    "manifest_files": 178,
+    "source_drift": [],
+    "receipt_sha256": "5ede0ca38e580f4a0119823a1eed2347bdea147339713b1c648c095a1d7bee3f"
+  },
+  "remaining_current_head_gates": [
+    "Full Android source generation, Hilt/KSP, production/unit compilation and complete unit execution",
+    "Dedicated constrained-heap cases and generated Room51 verification",
+    "Strict API34/API36 device cases, including the new two closed-stub cases and retained exact runtime evidence",
+    "Final APK build and expanded accounting DEX code-unit measurements",
+    "Required current-head CI aggregate, security and package checks"
+  ],
+  "checkpoint_boundary": "This file records the immutable source publication checkpoint. Later exact-head CI receipts are authoritative for these remaining build and device gates; cancelled or superseded runs do not qualify the final head."
+}

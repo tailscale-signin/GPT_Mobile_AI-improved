@@ -18,7 +18,8 @@ internal object GitHubRunAcceptance {
         val evidenceId: String,
         val requiredCriteria: Int,
         val verifiedCriteria: Int,
-        val unresolvedOutcomes: Int
+        val unresolvedOutcomes: Int,
+        val diagnostics: JsonObject? = null
     )
 
     data class CommitEvidence(val expected: Boolean, val acceptance: Assessment?)
@@ -94,6 +95,9 @@ internal object GitHubRunAcceptance {
             put("required_criteria", criteria.size)
             put("verified_criteria", verified)
             put("unresolved_remote_outcomes", unresolved ?: -1)
+            val diagnostics = (acceptance?.get("diagnostic_projection") as? JsonObject)?.takeIf(GitHubAcceptanceDiagnostics::valid)
+                ?: GitHubAcceptanceDiagnostics.snapshot(acceptance ?: JsonObject(emptyMap()))
+            put("diagnostic_projection", diagnostics)
         }
     }
 
@@ -123,7 +127,20 @@ internal object GitHubRunAcceptance {
                     ) -> "PARTIAL"
             else -> recorded
         }
-        return Assessment(state, key(runId, fence), required, verified, unresolved)
+        return Assessment(state, key(runId, fence), required, verified, unresolved, (value["diagnostic_projection"] as? JsonObject)?.takeIf(GitHubAcceptanceDiagnostics::valid))
+    }
+
+    /** One bounded record per criterion preserves readable blockers when the surrounding log is truncated. */
+    fun diagnosticLines(assessment: Assessment): List<String> {
+        val projection = assessment.diagnostics?.takeIf(GitHubAcceptanceDiagnostics::valid) ?: return listOf("schema=github.acceptance-diagnostics.v1 · status=NOT_RETAINED · required=${assessment.requiredCriteria} · verified=${assessment.verifiedCriteria}")
+        val digest = projection.text("criteria_sha256")
+        return buildList {
+            add("schema=github.acceptance-diagnostics.v1 · total=${projection["criterion_count"]} · included=${projection["included_count"]} · omitted=${projection["omitted_count"]} · criteria_sha256=$digest")
+            (projection["criteria"] as JsonArray).filterIsInstance<JsonObject>().forEach { row ->
+                val counts = (row["evidence_class_counts"] as JsonObject).filterValues { (it as? JsonPrimitive)?.intOrNull?.let { count -> count > 0 } == true }
+                add("criterion=${row["ordinal"]} · id_sha256=${row.text("id_sha256")} · kind=${row.text("kind")} · category=${row.text("category")} · label=${row.text("label")} · operation=${row.text("operation").ifBlank { "NOT_APPLICABLE" }} · required=${row["required"]} · state=${row.text("state")} · blocker=${row.text("blocker")} · next_action=${row.text("next_action")} · evidence_count=${row["evidence_receipt_count"]} · evidence_classes=${JsonObject(counts)} · criterion_sha256=${GitHubEvidenceBook.digest(row.toString())} · criteria_sha256=$digest")
+            }
+        }
     }
 
     private fun JsonObject.text(key: String) = (get(key) as? JsonPrimitive)?.contentOrNull.orEmpty()

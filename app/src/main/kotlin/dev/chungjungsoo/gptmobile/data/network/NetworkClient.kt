@@ -22,6 +22,8 @@ import io.ktor.serialization.kotlinx.json.json
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import okhttp3.ConnectionPool
 
@@ -30,76 +32,81 @@ class NetworkClient @Inject constructor(
     private val httpEngine: HttpClientEngineFactory<*>
 ) {
     private val idleConnectionPool = ConnectionPool(32, 10, TimeUnit.MINUTES)
+    private val gatewayReadConnectionPool = ConnectionPool(8, 5, TimeUnit.MINUTES)
 
-    /** A failed safe read may discard stale idle sockets without cancelling active streams. */
-    internal fun evictIdleConnections() = idleConnectionPool.evictAll()
+    /** Metadata recovery cannot evict the provider/streaming pool or close TLS sockets on Main. */
+    internal suspend fun evictIdleConnections() = withContext(Dispatchers.IO) { gatewayReadConnectionPool.evictAll() }
 
-    private val client by lazy {
-        HttpClient(httpEngine) {
-            install(dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsHttpPlugin)
-            if (httpEngine == OkHttp) install(ReadinessHttpPlugin)
-            expectSuccess = false
-            followRedirects = false
+    private val client by lazy { createClient(idleConnectionPool) }
+    private val gatewayReads by lazy { createClient(gatewayReadConnectionPool) }
 
-            // Optimize CIO engine with TCP keep-alive and connection limits when CIO is used
-            if (httpEngine == CIO) {
-                engine {
-                    (this as? CIOEngineConfig)?.apply {
-                        maxConnectionsCount = 1000
-                        endpoint {
-                            maxConnectionsPerRoute = 100
-                            pipelineMaxSize = 20
-                            keepAliveTime = 300_000L
-                            connectTimeout = 60_000L
-                            connectAttempts = 5
-                        }
-                    }
-                }
-            } else if (httpEngine == OkHttp) {
-                engine {
-                    (this as? OkHttpConfig)?.config {
-                        addInterceptor(ReadinessHttpTrace.stripHeader)
-                        eventListenerFactory(ReadinessHttpTrace.listener)
-                        retryOnConnectionFailure(false)
-                        connectTimeout(60, TimeUnit.SECONDS)
-                        readTimeout(5, TimeUnit.MINUTES)
-                        writeTimeout(5, TimeUnit.MINUTES)
-                        callTimeout(0, TimeUnit.MILLISECONDS)
-                        pingInterval(30, TimeUnit.SECONDS)
-                        connectionPool(idleConnectionPool)
+    /** Only bounded gateway GETs use this pool; mutations and event streams keep the ordinary client. */
+    internal fun gatewayReadClient(): HttpClient = gatewayReads
+
+    private fun createClient(pool: ConnectionPool): HttpClient = HttpClient(httpEngine) {
+        install(dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsHttpPlugin)
+        if (httpEngine == OkHttp) install(ReadinessHttpPlugin)
+        expectSuccess = false
+        followRedirects = false
+
+        // Optimize CIO engine with TCP keep-alive and connection limits when CIO is used
+        if (httpEngine == CIO) {
+            engine {
+                (this as? CIOEngineConfig)?.apply {
+                    maxConnectionsCount = 1000
+                    endpoint {
+                        maxConnectionsPerRoute = 100
+                        pipelineMaxSize = 20
+                        keepAliveTime = 300_000L
+                        connectTimeout = 60_000L
+                        connectAttempts = 5
                     }
                 }
             }
-
-            install(ContentNegotiation) {
-                json(json)
-            }
-
-            install(SSE)
-
-            install(HttpTimeout) {
-                // Non-streaming calls get a generous ceiling. Streaming requests override
-                // this with an unlimited request deadline and a five-minute idle timeout.
-                requestTimeoutMillis = 900_000L
-                connectTimeoutMillis = 60_000L
-                socketTimeoutMillis = 300_000L
-            }
-
-            install(Logging) {
-                logger = object : Logger {
-                    override fun log(message: String) {
-                        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Network", message)
-                        if (diagnosticsEnabled && !dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.enabled.value) Logger.DEFAULT.log(dev.chungjungsoo.gptmobile.data.diagnostics.redactLogMessage(message))
-                    }
+        } else if (httpEngine == OkHttp) {
+            engine {
+                (this as? OkHttpConfig)?.config {
+                    addInterceptor(ReadinessHttpTrace.stripHeader)
+                    eventListenerFactory(ReadinessHttpTrace.listener)
+                    retryOnConnectionFailure(false)
+                    connectTimeout(60, TimeUnit.SECONDS)
+                    readTimeout(5, TimeUnit.MINUTES)
+                    writeTimeout(5, TimeUnit.MINUTES)
+                    callTimeout(0, TimeUnit.MILLISECONDS)
+                    pingInterval(30, TimeUnit.SECONDS)
+                    connectionPool(pool)
                 }
-                level = LogLevel.HEADERS
-                filter { diagnosticsEnabled || dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.enabled.value }
-                sanitizeHeader { header -> isSensitiveHeader(header) }
             }
+        }
 
-            install(DefaultRequest) {
-                header(HttpHeaders.ContentType, ContentType.Application.Json)
+        install(ContentNegotiation) {
+            json(json)
+        }
+
+        install(SSE)
+
+        install(HttpTimeout) {
+            // Non-streaming calls get a generous ceiling. Streaming requests override
+            // this with an unlimited request deadline and a five-minute idle timeout.
+            requestTimeoutMillis = 900_000L
+            connectTimeoutMillis = 60_000L
+            socketTimeoutMillis = 300_000L
+        }
+
+        install(Logging) {
+            logger = object : Logger {
+                override fun log(message: String) {
+                    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Network", message)
+                    if (diagnosticsEnabled && !dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.enabled.value) Logger.DEFAULT.log(dev.chungjungsoo.gptmobile.data.diagnostics.redactLogMessage(message))
+                }
             }
+            level = LogLevel.HEADERS
+            filter { diagnosticsEnabled || dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.enabled.value }
+            sanitizeHeader { header -> isSensitiveHeader(header) }
+        }
+
+        install(DefaultRequest) {
+            header(HttpHeaders.ContentType, ContentType.Application.Json)
         }
     }
 
@@ -139,6 +146,7 @@ class NetworkClient @Inject constructor(
                 header.equals("x-goog-api-key", ignoreCase = true) ||
                 header.equals("x-api-key", ignoreCase = true) ||
                 header.equals("x-subscription-token", ignoreCase = true) ||
+                header.equals("X-Gateway-Admission-Error", ignoreCase = true) ||
                 header.equals("Mcp-Session-Id", ignoreCase = true)
     }
 }

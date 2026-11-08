@@ -33,10 +33,33 @@ class GitHubCommitContinuationTest {
     }
 
     @Test fun diagnosticsDistinguishAssistantFailuresFromRepositoryFailures() {
-        assertTrue(GitHubTaskContinuity.diagnostic("Why are you failing?"))
-        assertTrue(GitHubTaskContinuity.diagnostic(wrapped("Explain why the reviewer failed")))
-        assertFalse(GitHubTaskContinuity.diagnostic("Why is CI failing?"))
-        assertFalse(GitHubTaskContinuity.diagnostic("Explain why the Android build failed"))
+        for (prompt in listOf(
+            "Why are you failing?",
+            "Explain why the reviewer failed",
+            "Why did you stop?",
+            "Why did the previous response stop?",
+            "Explain why your last answer was incomplete",
+            "Why was this conversation interrupted?",
+            "Why did your response stop while investigating PR #813?"
+        )) {
+            assertTrue(prompt, GitHubTaskContinuity.diagnostic(wrapped(prompt)))
+            assertTrue(prompt, GitHubTaskContinuity.reuse(wrapped(prompt), "Test all GitHub tools"))
+        }
+        for (prompt in listOf(
+            "Why is CI failing?",
+            "Explain why the Android build failed",
+            "Why did CI stop on PR #813?",
+            "Can you explain why workflow 42416901069 stopped on this branch?",
+            "Why was the previous workflow run interrupted?",
+            "Why did the job you started stop?",
+            "Explain why PR #813 has incomplete checks",
+            "Why is your CI job blocked?",
+            "Why did the last run stop?",
+            "Explain why the API response is empty"
+        )) {
+            assertFalse(prompt, GitHubTaskContinuity.diagnostic(wrapped(prompt)))
+            assertFalse(prompt, GitHubTaskContinuity.reuse(wrapped(prompt), "Test all GitHub tools"))
+        }
     }
 
     @Test fun commitResumeRefreshesExactShaAndOnlyWatchesMatchingRuns() {

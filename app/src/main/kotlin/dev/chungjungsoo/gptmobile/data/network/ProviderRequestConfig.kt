@@ -12,8 +12,16 @@ data class ProviderRequestConfig(
     val freeProvider: FreeAiProvider? = null,
     val queueScope: String? = null,
     val queuePersistent: Boolean = false,
+    val gatewayConversationKey: String? = null,
+    val gatewayConversationId: String? = null,
+    /** Suspends until the exact command identity is durable locally; failures prevent dispatch. */
+    val onGatewayCommandPrepared: (suspend (String) -> Unit)? = null,
+    /** Set only by verified capability negotiation, never from the profile label. */
+    val gatewayConversationSync: Boolean = false,
     val openRouterReceipt: dev.chungjungsoo.gptmobile.data.openrouter.account.OpenRouterReceiptContext? = null,
     val profileUid: String? = null,
+    val profileRevision: String? = null,
+    val configuredProfileReasoning: Boolean? = null,
     val providerType: String? = null,
     val requestRole: String = "primary",
     val lockedModel: String? = null,
@@ -29,7 +37,9 @@ data class ProviderRequestConfig(
     val continuationPrefixDigest: String? = null,
     internal val onSerializedOutputTokens: ((Int) -> Unit)? = null,
     internal val freeModelSnapshot: dev.chungjungsoo.gptmobile.data.free.FreeModelOption? = null,
-    internal val freeDiagnostics: dev.chungjungsoo.gptmobile.data.free.FreeRequestDiagnostics? = null
+    internal val freeDiagnostics: dev.chungjungsoo.gptmobile.data.free.FreeRequestDiagnostics? = null,
+    /** Captured display label only; identity and authorization never depend on this value. */
+    val profileName: String? = null
 ) {
     /**
      * Resolves an API endpoint path against the base apiUrl, normalizing any

@@ -75,6 +75,9 @@ internal fun combinedProfileFailures(
     val terminalClassification = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.classify(details, demoExcluded = demo)
     val classified = message.timeline.lastOrNull { it.profileFailure != null }?.profileFailure
         ?.takeUnless { demo || savedPolicyUnavailable || terminalClassification.category in setOf("ENDPOINT_RETIRED", "BILLING_UNAVAILABLE") } ?: dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.classify(details, demoExcluded = demo)
+    // Verification has its own task continuation. A provider answered successfully
+    // even when the requested repository work still lacks acceptance evidence.
+    if (classified.isTaskVerification || !waitingForLimit && message.timeline.lastOrNull { it.profileFailure != null || it.taskVerificationFailure != null }?.taskVerificationFailure != null) return@mapNotNull null
     val appFailure = !waitingForLimit && (classified.category in setOf("APP_EXECUTION", "SAVED_POLICY_UNAVAILABLE") || savedPolicyUnavailable)
     val permanentUnavailable = classified.category in setOf("ENDPOINT_RETIRED", "BILLING_UNAVAILABLE")
     val incompatible = !classified.retryAllowed && (!waitingForLimit || permanentUnavailable)

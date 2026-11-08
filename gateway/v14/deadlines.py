@@ -44,8 +44,16 @@ def request_deadline(payload: object, *, default_seconds: float = 900.0,
     if gateway is not None and not isinstance(gateway, dict):
         raise ValueError("gateway control must be an object")
     if isinstance(gateway, dict):
-        if set(gateway) - {"schema", "budget"}:
+        if set(gateway) - {"schema", "budget", "client_conversation_id", "conversation_id", "command_id", "profile_id", "expected_revision", "store_conversation"}:
             raise ValueError("gateway control contains unsupported fields")
+        for name in ("client_conversation_id", "conversation_id", "command_id", "profile_id"):
+            value = gateway.get(name)
+            if value is not None and (not isinstance(value, str) or not 1 <= len(value) <= 256 or any(ord(c) < 32 for c in value)):
+                raise ValueError("Invalid gateway " + name)
+        if "store_conversation" in gateway and type(gateway["store_conversation"]) is not bool:
+            raise ValueError("store_conversation must be boolean")
+        if "expected_revision" in gateway and (type(gateway["expected_revision"]) is not int or gateway["expected_revision"] < 0):
+            raise ValueError("Invalid conversation revision")
         schema = gateway.get("schema")
         if schema is not None and schema != "gptmobile.gateway-run.v1":
             raise ValueError("gateway run schema is unsupported")

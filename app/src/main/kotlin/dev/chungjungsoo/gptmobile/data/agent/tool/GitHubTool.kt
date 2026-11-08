@@ -64,16 +64,44 @@ class GitHubTool(
     private val legacyCredentialIdentities: List<String> = emptyList(),
     private val credentialProvider: (suspend () -> String)? = null,
     private val graphQuery: (suspend (JsonObject) -> JsonObject)? = null,
-    private val apiOrigins: dev.chungjungsoo.gptmobile.data.github.GitHubApiOrigins = dev.chungjungsoo.gptmobile.data.github.GitHubApiOrigins.GITHUB_COM
+    private val apiOrigins: dev.chungjungsoo.gptmobile.data.github.GitHubApiOrigins = dev.chungjungsoo.gptmobile.data.github.GitHubApiOrigins.GITHUB_COM,
+    private val taskRequest: String? = null
 ) : AgentTool {
 
     private val BASE_URL get() = apiOrigins.rest
     private val authenticationRejected = if (httpClient === defaultHttpClient) dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.authenticationForCredential(apiToken, apiOrigins.hostIdentity) else java.util.concurrent.atomic.AtomicBoolean()
     private val rateLimits = if (httpClient === defaultHttpClient) dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.rateLimitsForCredential(apiToken, apiOrigins.hostIdentity) else dev.chungjungsoo.gptmobile.data.github.GitHubRateLimitManager()
+    private val refAvailability = if (httpClient === defaultHttpClient) dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.refsForCredential(apiToken, apiOrigins.hostIdentity) else dev.chungjungsoo.gptmobile.data.github.GitHubRefAvailability()
+    private val targetPolicy = dev.chungjungsoo.gptmobile.data.github.GitHubTargetPolicy(taskRequest)
+    private val workflowPages = dev.chungjungsoo.gptmobile.data.github.GitHubWorkflowPageCapture()
     private val operationBlocks by lazy { if (persistentState && stateStore != null) stateStore else dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore() }
     private val operationBlockScope by lazy { "github-operation-blocks:" + dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore.digest("$durableIdentity|$connectionUid|$conversationId") }
     internal val hasCredential get() = apiToken.isNotBlank()
-    internal val hasRepositoryContext get() = repositoryContext != null
+    internal val hasRepositoryContext get() = planningTarget != null
+    private var planningTarget = repositoryScope?.repository ?: repositoryContext
+    internal suspend fun planningContext(): dev.chungjungsoo.gptmobile.data.github.GitHubPlanningContext {
+        planningTarget = selectedRepository()
+        val snapshot = workspaceClient.taskSnapshot()?.takeIf { it.owner.equals(planningTarget?.owner, true) && it.repo.equals(planningTarget?.repo, true) && it.ref == planningTarget?.ref }
+        return dev.chungjungsoo.gptmobile.data.github.GitHubPlanningContext(
+            connectionUid,
+            modelToolName.removePrefix("github").takeIf { it.startsWith("__") }.orEmpty(),
+            planningTarget,
+            snapshot?.commitSha ?: repositoryScope?.commitSha,
+            snapshot?.updatedAt ?: repositoryScope?.observedAtMillis
+        )
+    }
+    internal fun planningDescription() = dev.chungjungsoo.gptmobile.data.github.GitHubPlanningContext(
+        connectionUid,
+        modelToolName.removePrefix("github").takeIf { it.startsWith("__") }.orEmpty(),
+        planningTarget
+    ).toolDescription()
+    private suspend fun selectedRepository(): GitHubRepositoryContext? {
+        val observed = workspaceClient.taskContext()
+        val bound = repositoryScope?.repository ?: return observed ?: repositoryContext
+        // A verified branch transition stays inside the bound repository. Retained
+        // state from another repository cannot replace the conversation's target.
+        return observed?.takeIf { it.owner.equals(bound.owner, true) && it.repo.equals(bound.repo, true) } ?: bound
+    }
     private val scheduler = if (httpClient === defaultHttpClient) dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.schedulerForCredential(apiToken, apiOrigins.hostIdentity) else dev.chungjungsoo.gptmobile.data.github.GitHubRequestScheduler()
     private val responseCache = if (httpClient === defaultHttpClient) dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.forCredential(apiToken, apiOrigins.hostIdentity) else dev.chungjungsoo.gptmobile.data.github.GitHubResponseCache()
     private val workspaceClient by lazy {
@@ -83,7 +111,7 @@ class GitHubTool(
             conditionalReads = featureSettings.githubConditionalReads, blobCache = featureSettings.githubBlobCache,
             freshnessSeconds = featureSettings.pluginExecution[dev.chungjungsoo.gptmobile.data.model.ToolPluginId.GITHUB]?.githubCacheSeconds ?: 15,
             connectionUid = connectionUid, conversationId = conversationId, taskId = taskId, persistentState = persistentState, stateStore = stateStore, scheduler = scheduler, engineeringPrepare = engineeringPrepare,
-            durableIdentity = durableIdentity, legacyCredentialIdentities = legacyCredentialIdentities, credentialProvider = credentialProvider, apiOrigins = apiOrigins
+            durableIdentity = durableIdentity, legacyCredentialIdentities = legacyCredentialIdentities, credentialProvider = credentialProvider, apiOrigins = apiOrigins, refAvailability = refAvailability
         )
     }
     internal suspend fun normalizeOperationRepository(arguments: JsonObject): JsonObject {
@@ -93,7 +121,7 @@ class GitHubTool(
             }
         }
         val (owner, repo) = dev.chungjungsoo.gptmobile.data.github.normalizeGitHubRepository((arguments["owner"] as? JsonPrimitive)?.takeIf { it.isString }?.content, (arguments["repo"] as? JsonPrimitive)?.takeIf { it.isString }?.content)
-        val selected = workspaceClient.taskContext() ?: repositoryContext
+        val selected = selectedRepository()
         if (owner != null && repo == null) require(selected != null && owner.equals(selected.owner, true)) { "A partial owner must match the selected repository; supply both owner and repo to select another repository." }
         if (repo != null && owner == null) require(selected != null && repo.equals(selected.repo, true)) { "A partial repo must match the selected repository; supply both owner and repo to select another repository." }
         return buildJsonObject {
@@ -372,6 +400,13 @@ class GitHubTool(
                     )
                     put("select_created_branch", buildJsonObject { put("type", "boolean") })
                     put(
+                        "fixture_plan",
+                        buildJsonObject {
+                            put("type", "string")
+                            put("enum", JsonArray(listOf(JsonPrimitive(dev.chungjungsoo.gptmobile.data.github.GitHubOwnedFixtures.PLAN))))
+                        }
+                    )
+                    put(
                         "base",
                         buildJsonObject {
                             put("type", "string")
@@ -503,7 +538,7 @@ class GitHubTool(
         return kotlinx.coroutines.withContext(accounting) {
             try {
                 val action = (arguments["action"] as? JsonPrimitive)?.content.orEmpty()
-                val selected = workspaceClient.taskContext() ?: repositoryContext
+                val selected = selectedRepository()
                 val blockable = action in setOf("dispatch_workflow", "rerun_workflow", "rerun_failed_jobs", "cancel_workflow")
                 val repository = runCatching { dev.chungjungsoo.gptmobile.data.github.normalizeGitHubRepository((arguments["owner"] as? JsonPrimitive)?.content, (arguments["repo"] as? JsonPrimitive)?.content) }.getOrNull()
                 val identity = buildJsonObject {
@@ -528,6 +563,7 @@ class GitHubTool(
                     selected?.ref?.takeIf { it.isNotBlank() }?.let { put("selected_ref", it) }
                 }
                 val result = observed.copy(executionReceipt = JsonObject(observed.executionReceipt.orEmpty() + mapOf("incident_id" to JsonPrimitive(incidentId(callId)), "resource_context" to resource)))
+                if (!result.isError) targetPolicy.observeDiscovery(action, dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.element(result.content))
                 if (action == "list_workflows" && !result.isError && (arguments["page"]?.jsonPrimitive?.intOrNull ?: 1) == 1) {
                     val payload = dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.element(result.content) as? JsonObject
                     payload?.get("workflows")?.let { inventory ->
@@ -594,7 +630,7 @@ class GitHubTool(
             repository.first?.let { put("owner", it) }
             repository.second?.let { put("repo", it) }
         }
-        val selectedContext = workspaceClient.taskContext() ?: repositoryContext
+        val selectedContext = selectedRepository()
         val effectiveArguments = buildJsonObject {
             normalizedArguments.forEach { (key, value) -> put(key, value) }
             selectedContext?.let { selected ->
@@ -609,6 +645,10 @@ class GitHubTool(
                 if (sameRepo && normalizedArguments["ref"] == null) put("ref", selected.ref)
             }
         }
+        targetPolicy.rejection((effectiveArguments["action"] as? JsonPrimitive)?.content.orEmpty(), effectiveArguments, selectedContext)?.let { rejection ->
+            return AgentToolResult(callId, ToolResultContent.Json(rejection), true, errorCode = (rejection["error_code"] as JsonPrimitive).content, dispatched = false)
+        }
+        if (effectiveArguments["action"] == JsonPrimitive("resolve_context") && effectiveArguments["refresh"] == JsonPrimitive(true)) workflowPages.clear()
         return executeEffective(callId, effectiveArguments)
     }
 
@@ -618,18 +658,11 @@ class GitHubTool(
 
         return try {
             if (action in GitHubWorkspaceClient.actions) {
-                if (action == "delete_branch") {
-                    (workspaceClient.taskContext() ?: repositoryContext)?.let { selected ->
+                if (action in setOf("delete_branch", "delete_fixture_branch")) {
+                    (selectedRepository())?.let { selected ->
                         val sameRepo = arguments["owner"]?.jsonPrimitive?.content.orEmpty().equals(selected.owner, true) &&
                             arguments["repo"]?.jsonPrimitive?.content.orEmpty().equals(selected.repo, true)
                         require(!sameRepo || arguments["branch"]?.jsonPrimitive?.content != selected.ref) { "Cannot delete the selected workspace branch. Select another branch first." }
-                    }
-                }
-                if (action == "commit_files") {
-                    (workspaceClient.taskContext() ?: repositoryContext)?.let { selected ->
-                        val sameRepo = arguments["owner"]?.jsonPrimitive?.content.orEmpty().equals(selected.owner, true) &&
-                            arguments["repo"]?.jsonPrimitive?.content.orEmpty().equals(selected.repo, true)
-                        require(!sameRepo || arguments["branch"]?.jsonPrimitive?.content == selected.ref) { "The write branch disagrees with the selected workspace. Select the intended branch first." }
                     }
                 }
                 val result = workspaceClient.execute(action, arguments)
@@ -1252,6 +1285,16 @@ class GitHubTool(
             }
             return executionResult(callId, result)
         }
+        if (action == "list_workflows" && taskRequest != null) {
+            // The native and compact/default action aliases share this executor and capture.
+            // Repeating page 1 cannot silently substitute another page membership or ordering.
+            check(!authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
+            val cached = workflowPages.read(owner, repo, page, perPage, arguments["verify_live"] == JsonPrimitive(true))
+            if (cached != null) {
+                dev.chungjungsoo.gptmobile.data.github.GitHubDispatchAccounting.cached(cached.observedAtMillis)
+                return successResult(callId, cached.payload).copy(dispatched = false, sharedResult = true)
+            }
+        }
         val response = getGitHubApi(base + path)
         val text = response.bodyAsText()
         return if (response.status.isSuccess()) {
@@ -1277,6 +1320,7 @@ class GitHubTool(
             } else {
                 payload
             }
+            if (action == "list_workflows" && taskRequest != null) workflowPages.remember(owner, repo, page, perPage, scoped)
             successResult(callId, scoped)
         } else {
             val failure = classifyGitHubHttpFailure(callId, action, arguments, response, text)
@@ -1378,12 +1422,22 @@ class GitHubTool(
         }
 
         fun projectedArray(key: String, fields: List<String>): JsonObject {
-            val values = checkNotNull(parsed[key] as? JsonArray) { "GITHUB_UNEXPECTED_RESPONSE · GitHub response is missing the $key collection; this is not an empty result." }
+            val original = checkNotNull(parsed[key] as? JsonArray) { "GITHUB_UNEXPECTED_RESPONSE · GitHub response is missing the $key collection; this is not an empty result." }
+            val values = if (key == "workflows") JsonArray(original.sortedWith(compareBy({ (it as? JsonObject)?.get("id")?.jsonPrimitive?.content?.toLongOrNull() ?: Long.MAX_VALUE }, { (it as? JsonObject)?.get("path")?.jsonPrimitive?.content.orEmpty() }))) else original
             return buildJsonObject {
                 put("total_count", parsed["total_count"] ?: JsonNull)
                 put("page", page)
                 put("per_page", perPage)
                 put("returned", values.size)
+                if (key == "workflows") {
+                    put("page_ordering", "WORKFLOW_ID_ASCENDING_WITHIN_CAPTURED_PAGE")
+                    dev.chungjungsoo.gptmobile.data.github.GitHubWorkflowEvidence.definitionPageEvidence(
+                        values,
+                        parsed["total_count"]?.jsonPrimitive?.intOrNull,
+                        page,
+                        perPage
+                    ).forEach { (field, value) -> put(field, value) }
+                }
                 put("empty", values.isEmpty())
                 val total = parsed["total_count"]?.jsonPrimitive?.intOrNull
                 val hasMore = if (total != null) page * perPage < total else values.size == perPage
@@ -1588,6 +1642,11 @@ class GitHubTool(
         val repo = arguments["repo"]?.jsonPrimitive?.content?.trim().orEmpty()
         val branch = dev.chungjungsoo.gptmobile.data.github.normalizeGitHubBranch(arguments["branch"]?.jsonPrimitive?.content.orEmpty())
         val base = dev.chungjungsoo.gptmobile.data.github.normalizeGitHubBranch(arguments["base"]?.jsonPrimitive?.content.orEmpty().ifBlank { "main" })
+        if (arguments["fixture_plan"] != null) {
+            require(arguments["fixture_plan"] == JsonPrimitive(dev.chungjungsoo.gptmobile.data.github.GitHubOwnedFixtures.PLAN) && branch.matches(Regex("codex-self-test/[a-f0-9]{20}")) && arguments["select_created_branch"] == JsonPrimitive(false) && arguments["expected_head_sha"]?.jsonPrimitive?.content?.matches(Regex("[a-f0-9]{40}")) == true) {
+                "Content fixtures require their dedicated branch, explicit source head and preserved workspace selection."
+            }
+        }
         if (owner.isEmpty() || repo.isEmpty() || branch.isEmpty()) {
             return errorResult(callId, "Parameters 'owner', 'repo', and 'branch' are required.")
         }
@@ -1603,6 +1662,9 @@ class GitHubTool(
         require(arguments["expected_head_sha"]?.jsonPrimitive?.content.let { it.isNullOrBlank() || it == sha }) { "The base branch changed; resolve its current head before creating a branch." }
         // A previous acknowledgement may have been lost. Resolve the target before
         // another POST; a branch collision is a state observation, not a retry signal.
+        // Creating this exact branch is a new intent that must recheck its absence.
+        // Keep every other ref rejection and the publication fence intact.
+        refAvailability.revalidateBranch("/repos/$owner/$repo", branch)
         val existingResponse = getGitHubApi("$BASE_URL/repos/$owner/$repo/git/ref/heads/${GitHubWorkspaceClient.segment(branch)}")
         val existingText = existingResponse.bodyAsText()
         if (existingResponse.status.isSuccess()) return existingBranchResult(callId, branch, sha, jsonParser.parseToJsonElement(existingText).jsonObject, arguments)
@@ -1641,31 +1703,30 @@ class GitHubTool(
             } catch (_: Exception) {
                 null
             }
-            successResult(
-                callId,
-                buildJsonObject {
-                    put("branch", branch)
-                    put("receipt", receipt)
-                    put("head_sha", receipt["object"]?.jsonObject?.get("sha") ?: JsonNull)
-                    put("expected_head_sha", receipt["object"]?.jsonObject?.get("sha") ?: JsonNull)
-                    put("base_sha", sha)
-                    put("receipt_verified", receipt["object"]?.jsonObject?.get("sha")?.jsonPrimitive?.content == sha && receipt["ref"]?.jsonPrimitive?.content == "refs/heads/$branch")
-                    put("created", true)
-                    val selected = selectCreated && selection?.get("commit_sha") == JsonPrimitive(sha) && selection?.get("ref") == JsonPrimitive(branch)
-                    val fixtureVerified = !selectCreated &&
-                        selection?.get("ref") == JsonPrimitive("refs/heads/$branch") &&
-                        (selection?.get("object") as? JsonObject)?.get("sha") == JsonPrimitive(sha)
-                    put("remote_state_verified", selected || fixtureVerified)
-                    put("context_selected", selected)
-                    put("upstream_completed", true)
-                    if (selectCreated) {
-                        selection?.let { put("context", it) } ?: put("context_refresh_required", true)
-                    } else {
-                        put("selection_preserved", true)
-                        selection?.let { put("ref_observation", it) }
-                    }
-                }.toString()
-            )
+            val created = buildJsonObject {
+                put("branch", branch)
+                put("receipt", receipt)
+                put("head_sha", receipt["object"]?.jsonObject?.get("sha") ?: JsonNull)
+                put("expected_head_sha", receipt["object"]?.jsonObject?.get("sha") ?: JsonNull)
+                put("base_sha", sha)
+                put("receipt_verified", receipt["object"]?.jsonObject?.get("sha")?.jsonPrimitive?.content == sha && receipt["ref"]?.jsonPrimitive?.content == "refs/heads/$branch")
+                put("created", true)
+                val selected = selectCreated && selection?.get("commit_sha") == JsonPrimitive(sha) && selection?.get("ref") == JsonPrimitive(branch)
+                val fixtureVerified = !selectCreated &&
+                    selection?.get("ref") == JsonPrimitive("refs/heads/$branch") &&
+                    (selection?.get("object") as? JsonObject)?.get("sha") == JsonPrimitive(sha)
+                put("remote_state_verified", selected || fixtureVerified)
+                put("context_selected", selected)
+                put("upstream_completed", true)
+                if (selectCreated) {
+                    selection?.let { put("context", it) } ?: put("context_refresh_required", true)
+                } else {
+                    put("selection_preserved", true)
+                    selection?.let { put("ref_observation", it) }
+                }
+            }
+            val retained = workspaceClient.retainFixtureCreation(JsonObject(arguments + mapOf("branch" to JsonPrimitive(branch), "base" to JsonPrimitive(base))), created)
+            successResult(callId, retained.toString())
         } else {
             classifyGitHubHttpFailure(callId, "create_branch", arguments, response, text)
         }
@@ -1700,11 +1761,6 @@ class GitHubTool(
         val branch = arguments["branch"]?.jsonPrimitive?.content?.trim()
             ?.takeIf(String::isNotBlank)
             ?: return errorResult(callId, "An explicit working branch and expected_head_sha are required for update_file.")
-        repositoryContext?.let { selected ->
-            if (owner.equals(selected.owner, true) && repo.equals(selected.repo, true) && branch != selected.ref) {
-                return errorResult(callId, "The write branch disagrees with the selected workspace. Select the intended branch first.")
-            }
-        }
         if (owner.isEmpty() || repo.isEmpty() || path.isEmpty()) {
             return errorResult(callId, "Parameters 'owner', 'repo', and 'path' are required.")
         }
@@ -1831,6 +1887,13 @@ class GitHubTool(
             val recordedCode = detail.substringBefore(" · ")
             val code = recordedCode.takeIf { it in dev.chungjungsoo.gptmobile.data.github.GitHubFailurePolicy.codes }
                 ?: dev.chungjungsoo.gptmobile.data.github.GitHubFailurePolicy.classify(throwable.status)
+            if (throwable.status == 404) {
+                val evidence = JsonObject(
+                    dev.chungjungsoo.gptmobile.data.github.GitHubFailurePolicy.notFoundEvidence(action, arguments) +
+                        throwable.evidence.orEmpty().filterKeys { it !in setOf("action", "requested_target") }
+                )
+                return AgentToolResult(callId, ToolResultContent.Json(evidence), true, errorCode = code, retainedContent = ToolResultContent.Text(detail))
+            }
             return AgentToolResult(callId, ToolResultContent.Text(detail), true, errorCode = code)
         }
         if (throwable is java.io.IOException) {
@@ -1888,7 +1951,7 @@ class GitHubTool(
             return errorResult(callId, writeDeniedMessage(action, arguments, detail))
         }
         if (detail.contains("HTTP 404", ignoreCase = true) || detail.contains("Not Found", ignoreCase = true)) {
-            return errorResult(callId, notFoundMessage(action, arguments, detail))
+            return AgentToolResult(callId, ToolResultContent.Json(dev.chungjungsoo.gptmobile.data.github.GitHubFailurePolicy.notFoundEvidence(action, arguments)), true, errorCode = "GITHUB_NOT_FOUND_OR_INACCESSIBLE", retainedContent = ToolResultContent.Text(detail))
         }
         return AgentToolResult(callId, ToolResultContent.Text("GitHub operation $action failed: $detail. Inspect the retained resource and request receipt before retrying."), true, errorCode = "GITHUB_OPERATION_FAILED")
     }
@@ -1957,45 +2020,16 @@ class GitHubTool(
             action in MUTATING_ACTIONS && response.status.value == 403 ->
                 errorResult(callId, writeDeniedMessage(action, arguments, detail))
             response.status.value == 404 ->
-                AgentToolResult(callId, ToolResultContent.Text(notFoundMessage(action, arguments, detail)), true, errorCode = category)
+                AgentToolResult(
+                    callId,
+                    ToolResultContent.Json(dev.chungjungsoo.gptmobile.data.github.GitHubFailurePolicy.notFoundEvidence(action, arguments, reportedOAuthScopes = response.headers["X-OAuth-Scopes"], acceptedOAuthScopes = response.headers["X-Accepted-OAuth-Scopes"])),
+                    true,
+                    errorCode = category,
+                    retainedContent = ToolResultContent.Text(detail)
+                )
             else ->
                 AgentToolResult(callId, ToolResultContent.Text("$detail: ${truncate(body, 500)}"), true, errorCode = category)
         }
-    }
-
-    private suspend fun notFoundMessage(
-        action: String,
-        arguments: JsonObject,
-        githubDetail: String
-    ): String {
-        val owner = arguments["owner"]?.jsonPrimitive?.content.orEmpty()
-        val repo = arguments["repo"]?.jsonPrimitive?.content.orEmpty()
-        val ref = arguments["ref"]?.jsonPrimitive?.content
-            ?: arguments["branch"]?.jsonPrimitive?.content
-            ?: arguments["head"]?.jsonPrimitive?.content
-        val path = arguments["path"]?.jsonPrimitive?.content
-        val target = buildString {
-            if (owner.isNotBlank() && repo.isNotBlank()) append("$owner/$repo")
-            ref?.takeIf { it.isNotBlank() }?.let { append(" ref=").append(it.take(160)) }
-            path?.takeIf { it.isNotBlank() }?.let { append(" path=").append(it.take(240)) }
-        }.ifBlank { "requested GitHub resource" }
-
-        val capability = if (action in MUTATING_ACTIONS) {
-            runCatching { workspaceClient.execute("write_capabilities", arguments).jsonObject }.getOrNull()
-        } else {
-            null
-        }
-        val writeCapability = capability?.get("write_capability")?.jsonPrimitive?.content ?: "unknown"
-        val canPush = capability?.get("can_push")?.jsonPrimitive?.content ?: "unknown"
-        val permissionHint = if (action in MUTATING_ACTIONS) {
-            " required_permission=${requiredGitHubPermission(action)} · write_capability=$writeCapability · can_push=$canPush."
-        } else {
-            ""
-        }
-        return "GITHUB_NOT_FOUND_OR_HIDDEN · action=$action · target=$target.$permissionHint " +
-            "GitHub can return HTTP 404 both when a repository/ref/path does not exist and when the authenticated credential cannot see that resource or endpoint. " +
-            "Verify the repository, ref and path once; for writes also verify the plugin's repository access and required permission. " +
-            "Do not blindly retry the same request. GitHub detail: $githubDetail"
     }
 
     private suspend fun writeDeniedMessage(
@@ -2044,6 +2078,8 @@ class GitHubTool(
         if (refreshed != apiToken) {
             apiToken = refreshed
             responseCache.clear()
+            refAvailability.clear()
+            workflowPages.clear()
             authenticationRejected.set(false)
         }
     }
@@ -2081,6 +2117,8 @@ class GitHubTool(
     private suspend fun getGitHubApi(url: String): GitHubBoundedResponse = dev.chungjungsoo.gptmobile.data.github.GitHubReadRetry.run {
         require(apiOrigins.acceptsApiUrl(url)) { "GitHub API origin changed." }
         refreshCredential()
+        val resourcePath = url.removePrefix(BASE_URL)
+        refAvailability.requireAvailable(resourcePath)
         scheduler.execute("$url:$durableIdentity:${dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore.digest(apiToken)}") {
             check(!authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
             rateLimits.requireAvailable(if (url.contains("/search/")) "search" else "core")
@@ -2096,7 +2134,13 @@ class GitHubTool(
                 rateLimits.record(it.headers, it.status.value)
                 if (it.status.value == 401) authenticationRejected.set(true)
                 // Read the body within the retry boundary, including an interrupted HTTP/2 body.
-                it.bodyAsText()
+                val body = it.bodyAsText()
+                if (it.status.isSuccess()) {
+                    refAvailability.succeeded(resourcePath)
+                } else {
+                    val message = runCatching { jsonParser.parseToJsonElement(body).jsonObject["message"]?.jsonPrimitive?.content }.getOrNull().orEmpty()
+                    refAvailability.failed(resourcePath, it.status.value, message)
+                }
                 if (dev.chungjungsoo.gptmobile.data.github.GitHubReadRetry.transientStatus(it.status.value)) {
                     throw dev.chungjungsoo.gptmobile.data.github.GitHubReadRetry.HttpFailure(it.status.value, it.headers["Retry-After"])
                 }

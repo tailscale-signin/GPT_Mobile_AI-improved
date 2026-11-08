@@ -11,6 +11,95 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class McpFailurePresentationTest {
+    @Test fun localRejectionCannotInheritAnEarlierServerFailureEvenWhenItsCodeMatches() {
+        val current = McpLocalValidationException(McpLocalValidationRule.CREDENTIAL_FORMAT_INVALID)
+        val previous = paused(current.diagnosticCode, "Earlier unrelated server detail").copy(
+            lastHttpStatus = 403,
+            lastValidationRule = "EARLIER_RULE",
+            lastValidationField = "old_field",
+            lastDispatchEvidence = "CONFIRMED",
+            failureConfigurationRevision = "a".repeat(64)
+        )
+        val result = mcpFailurePresentation(current, previous)
+        assertEquals("LOCAL_VALIDATION", result.outcome)
+        assertEquals("CREDENTIAL_FORMAT_INVALID", result.validationRule)
+        assertEquals("credential", result.validationField)
+        assertEquals("local_validation", result.phase)
+        assertEquals("NOT_DISPATCHED", result.dispatchEvidence)
+        assertEquals(null, result.httpStatus)
+        assertEquals(null, result.observedAtEpochMs)
+        assertEquals(null, result.configurationRevision)
+        assertFalse(result.message.contains("Earlier"))
+    }
+
+    @Test fun aCachedEndpointGateRetainsHistoricalStatusWithoutClaimingANew404() {
+        val gate = McpEndpointConfigurationException()
+        val unknown = mcpFailurePresentation(gate, McpConnectionHealth())
+        assertEquals(null, unknown.httpStatus)
+        assertEquals("NOT_DISPATCHED", unknown.dispatchEvidence)
+        val retained = mcpFailurePresentation(
+            gate,
+            paused("MCP_ENDPOINT_CONFIGURATION", "Earlier initialization failure").copy(lastHttpStatus = 404, failureConfigurationRevision = "a".repeat(64))
+        )
+        assertEquals(404, retained.httpStatus)
+        assertEquals("NOT_DISPATCHED", retained.dispatchEvidence)
+        assertEquals(1_000L, retained.observedAtEpochMs)
+        assertEquals("a".repeat(64), retained.configurationRevision)
+    }
+
+    @Test fun cachedAuthenticationGateRetainsOriginal401WithoutClaimingANewRequest() {
+        val health = paused("MCP_AUTHENTICATION_REQUIRED", "Earlier credential rejection").copy(
+            lastHttpStatus = 401,
+            lastDispatchEvidence = "CONFIRMED",
+            failureConfigurationRevision = "a".repeat(64)
+        )
+        val retained = mcpFailurePresentation(McpAuthenticationRequiredException(), health)
+        assertEquals("AUTHENTICATION_REQUIRED", retained.outcome)
+        assertEquals(401, retained.httpStatus)
+        assertEquals("NOT_DISPATCHED", retained.dispatchEvidence)
+        assertEquals(1_000L, retained.observedAtEpochMs)
+        assertEquals("a".repeat(64), retained.configurationRevision)
+        assertEquals(false, retained.retryable)
+    }
+
+    @Test fun recoveryRetainsTheOriginalValidationRuleFieldTimeAndConfiguration() {
+        val health = paused("MCP_DISCOVERY_SCHEMA_INVALID", "supportedVersions must be nonempty").copy(
+            lastHttpStatus = 200,
+            failedStage = "discovery",
+            lastValidationRule = "PROTOCOL_VERSIONS_NONEMPTY_REQUIRED",
+            lastValidationField = "supportedVersions",
+            lastDispatchEvidence = "CONFIRMED",
+            lastRetryDecision = "AFTER_CONFIGURATION_CHANGE",
+            failureConfigurationRevision = "b".repeat(64)
+        )
+        val retained = mcpFailurePresentation(McpBackoffException("connection", Long.MAX_VALUE), health)
+        assertEquals(200, retained.httpStatus)
+        assertEquals("NOT_DISPATCHED", retained.dispatchEvidence)
+        assertEquals("PROTOCOL_VERSIONS_NONEMPTY_REQUIRED", retained.validationRule)
+        assertEquals("supportedVersions", retained.validationField)
+        assertEquals("AFTER_CONFIGURATION_CHANGE", retained.retryDecision)
+        assertEquals(1_000L, retained.observedAtEpochMs)
+        assertEquals("b".repeat(64), retained.configurationRevision)
+
+        val current = McpProtocolConfigurationException("MCP_DISCOVERY_SCHEMA_INVALID", "New protocol rejection", 400, "REQUESTED_PROTOCOL_MATCH_REQUIRED", "error.data.requested")
+        val fresh = mcpFailurePresentation(current, health)
+        assertEquals(400, fresh.httpStatus)
+        assertEquals("REQUESTED_PROTOCOL_MATCH_REQUIRED", fresh.validationRule)
+        assertEquals(null, fresh.observedAtEpochMs)
+        assertEquals(null, fresh.configurationRevision)
+        assertFalse(fresh.message.contains("must be nonempty"))
+    }
+
+    @Test fun dnsFailureIsDistinctFromAuthenticationAndOnlyNamesTheAffectedConnection() {
+        val result = mcpFailurePresentation(java.net.UnknownHostException("Server hostname could not be resolved"), McpConnectionHealth())
+        assertEquals("DNS_FAILURE", result.outcome)
+        assertEquals("DNS_FAILED", result.errorCode)
+        assertEquals(true, result.retryable)
+        assertFalse(result.authenticationRequired)
+        assertTrue(result.message.contains("DNS and VPN"))
+        assertTrue(result.message.contains("Other connections"))
+    }
+
     @Test fun permanentFailuresRetainTheirCodeAndOriginalDetailThroughARepeatedBackoff() {
         val failures = listOf(
             Triple("TLS_FAILURE", "TLS_FAILURE", "TLS authentication handshake failed"),

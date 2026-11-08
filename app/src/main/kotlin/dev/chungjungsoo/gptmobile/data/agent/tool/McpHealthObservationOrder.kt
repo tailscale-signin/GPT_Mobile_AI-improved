@@ -2,17 +2,17 @@ package dev.chungjungsoo.gptmobile.data.agent.tool
 
 /** A response belongs to the configuration epoch and request that produced it. */
 internal class McpHealthObservationOrder {
-    data class Token(val connection: String, val key: String, val epoch: Long, val request: Long)
-    private data class State(val key: String, val epoch: Long, var published: Long = 0)
+    data class Token(val connection: String, val key: String, val epoch: Long, val request: Long, val configurationRevision: String? = null)
+    private data class State(val key: String, val epoch: Long, val configurationRevision: String?, var published: Long = 0)
     private val states = mutableMapOf<String, State>()
     private var sequence = 0L
 
     @Synchronized
-    fun begin(connection: String, key: String): Token {
+    fun begin(connection: String, key: String, configurationRevision: String? = null): Token {
         val request = ++sequence
-        val state = states[connection]?.takeIf { it.key == key }
-            ?: State(key, request).also { states[connection] = it }
-        return Token(connection, key, state.epoch, request)
+        val state = states[connection]?.takeIf { it.key == key && it.configurationRevision == configurationRevision }
+            ?: State(key, request, configurationRevision).also { states[connection] = it }
+        return Token(connection, key, state.epoch, request, configurationRevision)
     }
 
     @Synchronized

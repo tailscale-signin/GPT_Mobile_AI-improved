@@ -22,6 +22,8 @@ AGENT_PREFIXES = (
     'Ldev/chungjungsoo/gptmobile/data/agent/tool/AgentToolResolver',
     'Ldev/chungjungsoo/gptmobile/data/benchmark/BenchmarkRunner',
     'Ldev/chungjungsoo/gptmobile/data/benchmark/BenchmarkCaseExecution',
+    'Ldev/chungjungsoo/gptmobile/data/accounting/InvocationLedger',
+    'Ldev/chungjungsoo/gptmobile/data/accounting/InvocationRoundAccounting',
 )
 COMBINED_PLANNER = 'Ldev/chungjungsoo/gptmobile/data/agent/CombinedSynthesisPlanner'
 GUARDED_PREFIXES = ('Ldev/chungjungsoo/gptmobile/data/repository/ChatRepositoryImpl', COMBINED_PLANNER) + AGENT_PREFIXES
@@ -63,6 +65,17 @@ def require_provider_coroutines(rows):
         if not any(row['class'].startswith(prefix) and stage in row['class']
                    and row['method'] == 'invokeSuspend' for row in rows):
             raise ValueError(f'The actual {label} coroutine was not found')
+
+
+def require_invocation_accounting(rows):
+    ledger = 'Ldev/chungjungsoo/gptmobile/data/accounting/InvocationLedger$wrap$'
+    if not any(row['class'].startswith(ledger) and '$streamRound$' in row['class']
+               and row['method'] == 'invokeSuspend' for row in rows):
+        raise ValueError('The actual invocation accounting stream coroutine was not found')
+    accounting = 'Ldev/chungjungsoo/gptmobile/data/accounting/InvocationRoundAccounting;'
+    for method in ('observe', 'finish'):
+        if not any(row['class'] == accounting and row['method'] == method for row in rows):
+            raise ValueError(f'The actual invocation accounting {method} stage was not found')
 
 
 def uleb(data, offset):
@@ -157,6 +170,7 @@ def main():
         if not any(row['class'] == descriptor and row['method'] == method for row in rows):
             raise ValueError(f'The actual {descriptor}.{method} method was not found')
     require_provider_coroutines(rows)
+    require_invocation_accounting(rows)
     rows.sort(key=lambda row: row['code_units'], reverse=True)
     print(json.dumps({'apk': args.apk, 'max_code_units': args.max_code_units, 'methods': rows}, indent=2))
     if rows[0]['code_units'] >= args.max_code_units:

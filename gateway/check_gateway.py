@@ -19,7 +19,8 @@ def run_suite(root, pattern, timeout=120):
     try:
         result = subprocess.run([sys.executable, '-u', '-c', runner, 'discover', '-v', '-s', str(root / 'tests'), '-p', pattern],
                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, encoding='utf-8', timeout=timeout,
-                                env=dict(os.environ, PYTHONIOENCODING='utf-8'))
+                                env={**{key: value for key, value in os.environ.items()
+                                        if not key.upper().startswith('GIT_')}, 'PYTHONIOENCODING': 'utf-8'})
     except subprocess.TimeoutExpired as error:
         output = error.output or ''
         if isinstance(output, bytes):

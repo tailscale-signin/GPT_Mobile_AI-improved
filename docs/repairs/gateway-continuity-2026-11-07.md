@@ -1,0 +1,126 @@
+# Gateway-owned jobs, conversations, and availability
+
+> **Historical implementation checkpoint.** Commit `5acf0ea` was integrated
+> with the concurrent gateway implementation and the Home Gateway browser.
+> The current protocol, schema-51 upgrade path, ownership rules, and final
+> validation evidence are recorded in
+> [Gateway availability and persistent conversations](../architecture/gateway-persistent-jobs.md).
+> The overlapping prototype stores and wire envelopes described below are
+> superseded; earlier validation counts apply only to their recorded sources.
+
+## Accepted scope
+
+This extends the active repair of PR 813 in `tailscale-signin/GPT_Mobile_AI-improved`. The original diagnostic/GitHub fixes and the request to merge after current-head validation remain in force. The starting main revision is `3ac89ceafd9083f67da30e92f9f93aae27be4600`; the concurrent MCP/audit repair at `54faf9a197e1ee897901e56106802d920a5fd41e` is preserved.
+
+Android is a viewer and controller after durable gateway acceptance. Closing the Android process must not be an implicit cancellation or a reason to create another remote job. The existing ordinary and engineering engines remain the execution owners; the shared catalog and conversation storage are projections and recovery infrastructure.
+
+## Implementation contract
+
+The additive wire contract is recorded in `gateway/contracts/continuity-v1.json`. The persistent installation ID already held by the gateway journal is `gateway_id`; the process `instance_id` only identifies a restart. Authenticated admission supplies `principal_id`. No client header, current profile selection, URL, or process boot may substitute a saved authority or conversation identity.
+
+Job identity is `(gateway_id, principal_id, kind, job_id)`. A job snapshot separates scheduling state from work phase and retains the original profile, model, repository, source/working branch, execution binding, accepted time, permitted actions, and nullable measured queue position. Server time anchors local monotonic elapsed displays; timer ticks never write the database or perform network requests. A stale connection is labelled as last seen or last synced.
+
+The existing engineering admission accepts a stable `request_id` as the command identity and adds a scope of `read`, `plan`, or `implement`. Read and plan cannot enter mutation stages. Follow-up admission is revision-fenced and idempotent. First admission saves the command, job, and conversation before acknowledging acceptance. A lost response is reconciled with GET against the same command identity. Opening a job and reconnecting are read-only operations.
+
+Conversation recovery reads an authoritative snapshot with a watermark, then ordered messages. Stable message IDs and a transactional Room cursor make replay idempotent. Gaps trigger snapshot reconciliation; a process restart does not reset durable cursors. Legacy jobs with evidence/results but no complete transcript disclose that limitation. Final results update their original assistant message and local run once.
+
+## Work packages
+
+| Package | Required implementation and regression evidence |
+| --- | --- |
+| Lifecycle and durability | Classify Android foreground timeout as interruption; preserve accepted remote identities; keep explicit Stop separate. Pin active/waiting ordinary jobs against eviction, finalize in the worker after HTTP disconnect, and retain accepted queue entries until a worker lease is available. |
+| Shared identities and contracts | Reuse installation/principal identity, negotiate the additive API, preserve immutable execution bindings, and distinguish scheduling state, phase, total elapsed time, and cancellation requested/confirmed. |
+| Gateway catalog and conversations | Authorized paginated jobs across both engines, saved visible messages, snapshot/replay watermarks, command reconciliation, and revision-fenced follow-ups. Preserve the existing distinct restart policies for ordinary and engineering work. |
+| Android persistence and reconnect | Add normalized tables to ChatDatabaseV2, migrate the legacy engineering bindings without changing request IDs, and remove imported DataStore entries only after the Room transaction commits. Include backup/deletion handling and atomic message/cursor/result projection. |
+| Profile availability | Shared model-specific readiness checks, coalesced per destination/model with at most two concurrent probes, visible-screen polling every ten seconds and twenty-second freshness. No model loads or job creation. Preserve sort/filter/selection and defer movement while interaction or accessibility focus would be displaced. |
+| Availability presentation | Fresh available profiles move first within the existing sort. Only the themed name fades from 1.0 to approximately 0.86 and back over six seconds, while visible and active. Reduced-motion presentation is static; the green Online badge stays steady and can wrap with large text. A reachable server with the wrong/unavailable model is not Online. |
+| Jobs and normal Send | Add Chat / Jobs / Status / Settings for an explicit gateway connection. Keep cached Jobs offline; show Running, Queued, Needs attention, Recent, repository/profile attribution and unread state. Open the canonical conversation and its original context without submitting. Eligible normal GitHub Send uses the durable gateway path, including read/plan scope. |
+
+## Qualification
+
+Behavior regressions must cover lost admission responses, worker contention, disconnect before nonstreaming finalization, active/waiting retention, duplicate replay, replay gaps, profile edits, installation/process identity, DataStore-to-Room interruption, final-result deduplication, explicit Stop, timeout/detach, model-specific availability, stable sorting and timer semantics.
+
+Full current-head Android compilation, unit/Room/UI tests, heap gates, lint, packaged DEX, emulator acceptance, gateway tests and repository contracts remain required before merge. Mocked host results, real loopback HTTP, CI/emulator evidence, and physical-device/live-account qualification remain separate. No physical-device continuity or rendering performance claim follows solely from a host test.
+
+At this checkpoint implementation and focused regression execution are in progress. Earlier revision `515d9b06` passed 7664 of 7672 unit cases, with three composer failures caused by the SDK 34 Robolectric magnifier surface configuration and five cases reserved for constrained-heap execution. Its emulator, lint, gateway, security and packaged-APK results are retained in the integration ledger, but do not qualify this expanded source.
+
+The concurrent `3c455ff7573fc2a3dc84ff4983f5593991b246e0` fixture change was inspected separately. Canonical run `42424806615`, unit job `128561869496`, stopped with a native Robolectric `CanvasContext::prepareTree` SIGSEGV after enabling real native draw traversals. The retained XML contains 7733 recorded cases, zero assertion failures or errors and six skips, but the crashed executor did not finish the suite; only two of the eight composer cases have records. Those counts are not a passing unit gate. A narrower SDK surface fixture is being qualified without replacing Compose or focus behavior.
+
+The subsequent `2ddeff93db245b6571d2fde1bd4fd007faec8e77` update is preserved, including its bounded native-crash diagnostics and ninth Surface factory regression. The combined fixture uses a class-scoped SurfaceTexture-backed legacy BLAST factory and releases retained surfaces after Compose teardown. All eight original focus/draft tests and the external ninth factory/release test remain present. Three exact-source Android Surface/Magnifier boundary tests pass under Robolectric 4.17/API 34. The nine full Compose cases remain a current-head CI requirement. The local full-app attempt was stopped during dependency resolution with exit 130 before Kotlin, KSP or tests; it generated no Room 50 schema and is not a successful compile receipt.
+
+The isolated canonical gateway run records 587 Python cases in 50 suites: 586 passed and one skipped because this host has no bindable non-loopback LAN IPv4 interface. All seven browser and 25 authentication cases pass. A 26-case continuity follow-up adds actual HTTP gap fixtures and their contract checks. A subsequent additive metadata change exposes the admitted `base` separately from the source and working branches; its final focused suite passes 27 cases and refreshes 22 actual server fixtures. That three-field metadata addition is newer than the canonical receipt and requires current-head CI. These results exercise real server, HTTP and SQLite logic with external model/GitHub boundaries mocked; they do not establish physical-phone or live-PC qualification.
+
+The final Android continuity host pack passes 42 cases: replay 10, repository 14, actual server wire 8, multipart assembly 5, Jobs observation 4, and rejected-command polling 1. Both Jobs presentation cases pass, all 22 JSON fixtures match the actual server outputs, and the 52-file source receipt remains unchanged after execution. The separate availability/policy pack passes 27 cases and the real Ktor profile-metadata negotiation pack passes 20. A SQLite probe applies 18 migration statements from schema 49 and compiles all 41 current DAO queries with a clean foreign-key check. These bounded host results do not replace the eight real Room/Robolectric cases, app/Hilt compilation, exported schema 50, full UI tests, packaged DEX gates, heap gates or emulator qualification required from CI.
+
+## Recovery and storage boundaries
+
+Normal GitHub Send uses saved gateway engineering only for an enabled private Llama/Ollama profile with explicit engineering connection and tool consent. Admission checks the authenticated principal, negotiated host capabilities, immutable model/provider binding and exact source branch/SHA. Read and plan scopes cannot enter mutation stages. A derived implementation branch does not replace the original source context. Existing saved-job controls remain available.
+
+Engineering conversations support the revision-fenced follow-up interface. Ordinary generations appear in the same catalog with their complete retained visible transcript, saved result and permitted controls; they are not silently submitted to the engineering engine. Ordinary provider Send continues to use its existing provider contract and restored history. Legacy conversations with unknown profile or incomplete history open a labelled retained transcript rather than an inferred execution profile.
+
+Messages are transported and stored as bounded parts with a logical message identity, part count and whole-content digest. Cursor advancement and retained parts share a transaction. A repeated older page cannot rewind the cursor. Inline answer projection is bounded independently of assembly verification; larger answers retain a single original assistant-message link to the complete verified transcript. The transcript viewer displays bounded slices. This avoids putting multi-megabyte duplicated answer/timeline content into one Android SQLite cursor row.
+
+Submission preparation and original local-run ownership are durable before HTTP admission. A lost response remains unknown until a read of the original command establishes acceptance. Read-only reconnect never posts. A separate explicit retry reconciles first and reuses the saved payload and command. An access error during a GET does not prove that an earlier POST was rejected. Final results update the original assistant message once; ordinary Android-owned result projection remains with its original coordinator.
+
+A second Send cannot create a new remote conversation while an earlier command for the same chat has an unknown admission identity. The UI keeps the next draft, and the repository independently reconciles the earlier command before admitting another one. Follow-ups preserve the conversation's original source SHA even when the workspace refreshes the branch head. The chat's master tool-disable is honored at initial routing and again immediately before gateway admission, after suspended preflight checks.
+
+## Validation integrity incident
+
+An isolated server-test harness accidentally inherited `GIT_DIR` and `GIT_WORK_TREE` pointing to the working repository. A fixture's `git init/add/commit` changed local metadata and created local commit `e2089ce7f93db4d142416d53378c68a314f623c1`; no remote write occurred. Before repair, source and Git metadata were archived. The valid branch and index were restored to `54faf9a197e1ee897901e56106802d920a5fd41e`, the unintended `core.worktree` setting was removed, and all 5065 worktree file hashes or link targets matched the snapshot. The accidental commit is retained only under a recovery ref. The corrected harness copies its source roots, excludes every inherited `GIT_*` variable from tests, and never shares mutable Git metadata. The contaminated aggregate test attempt does not count as successful validation; canonical isolated validation is rerun.
+
+## Publication checkpoint
+
+The final canonical fast gate passes all 400 Python cases, 1304 literal-regex checks and 30 resource XML checks. Seventy-seven dynamic regex patterns remain outside static evaluation. All 61 changed/new Kotlin files pass ktlint 1.3.1. The first fast attempt exposed an out-of-date Android capability fixture; copying the exact generated server fixture fixes it without weakening the equality assertion. Architecture and production inventories validate at 2265 production files / 26 areas, and the gateway source manifest is regenerated. The current source is prepared for CI-generated Room50 capture and complete Android qualification before merge.
+
+## Integration hardening — November 8, 2026
+
+The concurrent implementation in `5acf0eaed06ed34d7972752e40c8ffd733eacea3` and the build/fixture fixes in `ab2845442fd30e317c4266b78e28c3880ecf851b` and `d93b6f3729370517d7c9a2f284d54a4fb166acbf` are preserved. This review extends the committed continuity-v1 adapters and the two existing execution engines. The earlier independent implementation is not substituted for them. The MCP/audit remediation in `54faf9a197e1ee897901e56106802d920a5fd41e` also remains an ancestor.
+
+The actual CI-generated Room 50 schema is now present: identity `1396b336d370193e752a182123c96b35`, SHA-256 `07aa423477019550ad9c2f42c5a9c9aa0e31250ff66ecd9fc646c02e48710f50`, 56 entities. This hardening adds no entities or migration. The older statement above that schema capture was pending describes the earlier checkpoint.
+
+### Additional defects corrected
+
+| Finding | Implemented correction | Regression boundary |
+| --- | --- | --- |
+| A completed ordinary request could execute again after its registry entries were evicted | An idempotency-ledger replay rehydrates and verifies the existing journal row before considering execution. The original job identity and terminal contract remain authoritative. | Real gateway loopback HTTP, stream and nonstream requests, explicit registry eviction and model-call counts |
+| A failed durable final commit could fall through to a replacement worker | Followers share the retained failure and reconcile the same request; failed-commit workers remain retained beyond the normal replay TTL. A completed task is not indiscriminately replayed. | Final-persistence failure, concurrent and late followers, zero second execution |
+| A cached readiness result could gain a new freshness window on each read | Server replies retain the original observation time and monotonic age. Android includes response travel time and its local monotonic age before evaluating the twenty-second window. | Server cache and client virtual-clock tests, including a result that expires in transit |
+| Leaving one screen could cancel a shared availability probe for another observer | Coalesced probes retain consumer ownership and cancel only after the last observer releases them. | Independent cancellation and bounded-concurrency tests |
+| Generic I/O failure could appear as confirmed Offline | Only route-unreachable evidence produces Offline; deadline/unknown failure remains a checking or attention state. Model/configuration mismatches cannot produce Online. | Typed network/error and wrong-model fixtures |
+| Window or keyboard focus was absent from availability presentation gates | Polling and name animation require an active visible window. Stable sorting defers row moves while interaction or focus could be displaced. The name retains the theme primary color with contrast-aware opacity. | Ordering/color host tests and actual Compose compiler check; device/UI execution remains a separate gate |
+| Settings changes could redirect a saved chat to a new local execution | Send and Retry check the original conversation/profile/model/provider/workspace/gateway binding. Unknown or changed bindings retain readable history and a specific repair reason. Foreign ordinary transcripts remain read-only. | Repository and ChatViewModel regressions, original command and draft retention |
+| The gateway installation could change between identity lookup and mutation | Verified writes carry paired `X-Gateway-Installation-ID` and `X-Gateway-Principal-ID` preconditions. The server compares them with its installation and authenticated principal before mutation. Headers do not authorize access; omitted pairs retain compatibility with older clients. | Physical HTTP header assertions on all five Android mutation routes; wrong, partial and malformed identities rejected before admission |
+| A local configuration rejection could be labelled as a dispatched admission | The dispatch marker is set only after the last suspending local configuration check. Prior uncertain commands retain their original identity and uncertainty. | Configuration changed during capability read, zero new admission POSTs |
+| Opening an ordinary job stopped updating when no GitHub workspace was attached | Any retained gateway conversation receives resumed-screen observation and status presentation. Opening/reconnecting remains a read operation. | Ordinary conversation observation without GitHub context; no create or Stop calls |
+| Result replay could advance before a restored run was eligible to own its reply | Verified saved content remains eligible for later projection under the original run/message fence, including interrupted backup-restored runs. Reconnect revisits retained content even when the cursor is current. | Actual Room regressions for deferred finals, restored ownership, newer-owner protection and waiting questions |
+| An in-flight snapshot could recreate a deleted local chat | Snapshot application transactionally verifies the expected retained conversation and existing local chat. | Delete while the HTTP snapshot is suspended |
+| Conversation-only backup could remove the remote reply's owner | Backup retains runs referenced by saved gateway commands and ordinary jobs under their original current-message fence, including admission before catalog sync. Known ordinary mirrors must also match the saved job, scope, profile, model and endpoint. Restore preserves the original identities and pauses local execution. | Actual Room backup/restore regressions, 17 passing SQLite ownership scenarios using the exported schema, and settings-only transcript exclusion |
+| Jobs actions could finish against a different selection or hidden screen | The controller captures selection and observation generation, coalesces duplicate Open actions, and rejects stale controls/navigation. Interrupted work appears under Needs attention. | Eight controller/presentation cases, including offline cached history, profile switch and duplicate Open |
+| Foreground timeout or explicit Stop could cause a completed-work notification | Completion notification excludes both reasons and preserves timeout classification. Explicit user cancellation remains separate from observation loss. | Foreground-service notification/lifecycle regressions |
+| Temporary or delegated ordinary requests could enter the new transcript store | `X-Gateway-Conversation-Retention` is explicitly negotiated as `full` or `none`, with server default `none`. Android enables `full` only for persistent primary requests with a valid original profile identity. The immutable policy participates in idempotency and restart recovery. | HTTP default/private/full retention, retry/restart and invalid-header cases; 22 client negotiation cases |
+
+The retention policy governs the new continuity transcript projection. It does not erase or expand the pre-existing ordinary execution journal's retention policy. A request with `none` may have generic catalog metadata and controls without duplicated prompt, tool, progress or answer text in the new transcript tables. Legacy or unavailable history remains explicitly limited.
+
+### Validation and completion boundaries
+
+The machine-readable companion records the exact source receipts and final gate results for this integration. Focused host execution compiles the actual affected source with documented Android/Room boundaries; it cannot qualify Room transactions, Hilt injection, physical rendering or actual installed services. The new Room, Chat, service and Compose regressions remain part of the complete Android CI gate. Earlier green or canceled runs do not qualify a later source revision.
+
+The three private MCP targets still require fresh observations on the affected installation. Their run-local aliases cannot be resolved from this repository. Follow the explicit correction/reconnect and harmless-operation criteria in [the MCP remediation record](app-audit-mcp-remediation-2026-11-07.md). The 49 historical execution gaps, selected-model end-to-end generation, complete GitHub job outcomes, physical force-stop/restart, local inference and performance/accessibility qualification retain their separate evidence requirements. Source repairs and test fixtures do not retroactively turn those historical checks into passes.
+
+### Final local verification for the integration
+
+| Gate | Observed result | Limit |
+| --- | --- | --- |
+| Canonical gateway aggregate | 599 Python cases: 598 passed, one environment skip; seven browser bridge cases passed | Linux Python 3.12.14 / Node 24.22.1; no bindable non-loopback LAN IPv4 interface for the skipped case |
+| Focused gateway HTTP/journal/continuity/readiness contracts | 121 passed | Overlaps the aggregate; external model and GitHub boundaries remain controlled fixtures |
+| Authentication service | 25 passed | Service fixtures, not deployed login/callback or Android handoff |
+| Availability/data/ordering/color host | 72 passed | Explicit Android boundaries; actual Compose source also passed its compiler type check, without UI runtime execution |
+| Android repository/replay/wire/selection/engineering client | 60 passed before the final narrow dispatch-marker correction; all 25 affected repository cases passed afterward | Counts overlap. Actual Room transactions require Android CI. |
+| Client transcript-retention negotiation | 22 passed | Actual client/decoder with Ktor MockEngine; no live gateway |
+| Jobs controller and presentation | Eight passed | Actual controller with mocked repository and explicit lifecycle boundaries |
+| Ordinary backup ownership | 17 SQLite scenarios passed using the actual exported Room 50 schema and production deletion predicate | Covers original and pre-catalog ownership, known mirror mismatch, unknown identity and superseded replies; complete Room backup/restore still requires Android CI |
+| Canonical repository fast gate | 400 passed; 1,304 literal regex patterns and 30 XML resources valid | 77 dynamic patterns explicitly outside static evaluation |
+| Changed Kotlin formatting | All 38 changed/new Kotlin files passed ktlint 1.3.1 | Formatting only |
+| Metadata and schema | Inventory 2,266 production files / 26 areas, architecture index, exact release scope, manifest and committed Room schema validated | Source inventory is not executed-line coverage |
+
+The 206 gateway/authentication source hashes still matched the isolated verification copy after all server tests. The real server capability fixture and the Android fixture are byte-identical. Focused host source receipts are recorded in the companion JSON. The combined source is ready for publication and exact-head CI; this local record does not claim the later Android gate has passed.

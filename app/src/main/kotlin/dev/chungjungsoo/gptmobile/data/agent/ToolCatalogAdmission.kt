@@ -21,27 +21,32 @@ internal fun fitProviderToolSchemas(definitions: List<AgentToolDefinition>, limi
     val discovery = visible.firstOrNull { it.name == ProgressiveToolCatalog.NAME }
     val discoveryFits = discovery != null && ProgressiveToolCatalog.schemaTokens(discovery) <= remaining
     if (discoveryFits) remaining -= ProgressiveToolCatalog.schemaTokens(requireNotNull(discovery))
-    return visible.filter { tool ->
+    val omitted = linkedMapOf<String, String>()
+    val selected = visible.filter { tool ->
         if (tool === discovery && discoveryFits) return@filter true
         val cost = ProgressiveToolCatalog.schemaTokens(tool)
         (cost <= remaining).also { fits ->
             if (fits) {
                 remaining -= cost
             } else {
-                AppLogRecorder.record("ToolCatalog", "TOOL_OMITTED · stage=provider_round · name=${tool.name} · reason=REMAINING_CONTEXT_BUDGET · schemaTokens=$cost")
+                omitted[tool.name] = "REMAINING_CONTEXT_BUDGET"
             }
         }
     }
+    ToolCatalogDiagnostics.recordOmissions("provider_round", omitted)
+    return selected
 }
 
 /** Use the resolver's catalog for both planning and execution, including telemetry-wrapped tools. */
 internal fun planAuthorizedToolContext(turns: List<ConversationTurn>, prompt: String, tools: List<ResolvedAgentTool>, limits: TokenBudgetSettings, externalTools: Boolean): ContextPlan {
-    val definitions = tools.map { it.tool.definition }
     val task = turns.lastOrNull { it.isCurrentTurn }?.userMessage?.content.orEmpty()
+    // Current user intent wins over repository keywords in memory or workspace instructions.
+    if (CurrentRequestContract.from(task).conversational) return ContextBudgetService.plan(turns, prompt, emptyList(), limits)
+    val definitions = tools.map { it.tool.definition }
     val required = requiredToolSchemas(explicitlyRequiredToolNames(task, definitions.mapTo(hashSetOf()) { it.name }), tools)
     val catalog = if (externalTools) tools.firstNotNullOfOrNull { it.progressiveCatalog } ?: if (limits.adaptiveToolCatalog) ProgressiveToolCatalog.create(definitions, turns.lastOrNull { it.isCurrentTurn }?.userMessage?.content.orEmpty()) else null else null
     val advertised = (required + (catalog?.selected(definitions + catalog.definition) ?: definitions.filter { it.modelVisible })).distinctBy { it.name }
-    val requestedGitHubOperations = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.taskTools(prompt)
+    val requestedGitHubOperations = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.taskTools(task)
     val requiredGitHubSchemas = advertised.filter { definition ->
         dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(definition.name) in requestedGitHubOperations
     }
@@ -67,9 +72,7 @@ internal fun planAuthorizedToolContext(turns: List<ConversationTurn>, prompt: St
             "GITHUB_REQUIRED_TOOL_CONTEXT_BUDGET: This request requires GitHub operation schemas (${operations.joinToString()}), but they do not fit the selected context budget. Increase this profile's context size or reduce the attached history and instructions; no GitHub write was dispatched."
         )
     }
-    advertised.filterNot { candidate -> plan.tools.any { it.name == candidate.name } }.forEach { tool ->
-        AppLogRecorder.record("ToolCatalog", "TOOL_OMITTED · stage=initial_context · name=${tool.name} · reason=CONTEXT_BUDGET · schemaTokens=${ProgressiveToolCatalog.schemaTokens(tool)}")
-    }
+    ToolCatalogDiagnostics.recordOmissions("initial_context", advertised.filterNot { candidate -> plan.tools.any { it.name == candidate.name } }.associate { it.name to "CONTEXT_BUDGET" })
     // Authorization stays discoverable only if the discovery schema itself fits.
     return if (catalog != null && plan.tools.any { it.name == catalog.definition.name }) plan.copy(authorizedTools = definitions) else plan
 }
@@ -89,12 +92,17 @@ internal fun reconcileDiscoveryResults(calls: List<ProviderEvent.ToolCall>, resu
         val available = payload?.get("available_next_round") as? JsonArray
         if (result.callId !in discoveryIds || payload == null || available == null) return@map result
         val excluded = available.filter { ((it as? JsonObject)?.get("name") as? JsonPrimitive)?.content !in names }
-        if (excluded.isEmpty()) return@map result
-        val corrected = payload + mapOf(
-            "available_next_round" to JsonArray(available - excluded.toSet()),
-            "context_budget_excluded" to JsonArray(excluded.mapNotNull { (it as? JsonObject)?.get("name") }),
-            "next_step" to JsonPrimitive("Some discovered schemas could not fit the remaining request context. Use only the attached schemas; do not claim those excluded tools are callable.")
-        )
-        result.copy(content = ToolResultContent.Json(JsonObject(corrected)))
+        val corrected = if (excluded.isEmpty()) {
+            payload
+        } else {
+            payload + mapOf(
+                "available_next_round" to JsonArray(available - excluded.toSet()),
+                "context_budget_excluded" to JsonArray(excluded.mapNotNull { (it as? JsonObject)?.get("name") }),
+                "next_step" to JsonPrimitive("Some discovered schemas could not fit the remaining request context. Use only the attached schemas; do not claim those excluded tools are callable.")
+            )
+        }
+        val coverage = payload["coverage"] as? JsonObject
+        val reconciled = if (coverage == null) corrected else corrected + ("coverage" to JsonObject(coverage + ("schemas_admitted_next_round" to JsonPrimitive(available.size - excluded.size))))
+        result.copy(content = ToolResultContent.Json(JsonObject(reconciled)))
     }
 }

@@ -2,16 +2,169 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import re
 import time
 
 
 class GatewayContractError(ValueError):
-    def __init__(self, message, code="invalid_request", status=400):
+    def __init__(self, message, code="invalid_request", status=400, *, details=None):
         super().__init__(message)
         self.code = code
         self.status = status
+        self.details = copy.deepcopy(details or {})
+
+    def error_payload(self, job_id=None):
+        """Only callers supply safe metadata; raw backend bodies never enter this envelope."""
+        error = {"message": str(self), "type": "gateway_contract_error", "code": self.code,
+                 "retryable": self.code in {"backend_timeout", "backend_stream_interrupted"},
+                 **copy.deepcopy(self.details)}
+        if job_id:
+            error["job_id"] = job_id
+        return error
+
+
+def backend_error_details(error, status=None):
+    """Safe, response-derived error identity without a prompt or traceback excerpt."""
+    message = error.get("message") if isinstance(error, dict) else error
+    details = {"origin": "backend"}
+    if isinstance(status, int):
+        details["backend_status"] = status
+    if isinstance(message, str):
+        details["backend_error_digest"] = hashlib.sha256(message.encode("utf-8")).hexdigest()
+    for original, target in (("code", "backend_error_code"), ("type", "backend_error_type")):
+        value = error.get(original) if isinstance(error, dict) else None
+        if type(value) is int or isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", value):
+            details[target] = value
+    return details
+
+
+def backend_template_error(error, status=None):
+    """Known template rejection is deterministic even when reported as HTTP 500."""
+    message = error.get("message") if isinstance(error, dict) else error
+    if not isinstance(message, str):
+        return None
+    lowered = message[:65536].lower()
+    patterns = (
+        ("backend_system_message_position", "The backend template requires system instructions at the beginning.",
+         ("system message must be at the beginning", "system message must be at the start", "system message must be the first", "system messages must be at the beginning")),
+        ("backend_message_role_unsupported", "The backend template rejected an unsupported conversation role.",
+         ("only user and assistant roles are supported", "only user, assistant and tool roles are supported")),
+        ("backend_message_order_invalid", "The backend template rejected the conversation role order.",
+         ("conversation roles must alternate", "roles must alternate user/assistant")),
+        ("backend_template_render_failed", "The backend could not render the selected model's conversation template.",
+         ("jinja exception", "jinja2.exceptions.templateerror", "jinja2.exceptions.templateruntimeerror", "jinja2.exceptions.templatesyntaxerror")),
+    )
+    for cause, description, markers in patterns:
+        if any(marker in lowered for marker in markers):
+            return GatewayContractError(
+                description + " Correct the message layout before retrying; no automatic retry was started.",
+                "backend_template_invalid", 422,
+                details={**backend_error_details(error, status), "failureCode": "invalid_request", "cause_code": cause,
+                         "failed_stage": "backend_template", "dispatch_state": "backend_rejected", "retryable": False},
+            )
+    return None
+
+
+def _instruction_text(message):
+    content = message.get("content")
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list) and all(
+        isinstance(part, dict) and part.get("type") in {"text", "input_text"}
+        and isinstance(part.get("text"), str) for part in content
+    ):
+        return "\n".join(part["text"] for part in content)
+    raise GatewayContractError(
+        "The backend instruction prefix supports text only; non-text instruction blocks were not discarded.",
+        "unsupported_instruction_content", 422,
+    )
+
+
+def normalize_backend_messages(messages, *, instruction=None):
+    """One leading instruction message for strict local chat templates.
+
+    Only actual system/developer roles are consolidated. User, assistant and
+    tool messages retain their exact relative order and content. The textual
+    groups retain system-over-developer priority; a gateway delivery constraint
+    cannot grant tool authority or replace the caller's instructions.
+    """
+    if not isinstance(messages, list) or any(not isinstance(message, dict) for message in messages):
+        raise GatewayContractError("messages must be an array of objects.")
+    source = copy.deepcopy(messages)
+    instructions = [message for message in source if message.get("role") in {"system", "developer"}]
+    if not instructions and instruction is None:
+        return source
+    if instruction is None and len(instructions) == 1 and source[0] is instructions[0] and instructions[0].get("role") == "system" and isinstance(instructions[0].get("content"), str):
+        return source
+    systems = [_instruction_text(message) for message in instructions if message.get("role") == "system"]
+    developers = [_instruction_text(message) for message in instructions if message.get("role") == "developer"]
+    parts = []
+    if systems:
+        parts.append("\n\n".join(systems))
+    if developers:
+        parts.append("Developer instructions (lower priority than the system instructions above; retain their source order):\n" + "\n\n".join(developers))
+    if instruction is not None:
+        parts.append("Gateway delivery constraint (subject to the system and developer instructions above):\n" + instruction)
+    conversation = [message for message in source if message.get("role") not in {"system", "developer"}]
+    return [{"role": "system", "content": "\n\n".join(parts)}] + conversation
+
+
+def tool_call_fingerprint(call):
+    """Retain the authorized handoff identity without storing arguments in job metadata."""
+    function = call.get("function") or {}
+    arguments = function.get("arguments")
+    try:
+        arguments = json.loads(arguments) if isinstance(arguments, str) else arguments
+    except ValueError:
+        pass
+    body = {"id": call.get("id"), "name": function.get("name"), "arguments": arguments}
+    return hashlib.sha256(json.dumps(body, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
+def validate_tool_message_pairs(messages):
+    """Never infer a missing result or detach it from the assistant call that owns it.
+
+    Failed, denied and empty tool results are legitimate terminal evidence and
+    stay verbatim. They must have the same call ID as the preceding request.
+    """
+    pending, completed = {}, {}
+    for message in messages:
+        role = message.get("role")
+        if role in {"system", "developer"}:
+            continue
+        if role == "tool":
+            identifier = message.get("tool_call_id")
+            if not isinstance(identifier, str) or identifier not in pending:
+                raise GatewayContractError("A tool result has no unique preceding assistant call. No request was sent.", "invalid_tool_history", 422)
+            if not isinstance(message.get("content"), (str, list)):
+                raise GatewayContractError("A tool result is missing its terminal content. Preserve success or failure under its original call ID.", "invalid_tool_history", 422)
+            completed[identifier] = pending.pop(identifier)
+            continue
+        if pending:
+            raise GatewayContractError("Return every pending tool result before continuing the conversation. No tool was replayed.", "client_tool_results_required", 409,
+                                       details={"pending_client_tool_call_ids": list(pending), "dispatch_state": "not_dispatched"})
+        if role != "assistant" or not message.get("tool_calls"):
+            continue
+        calls = message["tool_calls"]
+        if not isinstance(calls, list):
+            raise GatewayContractError("Assistant tool calls must be an array.", "invalid_tool_history", 422)
+        completed = {}
+        for call in calls:
+            identifier = call.get("id") if isinstance(call, dict) else None
+            if not isinstance(identifier, str) or not identifier or identifier in pending or not isinstance(call.get("function"), dict):
+                raise GatewayContractError("Assistant tool calls need unique IDs within their batch and a function. No request was sent.", "invalid_tool_history", 422)
+            # Local providers may restart their call-ID counter after a completed
+            # exchange. The latest completed occurrence is authoritative; IDs
+            # remain unique inside each pending batch and duplicate results fail.
+            pending[identifier] = tool_call_fingerprint(call)
+    if pending:
+        raise GatewayContractError("Return every pending tool result before continuing the conversation. No tool was replayed.", "client_tool_results_required", 409,
+                                   details={"pending_client_tool_call_ids": list(pending), "dispatch_state": "not_dispatched"})
+    return completed
 
 
 def visible_answer_text(value):
@@ -22,6 +175,17 @@ def visible_answer_text(value):
     text = re.sub(r"<(think|analysis|reasoning)(?:\s[^>]*)?>.*?(?:</\1>|$)", "", content, flags=re.I | re.S)
     text = re.sub(r"<tool_call>.*?(?:</tool_call>|$)", "", text, flags=re.I | re.S)
     return re.sub(r"</(?:think|analysis|reasoning)>", "", text, flags=re.I).strip()
+
+
+def visible_stream_text(value):
+    """A fragmented opening control tag is not the first visible answer token."""
+    text = visible_answer_text(value)
+    last = text.rfind("<")
+    if last >= 0:
+        suffix = text[last:].lower()
+        if any(tag.startswith(suffix) for tag in ("<think>", "<analysis>", "<reasoning>", "<tool_call>")):
+            text = text[:last]
+    return text.strip()
 
 
 def partition_owned_tool_calls(calls, routes):
@@ -93,8 +257,8 @@ def compact_history(messages, emergency=False):
     keep = 4 if emergency else 8
     retained = segments if len(segments) <= keep else [segments[0]] + segments[-(keep - 1):]
     omitted = len(segments) - len(retained)
-    # Preserve all instruction messages at their original relative boundary, even
-    # if the user turn containing one was omitted.
+    # Preserve every instruction even if its user turn was omitted. Normalize
+    # the instruction prefix only after selecting whole tool exchanges.
     selected_ids = {id(message) for segment in retained for message in segment}
     latest_ids = {id(message) for message in (segments[-1] if segments else [])}
     result = []
@@ -105,15 +269,15 @@ def compact_history(messages, emergency=False):
             message.pop("reasoning_content", None)
             message.pop("reasoning", None)
         result.append(message)
-    if omitted:
-        result.insert(0, {"role": "system", "content": f"Context note: {omitted} older turns were omitted. The original goal and recent turns are preserved. Do not infer omitted evidence."})
-    return result
+    note = f"Context note: {omitted} older turns were omitted. The original goal and recent turns are preserved. Do not infer omitted evidence." if omitted else None
+    return normalize_backend_messages(result, instruction=note)
 
 
 def fit_context(payload, n_ctx, counter, default_output=12288, emergency=False):
     """Fit history without silently reducing an explicit final output request."""
     original = copy.deepcopy(payload)
     candidate = copy.deepcopy(payload)
+    candidate["messages"] = normalize_backend_messages(candidate.get("messages", []))
     safety = min(1024, max(64, n_ctx // 32))
     requested = candidate.get("max_tokens")
     explicit = isinstance(requested, int) and not isinstance(requested, bool) and requested > 0
@@ -213,7 +377,8 @@ class CompletionStream:
 
     @property
     def generated_characters(self):
-        return self.visible_characters + self.reasoning_characters + self.tool_characters
+        # Inline hidden tags still prove backend output, but never visible text.
+        return len(self.message.get("content") or "") + self.reasoning_characters + self.tool_characters
 
     @property
     def observed_characters(self):
@@ -223,7 +388,11 @@ class CompletionStream:
         if not isinstance(data, dict):
             raise GatewayContractError("Invalid SSE JSON object.", "malformed_stream", 502)
         if data.get("error"):
-            raise GatewayContractError("Backend stream failed: " + str(data["error"]), "upstream_stream_error", 502)
+            rejection = backend_template_error(data["error"])
+            if rejection is not None:
+                raise rejection
+            raise GatewayContractError("Backend reported an error before completing the stream.", "upstream_stream_error", 502,
+                                       details=backend_error_details(data["error"]))
         for key in ("id", "model", "created", "usage", "timings"):
             if key in data:
                 if key in {"usage", "timings"} and isinstance(data[key], dict):
@@ -255,7 +424,7 @@ class CompletionStream:
                         raise GatewayContractError("Output arrived after the finish marker.", "malformed_stream", 502)
                     self.message[key] = self.message.get(key, "") + part
                     if key == "content":
-                        self.visible_characters = len(visible_answer_text(self.message[key]))
+                        self.visible_characters = len(visible_stream_text(self.message[key]))
                     else:
                         self.reasoning_characters += len(part)
                     self.received = self.received or bool(part)
@@ -375,7 +544,7 @@ def completion_chunks(data, chunk_chars=2048):
         for offset in range(0, len(args), chunk_chars):
             yield encode(event({"tool_calls": [{"index": index, "function": {"arguments": args[offset:offset + chunk_chars]}}]}))
     terminal = event({}, choices[0].get("finish_reason") or "stop")
-    for key in ("usage", "timings"):
+    for key in ("usage", "timings", "gateway_timing", "gateway_provenance", "gateway_recovery"):
         if key in data:
             terminal[key] = data[key]
     yield encode(terminal)

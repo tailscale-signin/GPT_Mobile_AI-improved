@@ -51,7 +51,7 @@ class EngineeringOperations:
             if record['state'] == 'DISPATCHED':
                 row = db.execute('SELECT state,revision,lease FROM engineering_jobs WHERE id=?', (job['id'],)).fetchone()
                 epoch = db.execute('SELECT epoch FROM engineering_owner_epochs WHERE job_id=?', (job['id'],)).fetchone()
-                if row != (job['state'], job['revision'], job['_execution_lease']) or not epoch or epoch[0] != job['_owner_epoch']:
+                if not row or tuple(row) != (job['state'], job['revision'], job['_execution_lease']) or not epoch or epoch[0] != job['_owner_epoch']:
                     raise ExecutionBindingError('EXECUTION_OWNER_CHANGED', 'The operation owner changed before mutation dispatch.')
             db.execute('INSERT INTO engineering_operations VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET state=excluded.state,payload=excluded.payload',
                        (record['operation_id'], job['id'], job['revision'], record['state'], canonical(record)))

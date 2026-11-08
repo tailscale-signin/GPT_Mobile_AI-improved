@@ -1,4 +1,5 @@
 """Durable engineering state machine and supervisor. No model can grant approval."""
+from v14.engineering_scope import accepted_scope
 import json
 import re
 import threading
@@ -19,9 +20,10 @@ from v14.inference_scheduler import install_scheduler
 from v14.engineering_artifacts import EngineeringArtifacts
 from v14.engineering_operations import EngineeringOperations
 from v14.debug import capture_context_snapshot, execution_diagnostic_context
+from v14.conversations import Conversations, ConversationConflict, short_title
 
 PHASES = ('PLAN', 'READ', 'IMPLEMENT', 'REVIEW', 'COMMIT', 'OPEN_PR', 'CI', 'PROMOTE', 'MERGE_READY', 'MERGE', 'VERIFY', 'COMPLETED')
-PAUSED = {'MERGE_READY', 'NEEDS_INPUT', 'COMPLETED', 'CANCELLED'}
+PAUSED = {'MERGE_READY', 'NEEDS_INPUT', 'COMPLETED', 'CANCELLED', 'FAILED', 'CANCELLING'}
 MUTATIONS = {'COMMIT', 'OPEN_PR', 'PROMOTE', 'MERGE'}
 SHA = re.compile(r'^[0-9a-f]{40}$')
 
@@ -35,10 +37,17 @@ def principal_authorized(config, principal, devices):
 
 
 def validate_request(request):
-    allowed = {'repository', 'branch', 'base', 'objective', 'model', 'duration_hours', 'repair_attempts', 'chat_id', 'request_id', 'acceptance', 'profile_id', 'memory_mode', 'execution_binding_id', 'execution_budget'}
+    allowed = {'repository', 'branch', 'base', 'objective', 'model', 'duration_hours', 'repair_attempts', 'chat_id', 'request_id', 'acceptance', 'profile_id', 'memory_mode', 'execution_binding_id', 'execution_budget', 'task_scope', 'scope', 'profile_name', 'source_branch', 'source_sha', 'conversation_id', 'client_conversation_id', 'command_id', 'expected_revision'}
     if not isinstance(request, dict) or set(request) - allowed:
         raise ValueError('Unsupported engineering request fields')
     result = dict(request)
+    if 'scope' in result:
+        result['task_scope'] = accepted_scope(result)
+        result.pop('scope')
+    if 'profile_name' in result and (not isinstance(result['profile_name'], str) or not 1 <= len(result['profile_name']) <= 256 or any(ord(c) < 32 for c in result['profile_name'])):
+        raise ValueError('Invalid profile name')
+    if 'source_sha' in result and (not isinstance(result['source_sha'], str) or not SHA.fullmatch(result['source_sha'])):
+        raise ValueError('Source revision must be an exact commit SHA')
     binding_id = result.get('execution_binding_id')
     if binding_id is not None and (not isinstance(binding_id, str) or not re.fullmatch(r'bind_[a-f0-9]{32}', binding_id)):
         raise ExecutionBindingError('EXECUTION_BINDING_INVALID', 'Use the verified binding returned by this gateway.')
@@ -55,13 +64,23 @@ def validate_request(request):
         raise ValueError('Invalid engineering profile scope')
     if not re.fullmatch(r'[A-Za-z0-9-]+/[A-Za-z0-9_.-]+', str(result.get('repository', ''))):
         raise ValueError('Select a valid repository')
-    for key in ('branch', 'base'):
+    for key in ('branch', 'base', *(['source_branch'] if 'source_branch' in result else [])):
         value = result.get(key, 'main' if key == 'base' else '')
         if not isinstance(value, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_./-]{0,199}', value) or any(x in value for x in ('..', '//', '@{')) or value.endswith(('/', '.', '.lock')):
             raise ValueError('Invalid branch')
         result[key] = value
-    if result['branch'] == result['base']:
-        raise ValueError('Engineering jobs require a separate working branch')
+    if accepted_scope(result) not in {'read', 'plan', 'implement'}:
+        raise ValueError('Unsupported task scope')
+    for name in ('conversation_id', 'client_conversation_id', 'command_id'):
+        if name in result:
+            Conversations.bounded_id(result[name], name)
+    if 'expected_revision' in result and (type(result['expected_revision']) is not int or result['expected_revision'] < 0):
+        raise ValueError('Invalid conversation revision')
+    if accepted_scope(result) == 'implement' and result['branch'] == result['base']:
+        if result.get('task_scope') != 'implement' or not result.get('source_sha'):
+            raise ValueError('Engineering jobs require a separate working branch or explicit implementation at a pinned source')
+        result.setdefault('source_branch', result['branch'])
+        result['branch'] = 'codex/gateway-' + digest([result.get('request_id'), result['repository'], result['source_sha']])[:20]
     for key, maximum in (('objective', 16000), ('model', 200), ('request_id', 128)):
         if not isinstance(result.get(key), str) or not 1 <= len(result[key].strip()) <= maximum:
             raise ValueError('Missing or oversized ' + key)
@@ -103,6 +122,7 @@ class EngineeringStore:
     def __init__(self, runtime, now=time.time):
         self.runtime, self.now = runtime, now
         self.bindings = None
+        self.conversations = getattr(runtime, 'gateway_conversations', None) or Conversations(runtime, now)
 
     def tx(self, operation):
         if not self.runtime.GATEWAY_DURABLE_JOBS:
@@ -113,6 +133,7 @@ class EngineeringStore:
             db = self.runtime._durable_connect()
             try:
                 with db:
+                    db.execute('BEGIN IMMEDIATE')
                     db.execute('CREATE TABLE IF NOT EXISTS engineering_jobs ('
                                'id TEXT PRIMARY KEY, principal TEXT NOT NULL, request_id TEXT NOT NULL, request_digest TEXT NOT NULL, '
                                'state TEXT NOT NULL, revision INTEGER NOT NULL, next_at REAL NOT NULL, lease TEXT, data TEXT NOT NULL, '
@@ -127,6 +148,7 @@ class EngineeringStore:
                     db.execute('CREATE TABLE IF NOT EXISTS engineering_model_attempts ('
                                'id TEXT PRIMARY KEY, job_id TEXT NOT NULL, binding_id TEXT NOT NULL, revision INTEGER NOT NULL, '
                                'state TEXT NOT NULL, dispatched INTEGER NOT NULL, reserved_tokens INTEGER NOT NULL, payload TEXT NOT NULL)')
+                    self.conversations.schema(db)
                     return operation(db)
             finally:
                 db.close()
@@ -189,15 +211,46 @@ class EngineeringStore:
                 if old[3] != request_hash:
                     raise ValueError('Request identity was reused with different settings')
                 return self.decode(old[:3])
-            if db.execute("SELECT COUNT(*) FROM engineering_jobs WHERE state NOT IN ('COMPLETED','CANCELLED')").fetchone()[0] >= 32:
+            if db.execute("SELECT COUNT(*) FROM engineering_jobs WHERE state NOT IN ('COMPLETED','CANCELLED','FAILED')").fetchone()[0] >= 32:
                 raise ValueError('Engineering job capacity reached')
             if db.execute('SELECT COUNT(*) FROM engineering_jobs').fetchone()[0] >= 4096:
                 raise ValueError('Engineering history capacity reached; archive the journal before starting another job')
+            def replace_paused(db, previous_id):
+                prior = db.execute('SELECT data,state,revision,lease FROM engineering_jobs WHERE id=? AND principal=?', (previous_id, principal)).fetchone()
+                previous = self.decode(prior)
+                if previous is None or prior[3] is not None or previous['state'] not in {'MERGE_READY', 'NEEDS_INPUT'}:
+                    raise ConversationConflict('The preceding job is still active; wait for its safe checkpoint')
+                previous.update(approval=None, updated_at=now, finished_at=now, superseded_by=job['id'],
+                                message='Stopped at its paused checkpoint by an explicit follow-up. Earlier operation receipts and uncertain outcomes remain retained.')
+                db.execute("UPDATE engineering_jobs SET state='CANCELLED',revision=revision+1,data=? WHERE id=? AND revision=? AND lease IS NULL", (json.dumps(previous), previous_id, previous['revision']))
+                self.event(db, previous, 'CANCELLED', previous['revision'] + 1, now)
+                self.conversations.engineering_projection(db, previous, 'CANCELLED')
+            conversation_binding = {key: request.get(key) for key in ('profile_id', 'profile_name', 'model', 'repository', 'branch', 'base', 'source_sha')}
+            conversation_binding.update(source_branch=request.get('source_branch', request['branch']), working_branch=request['branch'], execution_binding=binding)
+            receipt = self.conversations.admission(db, principal, request.get('command_id', request['request_id']), 'engineering', job['id'], request,
+                conversation_binding, request['objective'], now=now, replace_paused=replace_paused)
+            previous = self.get_in_transaction(db, receipt.get('previous_job_id'), principal)
+            if previous:
+                job.update(continuation_of=previous['id'], continuation_branch=previous['request']['branch'])
+                head = previous.get('data', {}).get('head_sha')
+                if isinstance(head, str) and SHA.fullmatch(head):
+                    job['continuation_head_sha'] = head
+            history = db.execute('SELECT role,substr(content,1,8192),revision FROM gateway_messages WHERE conversation_id=? AND turn_id<>? ORDER BY created_at DESC,rowid DESC LIMIT 12', (receipt['conversation_id'], receipt['command_id'])).fetchall()
+            if history:
+                job['conversation_context'] = {'messages': [{'role': row[0], 'content': row[1], 'revision': row[2]} for row in reversed(history)],
+                                               'bounded_history': True, 'history_complete': False}
+            job.update({key: receipt[key] for key in ('conversation_id', 'command_id', 'gateway_id', 'principal_id', 'accepted_at', 'detach_safe')})
+            job.update(title=short_title(request['objective']), queued_at=now, started_at=None)
             db.execute('INSERT INTO engineering_jobs VALUES(?,?,?,?,?,0,?,NULL,?)',
                        (job['id'], principal, request['request_id'], request_hash, 'PLAN', now, json.dumps(job)))
             self.event(db, job, 'PLAN', 0, now)
             return dict(job, state='PLAN', revision=0)
         return self.tx(insert)
+
+    def get_in_transaction(self, db, job_id, principal):
+        if not job_id:
+            return None
+        return self.decode(db.execute('SELECT data,state,revision FROM engineering_jobs WHERE id=? AND principal=?', (job_id, principal)).fetchone())
 
     def existing_request(self, principal, request):
         """Reconcile a lost create receipt without admitting new work or changing the request identity."""
@@ -221,11 +274,14 @@ class EngineeringStore:
         return self.tx(lambda db: [self.decode(row) for row in db.execute('SELECT data,state,revision FROM engineering_jobs WHERE principal=? ORDER BY next_at DESC LIMIT 100', (principal,))])
 
     def due(self):
-        return self.tx(lambda db: [row[0] for row in db.execute("SELECT id FROM engineering_jobs WHERE lease IS NULL AND next_at<=? AND state NOT IN ('MERGE_READY','NEEDS_INPUT','COMPLETED','CANCELLED') ORDER BY next_at LIMIT 2", (self.now(),))])
+        return self.tx(lambda db: [row[0] for row in db.execute("SELECT id FROM engineering_jobs WHERE lease IS NULL AND next_at<=? AND state NOT IN ('MERGE_READY','NEEDS_INPUT','COMPLETED','CANCELLED','FAILED','CANCELLING') ORDER BY next_at LIMIT 2", (self.now(),))])
 
     def recover(self):
         # The composition root holds the process-wide state-directory lock.
-        self.tx(lambda db: db.execute('UPDATE engineering_jobs SET lease=NULL'))
+        def recover(db):
+            db.execute('UPDATE engineering_jobs SET lease=NULL')
+            self._confirm_cancellation(db, recovering=True)
+        self.tx(recover)
 
     def wake_checks(self, principal):
         self.tx(lambda db: db.execute('UPDATE engineering_jobs SET next_at=? WHERE principal=? AND state=? AND lease IS NULL', (self.now(), principal, 'CI')))
@@ -237,7 +293,9 @@ class EngineeringStore:
             job = self.decode(row)
             if not job or job['state'] in PAUSED:
                 return None
-            db.execute('UPDATE engineering_jobs SET lease=? WHERE id=? AND lease IS NULL', (lease, job_id))
+            job['started_at'] = job.get('started_at') or self.now()
+            self.conversations.consume_instructions(db, job)
+            db.execute('UPDATE engineering_jobs SET lease=?,data=? WHERE id=? AND lease IS NULL', (lease, json.dumps(job), job_id))
             db.execute('INSERT INTO engineering_owner_epochs VALUES(?,1) ON CONFLICT(job_id) DO UPDATE SET epoch=epoch+1', (job_id,))
             epoch = db.execute('SELECT epoch FROM engineering_owner_epochs WHERE job_id=?', (job_id,)).fetchone()[0]
             receipt = db.execute('SELECT status FROM engineering_receipts WHERE job_id=? AND revision=?', (job_id, job['revision'])).fetchone()
@@ -251,13 +309,25 @@ class EngineeringStore:
         return self.tx(claim)
 
     def complete(self, job, lease, phase, output, delay=0):
-        job = dict(job, updated_at=self.now())
+        job = dict(job, updated_at=self.now(), queued_at=self.now() + delay)
+        if phase in {'COMPLETED', 'CANCELLED', 'FAILED'}:
+            job['finished_at'] = self.now()
         artifacts = EngineeringArtifacts(self)
         output_json, _ = canonical_json(artifacts.checkpoint(job, output, 'phase-result'), maximum_bytes=2 * 1024 * 1024)
         checkpoint = {key: value for key, value in job.items() if not key.startswith('_')}
         checkpoint['data'] = artifacts.checkpoint(job, job['data'], 'checkpoint')
         payload, _ = canonical_json(checkpoint, maximum_bytes=4 * 1024 * 1024)
         def save(db):
+            nonlocal phase, payload
+            if phase == 'COMPLETED' and job.get('conversation_id') and db.execute("SELECT 1 FROM gateway_pending_instructions WHERE conversation_id=? AND status='pending' LIMIT 1", (job['conversation_id'],)).fetchone():
+                # A last-moment instruction was accepted before terminal commit.
+                # Preserve it visibly; never silently drop it or replay a write.
+                phase = 'NEEDS_INPUT'
+                job['message'] = 'The run finished while new instructions were queued. Review the saved result and start a new turn for those instructions.'
+                job.pop('finished_at', None)
+                checkpoint.update(message=job['message'])
+                checkpoint.pop('finished_at', None)
+                payload, _ = canonical_json(checkpoint, maximum_bytes=4 * 1024 * 1024)
             # Keep every meaningful update, without thousands of identical CI
             # polls filling Android history during a multi-day job.
             unchanged = False
@@ -267,7 +337,11 @@ class EngineeringStore:
             changed = db.execute('UPDATE engineering_jobs SET state=?,revision=revision+1,next_at=?,lease=NULL,data=? WHERE id=? AND revision=? AND lease=?',
                                  (phase, self.now() + delay, payload, job['id'], job['revision'], lease))
             if changed.rowcount != 1:
+                # Returning from this exact owner's phase confirms its stop,
+                # without publishing the output that lost to cancellation.
+                self._confirm_cancellation(db, job['id'], job.get('_owner_epoch'))
                 return False  # Cancel/revoke won the race; never resurrect it.
+            self.conversations.engineering_projection(db, job, phase)
             if not unchanged:
                 self.event(db, job, phase, job['revision'] + 1, self.now())
             db.execute("UPDATE engineering_receipts SET status='CONFIRMED',output_json=? WHERE job_id=? AND revision=?", (output_json, job['id'], job['revision']))
@@ -278,7 +352,7 @@ class EngineeringStore:
         def read(db):
             row = db.execute('SELECT state,revision,lease FROM engineering_jobs WHERE id=? AND principal=?', (job['id'], job['principal'])).fetchone()
             epoch = db.execute('SELECT epoch FROM engineering_owner_epochs WHERE job_id=?', (job['id'],)).fetchone()
-            if row != (job['state'], job['revision'], job.get('_execution_lease')) or not row or row[2] is None or not epoch or epoch[0] != job.get('_owner_epoch'):
+            if not row or tuple(row) != (job['state'], job['revision'], job.get('_execution_lease')) or row[2] is None or not epoch or epoch[0] != job.get('_owner_epoch'):
                 raise ExecutionBindingError('EXECUTION_OWNER_CHANGED', 'The execution lease or job state changed; no new operation was dispatched.')
         self.tx(read)
 
@@ -288,7 +362,8 @@ class EngineeringStore:
             row = db.execute('SELECT state,revision,lease FROM engineering_jobs WHERE id=? AND principal=?', (job['id'], job['principal'])).fetchone()
             old = db.execute('SELECT dispatched FROM engineering_model_attempts WHERE id=? AND job_id=?', (record['attempt_id'], job['id'])).fetchone()
             if record['state'] == 'DISPATCHED':
-                if row != (job['state'], job['revision'], job.get('_execution_lease')) or row[2] is None:
+                epoch = db.execute('SELECT epoch FROM engineering_owner_epochs WHERE job_id=?', (job['id'],)).fetchone()
+                if not row or tuple(row) != (job['state'], job['revision'], job.get('_execution_lease')) or row[2] is None or not epoch or epoch[0] != job.get('_owner_epoch'):
                     raise ExecutionBindingError('EXECUTION_OWNER_CHANGED', 'The execution owner changed before model dispatch.')
                 calls, tokens = db.execute('SELECT COUNT(*),COALESCE(SUM(reserved_tokens),0) FROM engineering_model_attempts WHERE job_id=? AND dispatched=1', (job['id'],)).fetchone()
                 accepted = job['request'].get('execution_budget', {})
@@ -313,12 +388,16 @@ class EngineeringStore:
 
     def control(self, job_id, principal, action, expected_revision, approval=None):
         def update(db):
-            row = db.execute('SELECT data,state,revision FROM engineering_jobs WHERE id=? AND principal=?' + ('' if action == 'cancel' else ' AND lease IS NULL'), (job_id, principal)).fetchone()
+            row = db.execute('SELECT data,state,revision,lease FROM engineering_jobs WHERE id=? AND principal=?' + ('' if action == 'cancel' else ' AND lease IS NULL'), (job_id, principal)).fetchone()
             job = self.decode(row)
             if not job or job['revision'] != expected_revision:
                 raise ValueError('Job changed; refresh before confirming')
-            if job['state'] in {'CANCELLED', 'COMPLETED'}:
+            if job['state'] in {'CANCELLED', 'COMPLETED', 'FAILED'}:
                 raise ValueError('The job is already finished')
+            if job['state'] == 'CANCELLING':
+                if action == 'cancel':
+                    return job
+                raise ValueError('Cancellation is still pending')
             job['updated_at'] = self.now()
             if action == 'approve':
                 if job['state'] != 'MERGE_READY':
@@ -328,8 +407,14 @@ class EngineeringStore:
                 state = 'MERGE'
             elif action == 'cancel':
                 job['approval'] = None
-                state = 'CANCELLED'
-                job['message'] = 'Cancelled. Already dispatched operations may finish; retained receipts remain available.'
+                state = 'CANCELLING' if row[3] else 'CANCELLED'
+                job['cancellation_requested'] = state == 'CANCELLING'
+                job['cancellation_outcome'] = 'pending' if state == 'CANCELLING' else 'confirmed'
+                epoch = db.execute('SELECT epoch FROM engineering_owner_epochs WHERE job_id=?', (job_id,)).fetchone()
+                job['cancellation_owner_epoch'] = epoch[0] if epoch else None
+                if state == 'CANCELLED':
+                    job['finished_at'] = self.now()
+                job['message'] = 'Cancellation requested. Waiting for the current worker to stop; dispatched operations retain their original receipts.' if state == 'CANCELLING' else 'Cancelled before further execution. Retained receipts remain available.'
             elif action == 'request_changes':
                 job['approval'] = None
                 job['message'] = 'Changes requested. Submit the revised objective as a new job; retained evidence remains available.'
@@ -338,8 +423,28 @@ class EngineeringStore:
                 raise ValueError('Unsupported job action')
             db.execute('UPDATE engineering_jobs SET data=?,state=?,revision=revision+1,next_at=?,lease=NULL WHERE id=?', (json.dumps(job), state, self.now(), job_id))
             self.event(db, job, state, job['revision'] + 1, self.now())
+            self.conversations.engineering_projection(db, job, state)
             return dict(job, state=state, revision=job['revision'] + 1)
         return self.tx(update)
+
+    def _confirm_cancellation(self, db, job_id=None, owner_epoch=None, *, recovering=False):
+        if not recovering and owner_epoch is None:
+            return
+        rows = db.execute("SELECT data,state,revision FROM engineering_jobs WHERE state='CANCELLING'" + (' AND id=?' if job_id else ''), (job_id,) if job_id else ()).fetchall()
+        for row in rows:
+            job = self.decode(row)
+            if not recovering and job.get('cancellation_owner_epoch') != owner_epoch:
+                continue
+            now = self.now()
+            job.update(updated_at=now, finished_at=now, cancellation_requested=False, cancellation_outcome='confirmed',
+                       message='Gateway work stopped. Operations dispatched before cancellation retain their recorded or uncertain outcomes.')
+            changed = db.execute("UPDATE engineering_jobs SET state='CANCELLED',revision=revision+1,lease=NULL,data=? WHERE id=? AND state='CANCELLING' AND revision=?", (json.dumps(job), job['id'], job['revision']))
+            if changed.rowcount:
+                self.event(db, job, 'CANCELLED', job['revision'] + 1, now)
+                self.conversations.engineering_projection(db, job, 'CANCELLED')
+
+    def confirm_cancellation(self, job_id, owner_epoch):
+        self.tx(lambda db: self._confirm_cancellation(db, job_id, owner_epoch))
 
     def invalidate_ready(self, job, evidence):
         """A stale approval prompt is retired durably before reporting rejection."""
@@ -417,6 +522,16 @@ class EngineeringService:
     def prepare_binding(self, principal, selection, gateway_endpoint=None):
         return self.bindings.prepare(principal, selection, gateway_endpoint)
 
+    def job_response(self, job):
+        result = public_job(job)
+        result.update(server_now=self.store.now(), server_time_ms=int(self.store.now() * 1000))
+        if job.get('conversation_id'):
+            snapshot = self.store.conversations.snapshot(job['principal'], job['conversation_id'])
+            if snapshot:
+                result.update(conversation_revision=snapshot['revision'], history_complete=snapshot['history_complete'],
+                              history_limitation=snapshot['history_limitation'])
+        return result
+
     def binding_capabilities(self, principal, binding_id):
         binding, _, capabilities = self.bindings.validate(principal, binding_id, force=True)
         return {'binding': binding, 'capabilities': capabilities}
@@ -439,6 +554,8 @@ class EngineeringService:
 
     def validate_mutation(self, job):
         self.store.assert_claim(job)
+        if accepted_scope(job['request']) != 'implement':
+            raise ExecutionBindingError('TASK_SCOPE_READ_ONLY', 'This conversation turn does not authorize repository writes.', 403)
         if job['state'] not in MUTATIONS:
             raise ExecutionBindingError('EXECUTION_OPERATION_PHASE_INVALID', 'This stage has no authority to dispatch a repository mutation.')
         if not self.authorized(job) or job['data'].get('execution_integrity') != 'VERIFIED':
@@ -538,15 +655,22 @@ class EngineeringService:
         if not claimed:
             return
         job, lease, recovering = claimed
-        with execution_diagnostic_context(job.get('diagnostic_capture'), self.store.runtime, job['principal'],
-                                          lambda: self.authorized(job)):
-            self._tick_claimed(job, lease, recovering)
+        try:
+            with execution_diagnostic_context(job.get('diagnostic_capture'), self.store.runtime, job['principal'],
+                                              lambda: self.authorized(job)):
+                self._tick_claimed(job, lease, recovering)
+        finally:
+            self.store.confirm_cancellation(job_id, job['_owner_epoch'])
 
     def _tick_claimed(self, job, lease, recovering):
         phase, output, delay = job['state'], {}, 0
         try:
             self.artifacts.restore_stage(job)
             limit = EngineeringSupervisor.limit(job, self.store.now()) if self.authorized(job) else 'Gateway engineering permission was revoked'
+            if job['data'].pop('instruction_requires_review', False):
+                raise ValueError('New user instructions require review before the next repository write')
+            if accepted_scope(job['request']) != 'implement' and phase not in {'PLAN', 'READ'}:
+                raise PermissionError('Read and plan tasks cannot dispatch engineering writes')
             if limit:
                 job['message'] = limit
                 phase = 'NEEDS_INPUT'
@@ -613,7 +737,9 @@ class EngineeringService:
                     self.validate_execution(job, force=recovering)
                 output = self.backend.step(job, phase)
                 job['data'].update(output)
-                if phase == 'IMPLEMENT':
+                if phase == 'READ' and accepted_scope(job['request']) in {'read', 'plan'}:
+                    phase = 'COMPLETED'
+                elif phase == 'IMPLEMENT':
                     patch = digest(output.get('changes', []))
                     if not output.get('changes') or patch in job['patches']:
                         job['stalls'] += 1
@@ -644,6 +770,8 @@ class EngineeringService:
                                       'REVIEW': 'Selected-model review of proposed changes', 'COMMIT': 'Publishing the reviewed branch changes',
                                       'OPEN_PR': 'Preparing the draft pull request', 'CI': 'Waiting for CI validation',
                                       'COMPLETED': 'Merge verified; engineering result published'}.get(phase, phase)
+                elif phase == 'COMPLETED' and accepted_scope(job['request']) != 'implement':
+                    job['message'] = 'Repository answer saved' if job['request']['task_scope'] == 'read' else 'Repository plan saved'
                 elif phase == 'COMPLETED':
                     job['message'] = 'Approved merge and workflow evidence verified. Feature acceptance is limited to configured paths/checks; unexecuted benchmarks remain Not measured.'
         except Exception as error:
@@ -658,7 +786,11 @@ class EngineeringService:
             if not transient:
                 job['stalls'] += 1
             # Mutations stay uncertain; no automatic replay after a lost response.
-            if job['state'] in MUTATIONS and getattr(self.backend, 'physical_operation_journal', False) and not self.operations.dispatched(job):
+            if accepted_scope(job['request']) != 'implement' and job['state'] not in {'PLAN', 'READ'}:
+                phase = 'NEEDS_INPUT'
+                job['message'] = 'The retained phase is outside this read-only task scope. No repository operation was dispatched.'
+                output.update(error_code='TASK_SCOPE_READ_ONLY', dispatched=False)
+            elif job['state'] in MUTATIONS and getattr(self.backend, 'physical_operation_journal', False) and not self.operations.dispatched(job):
                 phase = 'NEEDS_INPUT'
                 output['dispatched'] = False
                 job['message'] = 'The write was rejected before dispatch. Confirmed work is retained. ' + str(getattr(error, 'code', type(error).__name__))
@@ -805,10 +937,18 @@ def public_job(job):
     state = job['state']
     completed = len(job.get('milestones', []))
     readiness = data.get('readiness') or {}
-    return {'id': job['id'], 'repository': job['request']['repository'], 'branch': job['request']['branch'],
+    return {'conversation_id': job.get('conversation_id'), 'gateway_id': job.get('gateway_id'), 'principal_id': job['principal'],
+            'command_id': job.get('command_id', job['request']['request_id']), 'accepted_at': job.get('accepted_at', job['created_at']),
+            'server_now': time.time(), 'detach_safe': bool(job.get('detach_safe')), 'task_scope': accepted_scope(job['request']),
+            'started_at': job.get('started_at'), 'queued_at': job.get('queued_at'), 'title': job.get('title'),
+            'cancellation_requested': bool(job.get('cancellation_requested')), 'cancellation_outcome': job.get('cancellation_outcome'),
+            'id': job['id'], 'job_id': job['id'], 'repository': job['request']['repository'], 'branch': job['request']['branch'],
+            'profile_id': job['request'].get('profile_id'), 'profile_name': job['request'].get('profile_name'), 'model': job['request']['model'],
+            'source_branch': job['request'].get('source_branch', job['request']['branch']), 'source_sha': job['request'].get('source_sha'),
+            'working_branch': job['request']['branch'], 'base': job['request']['base'],
             'chat_id': job['request'].get('chat_id', 0), 'state': state, 'revision': job['revision'],
-            'created_at': job['created_at'], 'finished_at': job['updated_at'] if state in {'COMPLETED', 'CANCELLED'} else None, 'deadline': job['deadline'], 'message': job['message'],
-            'milestones_completed': completed, 'milestones_total': len(PHASES) - 2,
+            'created_at': job['created_at'], 'finished_at': job['updated_at'] if state in {'COMPLETED', 'CANCELLED', 'FAILED'} else None, 'deadline': job['deadline'], 'message': job['message'],
+            'milestones_completed': completed, 'milestones_total': 2 if accepted_scope(job['request']) != 'implement' else len(PHASES) - 2,
             'repair_attempts': sum(job['repairs'].values()), 'pr': data.get('pr'), 'pr_url': data.get('pr_url'),
             'head_sha': data.get('head_sha'), 'changed_files': readiness.get('changed_files', data.get('changed_paths', [change['path'] for change in data.get('changes', [])])),
             'tests': readiness.get('checks', []), 'checks_passed': readiness.get('checks_passed', False),

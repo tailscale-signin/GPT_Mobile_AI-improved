@@ -46,6 +46,14 @@ internal class GitHubRepositorySession(
     private fun root(owner: String, repo: String) = "/repos/${GitHubWorkspaceClient.segment(owner)}/${GitHubWorkspaceClient.segment(repo)}"
     private fun blobScope(context: GitHubTaskSnapshot) = "$accountId:${context.owner.lowercase()}/${context.repo.lowercase()}"
 
+    private suspend fun forceLiveReads(): Boolean = kotlinx.coroutines.currentCoroutineContext()[GitHubDispatchAccounting]?.forceLiveReads == true
+
+    /** The transport policy also applies to parsed metadata and immutable source caches above HTTP. */
+    private suspend fun cachedSource(scope: String, key: String): JsonObject? {
+        if (forceLiveReads()) return null
+        return store.read(scope, key)?.also { GitHubDispatchAccounting.cached(null, immutable = true) }
+    }
+
     private fun decodeSnapshot(value: JsonObject?): GitHubTaskSnapshot? = value?.let {
         runCatching { codec.decodeFromJsonElement(GitHubTaskSnapshot.serializer(), it) }.getOrNull()?.takeIf { row -> row.accountId == accountId && row.connectionUid == connectionUid && row.conversationId == conversationId && row.taskId == taskId }
     }
@@ -107,7 +115,17 @@ internal class GitHubRepositorySession(
         val retained = snapshot()
         val requestedRef = args.s("ref").ifBlank { args.s("branch") }
         val refresh = args["refresh"]?.jsonPrimitive?.booleanOrNull == true || selectContext && requestedRef.isNotBlank() && requestedRef != retained?.ref
-        if (!refresh && retained != null && retained.owner.equals(owner, true) && retained.repo.equals(repo, true) && (explicit.isBlank() || explicit == retained.commitSha)) return retained
+        if (!refresh && retained != null && retained.owner.equals(owner, true) && retained.repo.equals(repo, true) && (explicit.isBlank() || explicit == retained.commitSha)) {
+            if (forceLiveReads()) {
+                // Re-observe the accepted immutable revision; live verification does not
+                // grant permission to move a task to a newer mutable branch head.
+                val observed = request("${root(owner, repo)}/commits/${GitHubWorkspaceClient.segment(retained.commitSha)}").jsonObject
+                require(observed.s("sha") == retained.commitSha && observed["commit"]?.jsonObject?.get("tree")?.jsonObject?.s("sha") == retained.treeSha) {
+                    "Live commit observation differs from the task's pinned revision."
+                }
+            }
+            return retained
+        }
         val repository = root(owner, repo)
         val previous = context()?.takeIf { it.owner.equals(owner, true) && it.repo.equals(repo, true) }
         val ref = explicit.ifBlank { args.s("ref").ifBlank { args.s("branch").ifBlank { previous?.ref.orEmpty().ifBlank { request(repository).jsonObject.s("default_branch").ifBlank { "HEAD" } } } } }
@@ -122,7 +140,7 @@ internal class GitHubRepositorySession(
 
     private suspend fun tree(context: GitHubTaskSnapshot): JsonObject {
         val scope = blobScope(context)
-        store.read(scope, "tree:${context.commitSha}")?.let { return it }
+        cachedSource(scope, "tree:${context.commitSha}")?.let { return it }
         val response = request("${root(context.owner, context.repo)}/git/trees/${context.treeSha}?recursive=1").jsonObject
         val entries = response["tree"]?.jsonArray.orEmpty()
         val bounded = buildJsonObject {
@@ -141,7 +159,7 @@ internal class GitHubRepositorySession(
     private suspend fun blob(context: GitHubTaskSnapshot, item: JsonObject): JsonObject {
         val sha = item.s("sha")
         require(sha.sha()) { "Blob identity is unavailable." }
-        store.read(blobScope(context), "blob:$sha")?.let { return it }
+        cachedSource(blobScope(context), "blob:$sha")?.let { return it }
         GitHubBlobContent.checkSize(item["size"]?.jsonPrimitive?.longOrNull ?: 0)
         val response = request("${root(context.owner, context.repo)}/git/blobs/$sha").jsonObject
         require(response.s("sha").isBlank() || response.s("sha") == sha) { "Returned blob identity differs from the selected tree." }
@@ -162,7 +180,72 @@ internal class GitHubRepositorySession(
         return result
     }
 
+    /** Explicit patch targets have their own immutable base and never move the selected workspace. */
+    private suspend fun patchContext(action: String, owner: String, repo: String, args: JsonObject): GitHubTaskSnapshot {
+        val savedId = args.s(if (action == "commit_staged_patch") "stage_id" else "restore_stage_id")
+        if (savedId.isNotBlank()) {
+            val saved = requireNotNull(store.read(scope, "stage:$savedId")) { "Patch stage is unavailable or belongs to another task/account." }
+            require(saved.s("owner").equals(owner, true) && saved.s("repo").equals(repo, true)) { "Stage belongs to another repository." }
+            require(args.s("branch").isBlank() || args.s("branch") == saved.s("branch")) { "Stage belongs to a different explicit branch." }
+            require(args.s("commit_sha").isBlank() || args.s("commit_sha") == saved.s("expected_head_sha")) { "Stage belongs to a different base revision." }
+            return GitHubTaskSnapshot(accountId, connectionUid, conversationId, taskId, owner, repo, saved.s("branch"), saved.s("expected_head_sha"), saved.s("tree_sha"), stagedPatchId = savedId)
+        }
+        val branch = args.s("branch")
+        if (branch.isBlank()) return resolve(owner, repo, args)
+        require(normalizeGitHubBranch(branch) == branch) { "Supply the branch name without the refs/heads/ prefix." }
+        val expected = args.s("expected_head_sha").ifBlank { args.s("commit_sha") }
+        require(expected.isBlank() || expected.sha()) { "expected_head_sha must be an immutable commit." }
+        require(args.s("commit_sha").isBlank() || expected == args.s("commit_sha")) { "Patch base arguments disagree." }
+        val retained = snapshot()?.takeIf { it.owner.equals(owner, true) && it.repo.equals(repo, true) && it.commitSha == expected }
+        if (retained != null) return retained.copy(ref = branch)
+        val response = request("${root(owner, repo)}/commits/${GitHubWorkspaceClient.segment(expected.ifBlank { branch })}").jsonObject
+        val sha = response.s("sha")
+        val tree = response["commit"]?.jsonObject?.get("tree")?.jsonObject?.s("sha").orEmpty()
+        require(sha.sha() && tree.sha() && (expected.isBlank() || sha == expected)) { "GitHub did not supply the patch's immutable base." }
+        return GitHubTaskSnapshot(accountId, connectionUid, conversationId, taskId, owner, repo, branch, sha, tree)
+    }
+
+    private suspend fun rememberStage(context: GitHubTaskSnapshot, id: String, requireSelectedRevision: Boolean = false) {
+        fun matches(current: GitHubTaskSnapshot) = current.owner.equals(context.owner, true) && current.repo.equals(context.repo, true) && current.ref == context.ref && current.commitSha == context.commitSha
+        val selected = snapshot()
+        if (requireSelectedRevision || selected != null) {
+            updateSnapshot { current ->
+                val sameRevision = matches(current)
+                require(!requireSelectedRevision || sameRevision) { "Task revision changed during stage preparation; inspect the selected revision before staging again." }
+                if (sameRevision) current.copy(stagedPatchId = id, updatedAt = System.currentTimeMillis()) else current
+            }
+        }
+        // The small index lets recovery find an explicit-branch stage even if the
+        // process stops before the caller receives its ID.
+        store.update(scope, "staged-patches") { old ->
+            val rows = (old?.get("stages") as? JsonArray).orEmpty().filter { it.jsonObject.s("stage_id") != id }
+            buildJsonObject {
+                put(
+                    "stages",
+                    JsonArray(
+                        (
+                            rows + buildJsonObject {
+                                put("stage_id", id)
+                                put("owner", context.owner)
+                                put("repo", context.repo)
+                                put("branch", context.ref)
+                                put("expected_head_sha", context.commitSha)
+                            }
+                            ).takeLast(32)
+                    )
+                )
+            }
+        }
+    }
+
     suspend fun execute(action: String, owner: String, repo: String, args: JsonObject): JsonElement {
+        val commitImmediately = args["commit_immediately"]?.let { requireNotNull((it as? JsonPrimitive)?.booleanOrNull) { "commit_immediately must be a boolean." } } == true
+        if (commitImmediately) {
+            require(action == "stage_patch") { "commit_immediately is supported only for stage_patch." }
+            require(args.s("branch").isNotBlank() && args.s("expected_head_sha").sha() && args.s("message").isNotBlank() && args.s("message").length <= 4000) {
+                "Immediate publication requires explicit branch, expected_head_sha and a commit message of at most 4000 characters."
+            }
+        }
         if (action == "changed_since") {
             require(args.s("base").isNotBlank()) {
                 "CHANGES_BASE_REQUIRED: Supply base_sha to github_context(action=changes), or base to changed_since. Use github_pr(action=context, include_files=true) for a pull request's changed files, or github_context(action=status) for repository status."
@@ -187,8 +270,23 @@ internal class GitHubRepositorySession(
             args
         }
         if (action == "recovery_context") {
-            val retained = snapshot() ?: resolve(owner, repo, JsonObject(emptyMap()))
-            require(retained.owner.equals(owner, true) && retained.repo.equals(repo, true))
+            val selectedContext = snapshot()?.takeIf { it.owner.equals(owner, true) && it.repo.equals(repo, true) }
+            val stages = (store.read(scope, "staged-patches")?.get("stages") as? JsonArray).orEmpty().filter { row ->
+                row.jsonObject.s("owner").equals(owner, true) && row.jsonObject.s("repo").equals(repo, true)
+            }
+            val stageId = args.s("stage_id").ifBlank {
+                if (args.s("branch").isNotBlank()) {
+                    stages.lastOrNull { it.jsonObject.s("branch") == args.s("branch") }?.jsonObject?.s("stage_id").orEmpty()
+                } else {
+                    selectedContext?.stagedPatchId.orEmpty().ifBlank { stages.lastOrNull()?.jsonObject?.s("stage_id").orEmpty() }
+                }
+            }
+            val stage = stageId.takeIf { it.isNotBlank() }?.let { store.read(scope, "stage:$it") }
+                ?.takeIf { it.s("owner").equals(owner, true) && it.s("repo").equals(repo, true) }
+            val localStageContext = stage?.takeIf { it.s("expected_head_sha").sha() && it.s("tree_sha").sha() && it.s("branch").isNotBlank() }?.let {
+                GitHubTaskSnapshot(accountId, connectionUid, conversationId, taskId, owner, repo, it.s("branch"), it.s("expected_head_sha"), it.s("tree_sha"), stagedPatchId = stageId)
+            }
+            val retained = selectedContext ?: localStageContext ?: resolve(owner, repo, JsonObject(emptyMap()))
             val page = args.s("page").ifBlank { "1" }.toInt().also { require(it in 1..1000) }
             val conversationHandles = if (conversationId.isNotBlank()) store.read(conversationScope, evidenceKeys(owner, repo))?.get("keys")?.jsonArray.orEmpty().map { it.jsonPrimitive.content } else emptyList()
             val allHandles = (retained.evidenceHandles + conversationHandles).distinct().takeLast(128)
@@ -206,8 +304,6 @@ internal class GitHubRepositorySession(
                     }
                 }
             }
-            val stageId = args.s("stage_id").ifBlank { retained.stagedPatchId.orEmpty() }
-            val stage = stageId.takeIf { it.isNotBlank() }?.let { store.read(scope, "stage:$it") }
             val executionContext = executions.context()
             return buildJsonObject {
                 put("commit_sha", retained.commitSha)
@@ -219,6 +315,17 @@ internal class GitHubRepositorySession(
                 put("retention_note", "Bounded source inventory for this repository, account, connection and conversation; expired records are marked unavailable. Stages remain task-local. Use read_recovery_context for the conversation action ledger.")
                 put("stage_id", stageId)
                 put("stage_available", stage != null)
+                put("retained_stages", JsonArray(stages))
+                put(
+                    "context_source",
+                    if (selectedContext != null) {
+                        "SELECTED_SNAPSHOT"
+                    } else if (localStageContext != null) {
+                        "RETAINED_STAGE"
+                    } else {
+                        "RESOLVED_REPOSITORY"
+                    }
+                )
                 put("execution_context", executionContext)
                 stage?.let {
                     put("stage", JsonObject(it.filterKeys { key -> key != "files" }))
@@ -226,7 +333,11 @@ internal class GitHubRepositorySession(
                 }
             }
         }
-        val context = resolve(owner, repo, requested, action in setOf("resolve_context", "task_context"))
+        val context = if (action in setOf("stage_patch", "commit_staged_patch")) {
+            patchContext(action, owner, repo, args)
+        } else {
+            resolve(owner, repo, requested, action in setOf("resolve_context", "task_context"))
+        }
         return when (action) {
             "resolve_context", "task_context" -> buildJsonObject {
                 put("owner", owner)
@@ -243,7 +354,30 @@ internal class GitHubRepositorySession(
             "workflow_catalog" -> workflowCatalog(context, args)
             "search_repository" -> search(context, args)
             "read_ranges" -> read(context, args)
-            "stage_patch" -> if (args.s("restore_stage_id").isNotBlank()) restoreStage(context, args) else stage(context, args)
+            "stage_patch" -> {
+                val staged = if (args.s("restore_stage_id").isNotBlank()) restoreStage(context, args) else stage(context, args)
+                if (!commitImmediately) {
+                    staged
+                } else {
+                    val publication = buildJsonObject {
+                        put("stage_id", staged.getValue("stage_id"))
+                        put("branch", args.getValue("branch"))
+                        put("expected_head_sha", args.getValue("expected_head_sha"))
+                        put("message", args.getValue("message"))
+                    }
+                    val receipt = commitStage(context, publication).jsonObject
+                    JsonObject(
+                        receipt + mapOf(
+                            "stage_id" to staged.getValue("stage_id"),
+                            "workflow" to JsonPrimitive("STAGE_AND_COMMIT"),
+                            "stage_persisted" to JsonPrimitive(true),
+                            "committed" to JsonPrimitive(receipt["sha"] != null),
+                            "publication_guard" to JsonPrimitive("EXPECTED_HEAD_AND_BLOB_CHECKS"),
+                            "atomic_head_precondition" to JsonPrimitive(false)
+                        )
+                    )
+                }
+            }
             "commit_staged_patch" -> commitStage(context, args)
             "changed_since" -> changed(context, args)
             else -> error("Unknown repository session action: $action")
@@ -281,7 +415,7 @@ internal class GitHubRepositorySession(
         while (next < eligible.size && next - cursor < 100 && attempted < 24 && bytes < 4L * 1024 * 1024) {
             kotlinx.coroutines.currentCoroutineContext().ensureActive()
             val item = eligible[next++]
-            if (store.contains(blobScope(context), "blob:${item.s("sha")}")) continue
+            if (!forceLiveReads() && store.contains(blobScope(context), "blob:${item.s("sha")}")) continue
             val size = item["size"]?.jsonPrimitive?.longOrNull ?: MAX_BLOB_BYTES.toLong()
             if (size > MAX_BLOB_BYTES || size < 0) {
                 skipped++
@@ -342,7 +476,7 @@ internal class GitHubRepositorySession(
         val selected = workflows.drop(cursor).take(4)
         val rows = selected.map { file ->
             val key = "workflow-metadata-v1:${file.s("sha")}"
-            val retained = store.read(blobScope(context), key)
+            val retained = cachedSource(blobScope(context), key)
             val metadata = retained ?: GitHubWorkflowDefinitionCapture.capture { blob(context, file).s("content") }.also {
                 if (it["metadata_available"] != JsonPrimitive(false)) store.write(blobScope(context), key, it)
             }
@@ -372,7 +506,7 @@ internal class GitHubRepositorySession(
             put("captured_definition_count", rows.count { it["definition"]?.jsonObject?.get("metadata_available") != JsonPrimitive(false) })
             put("unavailable_definition_count", rows.count { it["definition"]?.jsonObject?.get("metadata_available") == JsonPrimitive(false) })
             put("page_complete", rows.all { it["definition"]?.jsonObject?.get("metadata_available") != JsonPrimitive(false) })
-            put("observed_at_ms", System.currentTimeMillis())
+            put("assembled_at_ms", System.currentTimeMillis())
             put("inventory_scope", "workflow_files_at_commit")
             put("tree_complete", tree["truncated"]?.jsonPrimitive?.booleanOrNull != true)
             put("has_more", next < workflows.size)
@@ -430,7 +564,7 @@ internal class GitHubRepositorySession(
         require(args.s("query").isNotBlank() && args.s("query").length <= 200) { "Search requires a non-blank query of at most 200 characters." }
         require(args.s("mode").ifBlank { "literal" } in setOf("literal", "definitions", "references", "paths", "tests", "patterns"))
         val request = prepareSearch(context, args, tree(context))
-        store.read(scope, request.cacheKey)?.let { cached ->
+        cachedSource(scope, request.cacheKey)?.let { cached ->
             return withSearchRecovery(JsonObject(cached + mapOf("cache_hit" to JsonPrimitive(true), "new_blobs" to JsonPrimitive(0))), request.recovery)
         }
         val progress = SearchProgress(request)
@@ -563,7 +697,7 @@ internal class GitHubRepositorySession(
                 }
                 continue
             }
-            val cached = store.read(blobScope(context), "blob:${item.s("sha")}")
+            val cached = cachedSource(blobScope(context), "blob:${item.s("sha")}")
             if (cached == null && item.s("sha") !in progress.prefetched && progress.fetched >= request.maxNewBlobs) break
             progress.next++
             val content = searchContent(context, request, progress, item, cached)
@@ -601,12 +735,12 @@ internal class GitHubRepositorySession(
                     .take(4).filter { (it["size"]?.jsonPrimitive?.longOrNull ?: 0) <= MAX_BLOB_BYTES }
                     .distinctBy { it.s("sha") }.filter { it.s("sha") !in progress.prefetched }
                     .take(request.maxNewBlobs - progress.fetched).toList()
-                    .filter { store.read(blobScope(context), "blob:${it.s("sha")}") == null }
+                    .filter { cachedSource(blobScope(context), "blob:${it.s("sha")}") == null }
                 progress.fetched += candidates.size
                 val remainingMs = (12_000 - (System.nanoTime() - progress.startedNanos) / 1_000_000).coerceIn(1, 8_000)
                 prefetchSearchBlobs(context, candidates, remainingMs).forEach { (sha, result) -> progress.prefetched[sha] = result }
             }
-            val retained = progress.prefetched.remove(item.s("sha"))?.getOrThrow() ?: cached ?: store.read(blobScope(context), "blob:${item.s("sha")}")
+            val retained = progress.prefetched.remove(item.s("sha"))?.getOrThrow() ?: cached ?: cachedSource(blobScope(context), "blob:${item.s("sha")}")
             if (retained == null) {
                 progress.next--
                 progress.readDeadline = true
@@ -848,8 +982,23 @@ internal class GitHubRepositorySession(
             val entry = selected.getValue(path)
             val content = sources.getValue(path)
             val lines = content.split('\n')
-            val start = (range["start_line"]?.jsonPrimitive?.intOrNull ?: 1).also { require(it >= 1) }
-            val end = (range["end_line"]?.jsonPrimitive?.intOrNull ?: start + 299).also { require(it >= start && it - start < 2000) }
+            fun lineNumber(key: String): Int? = range[key]?.let { value ->
+                requireNotNull((value as? JsonPrimitive)?.intOrNull) { "$key must be an integer." }
+            }
+            val start = (lineNumber("start_line") ?: 1).also { require(it >= 1) { "start_line must be positive." } }
+            val requestedEnd = lineNumber("end_line")
+            val maximumLines = lineNumber("max_lines")
+            require(requestedEnd == null || maximumLines == null) { "Supply end_line or max_lines, not both." }
+            require(maximumLines == null || maximumLines in 1..2000) { "max_lines must be between 1 and 2000." }
+            require(requestedEnd == null || requestedEnd == -1 || requestedEnd >= start && requestedEnd.toLong() - start < 2000) {
+                "end_line must be -1 for EOF or a range of at most 2000 lines."
+            }
+            val boundedEnd = (start.toLong() + (maximumLines ?: if (requestedEnd == -1) 2000 else 300) - 1).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+            val end = when (requestedEnd) {
+                null -> boundedEnd
+                -1 -> minOf(lines.size.coerceAtLeast(start), boundedEnd)
+                else -> requestedEnd
+            }
             val selected = lines.drop(start - 1).take(end - start + 1).joinToString("\n")
             val offset = (range["start_offset"]?.jsonPrimitive?.intOrNull ?: 0).also { require(it in 0..selected.length && (it == 0 || it == selected.length || !Character.isLowSurrogate(selected[it]))) { "start_offset must be a valid UTF-16 character boundary." } }
             val excerpt = utf8Prefix(selected.substring(offset), remaining)
@@ -863,6 +1012,9 @@ internal class GitHubRepositorySession(
                 put("start_line", start)
                 put("end_line", minOf(end, lines.size))
                 put("total_lines", lines.size)
+                put("eof", !truncated && end >= lines.size)
+                put("requested_eof", requestedEnd == -1)
+                put("line_limit", if (requestedEnd == -1) 2000L else maximumLines?.toLong() ?: (end.toLong() - start + 1))
                 put("start_offset", offset)
                 put("content", excerpt)
                 put("truncated", truncated || end < lines.size || start > 1 || offset > 0)
@@ -885,6 +1037,7 @@ internal class GitHubRepositorySession(
                         buildJsonObject {
                             put("path", path)
                             put("start_line", end + 1)
+                            if (requestedEnd == -1) put("end_line", -1) else maximumLines?.let { put("max_lines", it) }
                             put("commit_sha", context.commitSha)
                         }
                     )
@@ -919,7 +1072,7 @@ internal class GitHubRepositorySession(
     }
 
     private suspend fun stage(context: GitHubTaskSnapshot, args: JsonObject): JsonObject {
-        require(snapshot()?.commitSha == context.commitSha) { "Select the intended task revision before staging a patch." }
+        require(args.s("branch").isNotBlank() || snapshot()?.commitSha == context.commitSha) { "Select the intended task revision or supply an explicit patch branch." }
         val expected = args.s("expected_head_sha").ifBlank { context.commitSha }
         require(expected == context.commitSha) { "Patch expected head must equal the pinned task commit." }
         require(args.s("branch").isBlank() || args.s("branch") == context.ref) { "Patch branch must match the selected task branch." }
@@ -997,10 +1150,7 @@ internal class GitHubRepositorySession(
                 }
             }
         }
-        updateSnapshot { pinned ->
-            require(pinned.owner.equals(context.owner, true) && pinned.repo.equals(context.repo, true) && pinned.commitSha == context.commitSha && pinned.ref == context.ref) { "Task revision changed while preparing the patch; review and restage it." }
-            pinned.copy(stagedPatchId = id, updatedAt = System.currentTimeMillis())
-        }
+        rememberStage(context, id, requireSelectedRevision = args.s("branch").isBlank())
         return buildJsonObject {
             put("stage_id", id)
             put("schema_version", 1)
@@ -1023,10 +1173,7 @@ internal class GitHubRepositorySession(
         val id = args.s("restore_stage_id")
         val staged = requireNotNull(store.read(scope, "stage:$id")) { "Stage version is unavailable in this task/account." }
         require(staged.s("owner").equals(context.owner, true) && staged.s("repo").equals(context.repo, true) && staged.s("expected_head_sha") == context.commitSha && staged.s("branch") == context.ref) { "Restore requires the same repository, branch and immutable base revision." }
-        updateSnapshot { current ->
-            require(current.commitSha == context.commitSha && current.ref == context.ref) { "Task changed during stage restore." }
-            current.copy(stagedPatchId = id, updatedAt = System.currentTimeMillis())
-        }
+        rememberStage(context, id)
         return buildJsonObject {
             put("stage_id", id)
             put("version_id", staged["version_id"] ?: JsonPrimitive(id))
@@ -1046,14 +1193,43 @@ internal class GitHubRepositorySession(
         require(id.isNotBlank())
         val staged = store.read(scope, "stage:$id") ?: error("Patch stage is unavailable or belongs to another task/account.")
         require(staged.s("owner").equals(context.owner, true) && staged.s("repo").equals(context.repo, true))
-        staged["commit_receipt"]?.let { return it }
-        staged["engineering_review_receipt"]?.let { return it }
         require(args.s("expected_head_sha") == staged.s("expected_head_sha")) { "The supplied expected_head_sha differs from the staged patch; refresh the branch and stage evidence before committing." }
         require(staged.s("expected_head_sha") == context.commitSha) { "Task revision changed; restage the reviewed patch." }
         require(staged.s("branch").isBlank() || staged.s("branch") == context.ref) { "Stage belongs to a different working branch." }
-        val commitArgs = JsonObject(args + mapOf("files" to staged.getValue("files"), "expected_head_sha" to staged.getValue("expected_head_sha")))
+        require(args.s("branch") == staged.s("branch")) { "The explicit commit branch differs from the staged patch." }
+        staged["commit_receipt"]?.let { return it }
+        staged["engineering_review_receipt"]?.let { return it }
+        val publication = buildJsonObject {
+            put("stage_id", id)
+            put("branch", staged.getValue("branch"))
+            put("expected_head_sha", staged.getValue("expected_head_sha"))
+            put("message", args["message"] ?: JsonPrimitive(""))
+        }
+        require(publication.s("message").isNotBlank() && publication.s("message").length <= 4000) { "A bounded commit message is required." }
+        // Old versions fenced the caller's whole argument object. Preserve that
+        // exact claim when present; never replace a legacy uncertain publication.
+        val legacyId = GitHubRepositoryStateStore.digest("$scope|commit_staged_patch|${GitHubExecutionJournal.canonical(args)}")
+        val legacy = store.read(scope, "execution:$legacyId")
+        if (staged["publication_arguments"] == null && legacy == null) {
+            val unresolved = (executions.context()["executions"] as? JsonArray).orEmpty().any { row ->
+                row.jsonObject.s("action") == "commit_staged_patch" && row.jsonObject.s("status") in setOf("RUNNING", "RECONCILE_REQUIRED")
+            }
+            require(!unresolved) { "An earlier staged publication needs reconciliation with its original arguments before another write." }
+        }
+        val savedPublication = staged["publication_arguments"] as? JsonObject
+        require(savedPublication == null || listOf("stage_id", "branch", "expected_head_sha", "message").all { savedPublication[it] == publication[it] }) {
+            "This stage already has a different publication intent. Recover its saved receipt before changing the commit message."
+        }
+        val journalArguments = savedPublication ?: if (legacy != null) args else publication
+        val bound = store.update(scope, "stage:$id") { current ->
+            require(current?.get("files_digest") == staged["files_digest"]) { "Stage changed before publication." }
+            val savedArguments = current?.get("publication_arguments")
+            require(savedArguments == null || savedArguments == journalArguments) { "This stage already has a different publication intent. Recover its saved receipt before changing the commit message." }
+            JsonObject(requireNotNull(current) + ("publication_arguments" to journalArguments))
+        }
+        val commitArgs = JsonObject(publication + mapOf("files" to bound.getValue("files")))
         val root = root(context.owner, context.repo)
-        val result = executions.run("commit_staged_patch", args, reconcile = { reconcileCommit(root, commitArgs) }) {
+        val result = executions.run("commit_staged_patch", journalArguments, reconcile = { reconcileCommit(root, commitArgs) }) {
             commit(root, commitArgs)
         }
         if (result.jsonObject["execution"]?.jsonObject?.s("status") != "COMPLETED") return result

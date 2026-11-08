@@ -6,6 +6,7 @@ import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import dev.chungjungsoo.gptmobile.data.network.boundedMetadata
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayClientDiagnostics
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewaySurfacePolicy
 import dev.chungjungsoo.gptmobile.data.network.gateway.gatewayClientExchange
 import dev.chungjungsoo.gptmobile.data.research.researchHash
 import io.ktor.client.call.body
@@ -38,30 +39,40 @@ import kotlinx.serialization.json.put
 internal class LlamaCapacityRepository(
     private val client: () -> io.ktor.client.HttpClient,
     private val now: () -> Long = { System.nanoTime() / 1_000_000 },
-    private val evictIdleConnections: () -> Unit = {}
+    private val evictIdleConnections: suspend () -> Unit = {},
+    private val readClient: () -> io.ktor.client.HttpClient = client
 ) {
-    constructor(client: NetworkClient, now: () -> Long = { System.nanoTime() / 1_000_000 }) : this({ client() }, now, client::evictIdleConnections)
-    private data class Metadata(val capacity: CapacitySnapshot, val template: String, val buildKnown: Boolean)
+    constructor(client: NetworkClient, now: () -> Long = { System.nanoTime() / 1_000_000 }) : this({ client() }, now, client::evictIdleConnections, client::gatewayReadClient)
+    private data class Metadata(val capacity: CapacitySnapshot, val template: String, val buildKnown: Boolean, val reportedModel: String?)
+    private data class GatewayMetadata(val capacity: CapacitySnapshot, val reasoningControl: ReasoningTemplateControl?)
     private val cache = RouteCapabilityCache<Metadata>(now)
     private val reasoningCache = RouteCapabilityCache<ReasoningTemplateControl>(now)
     private val schemaCache = RouteCapabilityCache<Boolean>(now, negativeTtl = 60_000L)
-    private val gatewayCache = RouteCapabilityCache<CapacitySnapshot>(now, positiveTtl = 15_000L)
+    private val gatewayCache = RouteCapabilityCache<GatewayMetadata>(now, positiveTtl = 15_000L)
 
     private fun routeRevision(config: ProviderRequestConfig, model: String): String =
         "${config.profileUid}|${GatewayClientDiagnostics.routeIdentity(config)}|$model|${LocalServiceHealth.networkEpoch}|${GatewayClientDiagnostics.capabilityEpoch(config)}"
 
-    suspend fun discover(config: ProviderRequestConfig, model: String): CapacitySnapshot? = metadata(config, model)?.capacity ?: discoverGateway(config, model)
+    suspend fun discover(config: ProviderRequestConfig, model: String): CapacitySnapshot? =
+        if (GatewayClientDiagnostics.runtimeEpoch(config) != "unobserved") {
+            discoverGateway(config, model) ?: metadata(config, model)?.capacity
+        } else {
+            metadata(config, model)?.capacity ?: discoverGateway(config, model)
+        }
 
     /** Only an already observed gateway is asked to confirm its exact selected serving model. */
-    suspend fun discoverGateway(config: ProviderRequestConfig, model: String): CapacitySnapshot? {
+    suspend fun discoverGateway(config: ProviderRequestConfig, model: String): CapacitySnapshot? = gatewayMetadata(config, model)?.capacity
+
+    private suspend fun gatewayMetadata(config: ProviderRequestConfig, model: String): GatewayMetadata? {
         if (GatewayClientDiagnostics.runtimeEpoch(config) == "unobserved" || model.isBlank() || model.length > 512) return null
+        if (GatewaySurfacePolicy.shared.rememberedStatus(GatewaySurfacePolicy.identity(config), GatewaySurfacePolicy.Surface.CAPABILITIES) != null) return null
         return gatewayCache.getOrLoad(researchHash(routeRevision(config, model))) {
             try {
                 withTimeoutOrNull(6_000L) {
                     val endpoint = config.buildEndpoint("gateway/capabilities")
                     LocalEndpointConnectionPolicy.probe(endpoint, evictIdleConnections) {
                         gatewayClientExchange(config, "capabilities", safeRead = true) { requestHeaders ->
-                            client().prepareGet(endpoint) {
+                            readClient().prepareGet(endpoint) {
                                 config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
                                 requestHeaders.forEach { (name, value) -> header(name, value) }
                                 if (LocalEndpointConnectionPolicy.freshConnection(endpoint)) header(HttpHeaders.Connection, "close")
@@ -74,6 +85,7 @@ internal class LlamaCapacityRepository(
                                 }
                             }.execute { response ->
                                 GatewayClientDiagnostics.observe(config, response.status.value) { response.headers[it] }
+                                GatewaySurfacePolicy.shared.observe(GatewaySurfacePolicy.identity(config), GatewaySurfacePolicy.Surface.CAPABILITIES, response.status.value)
                                 if (response.status.value != 200) return@execute null
                                 val body = response.boundedMetadata(256 * 1024)
                                 parseGatewayCapacity(body, config, model, now())?.takeIf { capacity ->
@@ -81,6 +93,8 @@ internal class LlamaCapacityRepository(
                                     responseInstance == null || capacity.fingerprint.runtimeRevision.startsWith("$responseInstance:")
                                 }?.also { capacity ->
                                     GatewayClientDiagnostics.observeInstance(config, capacity.fingerprint.runtimeRevision.substringBefore(':'))
+                                }?.let { capacity ->
+                                    GatewayMetadata(capacity, parseGatewayReasoningControl(body, capacity))
                                 }
                             }
                         }
@@ -95,6 +109,7 @@ internal class LlamaCapacityRepository(
     }
 
     private suspend fun metadata(config: ProviderRequestConfig, model: String): Metadata? {
+        if (GatewaySurfacePolicy.shared.rememberedStatus(GatewaySurfacePolicy.identity(config), GatewaySurfacePolicy.Surface.PROPS) != null) return null
         val route = config.apiUrl.trim().trimEnd('/')
         val identity = researchHash(routeRevision(config, model))
         return cache.getOrLoad(identity) {
@@ -104,7 +119,7 @@ internal class LlamaCapacityRepository(
                     require(uri.scheme in setOf("http", "https") && uri.host != null && uri.rawQuery == null && uri.rawFragment == null && uri.userInfo == null)
                     val endpoint = route.removeSuffix("/v1") + "/props"
                     val (response, body) = LocalEndpointConnectionPolicy.probe(config.apiUrl, evictIdleConnections) {
-                        val response = client().get(endpoint) {
+                        val response = readClient().get(endpoint) {
                             config.token?.takeIf { it.isNotBlank() }?.let { bearerAuth(it) }
                             GatewayClientDiagnostics.requestHeaders(config).forEach { (name, value) -> header(name, value) }
                             parameter("model", model)
@@ -114,10 +129,14 @@ internal class LlamaCapacityRepository(
                         GatewayClientDiagnostics.observe(config, response.status.value) { response.headers[it] }
                         response to response.boundedMetadata(1_000_000)
                     }
+                    val error = runCatching { (Json.parseToJsonElement(body) as? JsonObject)?.get("error") as? JsonObject }.getOrNull()
+                    GatewaySurfacePolicy.shared.observe(GatewaySurfacePolicy.identity(config), GatewaySurfacePolicy.Surface.PROPS, response.status.value, (error?.get("code") as? JsonPrimitive)?.contentOrNull)
                     if (response.status.value != 200) return@withTimeoutOrNull null
                     val capacity = parseLlamaCapacity(body, config, model, now()) ?: return@withTimeoutOrNull null
                     val root = Json.parseToJsonElement(body) as JsonObject
-                    Metadata(capacity, (root["chat_template"] as? JsonPrimitive)?.contentOrNull.orEmpty(), (root["build_info"] as? JsonPrimitive)?.contentOrNull?.isNotBlank() == true)
+                    val reportedModel = (root["model_alias"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
+                        ?: (root["model"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
+                    Metadata(capacity, (root["chat_template"] as? JsonPrimitive)?.contentOrNull.orEmpty(), (root["build_info"] as? JsonPrimitive)?.contentOrNull?.isNotBlank() == true, reportedModel)
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -127,7 +146,20 @@ internal class LlamaCapacityRepository(
         }
     }
 
+    /** Route allocation may omit model identity; a capability action requires the explicit serving-model proof. */
+    suspend fun hasExactModelProof(config: ProviderRequestConfig, model: String, capacity: CapacitySnapshot): Boolean {
+        if (capacity.provenance != CapacityProvenance.VERIFIED_ROUTE) return false
+        return if (capacity.fingerprint.templateRevision.startsWith("gateway:")) {
+            gatewayMetadata(config, model)?.capacity?.let { it.fingerprint == capacity.fingerprint && it.fingerprint.resolvedModel == model } == true
+        } else {
+            metadata(config, model)?.let { it.capacity.fingerprint == capacity.fingerprint && it.reportedModel == model } == true
+        }
+    }
+
     suspend fun reasoningControl(config: ProviderRequestConfig, model: String, capacity: CapacitySnapshot): ReasoningTemplateControl? {
+        if (capacity.fingerprint.templateRevision.startsWith("gateway:")) {
+            return gatewayMetadata(config, model)?.takeIf { it.capacity.fingerprint == capacity.fingerprint }?.reasoningControl
+        }
         val metadata = metadata(config, model) ?: return null
         if (metadata.capacity.fingerprint != capacity.fingerprint || !metadata.buildKnown) return null
         return reasoningCache.getOrLoad(researchHash("${routeRevision(config, model)}|${capacity.fingerprint}")) {
@@ -253,6 +285,32 @@ internal class LlamaCapacityRepository(
         schemaCache.invalidate()
         gatewayCache.invalidate()
     }
+}
+
+/** A gateway may relay measured template proof without exposing its administrative /props surface. */
+internal fun parseGatewayReasoningControl(body: String, capacity: CapacitySnapshot): ReasoningTemplateControl? {
+    if (body.length > 256 * 1024 || capacity.provenance != CapacityProvenance.VERIFIED_ROUTE) return null
+    val root = runCatching { Json.parseToJsonElement(body) as? JsonObject }.getOrNull() ?: return null
+    val selected = root["selectedModel"] as? JsonObject ?: return null
+    val proof = selected["reasoningControl"] as? JsonObject ?: return null
+    fun text(value: JsonObject, key: String) = (value[key] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
+    fun number(key: String) = (proof[key] as? JsonPrimitive)?.takeUnless { it.isString }?.longOrNull
+    val revision = text(selected, "capabilityRevision") ?: return null
+    val instance = text(root, "instanceId") ?: return null
+    if (capacity.fingerprint.runtimeRevision != "$instance:$revision" ||
+        text(selected, "requestedModel") != capacity.fingerprint.requestedModel ||
+        text(selected, "reportedModel") != capacity.fingerprint.resolvedModel ||
+        number("schemaVersion") != 1L ||
+        text(proof, "capabilityRevision") != revision ||
+        text(proof, "evidenceOrigin") != "GATEWAY_OBSERVED_TEMPLATE_PROBE" ||
+        (proof["templateProbeVerified"] as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull != true ||
+        number("observedAtMillis")?.takeIf { it > 0 } == null
+    ) {
+        return null
+    }
+    val digests = listOf("templateDigest", "enabledPromptDigest", "disabledPromptDigest").map { text(proof, it) }
+    if (digests.any { it == null || !it.matches(Regex("[a-f0-9]{64}")) } || digests[1] == digests[2]) return null
+    return ReasoningTemplateControl.entries.singleOrNull { it.parameter == text(proof, "parameter") }
 }
 
 /** n_ctx is the generation allocation in /props; never divide it by total_slots. */

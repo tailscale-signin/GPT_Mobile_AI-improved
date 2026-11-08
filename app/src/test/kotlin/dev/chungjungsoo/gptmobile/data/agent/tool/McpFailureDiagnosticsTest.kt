@@ -28,6 +28,36 @@ class McpFailureDiagnosticsTest {
 
     @After fun clearHealth() = LocalServiceHealth.networkChanged()
 
+    @Test fun rejectedSdkInitializationPreservesIts400StatusAndSafeInitializeRule() = runBlocking {
+        var requests = 0
+        val client = HttpClient(
+            MockEngine {
+                requests++
+                respond("private-body private-token", io.ktor.http.HttpStatusCode.BadRequest)
+            }
+        ) { install(io.ktor.client.plugins.sse.SSE) }
+        val manager = McpClientManager(client, nowMs = { 7_000L })
+        val config = McpConnectionConfig("sdk-schema", "https://sdk-schema.example/mcp", false, configurationRevision = "d".repeat(64))
+        try {
+            val failure = runCatching { manager.listTools(config, awaitCompletion = true) }.exceptionOrNull()
+            assertTrue(failure is McpProtocolConfigurationException)
+            failure as McpProtocolConfigurationException
+            assertEquals(400, failure.httpStatus)
+            assertEquals("INITIALIZE_REQUEST_ACCEPTANCE_REQUIRED", failure.validationRule)
+            assertEquals("initialize", failure.validationField)
+            assertFalse(failure.message.orEmpty().contains("private"))
+            val health = manager.healthSnapshot(config.connectionUid)
+            assertEquals(400, health.lastHttpStatus)
+            assertEquals("initialization", health.failedStage)
+            assertEquals(7_000L, health.lastFailureAtMs)
+            assertEquals("d".repeat(64), health.failureConfigurationRevision)
+            assertEquals(1, requests)
+        } finally {
+            manager.closeAll()
+            client.close()
+        }
+    }
+
     @Test fun protocolFailureKeepsItsCodeWhilePausedAndClearsAfterVerifiedReconnect() = runBlocking {
         var valid = false
         var requests = 0
@@ -42,19 +72,27 @@ class McpFailureDiagnosticsTest {
                 respond(reply(body, result), headers = headersOf("Content-Type", "application/json"))
             }
         )
-        val manager = McpClientManager(client, modern = ModernMcpTransport(client))
-        val config = McpConnectionConfig("protocol", "https://protocol.example/mcp", false)
+        var now = 1_000L
+        val manager = McpClientManager(client, modern = ModernMcpTransport(client), nowMs = { now })
+        val config = McpConnectionConfig("protocol", "https://protocol.example/mcp", false, configurationRevision = "a".repeat(64))
         try {
             val first = runCatching { manager.listTools(config, awaitCompletion = true) }.exceptionOrNull()
             assertTrue(first is McpProtocolConfigurationException)
             assertEquals("MCP_DISCOVERY_SCHEMA_INVALID", manager.healthSnapshot(config.connectionUid).lastErrorCode)
             assertEquals(false, manager.healthSnapshot(config.connectionUid).failureRetryable)
+            assertEquals(200, (first as McpProtocolConfigurationException).httpStatus)
+            assertEquals("PROTOCOL_VERSIONS_NONEMPTY_REQUIRED", first.validationRule)
+            assertEquals("supportedVersions", first.validationField)
+            now = 40_000L
             repeat(3) {
                 assertTrue(runCatching { manager.listTools(config, awaitCompletion = true) }.exceptionOrNull() === first)
             }
             assertEquals(1, requests)
             assertEquals(1, manager.healthSnapshot(config.connectionUid).consecutiveFailures)
             assertEquals("MCP_DISCOVERY_SCHEMA_INVALID", manager.healthSnapshot(config.connectionUid).lastErrorCode)
+            assertEquals(1_000L, manager.healthSnapshot(config.connectionUid).lastFailureAtMs)
+            assertEquals("a".repeat(64), manager.healthSnapshot(config.connectionUid).failureConfigurationRevision)
+            assertEquals(200, manager.healthSnapshot(config.connectionUid).lastHttpStatus)
             val presented = mcpFailurePresentation(requireNotNull(first), manager.healthSnapshot(config.connectionUid))
             assertEquals("outcome=PROTOCOL_CONFIGURATION · errorCode=MCP_DISCOVERY_SCHEMA_INVALID · retryable=false", presented.diagnosticSummary)
             assertTrue(presented.message.contains("supported protocol version list"))
@@ -67,6 +105,10 @@ class McpFailureDiagnosticsTest {
             assertTrue(recovered.toolsReady)
             assertEquals(null, recovered.lastErrorCode)
             assertEquals(null, recovered.failureRetryable)
+            assertEquals(null, recovered.lastHttpStatus)
+            assertEquals(null, recovered.failureConfigurationRevision)
+            assertEquals(null, recovered.lastValidationRule)
+            assertEquals(null, recovered.lastValidationField)
         } finally {
             manager.closeAll()
             client.close()

@@ -337,6 +337,17 @@ class MCPStabilityTests(unittest.TestCase):
             session.call('tools/call', {}, cancel_event=cancelled)
         self.assertIsNone(session.process)
 
+    def test_cancelled_call_preserves_warmed_process_before_dispatch(self):
+        session = self.session('silent')
+        session.ensure_started()
+        process = session.process
+        cancelled = threading.Event(); cancelled.set()
+        with self.assertRaisesRegex(InterruptedError, 'MCP cancelled before dispatch'):
+            session.call('tools/call', {}, cancel_event=cancelled)
+        self.assertEqual(session.calls, 0)
+        self.assertIs(session.process, process)
+        self.assertIsNone(process.poll())
+
     def test_shutdown_prevents_new_mcp_processes(self):
         session = self.session('normal')
         with patch.object(self.runtime, 'gateway_draining', True):
@@ -348,15 +359,19 @@ class MCPStabilityTests(unittest.TestCase):
         session = self.session('silent')
         session.ensure_started()
         cancelled = threading.Event()
-        timer = threading.Timer(0.03, cancelled.set)
-        timer.start()
+        send_json = session._send_json
+
+        def cancel_after_dispatch(request):
+            send_json(request)
+            if request.get('method') == 'tools/call':
+                cancelled.set()
+
         started = time.monotonic()
-        try:
-            with self.assertRaises(InterruptedError):
+        with patch.object(session, '_send_json', side_effect=cancel_after_dispatch):
+            with self.assertRaisesRegex(InterruptedError, 'MCP request cancelled'):
                 session.call('tools/call', {}, absolute_timeout=3, cancel_event=cancelled)
-        finally:
-            timer.join()
         self.assertLess(time.monotonic() - started, 1.5)
+        self.assertEqual(session.calls, 1)
         self.assertIsNone(session.process)
 
     def test_queue_deadline_does_not_dispatch(self):

@@ -64,6 +64,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -78,6 +79,33 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 class ProviderAdaptersTest {
+    @Test fun gatewayReservationCallbackIsKeptOnlyForVisibleConversationRoles() = runBlocking {
+        val reservation: suspend (String) -> Unit = {}
+        val original = RequestConstraints(
+            gatewayConversationKey = "saved-conversation",
+            gatewayConversationId = "canonical-conversation",
+            onGatewayCommandPrepared = reservation
+        )
+        for (role in listOf(null, "primary", "synthesis", "github-review", "requested_length_continuation", "benchmark")) {
+            val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(emptyFlow())))
+            OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
+                .openSession(turns(), platform(ClientType.LLAMA), original.copy(requestRole = role))
+                .streamRound(emptyList(), emptyList()).toList()
+            if (role == null || role in setOf("primary", "synthesis")) {
+                assertSame(reservation, api.configs.single().onGatewayCommandPrepared)
+            } else {
+                assertNull(api.configs.single().onGatewayCommandPrepared)
+                val helper = original.forRole(role)
+                assertNull(helper.gatewayConversationKey)
+                assertNull(helper.gatewayConversationId)
+                assertNull(helper.onGatewayCommandPrepared)
+                assertNull(helper.forRole("primary").onGatewayCommandPrepared)
+            }
+        }
+        assertSame(reservation, original.forRole("primary").withoutTools().onGatewayCommandPrepared)
+        assertSame(reservation, original.forRole("synthesis").onGatewayCommandPrepared)
+    }
+
     @Test fun githubRouteLockDisablesRouterFallbackAndPreservesItsSelectedConnection() = runBlocking {
         val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(emptyFlow())))
         val profile = platform(ClientType.OPENROUTER).copy(model = "selected-model", openRouterRouting = """{"provider":{"allow_fallbacks":true}}""")
@@ -247,6 +275,57 @@ class ProviderAdaptersTest {
         assertTrue(request.tools.isNullOrEmpty())
         assertTrue(requestJson(request).toString().contains("No tools are available for this request"))
         assertEquals("false", api.configs.single().extraHeaders["X-Gateway-Allow-Local-Tools"])
+    }
+
+    @Test fun trailingTransportFailureCannotReplaceAnOriginalStructuredRejection() = runBlocking {
+        val details = kotlinx.serialization.json.buildJsonObject {
+            put("failed_stage", JsonPrimitive("tool_continuation"))
+            put("retryable", JsonPrimitive(false))
+            put("job_id", JsonPrimitive("saved"))
+        }
+        val api = FakeOpenAIAPI(
+            chatRounds = ArrayDeque(
+                listOf(
+                    kotlinx.coroutines.flow.flow {
+                        emit(ChatCompletionChunk(error = dev.chungjungsoo.gptmobile.data.dto.openai.response.ErrorDetail("Return pending results", code = "client_tool_results_required", retryable = false, failureDetails = details)))
+                        throw java.io.IOException("Connection reset")
+                    }
+                )
+            )
+        )
+        val events = OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
+            .openSession(turns(), platform(ClientType.LLAMA)).streamRound(emptyList(), emptyList()).toList()
+        val failure = events.filterIsInstance<ProviderEvent.Failed>().last()
+        assertEquals("CLIENT_TOOL_RESULTS_REQUIRED", failure.errorCode)
+        assertEquals(details, failure.failureDetails)
+        assertEquals("Return pending results", failure.message)
+    }
+
+    @Test fun recoveredPartialAnswerSurvivesItsFailureWithoutExecutingRecoveredCalls() = runBlocking {
+        val chunk = ChatCompletionChunk(
+            gatewayMetadata = GatewayResponseMetadata(jobId = "saved", singleflightRole = "saved_result"),
+            choices = listOf(Choice(delta = Delta(content = "Retained partial answer.", toolCalls = listOf(ChatToolCallDelta(index = 0, id = "must-not-run", function = ChatFunctionDelta(name = "github_write", arguments = "{}")))), finishReason = "tool_calls")),
+            error = dev.chungjungsoo.gptmobile.data.dto.openai.response.ErrorDetail("Saved template rejected", code = "BACKEND_TEMPLATE_INVALID", retryable = false)
+        )
+        val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(flowOf(chunk))))
+        val events = OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
+            .openSession(turns(), platform(ClientType.LLAMA)).streamRound(emptyList(), emptyList()).toList()
+        assertEquals("Retained partial answer.", events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text })
+        assertTrue(events.none { it is ProviderEvent.ToolCall || it is ProviderEvent.Completed })
+        assertEquals("BACKEND_TEMPLATE_INVALID", events.filterIsInstance<ProviderEvent.Failed>().last().errorCode)
+        assertEquals(1, api.chatRequests.size)
+    }
+
+    @Test fun gatewayFinalizationPreservesFailedResultIdsWithoutAdvertisingTools() = runBlocking {
+        val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(flowOf(ChatCompletionChunk(gatewayMetadata = GatewayResponseMetadata(jobId = "saved"))), emptyFlow())))
+        val session = OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder()).openSession(turns(), platform(ClientType.LLAMA))
+        session.streamRound(listOf(definition), emptyList()).toList()
+        session.streamRound(emptyList(), listOf(AgentToolExchange(listOf(call), listOf(result.copy(isError = true))))).toList()
+        val request = api.chatRequests.last()
+        assertEquals("saved", api.configs.last().extraHeaders["X-Gateway-Job-ID"])
+        assertEquals(call.callId, request.messages.last { it.role == dev.chungjungsoo.gptmobile.data.dto.openai.common.Role.TOOL }.toolCallId)
+        assertTrue(request.tools.isNullOrEmpty())
+        assertEquals("none", request.toolChoice)
     }
 
     @Test fun freeContinuationPreservesFullAnswerDigestOutsideTheBoundedWirePrompt() = runBlocking {
@@ -943,15 +1022,15 @@ class ProviderAdaptersTest {
             )
         )
         val adapter = OpenAIResponsesAdapter(api, attachmentEncoder())
-
-        val events = adapter.openSession(turns(), platform(ClientType.OPENAI)).streamRound(emptyList(), emptyList()).toList()
+        val profile = platform(ClientType.OPENAI)
+        val events = adapter.openSession(turns(), profile).streamRound(emptyList(), emptyList()).toList()
 
         assertEquals(
             listOf(ProviderEvent.TextDelta("hello"), ProviderEvent.Completed),
             events
         )
         assertNull(api.responseRequests.single().tools)
-        assertEquals(ProviderRequestConfig("https://provider.example/v1", "secret", profileUid = "profile", providerType = "OPENAI"), api.configs.single())
+        assertEquals(ProviderRequestConfig(profile.apiUrl, profile.token, profileUid = profile.uid, profileName = profile.name, profileRevision = dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.profileRevision(profile), configuredProfileReasoning = profile.reasoning, providerType = "OPENAI"), api.configs.single())
     }
 
     @Test
@@ -1018,35 +1097,123 @@ class ProviderAdaptersTest {
 
     @Test
     fun `llama continuation keeps gateway preferences and forwards job id`() = runBlocking {
-        val expectedHeaders = GatewayPerformancePreferences.headersForSettings(AdvancedSettings())
-        var preferenceReads = 0
-        val encoder = object : ProviderAttachmentEncoder(ContextWrapper(null)) {
-            override fun gatewayPerformanceHeaders(): Map<String, String> {
-                preferenceReads++
-                return expectedHeaders
+        val preferences = GatewayPerformancePreferences.headersForSettings(AdvancedSettings())
+        val modes = listOf(null) + dev.chungjungsoo.gptmobile.data.context.ReasoningMode.entries
+        for (mode in modes) {
+            val effectiveMode = mode ?: dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF
+            val expectedHeaders = if (effectiveMode == dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO) {
+                preferences
+            } else {
+                preferences.filterKeys { !it.equals("X-Gateway-Reasoning-Effort", ignoreCase = true) }
             }
-        }
-        val api = FakeOpenAIAPI(
-            chatRounds = ArrayDeque(
-                listOf(
-                    flowOf(ChatCompletionChunk(gatewayMetadata = GatewayResponseMetadata(jobId = "job-123"))),
-                    emptyFlow()
+            var preferenceReads = 0
+            val encoder = object : ProviderAttachmentEncoder(ContextWrapper(null)) {
+                override fun gatewayPerformanceHeaders(): Map<String, String> {
+                    preferenceReads++
+                    return preferences
+                }
+            }
+            val api = FakeOpenAIAPI(
+                chatRounds = ArrayDeque(
+                    listOf(
+                        flowOf(ChatCompletionChunk(gatewayMetadata = GatewayResponseMetadata(jobId = "job-123"))),
+                        emptyFlow()
+                    )
                 )
             )
+            val profile = platform(ClientType.LLAMA).copy(name = "Local · 東京 🦙")
+            val session = OpenAICompatibleAdapter(api, FakeGroqAPI(), encoder)
+                .openSession(turns(), profile, RequestConstraints(reasoningModeOverride = mode))
+
+            session.streamRound(listOf(definition), emptyList()).toList()
+            session.streamRound(emptyList(), listOf(AgentToolExchange(listOf(call), listOf(result)))).toList()
+
+            assertEquals(1, preferenceReads)
+            assertEquals(4096, api.chatRequests.first().maxTokens)
+            assertEquals(true, api.chatRequests.first().streamOptions?.includeUsage)
+            assertEquals(expectedHeaders + ("X-Gateway-Allow-Local-Tools" to "false"), api.configs.first().extraHeaders)
+            assertEquals(expectedHeaders + mapOf("X-Gateway-Job-ID" to "job-123", "X-Gateway-Allow-Local-Tools" to "false"), api.configs.last().extraHeaders)
+            assertEquals(listOf(effectiveMode, effectiveMode), api.configs.map { it.reasoningMode })
+            assertEquals(listOf(profile.uid, profile.uid), api.configs.map { it.profileUid })
+            assertEquals(listOf(profile.name, profile.name), api.configs.map { it.profileName })
+            assertEquals("none", api.chatRequests.last().toolChoice)
+            assertTrue(api.chatRequests.last().tools.isNullOrEmpty())
+            val finalMessages = api.chatRequests.last().messages
+            assertEquals(call.callId, finalMessages.single { it.role == dev.chungjungsoo.gptmobile.data.dto.openai.common.Role.TOOL }.toolCallId)
+            assertEquals(call.callId, finalMessages.last { it.role == dev.chungjungsoo.gptmobile.data.dto.openai.common.Role.ASSISTANT }.toolCalls!!.single().id)
+        }
+    }
+
+    @Test fun restoredLlamaSessionReturnsPendingResultsToTheOriginalJobBeforeMetadataArrives() = runBlocking {
+        val profile = platform(ClientType.LLAMA).copy(reasoning = true)
+        val saved = dev.chungjungsoo.gptmobile.data.network.gateway.GatewayJobResult(
+            "saved-job",
+            "waiting_for_client_tool",
+            job = dev.chungjungsoo.gptmobile.data.network.gateway.GatewaySavedJob(model = profile.model, jobId = "saved-job", pendingClientToolCallIds = listOf(call.callId)),
+            result = ChatCompletionChunk(model = profile.model, choices = listOf(Choice(message = Delta(toolCalls = listOf(ChatToolCallDelta(id = call.callId, function = ChatFunctionDelta(name = call.name, arguments = call.arguments.toString())))))))
         )
-        val session = OpenAICompatibleAdapter(api, FakeGroqAPI(), encoder)
-            .openSession(turns(), platform(ClientType.LLAMA))
+        val binding = dev.chungjungsoo.gptmobile.data.network.gateway.GatewayContinuationBinding.verified(profile.uid, profile.apiUrl, profile.model, "saved-job", saved)
+        for (isError in listOf(false, true)) {
+            val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(emptyFlow())))
+            OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
+                .openSession(turns(), profile, RequestConstraints(restoredGatewayJob = binding, lockSelectedRoute = true, reasoningModeOverride = dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF))
+                .streamRound(emptyList(), listOf(AgentToolExchange(listOf(call.copy(name = "older_call")), listOf(result)), AgentToolExchange(listOf(call), listOf(result.copy(isError = isError))))).toList()
+            assertEquals("saved-job", api.configs.single().extraHeaders["X-Gateway-Job-ID"])
+            assertEquals(dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF, api.configs.single().reasoningMode)
+            assertEquals(profile.model, api.configs.single().lockedModel)
+            assertEquals(profile.apiUrl, api.configs.single().lockedApiUrl)
+            val request = api.chatRequests.single()
+            assertEquals("none", request.toolChoice)
+            assertTrue(request.tools.isNullOrEmpty())
+            assertEquals(call.callId, request.messages.last { it.role == dev.chungjungsoo.gptmobile.data.dto.openai.common.Role.TOOL }.toolCallId)
+            assertEquals(call.callId, request.messages.last { it.role == dev.chungjungsoo.gptmobile.data.dto.openai.common.Role.ASSISTANT }.toolCalls!!.single().id)
+        }
+        val rejected = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(emptyFlow())))
+        val missing = runCatching {
+            OpenAICompatibleAdapter(rejected, FakeGroqAPI(), attachmentEncoder())
+                .openSession(turns(), profile, RequestConstraints(restoredGatewayJob = binding))
+                .streamRound(emptyList(), emptyList()).toList()
+        }.exceptionOrNull()
+        assertTrue(missing?.message.orEmpty().contains("CLIENT_TOOL_RESULTS_REQUIRED"))
+        assertTrue(rejected.chatRequests.isEmpty())
+        assertNull(RequestConstraints(restoredGatewayJob = binding).forRole("github-review").restoredGatewayJob)
+    }
 
-        session.streamRound(listOf(definition), emptyList()).toList()
-        session.streamRound(emptyList(), listOf(AgentToolExchange(listOf(call), listOf(result)))).toList()
-
-        assertEquals(1, preferenceReads)
-        assertEquals(4096, api.chatRequests.first().maxTokens)
-        assertEquals(true, api.chatRequests.first().streamOptions?.includeUsage)
-        assertEquals(expectedHeaders + ("X-Gateway-Allow-Local-Tools" to "false"), api.configs.first().extraHeaders)
-        assertEquals(expectedHeaders + mapOf("X-Gateway-Job-ID" to "job-123", "X-Gateway-Allow-Local-Tools" to "false"), api.configs.last().extraHeaders)
-        assertEquals("none", api.chatRequests.last().toolChoice)
-        assertTrue(api.chatRequests.last().tools.isNullOrEmpty())
+    @Test fun verifiedTerminalStageKeepsRealUserBoundaryUntilNewJobArrivesThenUsesItsLiveIds() = runBlocking {
+        val original = turns().single().copy(userMessage = MessageV2(content = "Check the repository", platformType = null), isCurrentTurn = false)
+        val continuation = turns().single().copy(userMessage = MessageV2(content = "Continue unfinished work", platformType = null))
+        for (isError in listOf(false, true)) {
+            val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(emptyFlow(), flowOf(ChatCompletionChunk(gatewayMetadata = GatewayResponseMetadata(jobId = "new-job"))), emptyFlow())))
+            val session = OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
+                .openSession(listOf(original, continuation), platform(ClientType.LLAMA), RequestConstraints(gatewayNewStageAfterTerminal = true, lockSelectedRoute = true))
+            val retained = AgentToolExchange(listOf(call), listOf(result.copy(content = ToolResultContent.Text(if (isError) "TOOL_FAILED: retained failure" else "retained success"), isError = isError)))
+            session.streamRound(listOf(definition), listOf(retained)).toList()
+            session.streamRound(listOf(definition), listOf(retained)).toList()
+            val liveCall = call.copy(arguments = buildJsonObject { put("city", "Osaka") }) // Same opaque ID, a new live batch.
+            session.streamRound(emptyList(), listOf(retained, AgentToolExchange(listOf(liveCall), listOf(result)))).toList()
+            for (index in 0..1) {
+                val request = api.chatRequests[index]
+                assertNull(api.configs[index].extraHeaders["X-Gateway-Job-ID"])
+                assertEquals(dev.chungjungsoo.gptmobile.data.dto.openai.common.Role.USER, request.messages.last().role)
+                assertEquals("Continue unfinished work", (request.messages.last().content!!.single() as dev.chungjungsoo.gptmobile.data.dto.openai.common.TextContent).text)
+                assertEquals(1, request.messages.count { message -> message.content.orEmpty().filterIsInstance<dev.chungjungsoo.gptmobile.data.dto.openai.common.TextContent>().any { it.text == "Continue unfinished work" } })
+                assertTrue(request.messages.single { it.role == dev.chungjungsoo.gptmobile.data.dto.openai.common.Role.TOOL }.content.toString().contains(if (isError) "TOOL_FAILED" else "retained success"))
+            }
+            assertEquals("new-job", api.configs.last().extraHeaders["X-Gateway-Job-ID"])
+            val latest = api.chatRequests.last().messages.last { it.role == dev.chungjungsoo.gptmobile.data.dto.openai.common.Role.ASSISTANT }.toolCalls!!.single()
+            assertEquals(call.callId, latest.id)
+            assertEquals(liveCall.arguments.toString(), latest.function.arguments)
+        }
+        for (history in listOf(emptyList(), turns())) {
+            val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(emptyFlow())))
+            val failure = runCatching {
+                OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
+                    .openSession(history, platform(ClientType.LLAMA), RequestConstraints(gatewayNewStageAfterTerminal = true))
+                    .streamRound(emptyList(), listOf(AgentToolExchange(listOf(call), listOf(result)))).toList()
+            }.exceptionOrNull()
+            assertTrue(failure?.message.orEmpty().contains("GATEWAY_NEW_STAGE_BOUNDARY_REQUIRED"))
+            assertTrue(api.chatRequests.isEmpty())
+        }
     }
 
     @Test
@@ -1189,8 +1356,9 @@ class ProviderAdaptersTest {
                 )
             )
         )
+        val profile = platform(ClientType.GROQ)
         val session = OpenAICompatibleAdapter(FakeOpenAIAPI(), groq, attachmentEncoder())
-            .openSession(turns(), platform(ClientType.GROQ))
+            .openSession(turns(), profile)
 
         assertEquals(
             listOf(ProviderEvent.Usage(finishReason = "tool_calls"), call, ProviderEvent.Completed),
@@ -1204,13 +1372,16 @@ class ProviderAdaptersTest {
         val continuation = groq.requests.last().messages.takeLast(2)
         assertEquals("call_exact", continuation[0].toolCalls!!.single().id)
         assertEquals("call_exact", continuation[1].toolCallId)
-        assertEquals(
-            listOf(
-                ProviderRequestConfig("https://provider.example/v1", "secret", profileUid = "profile", providerType = "GROQ"),
-                ProviderRequestConfig("https://provider.example/v1", "secret", profileUid = "profile", providerType = "GROQ")
-            ),
-            groq.configs
+        val expectedConfig = ProviderRequestConfig(
+            "https://provider.example/v1",
+            "secret",
+            profileUid = profile.uid,
+            profileName = profile.name,
+            profileRevision = dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.profileRevision(profile),
+            configuredProfileReasoning = profile.reasoning,
+            providerType = "GROQ"
         )
+        assertEquals(listOf(expectedConfig, expectedConfig), groq.configs)
     }
 
     @Test
@@ -1259,8 +1430,9 @@ class ProviderAdaptersTest {
                 )
             )
         )
+        val profile = platform(ClientType.ANTHROPIC)
         val session = AnthropicMessagesAdapter(api, attachmentEncoder())
-            .openSession(turns(), platform(ClientType.ANTHROPIC))
+            .openSession(turns(), profile)
 
         assertEquals(listOf(call, ProviderEvent.Completed), session.streamRound(listOf(definition), emptyList()).toList())
         assertEquals(
@@ -1272,6 +1444,8 @@ class ProviderAdaptersTest {
         val toolResult = continuation[1].content.single() as dev.chungjungsoo.gptmobile.data.dto.anthropic.common.ToolResultContent
         assertEquals("call_exact", toolUse.id)
         assertEquals("call_exact", toolResult.toolUseId)
+        assertEquals(List(2) { dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.profileRevision(profile) }, api.configs.map { it.profileRevision })
+        assertEquals(List(2) { profile.reasoning }, api.configs.map { it.configuredProfileReasoning })
     }
 
     @Test
@@ -1561,8 +1735,9 @@ class ProviderAdaptersTest {
                 )
             )
         )
+        val profile = platform(ClientType.GOOGLE)
         val session = GeminiAdapter(api, attachmentEncoder())
-            .openSession(turns(), platform(ClientType.GOOGLE))
+            .openSession(turns(), profile)
 
         assertEquals(listOf(call, ProviderEvent.Usage(finishReason = "STOP"), ProviderEvent.Completed), session.streamRound(listOf(definition), emptyList()).toList())
         assertEquals(
@@ -1574,6 +1749,8 @@ class ProviderAdaptersTest {
         val continuation = api.requests.last().contents.takeLast(2)
         assertEquals("call_exact", continuation[0].parts.single().functionCall!!.id)
         assertEquals("call_exact", continuation[1].parts.single().functionResponse!!.id)
+        assertEquals(List(2) { dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.profileRevision(profile) }, api.configs.map { it.profileRevision })
+        assertEquals(List(2) { profile.reasoning }, api.configs.map { it.configuredProfileReasoning })
     }
 
     @Test
@@ -2112,6 +2289,7 @@ class ProviderAdaptersTest {
         private val rounds: ArrayDeque<Flow<GenerateContentResponse>>
     ) : GoogleAPI {
         val requests = mutableListOf<GenerateContentRequest>()
+        val configs = mutableListOf<ProviderRequestConfig>()
 
         override fun streamGenerateContent(
             request: GenerateContentRequest,
@@ -2120,6 +2298,7 @@ class ProviderAdaptersTest {
             config: ProviderRequestConfig
         ): Flow<GenerateContentResponse> {
             requests += request
+            configs += config
             return rounds.removeFirst()
         }
 

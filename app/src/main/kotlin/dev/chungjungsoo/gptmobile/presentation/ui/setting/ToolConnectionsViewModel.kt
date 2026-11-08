@@ -6,6 +6,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.chungjungsoo.gptmobile.data.agent.tool.AgentToolResolver
 import dev.chungjungsoo.gptmobile.data.agent.tool.McpClientManager
 import dev.chungjungsoo.gptmobile.data.agent.tool.McpOAuthCoordinator
+import dev.chungjungsoo.gptmobile.data.agent.tool.mcpConfigurationRevision
 import dev.chungjungsoo.gptmobile.data.agent.tool.mcpFailurePresentation
 import dev.chungjungsoo.gptmobile.data.agent.tool.mcpOAuthConnectionUid
 import dev.chungjungsoo.gptmobile.data.agent.tool.mcpOAuthRedirectUri
@@ -13,6 +14,7 @@ import dev.chungjungsoo.gptmobile.data.database.dao.ToolConnectionDao
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionAuthType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
+import dev.chungjungsoo.gptmobile.data.diagnostics.diagnosticMessageForStorage
 import dev.chungjungsoo.gptmobile.data.model.AppFeature
 import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
@@ -47,13 +49,20 @@ data class ToolConnectionHealth(
     val message: String,
     val checkedAt: Long? = null,
     val errorCode: String? = null,
-    val retryable: Boolean? = null
+    val retryable: Boolean? = null,
+    val failurePhase: String? = null,
+    val validationRule: String? = null,
+    val validationField: String? = null,
+    val httpStatus: Int? = null,
+    val dispatchEvidence: String? = null,
+    val observedAtEpochMs: Long? = null,
+    val configurationRevision: String? = null
 )
 
 @HiltViewModel
 class ToolConnectionsViewModel @Inject constructor(
-    toolConnectionDao: ToolConnectionDao,
-    secretVault: SecretVault,
+    private val toolConnectionDao: ToolConnectionDao,
+    private val secretVault: SecretVault,
     private val oauthCoordinator: McpOAuthCoordinator,
     private val mcpClientManager: McpClientManager,
     private val settingRepository: SettingRepository,
@@ -138,16 +147,27 @@ class ToolConnectionsViewModel @Inject constructor(
     val oauthLaunches: SharedFlow<String> = _oauthLaunches.asSharedFlow()
     private var oauthStartJob: Job? = null
     private var gitHubSetupJob: Job? = null
+    private data class SavedMcpConnection(val connection: ToolConnection, val revision: String?)
+    private data class McpProbe(val saved: SavedMcpConnection, val generation: Long)
+    private val healthLock = Any()
+    private var refreshGeneration = 0L
+    private var probeGeneration = 0L
+    private var savedMcpConnections = emptyMap<String, SavedMcpConnection>()
+    private val mcpProbes = mutableMapOf<String, McpProbe>()
 
     init {
         refresh()
     }
 
     fun refresh(probeHealth: Boolean = false) {
+        val generation = synchronized(healthLock) { ++refreshGeneration }
         _uiState.update { it.copy(errorMessage = null) }
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             runCatching {
                 val connections = toolConnectionRepository.listConnections()
+                val snapshots = connections.filter { it.type == ToolConnectionType.MCP }.associate { connection ->
+                    connection.connectionUid to SavedMcpConnection(connection, mcpConfigurationRevision(connection, secretVault))
+                }
                 val features = settingRepository.getFeatureSettings()
                 val accounts = mutableMapOf<String, dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator.Account>()
                 connections.filter { it.type == ToolConnectionType.GITHUB }.forEach { connection ->
@@ -157,25 +177,42 @@ class ToolConnectionsViewModel @Inject constructor(
                         throw cancelled
                     } catch (_: Exception) { /* One unreadable receipt cannot hide healthy connections. */ }
                 }
-                Triple(connections, features, Triple(accounts, gitHubPublicAuth?.pendingConnectionUid(), gitHubPublicAuth?.canResumeAuthorization() == true))
-            }.onSuccess { (connections, features, github) ->
-                _uiState.update { state ->
-                    state.copy(
-                        connections = connections,
-                        gitHubAccounts = github.first,
-                        gitHubPublicSignInUid = github.second,
-                        gitHubAuthorizationResumable = github.third,
-                        pluginStates = features.toolPluginStates,
-                        remoteMcpEnabled = features.remoteMcpConnections,
-                        connectionHealth = state.connectionHealth.filterKeys { uid ->
-                            connections.any { it.connectionUid == uid }
-                        }
-                    )
+                Triple(connections to snapshots, features, Triple(accounts, gitHubPublicAuth?.pendingConnectionUid(), gitHubPublicAuth?.canResumeAuthorization() == true))
+            }.onSuccess { (saved, features, github) ->
+                val (connections, snapshots) = saved
+                synchronized(healthLock) {
+                    if (generation != refreshGeneration) return@onSuccess
+                    savedMcpConnections = snapshots
+                    mcpProbes.entries.removeAll { (uid, probe) ->
+                        probe.saved != snapshots[uid] || probe.saved.revision == null
+                    }
+                    _uiState.update { state ->
+                        state.copy(
+                            connections = connections,
+                            gitHubAccounts = github.first,
+                            gitHubPublicSignInUid = github.second,
+                            gitHubAuthorizationResumable = github.third,
+                            pluginStates = features.toolPluginStates,
+                            remoteMcpEnabled = features.remoteMcpConnections,
+                            connectionHealth = state.connectionHealth.filterKeys { uid ->
+                                val connection = connections.singleOrNull { it.connectionUid == uid }
+                                connection != null &&
+                                    if (connection.type == ToolConnectionType.MCP) {
+                                        mcpProbes[uid]?.saved == snapshots[uid]
+                                    } else {
+                                        state.connections.singleOrNull { it.connectionUid == uid } == connection
+                                    }
+                            }
+                        )
+                    }
                 }
                 if (probeHealth && features.remoteMcpConnections) {
                     probeConnections(connections)
                 }
-            }.onFailure(::showError)
+            }.onFailure { error ->
+                if (error is kotlinx.coroutines.CancellationException) throw error
+                synchronized(healthLock) { if (generation == refreshGeneration) showError(error) }
+            }
         }
     }
 
@@ -206,7 +243,10 @@ class ToolConnectionsViewModel @Inject constructor(
                 if (enabled) {
                     probeConnections()
                 } else {
-                    _uiState.update { it.copy(connectionHealth = emptyMap()) }
+                    synchronized(healthLock) {
+                        mcpProbes.clear()
+                        _uiState.update { it.copy(connectionHealth = emptyMap()) }
+                    }
                 }
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
@@ -222,6 +262,7 @@ class ToolConnectionsViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations.mutex.withLock {
+                    invalidateConnectionHealth(connection.connectionUid)
                     toolConnectionRepository.upsertConnection(connection.copy(toolPolicy = policy, approvedReadTools = reads.take(16000)))
                 }
                 refresh()
@@ -243,7 +284,8 @@ class ToolConnectionsViewModel @Inject constructor(
         allowCleartext: Boolean,
         clearCredential: Boolean,
         onSuccess: () -> Unit = {},
-        marketplaceProviderId: String? = null
+        marketplaceProviderId: String? = null,
+        probeAfterSave: Boolean = true
     ) {
         val normalizedAlias = normalizeAlias(alias)
         if (!isValidAlias(normalizedAlias)) {
@@ -297,6 +339,7 @@ class ToolConnectionsViewModel @Inject constructor(
             } else {
                 null
             }
+            var probeTarget: Result<ToolConnection?>? = null
             runCatching {
                 val shouldClearCredential = shouldClearCredential(
                     existingType = existing?.type,
@@ -305,6 +348,7 @@ class ToolConnectionsViewModel @Inject constructor(
                     clearCredential = clearCredential
                 )
                 dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations.mutex.withLock {
+                    invalidateConnectionHealth(connection.connectionUid)
                     toolConnectionRepository.upsertConnection(
                         connection = connection,
                         credential = credentialBytes,
@@ -314,11 +358,24 @@ class ToolConnectionsViewModel @Inject constructor(
                         val updated = settingRepository.mutateFeatureSettings { it.withToolPluginEnabled(ToolPluginId.connection(connection.connectionUid), false) }
                         _uiState.update { it.copy(pluginStates = updated.toolPluginStates) }
                     }
+                    if (probeAfterSave) {
+                        // Bind auto-check permission before releasing the save mutex. A later
+                        // edit must not inherit this save's permission to contact a server.
+                        probeTarget = runCatching {
+                            toolConnectionRepository.getConnection(connection.connectionUid)?.also { saved ->
+                                if (saved.type == ToolConnectionType.MCP) {
+                                    val snapshot = SavedMcpConnection(saved, mcpConfigurationRevision(saved, secretVault))
+                                    synchronized(healthLock) { savedMcpConnections = savedMcpConnections + (saved.connectionUid to snapshot) }
+                                }
+                            }
+                        }
+                    }
                 }
             }.onSuccess {
                 runCatching { mcpClientManager.close(connection.connectionUid) }
                 refresh()
-                probeConnection(connection)
+                // Persistence can replace secretRef or protect endpoint query values.
+                probeTarget?.onSuccess { saved -> saved?.let(::probeConnection) }?.onFailure(::showError)
                 onSuccess()
             }.onFailure(::showError)
         }
@@ -328,6 +385,7 @@ class ToolConnectionsViewModel @Inject constructor(
         if (_uiState.value.gitHubSignIn?.connectionUid == connectionUid) cancelGitHubSignIn()
         viewModelScope.launch {
             runCatching {
+                invalidateConnectionHealth(connectionUid)
                 mcpClientManager.close(connectionUid)
                 revokeToolGrants(connectionUid)
                 dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations.mutex.withLock {
@@ -403,74 +461,139 @@ class ToolConnectionsViewModel @Inject constructor(
             .filter { it.type == ToolConnectionType.MCP }
             .filter { force || (features.value.remoteMcpConnections && features.value.isToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolServiceCatalog.forConnection(it).id) && features.value.isToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.connection(it.connectionUid))) }
             .forEach { connection ->
-                val previous = _uiState.value.connectionHealth[connection.connectionUid]
-                val recentlyChecked = previous?.checkedAt?.let { System.currentTimeMillis() - it < 30_000 } == true
-                if (previous?.status == ToolConnectionHealthStatus.CHECKING || (!force && recentlyChecked)) {
-                    return@forEach
-                }
-                _uiState.update { state ->
-                    state.copy(
-                        connectionHealth = state.connectionHealth + mapOf(
-                            connection.connectionUid to ToolConnectionHealth(
-                                status = ToolConnectionHealthStatus.CHECKING,
-                                message = "Checking Streamable HTTP server…"
-                            )
-                        )
-                    )
-                }
+                val probe = beginMcpProbe(connection, force) ?: return@forEach
                 viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                    val health = runCatching { resolver.discoverMcpTools(connection, forceRefresh = force, awaitCompletion = true) }
-                        .fold(
-                            onSuccess = { tools ->
-                                if (tools.isEmpty()) {
+                    try {
+                        // Re-read both persistence boundaries after entering IO. A UI row
+                        // check alone cannot authorize an endpoint or credential edited meanwhile.
+                        if (!matchesSavedMcpConnection(probe)) {
+                            discardMcpProbe(probe)
+                            return@launch
+                        }
+                        val health = runCatching { resolver.discoverMcpTools(connection, forceRefresh = force, awaitCompletion = true) }
+                            .fold(
+                                onSuccess = { tools ->
+                                    if (tools.isEmpty()) {
+                                        ToolConnectionHealth(
+                                            status = ToolConnectionHealthStatus.LIMITED,
+                                            toolCount = 0,
+                                            message = "No tools advertised; tool execution not measured.",
+                                            checkedAt = System.currentTimeMillis(),
+                                            configurationRevision = probe.saved.revision
+                                        )
+                                    } else {
+                                        ToolConnectionHealth(
+                                            status = ToolConnectionHealthStatus.ONLINE,
+                                            toolCount = tools.size,
+                                            message = "Discovery returned ${tools.size} tool entries. This connection check did not execute tools.",
+                                            checkedAt = System.currentTimeMillis(),
+                                            configurationRevision = probe.saved.revision
+                                        )
+                                    }
+                                },
+                                onFailure = { error ->
+                                    if (error is kotlinx.coroutines.CancellationException) throw error
+                                    val observedHealth = mcpClientManager.healthSnapshot(connection.connectionUid)
+                                    val failure = mcpFailurePresentation(error, observedHealth)
                                     ToolConnectionHealth(
-                                        status = ToolConnectionHealthStatus.LIMITED,
-                                        toolCount = 0,
-                                        message = "No tools advertised; tool execution not measured.",
-                                        checkedAt = System.currentTimeMillis()
-                                    )
-                                } else {
-                                    ToolConnectionHealth(
-                                        status = ToolConnectionHealthStatus.ONLINE,
-                                        toolCount = tools.size,
-                                        message = "Schema discovery ready. Tool execution: " + when (mcpClientManager.healthSnapshot(connection.connectionUid).executionVerified) {
-                                            true -> "Observed success"
-                                            false -> "Observed failure"
-                                            null -> "Not measured"
+                                        status = if (failure.authenticationRequired) {
+                                            ToolConnectionHealthStatus.LIMITED
+                                        } else {
+                                            ToolConnectionHealthStatus.OFFLINE
                                         },
-                                        checkedAt = System.currentTimeMillis()
+                                        message = failure.message,
+                                        checkedAt = System.currentTimeMillis(),
+                                        errorCode = failure.errorCode,
+                                        retryable = failure.retryable,
+                                        failurePhase = failure.phase,
+                                        validationRule = failure.validationRule,
+                                        validationField = failure.validationField,
+                                        httpStatus = failure.httpStatus,
+                                        dispatchEvidence = failure.dispatchEvidence,
+                                        observedAtEpochMs = failure.observedAtEpochMs,
+                                        configurationRevision = failure.configurationRevision
                                     )
                                 }
-                            },
-                            onFailure = { error ->
-                                if (error is kotlinx.coroutines.CancellationException) throw error
-                                val observedHealth = mcpClientManager.healthSnapshot(connection.connectionUid)
-                                val failure = mcpFailurePresentation(error, observedHealth)
-                                ToolConnectionHealth(
-                                    status = if (failure.authenticationRequired) {
-                                        ToolConnectionHealthStatus.LIMITED
-                                    } else {
-                                        ToolConnectionHealthStatus.OFFLINE
-                                    },
-                                    message = failure.message,
-                                    checkedAt = System.currentTimeMillis(),
-                                    errorCode = failure.errorCode,
-                                    retryable = failure.retryable
-                                )
-                            }
-                        )
-                    _uiState.update { state ->
-                        state.copy(
-                            connectionHealth = state.connectionHealth + mapOf(
-                                connection.connectionUid to health
                             )
-                        )
+                        if (!matchesSavedMcpConnection(probe)) {
+                            discardMcpProbe(probe)
+                            return@launch
+                        }
+                        synchronized(healthLock) {
+                            if (mcpProbes[connection.connectionUid] == probe) {
+                                _uiState.update { state -> state.copy(connectionHealth = state.connectionHealth + (connection.connectionUid to health)) }
+                            }
+                        }
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                        discardMcpProbe(probe, message = null)
+                        throw cancelled
+                    } catch (error: Exception) {
+                        discardMcpProbe(probe, message = safeToolConnectionError(error.message))
                     }
                 }
             }
     }
 
     fun probeConnection(connection: ToolConnection) = probeConnections(listOf(connection), force = true)
+
+    private fun beginMcpProbe(connection: ToolConnection, force: Boolean): McpProbe? = synchronized(healthLock) {
+        val uid = connection.connectionUid
+        val saved = savedMcpConnections[uid]
+        if (saved?.connection != connection) {
+            _uiState.update { it.copy(errorMessage = "The saved connection changed. Refresh it before checking again.") }
+            return@synchronized null
+        }
+        val previous = _uiState.value.connectionHealth[uid]
+        val recentlyChecked = previous?.checkedAt?.let { System.currentTimeMillis() - it < 30_000 } == true
+        if (previous?.status == ToolConnectionHealthStatus.CHECKING || (!force && recentlyChecked)) return@synchronized null
+        val probe = McpProbe(saved, ++probeGeneration)
+        mcpProbes[uid] = probe
+        val health = if (saved.revision == null) {
+            ToolConnectionHealth(
+                status = ToolConnectionHealthStatus.LIMITED,
+                message = "Saved credential identity could not be verified. No request was sent. Save credentials or sign in, refresh, then check again.",
+                errorCode = "PLUGIN_CREDENTIAL_IDENTITY_UNAVAILABLE",
+                retryable = false,
+                failurePhase = "local_validation",
+                dispatchEvidence = "NOT_DISPATCHED"
+            )
+        } else {
+            ToolConnectionHealth(status = ToolConnectionHealthStatus.CHECKING, message = "Checking Streamable HTTP server…")
+        }
+        _uiState.update { it.copy(connectionHealth = it.connectionHealth + (uid to health), errorMessage = null) }
+        probe.takeIf { saved.revision != null }
+    }
+
+    private suspend fun matchesSavedMcpConnection(probe: McpProbe): Boolean {
+        val connection = probe.saved.connection
+        if (synchronized(healthLock) { mcpProbes[connection.connectionUid] != probe }) return false
+        if (toolConnectionDao.getConnection(connection.connectionUid) != connection) return false
+        val revision = mcpConfigurationRevision(connection, secretVault)
+        return revision != null &&
+            revision == probe.saved.revision &&
+            toolConnectionDao.getConnection(connection.connectionUid) == connection &&
+            synchronized(healthLock) { mcpProbes[connection.connectionUid] == probe }
+    }
+
+    private fun discardMcpProbe(probe: McpProbe, message: String? = "The saved connection changed. Refresh it before checking again.") {
+        synchronized(healthLock) {
+            val uid = probe.saved.connection.connectionUid
+            if (mcpProbes[uid] != probe) return
+            mcpProbes.remove(uid)
+            savedMcpConnections = savedMcpConnections - uid
+            _uiState.update { it.copy(connectionHealth = it.connectionHealth - uid, errorMessage = message ?: it.errorMessage) }
+        }
+    }
+
+    private fun invalidateConnectionHealth(connectionUid: String) {
+        synchronized(healthLock) {
+            // A refresh started before this mutation cannot restore its old rows or health.
+            ++refreshGeneration
+            mcpProbes.remove(connectionUid)
+            savedMcpConnections = savedMcpConnections - connectionUid
+            _uiState.update { it.copy(connectionHealth = it.connectionHealth - connectionUid) }
+        }
+    }
 
     /** GitHub mode's first-run setup reuses the same verified OAuth flow as Plugins. */
     fun connectGitHub(clientId: String = dev.chungjungsoo.gptmobile.BuildConfig.GITHUB_OAUTH_CLIENT_ID) {
@@ -525,9 +648,9 @@ class ToolConnectionsViewModel @Inject constructor(
         }
     }
 
-    fun startOAuth(connectionUid: String) {
+    fun startOAuth(connectionUid: String, expectedConnection: ToolConnection? = null) {
         if (oauthStartJob?.isActive == true) return
-        if (_uiState.value.connections.any { it.connectionUid == connectionUid && it.type == ToolConnectionType.GITHUB }) {
+        if (expectedConnection == null && _uiState.value.connections.any { it.connectionUid == connectionUid && it.type == ToolConnectionType.GITHUB }) {
             startGitHubSignIn(connectionUid)
             return
         }
@@ -535,7 +658,12 @@ class ToolConnectionsViewModel @Inject constructor(
             _uiState.update { it.copy(isOAuthBusy = true, errorMessage = null) }
             runCatching {
                 check(gitHubPublicAuth?.pendingConnectionUid() == null) { "Complete or cancel the pending GitHub sign-in first." }
-                oauthCoordinator.begin(connectionUid, mcpOAuthRedirectUri(connectionUid))
+                if (expectedConnection != null) {
+                    check(expectedConnection.connectionUid == connectionUid && toolConnectionDao.getConnection(connectionUid) == expectedConnection) {
+                        "The saved connection changed. Refresh it before starting sign-in."
+                    }
+                }
+                oauthCoordinator.begin(connectionUid, mcpOAuthRedirectUri(connectionUid), expectedConnection)
             }
                 .onSuccess { authorizationUri -> _oauthLaunches.emit(authorizationUri) }
                 .onFailure(::showError)
@@ -710,11 +838,11 @@ class ToolConnectionsViewModel @Inject constructor(
 
     fun failOAuthLaunch(message: String = "No browser is available for OAuth authorization.") {
         if (_uiState.value.gitHubPublicSignInUid != null) cancelGitHubSignIn()
-        _uiState.update { it.copy(isOAuthBusy = false, errorMessage = message) }
+        _uiState.update { it.copy(isOAuthBusy = false, errorMessage = safeToolConnectionError(message)) }
     }
 
     private fun showError(error: Throwable) {
-        _uiState.update { it.copy(errorMessage = error.message ?: "Tool connection update failed.") }
+        _uiState.update { it.copy(errorMessage = safeToolConnectionError(error.message)) }
     }
 
     data class ToolConnectionsUiState(
@@ -765,6 +893,10 @@ class ToolConnectionsViewModel @Inject constructor(
         }.getOrDefault(false)
     }
 }
+
+internal fun safeToolConnectionError(message: String?): String = message?.takeIf(String::isNotBlank)
+    ?.let { diagnosticMessageForStorage(it).take(2_048) }
+    ?: "Tool connection update failed."
 
 internal fun ToolConnection.preservingPolicyFrom(existing: ToolConnection?): ToolConnection = copy(
     toolPolicy = existing?.toolPolicy ?: toolPolicy,

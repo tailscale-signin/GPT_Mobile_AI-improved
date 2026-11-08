@@ -8,6 +8,50 @@ import org.junit.Test
 class GitHubOperationArgumentsTest {
     private fun args(value: String) = Json.parseToJsonElement(value) as JsonObject
 
+    @Test fun boundedCountAndEofReadsNeedNoPreviouslyDiscoveredLineCount() {
+        for (range in listOf("""{"path":"README.md","start_line":20,"max_lines":40}""", """{"path":"README.md","start_line":20,"end_line":-1}""", """{"path":"README.md"}""")) {
+            val input = args("""{"ranges":[$range]}""")
+            assertTrue(range, GitHubOperationArguments.errors("github_read", input).isEmpty())
+            assertTrue(range, dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator.errors(input, GitHubOperationTool.definition("github_read").inputSchema).isEmpty())
+            assertTrue(GitHubOperationTool.nativeArguments("github_read", input)?.get("ranges") == input["ranges"])
+        }
+        for (range in listOf("""{"path":"README.md","max_lines":0}""", """{"path":"README.md","max_lines":2001}""", """{"path":"README.md","end_line":0}""", """{"path":"README.md","end_line":-2}""", """{"path":"README.md","end_line":-1,"max_lines":20}""")) {
+            assertTrue(range, GitHubOperationArguments.errors("github_read", args("""{"ranges":[$range]}""")).isNotEmpty())
+        }
+    }
+
+    @Test fun boundedCheckWaitIsOptionalAndRejectsUnboundedOrMalformedIntervals() {
+        for (timeout in listOf("", ",\"wait_timeout_seconds\":1", ",\"wait_timeout_seconds\":30")) {
+            val input = args("""{"run_id":9$timeout}""")
+            assertTrue(GitHubOperationArguments.errors("github_watch_checks", input).isEmpty())
+            assertTrue(dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator.errors(input, GitHubOperationTool.definition("github_watch_checks").inputSchema).isEmpty())
+        }
+        for (timeout in listOf("0", "31", "60", "-1", "1.5", "\"30\"")) {
+            val input = args("""{"run_id":9,"wait_timeout_seconds":$timeout}""")
+            assertTrue(dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator.errors(input, GitHubOperationTool.definition("github_watch_checks").inputSchema).isNotEmpty())
+        }
+    }
+
+    @Test fun sourceRangeNumbersAndFieldsCannotBeCoercedIntoDefaultReads() {
+        for (range in listOf(
+            """{"path":"README.md","start_line":"1"}""",
+            """{"path":"README.md","end_line":null}""",
+            """{"path":"README.md","max_lines":"20"}""",
+            """{"path":"README.md","start_offset":"0"}""",
+            """{"path":"README.md","start_offset":null}""",
+            """{"path":"README.md","start_offset":1.5}""",
+            """{"path":"README.md","start_offset":-1}""",
+            """{"path":"README.md","start_offset":2147483648}""",
+            """{"path":"README.md","endLine":20}""",
+            "null"
+        )) {
+            val request = args("{\"ranges\":[$range]}")
+            assertTrue(range, GitHubOperationArguments.errors("github_read", request).isNotEmpty())
+            assertTrue(range, dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator.errors(request, GitHubOperationTool.definition("github_read").inputSchema).isNotEmpty())
+        }
+        assertTrue(GitHubOperationArguments.errors("github_read", args("""{"evidence_id":"saved","ranges":false}""")).isNotEmpty())
+    }
+
     @Test fun placeholderCommitIsRejectedForLookupAndReadsButRealHeadsRemainUsable() {
         for (operation in listOf("github_context", "github_read")) {
             val extra = if (operation == "github_read") ",\"ranges\":[{\"path\":\"README.md\",\"start_line\":1,\"end_line\":30}]" else ""

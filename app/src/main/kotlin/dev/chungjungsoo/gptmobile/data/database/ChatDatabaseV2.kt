@@ -47,6 +47,14 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
         dev.chungjungsoo.gptmobile.data.memory.v2.MemoryStoreStateEntity::class,
         dev.chungjungsoo.gptmobile.data.memory.v2.MemoryRecordEntity::class,
         ChatRoomV2::class,
+        dev.chungjungsoo.gptmobile.data.database.entity.GatewayJobRecord::class,
+        dev.chungjungsoo.gptmobile.data.database.entity.GatewayConversationRecord::class,
+        dev.chungjungsoo.gptmobile.data.database.entity.GatewayMessageRecord::class,
+        dev.chungjungsoo.gptmobile.data.database.entity.GatewayMessagePartRecord::class,
+        dev.chungjungsoo.gptmobile.data.database.entity.GatewayEngineeringBindingRecord::class,
+        dev.chungjungsoo.gptmobile.data.database.entity.GatewayEngineeringEventRecord::class,
+        dev.chungjungsoo.gptmobile.data.database.entity.GatewaySubmissionRecord::class,
+        dev.chungjungsoo.gptmobile.data.database.entity.GatewayMigrationRecord::class,
         dev.chungjungsoo.gptmobile.data.workspace.WorkspaceRecord::class,
         MessageV2::class,
         dev.chungjungsoo.gptmobile.data.database.entity.CombinedFinalMessage::class,
@@ -81,7 +89,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
         dev.chungjungsoo.gptmobile.data.memory.MemoryGraphObservationRecord::class,
         dev.chungjungsoo.gptmobile.data.memory.MemoryGraphRelationRecord::class
     ],
-    version = 49,
+    version = 51,
     exportSchema = true
 )
 @TypeConverters(
@@ -94,6 +102,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
     CombinedModelResponseListConverter::class
 )
 abstract class ChatDatabaseV2 : RoomDatabase() {
+    abstract fun gatewayJobDao(): dev.chungjungsoo.gptmobile.data.database.dao.GatewayJobDao
     abstract fun marketplaceSavesDao(): dev.chungjungsoo.gptmobile.data.universalmarketplace.MarketplaceSavesDao
     abstract fun replyPublicationDao(): dev.chungjungsoo.gptmobile.data.chat.ReplyPublicationDao
     abstract fun conversationFolderDao(): dev.chungjungsoo.gptmobile.data.chat.ConversationFolderDao

@@ -1,0 +1,80 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "3ac89ceafd9083f67da30e92f9f93aae27be4600",
+  "working_branch": "fix/diagnostic-remediation-8597579-2026-11-07",
+  "starting_head": "9b0dc9860858b3ef55008723ac63fe992e8c4aca",
+  "parent_pr": 813,
+  "intent": "Resolve remaining diagnostic findings and the supplied 120-check audit review: typed MCP authentication/local validation and protocol diagnostics, actionable repair navigation and honest fresh execution evidence, plus remaining GitHub diagnostic routing and current-head validation.",
+  "state": "LOCAL_VALIDATED_READY_FOR_PUBLICATION",
+  "task_store": "The existing engineering Room task store requires the installed Android application. This versioned development checkpoint records repository work without fabricating runtime receipts.",
+  "preservation": [
+    "Preserve all concurrent repairs through starting_head; reconcile remote head before publication.",
+    "Refresh OAuth only once for a confirmed HTTP 401; retain 403 and uncertain mutation outcomes without replay.",
+    "Keep configuration, fixtures, discovery, execution and device evidence distinct; optional absence is not failure.",
+    "Never claim affected MCP targets repaired without fresh exact-configuration discovery and authorized execution evidence.",
+    "Do not store private audit contents, credentials, unrestricted responses or connection names in the repository."
+  ],
+  "validation": {
+    "github_continuity_and_narrator": {
+      "red_tests": 6,
+      "tests_passed_after_fix": 53,
+      "production_sources": 95,
+      "scope": "Actual production Kotlin source with explicitly inventoried host Android/provider boundaries; not Android or live GitHub acceptance."
+    },
+    "current_head_android": "Required on the final published source tree. No local Android SDK/device or affected private-service access; ancestor checks do not qualify these changes.",
+    "mcp": {
+      "tests_passed": 94,
+      "test_classes": 13,
+      "repository_sources": 37,
+      "compiled_sources": 51,
+      "source_drift": 0,
+      "scope": "Actual MCP manager, transports, OAuth, validation, diagnostics and revision helpers; explicit Android/persistence/telemetry host boundaries. Three full resolver wiring regressions require Android CI."
+    },
+    "audit_core": {
+      "tests_passed": 73,
+      "scope": "Actual audit models, catalog, runner, lifecycle, plugin source, export, qualification and pure presentation; explicit host dependencies. No live execution inferred."
+    },
+    "connection_viewmodel": {
+      "tests_passed": 35,
+      "new_behavior_regressions": 11,
+      "production_sources": 33,
+      "source_drift": 0,
+      "scope": "Actual ViewModel/repository/DAO/MCP/privacy/revision with explicit lifecycle/settings/resolver/provider boundaries."
+    },
+    "canonical_fast": {
+      "command": "bash scripts/validate-local.sh fast",
+      "tests_passed": 398,
+      "literal_regex_checks": 1284,
+      "dynamic_regex_skipped": 77,
+      "xml_files": 30,
+      "exit_code": 0
+    },
+    "formatting": {
+      "changed_kotlin_files": 53,
+      "tool": "ktlint 1.3.1",
+      "exit_code": 0
+    },
+    "metadata": {
+      "source_inventory_files": 2244,
+      "source_areas": 26,
+      "exact_allowed_release_paths": 1048,
+      "line_coverage_available": false
+    },
+    "audit_services": {
+      "tests_passed": 28,
+      "scope": "Entire AppAuditPluginServicesTest class against current audit, MCP revision/presentation and gateway route sources with explicit HTTP-client/Android host boundaries. Reproduced two behavior regressions corrected; four initial host-boundary failures resolved without production changes."
+    }
+  },
+  "remote_mutations": [],
+  "integrated_remote_head": "515d9b064eda674feaea1f411b1ee8d4af4a7d0d",
+  "publication_contract": {
+    "expected_parent": "515d9b064eda674feaea1f411b1ee8d4af4a7d0d",
+    "verify_remote_tree_matches_local": true,
+    "lease_required": true,
+    "force": false,
+    "merge_requested_in_this_task": false,
+    "release_requested_in_this_task": false
+  }
+}

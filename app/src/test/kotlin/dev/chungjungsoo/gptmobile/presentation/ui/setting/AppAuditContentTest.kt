@@ -36,6 +36,9 @@ import dev.chungjungsoo.gptmobile.data.audit.AppAuditRun
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkBatch
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkBatchState
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkMode
+import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
+import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionAuthType
+import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -192,5 +195,58 @@ class AppAuditContentTest {
         compose.waitForIdle()
         compose.onNodeWithText("Current saved name unavailable; the historical target alias is retained.").assertExists()
         compose.onNodeWithText("Target: target-1").assertExists()
+    }
+
+    @Test fun cachedFailureShowsRepairRouteForOnlyItsExactCurrentConnection() {
+        val entry = auditEntry("catalog", AppAuditEvidenceKind.LIVE_METADATA).copy(targetId = "connection:accepted")
+        val result = auditResult(entry, AppAuditOutcome.BLOCKED, AppAuditObservationSource.CACHE, attempted = false, reason = "MCP_DISCOVERY_SCHEMA_INVALID")
+            .let { it.copy(observation = it.observation.copy(retryable = false)) }
+        val run = auditRun(listOf(entry), listOf(result))
+        var names by mutableStateOf(mapOf("connection:accepted" to "Saved connection"))
+        var opened: String? = null
+        show { AppAuditEntryCard(appAuditPresentation(run, names).components.single().entries.single()) { opened = it } }
+        compose.onNodeWithText("This is a retained observation.", substring = true).assertExists()
+        compose.onNodeWithText("Open connection settings and checks").scrollIntoView().performClick()
+        assertEquals("accepted", opened)
+        compose.onNodeWithText("Evidence details").scrollIntoView().performClick()
+        compose.onNodeWithText("Diagnostic code: MCP_DISCOVERY_SCHEMA_INVALID").assertExists()
+        compose.onNodeWithText("Retryable: no automatic retry.", substring = true).assertExists()
+        compose.onNodeWithText("Original observation time: not recorded.", substring = true).assertExists()
+        compose.onNodeWithText("Observed configuration revision: not recorded.", substring = true).assertExists()
+        compose.runOnIdle { names = mapOf("connection:replacement" to "Saved connection") }
+        compose.waitForIdle()
+        compose.onNodeWithText("Open connection settings and checks").assertDoesNotExist()
+    }
+
+    @Test fun openingConnectionRepairDoesNotDispatchAndOnlyTheExplicitCheckRuns() {
+        val connection = ToolConnection(connectionUid = "accepted", name = "Saved MCP", alias = "saved_mcp", type = ToolConnectionType.MCP, endpointUrl = "https://fixture.invalid/mcp", authType = ToolConnectionAuthType.OAUTH, secretRef = null, oauthClientId = null)
+        var checks = 0
+        var signIns = 0
+        var edits = 0
+        var health by mutableStateOf<ToolConnectionHealth?>(null)
+        show {
+            AuditConnectionRepairContent(connection, health, busy = false, onEdit = { edits++ }, onCheck = {
+                checks++
+                health = ToolConnectionHealth(ToolConnectionHealthStatus.CHECKING, message = "Checking saved discovery")
+            }, onSignIn = { signIns++ })
+        }
+        assertEquals(0, checks)
+        assertEquals(0, signIns)
+        compose.onNodeWithText("Edit saved connection").scrollIntoView().performClick()
+        assertEquals(1, edits)
+        compose.onNodeWithText("Reconnect and check again").scrollIntoView().performClick()
+        compose.onNodeWithText("Checking connection…").assertIsNotEnabled()
+        compose.onNodeWithText("Sign in again").assertIsNotEnabled()
+        assertEquals(1, checks)
+        assertEquals(0, signIns)
+    }
+
+    @Test fun missingSavedConnectionHasNoRepairActionsOrFallbackTarget() {
+        var actions = 0
+        show { AuditConnectionRepairContent(null, null, busy = false, onEdit = { actions++ }, onCheck = { actions++ }, onSignIn = { actions++ }) }
+        compose.onNodeWithText("This saved connection is no longer available.", substring = true).assertExists()
+        compose.onNodeWithText("Reconnect and check again").assertDoesNotExist()
+        compose.onNodeWithText("Edit saved connection").assertDoesNotExist()
+        assertEquals(0, actions)
     }
 }

@@ -199,7 +199,7 @@ class ToolApprovalManager @Inject constructor(private val database: ChatDatabase
         val policy = runCatching { ToolPolicy.valueOf(connection.toolPolicy) }.getOrDefault(ToolPolicy.ASK_WRITES)
         val githubRead = tool != "github" ||
             GitHubAuthorizationBoundary.isReplayableRead(tool, arguments) ||
-            (arguments["action"] as? kotlinx.serialization.json.JsonPrimitive)?.content == "stage_patch"
+            GitHubAuthorizationBoundary.isLocalPatchStaging(tool, arguments)
         val replayableRead = connection.type == "GITHUB" && GitHubAuthorizationBoundary.isReplayableRead(tool, arguments)
         val branchSelection = github && GitHubAuthorizationBoundary.isBranchSelection(tool, arguments)
         val readOnly = githubRead && tool in connection.approvedReadTools.lines().map(String::trim)

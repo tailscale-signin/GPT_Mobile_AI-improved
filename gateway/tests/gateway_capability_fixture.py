@@ -1,6 +1,6 @@
 """Capture the complete capability body through a real local gateway HTTP route.
 
-Only build.sourceCommit and instanceId are normalized. The application router,
+Only build.sourceCommit, instanceId and installation gateway_id are normalized. The application router,
 middleware, response encoder, package validation and startup lifecycle stay real.
 """
 import copy
@@ -29,12 +29,18 @@ LEGACY_FIXTURE = RESOURCE_ROOT / 'gateway-v15-capabilities-legacy-mixed.json'
 
 
 def normalized_capabilities(payload):
-    """Retain every response field, replacing only unstable build/instance IDs."""
+    """Retain every response field, replacing only fresh test build/process/installation IDs."""
     result = copy.deepcopy(payload)
     if not re.fullmatch(r'[a-f0-9]{40}', result['build']['sourceCommit']):
         raise AssertionError('Capability build sourceCommit must be a SHA-1 identity')
     if not re.fullmatch(r'[a-f0-9]{32}', result['instanceId']):
         raise AssertionError('Capability instanceId must be a generated instance identity')
+    if not re.fullmatch(r'gw_[a-f0-9]{32}', result['gateway_id']):
+        raise AssertionError('Capability gateway_id must identify the durable installation')
+    if result.get('gatewayId') != result['gateway_id']:
+        raise AssertionError('Compatibility gatewayId must identify the same installation')
+    result['gateway_id'] = 'gw_' + '0' * 32
+    result['gatewayId'] = result['gateway_id']
     result['build']['sourceCommit'] = '0' * 40
     result['instanceId'] = '0' * 32
     return result

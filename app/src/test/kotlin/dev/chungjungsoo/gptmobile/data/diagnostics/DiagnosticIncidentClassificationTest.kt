@@ -128,4 +128,46 @@ class DiagnosticIncidentClassificationTest {
         assertEquals("speech_engine_lifecycle", classifyDiagnostic("W", "Android", "W/TextToSpeech: stop failed: not bound to TTS engine").category)
         assertEquals("fatal", classifyDiagnostic("F", "Android", "Feedback manager requires a model with a single signature").category)
     }
+
+    @Test fun debugStrictModeSocketCleanupIsActionableAndKeepsFatalPrecedence() {
+        val message = "eventId=network-1 · D/StrictMode: android.os.strictmode.NetworkViolation at ConnectionPool.evictAll"
+        val result = classifyDiagnostic("D", "Android", message)
+        assertEquals("main_thread_network_io", result.category)
+        assertEquals("move_network_and_socket_cleanup_to_io", result.recovery)
+        assertTrue(result.actionable)
+        assertEquals("fatal", classifyDiagnostic("F", "Android", message).category)
+        assertFalse(classifyDiagnostic("D", "Network", "Ordinary socket cleanup complete").actionable)
+    }
+
+    @Test fun structuredGatewayAdmissionFailuresSelectSpecificRepairsWithoutGuessingCredentials() {
+        val expected = mapOf(
+            "remote_surface_not_admitted" to "verify_gateway_source_and_saved_work_contract",
+            "scope_not_granted" to "check_original_gateway_scope",
+            "transport_identity_required" to "check_configured_gateway_transport_identity",
+            "CONTINUITY_IDENTITY_MISMATCH" to "restore_original_gateway_identity"
+        )
+        for ((code, recovery) in expected) {
+            val result = classifyDiagnostic("D", "Gateway", "ADMISSION_READ · surface=IDENTITY · httpStatus=403 · code=$code · dependentDispatch=NOT_DISPATCHED")
+            assertEquals("gateway_admission", result.category)
+            assertEquals(recovery, result.recovery)
+            assertTrue(result.actionable)
+        }
+        val legacy = classifyDiagnostic("D", "Network", "RESPONSE HEADERS\n-> x-gateway-admission-error: remote_surface_not_admitted")
+        assertEquals("verify_gateway_source_and_saved_work_contract", legacy.recovery)
+        val unknown = classifyDiagnostic("D", "Gateway", "ADMISSION_READ · surface=IDENTITY · httpStatus=403 · code=HTTP_REJECTED")
+        assertEquals("inspect_gateway_admission_code_and_source_contract", unknown.recovery)
+        assertFalse(classifyDiagnostic("D", "Network", "httpStatus=403").actionable)
+        assertFalse(classifyDiagnostic("D", "Chat", "scope_not_granted is an example error").actionable)
+        assertEquals("fatal", classifyDiagnostic("F", "Gateway", "ADMISSION_READ · surface=IDENTITY · httpStatus=403 · code=scope_not_granted").category)
+    }
+
+    @Test fun everyObservedUnboundTtsLifecycleOperationRemainsActionable() {
+        for (operation in listOf("stop", "getVoices", "shutdown")) {
+            val result = classifyDiagnostic("D", "Android", "D/TextToSpeech: $operation failed: not bound to TTS engine")
+            assertEquals("speech_engine_lifecycle", result.category)
+            assertEquals("retire_unbound_engine_before_retry", result.recovery)
+            assertTrue(result.actionable)
+        }
+        assertFalse(classifyDiagnostic("D", "Android", "D/TextToSpeech: shutdown complete").actionable)
+    }
 }

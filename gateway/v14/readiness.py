@@ -49,6 +49,10 @@ def observations(runtime, service, backend, journal):
                                  configured=debug is not None, ready=diagnostic_ready,
                                  evidence='capture_and_storage_state', **diagnostic),
         'durableStorage': component(journal.upper(), configured=journal != 'disabled', ready=journal == 'ready')}
+    # Local process checks are measured now; selected-model evidence may come
+    # from the bounded backend cache and must retain its original probe age.
+    result['selectedModel'].update(observedAtMs=backend.get('observedAtMs'),
+                                   observationAgeMs=backend.get('observationAgeMs'))
     scheduler = getattr(runtime, 'gateway_inference_scheduler', None)
     if scheduler and hasattr(scheduler, 'snapshot'):
         result['workerCapacity']['inference'] = scheduler.snapshot()

@@ -251,7 +251,7 @@ class GitHubOperationToolTest {
 
     @Test fun commitHistoryContinuationPreservesPinnedTipAndReadAction() = runBlocking {
         val backend = Backend().apply {
-            body = args("""{"items":[],"has_more":true,"continuation":{"action":"list_commits","ref":"$sha","commit_sha":"$sha","page":2}}""")
+            body = args("""{"items":[{"sha":"$sha"}],"has_more":true,"continuation":{"action":"list_commits","ref":"$sha","commit_sha":"$sha","page":2}}""")
         }
         val tool = GitHubOperationTool("github_context", backend, "commit-pages")
         val first = tool.execute("first", args("""{"action":"commits","ref":"main"}"""))
@@ -288,7 +288,7 @@ class GitHubOperationToolTest {
 
     @Test fun workflowDefinitionContinuationRetainsFacadeActionAndPinnedRevision() = runBlocking {
         val backend = Backend().apply {
-            body = args("""{"workflows":[],"has_more":true,"continuation":{"action":"workflow_catalog","commit_sha":"$sha","index_cursor":4}}""")
+            body = args("""{"workflows":[{"path":".github/workflows/build.yml"},{"path":".github/workflows/lint.yml"},{"path":".github/workflows/test.yml"},{"path":".github/workflows/release.yml"}],"total_count":5,"has_more":true,"continuation":{"action":"workflow_catalog","commit_sha":"$sha","index_cursor":4}}""")
         }
         val tool = GitHubOperationTool("github_ci", backend, "workflow-definitions")
         val first = tool.execute("first", args("""{"action":"definitions","ref":"main"}"""))
@@ -298,7 +298,11 @@ class GitHubOperationToolTest {
         assertEquals("definitions", next.getValue("action").jsonPrimitive.content)
         assertEquals(sha, next.getValue("commit_sha").jsonPrimitive.content)
         assertEquals("4", next.getValue("index_cursor").jsonPrimitive.content)
-        tool.execute("next", next)
+        backend.body = args("""{"workflows":[{"path":".github/workflows/acceptance.yml"}],"total_count":5,"has_more":false}""")
+        val last = tool.execute("next", next)
+        assertFalse(last.isError)
+        assertEquals(JsonPrimitive(false), result(last).getValue("data").jsonObject["has_more"])
+        assertFalse(result(last).getValue("data").jsonObject.containsKey("pagination_progress"))
         assertEquals("workflow_catalog", backend.calls.last().getValue("action").jsonPrimitive.content)
     }
 
@@ -427,12 +431,41 @@ class GitHubOperationToolTest {
     @Test fun malformedSourceRangesAreRejectedBeforeTheBackendRuns() = runBlocking {
         val backend = Backend()
         val read = GitHubOperationTool("github_read", backend, "validation")
-        for (raw in listOf("""{"ranges":[{"path":"file.kt","start_line":"1","end_line":20}]}""", """{"ranges":[{"path":"file.kt"}]}""", """{"ranges":false}""")) {
-            val result = read.execute("invalid", args(raw))
-            assertEquals("INVALID_ARGUMENTS", result.errorCode)
+        val invalid = listOf(
+            """{"ranges":[{"path":"file.kt","start_line":"1","end_line":20}]}""",
+            """{"ranges":[{"start_line":1}]}""",
+            """{"ranges":false}""",
+            """{"ranges":[null]}""",
+            """{"ranges":[{"path":"file.kt","end_line":null}]}""",
+            """{"ranges":[{"path":"file.kt","endLine":20}]}""",
+            """{"ranges":[{"path":"file.kt","start_offset":null}]}""",
+            """{"ranges":[{"path":"file.kt","start_offset":"0"}]}""",
+            """{"ranges":[{"path":"file.kt","start_offset":2147483648}]}"""
+        )
+        for ((index, raw) in invalid.withIndex()) {
+            val result = read.execute("invalid-$index", args(raw))
+            assertEquals(raw, "INVALID_ARGUMENTS", result.errorCode)
             assertFalse(result.dispatched)
         }
         assertTrue(backend.calls.isEmpty())
+    }
+
+    @Test fun boundedSourceDefaultsAndValidContinuationOffsetsReachTheBackend() = runBlocking {
+        val backend = Backend()
+        val read = GitHubOperationTool("github_read", backend, "bounded-source-defaults")
+        val ranges = listOf(
+            """{"path":"file.kt"}""",
+            """{"path":"file.kt","start_line":2,"end_line":-1}""",
+            """{"path":"file.kt","start_line":2,"max_lines":20}""",
+            """{"path":"file.kt","start_line":2,"end_line":4,"start_offset":300}"""
+        )
+        for ((index, range) in ranges.withIndex()) {
+            val request = args("{\"ranges\":[$range]}")
+            val result = read.execute("valid-$index", request)
+            assertFalse(result.content.toString(), result.isError)
+            assertEquals(request["ranges"], backend.calls.last()["ranges"])
+        }
+        assertEquals(ranges.size, backend.calls.size)
     }
 
     @Test fun activeSavedViewsSurviveEntryEvictionBeforeInactiveViews() = runBlocking {

@@ -310,11 +310,12 @@ class DurableFailureTests(unittest.TestCase):
         from types import SimpleNamespace
         from v14.jobs import install_terminal_guard, DurableCommitError
         job={"status":"running","_segment_results":deque(maxlen=16)}
-        def finish(job_id,status,result,error=None):
+        def finish(job_id,status,result,error=None,expected_generation=None):
             job["status"]="completed"
             runtime.durable_persist_job(job_id)
         runtime=SimpleNamespace(job_registry={'j':job},job_registry_lock=threading.RLock(),
             finish_gateway_job=finish,update_gateway_job=lambda *a,**k: None,register_gateway_job=lambda *a,**k: None,
+            cancel_gateway_job=lambda *a,**k: self.fail('Finalization must not invoke cancellation'),
             durable_job_lock=threading.RLock(),_durable_connect=lambda:None,_durable_metric=lambda *a:None,
             GATEWAY_DURABLE_JOBS=True,durable_job_initialized=False,init_durable_job_store=lambda:False)
         install_terminal_guard(runtime)

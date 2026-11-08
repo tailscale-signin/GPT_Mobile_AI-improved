@@ -1,0 +1,130 @@
+package dev.chungjungsoo.gptmobile.data.audit
+
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.int
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class AppAuditQualificationTest {
+    @Test
+    fun manifestAccountsForConfiguredAndMissingTargetsAndExternalSuitesWithoutGrantingExecution() {
+        val run = fixture()
+        val retained = Json.encodeToString(run)
+        val plan = qualification(run)
+        val checks = plan["checks"]!!.jsonArray.map { it.jsonObject }
+        assertEquals(49, checks.size)
+        assertEquals(49, plan["pendingChecks"]!!.jsonPrimitive.int)
+        assertEquals(25, checks.count { it["readiness"]!!.jsonPrimitive.content == "TARGET_FIXTURE_REQUIRED" })
+        assertEquals(14, checks.count { it["readiness"]!!.jsonPrimitive.content == "CONFIGURATION_REQUIRED" })
+        assertEquals(10, checks.count { it["requiredEvidenceKind"]!!.jsonPrimitive.content == "EXTERNAL_SUITE" })
+        assertEquals("PLAN_ONLY", plan["authority"]!!.jsonPrimitive.content)
+        assertFalse(plan["grantsExecution"]!!.jsonPrimitive.boolean)
+        assertFalse(plan["importsPromoteAuditScore"]!!.jsonPrimitive.boolean)
+        assertEquals(retained, Json.encodeToString(run))
+        assertNull(appAuditScore(run).score)
+        val target = checks.first()
+        assertEquals("target-1", target["targetAlias"]!!.jsonPrimitive.content)
+        assertEquals("check-1", target["configurationCheckId"]!!.jsonPrimitive.content)
+        assertEquals("NOT_OBSERVED_BY_THIS_AUDIT", target["remoteServiceIdentity"]!!.jsonPrimitive.content)
+        val requirements = target["requirements"]!!.jsonArray.map { it.jsonPrimitive.content }.toSet()
+        assertTrue(requirements.containsAll(setOf("EXACT_CONFIGURATION", "READ_ONLY_OR_OWNED_FIXTURE", "NAMED_TOOL_AND_SCHEMA", "DISPATCH_RECEIPT", "VALIDATION_AND_DENIAL", "CANCELLATION_AND_RECOVERY", "OWNED_FIXTURE_CLEANUP", "REMOTE_SERVICE_OBSERVATION")))
+        assertEquals(1, target["defaultMaxToolCalls"]!!.jsonPrimitive.int)
+    }
+
+    @Test
+    fun qualificationBindingsChangeWithBuildConfigurationAndAcceptedPlan() {
+        val run = fixture(1, 1)
+        fun binding(value: AppAuditRun) = qualification(value)["checks"]!!.jsonArray.first().jsonObject["qualificationBinding"]!!.jsonPrimitive.content
+        val original = binding(run)
+        assertEquals(64, original.length)
+        assertNotEquals(original, binding(run.copy(sourceCommit = "d".repeat(40))))
+        assertNotEquals(original, binding(run.copy(catalogHash = "e".repeat(64))))
+        assertNotEquals(original, binding(run.copy(plan = run.plan.map { it.copy(configurationRevision = "f".repeat(64)) })))
+        val unknown = qualification(run.copy(sourceCommit = "unknown"))
+        assertEquals(JsonNull, unknown["runBinding"])
+        assertTrue(unknown["checks"]!!.jsonArray.all { it.jsonObject["qualificationBinding"] == JsonNull })
+        val noRevision = qualification(run.copy(plan = run.plan.map { it.copy(configurationRevision = null) }))["checks"]!!.jsonArray.first().jsonObject
+        assertEquals("CONFIGURATION_IDENTITY_UNAVAILABLE", noRevision["readiness"]!!.jsonPrimitive.content)
+        assertEquals(JsonNull, noRevision["qualificationBinding"])
+    }
+
+    @Test
+    fun unsupportedExternalPassCannotRemoveARequiredQualificationOrEarnScore() {
+        val run = fixture(1, 1)
+        val tool = run.plan.first { it.evidenceKind == AppAuditEvidenceKind.TOOL_EXECUTION }
+        val imported = AppAuditResult(
+            tool.id,
+            AppAuditObservation(AppAuditOutcome.PASS, "FIXTURE_PASSED", evidenceKind = tool.evidenceKind, observationSource = AppAuditObservationSource.LIVE, dispatchEvidence = AppAuditDispatchEvidence.CONFIRMED),
+            1,
+            2,
+            1,
+            true
+        )
+        val claimed = run.copy(results = run.results + imported)
+        assertEquals(11, qualification(claimed)["pendingChecks"]!!.jsonPrimitive.int)
+        assertNull(appAuditScore(claimed).score)
+        assertEquals(0, appAuditSummary(claimed).verified)
+    }
+
+    @Test
+    fun namedExternalFamiliesKeepServiceModelNetworkAndResidualProofRequirements() {
+        val checks = qualification(fixture(0, 0))["checks"]!!.jsonArray.map { it.jsonObject }.associateBy { it["family"]!!.jsonPrimitive.content }
+        fun requirements(family: String) = checks.getValue(family)["requirements"]!!.jsonArray.map { it.jsonPrimitive.content }.toSet()
+        assertTrue("PROVIDER_STREAMING_CONTRACT" in requirements("PROVIDER_STREAMING_CONTRACT_SUITE"))
+        assertTrue("MODEL_BENCHMARK" in requirements("PROVIDER_STREAMING_CONTRACT_SUITE"))
+        assertTrue("NETWORK_RECOVERY" in requirements("NETWORK_TRANSPORT_RECOVERY_SUITE"))
+        assertTrue("SERVICE_BUILD_IDENTITY" in requirements("GATEWAY_SERVICE_SUITE"))
+        assertTrue("SERVICE_BUILD_IDENTITY" in requirements("AUTHENTICATION_SERVICE_SUITE"))
+        assertTrue("RESIDUAL_SOURCE_CASES" in requirements("RESIDUAL_SOURCE_BEHAVIOR_SUITE"))
+    }
+
+    @Test
+    fun worklistExportsAliasesAndFixedInstructionsWithoutPrivateTargetOrProviderText() {
+        val private = "PRIVATE_TARGET_LABEL"
+        val run = fixture(1, 1).let { value ->
+            value.copy(plan = value.plan.map { it.copy(label = private, targetId = it.targetId?.let { private }, sourceAreaIds = it.sourceAreaIds + private, configFingerprint = private) })
+        }
+        val document = qualification(run)
+        assertFalse(document.toString().contains(private))
+        assertFalse(document.toString().contains("connection:"))
+        assertFalse(document["grantsExecution"]!!.jsonPrimitive.boolean)
+        assertNull(appAuditScore(run).score)
+    }
+
+    private fun qualification(run: AppAuditRun): JsonObject = appAuditQualificationPlan(run, run.plan.mapIndexed { index, entry -> entry.id to "check-${index + 1}" }.toMap(), appAuditTargetAliases(run.plan), true)
+
+    private fun fixture(targetCount: Int = 39, configuredCount: Int = 25): AppAuditRun {
+        val plan = buildList {
+            repeat(targetCount) { index ->
+                val configured = index < configuredCount
+                val revision = appAuditHash("configuration-$index").takeIf { configured }
+                val configuration = AppAuditPlanEntry(
+                    "configuration-$index", "plugins", AppAuditPluginProbeSource.CONFIGURATION, "mcp_connection", "Plugin configuration",
+                    targetId = "connection:private-$index", sourceAreaIds = listOf("mcp_plugins"),
+                    prerequisite = if (configured) AppAuditPrerequisite.READY else AppAuditPrerequisite.NOT_CONFIGURED,
+                    configFingerprint = appAuditHash("target-$index"), configurationRevision = revision
+                )
+                add(configuration)
+                add(configuration.copy(id = "execution-$index", probeId = AppAuditPluginProbeSource.TOOL_EXECUTION, label = "Plugin tool execution", evidenceKind = AppAuditEvidenceKind.TOOL_EXECUTION, safetyClass = AppAuditSafetyClass.EXTERNAL_ONLY, prerequisite = AppAuditPrerequisite.EXTERNAL_HARNESS_REQUIRED))
+            }
+            listOf("android_shell", "chat_ui", "model_providers", "network", "persistence", "voice_and_media", "portable_domain", "gateway_software", "authentication_service", "other_production").forEach { area ->
+                add(AppAuditPlanEntry("source-area:$area", "source-inventory", "external-coverage", area, "External coverage", sourceAreaIds = listOf(area), evidenceKind = AppAuditEvidenceKind.EXTERNAL_SUITE, safetyClass = AppAuditSafetyClass.EXTERNAL_ONLY, prerequisite = AppAuditPrerequisite.EXTERNAL_HARNESS_REQUIRED))
+            }
+        }
+        val results = plan.filter { it.probeId == AppAuditPluginProbeSource.CONFIGURATION && it.prerequisite == AppAuditPrerequisite.READY }.map { entry ->
+            AppAuditResult(entry.id, AppAuditObservation(AppAuditOutcome.PASS, "PLUGIN_CONFIGURATION_ONLY", observationSource = AppAuditObservationSource.CONFIGURATION), 1, 2, 1, true)
+        }
+        return AppAuditRun("qualification", 1, "a".repeat(64), "b".repeat(40), "0.9.66.6", "debug", "c".repeat(64), 1, 1, plan, results = results)
+    }
+}

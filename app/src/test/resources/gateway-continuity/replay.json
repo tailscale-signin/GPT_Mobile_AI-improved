@@ -1,0 +1,73 @@
+{
+  "gateway_id": "gw_d1665bfbcbf744408387656fdd6379dd",
+  "principal_id": "owner",
+  "conversation_id": "conv_aecfc1eee0ae4220da0cac748560fc07",
+  "revision": 4,
+  "items": [
+    {
+      "sequence": 1,
+      "message_id": "conv_aecfc1eee0ae4220da0cac748560fc07:input:gwjob_fixture_ordinary:0:5a737fb6fa98bb9ec1cbc31b892014f507f731fdae24f897f0a835701df7c3b0",
+      "conversation_id": "conv_aecfc1eee0ae4220da0cac748560fc07",
+      "job_id": "gwjob_fixture_ordinary",
+      "role": "user",
+      "kind": "user",
+      "content": "Original question",
+      "created_at_ms": 1794052800000,
+      "logical_message_id": "conv_aecfc1eee0ae4220da0cac748560fc07:input:gwjob_fixture_ordinary:0:5a737fb6fa98bb9ec1cbc31b892014f507f731fdae24f897f0a835701df7c3b0",
+      "part_index": 0,
+      "part_count": 1,
+      "content_sha256": "d1ea4494842012c70d4f623f9b26651d2b190fd03d95221d698edacb125e013b"
+    },
+    {
+      "sequence": 2,
+      "message_id": "conv_aecfc1eee0ae4220da0cac748560fc07:input:gwjob_fixture_ordinary:1:6268cb2b3aeee41e9ec22a1e9788cc87df5fde2b03dd0d759f5f0436a9aa7d1f",
+      "conversation_id": "conv_aecfc1eee0ae4220da0cac748560fc07",
+      "job_id": "gwjob_fixture_ordinary",
+      "role": "assistant",
+      "kind": "assistant",
+      "content": "Earlier answer",
+      "created_at_ms": 1794052800000,
+      "logical_message_id": "conv_aecfc1eee0ae4220da0cac748560fc07:input:gwjob_fixture_ordinary:1:6268cb2b3aeee41e9ec22a1e9788cc87df5fde2b03dd0d759f5f0436a9aa7d1f",
+      "part_index": 0,
+      "part_count": 1,
+      "content_sha256": "d42df0254fd05b15686db93e71038ba356892e8b0a76d2f90d6fdf775995f41e"
+    },
+    {
+      "sequence": 3,
+      "message_id": "conv_aecfc1eee0ae4220da0cac748560fc07:input:gwjob_fixture_ordinary:2:ab493f9408e20cdd8d6285d4af76caeb40b31f72a7027e1f56dd354b2558b107",
+      "conversation_id": "conv_aecfc1eee0ae4220da0cac748560fc07",
+      "job_id": "gwjob_fixture_ordinary",
+      "role": "user",
+      "kind": "user",
+      "content": "Continue the conversation",
+      "created_at_ms": 1794052800000,
+      "logical_message_id": "conv_aecfc1eee0ae4220da0cac748560fc07:input:gwjob_fixture_ordinary:2:ab493f9408e20cdd8d6285d4af76caeb40b31f72a7027e1f56dd354b2558b107",
+      "part_index": 0,
+      "part_count": 1,
+      "content_sha256": "fce45c323e9f6cc54b113779f2231ce5dd29ef50bf45428290fbf2456ce3414c"
+    },
+    {
+      "sequence": 4,
+      "message_id": "conv_aecfc1eee0ae4220da0cac748560fc07:final:gwjob_fixture_ordinary",
+      "conversation_id": "conv_aecfc1eee0ae4220da0cac748560fc07",
+      "job_id": "gwjob_fixture_ordinary",
+      "role": "assistant",
+      "kind": "final",
+      "content": "The retained ordinary answer",
+      "created_at_ms": 1794052800000,
+      "logical_message_id": "conv_aecfc1eee0ae4220da0cac748560fc07:final:gwjob_fixture_ordinary",
+      "part_index": 0,
+      "part_count": 1,
+      "content_sha256": "d1cf3877fd76a39eb672f108b6d02601741667d0c1a117caf1e468462366afa0"
+    }
+  ],
+  "next_cursor": "eyJhZnRlciI6NCwiY29udmVyc2F0aW9uX2lkIjoiY29udl9hZWNmYzFlZWUwYWU0MjIwZGEwY2FjNzQ4NTYwZmMwNyIsImdhdGV3YXlfaWQiOiJnd19kMTY2NWJmYmNiZjc0NDQwODM4NzY1NmZkZDYzNzlkZCIsImtpbmQiOiJtZXNzYWdlcyIsInByaW5jaXBhbCI6IjYyMmYwNmNiY2QyZTdlNjE2MzdlMTcyMTJlNzE0ZTZjNzIxZDJkZDVhOWY3YmMxYWVjOTExYjY1YjM0ZWRjZjUiLCJ2ZXJzaW9uIjoxfSe8QZDnrBUS0Gwo3Wbcl4ai7eCTTXI0aMsfxoPWo8cB",
+  "has_more": false,
+  "earliest_sequence": 1,
+  "latest_sequence": 4,
+  "history_complete": true,
+  "history_limitation": null,
+  "gap": false,
+  "gap_details": null,
+  "server_time_ms": 1794052800000
+}

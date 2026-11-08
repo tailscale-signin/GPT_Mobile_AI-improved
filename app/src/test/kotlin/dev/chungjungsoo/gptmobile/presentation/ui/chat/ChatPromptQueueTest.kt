@@ -205,6 +205,7 @@ class ChatPromptQueueTest {
     private fun send(model: ChatViewModel, text: String) {
         model.question.setTextAndPlaceCursorAtEnd(text)
         model.askQuestion()
+        dispatcher.scheduler.runCurrent()
     }
 
     @Test
@@ -520,6 +521,9 @@ class ChatPromptQueueTest {
         every { settings.observeDebugMode() } returns flowOf(false)
         every { settings.observeFeatureSettings() } returns flowOf(AppFeatureSettings(automaticConversationTitles = false))
         val coordinator = mockk<AgentRunCoordinator>(relaxed = true)
+        coEvery { coordinator.gatewayConversationWriteBlocker(any()) } returns null
+        coEvery { coordinator.gatewayOwnsConversation(any()) } returns false
+        coEvery { coordinator.gatewayOwnsRequest(any()) } returns false
         coEvery { coordinator.withChatGate(any<Int>(), any<suspend () -> ChatRoomV2>()) } coAnswers { secondArg<suspend () -> ChatRoomV2>().invoke() }
         every { coordinator.activeRuns } returns activeRuns
         every { coordinator.streamMessages } returns MutableStateFlow(emptyMap())

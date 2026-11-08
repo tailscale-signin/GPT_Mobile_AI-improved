@@ -12,6 +12,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -63,6 +64,36 @@ class GitHubStatusAuditRegressionTest {
             assertFalse(value.containsKey("continuation"))
         }
         assertEquals(JsonPrimitive(false), result.executionReceipt?.get("has_more"))
+    }
+
+    @Test fun incompleteTraversalRetainsAllOriginalRowsWithoutAdvertisingAnotherPage() = runTest {
+        val backend = object : AgentTool {
+            override val definition = AgentToolDefinition("github", "fixture", JsonObject(emptyMap()))
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                val body = if (arguments["page"] == JsonPrimitive(2)) {
+                    json("""{"items":[{"id":1,"body":"original duplicate"},{"id":2,"body":"original new row"}],"total_count":3,"has_more":false,"continuation":{"page":3}}""")
+                } else {
+                    json("""{"items":[{"id":1,"body":"first page"}],"total_count":3,"has_more":true}""")
+                }
+                return AgentToolResult(callId, ToolResultContent.Json(body), isError = false)
+            }
+        }
+        val tool = GitHubOperationTool("github_issue", backend, "audit-incomplete")
+        assertFalse(tool.execute("first", json("""{"action":"list","page":1}""")).isError)
+        val result = tool.execute("second", json("""{"action":"list","page":2}"""))
+        assertEquals("GITHUB_PAGINATION_INCOMPLETE", result.errorCode)
+        val display = (result.content as ToolResultContent.Json).value.jsonObject
+        val retained = (result.retainedContent as ToolResultContent.Json).value.jsonObject
+        assertEquals(1, display.getValue("items").jsonArray.size)
+        assertEquals(json("""{"id":1,"body":"original duplicate"}"""), retained.getValue("items").jsonArray.first())
+        assertEquals(2, retained.getValue("items").jsonArray.size)
+        for (content in listOf(display, retained)) {
+            assertEquals(JsonPrimitive(false), content["has_more"])
+            assertEquals(JsonPrimitive(false), content["complete"])
+            assertEquals(JsonPrimitive("INCOMPLETE"), content["traversal_state"])
+            assertFalse(content.containsKey("continuation"))
+        }
+        assertEquals(display["pagination_progress"], retained["pagination_progress"])
     }
 
     @Test fun resourceBranchIsIndependentOfSelectedWorkspace() = runTest {

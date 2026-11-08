@@ -103,6 +103,40 @@ class EngineeringHTTPTests(unittest.TestCase):
         self.service.tick(job_id)
         self.assertEqual('COMPLETED', self.store.get(job_id)['state'])
 
+    def test_mutations_check_optional_gateway_and_principal_preconditions_before_admission(self):
+        gateway_id = self.service.bindings.installation_id()
+        valid = dict(self.headers, **{'X-Gateway-Installation-ID': gateway_id, 'X-Gateway-Principal-ID': 'tailnet:owner'})
+        invalid = [
+            (dict(valid, **{'X-Gateway-Installation-ID': 'gw_replaced'}), 409, 'CONTINUITY_IDENTITY_MISMATCH'),
+            (dict(valid, **{'X-Gateway-Principal-ID': 'tailnet:another'}), 409, 'CONTINUITY_IDENTITY_MISMATCH'),
+            (dict(self.headers, **{'X-Gateway-Installation-ID': gateway_id}), 400, 'CONTINUITY_IDENTITY_INVALID'),
+            (dict(self.headers, **{'X-Gateway-Principal-ID': 'tailnet:owner'}), 400, 'CONTINUITY_IDENTITY_INVALID'),
+        ]
+        with patch.object(self.service, 'prepare_binding') as binding, patch.object(self.service, 'validate_submission') as validate, \
+                patch.object(self.store, 'create') as create, patch.object(self.service.graph, 'execute') as graph:
+            for headers, status, code in invalid:
+                for path, body in (('/v1/gateway/engineering/bindings', {'selection': {}}),
+                                   ('/v1/gateway/engineering/jobs', self.request),
+                                   ('/v1/gateway/engineering/graph', {'action': 'status'})):
+                    response = self.client.post(path, headers=headers, json=body)
+                    self.assertEqual(status, response.status_code, response.text)
+                    self.assertEqual(code, response.json()['error']['code'])
+            binding.assert_not_called()
+            validate.assert_not_called()
+            create.assert_not_called()
+            graph.assert_not_called()
+        self.assertEqual(0, self.store.tx(lambda db: db.execute('SELECT COUNT(*) FROM engineering_jobs').fetchone()[0]))
+        admitted = self.client.post('/v1/gateway/engineering/jobs', json=self.request, headers=valid)
+        self.assertEqual(202, admitted.status_code, admitted.text)
+        job_id = admitted.json()['id']
+        with patch.object(self.store, 'control') as control:
+            response = self.client.post('/v1/gateway/engineering/jobs/' + job_id + '/cancel',
+                json={'revision': 0}, headers=invalid[0][0])
+            self.assertEqual(409, response.status_code, response.text)
+            self.assertEqual('CONTINUITY_IDENTITY_MISMATCH', response.json()['error']['code'])
+            control.assert_not_called()
+        self.assertEqual([], self.backend.calls)
+
     def test_graph_route_requires_engineering_scope_and_keeps_principal_server_owned(self):
         payload = {'action': 'status', 'repository': 'owner/repo', 'branch': 'feature', 'commit_sha': 'a' * 40}
         with patch.object(self.service.graph, 'execute', return_value={'status': 'NOT_INDEXED'}) as graph:

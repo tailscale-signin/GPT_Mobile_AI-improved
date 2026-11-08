@@ -6,6 +6,7 @@ import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import dev.chungjungsoo.gptmobile.data.network.boundedMetadata
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayClientDiagnostics
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewaySurfacePolicy
 import dev.chungjungsoo.gptmobile.data.network.gateway.gatewayClientExchange
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.timeout
@@ -17,6 +18,7 @@ import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.ContentType
 import io.ktor.http.HttpMethod
 import io.ktor.http.contentType
+import io.ktor.http.encodeURLParameter
 import io.ktor.http.isSuccess
 import io.ktor.utils.io.readLine
 import javax.inject.Inject
@@ -36,10 +38,10 @@ class GatewayEngineeringClient internal constructor(private val http: HttpClient
     private val capabilityCache = RouteCapabilityCache<GatewayEngineeringCapabilities>({ System.nanoTime() / 1_000_000 }, positiveTtl = 10_000, negativeTtl = 60_000)
     private fun capabilityKey(config: ProviderRequestConfig) = "${GatewayClientDiagnostics.routeIdentity(config)}|${LocalServiceHealth.networkEpoch}|${GatewayClientDiagnostics.capabilityEpoch(config)}"
 
-    private suspend fun request(config: ProviderRequestConfig, path: String, body: String? = null, approval: Boolean = false): String {
+    private suspend fun request(config: ProviderRequestConfig, path: String, body: String? = null, approval: Boolean = false, root: String = "gateway/engineering"): String {
         val diagnostic = GatewayClientDiagnostics.withHeaders(config, model = "", knownGateway = true)
         return gatewayClientExchange(diagnostic, "engineering", safeRead = body == null, method = if (body == null) "GET" else "POST") { headers ->
-            http.prepareRequest(config.buildEndpoint("gateway/engineering/$path")) {
+            http.prepareRequest(config.buildEndpoint("$root/$path")) {
                 method = if (body == null) HttpMethod.Get else HttpMethod.Post
                 config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
                 headers.forEach { (key, value) -> header(key, value) }
@@ -61,6 +63,20 @@ class GatewayEngineeringClient internal constructor(private val http: HttpClient
                     val error = runCatching { json.parseToJsonElement(payload) as? JsonObject }.getOrNull()
                     val detail = error?.get("error") as? JsonObject ?: error?.get("detail") as? JsonObject ?: error
                     val code = detail?.get("code")?.jsonPrimitive?.content
+                    if (path == "graph" && code == "graph_connection_required" && response.status.value in setOf(412, 503)) {
+                        val readiness = runCatching { error?.get("readiness")?.let { json.decodeFromJsonElement(GatewayEngineeringReadiness.serializer(), it) } }.getOrNull()
+                        val missing = GatewayGraphPrerequisite.missing(GatewayEngineeringCapabilities("engineering-gateway", 1, readiness = readiness))
+                        throw GatewayGraphUnavailableException("The selected gateway graph prerequisites changed before this request.", missing)
+                    }
+                    if (body != null && response.status.value in 400..499 && response.status.value !in setOf(408, 499)) {
+                        val message = when (response.status.value) {
+                            401, 403 -> "Gateway engineering access was rejected. Restore the original account and engineering permission before submitting a new command."
+                            409, 412 -> "The conversation or job changed. Refresh Jobs and review the original task before sending another command."
+                            429 -> "The gateway did not admit this command because its queue or request limit is full."
+                            else -> "The gateway rejected this command (HTTP ${response.status.value}). Review it before sending another command."
+                        }
+                        throw GatewayEngineeringRequestRejected(response.status.value, message)
+                    }
                     if (code != null && code.matches(Regex("(?:EXECUTION|SELECTED_ONLY|INFERENCE)_[A-Z0-9_]{1,80}"))) {
                         throw GatewayExecutionRejected(code, response.status.value)
                     }
@@ -81,6 +97,7 @@ class GatewayEngineeringClient internal constructor(private val http: HttpClient
 
     suspend fun capabilities(config: ProviderRequestConfig): GatewayEngineeringCapabilities =
         capabilityCache.getOrLoad(capabilityKey(config)) {
+            if (GatewaySurfacePolicy.shared.rememberedStatus(GatewaySurfacePolicy.identity(config), GatewaySurfacePolicy.Surface.CAPABILITIES) != null) return@getOrLoad null
             val payload = try {
                 request(config, "capabilities")
             } catch (_: UnsupportedEngineeringGateway) {
@@ -123,8 +140,8 @@ class GatewayEngineeringClient internal constructor(private val http: HttpClient
 
     suspend fun requireGraphReady(config: ProviderRequestConfig): String {
         val capability = capabilities(config)
-        capability.unavailableReason(graph = true)?.let { throw GatewayGraphUnavailableException(it) }
-        check(capability.codeGraph?.schemaVersion == 1) { "The selected gateway repository graph protocol is unsupported. Update the desktop gateway." }
+        capability.unavailableReason(graph = true)?.let { throw GatewayGraphUnavailableException(it, GatewayGraphPrerequisite.missing(capability)) }
+        if (capability.codeGraph?.schemaVersion != 1) throw GatewayGraphUnavailableException("The selected gateway repository graph protocol is unsupported. Update the desktop gateway.", listOf(GatewayGraphPrerequisite.GRAPH_PROTOCOL_UNSUPPORTED))
         return requireNotNull(capability.principalId)
     }
 
@@ -166,8 +183,21 @@ class GatewayEngineeringClient internal constructor(private val http: HttpClient
         json.parseToJsonElement(request(config, "diagnostics/$path", body?.toString())) as? JsonObject
             ?: error("Invalid gateway diagnostic response.")
 
-    suspend fun create(config: ProviderRequestConfig, payload: GatewayEngineeringRequest): GatewayEngineeringJob =
-        json.decodeFromString(request(config, "jobs", json.encodeToString(payload)))
+    suspend fun create(config: ProviderRequestConfig, payload: GatewayEngineeringRequest): GatewayEngineeringJob {
+        val response = if (payload.conversationId == null) {
+            request(config, "jobs", json.encodeToString(payload))
+        } else {
+            val command = buildJsonObject {
+                put("kind", "message")
+                put("command_id", payload.requestId)
+                put("content", payload.objective)
+                put("expected_revision", requireNotNull(payload.expectedRevision) { "Refresh the saved conversation before replying." })
+                put("engineering_request", json.encodeToJsonElement(GatewayEngineeringRequest.serializer(), payload))
+            }
+            request(config, "conversations/${payload.conversationId.encodeURLParameter()}/messages", command.toString(), root = "gateway")
+        }
+        return json.decodeFromString(response)
+    }
 
     suspend fun graph(config: ProviderRequestConfig, arguments: kotlinx.serialization.json.JsonObject): kotlinx.serialization.json.JsonObject =
         json.parseToJsonElement(request(config, "graph", arguments.toString())) as? kotlinx.serialization.json.JsonObject
@@ -197,12 +227,12 @@ class GatewayEngineeringClient internal constructor(private val http: HttpClient
     }
 }
 
-/** Availability only: policy, identity, TLS and authorization failures must not use this type. */
-internal open class GatewayGraphUnavailableException(message: String) : IllegalStateException(message)
-
-private class UnsupportedEngineeringGateway : GatewayGraphUnavailableException("This inference endpoint does not expose engineering jobs. Select an engineering gateway endpoint; ordinary chat remains available.")
+internal class UnsupportedEngineeringGateway : GatewayGraphUnavailableException("This inference endpoint does not expose engineering jobs. Select an engineering gateway endpoint; ordinary chat remains available.", listOf(GatewayGraphPrerequisite.ENGINEERING_SURFACE_UNSUPPORTED))
 
 class GatewayExecutionRejected(val code: String, val httpStatus: Int) :
     IllegalStateException(
         "The selected execution profile could not be verified ($code). Saved work is retained; review the selected profile and gateway status."
     )
+
+/** A response rejected this POST; prior uncertain attempts still require command reconciliation. */
+class GatewayEngineeringRequestRejected(val httpStatus: Int, message: String, val commandOutcomeUnknown: Boolean = false) : IllegalStateException(message)

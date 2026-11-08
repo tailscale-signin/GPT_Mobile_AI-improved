@@ -343,6 +343,13 @@ internal class RunDiagnosticJournal(
         wake.trySend(Unit)
     }
 
+    /** Invoke only after rendered content's drawContent returns. The renderer owns a run/fence,
+     * not the provider invocation that supplied an accepted or synthesized answer. Persistence
+     * stays on the journal worker; this callback never reads storage or hashes answer text. */
+    fun firstVisibleDraw(owner: OutputTraceOwner) {
+        record(owner.runId, RunDiagnosticKind.FIRST_VISIBLE_TEXT, fence = owner.fence, measured = true, outputPartId = outputTracePartId(owner.partId))
+    }
+
     /** Call from a background worker after the corresponding boundary has actually accepted the text. */
     fun traceOutput(runId: String, boundary: OutputTraceBoundary, text: String, fence: Long? = null, invocationId: String? = null, representation: OutputTextRepresentation = OutputTextRepresentation.VISIBLE_UTF8, partId: String? = null) {
         if (!enabled || privateSession) return
@@ -444,14 +451,21 @@ internal class RunDiagnosticJournal(
         val capturedAt = now()
         val runPrefix = "journal-${identity(runId)}-"
         val statePrefix = "journalcheckpoint-${identity(runId)}-"
+        val boundaryRequestedNanos = System.nanoTime()
+        var boundaryLockWaitNanos = 0L
+        var checkpointReadDecodeNanos = 0L
+        var batchReadDecodeNanos = 0L
+        var decodedBatchCount = 0L
         // Freeze the checkpoint VALUES with reference names. A mutable checkpoint may advance
         // immediately after releasing this lock; reading it later would invent a missing tail.
         val frozen = writes.withLock {
+            boundaryLockWaitNanos = (System.nanoTime() - boundaryRequestedNanos).coerceAtLeast(0)
             val references = vault.references()
             val boundaries = linkedMapOf<String, Long>()
             var unreadableCheckpoints = 0
             for (reference in references.filter { it.startsWith(statePrefix) }) {
                 beforeRead()
+                val readStartedNanos = System.nanoTime()
                 try {
                     val bytes = requireNotNull(vault.read(reference))
                     try {
@@ -466,6 +480,8 @@ internal class RunDiagnosticJournal(
                     throw cancelled
                 } catch (_: Exception) {
                     unreadableCheckpoints++
+                } finally {
+                    checkpointReadDecodeNanos += (System.nanoTime() - readStartedNanos).coerceAtLeast(0)
                 }
             }
             synchronized(lock) {
@@ -499,6 +515,7 @@ internal class RunDiagnosticJournal(
         }
         for (reference in frozen.references.filter { it.startsWith(runPrefix) }.sortedBy { it.split('-').getOrNull(2)?.toLongOrNull() ?: 0L }) {
             beforeRead()
+            val readStartedNanos = System.nanoTime()
             val batch = try {
                 val bytes = requireNotNull(vault.read(reference))
                 try {
@@ -512,7 +529,10 @@ internal class RunDiagnosticJournal(
             } catch (_: Exception) {
                 unreadable++
                 continue
+            } finally {
+                batchReadDecodeNanos += (System.nanoTime() - readStartedNanos).coerceAtLeast(0)
             }
+            decodedBatchCount++
             for (event in batch) emit(event)
         }
         for (event in frozen.queued) emit(event)
@@ -532,7 +552,11 @@ internal class RunDiagnosticJournal(
             captureEnabled = enabled,
             missingRanges = gaps.first,
             missingRangesTruncated = gaps.second,
-            retentionPrunedBatches = retentionPrunedBatches.get()
+            retentionPrunedBatches = retentionPrunedBatches.get(),
+            boundaryLockWaitNanos = boundaryLockWaitNanos,
+            checkpointReadDecodeNanos = checkpointReadDecodeNanos,
+            batchReadDecodeNanos = batchReadDecodeNanos,
+            decodedBatchCount = decodedBatchCount
         )
     }
 

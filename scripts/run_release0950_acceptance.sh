@@ -43,6 +43,8 @@ timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.d
 tool_budget_fence_status=${PIPESTATUS[0]}
 timeout 240s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.presentation.ui.home.PlatformPickerInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/picker-instrumentation.txt"
 picker_status=${PIPESTATUS[0]}
+timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.presentation.ui.home.GatewayProfileCardInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/gateway-profile-card-instrumentation.txt"
+gateway_profile_card_status=${PIPESTATUS[0]}
 timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.presentation.ui.chat.BubbleActionMenuInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/bubble-actions-instrumentation.txt"
 bubble_status=${PIPESTATUS[0]}
 timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.presentation.common.GlassBackdropInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/glass-instrumentation.txt"
@@ -57,6 +59,8 @@ timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.p
 combined_finalization_status=${PIPESTATUS[0]}
 timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.presentation.ui.workspace.GitHubWorkflowExecutionInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/github-workflow-execution-instrumentation.txt"
 github_workflow_execution_status=${PIPESTATUS[0]}
+timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.data.github.GitHubBoundTransportInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/github-bound-transport-instrumentation.txt"
+github_bound_transport_status=${PIPESTATUS[0]}
 # The suite requests both 320 dp and 600 dp layouts; the device must accommodate the wider one.
 timeout 30s adb shell wm size 1200x2560
 settings_home_display_status=$?
@@ -124,6 +128,9 @@ timeout 10s adb logcat -d > "$acceptance_output/logcat.txt"
 settings_home_artifact_status=0
 timeout 30s adb exec-out run-as dev.melo.gptmobile.improved tar -cf - -C files/ui-review settings-home > "$acceptance_output/settings-home.tar" || settings_home_artifact_status=$?
 adb exec-out run-as dev.melo.gptmobile.improved cat files/acceptance-0950-performance.json > "$acceptance_output/performance.json" || true
+for github_fixture_case in bound-read owned-deletion; do
+  adb exec-out run-as dev.melo.gptmobile.improved cat "files/github-$github_fixture_case-evidence.json" > "$acceptance_output/github-$github_fixture_case-evidence.json"
+done
 adb exec-out run-as dev.melo.gptmobile.improved cat files/acceptance-0950-editor.png > "$acceptance_output/editor-rtl-200-percent.png" || true
 adb exec-out run-as dev.melo.gptmobile.improved cat files/acceptance-0950-plan-dialog.png > "$acceptance_output/plan-dialog-rtl-200-percent.png" || true
 for picker_theme in light dark-rtl; do
@@ -149,6 +156,7 @@ if [ "$navigation_restore_status" -ne 0 ]; then exit "$navigation_restore_status
 if [ "$combined_settings_status" -ne 0 ]; then exit "$combined_settings_status"; fi
 if [ "$combined_finalization_status" -ne 0 ]; then exit "$combined_finalization_status"; fi
 if [ "$github_workflow_execution_status" -ne 0 ]; then exit "$github_workflow_execution_status"; fi
+if [ "$github_bound_transport_status" -ne 0 ]; then exit "$github_bound_transport_status"; fi
 if [ "$settings_home_status" -ne 0 ]; then exit "$settings_home_status"; fi
 if [ "$navigation_motion_status" -ne 0 ]; then exit "$navigation_motion_status"; fi
 if [ "$github_prompt_motion_status" -ne 0 ]; then exit "$github_prompt_motion_status"; fi
@@ -159,12 +167,16 @@ if [ "$composer_status" -ne 0 ]; then exit "$composer_status"; fi
 if [ "$glass_status" -ne 0 ]; then exit "$glass_status"; fi
 if [ "$bubble_status" -ne 0 ]; then exit "$bubble_status"; fi
 if [ "$picker_status" -ne 0 ]; then exit "$picker_status"; fi
+if [ "$gateway_profile_card_status" -ne 0 ]; then exit "$gateway_profile_card_status"; fi
 if [ "$editor_status" -ne 0 ]; then exit "$editor_status"; fi
 if [ "$performance_status" -ne 0 ]; then exit "$performance_status"; fi
 if [ "$memory_status" -ne 0 ]; then exit "$memory_status"; fi
 if [ "$tool_budget_fence_status" -ne 0 ]; then exit "$tool_budget_fence_status"; fi
 python3 - <<'CHECK'
 import json
+import os
+import re
+import subprocess
 import sys
 import tarfile
 from pathlib import Path
@@ -186,6 +198,8 @@ for test in ('encryptedCutoverPreservesIdentityAndRejectsStaleWrites', 'portable
 check_instrumentation(folder / 'tool-budget-fence-instrumentation.txt', 'dev.chungjungsoo.gptmobile.data.agent.ToolCallBudgetFenceInstrumentedTest', 'privateFilesystemFenceSurvivesPayloadLossAndRejectsDeletedChatWrites')
 for test in ('compactLightSelectionAndAccessibleFavorite', 'compactDarkRtlSelectionAndAccessibleFavorite'):
     check_instrumentation(folder / 'picker-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.home.PlatformPickerInstrumentedTest', test)
+for test in ('onlineStatusRemainsReadableAndDoesNotChangeSelectionAtLargeText', 'onlineStatusRemainsReadableAndDoesNotChangeSelectionInDarkRtl'):
+    check_instrumentation(folder / 'gateway-profile-card-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.home.GatewayProfileCardInstrumentedTest', test)
 for test in ('dialogBlurSwitchActuallyFiltersTheBackground', 'stackedDialogSamplesItsVisibleParentInsteadOfOnlyTheActivity', 'settingsBackdropAndTypographyChangesKeepNavigationContentComposed', 'openingSettingsWhileHomeBlurStillDrawsDoesNotReplayLiveHomeLayers'):
     check_instrumentation(folder / 'glass-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.common.GlassBackdropInstrumentedTest', test)
 for test in ('typingFollowUpKeepsStopAndSendIndependent', 'glassComposerKeepsSendStopAndLatestActionsIndependent'):
@@ -197,6 +211,19 @@ for test in ('combinedTabStagesBothAxesAndRemovesDelegationCard', 'cancelKeepsCo
 check_instrumentation(folder / 'combined-finalization-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.chat.CombinedFinalizationLifecycleInstrumentedTest', 'finalizationWhilePointerIsDownAndScrollingDisposesThePreviousRenderer')
 for test in ('savedAcceptanceStatesRemainDistinctFromSuccessfulOperations', 'recoverableReadRoutesResumeAndRetryToSavedRun', 'unknownMutationOffersReconciliationAndIncidentDetailsWithoutRetry', 'unknownGatewayOutcomeKeepsDetailsWithoutResumeOrRetry', 'authorizationBlockKeepsDetailsWithoutRecovery', 'submittingRequestDisablesRecoveryButPreservesDetails'):
     check_instrumentation(folder / 'github-workflow-execution-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.workspace.GitHubWorkflowExecutionInstrumentedTest', test)
+for test in ('boundReadUsesExactRepositoryAndRetainsRuntimeRevision', 'ownedDeletionReconcilesExactRefAbsenceWithoutRepeatingMutation'):
+    check_instrumentation(folder / 'github-bound-transport-instrumentation.txt', 'dev.chungjungsoo.gptmobile.data.github.GitHubBoundTransportInstrumentedTest', test)
+expected_revision = os.environ.get('GITHUB_SHA') or subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+for fixture in ('bound-read', 'owned-deletion'):
+    receipt = json.loads((folder / f'github-{fixture}-evidence.json').read_text())
+    assert receipt['schema'] == 'github.android-stub-acceptance.v1' and receipt['result'] == 'PASS'
+    assert receipt['runtime']['app_source_sha'] == expected_revision, 'GitHub device fixture came from a different app revision'
+    assert receipt['runtime']['identity_source'] == 'RUNNING_PROCESS_BUILD_CONFIG'
+    assert int(receipt['runtime']['device_environment']['sdk_int']) >= 34
+    assert re.fullmatch(r'[a-f0-9]{40}', receipt['repository_commit_sha'])
+    assert receipt['evidence_class'] == 'CURRENT_DEVICE_STUB_EXECUTION' and receipt['transport'] == 'KTOR_MOCK_ENGINE'
+    assert receipt['live_account_execution'] is False and receipt['live_side_effects'] == 0
+    assert receipt['stub_http_requests'] > 0 and receipt['elapsed_realtime_ms'] >= 0
 for test in ('oneToFiveItemsAtCompactWidth', 'oneToFiveItemsAtWideWidth', 'oneToFiveItemsAtLargeFontAndRtl', 'homeScreenNamesItsDestinationEnforcesFiveAndAllowsZero'):
     check_instrumentation(folder / 'settings-home-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.setting.SettingsHomeInstrumentedTest', test)
 check_instrumentation(folder / 'navigation-motion-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.navigation.NavigationMotionInstrumentedTest', 'backUsesFadeWithoutScalingAndCompletesOnThePreviousScreen')

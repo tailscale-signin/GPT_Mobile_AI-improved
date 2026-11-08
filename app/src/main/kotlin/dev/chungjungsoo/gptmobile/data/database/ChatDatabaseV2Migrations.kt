@@ -516,6 +516,40 @@ object ChatDatabaseV2Migrations {
         }
     }
 
+    val MIGRATION_49_50 = object : Migration(49, 50) {
+        override fun migrate(db: SupportSQLiteDatabase) = GatewaySchema50Official.create(db)
+    }
+
+    /** Private pre-merge 50 layout is retained only for structural conversion into 51. */
+    internal fun createCanonicalGateway50(db: SupportSQLiteDatabase) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS `gateway_jobs` (`key` TEXT NOT NULL, `gatewayId` TEXT NOT NULL, `principalId` TEXT NOT NULL, `kind` TEXT NOT NULL, `remoteJobId` TEXT NOT NULL, `conversationKey` TEXT, `connectionProfileUid` TEXT NOT NULL, `endpoint` TEXT NOT NULL, `executionProfileUid` TEXT, `snapshot` TEXT NOT NULL, `observedAtMillis` INTEGER NOT NULL, `seenRevision` INTEGER NOT NULL, PRIMARY KEY(`key`))")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_gateway_jobs_connectionProfileUid_endpoint` ON `gateway_jobs` (`connectionProfileUid`, `endpoint`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_gateway_jobs_conversationKey` ON `gateway_jobs` (`conversationKey`)")
+        db.execSQL("CREATE TABLE IF NOT EXISTS `gateway_conversations` (`key` TEXT NOT NULL, `gatewayId` TEXT NOT NULL, `principalId` TEXT NOT NULL, `conversationId` TEXT NOT NULL, `connectionProfileUid` TEXT NOT NULL, `endpoint` TEXT NOT NULL, `executionProfileUid` TEXT NOT NULL, `localChatId` INTEGER NOT NULL, `snapshot` TEXT NOT NULL, `revision` INTEGER NOT NULL, `messageCursor` TEXT, `syncedAtMillis` INTEGER NOT NULL, `syncHasMore` INTEGER NOT NULL, PRIMARY KEY(`key`))")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_gateway_conversations_localChatId` ON `gateway_conversations` (`localChatId`)")
+        db.execSQL("CREATE TABLE IF NOT EXISTS `gateway_messages` (`conversationKey` TEXT NOT NULL, `messageId` TEXT NOT NULL, `turnId` TEXT NOT NULL, `role` TEXT NOT NULL, `content` TEXT NOT NULL, `status` TEXT NOT NULL, `revision` INTEGER NOT NULL, `publicationId` TEXT, `createdAt` REAL NOT NULL, `localMessageId` INTEGER, PRIMARY KEY(`conversationKey`, `messageId`))")
+        db.execSQL("CREATE TABLE IF NOT EXISTS `gateway_engineering_bindings` (`requestId` TEXT NOT NULL, `chatId` INTEGER NOT NULL, `jobId` TEXT, `binding` TEXT NOT NULL, `updatedAtMillis` INTEGER NOT NULL, PRIMARY KEY(`requestId`))")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_gateway_engineering_bindings_chatId` ON `gateway_engineering_bindings` (`chatId`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_gateway_engineering_bindings_jobId` ON `gateway_engineering_bindings` (`jobId`)")
+        db.execSQL("CREATE TABLE IF NOT EXISTS `gateway_engineering_events` (`requestId` TEXT NOT NULL, `revision` INTEGER NOT NULL, `state` TEXT NOT NULL, `message` TEXT NOT NULL, `createdAt` REAL NOT NULL, PRIMARY KEY(`requestId`, `revision`))")
+        db.execSQL("CREATE TABLE IF NOT EXISTS `gateway_submissions` (`commandId` TEXT NOT NULL, `chatId` INTEGER NOT NULL, `userMessageId` INTEGER, `assistantMessageId` INTEGER, `runId` TEXT, `connectionProfileUid` TEXT NOT NULL, `endpoint` TEXT NOT NULL, `executionProfileUid` TEXT NOT NULL, `fingerprint` TEXT NOT NULL, `payload` TEXT NOT NULL, `state` TEXT NOT NULL, `conversationKey` TEXT, `receipt` TEXT, `createdAtMillis` INTEGER NOT NULL, PRIMARY KEY(`commandId`))")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_gateway_submissions_chatId` ON `gateway_submissions` (`chatId`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_gateway_submissions_conversationKey` ON `gateway_submissions` (`conversationKey`)")
+        db.execSQL("CREATE TABLE IF NOT EXISTS `gateway_migrations` (`key` TEXT NOT NULL, `checksum` TEXT NOT NULL, `importedAtMillis` INTEGER NOT NULL, PRIMARY KEY(`key`))")
+    }
+
+    /** Normal upgrades do not manufacture an unused earlier-format archive. */
+    val MIGRATION_49_51 = object : Migration(49, 51) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            createCanonicalGateway50(db)
+            GatewaySchema51.migrate(db)
+        }
+    }
+
+    val MIGRATION_50_51 = object : Migration(50, 51) {
+        override fun migrate(db: SupportSQLiteDatabase) = GatewaySchema51.migrate(db)
+    }
+
     val ALL_MIGRATIONS: Array<Migration> = arrayOf(
         MIGRATION_10_11,
         MIGRATION_11_12,
@@ -555,7 +589,10 @@ object ChatDatabaseV2Migrations {
         MIGRATION_45_46,
         MIGRATION_46_47,
         MIGRATION_47_48,
-        MIGRATION_48_49
+        MIGRATION_48_49,
+        MIGRATION_49_50,
+        MIGRATION_50_51,
+        MIGRATION_49_51
     )
     private fun columns(db: SupportSQLiteDatabase, table: String): Set<String> = db.query("PRAGMA table_info(`$table`)").use { cursor -> buildSet { while (cursor.moveToNext()) add(cursor.getString(1)) } }
     private fun addColumnIfMissing(db: SupportSQLiteDatabase, table: String, column: String, definition: String) {

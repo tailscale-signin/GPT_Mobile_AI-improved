@@ -18,6 +18,19 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubChatProgressTest {
+    @Test fun readingAJobLogDoesNotInventAFailingStep() {
+        var clock = 0L
+        val progress = GitHubChatProgress { clock }
+        progress.tick()
+        val args = kotlinx.serialization.json.Json.parseToJsonElement("""{"action":"logs","job_id":123}""") as kotlinx.serialization.json.JsonObject
+        progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_started", toolName = "github_ci", toolCallId = "logs", toolArgs = args)))
+        clock = 3000
+        val preview = progress.tick().filterIsInstance<ApiState.ProgressCheckpoint>().single().text
+        assertTrue(preview.contains("Job 123"))
+        assertTrue(preview.contains("observed result"))
+        assertFalse(preview.contains("failing") || preview.contains("error"))
+    }
+
     @Test fun dynamicCountsUpdateTheSameKeyIncludingARevisedEarlierCount() {
         var clock = 0L
         val progress = GitHubChatProgress { clock }

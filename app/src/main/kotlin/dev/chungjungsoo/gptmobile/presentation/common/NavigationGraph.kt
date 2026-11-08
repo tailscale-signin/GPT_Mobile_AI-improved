@@ -263,7 +263,18 @@ fun NavGraphBuilder.homeScreenNavigation(navController: NavHostController, onNew
                 onNewChatOrigin(origin)
                 navController.navigate(Route.VOICE_ENTRY)
             },
-            navigateToWorkspace = { id -> navController.navigate("multi_chat_workspace/$id") }
+            navigateToWorkspace = { id -> navController.navigate("multi_chat_workspace/$id") },
+            navigateToGateway = { navController.navigate(Route.GATEWAY_CONVERSATIONS) { launchSingleTop = true } }
+        )
+    }
+    composable(Route.GATEWAY_CONVERSATIONS) {
+        dev.chungjungsoo.gptmobile.presentation.ui.home.GatewayConversationsScreen(
+            onBack = { navController.navigateUp() },
+            onOpenChat = { saved ->
+                navController.navigate("chat_room/${saved.chatId}?enabled=${android.net.Uri.encode(saved.profileUid)}") {
+                    launchSingleTop = true
+                }
+            }
         )
     }
 }
@@ -360,13 +371,15 @@ internal fun NavGraphBuilder.chatScreenNavigation(navController: NavHostControll
                 onOpenConversation = { id -> navController.navigate("chat_room/$id") },
                 onReviewEvidenceAccess = { navController.navigate(Route.TOOL_CONNECTIONS) },
                 onNavigateToLocalModels = { navController.navigate(Route.LOCAL_MODELS + "?marketplace=true") },
-                onManageProfiles = { navController.navigate(Route.AI_PLATFORMS) }
+                onManageProfiles = { navController.navigate(Route.AI_PLATFORMS) },
+                onProfileSettings = { uid -> navController.navigate(Route.PLATFORM_SETTINGS.replace("{platformUid}", android.net.Uri.encode(uid))) }
             )
         } else {
             val conversation: dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatViewModel = hiltViewModel()
             dev.chungjungsoo.gptmobile.presentation.ui.chat.AdaptiveConversationLayout(it.arguments?.getInt("chatRoomId") ?: 0, { id -> conversation.leaveConversation { navController.navigate("chat_room/$id") { popUpTo(Route.CHAT_ROOM) { inclusive = true } } } }) {
                 ChatScreen(
                     onReviewEvidenceAccess = { navController.navigate(Route.TOOL_CONNECTIONS) },
+                    onProfileSettings = { uid -> navController.navigate(Route.PLATFORM_SETTINGS.replace("{platformUid}", android.net.Uri.encode(uid))) },
                     chatViewModel = conversation,
                     onBackAction = { navController.navigateUp() },
                     onNavigateToLocalModels = { navController.navigate(Route.LOCAL_MODELS + "?marketplace=true") },
@@ -457,7 +470,8 @@ fun NavGraphBuilder.settingNavigation(
                     onOpenConversation = { id -> navController.navigate("chat_room/$id") },
                     onReviewEvidenceAccess = { navController.navigate(Route.TOOL_CONNECTIONS) },
                     onNavigateToLocalModels = { navController.navigate(Route.LOCAL_MODELS + "?marketplace=true") },
-                    onManageProfiles = { navController.navigate(Route.AI_PLATFORMS) }
+                    onManageProfiles = { navController.navigate(Route.AI_PLATFORMS) },
+                    onProfileSettings = { uid -> navController.navigate(Route.PLATFORM_SETTINGS.replace("{platformUid}", android.net.Uri.encode(uid))) }
                 )
             } else {
                 dev.chungjungsoo.gptmobile.presentation.ui.setting.GitHubConnectionSetupScreen(
@@ -533,7 +547,8 @@ fun NavGraphBuilder.settingNavigation(
         ) {
             dev.chungjungsoo.gptmobile.presentation.ui.setting.ProfileBenchmarkScreen(
                 onBack = { navController.navigateUp() },
-                onUsage = { navController.navigate(Route.USAGE_STATISTICS) }
+                onUsage = { navController.navigate(Route.USAGE_STATISTICS) },
+                onOpenAuditConnection = { uid -> navController.navigate(Route.AUDIT_CONNECTION_REPAIR.replace("{connectionUid}", android.net.Uri.encode(uid))) }
             )
         }
         composable(Route.DEBUG_DIAGNOSTICS + "?focus={focus}", arguments = listOf(navArgument("focus") { defaultValue = "" })) {
@@ -547,7 +562,8 @@ fun NavGraphBuilder.settingNavigation(
                 onStatisticsClick = { navController.navigate(Route.USAGE_STATISTICS) },
                 onBenchmarksClick = { navController.navigate(Route.PROFILE_BENCHMARKS.replace("{profileUid}", "")) },
                 initialFocus = it.arguments?.getString("focus").orEmpty(),
-                toolConnectionsViewModel = toolConnectionsViewModel
+                toolConnectionsViewModel = toolConnectionsViewModel,
+                onOpenAuditConnection = { uid -> navController.navigate(Route.AUDIT_CONNECTION_REPAIR.replace("{connectionUid}", android.net.Uri.encode(uid))) }
             )
         }
         composable(Route.AI_PLATFORMS) {
@@ -766,6 +782,30 @@ fun NavGraphBuilder.settingNavigation(
             )
         }
         composable(
+            Route.AUDIT_CONNECTION_REPAIR,
+            arguments = listOf(navArgument("connectionUid") { type = NavType.StringType })
+        ) { entry ->
+            dev.chungjungsoo.gptmobile.presentation.ui.setting.AuditConnectionRepairScreen(
+                connectionUid = entry.arguments?.getString("connectionUid").orEmpty(),
+                viewModel = toolConnectionsViewModel,
+                onBack = { navController.navigateUp() },
+                onEdit = { uid -> navController.navigate(Route.AUDIT_CONNECTION_EDIT.replace("{connectionUid}", android.net.Uri.encode(uid))) },
+                onLaunchOAuth = onLaunchOAuth
+            )
+        }
+        composable(
+            Route.AUDIT_CONNECTION_EDIT,
+            arguments = listOf(navArgument("connectionUid") { type = NavType.StringType })
+        ) { entry ->
+            ToolConnectionEditorScreen(
+                connectionUid = entry.arguments?.getString("connectionUid"),
+                viewModel = toolConnectionsViewModel,
+                onNavigationClick = { navController.navigateUp() },
+                onSaveComplete = { navController.navigateUp() },
+                probeAfterSave = false
+            )
+        }
+        composable(
             Route.EDIT_TOOL_CONNECTION,
             arguments = listOf(navArgument("connectionUid") { type = NavType.StringType })
         ) {
@@ -801,7 +841,8 @@ fun NavGraphBuilder.githubChatNavigation(navController: NavHostController, toolC
                 onOpenConversation = { id -> navController.navigate("chat_room/$id") },
                 onReviewEvidenceAccess = { navController.navigate(Route.TOOL_CONNECTIONS) },
                 onNavigateToLocalModels = { navController.navigate(Route.LOCAL_MODELS + "?marketplace=true") },
-                onManageProfiles = { navController.navigate(Route.AI_PLATFORMS) }
+                onManageProfiles = { navController.navigate(Route.AI_PLATFORMS) },
+                onProfileSettings = { uid -> navController.navigate(Route.PLATFORM_SETTINGS.replace("{platformUid}", android.net.Uri.encode(uid))) }
             )
         } else {
             androidx.activity.compose.BackHandler { navController.navigateUp() }

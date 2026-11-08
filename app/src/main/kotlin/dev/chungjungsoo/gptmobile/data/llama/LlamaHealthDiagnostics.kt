@@ -8,6 +8,7 @@ import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import dev.chungjungsoo.gptmobile.data.network.boundedMetadata
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayClientDiagnostics
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewaySurfacePolicy
 import dev.chungjungsoo.gptmobile.data.research.researchHash
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.timeout
@@ -63,7 +64,8 @@ internal data class LlamaHealthReport(
     val activeRequestId: String? = null,
     val inferenceLatencyMs: Long? = null,
     val timeToFirstTokenMs: Long? = null,
-    val gatewayToolsReady: Boolean? = null
+    val gatewayToolsReady: Boolean? = null,
+    val cachedRestrictedSurfaces: List<String> = emptyList()
 ) {
     val phase: LlamaConnectionPhase get() = when {
         activeGenerations > 0 -> LlamaConnectionPhase.GENERATING
@@ -79,7 +81,7 @@ internal data class LlamaHealthReport(
     fun summary(): String = "healthHttp=${healthHttpStatus ?: "unknown"}; serverStatus=${serverStatus ?: "unknown"}; " +
         "modelsHttp=${modelsHttpStatus ?: "unknown"}; selectedModelListed=${selectedModelListed ?: "unknown"}; " +
         "propsHttp=${propsHttpStatus ?: "unknown"}; servingContext=${contextTokens ?: "unknown"}; templateRevision=${templateRevision ?: "unknown"}; " +
-        "gatewayHttp=${gatewayHttpStatus ?: "unknown"}; gatewayReady=${gatewayReady ?: "Not measured"}; metadataRestricted=$metadataRestricted; " +
+        "gatewayHttp=${gatewayHttpStatus ?: "unknown"}; gatewayReady=${gatewayReady ?: "Not measured"}; metadataRestricted=$metadataRestricted; cachedRestrictedSurfaces=$cachedRestrictedSurfaces; " +
         "phase=$phase; serverGeneration=${serverGeneration ?: "Not reported"}; modelIdentity=${modelIdentity ?: "Not reported"}; " +
         "healthFailure=${healthFailure ?: "none"}; propsFailure=${propsFailure ?: "none"}; modelsFailure=${modelsFailure ?: "none"}; " +
         "activeGenerations=$activeGenerations; requestId=${activeRequestId ?: "Not reported"}; inferenceTested=$inferenceTested; inferenceReady=${inferenceReady ?: "Not measured"}; inferenceFailure=${inferenceFailure ?: "none"}; inferenceLatencyMs=${inferenceLatencyMs ?: "Not measured"}; timeToFirstTokenMs=${timeToFirstTokenMs ?: "Not measured"}; gatewayToolsReady=${gatewayToolsReady ?: "Not measured"}"
@@ -101,9 +103,9 @@ internal class LlamaHealthDiagnostics(
         val key = researchHash("${GatewayClientDiagnostics.routeIdentity(config)}|$model|${LocalServiceHealth.networkEpoch}|${GatewayClientDiagnostics.capabilityEpoch(config)}")
         val report = cache.getOrLoad(key) {
             coroutineScope {
-                val health = async { read(route.removeSuffix("/v1") + "/health", config, model) }
+                val health = async { readMetadata(route.removeSuffix("/v1") + "/health", config, model, GatewaySurfacePolicy.Surface.HEALTH) }
                 val models = async { read(config.buildEndpoint("models"), config, model) }
-                val props = async { read(route.removeSuffix("/v1") + "/props", config, model) }
+                val props = async { readMetadata(route.removeSuffix("/v1") + "/props", config, model, GatewaySurfacePolicy.Surface.PROPS) }
                 val healthResult = health.await()
                 val modelResult = models.await()
                 val propsResult = props.await()
@@ -142,7 +144,8 @@ internal class LlamaHealthDiagnostics(
                     modelIdentity = ids?.takeIf { model in it }?.let { researchHash(model).take(16) },
                     healthFailure = healthResult.failure,
                     modelsFailure = modelResult.failure,
-                    propsFailure = propsResult.failure
+                    propsFailure = propsResult.failure,
+                    cachedRestrictedSurfaces = listOfNotNull("health".takeIf { healthResult.cached }, "props".takeIf { propsResult.cached })
                 )
             }
         } ?: LlamaHealthReport()
@@ -241,7 +244,15 @@ internal class LlamaHealthDiagnostics(
         }
     }
 
-    private data class Probe(val status: Int? = null, val body: JsonObject? = null, val failure: String? = null)
+    private data class Probe(val status: Int? = null, val body: JsonObject? = null, val failure: String? = null, val cached: Boolean = false)
+
+    private suspend fun readMetadata(endpoint: String, config: ProviderRequestConfig, model: String, surface: GatewaySurfacePolicy.Surface): Probe {
+        GatewaySurfacePolicy.shared.rememberedStatus(GatewaySurfacePolicy.identity(config), surface)?.let { return Probe(status = it, cached = true) }
+        val result = read(endpoint, config, model)
+        val code = ((result.body?.get("error") as? JsonObject)?.get("code") as? JsonPrimitive)?.contentOrNull
+        result.status?.let { GatewaySurfacePolicy.shared.observe(GatewaySurfacePolicy.identity(config), surface, it, code) }
+        return result
+    }
 
     private suspend fun read(endpoint: String, config: ProviderRequestConfig, model: String, timeoutMillis: Long = 1_500): Probe = try {
         withTimeoutOrNull(timeoutMillis) {

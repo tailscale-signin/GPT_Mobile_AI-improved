@@ -32,6 +32,11 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditObservationSource
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditOutcome
+import dev.chungjungsoo.gptmobile.data.audit.safeAuditDiagnosticField
+import dev.chungjungsoo.gptmobile.data.audit.safeAuditFailureCategory
+import dev.chungjungsoo.gptmobile.data.audit.safeAuditFailurePhase
+import dev.chungjungsoo.gptmobile.data.audit.safeAuditReason
+import dev.chungjungsoo.gptmobile.data.audit.safeAuditValidationRule
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkBatch
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkBatchState
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
@@ -135,6 +140,7 @@ internal fun AppAuditResultCard(
             Text(presentation.scoreText, style = MaterialTheme.typography.titleMedium)
             Text(presentation.weightText, style = MaterialTheme.typography.bodySmall)
             Text(presentation.coverageText, style = MaterialTheme.typography.bodyMedium)
+            Text(presentation.evidenceText, style = MaterialTheme.typography.bodySmall)
             Text(presentation.coverageNotice, style = MaterialTheme.typography.bodySmall)
             Text("The score is 100 × passing weight / measured weight for eligible named checks. Configuration, cached information and untested checks do not earn points. It is separate from model quality and performance scores.", style = MaterialTheme.typography.bodySmall)
             Text(presentation.countsText, style = MaterialTheme.typography.bodySmall)
@@ -161,7 +167,11 @@ internal fun AppAuditResultCard(
     }
 }
 
-internal fun LazyListScope.appAuditEvidenceContent(batch: BenchmarkBatch, currentTargetNames: Map<String, String> = emptyMap()) {
+internal fun LazyListScope.appAuditEvidenceContent(
+    batch: BenchmarkBatch,
+    currentTargetNames: Map<String, String> = emptyMap(),
+    onOpenConnection: ((String) -> Unit)? = null
+) {
     val run = batch.audit ?: return
     val presentation = appAuditPresentation(run, currentTargetNames)
     item(key = "audit.${batch.id}.provenance") {
@@ -170,6 +180,8 @@ internal fun LazyListScope.appAuditEvidenceContent(batch: BenchmarkBatch, curren
             Text("${run.catalogVersion} · ${run.buildVersion} (${run.buildVariant}) · source ${run.sourceCommit.take(12)}", style = MaterialTheme.typography.labelSmall)
             Text("Indexed source: ${run.sourceFileCount} files · ${run.sourceLineCount} lines. These are inventory counts, not executed lines.", style = MaterialTheme.typography.bodySmall)
             Text("Plan ${run.plan.size} entries · updated ${benchmarkResultDate(run.updatedAtEpochMs)}", style = MaterialTheme.typography.labelSmall)
+            Text("Network probe attempts: ${run.networkAttemptBudgetUsed} · confirmed dispatches: ${run.networkProbesConfirmed} · dispatch uncertain: ${run.networkProbesDispatchUnknown}", style = MaterialTheme.typography.bodySmall)
+            Text("An attempt consumes the conservative probe budget before a request outcome is known. It does not by itself prove that the server received a request.", style = MaterialTheme.typography.bodySmall)
         }
     }
     presentation.components.forEach { component ->
@@ -179,12 +191,12 @@ internal fun LazyListScope.appAuditEvidenceContent(batch: BenchmarkBatch, curren
                 Text("${component.summary.exercised}/${component.summary.planned} checks exercised · ${component.summary.verified} verified passes · ${component.summary.failed} failed · ${component.summary.untested} untested or pending", style = MaterialTheme.typography.bodySmall)
             }
         }
-        items(component.entries, key = { "audit.${batch.id}.entry.${it.entry.id}" }) { item -> AppAuditEntryCard(item) }
+        items(component.entries, key = { "audit.${batch.id}.entry.${it.entry.id}" }) { item -> AppAuditEntryCard(item, onOpenConnection) }
     }
 }
 
 @Composable
-internal fun AppAuditEntryCard(item: AppAuditEntryPresentation) {
+internal fun AppAuditEntryCard(item: AppAuditEntryPresentation, onOpenConnection: ((String) -> Unit)? = null) {
     var expanded by rememberSaveable(item.entry.id) { mutableStateOf(false) }
     val result = item.result
     val status = if (item.active) "Running" else appAuditOutcomeLabel(result?.outcome)
@@ -199,6 +211,12 @@ internal fun AppAuditEntryCard(item: AppAuditEntryPresentation) {
             }
             Text(status, style = MaterialTheme.typography.bodyMedium, color = if (result?.outcome == AppAuditOutcome.FAIL) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
             Text(appAuditReason(item), style = MaterialTheme.typography.bodySmall)
+            if (result?.observationSource == AppAuditObservationSource.CACHE) {
+                Text("This is a retained observation. Running another audit does not bypass a connection's recovery gate. Correct the saved connection, explicitly check it again, then start a fresh audit.", style = MaterialTheme.typography.bodySmall)
+            }
+            appAuditConnectionUid(item)?.takeIf { onOpenConnection != null }?.let { uid ->
+                OutlinedButton(onClick = { onOpenConnection?.invoke(uid) }) { Text("Open connection settings and checks") }
+            }
             Text("Planned evidence: ${item.entry.evidenceKind.auditLabel()}", style = MaterialTheme.typography.bodySmall)
             Text(
                 "Observed evidence: ${when (result?.observationSource) {
@@ -214,7 +232,35 @@ internal fun AppAuditEntryCard(item: AppAuditEntryPresentation) {
             TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Hide evidence details" else "Evidence details") }
             if (expanded) {
                 Text("Check: ${item.entry.probeId}", style = MaterialTheme.typography.labelSmall)
+                Text("Diagnostic code: ${(result?.reasonCode ?: item.entry.reasonCode)?.let(::safeAuditReason) ?: "Not recorded"}", style = MaterialTheme.typography.bodySmall)
                 Text("Dispatch: ${result?.dispatchEvidence?.name?.lowercase()?.replace('_', ' ') ?: "not attempted"}", style = MaterialTheme.typography.bodySmall)
+                Text(appAuditRetryabilityText(result?.observation?.retryable), style = MaterialTheme.typography.bodySmall)
+                if (result?.outcome in setOf(AppAuditOutcome.FAIL, AppAuditOutcome.BLOCKED)) {
+                    Text("Failure phase: ${safeAuditFailurePhase(result?.observation?.failurePhase)?.replace('_', ' ') ?: "Not recorded"}", style = MaterialTheme.typography.bodySmall)
+                }
+                safeAuditFailureCategory(result?.observation?.failureCategory)?.let { category ->
+                    Text("Failure category: ${category.replace('_', ' ')}", style = MaterialTheme.typography.bodySmall)
+                }
+                safeAuditValidationRule(result?.observation?.validationRule)?.let { rule ->
+                    Text("Validation rule: $rule", style = MaterialTheme.typography.bodySmall)
+                }
+                safeAuditDiagnosticField(result?.observation?.validationField)?.let { field ->
+                    Text("Validation field: $field", style = MaterialTheme.typography.bodySmall)
+                }
+                result?.observation?.observedAtEpochMs?.let { time ->
+                    Text("${if (result.observationSource == AppAuditObservationSource.CACHE) "Original observation" else "Observed"}: ${benchmarkResultDate(time)}", style = MaterialTheme.typography.bodySmall)
+                } ?: if (result?.observationSource == AppAuditObservationSource.CACHE) {
+                    Text("Original observation time: not recorded. This audit's check time does not establish cache freshness.", style = MaterialTheme.typography.bodySmall)
+                } else {
+                    Unit
+                }
+                result?.observation?.configurationRevision?.let { revision ->
+                    Text("Observed configuration revision: ${revision.take(12)}", style = MaterialTheme.typography.bodySmall)
+                } ?: if (result?.observationSource == AppAuditObservationSource.CACHE) {
+                    Text("Observed configuration revision: not recorded. The saved error cannot establish the health of the current configuration.", style = MaterialTheme.typography.bodySmall)
+                } else {
+                    Unit
+                }
                 Text("Duration: ${benchmarkMetricText(result?.durationMs?.takeIf { it >= 0 }?.toDouble(), "ms", 0)}", style = MaterialTheme.typography.bodySmall)
                 result?.observation?.httpStatus?.let { Text("HTTP status: $it", style = MaterialTheme.typography.bodySmall) }
                 if (result?.observation?.configChanged == true) Text("The configuration changed during this check; inspect its outcome before retrying.", style = MaterialTheme.typography.bodySmall)

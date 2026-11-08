@@ -12,7 +12,7 @@ import kotlinx.serialization.json.put
 /** Fixed diagnostic metadata travels with the original receipt, including compacted/replayed results. */
 internal object ToolFailureMetadata {
     private val unavailableCode = setOf("", "none", "null", "unknown")
-    val authorityInvalidationCodes = setOf("DISPATCH_POLICY_CHANGED", "POLICY_STALE", "STALE_INVENTORY")
+    val authorityInvalidationCodes = setOf("DISPATCH_POLICY_CHANGED", "POLICY_STALE")
 
     private fun causes(error: Throwable) = generateSequence(error) { current -> current.cause?.takeUnless { it === current } }.take(16)
 
@@ -56,7 +56,7 @@ internal object ToolFailureMetadata {
 
     fun authorityBlocked(callId: String, tool: String, prior: AgentToolResult): AgentToolResult {
         val code = requireNotNull(authorityCode(prior))
-        val result = ToolResultEnvelope.error(callId, code, "The selected execution authority or tool inventory changed. This queued call was not dispatched. Resume under the current settings; completed actions and uncertain outcomes remain recorded.")
+        val result = ToolResultEnvelope.error(callId, code, "The selected execution authority or tool configuration changed. This queued call was not dispatched. Resume under the current settings; completed actions and uncertain outcomes remain recorded.")
         return receipt(
             result.copy(
                 executionReceipt = buildJsonObject {
@@ -80,7 +80,7 @@ internal object ToolFailureMetadata {
             if (unknown) {
                 "Execution authority changed while an earlier operation has an unknown outcome. Reconcile the retained receipts before any mutation; no model or tool continuation was started."
             } else {
-                "The selected profile, connection or tool inventory changed. Resume to revalidate the current settings and retained receipts. No further model or tool continuation was started."
+                "The selected profile, connection or tool configuration changed. Resume to revalidate the current settings and retained receipts. No further model or tool continuation was started."
             },
             errorCode = if (unknown) "RECONCILIATION_REQUIRED" else code,
             taskOutcome = if (unknown) "PARTIAL" else "CONFIGURATION_INVALIDATED",
@@ -105,6 +105,7 @@ internal object ToolFailureMetadata {
     }
 
     fun classify(error: Throwable): String {
+        causes(error).filterIsInstance<RequiredToolReadinessFailure>().firstOrNull()?.let { return it.errorCode }
         val classified = ErrorClassification.classify(error)
         if (classified.errorCode in ToolResultEnvelope.unknownOutcomeCodes) return classified.errorCode
         val network = networkFailureKind(error)

@@ -59,12 +59,15 @@ data class ProviderFailureReceipt(
             "OUTPUT_CONTINUATION_BUDGET_EXHAUSTED", "OUTPUT_CONTINUATION_DISABLED", "OUTPUT_CONTINUATION_NO_PROGRESS",
             "OUTPUT_CONTINUATION_PENDING_TOOLS", "OUTPUT_CONTINUATION_UNAVAILABLE", "OUTPUT_PROTOCOL_INVALID",
             "INVALID_ARGUMENTS", "TOOL_OUTCOME_UNKNOWN", "TOOL_PROTOCOL_INVALID_FRAME", "TOOL_UNAVAILABLE", "FINAL_RESPONSE_REQUIRED"
-        )
+        ) + dev.chungjungsoo.gptmobile.data.network.error.ProviderContractFailure.codes
 
         fun from(profile: PlatformV2, role: String, failure: ProviderEvent.Failed, usage: ProviderEvent.Usage? = null): ProviderFailureReceipt {
             val status = ((failure.failureDetails?.get("http_status") as? JsonPrimitive)?.intOrNull ?: failure.errorCode?.toIntOrNull())?.takeIf { it in 100..599 }
-            val code = failure.errorCode?.takeIf { it in ERROR_CODES } ?: if (status != null) "HTTP_ERROR" else "UNCLASSIFIED_PROVIDER_FAILURE"
+            val code = failure.errorCode?.uppercase(java.util.Locale.ROOT)?.takeIf { it in ERROR_CODES } ?: if (status != null) "HTTP_ERROR" else "UNCLASSIFIED_PROVIDER_FAILURE"
+            val failedStage = (failure.failureDetails?.get("failed_stage") as? JsonPrimitive)?.content
             val stage = when {
+                failedStage == "tool_continuation" -> ProviderFailureStage.CONTINUATION
+                failedStage == "gateway_recovery" -> ProviderFailureStage.DELIVERY
                 role.endsWith("-preflight") || code == "GITHUB_REVIEW_INCOMPATIBLE" -> ProviderFailureStage.REVIEW_COMPATIBILITY
                 role.startsWith("github-review") || code.startsWith("GITHUB_REVIEW_") -> ProviderFailureStage.ANSWER_REVIEW
                 role == "github-claim-extraction" || code.startsWith("GITHUB_EVIDENCE_") || code.startsWith("GITHUB_EXTRACTION_") -> ProviderFailureStage.CLAIM_VERIFICATION

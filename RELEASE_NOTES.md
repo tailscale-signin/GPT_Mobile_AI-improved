@@ -1,5 +1,11 @@
 ## Unreleased reliability follow-up
 
+The November 8 integration follow-up adds typed gateway admission and saved-work checks, exact-model reasoning qualification before Send and Combined fan-out, proven-unsent reservation settlement, bounded acceptance-criterion export, owned GitHub fixture reconciliation, a disposable CI workflow and closed-stub Android execution cases. Speech/TTS repair controls preserve explicit user choices. Socket cleanup runs off the main dispatcher, contributor checkpoints share a terminal-aware write gate, and packaged DEX checks cover extracted accounting stages. See [the diagnostic integration disposition and qualification record](docs/repairs/diagnostic-integration-followup-2026-11-08.md). The release identity remains unchanged.
+
+Gateway continuity adds model-specific online-first profiles, a gateway-wide Jobs tab, durable conversation and command recovery, accepted-work queue retention, and normal GitHub Send through the configured gateway. A successful gateway connection also shows **Gateway** between Chats and Favorites, listing the conversations stored on that server. Original profile/model/repository bindings remain attached to each saved job. Reconnect reads the same work, and platform timeouts interrupt observation separately from explicit Stop. Large transcripts use verified bounded parts; Room schema 51 preserves identities from both concurrent schema-50 layouts. See [the integrated implementation and qualification record](docs/architecture/gateway-persistent-jobs.md) and [the earlier continuity checkpoint](docs/repairs/gateway-continuity-2026-11-07.md). The release identity remains unchanged.
+
+The PR 813 integration repair adds independent GitHub acceptance criteria, a measured integration report, complete preset discovery, explicit branch targeting, durable stage-and-commit, bounded inline CI watching and flexible line reads. Owned synthetic content fixtures retain cleanup authority across interruptions. Forced live reads bypass source caches, oversized diagnostic exports resume with durable cursors and complete logical records, and current verification snapshots replace repeated full history. Reasoning-OFF remains a hard request policy; task incompleteness is separate from provider failure. Completed responses use smaller visual pages and frame reports retain lifecycle coverage. See [the integration repair and verification ledger](docs/repairs/pr813-integration-2026-11-07.md). This work does not publish a release or claim physical-device performance qualification.
+
 A separate post-PR-806 branch repairs server-cooldown/TLS retry admission, durable retry timing, cancellation-safe batch receipts, schema-bound MCP readiness, missing event replay and bounded context projection. Android reports now distinguish authentication and graph recovery. Gateway answer colour and badges now require response-bound gateway evidence, clear stale attribution between responses, and confirm recognized gateway capabilities with diagnostics disabled. No new version is published by this change; full current-head CI and physical deployment qualification remain separate requirements. See `docs/repairs/reliability-fault-recovery-2026-11-06.md`.
 
 The November 7 diagnostic follow-up repairs mixed-type gateway capabilities, explicit gateway status routing, receipt preservation, sanitized schema diagnostics, the completed MCP discovery refresh race, and the oversized agent execution loop. Complete evidence and qualification limits are in [the diagnostic repair report](docs/repairs/diagnostic-remediation-8597579-2026-11-07.md). These remain unreleased changes until separately published.
@@ -38,6 +44,23 @@ This candidate combines the November 6 GitHub, gateway, retained-evidence and An
 
 - Bind REST mutation claims to their actual HTTP payload, preserve exact legacy fences and proof-based recovery, connect GraphQL reconciliation to task acceptance, and retain deterministic workflow-error blocking across error-code upgrades.
 
+## Diagnostic follow-through — 7 November 2026
+
+The later diagnostic capture showed strict-template failures, interrupted client-tool handoffs, guessed GitHub targets, misleading discovery/pagination counts and inconsistent reasoning preferences. This follow-through:
+
+- Normalizes one leading instruction prefix at every gateway dispatch, preserves exact client-tool frames and durable waiting-job identity, stops deterministic protocol retries, and retains original failure, partial-result and measured usage evidence.
+- Grounds GitHub planning in the selected repository, keeps recovery in the same connection, preserves captured workflow pages and exact continuations, reports unique coverage, and ties substantive native GitHub work to criterion-linked acceptance.
+- Resolves reasoning preferences consistently across requests, settings and exports; requires verified template control; separates backend timing from visible client timing; and bounds unsupported metadata probes and routine omission logs.
+- Pages long responses earlier, preserves terminal failure presentation, rejects clarification self-loops including cached batched actions, and gives the composer sole ownership of keyboard release.
+
+The [27-item coverage ledger and deployment checklist](docs/repairs/diagnostic-follow-through-c1466ca0-2026-11-07.md) distinguish implemented contracts from deployment and physical-device measurements. The existing release identity is unchanged; preparing this branch does not publish a release.
+
+## App audit and MCP follow-through — 7 November 2026
+
+Discovery now performs one eligible OAuth refresh for a confirmed 401 from either MCP transport, retains typed local failures without invented dispatch or HTTP status, and preserves safe protocol rules, original failure time and configuration revision. Audit evidence shows tailored recovery guidance and opens the exact saved connection for explicit repair. Stale configuration and credential changes invalidate pending connection checks and their health results.
+
+Network attempts, confirmed dispatches and unknown dispatches are separate. A build-bound qualification worklist describes the missing target and external-suite fixtures without executing tools or promoting historical results. The [repair and acceptance ledger](docs/repairs/app-audit-mcp-remediation-2026-11-07.md) maps the supplied findings to source changes, regressions and the required fresh observations. Diagnostic questions about repository jobs retain their repository intent; an unavailable optional narrator does not repeatedly consume the main task's model capacity.
+
 ## Implementation and verification
 
 Implementation reports: [diagnostic workflow](docs/repairs/diagnostic-workflow-evidence-2026-11-06.md), [gateway, acceptance and retention](docs/repairs/gateway-task-retention-2026-11-06.md), and [GraphQL recovery and dispatch correlation](docs/repairs/github-dispatch-graphql-2026-11-06.md).
@@ -46,6 +69,16 @@ The existing signed-release pipeline verifies exact-commit tests, required main 
 
 ## Qualification and remaining work
 
+- The November 8 diagnostic integration retains required matching PC/phone deployment, original MCP endpoint checks, private-account workflow execution and physical-device speech/DNS/frame qualification. Closed transport stubs and a disposable CI fixture are explicitly separate from live-account or device acceptance.
+
+- Gateway conversation and job features require matching Android and gateway updates. Host, mocked transport and Room regressions do not qualify private-server reachability, physical-device process death, OEM lifecycle behavior or end-to-end frame pacing.
+- Legacy schema50 archive tables remain preserved. Restoring a backup containing those retained archives into a fresh schema51 database without the archive schema is explicitly blocked before data changes; canonical conversation and multipart backups remain portable.
+
+- Gateway continuity requires matching Android and gateway versions. Physical-phone force-stop/reopen, production queue contention, private model availability and measured rendering performance remain deployment qualification; host and CI evidence are recorded separately.
+
+- The historical three MCP discovery problem targets and 49 execution/suite gaps require fresh affected-installation or authorized harness evidence. Source fixes, generated qualification plans and unrelated CI passes do not convert them into successful runtime checks.
+
+- The November 7 c1466ca0 repairs require matching Android/gateway deployment, live MCP endpoint and DNS checks, and physical-device handoff, reasoning, frame-time and IME qualification. Host tests do not establish those outcomes.
 - App audit inventories supported production files and executes named local or selected metadata probes; it does not establish complete file, line or branch coverage, arbitrary plugin tool execution, physical-device qualification or private service availability.
 
 - The November7 c285 emulator statistics workload retained API34 gaps of one unacknowledged start and one recorded-in-progress entry, and API36 one unacknowledged start. Functional acceptance passed but performance remains unqualified; later exact-head evidence must be inspected independently.
@@ -74,7 +107,7 @@ The existing signed-release pipeline verifies exact-commit tests, required main 
 - Voice speech services, GitHub prompt anchoring during physical gestures/IME/rotation, process death and reboot still require device acceptance. This release does not claim those cases passed.
 - The Android signed release does not install or publish a new Windows gateway package; Windows installer checks are tracked separately.
 - External Graphify server behavior and physical-device graph, speech and scrolling performance have not been qualified by these host and emulator checks.
-- Automated mutation fixtures cover owned disposable branch creation, dependency inspection and cleanup; content writes, releases, merges and cancellations require separately authorized fixture plans.
+- Automated mutation fixtures cover owned disposable branch and fixed synthetic content/stage/commit lifecycles with verified cleanup; arbitrary content writes, releases, merges and cancellations require separately authorized fixture plans.
 - External Graphify execution, compiler-resolved navigation, and physical-device graph, speech and UI performance remain unqualified; host and emulator evidence does not establish those outcomes.
 - The November 3 build-138 chat audit implements bounded UI and planner repairs; full mutation fixtures, retained-page capacity recovery and physical-device acceptance remain incomplete.
 - The November 4 GitHub workspace repairs do not qualify physical-device process death, UI frame pacing or private Llama/server reachability; those outcomes require live device and service receipts. Saved evidence remains quota bounded, and an unavailable mutation result must be reconciled rather than replayed.

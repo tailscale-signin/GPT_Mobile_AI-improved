@@ -38,7 +38,7 @@ class SelectedExecutionTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.debug_stores = []
-        self.calls, self.answer_model, self.empty_once = [], 'A', False
+        self.calls, self.answer_model, self.empty_once, self.template_failure = [], 'A', False, False
         fixture = self
         class Handler(BaseHTTPRequestHandler):
             def log_message(self, *args):
@@ -67,6 +67,9 @@ class SelectedExecutionTests(unittest.TestCase):
                 if self.path != '/v1/chat/completions':
                     return self.reply({}, 404)
                 fixture.calls.append({'path': self.path, 'body': body, 'headers': dict(self.headers)})
+                if fixture.template_failure:
+                    return self.reply({'error': {'code': 500, 'type': 'server_error',
+                                                'message': 'Jinja Exception: System message must be at the beginning.'}}, 500)
                 content = '' if fixture.empty_once else '{"plan":"checked","paths":[],"approved":true,"issues":[]}'
                 fixture.empty_once = False
                 return self.reply({'model': fixture.answer_model, 'choices': [{'finish_reason': 'stop', 'message': {'role': 'assistant', 'content': content}}],
@@ -281,6 +284,22 @@ class SelectedExecutionTests(unittest.TestCase):
             with self.assertRaises(ExecutionBindingError):
                 self.service.prepare_binding('owner', dict(selected(self.endpoint), **change))
         self.assertEqual([], self.calls)
+
+    def test_template_rejection_has_a_terminal_physical_receipt_without_replay(self):
+        from gateway_v13_runtime import GatewayContractError
+        self.template_failure = True
+        with self.assertRaises(GatewayContractError) as failure:
+            self.backend.model(self.job, 'planner', {})
+        self.assertEqual('backend_template_invalid', failure.exception.code)
+        self.assertEqual(1, len(self.calls))
+        receipt = self.store.model_attempts(self.job['id'])[0]
+        self.assertEqual('FAILED', receipt['state'])
+        self.assertTrue(receipt['dispatched'])
+        self.assertEqual('backend_template_invalid', receipt['error_code'])
+        self.assertEqual(500, receipt['failure_details']['backend_status'])
+        self.assertEqual('backend_rejected', receipt['failure_details']['dispatch_state'])
+        self.assertFalse(receipt['failure_details']['retryable'])
+        self.assertIsInstance(receipt['completed_at_ms'], int)
 
     def test_revoked_binding_and_cancelled_lease_stop_before_dispatch(self):
         self.service.bindings.revoke('owner', self.binding['binding_id'])

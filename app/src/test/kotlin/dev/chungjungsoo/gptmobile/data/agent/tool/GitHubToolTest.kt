@@ -1,16 +1,20 @@
 package dev.chungjungsoo.gptmobile.data.agent.tool
 
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
+import dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope
 import dev.chungjungsoo.gptmobile.data.database.entity.BuiltInAgentTool
 import dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryContext
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -325,11 +329,23 @@ class GitHubToolTest {
         }
     }
 
-    @Test fun commitUsesTheExplicitlySelectedTaskBranchInsteadOfTheConstructorBranch() = runTest {
+    @Test fun commitReviewUsesTheExplicitTargetWithoutRebindingTheSelectedTaskBranch() = runTest {
         val sha = "a".repeat(40)
         val tree = "b".repeat(40)
+        val files = JsonArray(
+            listOf(
+                buildJsonObject {
+                    put("path", "review.txt")
+                    put("content", "reviewed content")
+                }
+            )
+        )
+        var requests = 0
+        var mutations = 0
         val client = HttpClient(
             MockEngine { request ->
+                requests++
+                if (request.method != HttpMethod.Get) mutations++
                 when (request.url.encodedPath) {
                     "/repos/owner/repo/commits/working" -> respond("""{"sha":"$sha","commit":{"tree":{"sha":"$tree"}}}""", HttpStatusCode.OK)
                     "/repos/owner/repo/git/trees/$tree" -> respond("""{"tree":[],"truncated":false}""", HttpStatusCode.OK)
@@ -337,10 +353,12 @@ class GitHubToolTest {
                 }
             }
         )
-        var proposedBranch = ""
+        val proposedBranches = mutableListOf<String>()
         try {
             val tool = GitHubTool("token", client, repositoryContext = GitHubRepositoryContext("owner", "repo", "main"), engineeringPrepare = { _, arguments ->
-                proposedBranch = arguments.getValue("branch").jsonPrimitive.content
+                assertEquals(files, arguments["files"])
+                assertEquals(JsonPrimitive(sha), arguments["expected_head_sha"])
+                proposedBranches += arguments.getValue("branch").jsonPrimitive.content
                 buildJsonObject { put("status", "AWAITING_APPROVAL") }
             })
             val selected = tool.execute(
@@ -351,26 +369,54 @@ class GitHubToolTest {
                 }
             )
             assertFalse(selected.isError)
+            val selectionReads = requests
             val proposed = tool.execute(
                 "propose",
                 buildJsonObject {
                     put("action", "commit_files")
                     put("branch", "working")
                     put("expected_head_sha", sha)
+                    put("message", "Review the selected branch patch")
+                    put("files", files)
                 }
             )
-            assertFalse(proposed.isError)
-            assertEquals("working", proposedBranch)
-            val rejected = tool.execute(
-                "wrong-branch",
+            assertFalse(proposed.toString(), proposed.isError)
+            assertFalse(proposed.dispatched)
+            assertEquals(JsonPrimitive("AWAITING_APPROVAL"), ToolResultEnvelope.element(proposed.content).jsonObject["status"])
+            assertEquals(listOf("working"), proposedBranches)
+            val explicit = tool.execute(
+                "explicit-branch",
                 buildJsonObject {
                     put("action", "commit_files")
                     put("branch", "unselected")
                     put("expected_head_sha", sha)
+                    put("message", "Review the explicit branch patch")
+                    put("files", files)
                 }
             )
-            assertTrue(rejected.isError)
-            assertEquals("working", proposedBranch)
+            assertFalse(explicit.toString(), explicit.isError)
+            assertFalse(explicit.dispatched)
+            assertEquals(JsonPrimitive("AWAITING_APPROVAL"), ToolResultEnvelope.element(explicit.content).jsonObject["status"])
+            assertEquals(listOf("working", "unselected"), proposedBranches)
+            assertEquals("working", tool.planningContext().repository?.ref)
+            for (missing in listOf("branch", "expected_head_sha", "message")) {
+                val invalid = tool.execute(
+                    "missing-$missing",
+                    buildJsonObject {
+                        put("action", "commit_files")
+                        if (missing != "branch") put("branch", "unselected")
+                        if (missing != "expected_head_sha") put("expected_head_sha", sha)
+                        if (missing != "message") put("message", "Review the explicit branch patch")
+                        put("files", files)
+                    }
+                )
+                assertTrue(missing, invalid.isError)
+                assertFalse(missing, invalid.dispatched)
+                assertEquals(missing, "INVALID_ARGUMENTS", invalid.errorCode)
+            }
+            assertEquals(listOf("working", "unselected"), proposedBranches)
+            assertEquals(selectionReads, requests)
+            assertEquals(0, mutations)
         } finally {
             client.close()
         }

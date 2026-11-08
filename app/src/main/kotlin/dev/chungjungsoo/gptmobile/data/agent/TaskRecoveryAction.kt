@@ -11,7 +11,7 @@ enum class TaskRecoveryAction {
     CONTINUE_PRIMARY_ONLY;
 
     companion object {
-        fun fromText(text: String): TaskRecoveryAction? = when (dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.request(text).lowercase(Locale.ROOT).trimEnd('.', '!', '?').trim().replace(Regex("\\s+"), " ")) {
+        fun fromText(text: String): TaskRecoveryAction? = when (dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.request(text).lowercase(Locale.ROOT).trimEnd('.', '!', '?').trim().replace(Regex("\\s+"), " ").removePrefix("please ")) {
             "continue", "continue research", "continue run", "continue response", "resume", "proceed" -> CONTINUE_RUN
             "retry writing", "resume writing" -> RETRY_WRITING
             "test again", "retest", "retry", "retry full", "retry failed stage", "try again" -> RETRY_FAILED_STAGE
@@ -65,12 +65,14 @@ internal fun resolveTaskRecovery(messages: List<MessageV2>): ResolvedTaskRecover
     val latest = messages.lastOrNull() ?: return null
     val current = latest.content
     val previous = messages.dropLast(1).filter { it.chatId == latest.chatId && it.platformType == null }
-    fun substantive(message: MessageV2) = message.content.isNotBlank() && TaskRecoveryAction.fromText(message.content) == null && !dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.diagnostic(message.content)
+    fun substantive(message: MessageV2) = message.content.isNotBlank() && TaskRecoveryAction.fromText(message.content) == null && !dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.continuation(message.content)
     var sourceIndex = previous.indexOfLast(::substantive)
     if (sourceIndex < 0) return null
     val priorTask = previous[sourceIndex]
     val equivalent = dev.chungjungsoo.gptmobile.data.github.GitHubTestChecklist.integration(current) && dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.reuse(current, priorTask.content)
-    val action = TaskRecoveryAction.fromText(current) ?: if (equivalent) TaskRecoveryAction.CONTINUE_RUN else return null
+    val repositoryFollowUp = requiresNativeGitHubAcceptance(priorTask.content, true) &&
+        dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.continuation(current)
+    val action = TaskRecoveryAction.fromText(current) ?: if (equivalent || repositoryFollowUp) TaskRecoveryAction.CONTINUE_RUN else return null
     // Walk the persisted intent chain, skipping controls and diagnostic questions. Never
     // cross an unrelated substantive request or derive identity from matching text alone.
     if (dev.chungjungsoo.gptmobile.data.github.GitHubTestChecklist.integration(priorTask.content)) {

@@ -36,7 +36,13 @@ internal object GatewayDiagnosticEvent {
     private val boolAttributes = setOf("vendor_log_available", "source_available", "client_metadata_accepted", "truncation_applied", "response_headers_received", "response_headers_sent", "response_body_completed")
     val routes = setOf("chat", "models", "readiness", "liveness", "capabilities", "dashboard", "job", "engineering", "other")
     val methods = setOf("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
-    private val enumAttributes = mapOf("route" to routes, "method" to methods)
+    val admissionCodes = setOf("remote_surface_not_admitted", "scope_not_granted", "engineering_scope_required", "tool_scope_required_for_runtime", "local_admin_required", "transport_identity_required", "invalid_host", "invalid_origin", "duplicate_admission_header", "browser_csrf_required", "unknown_job", "CONTINUITY_IDENTITY_MISMATCH", "CONTINUITY_IDENTITY_INVALID", "conversation_storage_disabled", "conversation_storage_unavailable", "cursor_expired")
+    private val enumAttributes = mapOf(
+        "route" to routes,
+        "method" to methods,
+        "client_metadata_acknowledgment" to GatewayMetadataAcknowledgment.entries.map { it.name }.toSet(),
+        "gateway_admission_code" to admissionCodes
+    )
 
     fun digest(value: String): String = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8)).diagnosticHex()
 

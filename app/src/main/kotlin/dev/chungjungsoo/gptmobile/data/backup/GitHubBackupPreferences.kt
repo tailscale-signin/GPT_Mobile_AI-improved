@@ -51,9 +51,16 @@ internal object GitHubBackupPreferences {
                 val binding = runCatching { json.decodeFromJsonElement(GatewayEngineeringBinding.serializer(), value) }.getOrNull() ?: return@forEach
                 val source = binding.chatId.toString()
                 val target = if (!remap || restoringChats) binding.chatId.takeIf { it in existingChatIds } else sourceIdentity[source]?.let(targetByIdentity::get)?.toIntOrNull()
-                val context = target?.let { workspaces[it.toString()] }?.let { runCatching { json.decodeFromJsonElement(GitHubConversationContext.serializer(), it) }.getOrNull() }
-                if (target == null || binding.profileUid !in profiles || binding.principalId == null || context == null || "${context.owner}/${context.repo}" != binding.request.repository) return@forEach
-                jobs[binding.request.requestId] = binding.copy(localChatId = target, job = binding.job?.copy(mergeReady = false, approvalExpiresAt = null))
+                if (target == null || binding.principalId == null) return@forEach
+                // A missing profile keeps an unavailable historical reference; it never selects another route.
+                val remappedSlots = remap && !restoringChats
+                jobs[binding.request.requestId] = binding.copy(
+                    localChatId = target,
+                    localUserMessageId = binding.localUserMessageId.takeUnless { remappedSlots },
+                    localAssistantMessageId = binding.localAssistantMessageId.takeUnless { remappedSlots },
+                    localRunId = binding.localRunId.takeUnless { remappedSlots },
+                    job = binding.job?.copy(mergeReady = false, approvalExpiresAt = null)
+                )
             }
         }
         if (!restoringChats) restoreJobs(old, false)
@@ -62,7 +69,7 @@ internal object GitHubBackupPreferences {
         val prepareIndex = (globals["githubPrepareIndex"] as? JsonArray).orEmpty().filter { (it as? JsonPrimitive)?.contentOrNull in connections }
         val overrides = (globals["githubProfileOverrides"] as? JsonObject).orEmpty().filterKeys { it in profiles }
         val defaultProfile = globals["githubDefaultProfileUid"]?.takeIf { (it as? JsonPrimitive)?.contentOrNull in profiles } ?: kotlinx.serialization.json.JsonNull
-        val updated = JsonObject(base + mapOf("gatewayEngineeringJobs" to JsonArray(jobs.values.take(64).map { json.encodeToJsonElement(GatewayEngineeringBinding.serializer(), it) }), "githubProfileOverrides" to JsonObject(overrides), "githubDefaultProfileUid" to defaultProfile, "conversationGitHub" to JsonObject(workspaces), "githubMainProfiles" to JsonObject(mainProfiles), "githubPrepareIndex" to JsonArray(prepareIndex)))
+        val updated = JsonObject(base + mapOf("gatewayEngineeringJobs" to JsonArray(jobs.values.map { json.encodeToJsonElement(GatewayEngineeringBinding.serializer(), it) }), "githubProfileOverrides" to JsonObject(overrides), "githubDefaultProfileUid" to defaultProfile, "conversationGitHub" to JsonObject(workspaces), "githubMainProfiles" to JsonObject(mainProfiles), "githubPrepareIndex" to JsonArray(prepareIndex)))
         return next + (KEY to BackupValue("string", updated.toString()))
     }
 }

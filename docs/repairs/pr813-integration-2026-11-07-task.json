@@ -1,0 +1,401 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "3ac89ceafd9083f67da30e92f9f93aae27be4600",
+  "original_pr_head": "4ad5f7d35fd69b0ff274e2b27c1c83caecc721e1",
+  "working_branch": "fix/diagnostic-remediation-8597579-2026-11-07",
+  "local_branch": "repair/pr813-gateway-continuity-2026-11-07",
+  "pull_request": 813,
+  "intent": "Repair all remaining PR blockers, integrate current main without losing diagnostic or app-audit changes, and merge after exact-head validation passes.",
+  "state": "GATEWAY_CONTINUITY_CURRENT_HEAD_CI_PENDING",
+  "task_store": "engineering_agent_checkpoints",
+  "task_store_key": "pr813-integration-2026-11-07",
+  "merge_requested": true,
+  "validation": {
+    "focused_runtime": {
+      "catalog_tests_passed": 29,
+      "reasoning_tests_passed": 17,
+      "failure_taxonomy_tests_passed": 25,
+      "scope": "JVM with platform/provider boundaries; full Android CI still required"
+    },
+    "focused_export": {
+      "executed_tests_passed": 41,
+      "additional_assumption_skipped": 1,
+      "heap_limit_mib": 96,
+      "independent_heap_gate": {
+        "passed": true,
+        "heap_limit_mib": 64,
+        "streamed_bytes": 163840000,
+        "records": 20000
+      },
+      "scope": "actual changed production with platform boundaries; Room/Android cases awaitCI"
+    },
+    "exact_head_ci": {
+      "head": "515d9b064eda674feaea1f411b1ee8d4af4a7d0d",
+      "status": "THREE_COMPOSER_MAGNIFIER_FAILURES_REQUIRE_FOLLOWUP",
+      "run_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/42421300099",
+      "qualification": "Production and test compilation passed. Three composer cases fail in framework Magnifier Surface teardown; full canonical heap/APK steps were skipped after the unit failure."
+    },
+    "device_tests": "NOT_RUN_NO_CONNECTED_DEVICE",
+    "focused_github": {
+      "tests_passed": 125,
+      "scope": "actual acceptance/catalog/evidence/pagination/facade and watch repository sources with explicit platform/transport boundaries; includes initial deadline and persisted observation generation races",
+      "suite_runs": [
+        120,
+        9
+      ],
+      "overlapping_tests": 4
+    },
+    "focused_session_render": {
+      "tests_passed": 19,
+      "scope": "actual source cache/read bounds, diskrestart stagedpublication/reconciliation, offline recovery, tailrepair, contentpaging andframecoverage"
+    },
+    "focused_fixture": {
+      "tests_passed": 17,
+      "scope": "actual ownedfixture ledger, persistence, reconciliation, cleanup andplanner withtransport boundaries"
+    },
+    "canonical_fast_initial": {
+      "python_tests": 398,
+      "failures": 1,
+      "reason": "generated source inventory stale before final regeneration"
+    },
+    "canonical_fast": {
+      "python_tests_passed": 398,
+      "failures": 0,
+      "regex_literals_checked": 1274,
+      "regex_dynamic_calls_skipped": 75,
+      "regex_errors": 0,
+      "xml_files_validated": 30,
+      "scope": "Canonical host gate after transport/composer repairs and source inventory regeneration",
+      "passed": true
+    },
+    "focused_engineering_transport": {
+      "tests_passed": 5,
+      "scope": "actual GitHub API with real loopback stalled-header/body cancellation, credential rejection, enterprise origin and orphan-304 retry; not live GitHub qualification"
+    },
+    "kotlin_formatting": {
+      "passed": true,
+      "changed_files_checked": 6,
+      "version": "1.3.1",
+      "scope": "Consolidated follow-up relative to 9b0dc986, including regenerated source inventory"
+    },
+    "release_scope": {
+      "passed": true,
+      "checked_paths": 1024,
+      "qualification": "scoped"
+    },
+    "generated_inventory": {
+      "production_files": 2238,
+      "areas": 26,
+      "refreshed": true
+    },
+    "compilation_followup": {
+      "change": "Preserve non-null output allowance at both extracted helper boundaries.",
+      "canonical_fast_passed": true,
+      "python_tests_passed": 398,
+      "changed_source_ktlint_passed": true,
+      "inventories_refreshed": true
+    },
+    "android_compilation": {
+      "head": "156ca471af822bc6a0619fb7395ab869d151a535",
+      "passed": true,
+      "job_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/42408948092/job/128512673813"
+    },
+    "room_test_compilation_followup": {
+      "head": "156ca471af822bc6a0619fb7395ab869d151a535",
+      "status": "COMPILATION_FAILED",
+      "cause": "Three heterogeneous SQL bind arrays inferred a reified intersection. Explicit arrayOf<Any> preserves the same bound values.",
+      "exact_expressions_kotlin_2_4_20_compiled": true,
+      "changed_test_ktlint_passed": true,
+      "canonical_fast_passed": true,
+      "python_tests_passed": 398
+    },
+    "android_423b9171": {
+      "head": "423b917196419605a6c789810d3d469c55d09ce8",
+      "audit_checkout_merge_sha": "d516f22e6d85613fdf15911e30ab0d348fad7a51",
+      "production_and_test_compilation": "PASSED",
+      "partial_audit_run_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/42410540947",
+      "unit_failures_observed_before_cancellation": 22,
+      "unit_result": "INCOMPLETE_CANCELLED_BY_NEW_HEAD",
+      "passed_selected_diagnostic_and_transport_tests": 68,
+      "api36_emulator": {
+        "tests_passed": 56,
+        "test_groups": 20,
+        "protocol_validations": 54,
+        "run_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/42410540934"
+      },
+      "api34_emulator": "CANCELLED_AFTER_6_GROUPS_9_TESTS; NOT_A_FULL_PASS",
+      "review_apk": "BUILT; packaged DEX gate not reached before cancellation",
+      "qualification": "Historical evidence for this ancestor only; never substitutes for the follow-up head."
+    },
+    "watch_identity_followup": {
+      "original_failure_reproduced": true,
+      "new_legacy_regression_reproduced": true,
+      "tests_passed_after_repair": 10,
+      "scope": "Actual watch repository source with explicit platform/transport boundaries, including overlapping polls and persisted legacy subscription recreation."
+    },
+    "acceptance_followup": {
+      "tests_passed": 157,
+      "ordinary_schema_estimated_tokens": 979,
+      "ordinary_schema_limit_exclusive": 1000,
+      "scope": "Actual acceptance, catalog, lifecycle/session and retained-state sources with explicit platform boundaries, including late-bound catalog admission.",
+      "ordinary_plan_estimated_tokens": 1418,
+      "ordinary_plan_limit_exclusive": 1500,
+      "validated_on": "458d5aca plus the complete follow-up tree",
+      "new_catalog_regressions": 4
+    },
+    "write_stage_followup": {
+      "tests_passed": 48,
+      "suite_runs": [
+        45,
+        3
+      ],
+      "scope": "Production Session/StateStore plus GitHubTool/WorkspaceClient/facade HTTP boundary tests; includes ambient-selection race fencing and independent explicit targets."
+    },
+    "android_a06bbe33": {
+      "head": "a06bbe33d57c00d81a75aabefaa0d27fe50b96b9",
+      "api34_job": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/42412450935/job/128523377789",
+      "api34_status": "PASSED",
+      "other_gates": "CANCELLED_BY_458d5aca; exact follow-up checks required",
+      "api36_job": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/42412450935/job/128523377911",
+      "api36_status": "PASSED"
+    },
+    "planner_output_admission": {
+      "tests_passed": 19,
+      "new_regressions": 6,
+      "existing_regressions": 13,
+      "scope": "Actual budget/context/planner logic with explicit external boundaries. Covers zero allowance, same-instance funding, spent calls, no refill, first-attempt races and retained authorization failure.",
+      "full_repository_regression": "Added finite-context request-serialization regression; full Android execution awaits the published head."
+    },
+    "groq_config_followup": {
+      "cause": "The expected provider config omitted the newly captured profile revision and configured reasoning provenance. Actual native tools and exact call-ID replay passed.",
+      "assertion_repaired": true,
+      "full_android_run_pending": true
+    },
+    "android_b34c7dc0": {
+      "head": "b34c7dc01368584a480a20a83d15f0f573a11f15",
+      "checkout_merge_sha": "e6d69a5a108d57a0ce9f00a4d5b766dbfc7c8c30",
+      "production_compilation": "PASSED",
+      "test_compilation": "FAILED",
+      "failure": "Two user-history MessageV2 fixtures in GitHubTaskTrustTest omitted the required platformType argument.",
+      "job_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/42415154171/job/128531522636",
+      "test_execution": "NOT_REACHED",
+      "qualification": "Historical source evidence only. The two required nullable arguments are now supplied; all assertions are retained."
+    },
+    "feature_branch_fixture_followup": {
+      "tests_passed": 19,
+      "new_regressions": 2,
+      "failure_reproduced_before_fix": true,
+      "scope": "Actual owned fixture/planner/storage logic with explicit host boundaries; source feature branch and head remain unchanged, staged publication uses exact fixture leases, owned cleanup remains mandatory, legacy fallback stays default-only."
+    },
+    "task_trust_constructor_followup": {
+      "tests_passed": 13,
+      "actual_constructor_reviewed": true,
+      "strict_host_boundary_used": true,
+      "assertions_unchanged": true,
+      "qualification": "Focused Kotlin host compilation/execution; full Android compilation and test execution require the next published head."
+    },
+    "android_41cb3135": {
+      "head": "41cb3135a417183b8a6638d4fa447524872ed57e",
+      "production_and_test_compilation": "PASSED",
+      "unit_suites": 1218,
+      "unit_tests": 7667,
+      "failures": 20,
+      "errors": 0,
+      "skipped": 5,
+      "github_suites": 203,
+      "github_tests_passed": 1370,
+      "github_failures": 0,
+      "github_skipped": 0,
+      "chat_repository_tests_passed": 54,
+      "research_incident_tests_passed": 1,
+      "failure_groups": {
+        "ChatCompletionTransportTest": 5,
+        "OpenAIRecoveryTransportTest": 8,
+        "ProviderToolRejectionTest": 5,
+        "ComposerInputLifecycleTest": 2
+      },
+      "artifact_id": 13592646537,
+      "artifact_sha256": "a0c157ebb6f45175811eed0db1e7304e9e5fbdebe5b3b09d77bf149f20faedb7",
+      "xml_integrity_verified": true,
+      "android_lint": "PASSED",
+      "api34_acceptance": "PASSED",
+      "api36_acceptance": "PASSED",
+      "gateway_matrix": "ALL_FOUR_PASSED",
+      "windows_installer": "PASSED",
+      "codeql": "PASSED",
+      "apk_catalog_download_contracts": "PASSED",
+      "packaged_dex": "PASSED",
+      "qualification": "Exact-head Android CI evidence, retained separately from focused host tests; failures must be corrected and the follow-up head fully qualified.",
+      "checkout_merge_sha": "02da6abe3734b2c8adccd01909b2e97164c83c7b",
+      "review_apk": "PASSED",
+      "packaged_dex_evidence": {
+        "run_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/42416859371",
+        "apk_variants": [
+          "arm64-v8a",
+          "universal",
+          "x86_64"
+        ],
+        "checked_methods_per_variant": 2932,
+        "largest_method": "ChatRepositoryImpl.delegateToProfile",
+        "largest_code_units": 15900,
+        "limit_exclusive": 16383,
+        "threshold_unchanged": true
+      }
+    },
+    "strict_range_followup_review": {
+      "head": "41cb3135a417183b8a6638d4fa447524872ed57e",
+      "tests_passed": 11,
+      "ordinary_schema_estimated_tokens": 997,
+      "ordinary_plan_estimated_tokens": 1436,
+      "limits_unchanged": true
+    },
+    "transport_followup": {
+      "original_ci_failures_reproduced": 18,
+      "repaired_fixtures_before_production_fix": {
+        "tests": 46,
+        "passed": 45,
+        "failed": 1
+      },
+      "assigned_transport_tests_passed": 47,
+      "gateway_negotiation_tests_passed": 16,
+      "scope": "Actual HTTP transports, request preparation, gateway negotiation/recovery, connectivity and retry logic with real CIO loopback servers, Ktor fixtures and explicit Android/service boundaries.",
+      "production_fix": "Preserve 9b caller-level connectivity admission before gateway negotiation and its response/error-attached receipts. The redundant nested loader guard is removed to preserve the single recovery-probe lease.",
+      "fixture_repairs": "Preserve 9b independent routes and strict single-response contract. Strengthen zero pre-rejection events, auth/provenance receipts, exact retry/no-replay and one-tool-payload assertions.",
+      "reconciled_source_parent": "9b0dc9860858b3ef55008723ac63fe992e8c4aca",
+      "combined_tests_passed": 63,
+      "combined_run_seconds": 46.073,
+      "source_hashes_verified": true
+    },
+    "composer_followup": {
+      "ci_failures_before_fix": 2,
+      "original_tests_retained": 6,
+      "new_regressions": 2,
+      "focused_ui_execution": "NOT_RUN_LOCALLY_NO_COMPOSE_ROBOLECTRIC_OR_ANDROID_SDK",
+      "implementation": "Preserve 9b input capture release, low-level focus target, actual-focus-at-dispatch and disposal safeguards; make target eligibility temporary, reset on departure and synchronously report successful ownership release.",
+      "requires_current_head_ci": true,
+      "total_tests_pending_ci": 8
+    },
+    "android_515d9b06": {
+      "head": "515d9b064eda674feaea1f411b1ee8d4af4a7d0d",
+      "checkout_merge_sha": "b3b85b1d75a91356a64b109ba17da34139f483cd",
+      "production_and_test_compilation": "PASSED",
+      "unit_suites": 1218,
+      "unit_tests": 7672,
+      "passed": 7664,
+      "failures": 3,
+      "errors": 0,
+      "skipped": 5,
+      "github_suites": 203,
+      "github_tests_passed": 1370,
+      "transport_provider_tests_passed": 47,
+      "chat_repository_tests_passed": 54,
+      "composer": {
+        "tests": 8,
+        "passed": 5,
+        "failures": 3,
+        "skipped": 0,
+        "failure": "Magnifier.InternalPopupWindow.destroy dereferences a null Surface during completion-handler teardown."
+      },
+      "artifact_id": 13594955598,
+      "artifact_sha256": "de81975fdaef34f815722f5cac45d9e9ee57cbd1b0fef31d08c7663b5bbd5d97",
+      "xml_integrity_verified": true,
+      "diagnostic_artifact_id": 13593519546,
+      "diagnostic_artifact_sha256": "9b4ccc054beb119a64ffbaf7d02c0fe6e458b3e17011479806ec6a6e5fd0d42c",
+      "diagnostic_same_failure_set": true,
+      "normal_suite_skips": [
+        "ResearchSessionStoreHeapTest",
+        "StreamingDebugBundleTest",
+        "BenchmarkStreamingExportHeapTest",
+        "BenchmarkColdStreamingExportHeapTest",
+        "StagedDiagnosticCaptureHeapTest"
+      ],
+      "canonical_heap_and_apk": "SKIPPED_AFTER_UNIT_FAILURE",
+      "api34": {
+        "result": "PASSED",
+        "test_groups": 20,
+        "tests_passed": 56,
+        "protocol_validations": 54
+      },
+      "api36": {
+        "result": "PASSED",
+        "test_groups": 20,
+        "tests_passed": 56,
+        "protocol_validations": 54
+      },
+      "gateway_matrix": {
+        "jobs_passed": 4,
+        "tests_per_job": 561,
+        "suites_per_job": 49,
+        "skips_per_job": 0,
+        "browser_checks_per_job": 7,
+        "authentication_tests_per_job": 25,
+        "stress_events": 50000,
+        "stress_included_in_tests": true
+      },
+      "windows_installer": "PASSED",
+      "codeql": "PASSED",
+      "apk_catalog_download_contracts": "PASSED",
+      "separate_review_apk": {
+        "result": "PASSED",
+        "run_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/42421197219",
+        "artifact_id": 13594561818,
+        "apk_variants": [
+          "arm64-v8a",
+          "universal",
+          "x86_64"
+        ],
+        "checked_methods_per_variant": 2932,
+        "largest_method": "ChatRepositoryImpl.delegateToProfile",
+        "largest_code_units": 15900,
+        "limit_exclusive": 16383,
+        "threshold_unchanged": true
+      },
+      "qualification": "Historical exact-source CI evidence. The three composer failures block merge; the corrected head must run the full canonical aggregate and dedicated heap gates.",
+      "android_lint": "PASSED"
+    },
+    "composer_surface_fixture": {
+      "graphics": "NATIVE with real draw traversals",
+      "scope": "Class-scoped outer RuleChain; restores previous setting after Compose teardown",
+      "test_bodies_unchanged": 8,
+      "pinned_api_compilation": "PASSED_ROBOLECTRIC_4_17_JUNIT_4_13_2",
+      "full_android_execution": "PENDING"
+    }
+  },
+  "accepted_scope": [
+    "repair the only open PR and merge after exact-head required checks",
+    "independent criterion acceptance and measured GitHub integration report",
+    "complete authorized catalog and full test preset bundling",
+    "owned content/stage/commit fixtures with durable interrupted cleanup",
+    "forced-live reads across all source caches",
+    "resumable bounded diagnostic export with latest critical state first",
+    "reasoning OFF through restored drafts, continuation and rewrite",
+    "task verification separated from provider failure",
+    "bounded completed-answer rendering and frame coverage",
+    "explicit write branch without changing workspace selection",
+    "single-invocation durable stage-and-commit option",
+    "bounded inline CI watch",
+    "line reads with max_lines or EOF continuation"
+  ],
+  "pending": [
+    "implement the newly accepted gateway availability, Jobs, durable conversation and continuity features",
+    "correct the composer test surface configuration while retaining all eight behavior regressions",
+    "publish with an exact remote-head lease after reconciling any concurrent work",
+    "qualify all required checks, eight composer regressions and the unchanged packaged DEX gate on the corrected head",
+    "merge through normal GitHub rules with the exact-head precondition",
+    "verify resulting main and remaining open PR inventory"
+  ],
+  "checkpoint_semantics": "Source-validation snapshot. The exact published commit, required checks and merge outcome are authoritative in PR 813 and its current checks.",
+  "reconciled_remote_head": "2ddeff93db245b6571d2fde1bd4fd007faec8e77",
+  "reconciled_concurrent_work": {
+    "source_commit": "d02f7f85824ab130b7c8c11c784bb960618eccb4",
+    "documentation_commit": "a06bbe33d57c00d81a75aabefaa0d27fe50b96b9",
+    "preserved": true,
+    "scope": "Standard-chat GitHub task contracts, continuation, catalog/provenance, gateway streaming observations and UI lifecycle improvements from the concurrent branch writer.",
+    "additional_commit": "458d5aca784361e5c83523e4385329e6ce13208f",
+    "latest_commit": "9b0dc9860858b3ef55008723ac63fe992e8c4aca",
+    "latest_scope": "Preserve response/error-attached provenance, early connectivity admission, isolated recovery routes, focus-target release and actual-focus assertions; consolidate overlapping repairs without nesting recovery-probe admission."
+  },
+  "scope_expansion_checkpoint": "gateway-continuity-2026-11-07-task.json"
+}

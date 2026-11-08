@@ -6,12 +6,12 @@ internal data class CombinedMarkdownFrame(val start: Int, val end: Int, val open
 internal object CombinedMarkdownPaging {
     private data class Fence(val marker: Char, val count: Int, val opening: String)
 
-    fun frames(text: String): Sequence<CombinedMarkdownFrame> = sequence {
+    fun frames(text: String, pageCharacters: Int = CombinedPayload.PAGE_CHARACTERS): Sequence<CombinedMarkdownFrame> = sequence {
         var fence: Fence? = null
         var table: String? = null
         var previousLine: String? = null
         var lineStart = 0
-        for ((start, page) in CombinedPayload.pages(text)) {
+        for ((start, page) in CombinedPayload.pages(text, pageCharacters)) {
             val end = start + page.length
             val openingFence = fence?.let { it.opening + "\n" }.orEmpty()
             val tableHeader = if (fence == null && table != null && !text.startsWith("\n", start) && !text.startsWith("\r\n", start)) table.orEmpty() else ""

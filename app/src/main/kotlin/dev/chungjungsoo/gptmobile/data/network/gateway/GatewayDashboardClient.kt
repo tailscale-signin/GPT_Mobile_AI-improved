@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.network.gateway
 
+import android.os.SystemClock
 import dev.chungjungsoo.gptmobile.data.context.RouteCapabilityCache
 import dev.chungjungsoo.gptmobile.data.network.LocalEndpointConnectionPolicy
 import dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth
@@ -32,8 +33,10 @@ internal interface GatewayDashboardSource {
 
 /** A bounded read of the selected gateway; never uses the desktop management endpoint. */
 @Singleton
-internal class GatewayDashboardClient internal constructor(private val http: HttpClient, private val evictIdleConnections: () -> Unit = {}) : GatewayDashboardSource {
-    @Inject constructor(network: NetworkClient) : this(network(), network::evictIdleConnections)
+internal class GatewayDashboardClient internal constructor(private val http: HttpClient, private val evictIdleConnections: suspend () -> Unit, private val elapsedMillis: () -> Long) : GatewayDashboardSource {
+    internal constructor(http: HttpClient, evictIdleConnections: suspend () -> Unit = {}) : this(http, evictIdleConnections, { System.nanoTime() / 1_000_000 })
+
+    @Inject constructor(network: NetworkClient) : this(network.gatewayReadClient(), network::evictIdleConnections, SystemClock::elapsedRealtime)
     private data class Attempt(val observation: GatewayDashboardObservation? = null, val failure: Exception? = null)
     private data class ReadinessAttempt(val observation: GatewayReadinessObservation? = null, val failure: Exception? = null)
     private val cache = RouteCapabilityCache<Attempt>({ System.nanoTime() / 1_000_000 }, positiveTtl = 4_000, negativeTtl = 60_000)
@@ -105,10 +108,11 @@ internal class GatewayDashboardClient internal constructor(private val http: Htt
     }
 
     private suspend fun readReadiness(config: ProviderRequestConfig, model: String?): GatewayReadinessObservation? {
-        require(model == null || model.length <= 512) { "Invalid gateway model identifier." }
+        require(model == null || validGatewayAvailabilityModel(model)) { "Invalid gateway model identifier." }
         val endpoint = config.buildEndpoint("gateway/ready")
         return LocalEndpointConnectionPolicy.probe(endpoint, evictIdleConnections) {
             gatewayClientExchange(config, "readiness", safeRead = true) { requestHeaders ->
+                val started = elapsedMillis()
                 http.prepareGet(endpoint) {
                     config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
                     requestHeaders.filterKeys { !it.equals("X-Gateway-Management", true) }.forEach { (key, value) -> header(key, value) }
@@ -126,7 +130,14 @@ internal class GatewayDashboardClient internal constructor(private val http: Htt
                     check(response.status.value in setOf(200, 503)) { "Gateway readiness is unavailable (HTTP ${response.status.value})." }
                     val readiness = withContext(Dispatchers.Default) {
                         val body = Json.parseToJsonElement(response.boundedMetadata(128_000)) as? JsonObject ?: error("Invalid gateway readiness.")
-                        parseGatewayReadiness(body, response.status.value, model, System.currentTimeMillis())
+                        val received = elapsedMillis()
+                        val parsed = parseGatewayReadiness(body, response.status.value, model, System.currentTimeMillis(), received)
+                        // The server age excludes travel to the client. Counting
+                        // the bounded round trip conservatively avoids extending
+                        // old model evidence while a response is in transit.
+                        val travel = (received - started).takeIf { it >= 0 } ?: Long.MAX_VALUE
+                        val age = parsed.observationAgeMillis ?: 0
+                        parsed.copy(observationAgeMillis = if (travel > Long.MAX_VALUE - age) Long.MAX_VALUE else age + travel)
                     }
                     readiness.also {
                         GatewayClientDiagnostics.observeInstance(config, it.instanceId)

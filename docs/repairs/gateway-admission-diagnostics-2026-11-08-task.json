@@ -1,0 +1,119 @@
+{
+  "schema_version": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "fix/diagnostic-remediation-8597579-2026-11-07",
+  "base_sha": "0b5661fbe9652841f2f1f6968bcf5c697db4ba99",
+  "working_branch": "local/diagnostic-gateway-fixes-2026-11-08",
+  "parent_pr": 813,
+  "intent": "Preserve bounded saved-work admission and reconciliation causes, verify source/contract evidence independently of generation readiness, isolate off-main safe-read cleanup, and preserve truthful diagnostic acknowledgment and incident categories.",
+  "status": "ready_for_integration",
+  "findings": [
+    "1.1",
+    "1.2",
+    "1.3",
+    "4.1",
+    "5.4_gateway_acknowledgment_and_incident_classification"
+  ],
+  "preserved": [
+    "key_free_lan_mode",
+    "original_command_reconciliation",
+    "no_automatic_post_replay",
+    "independent_engineering_graph_permissions"
+  ],
+  "validation": [
+    {
+      "gate": "actual_source_jvm",
+      "status": "passed",
+      "tests_passed": 177,
+      "tests_failed": 0,
+      "compiled_files": 33,
+      "source_drift": false,
+      "commands": [
+        "python3 diagnostic-gateway-host/run.py compile",
+        "python3 diagnostic-gateway-host/run.py compile-final-test",
+        "python3 diagnostic-gateway-host/run.py test"
+      ],
+      "boundary": "Real Kotlin/serialization source with unchanged compiled application dependencies; MockEngine HTTP fixtures plus real loopback socket pool test; not a full Android/Hilt or physical-device build."
+    },
+    {
+      "gate": "gateway_http_and_durable_diagnostics",
+      "command": "python -m unittest -v test_gateway_saved_work_admission test_gateway_v14_diagnostic_events test_gateway_v14_debug.DebugHTTPTests",
+      "status": "passed",
+      "tests_passed": 32,
+      "tests_failed": 0,
+      "source_manifest_files": 178,
+      "source_drift": false,
+      "manifest_scope": "isolated_test_copy_only"
+    },
+    {
+      "gate": "kotlin_format",
+      "status": "passed",
+      "files_passed": 30,
+      "tool": "ktlint 1.3.1"
+    },
+    {
+      "gate": "canonical_fast",
+      "command": "bash scripts/validate-local.sh fast",
+      "status": "pending_shared_generated_inventory",
+      "script_tests_passed": 399,
+      "script_tests_failed": 1,
+      "failure": "test_committed_inventory_matches_current_source; inventory regeneration reserved for integration owner",
+      "ci_policy": "passed",
+      "dependency_versions": "passed"
+    },
+    {
+      "gate": "android_regex",
+      "command": "python3 scripts/check_android_regex.py",
+      "status": "passed",
+      "literal_patterns": 1316,
+      "dynamic_patterns_skipped": 77,
+      "errors": 0
+    },
+    {
+      "gate": "resources",
+      "command": "bash scripts/validate.sh resources",
+      "status": "passed",
+      "xml_files": 33
+    },
+    {
+      "gate": "whitespace",
+      "command": "git diff --check",
+      "status": "passed"
+    }
+  ],
+  "deployment": "No actual PC deployment was performed or verified.",
+  "integration_follow_up": [
+    "Regenerate shared app audit inventory and gateway source manifest after integration.",
+    "Rerun canonical fast gate after generated metadata is current.",
+    "Run full Android/Hilt and exact-head CI gates; focused host is not a complete Android build.",
+    "Verify actual installed PC source and saved-work routes; no deployment was performed."
+  ],
+  "source_contracts": {
+    "failure_type": "GatewayAdmissionException",
+    "details_method": "safeDetails",
+    "details_fields": [
+      "reason",
+      "surface",
+      "phase",
+      "dependent_dispatch_state",
+      "retryability",
+      "repair",
+      "http_status",
+      "admission_code",
+      "gateway_version",
+      "gateway_source_commit"
+    ],
+    "command_receipt_failure": [
+      "RECONCILIATION",
+      "UNKNOWN",
+      "RECONCILE_ORIGINAL_COMMAND"
+    ],
+    "metadata_acknowledgment": [
+      "ACCEPTED",
+      "NOT_REQUESTED",
+      "REJECTED_BEFORE_PROCESSING",
+      "NOT_CONFIRMED"
+    ],
+    "exact_model_helper": "LlamaCapacityRepository.hasExactModelProof(config, model, capacity)"
+  }
+}

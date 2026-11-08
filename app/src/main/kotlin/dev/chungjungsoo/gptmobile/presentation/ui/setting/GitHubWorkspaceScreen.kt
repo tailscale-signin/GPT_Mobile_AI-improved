@@ -94,7 +94,8 @@ fun GitHubWorkspaceScreen(
     newConversation: Boolean = false,
     onReviewEvidenceAccess: () -> Unit = {},
     onNavigateToLocalModels: () -> Unit = {},
-    onManageProfiles: () -> Unit = {}
+    onManageProfiles: () -> Unit = {},
+    onProfileSettings: (String) -> Unit = { onManageProfiles() }
 ) {
     androidx.compose.runtime.DisposableEffect(Unit) {
         val release = dev.chungjungsoo.gptmobile.data.diagnostics.FrameTimingRecorder.screen("GitHubWorkspace")
@@ -119,10 +120,13 @@ fun GitHubWorkspaceScreen(
     val engineering by engineeringModel.state.collectAsStateWithLifecycle()
     dev.chungjungsoo.gptmobile.presentation.ui.chat.GatewayEngineeringObservation(engineeringModel, visibleProgrammer.chatId)
     val engineeringProfile = visibleProgrammer.profiles.firstOrNull { it.uid == commandContext?.mainProfileUid }
+    val jobsModel: GatewayJobsViewModel = hiltViewModel()
+    val gatewayJobs by jobsModel.state.collectAsStateWithLifecycle()
+    GatewayJobsObservation(jobsModel, commandContext?.mainProfileUid ?: visibleProgrammer.profileUid)
     val repositoryMapAvailable = commandContext != null && visibleProgrammer.chatId?.let { it > 0 } == true && visibleProgrammer.chatId == programmerState.chatId && dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.supportsSavedJobs(engineeringProfile)
     var repositoryMapOpen by remember(commandContext) { mutableStateOf(false) }
     val engineeringJob = if (dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.supportsSavedJobs(engineeringProfile)) {
-        engineering.bindings.lastOrNull { it.chatId == visibleProgrammer.chatId && it.profileUid == engineeringProfile?.uid && it.job?.terminal == false }?.job
+        engineering.bindings.lastOrNull { it.chatId == visibleProgrammer.chatId && (it.request.profileId ?: it.profileUid) == engineeringProfile?.uid && it.job?.terminal == false }?.job
     } else {
         null
     }
@@ -361,7 +365,12 @@ fun GitHubWorkspaceScreen(
                             Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.fillMaxWidth().heightIn(max = 80.dp).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp))
                         }
                     }
-                    val workspaceTabs = listOf(3 to "Chat", 2 to "Status", 5 to "Settings")
+                    val workspaceTabs = buildList {
+                        add(GitHubWorkspaceDestination.CHAT.id to "Chat")
+                        if (gatewayJobs.configured) add(GitHubWorkspaceDestination.JOBS.id to (gatewayJobs.counts?.active?.takeIf { it > 0 }?.let { "Jobs ($it)" } ?: "Jobs"))
+                        add(GitHubWorkspaceDestination.STATUS.id to "Status")
+                        add(GitHubWorkspaceDestination.SETTINGS.id to "Settings")
+                    }
                     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         workspaceTabs.forEach { (id, label) ->
                             val selected = tab == id || id == 5 && tab in setOf(0, 1, 4)
@@ -376,11 +385,14 @@ fun GitHubWorkspaceScreen(
                         }
                     }
                     Column(Modifier.padding(horizontal = 16.dp)) { GitHubChatProgress(state, visibleProgrammer, engineeringJob) }
-                    Column(Modifier.weight(1f).then(if (tab in setOf(3, 4)) Modifier else Modifier.verticalScroll(workspaceScroll)).padding(if (tab in setOf(3, 4)) 0.dp else 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        if (state.selection == null && tab !in setOf(3, 5)) {
+                    Column(Modifier.weight(1f).then(if (tab in setOf(3, 4, 6)) Modifier else Modifier.verticalScroll(workspaceScroll)).padding(if (tab in setOf(3, 4, 6)) 0.dp else 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        if (state.selection == null && tab !in setOf(3, 5, 6)) {
                             WorkspaceEmpty(Icons.Rounded.FolderOpen, "Your code, within reach", "Choose a repository above to browse files, prepare changes and review pull requests.")
                         } else {
                             when (tab) {
+                                6 -> GatewayJobsScreen(jobsModel, onOpenConversation = { chatId ->
+                                    if (chatId == visibleProgrammer.chatId) tab = GitHubWorkspaceDestination.CHAT.id else onOpenConversation(chatId)
+                                }, modifier = Modifier.fillMaxSize())
                                 4 -> {
                                     val selection = requireNotNull(state.selection)
                                     GitHubBuildsPanel(connection.connectionUid, selection.owner, selection.repo, selection.ref, Modifier.fillMaxSize(), buildsViewModel)
@@ -402,6 +414,7 @@ fun GitHubWorkspaceScreen(
                                                 onBack = { closeWorkspace() },
                                                 onOpenConversation = onOpenConversation,
                                                 onReviewEvidenceAccess = onReviewEvidenceAccess,
+                                                onProfileSettings = onProfileSettings,
                                                 onNavigateToLocalModels = onNavigateToLocalModels,
                                                 registerExit = { leaveChat = it },
                                                 recoveryRequest = recoveryRequest,

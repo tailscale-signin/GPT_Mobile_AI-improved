@@ -20,6 +20,11 @@ data class GatewayResponseMetadata(
     val terminalStatus: String? = null,
     val resultQuality: String? = null,
     val instanceId: String? = null,
+    val gatewayId: String? = null,
+    val principalId: String? = null,
+    val conversationId: String? = null,
+    val commandId: String? = null,
+    val detachSafe: Boolean = false,
     /** Set by the local HTTP/recovery transport, never decoded from a provider body. */
     @Transient val transportVerified: Boolean = false
 )
@@ -41,6 +46,11 @@ internal fun gatewayResponseMetadata(header: (String) -> String?): GatewayRespon
         progressProtocol = observed("X-Gateway-Progress-Protocol"),
         singleflightRole = observed("X-Gateway-Singleflight"),
         instanceId = instanceId,
+        gatewayId = observed("X-Gateway-Id"),
+        principalId = observed("X-Gateway-Principal-ID"),
+        conversationId = observed("X-Gateway-Conversation-Id"),
+        commandId = observed("X-Gateway-Command-Id"),
+        detachSafe = observed("X-Gateway-Detach-Safe") == "true",
         transportVerified = true
     )
 }
@@ -128,6 +138,8 @@ data class GatewayJobResult(
     @SerialName("result_quality")
     val resultQuality: String? = null,
     val error: String? = null,
+    @SerialName("structured_error")
+    val structuredError: kotlinx.serialization.json.JsonObject? = null,
     @SerialName("completed_at")
     @Serializable(with = GatewayEpochSecondsSerializer::class)
     val completedAt: Long? = null,
@@ -142,7 +154,9 @@ data class GatewaySavedJob(
     @SerialName("execution_isolation_schema") val executionIsolationSchema: Int? = null,
     @SerialName("execution_isolation_scope") val executionIsolationScope: String? = null,
     @SerialName("execution_isolation") val executionIsolation: String? = null,
-    @SerialName("server_tools_allowed") val serverToolsAllowed: Boolean? = null
+    @SerialName("server_tools_allowed") val serverToolsAllowed: Boolean? = null,
+    @SerialName("status_code") val statusCode: Int? = null,
+    @SerialName("pending_client_tool_call_ids") val pendingClientToolCallIds: List<String> = emptyList()
 )
 
 /**

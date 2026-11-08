@@ -45,6 +45,7 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
     private val locks = ConcurrentHashMap<String, Mutex>()
     private val taskLocks = Array(64) { Mutex() }
     private val schemas = ConcurrentHashMap<String, Map<String, JsonObject>>()
+    private data class RpcResponse(val result: JsonObject, val httpStatus: Int)
 
     suspend fun supports(config: McpConnectionConfig, refresh: Boolean = false): Boolean = locks.getOrPut(config.connectionUid) { Mutex() }.withLock {
         val identity = dev.chungjungsoo.gptmobile.data.permissions.ScopedToolGrant.canonicalHash(
@@ -77,12 +78,13 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
         val connectivity = dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared
         val lease = connectivity.acquire(endpointHost) ?: error("DNS_RECOVERY: MCP discovery is waiting for the single connectivity probe; retryAfterMs=${connectivity.recoveryDelayMillis(endpointHost)}.")
         val discovered = try {
-            val discovery = rpc(config, "server/discover", JsonObject(emptyMap()))
-            val versions = discoveryVersions(discovery["supportedVersions"], "supportedVersions")
+            val response = rpcWithStatus(config, "server/discover", JsonObject(emptyMap()))
+            val discovery = response.result
+            val versions = discoveryVersions(discovery["supportedVersions"], "supportedVersions", response.httpStatus)
             when {
                 VERSION in versions -> discovery
                 versions.any { it in LEGACY_VERSIONS } -> null
-                else -> throw McpProtocolConfigurationException("MCP_PROTOCOL_VERSION_UNSUPPORTED", "The server advertises no protocol version supported by this app. Update the MCP server or app, then reconnect.")
+                else -> throw McpProtocolConfigurationException("MCP_PROTOCOL_VERSION_UNSUPPORTED", "The server advertises no protocol version supported by this app. Update the MCP server or app, then reconnect.", response.httpStatus, "SUPPORTED_PROTOCOL_REQUIRED", "supportedVersions")
             }
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -90,11 +92,11 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
             when {
                 error.code == -32022 && error.status !in setOf(401, 403, 429) && !error.quotaFailure -> {
                     if (error.requestedVersion != VERSION) {
-                        throw McpProtocolConfigurationException("MCP_DISCOVERY_SCHEMA_INVALID", "The version-negotiation error must identify the requested protocol version. Update the MCP server or bridge response.")
+                        throw McpProtocolConfigurationException("MCP_DISCOVERY_SCHEMA_INVALID", "The version-negotiation error must identify the requested protocol version. Update the MCP server or bridge response.", error.status, "REQUESTED_PROTOCOL_MATCH_REQUIRED", "error.data.requested")
                     }
-                    val versions = discoveryVersions(error.supportedVersions, "error.data.supported")
+                    val versions = discoveryVersions(error.supportedVersions, "error.data.supported", error.status)
                     if (versions.none { it in LEGACY_VERSIONS } || VERSION in versions) {
-                        throw McpProtocolConfigurationException("MCP_PROTOCOL_VERSION_UNSUPPORTED", "The server rejected the requested MCP protocol version without a usable alternative. Update its protocol configuration, then reconnect.")
+                        throw McpProtocolConfigurationException("MCP_PROTOCOL_VERSION_UNSUPPORTED", "The server rejected the requested MCP protocol version without a usable alternative. Update its protocol configuration, then reconnect.", error.status, "LEGACY_PROTOCOL_ALTERNATIVE_REQUIRED", "error.data.supported")
                     }
                     // An advertised legacy revision selects the SDK initialize handshake.
                     // It is not an unchanged replay of the rejected modern request.
@@ -108,7 +110,14 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
                     null
                 }
                 error.status !in setOf(401, 403, 408, 429) && (error.status in 400..499 || error.code in MODERN_VALIDATION_ERRORS) && !error.quotaFailure -> {
-                    throw McpProtocolConfigurationException("MCP_DISCOVERY_CONFIGURATION", error.message.orEmpty())
+                    val (rule, field) = when (error.code) {
+                        -32020 -> "REQUEST_METADATA_ACCEPTANCE_REQUIRED" to "request_metadata"
+                        -32021 -> "CLIENT_CAPABILITY_REQUIRED" to "client_capabilities"
+                        -32602 -> "REQUEST_PARAMETERS_ACCEPTANCE_REQUIRED" to "params"
+                        -32700 -> "REQUEST_JSON_ACCEPTANCE_REQUIRED" to "request"
+                        else -> "DISCOVERY_REQUEST_ACCEPTANCE_REQUIRED" to "server_discover"
+                    }
+                    throw McpProtocolConfigurationException("MCP_DISCOVERY_CONFIGURATION", error.message.orEmpty(), error.status, rule, field)
                 }
                 else -> throw error
             }
@@ -314,9 +323,12 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
     }
 
     private suspend fun rpc(config: McpConnectionConfig, method: String, params: JsonObject, mirrored: Map<String, String> = emptyMap()): JsonObject =
+        rpcWithStatus(config, method, params, mirrored).result
+
+    private suspend fun rpcWithStatus(config: McpConnectionConfig, method: String, params: JsonObject, mirrored: Map<String, String> = emptyMap()): RpcResponse =
         withMcpReadRecovery(method) { rpcOnce(config, method, params, mirrored) }
 
-    private suspend fun rpcOnce(config: McpConnectionConfig, method: String, params: JsonObject, mirrored: Map<String, String>): JsonObject = withMcpRequestDeadline(60_000, method) {
+    private suspend fun rpcOnce(config: McpConnectionConfig, method: String, params: JsonObject, mirrored: Map<String, String>): RpcResponse = withMcpRequestDeadline(60_000, method) {
         val id = UUID.randomUUID().toString()
         val body = buildJsonObject {
             put("jsonrpc", "2.0")
@@ -403,7 +415,7 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
             }
             val responseId = envelope?.get("id")
             if (responseId != null && responseId !is kotlinx.serialization.json.JsonNull && responseId != JsonPrimitive(id)) {
-                throw McpProtocolConfigurationException("MCP_RESPONSE_ID_MISMATCH", "The server returned a response for a different request. Check the MCP bridge and proxy routing.")
+                throw McpProtocolConfigurationException("MCP_RESPONSE_ID_MISMATCH", "The server returned a response for a different request. Check the MCP bridge and proxy routing.", response.status.value, "RESPONSE_ID_MATCH_REQUIRED", "id")
             }
             val error = envelope?.get("error") as? JsonObject
             if (response.status.value !in 200..299 || error != null) {
@@ -429,8 +441,9 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
                 )
             }
             if (envelope == null) throw McpIncompleteResponseException(method, bytes)
-            if (responseId != JsonPrimitive(id)) throw McpProtocolConfigurationException("MCP_RESPONSE_ID_MISMATCH", "The server response omitted its matching request ID. Check the MCP bridge and proxy routing.")
-            envelope.get("result") as? JsonObject ?: throw McpProtocolConfigurationException("MCP_RESPONSE_SCHEMA_INVALID", "The server response omitted its result object. Check the MCP response schema.")
+            if (responseId != JsonPrimitive(id)) throw McpProtocolConfigurationException("MCP_RESPONSE_ID_MISMATCH", "The server response omitted its matching request ID. Check the MCP bridge and proxy routing.", response.status.value, "RESPONSE_ID_MATCH_REQUIRED", "id")
+            val result = envelope.get("result") as? JsonObject ?: throw McpProtocolConfigurationException("MCP_RESPONSE_SCHEMA_INVALID", "The server response omitted its result object. Check the MCP response schema.", response.status.value, "RESULT_OBJECT_REQUIRED", "result")
+            RpcResponse(result, response.status.value)
         }
     }
 
@@ -506,15 +519,27 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
 internal class ModernMcpError(val status: Int, val code: Int?, message: String, val supportedVersions: JsonElement? = null, val quotaFailure: Boolean = false, val requestedVersion: String? = null) : IllegalStateException(message)
 
 /** A deterministic capability/configuration failure needs a change or explicit reconnect. */
-internal class McpProtocolConfigurationException(val diagnosticCode: String, detail: String) : IllegalStateException("$diagnosticCode: $detail Automatic discovery is paused until configuration changes or you reconnect.")
+internal class McpProtocolConfigurationException(
+    val diagnosticCode: String,
+    detail: String,
+    val httpStatus: Int? = null,
+    val validationRule: String? = null,
+    val validationField: String? = null
+) : IllegalStateException("$diagnosticCode: $detail Automatic discovery is paused until configuration changes or you reconnect.")
 
-private fun discoveryVersions(value: JsonElement?, field: String): List<String> {
-    if (value !is JsonArray || value.isEmpty() || value.size > 32) {
-        throw McpProtocolConfigurationException("MCP_DISCOVERY_SCHEMA_INVALID", "MCP discovery must provide a nonempty supported protocol version list in $field. Update the server or bridge response.")
+private fun discoveryVersions(value: JsonElement?, field: String, httpStatus: Int): List<String> {
+    val invalidRule = when {
+        value !is JsonArray -> "PROTOCOL_VERSIONS_ARRAY_REQUIRED"
+        value.isEmpty() -> "PROTOCOL_VERSIONS_NONEMPTY_REQUIRED"
+        value.size > 32 -> "PROTOCOL_VERSIONS_LIMIT_EXCEEDED"
+        else -> null
     }
-    return value.map { version ->
+    if (invalidRule != null) {
+        throw McpProtocolConfigurationException("MCP_DISCOVERY_SCHEMA_INVALID", "MCP discovery must provide a nonempty supported protocol version list in $field. Update the server or bridge response.", httpStatus, invalidRule, field)
+    }
+    return (value as JsonArray).map { version ->
         if (version !is JsonPrimitive || !version.isString || !Regex("[0-9]{4}-[0-9]{2}-[0-9]{2}").matches(version.content)) {
-            throw McpProtocolConfigurationException("MCP_DISCOVERY_SCHEMA_INVALID", "MCP $field contains an invalid protocol version. Update the server or bridge response.")
+            throw McpProtocolConfigurationException("MCP_DISCOVERY_SCHEMA_INVALID", "MCP $field contains an invalid protocol version. Update the server or bridge response.", httpStatus, "PROTOCOL_VERSION_FORMAT_REQUIRED", field)
         }
         version.content
     }

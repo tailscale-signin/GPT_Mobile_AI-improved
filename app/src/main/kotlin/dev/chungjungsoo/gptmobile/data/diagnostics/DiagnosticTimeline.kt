@@ -2,7 +2,9 @@ package dev.chungjungsoo.gptmobile.data.diagnostics
 
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonObjectBuilder
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.longOrNull
@@ -84,5 +86,49 @@ internal object DiagnosticTimeline {
         put("timestampMillis", event.capturedAtMillis)
         put("observation", event.kind.name)
         put("sourceFile", "run-journal.jsonl")
+        put("processSession", event.processSession)
+        event.monotonicNanos?.let { put("monotonicNanos", it) }
+        event.fence?.let { put("ownershipFence", it) }
+        event.outputPartId?.let { put("outputPartId", it) }
+        drawScope(event.kind.name, event.measured, event.invocationId)
+    }
+
+    /** Captured JSON is already redacted; select metadata without decoding payload receipts again. */
+    fun journal(row: JsonObject): JsonObject? {
+        fun text(key: String) = (row[key] as? JsonPrimitive)?.contentOrNull?.takeIf(String::isNotBlank)
+        val id = text("eventId") ?: return null
+        val run = text("runId") ?: return null
+        val stream = text("streamId") ?: return null
+        val sequence = (row["sequence"] as? JsonPrimitive)?.longOrNull?.takeIf { it > 0 } ?: return null
+        val capturedAt = (row["capturedAtMillis"] as? JsonPrimitive)?.longOrNull?.takeIf { it >= 0 } ?: return null
+        val kind = text("kind") ?: return null
+        return buildJsonObject {
+            put("kind", "lifecycle_observation")
+            put("eventId", "run_journal:$id")
+            put("sourceEventId", id)
+            put("source", "run_journal")
+            put("runId", run)
+            text("invocationId")?.let { put("invocationId", it) }
+            put("streamId", stream)
+            put("sequence", sequence)
+            put("timestampMillis", capturedAt)
+            put("observation", kind)
+            put("sourceFile", "run-journal.jsonl")
+            text("processSession")?.let { put("processSession", it) }
+            (row["monotonicNanos"] as? JsonPrimitive)?.longOrNull?.let { put("monotonicNanos", it) }
+            (row["fence"] as? JsonPrimitive)?.longOrNull?.let { put("ownershipFence", it) }
+            text("outputPartId")?.let { put("outputPartId", it) }
+            drawScope(kind, (row["measured"] as? JsonPrimitive)?.booleanOrNull, text("invocationId"))
+        }
+    }
+
+    private fun JsonObjectBuilder.drawScope(kind: String, measured: Boolean?, invocationId: String?) {
+        if (kind != "FIRST_VISIBLE_TEXT") return
+        put("measurementScope", "rendered_run_stream")
+        put("measured", measured?.let(::JsonPrimitive) ?: JsonNull)
+        put("observedBoundary", if (measured == true) "COMPOSE_DRAW_CONTENT_RETURNED" else "LEGACY_DRAW_OBSERVATION")
+        put("clockOrigin", "processSession_monotonicNanos")
+        put("invocationAssociation", if (invocationId == null) "UNLINKED" else "EXPLICIT")
+        put("displayPresentationConfirmed", JsonNull)
     }
 }

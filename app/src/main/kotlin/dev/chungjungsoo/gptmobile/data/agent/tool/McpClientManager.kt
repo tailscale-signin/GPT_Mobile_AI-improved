@@ -39,7 +39,9 @@ class McpConnectionConfig(
     val endpointUrl: String,
     val allowCleartext: Boolean,
     val authorizationHeader: String? = null,
-    val googleApiKey: String? = null
+    val googleApiKey: String? = null,
+    /** Opaque saved-configuration/record revision; never the transport key or a plaintext credential hash. */
+    val configurationRevision: String? = null
 )
 
 enum class McpConnectionHealthState {
@@ -66,7 +68,13 @@ data class McpConnectionHealth(
     val toolReadiness: McpToolReadiness = McpToolReadiness.NOT_DISCOVERED,
     val executionVerified: Boolean? = null,
     val executionObservedAtMs: Long? = null,
-    val lastErrorCode: String? = null
+    val lastErrorCode: String? = null,
+    val failureConfigurationRevision: String? = null,
+    val lastHttpStatus: Int? = null,
+    val lastValidationRule: String? = null,
+    val lastValidationField: String? = null,
+    val lastDispatchEvidence: String? = null,
+    val lastRetryDecision: String? = null
 ) {
     val failureRetryable: Boolean? get() = if (lastFailureAtMs == null || state == McpConnectionHealthState.CONNECTED) null else nextRetryAtMs?.let { it != Long.MAX_VALUE }
     val toolsReady: Boolean get() = state == McpConnectionHealthState.CONNECTED && toolReadiness == McpToolReadiness.READY
@@ -79,9 +87,10 @@ class McpBackoffException(
 
 internal class McpCatalogueTimeoutException(timeout: Long) : IllegalStateException("MCP catalogue discovery exceeded $timeout ms; saved catalogue and connection settings retained. Retry discovery or check server load.")
 
-class McpEndpointConfigurationException :
+class McpEndpointConfigurationException(val httpStatus: Int? = null) :
     IllegalStateException(
-        "MCP endpoint returned HTTP 404 during initialization. Check the server URL/path and running service in Plugins/Tools, then reconnect."
+        (if (httpStatus != null) "MCP endpoint returned HTTP $httpStatus during initialization. " else "MCP endpoint configuration is blocked by its previous initialization failure. ") +
+            "Check the server URL/path and running service in Plugins/Tools, then reconnect."
     )
 
 @Singleton
@@ -305,7 +314,7 @@ class McpClientManager internal constructor(
     }
 
     private suspend fun fetchCatalogue(config: McpConnectionConfig, forceRefresh: Boolean): List<Tool> {
-        val observation = healthOrder.begin(config.connectionUid, config.validatedKey())
+        val observation = healthOrder.begin(config.connectionUid, config.validatedKey(), config.configurationRevision)
         healthOrder.publish(observation) {
             _health.update { current ->
                 val previous = current[config.connectionUid] ?: McpConnectionHealth()
@@ -320,6 +329,8 @@ class McpClientManager internal constructor(
             throw cancelled
         } catch (error: Exception) {
             if (error is McpBackoffException) throw error
+            // The remembered endpoint gate is not a new HTTP exchange or observation.
+            if (error is McpEndpointConfigurationException && error.httpStatus == null) throw error
             if (error is McpProtocolConfigurationException) {
                 val previous = protocolFailures[config.connectionUid]
                 if (previous?.first == config.catalogueIdentity() && previous.second === error) throw error
@@ -416,7 +427,7 @@ class McpClientManager internal constructor(
         }
         if (!catalogueAvailability(config).executionAvailable) throw McpLocalToolRejection("MCP_DISCOVERY_REQUIRED", "MCP_DISCOVERY_REQUIRED: refresh the live tool catalogue before execution.")
         if (executableTools.none { it.name == toolName }) throw McpLocalToolRejection("UNKNOWN_TOOL", "MCP_TOOL_UNAVAILABLE: the live catalogue no longer advertises this tool.")
-        val observation = healthOrder.begin(config.connectionUid, key)
+        val observation = healthOrder.begin(config.connectionUid, key, config.configurationRevision)
         fun recordQuota(message: String) {
             if (isMcpQuotaFailure(message)) {
                 providerCooldowns[config.connectionUid] = key to (nowMs() + 5 * 60_000L)
@@ -546,6 +557,7 @@ class McpClientManager internal constructor(
     }
 
     suspend fun probe(config: McpConnectionConfig): Boolean = try {
+        config.validateLocalConfiguration()
         dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.checkAgain(config.endpointUrl)
         dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.probe(config.endpointUrl)
         listTools(config, forceRefresh = true, awaitCompletion = true)
@@ -557,7 +569,7 @@ class McpClientManager internal constructor(
         throw cancelled
     } catch (failure: Exception) {
         if (failure is dev.chungjungsoo.gptmobile.data.network.LocalServiceUnavailableException) {
-            recordFailure(config.connectionUid, failure, observation = healthOrder.begin(config.connectionUid, config.validatedKey()), stage = "connection")
+            recordFailure(config.connectionUid, failure, observation = healthOrder.begin(config.connectionUid, config.validatedKey(), config.configurationRevision), stage = "connection")
         }
         false
     }
@@ -603,6 +615,12 @@ class McpClientManager internal constructor(
                     connectionHealth = dev.chungjungsoo.gptmobile.data.network.ConnectionHealth.HEALTHY,
                     lastError = null,
                     lastErrorCode = null,
+                    failureConfigurationRevision = null,
+                    lastHttpStatus = null,
+                    lastValidationRule = null,
+                    lastValidationField = null,
+                    lastDispatchEvidence = null,
+                    lastRetryDecision = null,
                     failedStage = null,
                     availableToolCount = availableToolCount ?: previous.availableToolCount,
                     toolReadiness = when {
@@ -629,6 +647,19 @@ class McpClientManager internal constructor(
             // A shared DNS lease wait is recovery coordination, not another failed
             // connection attempt. Do not amplify it into an endpoint circuit breaker.
             val now = nowMs()
+            val causes = generateSequence(error) { it.cause?.takeUnless { cause -> cause === it } }.take(8).toList()
+            val protocolFailure = causes.filterIsInstance<McpProtocolConfigurationException>().firstOrNull()
+            val localFailure = causes.filterIsInstance<McpLocalValidationException>().firstOrNull()
+            val httpStatus = protocolFailure?.httpStatus ?: causes.firstNotNullOfOrNull {
+                when (it) {
+                    is ModernMcpError -> it.status
+                    is StreamableHttpError -> it.code
+                    is McpEndpointConfigurationException -> it.httpStatus
+                    else -> null
+                }
+            }
+            val safeDetail = (localFailure ?: protocolFailure)?.message
+                ?: if (causes.any { it is StreamableHttpError }) "MCP transport request failed; HTTP status=${httpStatus ?: "unavailable"}. Check the connection settings and server status." else error.message.orEmpty()
             var updated = McpConnectionHealth()
             _health.update { current ->
                 val previous = current[connectionUid] ?: McpConnectionHealth()
@@ -637,9 +668,10 @@ class McpClientManager internal constructor(
                 val authenticationRequired = error.isMcpUnauthorized()
                 val failureClass = dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.classify(error)
                 val tlsFailed = failureClass == dev.chungjungsoo.gptmobile.data.network.ConnectionHealth.TLS_FAILED
-                val requiresReconnect = error is McpEndpointConfigurationException || error is McpProtocolConfigurationException || authenticationRequired || tlsFailed
+                val requiresReconnect = error is McpEndpointConfigurationException || protocolFailure != null || localFailure != null || authenticationRequired || tlsFailed
                 val errorCode = when {
-                    error is McpProtocolConfigurationException -> error.diagnosticCode
+                    localFailure != null -> localFailure.diagnosticCode
+                    protocolFailure != null -> protocolFailure.diagnosticCode
                     error is McpEndpointConfigurationException -> "MCP_ENDPOINT_CONFIGURATION"
                     error is McpCatalogueTimeoutException -> "MCP_CATALOG_TIMEOUT"
                     authenticationRequired -> "MCP_AUTHENTICATION_REQUIRED"
@@ -647,7 +679,13 @@ class McpClientManager internal constructor(
                     failureClass != dev.chungjungsoo.gptmobile.data.network.ConnectionHealth.UNKNOWN -> failureClass.name
                     else -> "MCP_FAILURE_UNCLASSIFIED"
                 }
-                val failedStage = when (failureClass) {
+                val failedStage = localFailure?.phase ?: protocolFailure?.let {
+                    when (it.diagnosticCode) {
+                        "MCP_INITIALIZATION_SCHEMA_INVALID" -> "initialization"
+                        "MCP_DISCOVERY_SCHEMA_INVALID", "MCP_PROTOCOL_VERSION_UNSUPPORTED", "MCP_DISCOVERY_CONFIGURATION" -> "protocol_negotiation"
+                        else -> null
+                    }
+                } ?: when (failureClass) {
                     dev.chungjungsoo.gptmobile.data.network.ConnectionHealth.DNS_FAILED -> "dns"
                     dev.chungjungsoo.gptmobile.data.network.ConnectionHealth.TLS_FAILED -> "tls"
                     dev.chungjungsoo.gptmobile.data.network.ConnectionHealth.CONNECT_TIMEOUT,
@@ -669,7 +707,17 @@ class McpClientManager internal constructor(
                     consecutiveFailures = failures,
                     nextRetryAtMs = if (requiresReconnect) Long.MAX_VALUE else retryAtMs ?: (now + delay),
                     lastErrorCode = errorCode,
-                    lastError = "[$failedStage] " + dev.chungjungsoo.gptmobile.data.diagnostics.redactLogMessage(error.message.orEmpty().take(1024)),
+                    lastError = "[$failedStage] " + dev.chungjungsoo.gptmobile.data.diagnostics.diagnosticMessageForStorage(safeDetail).take(1024),
+                    failureConfigurationRevision = observation.configurationRevision?.takeIf { it.matches(Regex("[a-f0-9]{64}")) },
+                    lastHttpStatus = httpStatus?.takeIf { it in 100..599 },
+                    lastValidationRule = localFailure?.validationRule ?: protocolFailure?.validationRule,
+                    lastValidationField = localFailure?.validationField ?: protocolFailure?.validationField,
+                    lastDispatchEvidence = when {
+                        localFailure != null -> localFailure.dispatchEvidence
+                        httpStatus != null -> "CONFIRMED"
+                        else -> "UNKNOWN"
+                    },
+                    lastRetryDecision = localFailure?.retryDecision ?: if (requiresReconnect) "AFTER_CONFIGURATION_CHANGE" else "AFTER_BACKOFF",
                     failedStage = failedStage,
                     connectionHealth = failureClass,
                     toolReadiness = if (previous.availableToolCount == null) McpToolReadiness.NOT_DISCOVERED else McpToolReadiness.STALE
@@ -735,7 +783,7 @@ class McpClientManager internal constructor(
         retryStale: Boolean = true,
         recordFailures: Boolean = true,
         recordResponses: Boolean = true,
-        observation: McpHealthObservationOrder.Token = healthOrder.begin(config.connectionUid, config.validatedKey()),
+        observation: McpHealthObservationOrder.Token = healthOrder.begin(config.connectionUid, config.validatedKey(), config.configurationRevision),
         block: suspend (Session) -> T
     ): T {
         var staleSessionRetries = 0
@@ -849,14 +897,15 @@ class McpClientManager internal constructor(
                         throw cancelled
                     } catch (error: Exception) {
                         if (generateSequence(error as Throwable) { it.cause?.takeUnless { cause -> cause === it } }.take(16).any { it is StreamableHttpError }) connectivity.success(endpointHost)
-                        AppLogRecorder.record("MCP", "Connect failed · connection=${config.connectionUid} · host=$endpointHost · elapsedMs=${nowMs() - connectStartedAtMs} · transportTimeoutMs=$transportConnectTimeoutMs · initializationTimeoutMs=$effectiveSessionTimeoutMs · ${error.javaClass.simpleName}: ${error.message.orEmpty()}", "E")
+                        val httpStatus = generateSequence(error as Throwable) { it.cause?.takeUnless { cause -> cause === it } }.take(8).filterIsInstance<StreamableHttpError>().firstOrNull()?.code
+                        AppLogRecorder.record("MCP", "Connect failed · connection=${config.connectionUid} · elapsedMs=${nowMs() - connectStartedAtMs} · transportTimeoutMs=$transportConnectTimeoutMs · initializationTimeoutMs=$effectiveSessionTimeoutMs · errorType=${error.javaClass.simpleName} · httpStatus=${httpStatus ?: "unavailable"}", "E")
                         withContext(NonCancellable) { runCatching { withTimeoutOrNull(2_000) { client.close() } } }
                         if (generateSequence(error as Throwable) { it.cause?.takeUnless { cause -> cause === it } }.take(16).any { it is StreamableHttpError && it.code == 400 } && !isMcpQuotaFailure(error.message.orEmpty())) {
-                            throw McpProtocolConfigurationException("MCP_INITIALIZATION_SCHEMA_INVALID", "The server rejected the initialize handshake (HTTP 400). Validate the endpoint path, initialization request schema and supported protocol version.")
+                            throw McpProtocolConfigurationException("MCP_INITIALIZATION_SCHEMA_INVALID", "The server rejected the initialize handshake (HTTP 400). Validate the endpoint path, initialization request schema and supported protocol version.", 400, "INITIALIZE_REQUEST_ACCEPTANCE_REQUIRED", "initialize")
                         }
                         if (generateSequence(error as Throwable) { it.cause }.any { it is StreamableHttpError && it.code == 404 }) {
                             configurationFailures[config.connectionUid] = key
-                            throw McpEndpointConfigurationException()
+                            throw McpEndpointConfigurationException(404)
                         }
                         throw error
                     }
@@ -907,22 +956,7 @@ class McpClientManager internal constructor(
         ("catalog-v1|$connectionUid|$endpointUrl|$allowCleartext|${authorizationHeader.orEmpty().sha256()}|${googleApiKey.orEmpty().sha256()}").sha256()
 
     private fun McpConnectionConfig.validatedKey(): String {
-        require(connectionUid.isNotBlank()) { "MCP connection ID is required." }
-        require(endpointUrl.length <= MAX_ENDPOINT_LENGTH) { "MCP endpoint URL is too long." }
-        val uri = runCatching { URI(endpointUrl) }.getOrNull()
-            ?: throw IllegalArgumentException("MCP endpoint must be a valid URL.")
-        val scheme = uri.scheme?.lowercase()
-        require(scheme == "https" || scheme == "http") { "MCP endpoint must use HTTP or HTTPS." }
-        require(!uri.host.isNullOrBlank() && uri.userInfo == null && uri.fragment == null) { "MCP endpoint URL is invalid." }
-        require(scheme != "http" || allowCleartext) { "Cleartext MCP requires explicit user approval." }
-        require(authorizationHeader == null || authorizationHeader.isNotBlank()) { "MCP authorization header is required." }
-        require(authorizationHeader?.contains('\r') != true && authorizationHeader?.contains('\n') != true) {
-            "MCP authorization header is invalid."
-        }
-        require(authorizationHeader == null || authorizationHeader.length <= MAX_AUTHORIZATION_HEADER_LENGTH) {
-            "MCP authorization header is too long."
-        }
-        require(googleApiKey == null || (uri.host == "mapstools.googleapis.com" && scheme == "https" && uri.port == -1 && googleApiKey.isNotBlank() && googleApiKey.length <= 4096 && googleApiKey.all { it.code in 33..126 })) { "Invalid Google MCP API key configuration." }
+        validateLocalConfiguration()
         return "$endpointUrl|${authorizationHeader.orEmpty().sha256()}|${googleApiKey.orEmpty().sha256()}|${dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.networkEpoch}"
     }
 
@@ -944,8 +978,6 @@ class McpClientManager internal constructor(
         // MCP server's tool catalog while restoring the intended safety guarantee.
         const val MAX_TOOL_PAGES = 200
         const val MAX_DISCOVERED_TOOLS = 1000
-        const val MAX_ENDPOINT_LENGTH = 32 * 1024
-        const val MAX_AUTHORIZATION_HEADER_LENGTH = 128 * 1024
         const val TOOL_CATALOG_TTL_MS = 5 * 60 * 1000L
         const val CIRCUIT_BREAKER_FAILURES = 3
         const val MAX_STALE_SESSION_RETRIES = 1
@@ -955,7 +987,7 @@ class McpClientManager internal constructor(
 internal class McpAuthenticationRequiredException : IllegalStateException("MCP authentication is required. Open Manage connection and reconnect or update the credential.")
 
 internal fun Throwable.isMcpUnauthorized(): Boolean = generateSequence(this) { it.cause?.takeUnless { cause -> cause === it } }.take(8)
-    .any { error -> error is McpAuthenticationRequiredException || (error is StreamableHttpError && error.code in setOf(401, 403)) || (error is ModernMcpError && error.status in setOf(401, 403)) }
+    .any { error -> error is McpAuthenticationRequiredException || error is McpDiscoveryOAuthRefreshException || (error is StreamableHttpError && error.code in setOf(401, 403)) || (error is ModernMcpError && error.status in setOf(401, 403)) }
 
 /** Only replay discovery/resource reads after a dropped connection, never tools/call. */
 internal fun Throwable.isMcpInterruptedRead(): Boolean = generateSequence(this) { it.cause?.takeUnless { cause -> cause === it } }.take(8)

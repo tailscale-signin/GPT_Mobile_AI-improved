@@ -26,6 +26,31 @@ import org.junit.Test
 class StagedDiagnosticCaptureTest {
     private val available = DiagnosticCaptureOptions(minimumHeadroomBytes = 0)
 
+    @Test fun stageTraceClosesOnFailureAndIsNotReopenedForReusedEvidence() = temporary { directory ->
+        runBlocking {
+            val observations = mutableListOf<String>()
+            val options = available.copy(traceStage = { stage ->
+                observations += "start:$stage"
+                val end: () -> Unit = { observations += "end:$stage" }
+                end
+            })
+            var retry = false
+            val stages = listOf(
+                stage("retained") { it.record("valid") },
+                stage("failed") {
+                    if (!retry) throw IOException("interrupted")
+                    it.record("recovered")
+                }
+            )
+            val first = StagedDiagnosticCapture.capture(directory, "trace", stages, options)
+            assertEquals(listOf("start:retained", "end:retained", "start:failed", "end:failed"), observations)
+            observations.clear()
+            retry = true
+            StagedDiagnosticCapture.capture(directory, "trace", stages, options, first.sessionId)
+            assertEquals(listOf("start:failed", "end:failed"), observations)
+        }
+    }
+
     @Test fun availabilityAndMissingEvidenceSeparateEmptyFromFailedCapture() = temporary { directory ->
         runBlocking {
             val result = StagedDiagnosticCapture.capture(

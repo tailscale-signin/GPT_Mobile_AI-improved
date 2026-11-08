@@ -18,6 +18,22 @@ class CombinedProfileFailureCacheTest {
     private val sibling = MessageV2(id = 3, chatId = 1, linkedMessageId = 1, platformType = "q", currentRunId = "q-run", content = "Still writing")
     private val streaming = AgentRun("q-run", 1, 1, 3, "q", "FREE", "model", "RUNNING")
 
+    @Test fun taskAcceptanceGapsDoNotOfferProviderRetriesOrRemoval() {
+        for (code in listOf("GITHUB_TASK_INCOMPLETE", "GITHUB_EVIDENCE_REQUIRED")) {
+            val taskRun = failed.copy(status = AgentRunStatus.PARTIAL, terminalError = "$code: Required receipt missing")
+            val classified = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.classify(taskRun.terminalError.orEmpty())
+            for (legacy in listOf(false, true)) {
+                val notice = dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(
+                    dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE,
+                    profileFailure = classified.takeIf { legacy },
+                    taskVerificationFailure = dev.chungjungsoo.gptmobile.data.agent.TaskVerificationFailure.from(classified).takeUnless { legacy }
+                )
+                val failures = combinedProfileFailures(1, "Check the repository", listOf(partial.copy(timeline = listOf(notice))), mapOf(taskRun.runId to taskRun), emptyMap(), emptyMap())
+                assertTrue(failures.isEmpty())
+            }
+        }
+    }
+
     @Test fun streamingSiblingDoesNotReassessTheUnchangedLongAnswer() {
         val cache = CombinedProfileFailureCache()
         val runs = mapOf("p-run" to failed, "q-run" to streaming)

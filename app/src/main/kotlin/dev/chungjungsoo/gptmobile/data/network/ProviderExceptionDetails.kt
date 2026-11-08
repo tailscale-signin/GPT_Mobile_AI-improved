@@ -7,6 +7,25 @@ import kotlinx.serialization.json.put
 
 /** Retain known response/admission evidence before considering an exception a transport failure. */
 internal fun providerExceptionDetails(error: Exception, partialOutput: Boolean, nowMillis: Long = System.currentTimeMillis()): ErrorDetail? {
+    if (error is dev.chungjungsoo.gptmobile.data.context.ReasoningAdmissionException) {
+        val code = "REASONING_${error.requested}_UNSUPPORTED"
+        return ErrorDetail(
+            message = requireNotNull(error.message),
+            type = "local_admission",
+            code = code,
+            retryable = false,
+            failureDetails = buildJsonObject {
+                put("code", code)
+                put("failed_stage", "provider_admission")
+                put("attempt_dispatch_state", "NOT_DISPATCHED")
+                put("retryable", false)
+                put("repair", "CHANGE_REASONING_SETTINGS")
+                put("partial_output_preserved", partialOutput)
+                // This exception qualifies this preflight only. Invocation accounting owns
+                // the proof that every earlier physical attempt was also unsent.
+            }
+        )
+    }
     if (error is dev.chungjungsoo.gptmobile.data.network.error.CircuitBreakerOpenException) {
         val classified = dev.chungjungsoo.gptmobile.data.network.error.ErrorClassification.classify(error)
         val gatewayUnknown = dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.requiresReconciliation(error.message.orEmpty(), classified.errorCode)

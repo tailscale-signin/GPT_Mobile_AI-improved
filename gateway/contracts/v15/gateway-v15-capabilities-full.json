@@ -20,7 +20,12 @@
     "X-Gateway-Client-Diagnostics",
     "X-Gateway-Diagnostic-Session",
     "X-Gateway-Diagnostic-Started",
-    "traceparent"
+    "traceparent",
+    "X-Gateway-Profile-ID",
+    "X-Gateway-Profile-Name-Base64",
+    "X-Gateway-Conversation-Retention",
+    "X-Gateway-Installation-ID",
+    "X-Gateway-Principal-ID"
   ],
   "auth": {
     "apiKeyRequired": false,
@@ -34,8 +39,14 @@
   },
   "contractVersion": 1,
   "contracts": {
+    "gatewayConversations": [
+      "gptmobile.gateway.conversations.v1"
+    ],
     "gatewayDashboard": [
       "gptmobile.gateway.dashboard.v1"
+    ],
+    "gatewayJobCatalog": [
+      "gptmobile.gateway.job-catalog.v1"
     ],
     "gatewayProgress": [
       "gpt-mobile-gateway-progress/2"
@@ -63,7 +74,12 @@
   },
   "endpoints": {
     "cancel": "/gateway/jobs/{job_id}/cancel",
+    "command": "/gateway/commands/{command_id}",
+    "conversation_messages": "/gateway/conversations/{conversation_id}/messages",
+    "conversations": "/gateway/conversations",
     "events": "/gateway/jobs/{job_id}/events",
+    "identity": "/gateway/identity",
+    "job_catalog": "/gateway/job-catalog",
     "jobs": "/gateway/jobs",
     "mcp_sessions": "/gateway/mcp/sessions",
     "result": "/gateway/jobs/{job_id}/result",
@@ -88,6 +104,8 @@
     "compare_commits_preferred_when_available": true,
     "context_overflow_auto_retry": true,
     "context_preflight_guard": true,
+    "conversation_message_parts_v1": true,
+    "conversation_sync_v1": true,
     "cross_segment_safe_read_cache": true,
     "curated_github_surface_default": true,
     "default_repo_grounding": true,
@@ -97,6 +115,7 @@
     "dual_gateway_routes": true,
     "duplicate_stream_attach": true,
     "durableEngineeringJobs": true,
+    "durable_detach_v1": true,
     "durable_job_journal": true,
     "empty_result_is_success": true,
     "engineeringSupervisor": true,
@@ -111,6 +130,7 @@
     "githubPerformanceMetrics": true,
     "hard_synthesis_v2": true,
     "intelligentToolBatch": true,
+    "job_catalog_v1": true,
     "job_result_polling": true,
     "keyFreeNetworkAccess": false,
     "keyFreePrivateAccess": true,
@@ -128,9 +148,11 @@
     "model_facing_schema_sanitization": true,
     "models_sse_compat": true,
     "modernMcp": true,
+    "mutation_identity_preconditions_v1": true,
     "mutation_safe_prefetch_generation": true,
     "ollama_discovery_compat": true,
     "openai_compatible_chat": true,
+    "ordinary_conversation_retention_v1": true,
     "packageValidation": true,
     "parallel_mcp_discovery": true,
     "persistent_mcp_stdio": true,
@@ -166,10 +188,17 @@
     "versionedJournal": true,
     "workflow_tool_profiles": true
   },
+  "gatewayId": "gw_00000000000000000000000000000000",
   "gatewayVersion": "15.0.0",
+  "gateway_id": "gw_00000000000000000000000000000000",
   "gateway_version": "15.0.0",
   "headers": {
+    "command_id": "X-Gateway-Command-ID",
+    "conversation_id": "X-Gateway-Conversation-ID",
+    "detach_safe": "X-Gateway-Detach-Safe",
+    "gateway_id": "X-Gateway-ID",
     "job_id": "X-Gateway-Job-ID",
+    "principal_id": "X-Gateway-Principal-ID",
     "progress_protocol": "X-Gateway-Progress-Protocol",
     "request_id": "X-Gateway-Request-ID",
     "singleflight": "X-Gateway-Singleflight"
@@ -189,6 +218,19 @@
     "protocolVersion": 1,
     "workspaceAdapterEnabled": false
   },
+  "mutationIdentityPreconditions": [
+    "X-Gateway-Installation-ID",
+    "X-Gateway-Principal-ID"
+  ],
+  "ordinaryConversationRetention": {
+    "default": "none",
+    "header": "X-Gateway-Conversation-Retention",
+    "values": [
+      "full",
+      "none"
+    ]
+  },
+  "principal_id": "local:single-user",
   "progress_protocol": "gpt-mobile-gateway-progress/2",
   "progress_protocol_version": "gpt-mobile-gateway-progress/2",
   "protocols": [

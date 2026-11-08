@@ -22,6 +22,9 @@ interface AgentRunDao : RunPolicySnapshotAccess {
     @Query("SELECT * FROM agent_runs WHERE run_id = :runId")
     suspend fun rawGetById(runId: String): AgentRun?
 
+    @Query("UPDATE agent_runs SET terminal_error = :receipt WHERE run_id = :runId AND gateway_job_id = :jobId AND status = 'CANCELED'")
+    suspend fun recordGatewayCancellation(runId: String, jobId: String, receipt: String): Int
+
     @Query("SELECT * FROM agent_runs WHERE chat_id = :chatId ORDER BY created_at, run_id")
     suspend fun rawGetByChatId(chatId: Int): List<AgentRun>
 

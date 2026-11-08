@@ -46,6 +46,17 @@ internal object DiagnosticRecordChunks {
         return next
     }
 
-    internal fun sha256(value: String): String = MessageDigest.getInstance("SHA-256")
-        .digest(value.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+    internal fun sha256(value: String): String = hex(MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8)))
+
+    /** Avoid allocating a Formatter and temporary strings for every byte of every record hash. */
+    internal fun hex(bytes: ByteArray): String {
+        val digits = "0123456789abcdef"
+        val result = CharArray(bytes.size * 2)
+        bytes.forEachIndexed { index, value ->
+            val unsigned = value.toInt() and 0xff
+            result[index * 2] = digits[unsigned ushr 4]
+            result[index * 2 + 1] = digits[unsigned and 0x0f]
+        }
+        return result.concatToString()
+    }
 }

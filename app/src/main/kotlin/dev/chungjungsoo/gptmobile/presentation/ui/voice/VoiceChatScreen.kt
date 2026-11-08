@@ -95,6 +95,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.containsLocalOnlyMemory
 import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
 import dev.chungjungsoo.gptmobile.data.model.isPrivateDestination
 import dev.chungjungsoo.gptmobile.data.voice.AndroidVoiceAudio
+import dev.chungjungsoo.gptmobile.data.voice.SpeechVoiceCatalogState
 import dev.chungjungsoo.gptmobile.data.voice.VoicePhase
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSession
 import dev.chungjungsoo.gptmobile.data.voice.VoiceState
@@ -266,7 +267,7 @@ internal fun VoiceChatScreen(onEnd: () -> Unit, onOpenChat: () -> Unit, model: C
     LaunchedEffect(state.transcript) { draft = state.transcript }
     LaunchedEffect(settingsOpen, routeOpen, transcriptOpen, language, allowOnline, privateSpeech) {
         audio.prepareVoices()
-        if (!settingsOpen && !routeOpen && !transcriptOpen && started && !state.muted && lifecycleState == Lifecycle.State.RESUMED) {
+        if (!settingsOpen && !routeOpen && !transcriptOpen && started && !state.muted && state.recoveryAction == null && lifecycleState == Lifecycle.State.RESUMED) {
             if (state.phase == VoicePhase.PAUSED) {
                 audio.stop()
                 session.resume()
@@ -324,7 +325,7 @@ internal fun VoiceChatScreen(onEnd: () -> Unit, onOpenChat: () -> Unit, model: C
     }
     LaunchedEffect(enabled, loaded, preferencesApplied, lifecycleState, resumeWhenReady) {
         session.access(enabled && preferencesApplied, permission, lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
-        if (enabled && loaded && preferencesApplied && lifecycleState == Lifecycle.State.RESUMED && (!started || resumeWhenReady || !state.muted && state.phase == VoicePhase.PAUSED && !settingsOpen && !routeOpen && !transcriptOpen)) {
+        if (enabled && loaded && preferencesApplied && state.recoveryAction == null && lifecycleState == Lifecycle.State.RESUMED && (!started || resumeWhenReady || !state.muted && state.phase == VoicePhase.PAUSED && !settingsOpen && !routeOpen && !transcriptOpen)) {
             started = true
             resumeWhenReady = false
             listen()
@@ -348,6 +349,7 @@ internal fun VoiceChatScreen(onEnd: () -> Unit, onOpenChat: () -> Unit, model: C
         !loaded || !preferencesApplied -> "Getting ready"
         waitingApproval -> "Your attention is needed"
         remaining > 0 -> "Retry in $remaining seconds"
+        state.recoveryAction != null -> "Speech setup needs attention"
         state.phase == VoicePhase.STARTING -> "Starting microphone"
         state.phase == VoicePhase.FINALIZING -> "Finishing your words"
         state.phase == VoicePhase.REVIEWING -> "Review your message"
@@ -413,6 +415,17 @@ internal fun VoiceChatScreen(onEnd: () -> Unit, onOpenChat: () -> Unit, model: C
                 }) { Text("Record again") }
             }
             state.notice?.let { Text(it, Modifier.padding(top = 16.dp).widthIn(max = 320.dp), style = MaterialTheme.typography.bodyMedium.copy(letterSpacing = 0.sp), color = if (remaining > 0) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error, textAlign = TextAlign.Center) }
+            state.recoveryAction?.let { action ->
+                TextButton(onClick = {
+                    session.pause()
+                    openVoiceRepairSettings(context, action)
+                }) { Text(voiceRepairLabel(action)) }
+                TextButton(onClick = {
+                    session.pause()
+                    settingsOpen = true
+                }) { Text("Change voice configuration") }
+                TextButton(onClick = ::listen, enabled = remaining == 0) { Text("Try microphone after repair") }
+            }
             if (state.reply.isNotBlank() && state.phase in setOf(VoicePhase.PAUSED, VoicePhase.ERROR)) TextButton(onClick = session::replay) { Text("Replay reply") }
             if (waitingApproval || state.phase == VoicePhase.ERROR || !enabled) TextButton(onClick = ::openChat) { Text("Continue in chat") }
         }
@@ -481,6 +494,7 @@ internal fun VoiceChatScreen(onEnd: () -> Unit, onOpenChat: () -> Unit, model: C
                         Switch(state.speaker, { session.speaker() })
                     }
                     val voices by audio.voiceChoices.collectAsStateWithLifecycle()
+                    val catalog by audio.voiceCatalogState.collectAsStateWithLifecycle()
                     Text("Natural voices", style = MaterialTheme.typography.titleSmall)
                     Text("Best installed voices appear first. Preview a voice to hear its character and pacing.", style = MaterialTheme.typography.bodySmall)
                     voices.forEach { (name, label) ->
@@ -492,7 +506,15 @@ internal fun VoiceChatScreen(onEnd: () -> Unit, onOpenChat: () -> Unit, model: C
                             }) { Text("Preview") }
                         }
                     }
-                    if (voices.size < 3) Text("Install additional voices for this language to choose from at least three distinct voices.", style = MaterialTheme.typography.bodySmall)
+                    when (catalog) {
+                        SpeechVoiceCatalogState.CHECKING -> Text("Checking the speech engine…", style = MaterialTheme.typography.bodySmall)
+                        SpeechVoiceCatalogState.UNAVAILABLE -> {
+                            Text("The speech engine is disconnected or unavailable. Review Android speech settings, then recheck.", style = MaterialTheme.typography.bodySmall)
+                            TextButton(onClick = { audio.prepareVoices() }) { Text("Recheck speech engine") }
+                        }
+                        SpeechVoiceCatalogState.EMPTY -> Text("The speech engine returned an empty voice catalog. Install a voice for the selected language.", style = MaterialTheme.typography.bodySmall)
+                        else -> if (voices.size < 3) Text("Install additional voices for this language to choose from at least three distinct voices.", style = MaterialTheme.typography.bodySmall)
+                    }
                     TextButton(onClick = {
                         runCatching { context.startActivity(android.content.Intent(android.speech.tts.TextToSpeech.Engine.ACTION_INSTALL_TTS_DATA)) }
                             .onFailure { runCatching { context.startActivity(android.content.Intent("com.android.settings.TTS_SETTINGS")) } }

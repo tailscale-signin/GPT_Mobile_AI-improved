@@ -20,7 +20,9 @@ internal object CombinedDocumentDatabase {
         val references = references(database)
         database.execSQL("CREATE TEMP TABLE combined_keep_manifests (id TEXT PRIMARY KEY)")
         database.execSQL("CREATE TEMP TABLE combined_keep_payloads (runId TEXT, payloadId TEXT, PRIMARY KEY(runId, payloadId))")
+        database.execSQL("CREATE TEMP TABLE gateway_keep_runs (runId TEXT PRIMARY KEY)")
         try {
+            GatewayBackupOwners.runIds(database).forEach { database.execSQL("INSERT INTO gateway_keep_runs (runId) VALUES (?)", arrayOf<Any?>(it)) }
             references.keys.forEach { database.execSQL("INSERT INTO combined_keep_manifests (id) VALUES (?)", arrayOf(it)) }
             database.execSQL("DELETE FROM combined_final_manifests WHERE id NOT IN (SELECT id FROM combined_keep_manifests)")
             fun retain(runId: String, raw: String) {
@@ -46,11 +48,13 @@ internal object CombinedDocumentDatabase {
                 while (blocks.moveToNext()) retain(blocks.getString(0), blocks.getString(1))
             }
             database.execSQL("DELETE FROM combined_durable_blocks WHERE NOT EXISTS (SELECT 1 FROM combined_keep_payloads p WHERE p.runId=combined_durable_blocks.runId AND p.payloadId=combined_durable_blocks.payloadId)")
-            database.execSQL("DELETE FROM agent_runs WHERE run_id NOT IN (SELECT runId FROM combined_final_manifests)")
+            // The remote command's original run and reply fence are part of saved history.
+            database.execSQL("DELETE FROM agent_runs WHERE run_id NOT IN (SELECT runId FROM combined_final_manifests) AND run_id NOT IN (SELECT runId FROM gateway_keep_runs)")
             // The owning IDs/fences are part of the document. Provider request snapshots,
             // tool events and active resumptions remain an Agent history selection.
             database.execSQL("UPDATE agent_runs SET synthesis_snapshot=NULL, synthesis_key=NULL")
         } finally {
+            database.execSQL("DROP TABLE gateway_keep_runs")
             database.execSQL("DROP TABLE combined_keep_payloads")
             database.execSQL("DROP TABLE combined_keep_manifests")
         }

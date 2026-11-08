@@ -45,6 +45,8 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 
 class OpenAIAPIImpl @Inject constructor(
     private val networkClient: NetworkClient,
@@ -126,6 +128,8 @@ class OpenAIAPIImpl @Inject constructor(
         var requestedHealthModel = request.model
         var transportRetries = 0
         val transportStartedNs = System.nanoTime()
+        var activeControlReceipt: ReasoningControlReceipt? = null
+        var activeResponseObserver: ProviderResponseObserver? = null
         try {
             val free = config.freeProvider
             if (free != null) {
@@ -171,18 +175,25 @@ class OpenAIAPIImpl @Inject constructor(
                 FreeQueuedTransport(networkClient(), requestPreparation).generate(preparedRequest, config, timeoutSeconds) { emit(it) }
                 return@flow
             }
-            config = gatewayControls.prepare(GatewayClientDiagnostics.withHeaders(config, request.model))
+            config = ProviderConnectivityPreflight.withAvailability(config.apiUrl) {
+                gatewayControls.prepare(GatewayClientDiagnostics.withHeaders(config, request.model))
+            }
             val endpoint = config.buildEndpoint("chat/completions")
 
             val executeRequest: suspend () -> Unit = {
+                activeControlReceipt = null
+                activeResponseObserver = null
                 LocalConnectionPreflight.requireReady(config.apiUrl)
                 config.freeDiagnostics?.permitAcquiredAt = ProviderElapsedClock.now()
                 if (transportRetries > 0) emit(ChatCompletionChunk(retryDurationMs = (System.nanoTime() - transportStartedNs) / 1_000_000, retryAttempts = transportRetries))
                 ProviderCooldown.await(config)
                 config.freeDiagnostics?.stage = "preparation"
                 var admittedOutputTokens: Int? = null
-                val admittedPayload = requestPreparation.prepare(NetworkClient.openAIJson.encodeToString(preparedRequest), config.copy(onSerializedOutputTokens = { admittedOutputTokens = it }), preparedRequest.model, null)
-                val reasoningControlReceipt = ReasoningControlReceipt.fromPayload(admittedPayload, config.allowReasoning)
+                val gatewayRequest = dev.chungjungsoo.gptmobile.data.network.gateway.gatewayConversationRequest(NetworkClient.openAIJson.encodeToString(preparedRequest), config)
+                val admittedPayload = requestPreparation.prepare(gatewayRequest.payload, config.copy(onSerializedOutputTokens = { admittedOutputTokens = it }), preparedRequest.model, null)
+                // The serializer bridge retains intent even when no response arrives. A
+                // request observation must not masquerade as a provider response chunk.
+                val reasoningControlReceipt = ReasoningControlReceipt.fromPayload(admittedPayload, config).also { activeControlReceipt = it }
                 // Continuation needs the admitted physical cap in every chat mode,
                 // including ordinary Free chats whose profile allows a larger output.
                 if (free != null || config.captureGenerationReceipt || config.requestRole == "synthesis") admittedOutputTokens?.let { emit(ChatCompletionChunk(serializedOutputTokens = it)) }
@@ -196,9 +207,11 @@ class OpenAIAPIImpl @Inject constructor(
                 var definitelyNotTransmitted = false
                 try {
                     kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                    gatewayRequest.beforeDispatch(config)
                     config.freeDiagnostics?.stage = "dispatch"
                     config.freeDiagnostics?.attempted()
                     dispatchStarted = true
+                    val responseObserver = ProviderResponseObserver().also { activeResponseObserver = it }
                     dispatchRetryGuard.dispatched()
                     networkClient().preparePost(endpoint) {
                         applyPlatformStreamingTimeout(timeoutSeconds, workerBudget, connectionTimeout)
@@ -209,16 +222,22 @@ class OpenAIAPIImpl @Inject constructor(
                         GatewayClientDiagnostics.requestHeaders(config).forEach { (key, value) -> header(key, value) }
                         if (LocalEndpointConnectionPolicy.freshConnection(endpoint)) header(HttpHeaders.Connection, "close")
                     }.execute { response ->
+                        responseObserver.headersReceived()
                         ProviderConnectivityPreflight.responseReceived(config.apiUrl)
                         GatewayClientDiagnostics.observe(config, response.status.value) { response.headers[it] }
                         config.freeDiagnostics?.responded()
                         if (!response.status.isSuccess()) {
                             val errorBody = if (free != null) readFreeErrorBody(response) else response.body<String>()
+                            // Error responses also own durable job identity. Publish trusted headers
+                            // before any saved-result lookup which may itself lose connectivity.
+                            gatewayResponseMetadata { response.headers[it] }?.let { metadata ->
+                                emit(ChatCompletionChunk(gatewayMetadata = metadata, providerResponseTiming = responseObserver.snapshot(), reasoningControlReceipt = reasoningControlReceipt))
+                            }
                             if (free == null) {
-                                gatewayRecovery.read(response.status.value, structuredProviderFailure(errorBody), config, preparedRequest.model, response.headers["X-Gateway-Job-ID"])?.let { saved ->
+                                gatewayRecovery.read(response.status.value, structuredProviderFailure(errorBody, response.status.value), config, preparedRequest.model, response.headers["X-Gateway-Job-ID"])?.let { saved ->
                                     receivedAssistantPayload = receivedAssistantPayload || saved.hasAssistantStreamPayload()
                                     receivedTerminal = true
-                                    emit(saved)
+                                    emit(saved.copy(providerResponseTiming = responseObserver.snapshot(), reasoningControlReceipt = reasoningControlReceipt))
                                     return@execute
                                 }
                             }
@@ -273,13 +292,18 @@ class OpenAIAPIImpl @Inject constructor(
                                 "E"
                             )
 
+                            val failureDetails = structuredProviderFailure(errorBody, response.status.value)
+                            val contract = dev.chungjungsoo.gptmobile.data.network.error.ProviderContractFailure.find(errorBody)
                             emit(
                                 ChatCompletionChunk(
+                                    providerResponseTiming = responseObserver.snapshot(),
+                                    reasoningControlReceipt = reasoningControlReceipt,
                                     error = ErrorDetail(
-                                        message = if (free?.acceptsUserToken == true || response.status.value !in setOf(401, 402, 403)) config.readableProviderError(errorMessage, response.status.value.toString()) else errorMessage,
-                                        type = config.freeDiagnostics?.category?.name ?: "http_error",
-                                        code = (structuredProviderFailure(errorBody)?.get("code") as? kotlinx.serialization.json.JsonPrimitive)?.content ?: response.status.value.toString(),
-                                        failureDetails = structuredProviderFailure(errorBody),
+                                        message = contract?.message ?: if (free?.acceptsUserToken == true || response.status.value !in setOf(401, 402, 403)) config.readableProviderError(errorMessage, response.status.value.toString()) else errorMessage,
+                                        type = if (contract != null) "provider_contract_error" else config.freeDiagnostics?.category?.name ?: "http_error",
+                                        code = contract?.code ?: (failureDetails?.get("code") as? JsonPrimitive)?.content ?: response.status.value.toString(),
+                                        retryable = (failureDetails?.get("retryable") as? JsonPrimitive)?.booleanOrNull,
+                                        failureDetails = failureDetails,
                                         providerLimit = providerLimitDecision(config, request.model, receivedAssistantPayload || receivedGatewayToolActivity, FreeProviderException(config.freeDiagnostics?.category ?: FreeFailureCategory.REQUEST_INVALID, "HTTP ${response.status.value}"))
                                     )
                                 )
@@ -322,11 +346,22 @@ class OpenAIAPIImpl @Inject constructor(
                                     if (choice.message != null && choice.finishReason == null) choice.copy(finishReason = "stop") else choice
                                 },
                                 gatewayMetadata = gatewayMetadata,
+                                gatewayProvenance = decoded.gatewayProvenance?.takeIf { gatewayMetadata.transportVerified },
+                                gatewayTiming = decoded.gatewayTiming?.takeIf { gatewayMetadata.transportVerified },
+                                gatewayDeliveryTiming = decoded.gatewayDeliveryTiming?.takeIf { gatewayMetadata.transportVerified },
+                                providerResponseTiming = responseObserver.parsed(decoded.hasAssistantGeneratedOutput()),
                                 reasoningControlReceipt = reasoningControlReceipt,
                                 error = decoded.error?.let { error ->
                                     val category = providerPayloadFailure(error.code, error.message, preparedRequest.toolChoice, !preparedRequest.tools.isNullOrEmpty())
                                     config.freeDiagnostics?.category = category
-                                    error.copy(message = "${category.name}: " + config.readableProviderError(error.message, error.code), type = category.name.lowercase())
+                                    val contract = dev.chungjungsoo.gptmobile.data.network.error.ProviderContractFailure.find(error.code, error.message)
+                                    error.copy(
+                                        message = contract?.message ?: "${category.name}: " + config.readableProviderError(providerErrorDetails(responseBody, error.message, config.token), error.code),
+                                        code = contract?.code ?: error.code,
+                                        type = if (contract != null) "provider_contract_error" else category.name.lowercase(),
+                                        retryable = if (contract != null) false else error.retryable,
+                                        failureDetails = structuredProviderFailure(responseBody, response.status.value)
+                                    )
                                 }
                             )
                             if (free != null) {
@@ -348,6 +383,7 @@ class OpenAIAPIImpl @Inject constructor(
                                 }
                             }
                             if (free != null && !chunk.model.isNullOrBlank()) dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("FreeProvider", "MODEL_RESOLVED · profile=${config.profileUid} · requested=${request.model} · resolved=${chunk.model} · capabilityVerification=unverified")
+                            chunk.gatewayTiming?.takeIf { gatewayMetadata.transportVerified }?.record(providerRequestIdentity { response.headers[it] })
                             emit(chunk)
                             if (free != null) {
                                 freeResponseOutcome(
@@ -398,6 +434,7 @@ class OpenAIAPIImpl @Inject constructor(
                                 config.freeDiagnostics?.response = config.freeDiagnostics?.response?.copy(discardedChunks = parseFailures)
                                 continue
                             }
+                            val parsingTiming = responseObserver.parsed(decoded.hasAssistantGeneratedOutput())
                             config.freeDiagnostics?.response = config.freeDiagnostics?.response?.withChunk(decoded)
                             usageReceipt.observe(decoded.usage, decoded.hasAssistantStreamPayload())
                             if (!receivedAssistantPayload && !receivedGatewayToolActivity) {
@@ -413,13 +450,24 @@ class OpenAIAPIImpl @Inject constructor(
                             val chunk = decoded.error?.let { error ->
                                 val category = providerPayloadFailure(error.code, error.message, preparedRequest.toolChoice, !preparedRequest.tools.isNullOrEmpty())
                                 config.freeDiagnostics?.category = category
-                                decoded.copy(error = error.copy(message = "${category.name}: " + config.readableProviderError(providerErrorDetails(data, error.message, config.token), error.code), type = category.name.lowercase(), failureDetails = structuredProviderFailure(data)))
+                                val details = structuredProviderFailure(data, response.status.value)
+                                val contract = dev.chungjungsoo.gptmobile.data.network.error.ProviderContractFailure.find(error.code, error.message)
+                                decoded.copy(
+                                    error = error.copy(
+                                        message = contract?.message ?: "${category.name}: " + config.readableProviderError(providerErrorDetails(data, error.message, config.token), error.code),
+                                        code = contract?.code ?: error.code,
+                                        type = if (contract != null) "provider_contract_error" else category.name.lowercase(),
+                                        retryable = if (contract != null) false else error.retryable,
+                                        failureDetails = details
+                                    )
+                                )
                             } ?: decoded
+                            chunk.gatewayTiming?.takeIf { gatewayMetadata.transportVerified }?.record(providerRequestIdentity { response.headers[it] })
                             chunk.timings?.let { timings ->
                                 fun measured(value: Double?): String = value?.takeIf { it.isFinite() && it >= 0 }?.toString() ?: "Not measured"
                                 dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Provider", "SERVER_TIMINGS · requestId=${providerRequestIdentity { response.headers[it] }} · queueMs=${measured(timings.queueMs)} · prefillMs=${measured(timings.promptMs)} · generationMs=${measured(timings.predictedMs)} · promptTokens=${timings.promptTokens ?: "Not measured"} · generatedTokens=${timings.predictedTokens ?: "Not measured"}")
                             }
-                            val observedChunk = chunk.copy(reasoningControlReceipt = reasoningControlReceipt, observedFinishReason = chunk.choices.orEmpty().firstNotNullOfOrNull { it.finishReason })
+                            val observedChunk = chunk.copy(gatewayProvenance = chunk.gatewayProvenance?.takeIf { gatewayMetadata.transportVerified }, gatewayTiming = chunk.gatewayTiming?.takeIf { gatewayMetadata.transportVerified }, gatewayDeliveryTiming = chunk.gatewayDeliveryTiming?.takeIf { gatewayMetadata.transportVerified }, providerResponseTiming = parsingTiming, reasoningControlReceipt = reasoningControlReceipt, observedFinishReason = chunk.choices.orEmpty().firstNotNullOfOrNull { it.finishReason })
                             if (free != null && !chunk.model.isNullOrBlank() && resolvedFreeModel != chunk.model) {
                                 resolvedFreeModel = chunk.model
                                 dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("FreeProvider", "MODEL_RESOLVED · profile=${config.profileUid} · requested=${request.model} · resolved=${chunk.model} · capabilityVerification=unverified")
@@ -450,14 +498,14 @@ class OpenAIAPIImpl @Inject constructor(
                         }
                         // Observe an empty response before its terminal error or retry decision.
                         if (firstChunk) {
-                            emit(ChatCompletionChunk(gatewayMetadata = gatewayMetadata))
+                            emit(ChatCompletionChunk(gatewayMetadata = gatewayMetadata, providerResponseTiming = responseObserver.snapshot(), reasoningControlReceipt = reasoningControlReceipt))
                         }
                         if (!receivedTerminal) throw java.io.EOFException("STREAM_INTERRUPTED: provider closed SSE before a completion marker")
                         usageReceipt.completed(!receivedError && parseFailures == 0)
                         if (parseFailures > 0 && !receivedError) {
                             receivedError = true
                             config.freeDiagnostics?.category = FreeFailureCategory.STREAM_DEGRADED
-                            emit(ChatCompletionChunk(error = ErrorDetail("STREAM_DEGRADED: $parseFailures response chunks could not be decoded. Usable text was retained, but completeness and tool arguments cannot be verified.", "stream_degraded", code = "STREAM_DEGRADED")))
+                            emit(ChatCompletionChunk(error = ErrorDetail("STREAM_DEGRADED: $parseFailures response chunks could not be decoded. Usable text was retained, but completeness and tool arguments cannot be verified.", "stream_degraded", code = "STREAM_DEGRADED"), providerResponseTiming = responseObserver.snapshot(), reasoningControlReceipt = reasoningControlReceipt))
                         }
                         if (receivedTerminal && receivedToolCalls && !receivedError) emit(ChatCompletionChunk(streamFinished = true))
                         if (free != null) {
@@ -558,6 +606,8 @@ class OpenAIAPIImpl @Inject constructor(
             }
             emit(
                 ChatCompletionChunk(
+                    providerResponseTiming = activeResponseObserver?.snapshot(),
+                    reasoningControlReceipt = activeControlReceipt,
                     error = ErrorDetail(
                         message = errorMessage,
                         type = if (config.freeProvider != null) (config.freeDiagnostics?.category ?: freeFailureCategory(e)).name else providerFailure?.type ?: if (transportFailure == NetworkFailureKind.UNKNOWN) "provider_error" else "network_error",
@@ -627,7 +677,9 @@ class OpenAIAPIImpl @Inject constructor(
         var preparedRequest = request.withModelSamplingPolicy()
         var effectiveConfig = config
         try {
-            effectiveConfig = gatewayControls.prepare(GatewayClientDiagnostics.withHeaders(config, request.model))
+            effectiveConfig = ProviderConnectivityPreflight.withAvailability(config.apiUrl) {
+                gatewayControls.prepare(GatewayClientDiagnostics.withHeaders(config, request.model))
+            }
             val endpoint = effectiveConfig.buildEndpoint("responses")
 
             ResilientStreamingClient.executeWithRetry(
@@ -817,6 +869,12 @@ class OpenAIAPIImpl @Inject constructor(
     }.flowOn(Dispatchers.IO)
 }
 
+private fun ChatCompletionChunk.hasAssistantGeneratedOutput(): Boolean =
+    choices.orEmpty().any { choice ->
+        val delta = choice.effectiveDelta
+        !delta.content.isNullOrEmpty() || !delta.effectiveReasoning.isNullOrEmpty() || !delta.toolCalls.isNullOrEmpty()
+    }
+
 private fun ChatCompletionChunk.hasAssistantStreamPayload(): Boolean =
     choices.orEmpty().any { choice ->
         val delta = choice.effectiveDelta
@@ -868,4 +926,14 @@ internal fun freeResponseOutcome(provider: FreeAiProvider, hasAnswer: Boolean, h
     }
     limited -> ChatCompletionChunk(model = provider.model, applicationNotice = "This model reached its response limit. Would you like me to continue?", choices = listOf(Choice(delta = Delta(content = null), finishReason = "length")))
     else -> null
+}
+
+private fun dev.chungjungsoo.gptmobile.data.dto.openai.response.GatewayGenerationTiming.record(requestId: String) {
+    val observed = observedFields()
+    if (observed.isEmpty()) return
+    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
+        "Provider",
+        "GATEWAY_BACKEND_TIMINGS · requestId=$requestId · source=physical_backend_request · " +
+            observed.entries.joinToString(" · ") { "${it.key}=${it.value}" } + " · first_user_visible_text_ms=Not measured at transport"
+    )
 }

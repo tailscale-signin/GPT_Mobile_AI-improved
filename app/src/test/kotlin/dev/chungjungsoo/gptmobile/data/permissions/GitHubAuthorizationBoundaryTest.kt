@@ -82,6 +82,68 @@ class GitHubAuthorizationBoundaryTest {
         assertTrue(GitHubAuthorizationBoundary.isReplayableRead("github_search__github_api", buildJsonObject {}))
     }
 
+    @Test fun immediatePatchPublicationCannotUseALocalStagingReadGrant() = runTest {
+        coEvery { connections.getConnection("github") } returns connection.copy(toolPolicy = "READ_ONLY", approvedReadTools = "github")
+        val local = buildJsonObject { put("action", "stage_patch") }
+        assertTrue(GitHubAuthorizationBoundary.isLocalPatchStaging("github", local))
+        assertTrue(manager.authorize("github", "run", "stage", "github", local))
+        val immediate = buildJsonObject {
+            put("action", "stage_patch")
+            put("commit_immediately", true)
+            put("branch", "fix/explicit")
+            put("expected_head_sha", "a".repeat(40))
+            put("message", "Publish exact patch")
+        }
+        assertFalse(GitHubAuthorizationBoundary.isLocalPatchStaging("github", immediate))
+        assertFalse(manager.authorize("github", "run", "publish", "github", immediate))
+        assertFalse(
+            GitHubAuthorizationBoundary.isLocalPatchStaging(
+                "github",
+                buildJsonObject {
+                    put("action", "stage_patch")
+                    put("commit_immediately", "false")
+                }
+            )
+        )
+        coVerify(exactly = 0) { dao.insert(any()) }
+    }
+
+    @Test fun trustedImmediatePatchPublicationStillRequiresExactApproval() = runTest {
+        coEvery { connections.getConnection("github") } returns connection.copy(approvedReadTools = "github")
+        val state = MutableStateFlow<ToolApproval?>(null)
+        coEvery { dao.previousMatchingAction(any(), any(), any(), any(), any()) } returns null
+        coEvery { dao.insert(any()) } coAnswers {
+            state.value = firstArg()
+            1L
+        }
+        every { dao.observe(any()) } returns state
+        coEvery { dao.claim(any()) } returns 1
+        val decision = async {
+            manager.authorize(
+                "github",
+                "run",
+                "publish",
+                "github_stage_patch__github_api",
+                buildJsonObject {
+                    put("commit_immediately", true)
+                    put("branch", "fix/explicit")
+                    put("expected_head_sha", "a".repeat(40))
+                    put("message", "Publish exact patch")
+                    put("target_file", "notes.txt")
+                    put("search_snippet", "old")
+                    put("replacement_snippet", "new")
+                }
+            )
+        }
+        runCurrent()
+        assertFalse(decision.isCompleted)
+        val pending = requireNotNull(state.value)
+        assertTrue(pending.requiresExactConfirmation)
+        assertEquals("PENDING", pending.state)
+        state.value = pending.copy(state = "APPROVED")
+        assertTrue(decision.await())
+    }
+
     @Test fun ordinaryTrustCannotAuthorizeAdministrativeChanges() = runTest {
         for (action in listOf("update_repository", "update_branch_protection", "add_repository_collaborator", "create_repository_secret", "update_repository_ruleset")) {
             val error = runCatching { manager.authorize("github", "run", "call", "github", buildJsonObject { put("action", action) }) }.exceptionOrNull()

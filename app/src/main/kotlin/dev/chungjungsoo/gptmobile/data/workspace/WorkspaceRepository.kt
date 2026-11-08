@@ -95,8 +95,9 @@ class WorkspaceRepository @Inject constructor(val database: ChatDatabaseV2, priv
 
     suspend fun saveSynthesisCheckpoint(id: String, chatId: Int, runId: String, payload: kotlinx.serialization.json.JsonObject) {
         if (chatId <= 0 || database.chatRoomDao().getChatRoomsByIds(listOf(chatId)).singleOrNull()?.isTemporary != false) return
-        require(payload.toString().length <= 1_500_000) { "Synthesis checkpoint exceeds retention limit" }
-        dao.save(WorkspaceRecord(id, "synthesis_checkpoint", "Combined writing progress", payload.toString(), chatId, runId))
+        val serialized = payload.toString()
+        require(serialized.length <= 1_500_000) { "Synthesis checkpoint exceeds retention limit" }
+        dao.save(WorkspaceRecord(id, "synthesis_checkpoint", "Combined writing progress", serialized, chatId, runId))
     }
 
     /** Each encrypted chunk fits the vault limit. Publish metadata only after all chunks exist. */
@@ -108,6 +109,7 @@ class WorkspaceRepository @Inject constructor(val database: ChatDatabaseV2, priv
         }
         val bytes = payload.toString().encodeToByteArray()
         require(bytes.size <= 1_500_000) { "Synthesis checkpoint exceeds retention limit" }
+        val payloadDigest = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
         val references = mutableListOf<String>()
         var committed = false
         try {
@@ -123,7 +125,7 @@ class WorkspaceRepository @Inject constructor(val database: ChatDatabaseV2, priv
             }
             val metadata = kotlinx.serialization.json.buildJsonObject {
                 put("protectedChunks", kotlinx.serialization.json.JsonArray(references.map { kotlinx.serialization.json.JsonPrimitive(it) }))
-                put("digest", kotlinx.serialization.json.JsonPrimitive(digest(payload.toString())))
+                put("digest", kotlinx.serialization.json.JsonPrimitive(payloadDigest))
             }
             val previous = dao.get(id)?.payload?.let { Json.parseToJsonElement(it) as? kotlinx.serialization.json.JsonObject }
             committed = database.withTransaction {

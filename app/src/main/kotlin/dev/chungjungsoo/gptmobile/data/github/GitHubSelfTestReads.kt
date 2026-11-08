@@ -14,7 +14,8 @@ import kotlinx.serialization.json.put
 /** Dependency-aware smoke reads. Identifiers retain the resource type that supplied them. */
 internal object GitHubSelfTestReads {
     fun next(tools: List<AgentToolDefinition>, receipts: List<JsonObject>): ProviderEvent.ToolCall? {
-        val observations = receipts.filter { it["trusted"] == JsonPrimitive(true) && it["verification_eligible"] != JsonPrimitive(false) }
+        val retiredRead = GitHubSelfTestFixtures.retiredReadPredicate(receipts.mapIndexed { index, receipt -> index.toString() to receipt }.toMap())
+        val observations = receipts.filter { it["trusted"] == JsonPrimitive(true) && it["verification_eligible"] != JsonPrimitive(false) && !retiredRead(it) }
         fun roots(tool: String, action: String? = null) = observations.filter {
             it["success"] == JsonPrimitive(true) &&
                 it.text("tool").substringBefore("__") == tool &&
@@ -51,6 +52,11 @@ internal object GitHubSelfTestReads {
                 add(
                     tool to buildJsonObject {
                         put("action", action)
+                        if (tool in setOf("github_issue", "github_release") && action in setOf("list", "tags") && tools.any { it.name.substringBefore("__") == tool && (it.inputSchema["properties"] as? JsonObject)?.containsKey("per_page") == true }) put("per_page", 100)
+                        if (tool == "github_issue" && action == "list" && tools.any { it.name.substringBefore("__") == tool && (it.inputSchema["properties"] as? JsonObject)?.containsKey("direction") == true }) {
+                            put("sort", "created")
+                            put("direction", "desc")
+                        }
                         fields.forEach { (key, value) -> value?.let { put(key, it) } }
                     }
                 )
@@ -105,7 +111,7 @@ internal object GitHubSelfTestReads {
             val tool = tools.firstOrNull { it.modelVisible && it.name.substringBefore("__") == name } ?: continue
             val prior = observations.filter { it.text("tool") == tool.name && (it["arguments"] as? JsonObject)?.text("action") == args.text("action") }
             if (prior.isNotEmpty()) {
-                if (prior.any { it["success"] == JsonPrimitive(true) || it["arguments"] == args }) continue
+                if (prior.any { it["success"] == JsonPrimitive(true) || it["arguments"] == args || GitHubActionIdentity.matches(tool.name, args, it) }) continue
                 // Correct legacy planner arguments once. Authorization failures never
                 // unlock another attempt, and absent logs get only one alternate job.
                 val correctable = when (name to args.text("action")) {

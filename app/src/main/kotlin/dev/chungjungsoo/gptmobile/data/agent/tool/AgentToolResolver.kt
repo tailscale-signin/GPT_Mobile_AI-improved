@@ -60,7 +60,8 @@ data class ResolvedAgentTool(
     val nativeGitHub: Boolean = false,
     val nativeGitHubAuthenticated: Boolean = false,
     val nativeMarketplace: Boolean = false,
-    val authorizationIdentity: String? = null
+    val authorizationIdentity: String? = null,
+    val gitHubPlanningContext: dev.chungjungsoo.gptmobile.data.github.GitHubPlanningContext? = null
 )
 
 class AgentToolResolver @Inject constructor(
@@ -130,19 +131,18 @@ class AgentToolResolver @Inject constructor(
     suspend fun discoverMcpTools(connection: ToolConnection, forceRefresh: Boolean = false, awaitCompletion: Boolean = false, passiveBackoff: Boolean = false): List<Tool> {
         if (!forceRefresh && !awaitCompletion) mcpClientManager.peekToolsForConnection(connection.connectionUid, connection.endpointUrl, connection.allowCleartext)?.let { return it }
         val config = mcpConfig(connection)
-        return try {
-            mcpClientManager.listTools(config, forceRefresh, awaitCompletion, passiveBackoff)
-        } catch (error: Exception) {
-            if (connection.authType != ToolConnectionAuthType.OAUTH || !error.isUnauthorized()) throw error
-            mcpClientManager.listTools(
+        return withMcpDiscoveryOAuthRefresh(
+            initial = config,
+            oauth = connection.authType == ToolConnectionAuthType.OAUTH,
+            refresh = { rejected ->
                 mcpConfig(
                     connection,
                     forceOAuthRefresh = true,
-                    rejectedAuthorizationHeader = config.authorizationHeader
-                ),
-                forceRefresh = true,
-                awaitCompletion = awaitCompletion
-            )
+                    rejectedAuthorizationHeader = rejected
+                )
+            }
+        ) { current, refreshed ->
+            mcpClientManager.listTools(current, forceRefresh || refreshed, awaitCompletion, passiveBackoff && !refreshed)
         }
     }
 
@@ -443,12 +443,22 @@ class AgentToolResolver @Inject constructor(
             if (current == null || current != platform || !current.enabled) throw DispatchPolicyChangedException(listOf("profile"))
             if (!live.remoteMcpConnections || current.disableAllTools || current.disableRemoteTools) throw DispatchPolicyChangedException(listOf("tool_inventory"))
             val currentBindings = toolConnectionRepository.listBindingsWithConnections(profileUid)
-            val words = Regex("[\\p{L}\\p{N}]+").findAll(query.lowercase(java.util.Locale.ROOT)).map { it.value }.filter { it.length > 2 }.toSet() + if (isGitHubTask(query)) setOf("github", "git") else emptySet()
+            val discoveryTask = query.ifBlank { catalogTask }
+            val githubDiscovery = isGitHubTask(discoveryTask)
+            val words = Regex("[\\p{L}\\p{N}]+").findAll(discoveryTask.lowercase(java.util.Locale.ROOT)).map { it.value }.filter { it.length > 2 }.toSet() + if (githubDiscovery) setOf("github", "git") else emptySet()
             // Recheck the same provenance decision before network discovery as well as
             // before execution. Repeating a tool name cannot reveal a policy-hidden tool.
             val targets = coldBindings.filter { it in currentBindings && pluginEnabledForBinding(live, profileUid, it) && discoveryAllowed(it) }
                 .groupBy { it.binding.connectionUid }
-                .values.filter { group -> group.first().binding.connectionUid !in attemptedConnections || group.any { it.binding.toolName in names || names.any { name -> name.endsWith("__" + it.binding.toolName) } } }
+                .values.filter { group ->
+                    !githubDiscovery ||
+                        group.any { item ->
+                            item.binding.toolName in names ||
+                                names.any { it.endsWith("__" + item.binding.toolName) } ||
+                                GitHubOperationTool.operationName(item.binding.toolName) != null ||
+                                Regex("(?i)github|gitmcp").containsMatchIn(item.binding.toolName + " " + item.connection?.name)
+                        }
+                }.filter { group -> group.first().binding.connectionUid !in attemptedConnections || group.any { it.binding.toolName in names || names.any { name -> name.endsWith("__" + it.binding.toolName) } } }
                 .sortedByDescending { group ->
                     group.count { item -> item.binding.toolName in names || names.any { it.endsWith("__" + item.binding.toolName) } } * 100 +
                         words.count { word -> group.any { word in (it.binding.toolName + " " + it.connection?.name).lowercase(java.util.Locale.ROOT) } }
@@ -1311,6 +1321,7 @@ class AgentToolResolver @Inject constructor(
         } else {
             null
         }
+        val selectedRepository = workspaceContext?.repository ?: actualConnection?.let { gitHubWorkspaceStore?.get(it.connectionUid) }
         val tool = GitHubTool(
             apiToken = token,
             apiOrigins = dev.chungjungsoo.gptmobile.data.github.GitHubApiOrigins.fromEndpoint(actualConnection?.endpointUrl),
@@ -1320,7 +1331,8 @@ class AgentToolResolver @Inject constructor(
             featureSettings = features,
             modelToolName = actualConnection?.let { "github__${it.alias}" } ?: BuiltInAgentTool.GITHUB,
             accountName = actualConnection?.name,
-            repositoryContext = workspaceContext?.repository ?: actualConnection?.let { gitHubWorkspaceStore?.get(it.connectionUid) },
+            repositoryContext = selectedRepository,
+            taskRequest = userMessage?.content,
             connectionUid = actualConnection?.connectionUid.orEmpty(), conversationId = userMessage?.chatId?.toString().orEmpty(), taskId = userMessage?.let { "${it.chatId}:${it.id}" }.orEmpty(),
             persistentState = userMessage?.chatId?.let { factVault?.scopeForChat(it)?.isTemporary != true } ?: true,
             stateStore = gitHubRepositoryState,
@@ -1345,10 +1357,11 @@ class AgentToolResolver @Inject constructor(
                 null
             }
         )
+        val planningContext = tool.planningContext()
         val admittedProfile = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }?.let { GitHubChatPolicy.platform(it, features, workspaceContext) }
         // resolved() normally wraps telemetry immediately; this backend must stay
         // concrete until its compact operations have been expanded above.
-        return tool.resolved(actualConnection?.connectionUid, actualConnection?.name, BuiltInAgentTool.GITHUB).copy(tool = tool, nativeGitHub = true, nativeGitHubAuthenticated = tool.hasCredential, authorizationIdentity = durableIdentity, canReuseResult = {
+        return tool.resolved(actualConnection?.connectionUid, actualConnection?.name, BuiltInAgentTool.GITHUB).copy(tool = tool, nativeGitHub = true, nativeGitHubAuthenticated = tool.hasCredential, authorizationIdentity = durableIdentity, gitHubPlanningContext = planningContext, canReuseResult = {
             val live = GitHubChatPolicy.features(settingRepository.getFeatureSettings(), profileUid, workspaceContext)
             val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }?.let { GitHubChatPolicy.platform(it, live, workspaceContext) }
             val currentConnection = actualConnection?.let { toolConnectionRepository.getConnection(it.connectionUid) }
@@ -1397,7 +1410,8 @@ class AgentToolResolver @Inject constructor(
     /** Keep scope assembly outside the large suspending resolver's DEX method. */
     private fun scopedGitHubMessage(message: MessageV2?, context: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext?): MessageV2? {
         if (message == null || context == null) return message
-        return message.copy(content = context.promptContext() + "\n\n" + message.content)
+        if (dev.chungjungsoo.gptmobile.data.agent.CurrentRequestContract.from(message.content).conversational) return message
+        return message.copy(content = context.promptContext(message.content) + "\n\n" + message.content)
     }
 
     private suspend fun githubCatalogTask(profileUid: String, userMessage: MessageV2?, selectedRepository: Boolean): String {
@@ -1600,6 +1614,16 @@ class AgentToolResolver @Inject constructor(
         forceOAuthRefresh: Boolean = false,
         rejectedAuthorizationHeader: String? = null
     ): McpConnectionConfig {
+        val revisionBefore = mcpConfigurationRevision(connection, secretVault)
+        val endpoint = try {
+            dev.chungjungsoo.gptmobile.data.security.EndpointSecrets.resolve(connection, secretVault)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            throw McpLocalValidationException(McpLocalValidationRule.ENDPOINT_CREDENTIAL_UNAVAILABLE)
+        }
+        // Reject invalid local routing before an OAuth refresh can make a network request.
+        McpConnectionConfig(connection.connectionUid, endpoint, connection.allowCleartext).validateLocalConfiguration()
         val authorization = when (connection.authType) {
             ToolConnectionAuthType.NONE -> null
 
@@ -1611,29 +1635,32 @@ class AgentToolResolver @Inject constructor(
                 rejectedAuthorizationHeader
             )
 
-            else -> throw IllegalArgumentException("Unsupported MCP authentication type.")
+            else -> throw McpLocalValidationException(McpLocalValidationRule.AUTH_TYPE_UNSUPPORTED)
         }
         val googleKey = connection.authType == ToolConnectionAuthType.API_KEY && runCatching { java.net.URI(connection.endpointUrl.orEmpty()).host == "mapstools.googleapis.com" }.getOrDefault(false)
+        val revisionAfter = mcpConfigurationRevision(connection, secretVault)
         return McpConnectionConfig(
             connectionUid = connection.connectionUid,
-            endpointUrl = dev.chungjungsoo.gptmobile.data.security.EndpointSecrets.resolve(connection, secretVault),
+            endpointUrl = endpoint,
             allowCleartext = connection.allowCleartext,
             authorizationHeader = authorization.takeUnless { googleKey },
-            googleApiKey = authorization?.removePrefix("Bearer ").takeIf { googleKey }
-        )
+            googleApiKey = authorization?.removePrefix("Bearer ").takeIf { googleKey },
+            // Refresh or concurrent credential replacement invalidates the earlier snapshot.
+            // A later discovery can establish the new revision; never attribute old bytes to it.
+            configurationRevision = revisionAfter?.takeIf { it == revisionBefore }
+        ).also { it.validateLocalConfiguration() }
     }
 
     private suspend fun readBearerHeader(connection: ToolConnection): String {
-        val secretRef = connection.secretRef ?: throw IllegalArgumentException("MCP bearer credential is missing.")
-        val bytes = secretVault.read(secretRef) ?: throw IllegalArgumentException("MCP bearer credential is missing.")
-        return try {
-            val token = bytes.decodeToString().trim()
-            require(token.isNotEmpty()) { "MCP bearer credential is missing." }
-            require('\r' !in token && '\n' !in token) { "MCP bearer credential is invalid." }
-            "Bearer $token"
-        } finally {
-            bytes.fill(0)
+        val secretRef = connection.secretRef ?: throw McpLocalValidationException(McpLocalValidationRule.CREDENTIAL_REQUIRED)
+        val bytes = try {
+            secretVault.read(secretRef)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            throw McpLocalValidationException(McpLocalValidationRule.CREDENTIAL_UNAVAILABLE)
         }
+        return mcpBearerHeader(bytes ?: throw McpLocalValidationException(McpLocalValidationRule.CREDENTIAL_REQUIRED))
     }
 
     private fun AgentTool.resolved(
@@ -1817,7 +1844,7 @@ private val READ_ONLY_TOOL_TOKENS = setOf(
     "weather"
 )
 
-private fun Throwable.isUnauthorized(): Boolean = generateSequence(this) { it.cause }
+private fun Throwable.isUnauthorized(): Boolean = generateSequence(this) { it.cause?.takeUnless { cause -> cause === it } }.take(8)
     .any { error -> error is StreamableHttpError && error.code == 401 }
 
 private fun ToolConnection.isGitHubMcpEndpoint(): Boolean {

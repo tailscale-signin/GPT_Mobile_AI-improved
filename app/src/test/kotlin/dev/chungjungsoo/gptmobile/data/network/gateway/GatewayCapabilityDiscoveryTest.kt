@@ -6,9 +6,10 @@ import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpStatusCode
+import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
-import io.mockk.verify
 import java.io.EOFException
 import java.net.SocketTimeoutException
 import kotlinx.coroutines.CancellationException
@@ -21,6 +22,28 @@ import org.junit.Test
 
 class GatewayCapabilityDiscoveryTest {
     private val config = ProviderRequestConfig("https://capability-discovery.example/v1", "credential", extraHeaders = mapOf("X-Api-Key" to "custom credential"))
+
+    @org.junit.Before fun clearRememberedSurfaces() = GatewaySurfacePolicy.shared.invalidate()
+
+    @Test fun unsupportedCapabilityProbeIsCachedPerCredentialAndEndpoint() = runBlocking {
+        var calls = 0
+        HttpClient(
+            MockEngine {
+                calls++
+                respond("not found", HttpStatusCode.NotFound)
+            }
+        ).use { http ->
+            val network = mockk<NetworkClient>()
+            every { network() } returns http
+            every { network.gatewayReadClient() } returns http
+            val api = GatewayAPIImpl(network)
+            repeat(3) { assertNull(api.getCapabilities(config)) }
+            assertEquals(1, calls)
+            assertNull(api.getCapabilities(config.copy(token = "another credential")))
+            assertNull(api.getCapabilities(config.copy(apiUrl = "https://another-route.example/v1")))
+            assertEquals(3, calls)
+        }
+    }
 
     @Test fun fullRouteCapabilitiesDecodeAfterOneMetadataGetWithoutInference() = runBlocking {
         for (name in listOf("gateway-v15-capabilities-legacy-mixed.json", "gateway-v15-capabilities-full.json")) {
@@ -36,6 +59,7 @@ class GatewayCapabilityDiscoveryTest {
             ).use { http ->
                 val network = mockk<NetworkClient>()
                 every { network() } returns http
+                every { network.gatewayReadClient() } returns http
                 val capabilities = requireNotNull(GatewayAPIImpl(network).getCapabilities(config))
                 assertEquals("15.0.0", capabilities.gatewayVersion)
                 assertTrue(capabilities.supportsKeyFreeConnection)
@@ -43,7 +67,7 @@ class GatewayCapabilityDiscoveryTest {
                 assertFalse(capabilities.supportsFeature("gateway_server_icon"))
                 assertFalse(capabilities.supportsFeature("disconnect_grace"))
                 assertEquals(1, calls)
-                verify(exactly = 0) { network.evictIdleConnections() }
+                coVerify(exactly = 0) { network.evictIdleConnections() }
             }
         }
     }
@@ -70,6 +94,7 @@ class GatewayCapabilityDiscoveryTest {
             ).use { http ->
                 val network = mockk<NetworkClient>()
                 every { network() } returns http
+                every { network.gatewayReadClient() } returns http
                 val failure = runCatching { GatewayAPIImpl(network).getCapabilities(config) }.exceptionOrNull()
                 assertTrue(failure is GatewayCapabilityDiscoveryException)
                 val diagnostic = failure as GatewayCapabilityDiscoveryException
@@ -83,7 +108,7 @@ class GatewayCapabilityDiscoveryTest {
                 }
                 assertTrue(diagnostic.message.orEmpty().length < 512)
                 assertEquals(1, calls)
-                verify(exactly = 0) { network.evictIdleConnections() }
+                coVerify(exactly = 0) { network.evictIdleConnections() }
             }
         }
     }
@@ -101,6 +126,7 @@ class GatewayCapabilityDiscoveryTest {
         ).use { http ->
             val network = mockk<NetworkClient>()
             every { network() } returns http
+            every { network.gatewayReadClient() } returns http
             val failure = runCatching { GatewayAPIImpl(network).getCapabilities(config) }.exceptionOrNull()
             assertTrue(failure is CancellationException)
             assertEquals(cancellation.message, failure?.message)
@@ -110,7 +136,7 @@ class GatewayCapabilityDiscoveryTest {
                 generateSequence(failure) { it.cause }.take(8).any { it === cancellation }
             )
             assertEquals(1, calls)
-            verify(exactly = 0) { network.evictIdleConnections() }
+            coVerify(exactly = 0) { network.evictIdleConnections() }
         }
     }
 
@@ -130,10 +156,11 @@ class GatewayCapabilityDiscoveryTest {
         ).use { http ->
             val network = mockk<NetworkClient>()
             every { network() } returns http
-            every { network.evictIdleConnections() } returns Unit
+            every { network.gatewayReadClient() } returns http
+            coEvery { network.evictIdleConnections() } returns Unit
             assertEquals("15.0.0", GatewayAPIImpl(network).getCapabilities(selected)?.gatewayVersion)
             assertEquals(2, calls)
-            verify(exactly = 1) { network.evictIdleConnections() }
+            coVerify(exactly = 1) { network.evictIdleConnections() }
         }
     }
 
@@ -149,14 +176,16 @@ class GatewayCapabilityDiscoveryTest {
         ).use { http ->
             val network = mockk<NetworkClient>()
             every { network() } returns http
+            every { network.gatewayReadClient() } returns http
             assertNull(GatewayAPIImpl(network).cancelJob("job-one", config))
             assertEquals(1, calls)
-            verify(exactly = 0) { network.evictIdleConnections() }
+            coVerify(exactly = 0) { network.evictIdleConnections() }
         }
     }
 
     @Test fun onlyDefiniteUnsupportedStatusesRepresentADirectInferenceRoute() = runBlocking {
         for (status in listOf(HttpStatusCode.NotFound, HttpStatusCode.NotImplemented, HttpStatusCode.Forbidden, HttpStatusCode.ServiceUnavailable)) {
+            GatewaySurfacePolicy.shared.invalidate()
             val client = HttpClient(
                 MockEngine { request ->
                     assertEquals("GET", request.method.value)
@@ -168,6 +197,7 @@ class GatewayCapabilityDiscoveryTest {
             )
             val network = mockk<NetworkClient>()
             every { network() } returns client
+            every { network.gatewayReadClient() } returns client
             try {
                 val result = runCatching { GatewayAPIImpl(network).getCapabilities(config) }
                 if (status in listOf(HttpStatusCode.NotFound, HttpStatusCode.NotImplemented)) {
@@ -191,6 +221,7 @@ class GatewayCapabilityDiscoveryTest {
             )
             val network = mockk<NetworkClient>()
             every { network() } returns client
+            every { network.gatewayReadClient() } returns client
             try {
                 val result = runCatching { GatewayAPIImpl(network).getCapabilities(config) }
                 assertTrue(result.exceptionOrNull() is GatewayCapabilityDiscoveryException)

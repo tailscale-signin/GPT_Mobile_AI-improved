@@ -87,7 +87,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusTarget
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -126,6 +128,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.agent.ActiveAgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.ACTIVE_REVISION_LATEST
@@ -172,6 +175,7 @@ fun ChatScreen(
     onBackAction: () -> Unit,
     onNavigateToLocalModels: () -> Unit = {},
     onReviewEvidenceAccess: () -> Unit = {},
+    onProfileSettings: (String) -> Unit = {},
     onOpenConversation: (Int, Boolean) -> Unit = { _, _ -> },
     onInspectContext: ((Int, String) -> Unit)? = null,
     showTopBar: Boolean = true,
@@ -185,6 +189,7 @@ fun ChatScreen(
             onBackAction = onBackAction,
             onNavigateToLocalModels = onNavigateToLocalModels,
             onReviewEvidenceAccess = onReviewEvidenceAccess,
+            onProfileSettings = onProfileSettings,
             onOpenConversation = onOpenConversation,
             onInspectContext = onInspectContext,
             showTopBar = showTopBar,
@@ -204,6 +209,7 @@ private fun ChatScreenContent(
     onBackAction: () -> Unit,
     onNavigateToLocalModels: () -> Unit = {},
     onReviewEvidenceAccess: () -> Unit = {},
+    onProfileSettings: (String) -> Unit = {},
     onOpenConversation: (Int, Boolean) -> Unit = { _, _ -> },
     onInspectContext: ((Int, String) -> Unit)? = null,
     showTopBar: Boolean = true,
@@ -249,7 +255,24 @@ private fun ChatScreenContent(
             onCancelDelegation = { chatViewModel.respondDelegationRecovery(request.id, null) }
         )
     }
+    val reasoningAdmission by chatViewModel.reasoningAdmissionNotice.collectAsStateWithLifecycle()
+    reasoningAdmission?.let { notice ->
+        dev.chungjungsoo.gptmobile.presentation.ui.setting.ReasoningAdmissionDialog(
+            notice,
+            onRecheck = chatViewModel::recheckReasoningAdmission,
+            onSwitchToAuto = { chatViewModel.switchProfileReasoningToAuto(notice.profileUid) },
+            onSettings = {
+                chatViewModel.dismissReasoningAdmission()
+                onProfileSettings(notice.profileUid)
+            },
+            onDismiss = chatViewModel::dismissReasoningAdmission
+        )
+    }
     val combinedFailures by chatViewModel.combinedFailures.collectAsStateWithLifecycle()
+    val reasoningRecoveries by chatViewModel.reasoningRecoveries.collectAsStateWithLifecycle()
+    val billingUriHandler = androidx.compose.ui.platform.LocalUriHandler.current
+    val openProfileBilling: (String) -> Unit = { uid -> chatViewModel.billingUrlForProfile(uid)?.let { url -> runCatching { billingUriHandler.openUri(url) } } }
+
     val failureTurn = combinedFailures.firstOrNull()?.userMessageId
     if (failureTurn != null) {
         CombinedFailuresDialog(
@@ -261,7 +284,13 @@ private fun ChatScreenContent(
             onDismiss = { chatViewModel.dismissCombinedFailures(failureTurn) },
             canContinue = chatViewModel.canCombineAvailable(failureTurn),
             onExclude = chatViewModel::excludeCombinedFailureForTurn,
-            onCheckQueuedJob = chatViewModel::checkQueuedJob
+            onCheckQueuedJob = chatViewModel::checkQueuedJob,
+            recoveryStates = reasoningRecoveries,
+            billingProfiles = combinedFailures.mapNotNull { it.profileUid.takeIf { uid -> chatViewModel.billingUrlForProfile(uid) != null } }.toSet(),
+            onChangeSettings = onProfileSettings,
+            onManageBilling = openProfileBilling,
+            onRecheckReasoning = chatViewModel::recheckReasoningFailure,
+            onSwitchToAuto = chatViewModel::switchProfileReasoningToAuto
         )
     }
     val inputRequests by chatViewModel.pendingMcpInput.collectAsStateWithLifecycle()
@@ -286,13 +315,6 @@ private fun ChatScreenContent(
         )
     }
     val focusManager = LocalFocusManager.current
-    val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
-    androidx.compose.runtime.DisposableEffect(focusManager, keyboardController) {
-        onDispose {
-            keyboardController?.hide()
-            focusManager.clearFocus(force = true)
-        }
-    }
     val systemChatMargin = 16.dp
     val maximumUserChatBubbleWidth = (viewportWidth - systemChatMargin).coerceAtLeast(0.dp) * 0.8F
     val maximumOpponentChatBubbleWidth = (viewportWidth - systemChatMargin).coerceAtLeast(0.dp)
@@ -405,9 +427,16 @@ private fun ChatScreenContent(
     val chatPlatformModels by chatViewModel.chatPlatformModels.collectAsStateWithLifecycle()
     val availableChatTools by chatViewModel.availableChatTools.collectAsStateWithLifecycle()
     val chatToolConfig by chatViewModel.chatToolConfig.collectAsStateWithLifecycle()
+    val gatewayWriteBlocker by chatViewModel.gatewayWriteBlocker.collectAsStateWithLifecycle()
     val githubDecisions by chatViewModel.githubDecisions.collectAsStateWithLifecycle()
     val githubWaiting by chatViewModel.waitingGitHubDecisions.collectAsStateWithLifecycle()
     GitHubChatPresenceEffect(chatRoom.id.takeIf { chatToolConfig.github != null })
+    val gatewayLifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    LaunchedEffect(chatRoom.id, chatRoom.isTemporary, gatewayLifecycle) {
+        gatewayLifecycle.lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.RESUMED) {
+            chatViewModel.observeGatewayConversation(chatRoom.id)
+        }
+    }
     LaunchedEffect(chatRoom.id, chatToolConfig.github != null) { if (chatToolConfig.github != null) chatViewModel.loadGitHubDecisions() }
     val githubDecisionScope = chatToolConfig.github?.let(dev.chungjungsoo.gptmobile.data.github.GitHubChatDecisions::workspaceKey)
     val visibleGitHubDecisions = githubDecisions.filter { it.chatId == chatRoom.id && it.workspace == githubDecisionScope && !it.delivered }
@@ -425,7 +454,7 @@ private fun ChatScreenContent(
     LaunchedEffect(chatRoom.id) { chatViewModel.loadResearchHistory(chatRoom.id) }
     val enabledPlatformLookup = remember(appAllPlatforms) { appAllPlatforms.associateBy { it.uid } }
     val enabledProfileUids = remember(appEnabledPlatforms) { appEnabledPlatforms.mapTo(mutableSetOf()) { it.uid } }
-    val canUseChat = activePlatformUids.isNotEmpty() && activePlatformUids.all { it in enabledProfileUids }
+    val canUseChat = gatewayWriteBlocker == null && activePlatformUids.isNotEmpty() && activePlatformUids.all { it in enabledProfileUids }
     val gitHubCompositionTiming = dev.chungjungsoo.gptmobile.presentation.ui.setting.LocalGitHubCompositionTiming.current
     val isIdle = loadingStates.all { it == ChatViewModel.LoadingState.Idle }
     androidx.compose.runtime.DisposableEffect(Unit) {
@@ -937,6 +966,11 @@ private fun ChatScreenContent(
                         onPlatformLongPress = chatViewModel::togglePlatformDisabled,
                         onSelectText = chatViewModel::openSelectTextSheet,
                         onRetry = chatViewModel::retryChat,
+                        reasoningRecoveries = reasoningRecoveries,
+                        onRecheckReasoning = chatViewModel::recheckReasoningResponse,
+                        onProfileSettings = onProfileSettings,
+                        onManageBilling = openProfileBilling,
+                        onSwitchToAuto = chatViewModel::switchProfileReasoningToAuto,
                         onRetryCombinedMerge = chatViewModel::retryCombinedMerge,
                         onReviseCombinedAnswer = chatViewModel::reviseCombinedAnswer,
                         onTryAnotherCombinedWriter = chatViewModel::tryAnotherCombinedWriter,
@@ -1018,6 +1052,11 @@ private fun ChatScreenContent(
                                 }) { Text("Review setup") }
                             }
                         }
+                    }
+                }
+                gatewayWriteBlocker?.let { reason ->
+                    item(key = "gateway-conversation-read-only") {
+                        Text(reason, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
                     }
                 }
                 if (chatToolConfig.github != null) {
@@ -1434,6 +1473,11 @@ internal fun ChatMessagePair(
     onPlatformLongPress: (String) -> Unit,
     onSelectText: (String) -> Unit,
     onRetry: (Int, Int) -> Unit,
+    reasoningRecoveries: Map<String, ReasoningRecoveryUiState> = emptyMap(),
+    onRecheckReasoning: (Int, Int) -> Unit = { _, _ -> },
+    onProfileSettings: (String) -> Unit = {},
+    onManageBilling: (String) -> Unit = {},
+    onSwitchToAuto: (String) -> Unit = {},
     onRetryCombinedMerge: (Int) -> Unit = {},
     onReviseCombinedAnswer: (Int, dev.chungjungsoo.gptmobile.data.agent.CombinedAnswerRevisionTarget) -> Unit = { _, _ -> },
     onTryAnotherCombinedWriter: (Int) -> Unit = {},
@@ -1597,9 +1641,9 @@ internal fun ChatMessagePair(
         else -> isActiveMessage && loadingStates.getOrElse(displayPlatformIndex) { ChatViewModel.LoadingState.Idle } == ChatViewModel.LoadingState.Loading
     }
     val isResponseLoading = if (hasCombinedTabs) isCurrentPlatformLoading else shouldShowAssistantResponseProgress(isCurrentPlatformLoading, activeAgentRun != null, agentRun?.status)
-    val reviewRetryBlock = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.reviewRetryBlock(
-        assistantTimeline.lastOrNull { it.runError != null }?.runError ?: agentRun?.terminalError
-    )
+    val responseFailure = visibleResponseFailure(assistantTimeline.lastOrNull { it.runError != null }?.runError, agentRun?.terminalError, agentRun?.status)
+    val reviewRetryBlock = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.reviewRetryBlock(responseFailure)
+    val responseRecoveryKind = responseFailure?.let { profileRecoveryKind(dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.classify(it).category, it) } ?: ProfileRecoveryKind.NONE
     StableChatResponseViewport(contentKey = if (isCombinedConversation) "combined" else selectedPlatformUid, reservedHeight = reservedTurnHeight) {
         Column(
             modifier = Modifier
@@ -1722,23 +1766,24 @@ internal fun ChatMessagePair(
                         .padding(horizontal = 2.dp)
                         .widthIn(max = maximumOpponentChatBubbleWidth),
                     canEdit = canUseChat && isIdle && !isSourceResponse,
-                    canRetry = if (isCombinedConversation) {
-                        canUseChat &&
-                            isIdle &&
-                            !isCurrentPlatformLoading &&
-                            activeAgentRun == null &&
-                            selectedAssistantMessage != null &&
-                            (!needsAnswerCorrection || revisionTarget != null) &&
-                            selectedPlatformUid in participatingUids &&
-                            enabledPlatformLookup[selectedPlatformUid]?.enabled == true
-                    } else {
-                        reviewRetryBlock == null &&
-                            !isSourceResponse &&
+                    canRetry = responseRecoveryKind == ProfileRecoveryKind.NONE &&
+                        if (isCombinedConversation) {
                             canUseChat &&
-                            (isActiveMessage || agentRun?.status in setOf(AgentRunStatus.FAILED, AgentRunStatus.INTERRUPTED, AgentRunStatus.CANCELED, AgentRunStatus.PARTIAL, AgentRunStatus.EVIDENCE_MISSING, AgentRunStatus.BLOCKED)) &&
-                            !isCurrentPlatformLoading &&
-                            selectedPlatformUid in participatingUids
-                    },
+                                isIdle &&
+                                !isCurrentPlatformLoading &&
+                                activeAgentRun == null &&
+                                selectedAssistantMessage != null &&
+                                (!needsAnswerCorrection || revisionTarget != null) &&
+                                selectedPlatformUid in participatingUids &&
+                                enabledPlatformLookup[selectedPlatformUid]?.enabled == true
+                        } else {
+                            reviewRetryBlock == null &&
+                                !isSourceResponse &&
+                                canUseChat &&
+                                (isActiveMessage || agentRun?.status in setOf(AgentRunStatus.FAILED, AgentRunStatus.INTERRUPTED, AgentRunStatus.CANCELED, AgentRunStatus.PARTIAL, AgentRunStatus.EVIDENCE_MISSING, AgentRunStatus.BLOCKED)) &&
+                                !isCurrentPlatformLoading &&
+                                selectedPlatformUid in participatingUids
+                        },
                     retryLabel = if (needsAnswerCorrection) {
                         "Create revised answer"
                     } else if (isCombinedConversation) {
@@ -1843,7 +1888,7 @@ internal fun ChatMessagePair(
                     onContinueClick = onContinueClick.takeIf { smartSuggestionsEnabled && !isSourceResponse },
                     onActionClick = onActionClick.takeIf { smartSuggestionsEnabled && !isSourceResponse }
                 )
-                assistantTimeline.lastOrNull { it.runError != null }?.runError?.let { error ->
+                responseFailure?.let { error ->
                     Column(Modifier.fillMaxWidth().padding(12.dp)) {
                         Text(
                             if (agentRun?.status == AgentRunStatus.PARTIAL) {
@@ -1861,7 +1906,22 @@ internal fun ChatMessagePair(
                         if (error.contains("QUEUE_") && selectedRunId != null) TextButton(onClick = { onCheckQueuedRun(selectedRunId) }) { Text(stringResource(R.string.audit_check_status)) }
                         if (!hasCombinedTabs) {
                             reviewRetryBlock?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-                            TextButton(onClick = { onRetry(messageIndex, displayPlatformIndex) }, enabled = isIdle && canUseChat && reviewRetryBlock == null) { Text(stringResource(R.string.audit_generate_again)) }
+                            if (responseRecoveryKind == ProfileRecoveryKind.NONE) {
+                                TextButton(onClick = { onRetry(messageIndex, displayPlatformIndex) }, enabled = isIdle && canUseChat && reviewRetryBlock == null) { Text(stringResource(R.string.audit_generate_again)) }
+                            } else {
+                                ProfileRecoveryActions(
+                                    kind = responseRecoveryKind,
+                                    profileName = enabledPlatformLookup[selectedPlatformUid]?.name ?: "Saved profile",
+                                    state = reasoningRecoveries[selectedRunId],
+                                    canManageBilling = profileBillingUrl(enabledPlatformLookup[selectedPlatformUid]) != null,
+                                    onSettings = { onProfileSettings(selectedPlatformUid) },
+                                    onBilling = { onManageBilling(selectedPlatformUid) },
+                                    onRecheck = { onRecheckReasoning(messageIndex, displayPlatformIndex) },
+                                    onSwitchToAuto = { onSwitchToAuto(selectedPlatformUid) },
+                                    onRetry = { onRetry(messageIndex, displayPlatformIndex) },
+                                    enabled = isIdle && canUseChat
+                                )
+                            }
                         }
                     }
                 }
@@ -2240,30 +2300,56 @@ fun ChatInputBox(
     val chatInputLineLimits = TextFieldLineLimits.MultiLine(maxHeightInLines = 20)
     val hasQuestionText = inputState.text.isNotEmpty()
     val inputFocus = remember(inputState) { androidx.compose.ui.focus.FocusRequester() }
+    val composerContainerFocus = remember(inputState) { androidx.compose.ui.focus.FocusRequester() }
     val composerFocusManager = LocalFocusManager.current
     val composerKeyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     val reportComposerFocus by androidx.compose.runtime.rememberUpdatedState(onComposerFocusChanged)
     var composerFocused by remember(inputState) { mutableStateOf(false) }
-    val releaseComposerInput = {
+    var restingFocusEnabled by remember(inputState) { mutableStateOf(false) }
+    var restingFocused by remember(inputState) { mutableStateOf(false) }
+    fun releaseComposerInput(disposing: Boolean = false) {
         // A tab can remove only the composer while the parent chat stays mounted.
         // Release this editor's input session without dismissing another field's focus.
         if (composerFocused) {
             composerKeyboard?.hide()
-            composerFocusManager.clearFocus(force = true)
-            composerFocused = false
+            if (disposing) {
+                composerFocusManager.clearFocus(force = true)
+                composerFocused = false
+            } else {
+                // Clearing the Compose owner can immediately refocus its first editor
+                // in keyboard mode. Keep focus on this noneditable container instead.
+                inputFocus.freeFocus()
+                restingFocusEnabled = true
+                if (composerContainerFocus.requestFocus()) {
+                    // Send callbacks must observe release before dispatch, even if a
+                    // focus observer is refreshed after this successful transfer.
+                    composerFocused = false
+                } else {
+                    restingFocusEnabled = false
+                }
+            }
         }
-        reportComposerFocus(false)
+        reportComposerFocus(composerFocused)
     }
     DisposableEffect(inputState, composerFocusManager, composerKeyboard) {
-        onDispose { releaseComposerInput() }
+        onDispose { releaseComposerInput(disposing = true) }
     }
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) { releaseComposerInput() }
+    LaunchedEffect(chatEnabled) {
+        if (!chatEnabled) releaseComposerInput()
+    }
+    LaunchedEffect(isRunning) {
+        // A run may start through a quick action or a restored request. Release
+        // the previous editor session once; a new draft may still be typed while it runs.
+        if (isRunning) releaseComposerInput()
+    }
     val haptic = dev.chungjungsoo.gptmobile.presentation.common.rememberAppHaptic()
     var composerNotice by remember { mutableStateOf("") }
     val sendAction = {
         if (chatEnabled && sendButtonEnabled && (inputState.text.isNotEmpty() || selectedAttachments.isNotEmpty())) {
             haptic(dev.chungjungsoo.gptmobile.presentation.common.AppHaptic.CONFIRMATION)
             composerNotice = "Sending message"
+            releaseComposerInput()
             onSendButtonClick()
         }
     }
@@ -2289,6 +2375,14 @@ fun ChatInputBox(
 
     Box(
         modifier = modifier
+            .focusRequester(composerContainerFocus)
+            .focusProperties { canFocus = restingFocusEnabled }
+            .onFocusChanged {
+                // This is a temporary destination, never an extra keyboard tab stop.
+                if (restingFocused && !it.isFocused) restingFocusEnabled = false
+                restingFocused = it.isFocused
+            }
+            .focusTarget()
             .fillMaxWidth()
             .background(Color.Transparent)
             .padding(horizontal = 16.dp, vertical = 8.dp)

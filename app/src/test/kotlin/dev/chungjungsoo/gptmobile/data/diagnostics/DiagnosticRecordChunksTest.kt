@@ -11,6 +11,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DiagnosticRecordChunksTest {
+    @Test fun digestEncodingRetainsStandardSha256AndUnsignedByteValues() {
+        assertEquals("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", DiagnosticRecordChunks.sha256(""))
+        assertEquals("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", DiagnosticRecordChunks.sha256("abc"))
+        val bytes = ByteArray(256) { it.toByte() }
+        val hex = DiagnosticRecordChunks.hex(bytes)
+        assertEquals(512, hex.length)
+        assertEquals(bytes.toList(), hex.chunked(2).map { it.toInt(16).toByte() })
+    }
+
     @Test fun oversizedRedactedMessageReassemblesWithIndependentHashesAndUnicodeBoundaries() {
         val secret = "sk-" + "secret".repeat(300)
         val source = buildJsonObject {

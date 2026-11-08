@@ -74,11 +74,15 @@ object ErrorClassification {
         val msg = causes.joinToString(" ") { it.message.orEmpty() }.lowercase()
         val dnsFailure = causes.any { it is java.net.UnknownHostException } || "unable to resolve host" in msg || "dns_recovery" in msg
         val githubCode = dev.chungjungsoo.gptmobile.data.github.GitHubFailurePolicy.recordedCode(msg)
+        val contract = ProviderContractFailure.find(msg)
+        val gatewayAdmission = causes.filterIsInstance<dev.chungjungsoo.gptmobile.data.github.GatewayAdmissionException>().firstOrNull()
 
         return when {
             throwable is kotlinx.coroutines.CancellationException -> ClassifiedError(ErrorCategory.CLIENT_CANCELLED, ErrorSeverity.LOW, false, 0, "Request was cancelled.", throwable)
             "gateway_outcome_unknown" in msg -> ClassifiedError(ErrorCategory.REMOTE_OUTCOME_UNKNOWN, ErrorSeverity.HIGH, false, 0, "The gateway may already have performed actions. Reconcile the saved job and remote results before resuming; do not repeat this request.", throwable, errorCode = "GATEWAY_OUTCOME_UNKNOWN")
             dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.unknownOutcomeCodes.any { msg.contains(it.lowercase(java.util.Locale.ROOT)) } -> ClassifiedError(ErrorCategory.REMOTE_OUTCOME_UNKNOWN, ErrorSeverity.HIGH, false, 0, "A dispatched operation has an unknown outcome. Reconcile the exact saved result before another write; do not repeat the request.", throwable, errorCode = "RECONCILIATION_REQUIRED")
+            gatewayAdmission != null -> ClassifiedError(ErrorCategory.REQUEST_REJECTED, ErrorSeverity.HIGH, false, 0, requireNotNull(gatewayAdmission.message), throwable, errorCode = "GATEWAY_${gatewayAdmission.reason.name}")
+            contract != null -> ClassifiedError(ErrorCategory.REQUEST_REJECTED, ErrorSeverity.HIGH, false, 0, contract.message, throwable, errorCode = contract.code)
             githubCode != null -> ClassifiedError(
                 category = when {
                     githubCode == "AUTH_REQUIRED" -> ErrorCategory.AUTHENTICATION_FAILED
@@ -129,6 +133,7 @@ object ErrorClassification {
             "research_output_budget_insufficient" in msg -> ClassifiedError(ErrorCategory.INVALID_OUTPUT_CAP, ErrorSeverity.MEDIUM, false, 0, "RESEARCH_OUTPUT_BUDGET_INSUFFICIENT: The admitted output allowance cannot hold this scientific artifact. Resume with smaller validated parts or a higher-capacity model.", throwable)
             "combined_output_allowance_changed" in msg -> ClassifiedError(ErrorCategory.INVALID_OUTPUT_CAP, ErrorSeverity.MEDIUM, false, 0, "The route reduced the frozen Combined answer allowance. The writer was not dispatched. Review the writer and output limits before starting another generation.", throwable)
             "output_capacity_exceeded" in msg || "invalid_output_cap" in msg -> ClassifiedError(ErrorCategory.INVALID_OUTPUT_CAP, ErrorSeverity.MEDIUM, false, 0, "The output allowance exceeds this route. Lower the profile output limit or retry with automatic limits; retain the full request for continuation.", throwable)
+            Regex("(?i)\\b(?:http|status(?: code)?)\\s*[:=]?\\s*(?:409|422)\\b").containsMatchIn(msg) -> ClassifiedError(ErrorCategory.REQUEST_REJECTED, ErrorSeverity.MEDIUM, false, 0, "The provider rejected the request. Correct its saved validation error before retrying.", throwable)
             msg.contains("402") || msg.contains("budget or credit restriction") -> ClassifiedError(ErrorCategory.BUDGET_RESTRICTED, ErrorSeverity.HIGH, false, 0, "The provider reported a budget or credit restriction.", throwable)
             msg.contains("403") -> ClassifiedError(ErrorCategory.ACCESS_FORBIDDEN, ErrorSeverity.HIGH, false, 0, "HTTP 403: access forbidden. The provider's specific cause is unavailable.", throwable)
             throwable is CircuitBreakerOpenException -> ClassifiedError(

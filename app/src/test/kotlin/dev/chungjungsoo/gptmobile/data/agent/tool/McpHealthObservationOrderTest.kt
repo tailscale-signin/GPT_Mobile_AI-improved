@@ -4,6 +4,18 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class McpHealthObservationOrderTest {
+    @Test fun changedRecordRevisionInvalidatesEarlierEvidenceEvenForAnIdenticalTransportKey() {
+        val order = McpHealthObservationOrder()
+        val previous = order.begin("connection", "same-endpoint-and-token", "a".repeat(64))
+        val current = order.begin("connection", "same-endpoint-and-token", "b".repeat(64))
+        var state = "unknown"
+        order.publish(previous) { state = "stale failure" }
+        assertEquals("unknown", state)
+        order.publish(current) { state = "fresh success" }
+        assertEquals("fresh success", state)
+        assertEquals("b".repeat(64), current.configurationRevision)
+    }
+
     @Test
     fun olderResponseCannotReplaceNewerFailure() {
         val order = McpHealthObservationOrder()

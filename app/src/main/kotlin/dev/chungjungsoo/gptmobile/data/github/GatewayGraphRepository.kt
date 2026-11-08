@@ -46,9 +46,18 @@ class GatewayGraphRepository @Inject constructor(
         if (connection.type != "GITHUB") throw GatewayGraphAdmissionException("GRAPH_CONFIGURATION_REQUIRED", "The selected connection is not GitHub.")
         val gateway = settings.engineeringGateway(selected.uid)
         val config = gateway.engineeringConfig()
-        val principal = client.requireGraphReady(config)
         val payload = boundRequest(context, arguments)
-        val result = client.graph(config, payload)
+        val principal: String
+        val result: JsonObject
+        try {
+            principal = client.requireGraphReady(config)
+            result = client.graph(config, payload)
+        } catch (unavailable: GatewayGraphUnavailableException) {
+            throw unavailable.atRevision(context)
+        } catch (unavailable: java.io.IOException) {
+            if (unavailable is javax.net.ssl.SSLException) throw unavailable
+            throw GatewayGraphUnavailableException("The selected gateway graph connection is unavailable.", listOf(GatewayGraphPrerequisite.TRANSPORT_UNAVAILABLE)).atRevision(context)
+        }
         check(
             connections.getConnection(context.connectionUid) == connection &&
                 settings.fetchPlatformV2s().singleOrNull { it.uid == selected.uid } == selected &&
@@ -66,6 +75,7 @@ class GatewayGraphRepository @Inject constructor(
     companion object {
         internal fun boundRequest(context: GitHubConversationContext, arguments: JsonObject): JsonObject {
             require(arguments.toString().length <= 64_000) { "Graph request exceeds its inspection limit." }
+            require(context.commitSha.matches(Regex("[a-fA-F0-9]{40}"))) { "Graph qualification requires the exact selected repository commit SHA." }
             val pinned = mapOf("repository" to JsonPrimitive("${context.owner}/${context.repo}"), "branch" to JsonPrimitive(context.ref), "commit_sha" to JsonPrimitive(context.commitSha))
             pinned.forEach { (name, value) -> require(arguments[name] == null || arguments[name] == value) { "Graph request must use the selected repository revision." } }
             return JsonObject(arguments + pinned)

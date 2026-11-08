@@ -12,6 +12,7 @@ import java.util.Base64
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
@@ -216,30 +217,49 @@ class GitHubWorkspaceClientTest {
         }
     }
 
-    @Test fun legacyWritesRejectMissingOrConflictingBranchBeforeAnyRequest() = runTest {
-        var requests = 0
+    @Test fun legacyWritesRequireExplicitLeaseAndRejectTheObservedDefaultBranchBeforeMutation() = runTest {
+        val requests = mutableListOf<String>()
         val http = HttpClient(
-            MockEngine {
-                requests++
-                error("Rejected write reached GitHub")
+            MockEngine { request ->
+                requests += "${request.method.value} ${request.url.encodedPath}"
+                assertEquals(HttpMethod.Get, request.method)
+                assertEquals("/repos/owner/repo", request.url.encodedPath)
+                respond("""{"default_branch":"trunk"}""", HttpStatusCode.OK)
             }
         )
         try {
             val tool = GitHubTool("token", http, repositoryContext = GitHubRepositoryContext("owner", "repo", "feature/read"))
-            for (branch in listOf<String?>(null, "main")) {
+            for (missing in listOf("branch", "expected_head_sha")) {
                 val result = tool.execute(
-                    "write",
+                    "missing-$missing",
                     buildJsonObject {
                         put("action", "update_file")
                         put("path", "new.txt")
                         put("content", "content")
-                        put("expected_head_sha", "a".repeat(40))
-                        branch?.let { put("branch", it) }
+                        if (missing != "expected_head_sha") put("expected_head_sha", "a".repeat(40))
+                        if (missing != "branch") put("branch", "feature/write")
                     }
                 )
-                assertTrue(result.isError)
+                assertTrue(missing, result.isError)
+                assertFalse(missing, result.dispatched)
+                assertTrue(missing, requests.isEmpty())
             }
-            assertEquals(0, requests)
+            val defaultBranch = tool.execute(
+                "default-branch",
+                buildJsonObject {
+                    put("action", "update_file")
+                    put("path", "new.txt")
+                    put("content", "content")
+                    put("expected_head_sha", "a".repeat(40))
+                    put("branch", "trunk")
+                }
+            )
+            assertTrue(defaultBranch.isError)
+            assertEquals("WORKING_BRANCH_REQUIRED", defaultBranch.errorCode)
+            assertFalse(defaultBranch.dispatched)
+            assertEquals(listOf("GET /repos/owner/repo"), requests)
+            assertEquals(JsonPrimitive(0), defaultBranch.executionReceipt?.get("mutation_requests"))
+            assertEquals("feature/read", tool.planningContext().repository?.ref)
         } finally {
             http.close()
         }

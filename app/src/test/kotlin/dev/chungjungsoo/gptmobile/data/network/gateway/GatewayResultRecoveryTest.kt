@@ -52,7 +52,7 @@ class GatewayResultRecoveryTest {
         val failure = json.parseToJsonElement("""{"code":"terminal_job_not_resumable","job_id":"saved"}""").jsonObject
         val config = ProviderRequestConfig("https://gateway.test/v1", "secret", extraHeaders = mapOf("X-Gateway-Job-ID" to "saved"))
         val saved = GatewayJobResult("saved", "completed", "Recovered answer", "complete", job = GatewaySavedJob("selected"))
-        for (candidate in listOf(saved, saved.copy(jobId = "other"), saved.copy(job = GatewaySavedJob("other")), null)) {
+        for (candidate in listOf(saved, saved.copy(jobId = "other"), saved.copy(job = GatewaySavedJob("other")), saved.copy(job = GatewaySavedJob("selected", jobId = "different-job")), null)) {
             coEvery { api.getJobResult("saved", config) } returns candidate
             val recovered = requireNotNull(recovery.read(409, failure, config, "selected", "saved"))
             if (candidate == saved) {
@@ -64,9 +64,28 @@ class GatewayResultRecoveryTest {
                 assertFalse(recovered.gatewayMetadata?.transportVerified == true)
                 assertEquals(dev.chungjungsoo.gptmobile.data.database.entity.ResponseTransport.UNKNOWN, recovered.gatewayMetadata?.observedResponseSource("profile", "selected")?.transport)
                 assertTrue(recovered.choices.isNullOrEmpty())
-                assertEquals("terminal_job_not_resumable", recovered.error?.code)
+                assertEquals("TERMINAL_JOB_NOT_RESUMABLE", recovered.error?.code)
             }
         }
+    }
+
+    @Test fun terminalRecoveryRetainsOriginalCauseAndPartialTextWithoutRestartingTheJob() = runTest {
+        val api = mockk<GatewayAPI>()
+        val config = ProviderRequestConfig("https://gateway.test/v1", "secret", extraHeaders = mapOf("X-Gateway-Job-ID" to "saved"))
+        val failure = json.parseToJsonElement("""{"code":"TERMINAL_JOB_NOT_RESUMABLE","job_id":"saved","failed_stage":"gateway_recovery","http_status":409,"terminal_status_code":422}""").jsonObject
+        val saved = json.decodeFromString<GatewayJobResult>("""{"job_id":"saved","status":"failed","content":"Retained partial answer.","error":"legacy generic error","structured_error":{"code":"backend_template_invalid","message":"Safe original cause","backend_status":500,"failed_stage":"backend_template","retryable":false},"job":{"model":"selected","status_code":422},"result":{"gateway_timing":{"measurement_scope":"physical_backend_request","backend_first_output_ms":100}}}""")
+        coEvery { api.getJobResult("saved", config) } returns saved
+        val recovered = requireNotNull(GatewayTerminalRecovery(api).read(409, failure, config, "selected", "saved"))
+        assertEquals("Retained partial answer.", recovered.choices!!.single().effectiveDelta.content)
+        assertNull(recovered.choices!!.single().finishReason)
+        assertEquals("BACKEND_TEMPLATE_INVALID", recovered.error?.code)
+        assertEquals(false, recovered.error?.retryable)
+        assertEquals(kotlinx.serialization.json.JsonPrimitive("backend_template"), recovered.error?.failureDetails?.get("failed_stage"))
+        assertEquals(kotlinx.serialization.json.JsonPrimitive(500), recovered.error?.failureDetails?.get("backend_status"))
+        assertEquals(kotlinx.serialization.json.JsonPrimitive(422), recovered.error?.failureDetails?.get("http_status"))
+        assertEquals(kotlinx.serialization.json.JsonPrimitive(409), recovered.error?.failureDetails?.get("recovery_http_status"))
+        assertNull(recovered.gatewayTiming)
+        coVerify(exactly = 1) { api.getJobResult("saved", config) }
     }
 
     @Test fun fractionalCompletionSecondsPreserveTheDurableResult() {
@@ -122,8 +141,24 @@ class GatewayResultRecoveryTest {
         val failure = json.parseToJsonElement("""{"code":"terminal_job_not_resumable","job_id":"other"}""").jsonObject
         val config = ProviderRequestConfig("https://gateway.test/v1", "secret", extraHeaders = mapOf("X-Gateway-Job-ID" to "saved"))
         val result = recovery.read(409, failure, config, "selected", null)
-        assertEquals("terminal_job_not_resumable", result?.error?.code)
+        assertEquals("TERMINAL_JOB_NOT_RESUMABLE", result?.error?.code)
         assertTrue(result?.choices.isNullOrEmpty())
+        coVerify(exactly = 0) { api.getJobResult(any(), any()) }
+    }
+
+    @Test fun missingOrConflictingJobIdentityHasReadableExplanationWithoutInventingSavedJob() = runTest {
+        val api = mockk<GatewayAPI>()
+        val recovery = GatewayTerminalRecovery(api)
+        for ((headers, reported) in listOf(emptyMap<String, String>() to "saved", mapOf("X-Gateway-Job-ID" to "saved") to "different-job")) {
+            val config = ProviderRequestConfig("https://gateway.test/v1", "secret", extraHeaders = headers)
+            val failure = json.parseToJsonElement("""{"code":"terminal_job_not_resumable","job_id":"$reported"}""").jsonObject
+            val recovered = requireNotNull(recovery.read(409, failure, config, "selected", null))
+            assertNull(recovered.gatewayMetadata)
+            assertTrue(recovered.choices.isNullOrEmpty())
+            assertTrue(recovered.error!!.message.contains("did not identify a verified saved job"))
+            assertEquals(kotlinx.serialization.json.JsonPrimitive(false), recovered.error!!.failureDetails?.get("recovery_identity_verified"))
+            assertFalse(recovered.error!!.retryable == true)
+        }
         coVerify(exactly = 0) { api.getJobResult(any(), any()) }
     }
 }

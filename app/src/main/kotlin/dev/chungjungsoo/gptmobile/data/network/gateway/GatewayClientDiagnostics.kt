@@ -15,6 +15,8 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
+internal enum class GatewayMetadataAcknowledgment { ACCEPTED, NOT_REQUESTED, REJECTED_BEFORE_PROCESSING, NOT_CONFIRMED }
+
 /** Opt-in allowlisted event metadata. Raw app logs, prompts, device identifiers and credentials are never uploaded. */
 internal object GatewayClientDiagnostics {
     const val CLIENT_HEADER = "X-Gateway-Client-Diagnostics"
@@ -249,9 +251,16 @@ internal object GatewayClientDiagnostics {
         observeInstance(config, instance)
         val protocol = header("X-Gateway-Debug-Protocol")?.toIntOrNull()
         if (!captureAllowed || protocol !in setOf(1, 2)) return
-        val accepted = header("X-Gateway-Client-Diagnostics-Accepted") == "1"
         val debugEnabled = header("X-Gateway-Debug-Enabled") == "true"
         GatewayDiagnosticBridge.remember(config, protocol, debugEnabled)
+        val fields = responseFields(config, status, header)
+        GatewayDiagnosticBridge.event(config, fields)
+        val attributes = fields["bounded_attributes"] as JsonObject
+        AppLogRecorder.record("Gateway", "CLIENT_EXCHANGE · route=${routeIdentity(config)} · instance=${runtimeEpoch(config)} · http=$status · gatewayDebug=$debugEnabled · clientMetadataAcknowledgment=${attributes.diagnosticText("client_metadata_acknowledgment")} · admissionCode=${attributes.diagnosticText("gateway_admission_code") ?: "not_reported"} · requestDigest=${fields.diagnosticText("request_id") ?: "unavailable"}")
+    }
+
+    /** A missing acknowledgement is unknown; HTTP rejection alone proves no metadata-processing outcome. */
+    internal fun responseFields(config: ProviderRequestConfig, status: Int, header: (String) -> String?): JsonObject {
         val requestDigest = header("X-Gateway-Request-ID")?.takeIf { it.length <= 128 }?.let(::researchHash) ?: "unavailable"
         val trace = tracePattern.matchEntire(header("traceparent").orEmpty())
         val attempt = header("X-Gateway-Client-Span-ID")?.let { span ->
@@ -262,8 +271,22 @@ internal object GatewayClientDiagnostics {
                 }
             }
         }
-        GatewayDiagnosticBridge.event(
-            config,
+        val admissionCode = header("X-Gateway-Admission-Error")?.takeIf { it in GatewayDiagnosticEvent.admissionCodes }
+        val requested = config.extraHeaders.keys.any { it.equals(CLIENT_HEADER, true) }
+        val admissionRejected = when (admissionCode) {
+            "duplicate_admission_header" -> status == 400
+            "transport_identity_required" -> status == 401
+            "unknown_job" -> status == 404
+            "remote_surface_not_admitted", "scope_not_granted", "engineering_scope_required", "tool_scope_required_for_runtime", "local_admin_required", "invalid_host", "invalid_origin", "browser_csrf_required" -> status == 403
+            else -> false
+        }
+        val acknowledgment = when {
+            header("X-Gateway-Client-Diagnostics-Accepted") == "1" -> GatewayMetadataAcknowledgment.ACCEPTED
+            !requested -> GatewayMetadataAcknowledgment.NOT_REQUESTED
+            admissionRejected -> GatewayMetadataAcknowledgment.REJECTED_BEFORE_PROCESSING
+            else -> GatewayMetadataAcknowledgment.NOT_CONFIRMED
+        }
+        return GatewayDiagnosticEvent.fields(
             buildJsonObject {
                 put("stage", "response")
                 put("direction", "gateway_to_client")
@@ -284,11 +307,12 @@ internal object GatewayClientDiagnostics {
                     buildJsonObject {
                         attempt?.let { attributes(config, it).forEach { (name, value) -> put(name, value) } }
                         put("status", status)
-                        put("client_metadata_accepted", accepted)
+                        put("response_headers_received", true)
+                        put("client_metadata_acknowledgment", acknowledgment.name)
+                        admissionCode?.let { put("gateway_admission_code", it) }
                     }
                 )
             }
         )
-        AppLogRecorder.record("Gateway", "CLIENT_EXCHANGE · route=${routeIdentity(config)} · instance=${runtimeEpoch(config)} · http=$status · gatewayDebug=$debugEnabled · clientMetadataAccepted=$accepted · requestDigest=$requestDigest")
     }
 }

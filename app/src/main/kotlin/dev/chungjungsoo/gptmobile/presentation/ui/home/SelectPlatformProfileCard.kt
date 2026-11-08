@@ -2,10 +2,13 @@ package dev.chungjungsoo.gptmobile.presentation.ui.home
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -21,11 +24,16 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.platform.testTag
@@ -44,6 +52,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAvailability
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAvailabilityStatus
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -54,17 +64,28 @@ internal fun SelectPlatformProfileCard(
     insight: ProfileInsight?,
     onToggle: (String) -> Unit,
     onFavorite: () -> Unit,
-    onInsights: () -> Unit
+    onInsights: () -> Unit,
+    gatewayAvailability: GatewayAvailability? = null,
+    animateGateway: Boolean = false,
+    onFocus: (Boolean) -> Unit = {}
 ) {
     val health by dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.status.collectAsState()
     val now by dev.chungjungsoo.gptmobile.presentation.common.freeProviderClock()
     val unavailable = androidx.compose.runtime.remember(profile, health, now) { dev.chungjungsoo.gptmobile.data.network.FreeProviderPreflight.check(profile) }
     val favoriteLabel = stringResource(if (profile.isFavorite) R.string.picker_remove_favorite else R.string.picker_add_favorite)
     val lines = if (LocalDensity.current.fontScale >= 1.3f) 3 else 1
+    val surface = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow
+    val online = gatewayAvailability?.isOnline == true
+    val nameColor = if (online) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+    val treatment = remember(online, nameColor, surface) {
+        if (online) gatewayNameTreatment(nameColor.toArgb(), surface.toArgb()) else GatewayNameTreatment(surface.toArgb(), 1f)
+    }
+    val nameAlpha by rememberGatewayNameAlpha(online && animateGateway, Color(treatment.backgroundArgb), nameColor, treatment.minimumOpacity)
+    DisposableEffect(profile.uid) { onDispose { onFocus(false) } }
     Surface(
-        Modifier.fillMaxWidth().testTag("profile_card_${profile.uid}"),
+        Modifier.fillMaxWidth().testTag("profile_card_${profile.uid}").onFocusChanged { onFocus(it.hasFocus) }.focusGroup(),
         shape = RoundedCornerShape(16.dp),
-        color = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
+        color = surface,
         border = BorderStroke(1.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant)
     ) {
         BoxWithConstraints {
@@ -87,9 +108,23 @@ internal fun SelectPlatformProfileCard(
                 ) {
                     Checkbox(checked = selected, onCheckedChange = null, enabled = selected || unavailable == null)
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(profile.name, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = lines, overflow = TextOverflow.Ellipsis)
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(
+                                profile.name,
+                                Modifier.weight(1f).background(Color(treatment.backgroundArgb), MaterialTheme.shapes.extraSmall).alpha(nameAlpha)
+                                    .testTag("gateway_name_${profile.uid}").semantics { gatewayNameOpacity = nameAlpha },
+                                color = nameColor,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
                             if (profile.isFavorite) Icon(Icons.Rounded.Star, stringResource(R.string.picker_favorite), Modifier.size(16.dp), tint = MaterialTheme.colorScheme.tertiary)
+                            if (online) GatewayProfileStatus(requireNotNull(gatewayAvailability), Modifier.testTag("gateway_availability_${profile.uid}"))
+                        }
+                        gatewayAvailability?.takeIf { !it.isOnline && it.status != GatewayAvailabilityStatus.NOT_GATEWAY }?.let {
+                            GatewayProfileStatus(it)
+                        }
+                        if (gatewayAvailability?.engineeringBinding == true && gatewayAvailability.gatewayProfileUid != profile.uid && gatewayAvailability.gatewayName.isNotBlank()) {
+                            Text(stringResource(R.string.gateway_availability_via, gatewayAvailability.gatewayName), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         unavailable?.let { blocked ->
                             val provider = dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.fromApiUrl(profile.apiUrl)

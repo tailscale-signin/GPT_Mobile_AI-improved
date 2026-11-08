@@ -14,6 +14,7 @@ from v14.execution_binding import ExecutionBindingError, canonical, fingerprint
 from v14.inference_budget import fit_engineering_payload, plan_tokens, stage_reserves
 from v14.inference_scheduler import admission_context, bound_invocation
 from v14.debug import diagnostic_execution_event
+from gateway_v13_runtime import GatewayContractError, normalize_backend_messages
 
 
 def before_physical_dispatch(url, payload):
@@ -166,6 +167,7 @@ class BoundModelInvocation:
         if getattr(self.runtime, 'SELECTED_ONLY_PHYSICAL_GUARDS', False) is not True:
             raise ExecutionBindingError('SELECTED_ONLY_TRANSPORT_UNSUPPORTED', 'This backend transport cannot enforce a binding at each physical request.')
         request = copy.deepcopy(payload)
+        request['messages'] = normalize_backend_messages(request.get('messages', []))
         request.update(model=self.binding['requested_model_id'], cache_prompt=False)
         selected = self.binding['generation_parameters']
         for key in ('temperature', 'top_p', 'top_k', 'repeat_penalty', 'max_tokens', 'seed'):
@@ -198,8 +200,11 @@ class BoundModelInvocation:
             if self.current is None:
                 self.current = self.new_receipt()
             if self.current['state'] in {'PRECHECK', 'DISPATCHED'}:
-                self.current.update(state='UNKNOWN_OUTCOME' if self.current['dispatched'] else 'PRECHECK_REJECTED',
+                rejected = isinstance(error, GatewayContractError) and error.details.get('dispatch_state') == 'backend_rejected'
+                self.current.update(state='FAILED' if rejected else 'UNKNOWN_OUTCOME' if self.current['dispatched'] else 'PRECHECK_REJECTED',
                                     error_code=getattr(error, 'code', type(error).__name__))
+                if rejected:
+                    self.current.update(failure_details=copy.deepcopy(error.details), completed_at_ms=int(time.time() * 1000))
                 self.persist()
             if isinstance(error, ExecutionBindingError):
                 error.dispatched = self.current['dispatched']

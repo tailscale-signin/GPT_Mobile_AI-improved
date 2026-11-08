@@ -26,6 +26,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -34,12 +36,15 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.decodeFromJsonElement
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 internal data class GitHubCheckWatch(
     val id: String,
@@ -52,7 +57,7 @@ internal data class GitHubCheckWatch(
     val runId: Long? = null,
     val headSha: String,
     val connectionUpdatedAt: Long,
-    val startedAt: Long = System.currentTimeMillis(),
+    @EncodeDefault val startedAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = startedAt,
     val status: String = "RUNNING",
     val detail: String = "Watching GitHub checks in the background.",
@@ -62,7 +67,8 @@ internal data class GitHubCheckWatch(
     val draft: Boolean = false,
     val failureCount: Int = 0,
     val followPullRequest: Boolean = false,
-    val permissionRevision: String = ""
+    val permissionRevision: String = "",
+    val observationGeneration: Long = 0
 ) {
     val terminal: Boolean get() = status !in setOf("RUNNING", "UNKNOWN", "NONE", "RETRYING") && !(followPullRequest && status in setOf("PASSED", "FAILED", "SKIPPED"))
 }
@@ -79,14 +85,21 @@ class GitHubCheckWatchRepository @Inject constructor(
 ) {
     private val mutex = Mutex()
     internal fun observe(chatId: Int) = workspace.dao.observeGitHubChecks(chatId).map { rows -> rows.mapNotNull { decode(it) } }
-    private fun decode(row: WorkspaceRecord): GitHubCheckWatch? = runCatching { workspace.json.decodeFromString<GitHubCheckWatch>(row.payload) }.getOrNull()
+    private fun decode(row: WorkspaceRecord): GitHubCheckWatch? = runCatching {
+        val payload = workspace.json.parseToJsonElement(row.payload).jsonObject
+        val decoded = workspace.json.decodeFromJsonElement<GitHubCheckWatch>(payload)
+        // Older default-omitting encoders could lose the start time; retain a stable persisted boundary.
+        if ("startedAt" in payload) decoded else decoded.copy(startedAt = row.updatedAt, updatedAt = if ("updatedAt" in payload) decoded.updatedAt else row.updatedAt)
+    }.getOrNull()
     private suspend fun save(watch: GitHubCheckWatch) {
         val previous = workspace.dao.get(watch.id)?.let(::decode)
-        workspace.dao.save(WorkspaceRecord(watch.id, "github_checks", "${watch.owner}/${watch.repo} · ${watch.status}", workspace.json.encodeToString(watch), watch.chatId, updatedAt = watch.updatedAt))
-        if (previous == null || previous.status != watch.status || previous.headSha != watch.headSha || previous.draft != watch.draft) GitHubWatchNotifications.publish(context, watch)
+        val next = watch.copy(observationGeneration = GitHubWatchObservationFence.nextGeneration(previous))
+        workspace.dao.save(WorkspaceRecord(next.id, "github_checks", "${next.owner}/${next.repo} · ${next.status}", workspace.json.encodeToString(next), next.chatId, updatedAt = next.updatedAt))
+        if (previous == null || previous.status != next.status || previous.headSha != next.headSha || previous.draft != next.draft) GitHubWatchNotifications.publish(context, next)
     }
-    private suspend fun api(watch: GitHubCheckWatch): GitHubEngineeringApi {
-        require(workspace.database.chatRoomDao().getChatRoomsByIds(listOf(watch.chatId)).singleOrNull()?.isTemporary == false) { "Conversation was removed or is temporary." }
+    private suspend fun api(watch: GitHubCheckWatch, background: Boolean = true): GitHubEngineeringApi {
+        val room = workspace.database.chatRoomDao().getChatRoomsByIds(listOf(watch.chatId)).singleOrNull()
+        require(room != null && (!background || !room.isTemporary)) { "Conversation was removed, or background watching requires a saved conversation." }
         val connection = requireNotNull(connections.getConnection(watch.connectionUid)) { "GitHub connection removed." }
         val permission = GitHubAuthorizationIdentity.permission(connection.authType, connection.toolPolicy, connection.approvedReadTools, connection.endpointUrl)
         require(connection.type == "GITHUB" && (if (watch.permissionRevision.isBlank()) connection.updatedAt == watch.connectionUpdatedAt else watch.permissionRevision == permission)) { "GitHub permissions changed; start a new watch." }
@@ -97,7 +110,71 @@ class GitHubCheckWatchRepository @Inject constructor(
     }
 
     internal suspend fun subscribe(connectionUid: String, profileUid: String, chatId: Int, args: JsonObject): JsonObject = withContext(Dispatchers.IO) {
-        require(chatId > 0 && workspace.database.chatRoomDao().getChatRoomsByIds(listOf(chatId)).singleOrNull()?.isTemporary == false) { "Background checks require a saved conversation." }
+        val waitSeconds = args["wait_timeout_seconds"]?.jsonPrimitive?.intOrNull
+        require("wait_timeout_seconds" !in args || waitSeconds != null && waitSeconds in 1..GitHubBoundedCheckWait.MAX_SECONDS) {
+            "wait_timeout_seconds must be 1..${GitHubBoundedCheckWait.MAX_SECONDS}; omit it for background watching."
+        }
+        if (waitSeconds != null) {
+            var observed: GitHubCheckWatch? = null
+            val history = mutableListOf<kotlinx.serialization.json.JsonElement>()
+            val result = GitHubBoundedCheckWait.await(waitSeconds) {
+                // Head discovery and access checks consume this same wall-clock deadline.
+                val before = observed ?: prepareWatch(connectionUid, profileUid, chatId, args, background = false)
+                val after = inspect(before, api(before, background = false))
+                if (observed != null && before.headSha != after.headSha) history += watchObservation(before)
+                observed = after.copy(updatedAt = System.currentTimeMillis())
+                JsonObject(watchObservation(requireNotNull(observed)) + ("revision_history" to JsonArray(history.toList())))
+            }
+            return@withContext JsonObject(
+                result + buildJsonObject {
+                    put("background_subscription", false)
+                    put("head_binding_verified", observed != null)
+                    put("delivery", "Inline observation only. Pending or timed-out checks remain unverified; no background subscription was created.")
+                }
+            )
+        }
+        val initial = prepareWatch(connectionUid, profileUid, chatId, args, background = true)
+        val id = initial.id
+        mutex.withLock {
+            val existing = workspace.dao.get(id)?.let(::decode)
+            require(existing?.terminal == false || workspace.dao.forChat(chatId).filter { it.kind == "github_checks" }.mapNotNull(::decode).count { !it.terminal } < 20) { "Stop an existing check watch before adding another (20 active watches per chat)." }
+            if (existing == null || existing.terminal || existing.headSha != initial.headSha) {
+                save(initial)
+            } else if (existing.followPullRequest != initial.followPullRequest) {
+                save(existing.copy(followPullRequest = initial.followPullRequest))
+            }
+            val work = OneTimeWorkRequestBuilder<GitHubCheckWatchWorker>()
+                .setInputData(workDataOf("watch_id" to id))
+                .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+                .setBackoffCriteria(BackoffPolicy.LINEAR, 30, TimeUnit.SECONDS)
+                .addTag("github-check-watch")
+                .build()
+            WorkManager.getInstance(context).enqueueUniqueWork(id, if (existing == null || existing.terminal || existing.headSha != initial.headSha) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.KEEP, work)
+        }
+        buildJsonObject {
+            put("watch_id", id)
+            put("head_sha", initial.headSha)
+            initial.pullNumber?.let { put("pr_number", it) }
+            initial.runId?.let { put("run_id", it) }
+            put("status", "SUBSCRIBED")
+            put("background_subscription", true)
+            put("monitoring_transport", "ANDROID_BACKGROUND_POLLING")
+            put("model_polling_required", false)
+            put("delivery", "Native background checks update the chat card automatically. No more model polling calls are needed. Android may defer checks while offline or in battery-saving mode.")
+        }
+    }
+
+    private fun watchObservation(watch: GitHubCheckWatch): JsonObject = buildJsonObject {
+        put("status", watch.status)
+        put("head_sha", watch.headSha)
+        put("detail", watch.detail)
+        put("observed_at_ms", watch.updatedAt)
+        watch.runId?.let { put("run_id", it) }
+        watch.pullNumber?.let { put("pr_number", it) }
+    }
+
+    private suspend fun prepareWatch(connectionUid: String, profileUid: String, chatId: Int, args: JsonObject, background: Boolean): GitHubCheckWatch {
+        require(chatId > 0) { "Check watching requires an existing conversation." }
         val owner = args["owner"]?.jsonPrimitive?.content.orEmpty()
         val repo = args["repo"]?.jsonPrimitive?.content.orEmpty()
         val root = GitHubEngineeringApi.root(owner, repo)
@@ -110,7 +187,7 @@ class GitHubCheckWatchRepository @Inject constructor(
         val follow = args["follow_pr"]?.jsonPrimitive?.booleanOrNull == true
         require(!follow || pull != null && run == null) { "Follow PR requires pr_number without a fixed run_id." }
         val initial = GitHubCheckWatch(id, chatId, connectionUid, profileUid, owner, repo, pull, run, "", connection.updatedAt, followPullRequest = follow, permissionRevision = GitHubAuthorizationIdentity.permission(connection.authType, connection.toolPolicy, connection.approvedReadTools, connection.endpointUrl))
-        val api = api(initial)
+        val api = api(initial, background)
         val pullData = pull?.let { Json.parseToJsonElement(api.request("$root/pulls/$it")).jsonObject }
         val pullHead = pullData?.get("head")?.jsonObject?.get("sha")?.jsonPrimitive?.content
         val branch = pullData?.get("head")?.jsonObject?.get("ref")?.jsonPrimitive?.contentOrNull.orEmpty()
@@ -121,32 +198,7 @@ class GitHubCheckWatchRepository @Inject constructor(
         args["commit_sha"]?.jsonPrimitive?.content?.let { expected ->
             require(expected.equals(head, true)) { "The PR or run head differs from commit_sha. Refresh the exact revision before subscribing." }
         }
-        mutex.withLock {
-            val existing = workspace.dao.get(id)?.let(::decode)
-            require(existing?.terminal == false || workspace.dao.forChat(chatId).filter { it.kind == "github_checks" }.mapNotNull(::decode).count { !it.terminal } < 20) { "Stop an existing check watch before adding another (20 active watches per chat)." }
-            if (existing == null || existing.terminal || existing.headSha != head) {
-                save(initial.copy(headSha = head, branch = branch, draft = draft))
-            } else if (existing.followPullRequest != follow) {
-                save(existing.copy(followPullRequest = follow))
-            }
-            val work = OneTimeWorkRequestBuilder<GitHubCheckWatchWorker>()
-                .setInputData(workDataOf("watch_id" to id))
-                .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
-                .setBackoffCriteria(BackoffPolicy.LINEAR, 30, TimeUnit.SECONDS)
-                .addTag("github-check-watch")
-                .build()
-            WorkManager.getInstance(context).enqueueUniqueWork(id, if (existing == null || existing.terminal || existing.headSha != head) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.KEEP, work)
-        }
-        buildJsonObject {
-            put("watch_id", id)
-            put("head_sha", head)
-            pull?.let { put("pr_number", it) }
-            run?.let { put("run_id", it) }
-            put("status", "SUBSCRIBED")
-            put("monitoring_transport", "ANDROID_BACKGROUND_POLLING")
-            put("model_polling_required", false)
-            put("delivery", "Native background checks update the chat card automatically. No more model polling calls are needed. Android may defer checks while offline or in battery-saving mode.")
-        }
+        return initial.copy(headSha = head, branch = branch, draft = draft)
     }
 
     internal suspend fun refresh(id: String) {
@@ -197,12 +249,15 @@ class GitHubCheckWatchRepository @Inject constructor(
         mutex.withLock {
             val current = workspace.dao.get(id)?.let(::decode)
             // Cancellation and a replacement subscription win over an in-flight response.
-            if (current != null && !current.terminal && current.startedAt == watch.startedAt && current.headSha == watch.headSha && current.followPullRequest == watch.followPullRequest) {
+            if (GitHubWatchObservationFence.accepts(watch, current)) {
                 if (scheduled.headSha != watch.headSha) workspace.dao.save(WorkspaceRecord("${watch.id}:revision:${watch.headSha}", "github_check_revision", "${watch.owner}/${watch.repo} · ${watch.headSha.take(12)}", workspace.json.encodeToString(watch), watch.chatId, updatedAt = now))
                 save(scheduled.copy(updatedAt = now))
+                scheduled.terminal
+            } else {
+                // A stale terminal response must not stop the newer watch's scheduling chain.
+                current?.terminal ?: true
             }
         }
-        outcome.terminal
     }
 
     internal suspend fun scheduleNext(id: String) = mutex.withLock {

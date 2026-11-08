@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.github
 
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewaySurfacePolicy
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
@@ -25,6 +26,24 @@ class GatewayEngineeringClientTest {
     private fun http(engine: MockEngine) = HttpClient(engine) {
         install(HttpTimeout)
         followRedirects = false
+    }
+
+    @Test fun aConfirmedDirectRouteSkipsEngineeringDiscoveryUntilItsIdentityChanges() = runTest {
+        val direct = config.copy(apiUrl = "https://confirmed-direct.example/v1")
+        GatewaySurfacePolicy.shared.observe(GatewaySurfacePolicy.identity(direct), GatewaySurfacePolicy.Surface.CAPABILITIES, 404)
+        var calls = 0
+        http(
+            MockEngine {
+                calls++
+                respond("""{"service":"engineering-gateway","protocol_version":1,"enabled":true,"principal_id":"new-account"}""")
+            }
+        ).use { http ->
+            val client = GatewayEngineeringClient(http)
+            assertTrue(runCatching { client.capabilities(direct) }.exceptionOrNull() is GatewayGraphUnavailableException)
+            assertEquals(0, calls)
+            assertEquals("new-account", client.principal(direct.copy(token = "new-token")))
+            assertEquals(1, calls)
+        }
     }
 
     @Test fun directNetworkIpAndHostnameDoNotRequireCredentials() = runTest {
@@ -193,6 +212,44 @@ class GatewayEngineeringClientTest {
                 assertTrue(failure.message.orEmpty().contains("Refresh"))
                 assertFalse(failure.message.orEmpty().contains("credentials"))
             }
+        }
+    }
+
+    @Test fun canonicalConversationReplyUsesMessageEndpointAndRetainsItsExpectedRevision() = runTest {
+        var calls = 0
+        http(
+            MockEngine { request ->
+                calls++
+                assertEquals("/v1/gateway/conversations/conv_original/messages", request.url.encodedPath)
+                val body = Json.parseToJsonElement((request.body as TextContent).text).jsonObject
+                assertEquals("message", body.getValue("kind").jsonPrimitive.content)
+                assertEquals("stable-command", body.getValue("command_id").jsonPrimitive.content)
+                assertEquals("42", body.getValue("expected_revision").jsonPrimitive.content)
+                val engineering = body.getValue("engineering_request").jsonObject
+                assertEquals("original-owner/repo", engineering.getValue("repository").jsonPrimitive.content)
+                assertEquals("original-branch", engineering.getValue("branch").jsonPrimitive.content)
+                assertEquals("original-model", engineering.getValue("model").jsonPrimitive.content)
+                respond(Json.encodeToString(job))
+            }
+        ).use { http ->
+            GatewayEngineeringClient(http).create(config, GatewayEngineeringRequest("original-owner/repo", "original-branch", "original-base", "Inspect the repository", "original-model", chatId = 7, requestId = "stable-command", taskScope = "read", conversationId = "conv_original", expectedRevision = 42))
+        }
+        assertEquals(1, calls)
+    }
+
+    @Test fun definitiveAdmissionRejectionIsDistinctFromAnUnconfirmedServerFailure() = runTest {
+        val request = GatewayEngineeringRequest("owner/repo", "work", "main", "Inspect", "model", chatId = 7, requestId = "command")
+        for (status in listOf(HttpStatusCode.BadRequest, HttpStatusCode.Forbidden, HttpStatusCode.Conflict)) {
+            http(MockEngine { respond("Rejected", status) }).use { http ->
+                val failure = runCatching { GatewayEngineeringClient(http).create(config, request) }.exceptionOrNull()
+                assertTrue(failure is GatewayEngineeringRequestRejected)
+                assertEquals(status.value, (failure as GatewayEngineeringRequestRejected).httpStatus)
+                assertFalse(failure.commandOutcomeUnknown)
+            }
+        }
+        http(MockEngine { respond("Unavailable", HttpStatusCode.ServiceUnavailable) }).use { http ->
+            val failure = runCatching { GatewayEngineeringClient(http).create(config, request) }.exceptionOrNull()
+            assertTrue(failure != null && failure !is GatewayEngineeringRequestRejected)
         }
     }
 }

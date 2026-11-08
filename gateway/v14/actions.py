@@ -133,7 +133,7 @@ class ActionLedger:
             raise ValueError("Idempotency-Key must contain 1 to 128 safe ASCII characters")
         if not 1 <= int(ttl_seconds) <= 7 * 86400:
             raise ValueError("Idempotency retention is outside the supported range")
-        _, request_digest = canonical_json({"version": 1, "payload": payload}, maximum_bytes=1024 * 1024)
+        _, request_digest = canonical_json({"version": 1, "payload": payload}, maximum_bytes=32 * 1024 * 1024)
         key_digest = hashlib.sha256(key.encode("ascii")).hexdigest()
         lock = getattr(self.runtime, "durable_job_lock", None)
         if lock is None:
@@ -235,6 +235,12 @@ class ActionLedger:
             result_json, _ = canonical_json(result, maximum_bytes=MAX_ACTION_RESULT_BYTES)
             state, certainty = "completed", "known"
         except (TypeError, ValueError, ActionLedgerError):
+            result_json, state, certainty = None, "completed_omitted", "known"
+        private = False
+        if getattr(self.runtime, "job_registry_lock", None) is not None:
+            with self.runtime.job_registry_lock:
+                private = bool(getattr(self.runtime, "job_registry", {}).get(job_id, {}).get("_ephemeral"))
+        if private:
             result_json, state, certainty = None, "completed_omitted", "known"
         lock = getattr(self.runtime, "durable_job_lock", None)
         try:

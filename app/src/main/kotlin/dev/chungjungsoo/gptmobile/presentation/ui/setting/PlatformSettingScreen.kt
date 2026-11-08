@@ -132,6 +132,10 @@ fun PlatformSettingScreen(
         canScroll = { scrollState.canScrollForward || scrollState.canScrollBackward }
     )
     val platform by settingViewModel.platformState.collectAsStateWithLifecycle()
+    val reasoningCapability by settingViewModel.reasoningCapability.collectAsStateWithLifecycle()
+    LaunchedEffect(platform, features.llamaReasoningModes[settingViewModel.platformUid]) {
+        settingViewModel.checkReasoningCapability()
+    }
     val debugMode by settingViewModel.debugMode.collectAsStateWithLifecycle()
     val providerConnection by settingViewModel.providerConnectionState.collectAsStateWithLifecycle()
     val reusableLabels by settingViewModel.reusableLabels.collectAsStateWithLifecycle()
@@ -632,8 +636,7 @@ fun PlatformSettingScreen(
                         }
                         if (!isLocalPlatform && !isFreePlatform) {
                             if (platformData.compatibleType == ClientType.LLAMA) {
-                                val mode = features.llamaReasoningModes[platformData.uid]
-                                    ?: dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO
+                                val mode = dev.chungjungsoo.gptmobile.data.context.ReasoningPolicy.preference(platformData.reasoning, features.llamaReasoningModes[platformData.uid])
                                 SettingItem(
                                     modifier = Modifier.heightIn(min = 64.dp),
                                     title = "Reasoning: ${mode.name.lowercase().replaceFirstChar { it.uppercase() }}",
@@ -642,6 +645,13 @@ fun PlatformSettingScreen(
                                     onItemClick = settingViewModel::cycleLlamaReasoning,
                                     showLeadingIcon = false,
                                     showTrailingIcon = true
+                                )
+                                ReasoningCapabilityContent(
+                                    mode,
+                                    reasoningCapability,
+                                    onRecheck = { settingViewModel.checkReasoningCapability(forceRefresh = true) },
+                                    onSwitchToAuto = settingViewModel::switchLlamaReasoningToAuto,
+                                    enabled = platformData.enabled
                                 )
                             } else {
                                 ExtendedThinkingSwitch(

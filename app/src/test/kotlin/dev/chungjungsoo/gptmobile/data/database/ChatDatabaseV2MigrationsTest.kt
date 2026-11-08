@@ -89,11 +89,16 @@ class ChatDatabaseV2MigrationsTest {
     @Test
     fun `migration instances have correct versions`() {
         ChatDatabaseV2Migrations.ALL_MIGRATIONS.forEach { migration ->
-            assertEquals(migration.startVersion + 1, migration.endVersion)
+            if (migration === ChatDatabaseV2Migrations.MIGRATION_49_51) {
+                assertEquals(49, migration.startVersion)
+                assertEquals(51, migration.endVersion)
+            } else {
+                assertEquals(migration.startVersion + 1, migration.endVersion)
+            }
         }
 
         assertEquals(10, ChatDatabaseV2Migrations.ALL_MIGRATIONS.first().startVersion)
-        assertEquals(49, ChatDatabaseV2Migrations.ALL_MIGRATIONS.last().endVersion)
+        assertEquals(51, ChatDatabaseV2Migrations.ALL_MIGRATIONS.last().endVersion)
 
         assertEquals(10, ChatDatabaseV2Migrations.MIGRATION_10_11.startVersion)
         assertEquals(11, ChatDatabaseV2Migrations.MIGRATION_10_11.endVersion)

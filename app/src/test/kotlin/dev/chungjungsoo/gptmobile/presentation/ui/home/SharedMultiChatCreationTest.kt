@@ -6,8 +6,11 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAvailabilityRepository
 import dev.chungjungsoo.gptmobile.data.repository.ChatRepository
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
+import io.mockk.mockk
+import io.mockk.verify
 import java.lang.reflect.Proxy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -58,16 +61,19 @@ class SharedMultiChatCreationTest {
                 ChatRoomV2(id = 42, title = args[2] as String, enabledPlatform = uids, conversationMode = args[1] as String)
                     .also(created::add)
             }
+            val availability = mockk<GatewayAvailabilityRepository>()
             val viewModel = NewChatViewModel(
                 SavedStateHandle(mapOf("new_chat_type" to "MULTI_CHAT", "new_chat_uids" to listOf("a", "b"))),
                 settings,
-                chats
+                chats,
+                availability
             )
             store.put("new-chat", viewModel)
             var route = ""
             viewModel.start { route = it }
             runCurrent()
             assertEquals(1, created.size)
+            verify(exactly = 0) { availability.observe(any()) }
             assertEquals(listOf("a", "b"), created.single().enabledPlatform)
             assertEquals(ConversationMode.STANDARD, created.single().conversationMode)
             assertEquals("chat_room/42?enabled=a,b&mode=STANDARD", route)
@@ -100,12 +106,14 @@ class SharedMultiChatCreationTest {
                 }
             }
             val chats = proxy<ChatRepository> { name, _ -> error("Chat must be scoped to a repository before $name") }
-            val viewModel = NewChatViewModel(SavedStateHandle(mapOf("new_chat_type" to "GITHUB", "new_chat_uids" to listOf("coder"))), settings, chats)
+            val availability = mockk<GatewayAvailabilityRepository>()
+            val viewModel = NewChatViewModel(SavedStateHandle(mapOf("new_chat_type" to "GITHUB", "new_chat_uids" to listOf("coder"))), settings, chats, availability)
             store.put("github-chat", viewModel)
             var route = ""
             viewModel.start { route = it }
             runCurrent()
             assertEquals("github_chat/coder", route)
+            verify(exactly = 0) { availability.observe(any()) }
         } finally {
             store.clear()
             runCurrent()

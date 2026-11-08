@@ -38,4 +38,12 @@ class OpenAICompletionDecoderTest {
         val usage = decodeOpenAICompletion(json, """{"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":12}}""").usage
         assertNull(usage.trustedTotalTokens())
     }
+
+    @Test fun malformedOptionalGatewayObservationsDoNotDiscardAnswerOrToolCalls() {
+        val chunk = decodeOpenAICompletion(json, """{"choices":[{"message":{"content":"retained","tool_calls":[{"id":"call_1","type":"function","function":{"name":"search","arguments":"{}"}}]}}],"gateway_timing":{"backend_first_output_ms":{}},"gateway_provenance":{"schema_version":[]}}""")
+        assertEquals("retained", chunk.choices!!.single().effectiveDelta.content)
+        assertEquals("search", chunk.choices!!.single().effectiveDelta.toolCalls!!.single().function?.name)
+        assertNull(chunk.gatewayTiming)
+        assertNull(chunk.gatewayProvenance)
+    }
 }

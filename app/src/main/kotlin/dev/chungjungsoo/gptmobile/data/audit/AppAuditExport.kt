@@ -66,7 +66,12 @@ suspend fun writeAppAuditExport(output: OutputStream, batch: BenchmarkBatch, sou
                 put("selectedProfileCount", run.options.selectedProfileIds.distinct().size)
                 put("networkReadsSelected", run.options.allowNetworkReads)
                 put("executedProbes", run.executedProbes.coerceAtLeast(0))
-                put("networkProbesDispatched", run.networkProbesDispatched.coerceAtLeast(0))
+                put("networkAccountingVersion", 2)
+                put("networkProbesAttempted", run.networkAttemptBudgetUsed.coerceAtLeast(0))
+                put("networkProbesDispatched", run.networkProbesConfirmed)
+                put("networkProbesConfirmed", run.networkProbesConfirmed)
+                put("networkProbesDispatchUnknown", run.networkProbesDispatchUnknown)
+                put("networkAccountingMeaning", "Attempts are durable logical client admissions and consume budget even when later rejected locally. Confirmed and unknown dispatches come from fresh receipts; cached evidence sends no request.")
                 put("maxExecutedProbes", run.limits.maxExecutedProbes)
                 put("maxNetworkProbes", run.limits.maxNetworkProbes)
                 put("perProbeTimeoutMs", run.limits.perProbeTimeoutMs)
@@ -163,6 +168,7 @@ suspend fun writeAppAuditExport(output: OutputStream, batch: BenchmarkBatch, sou
                     put("reasonCode", entry.reasonCode?.let(::safeAuditReason))
                     put("weight", entry.weight)
                     put("fixtureHash", safeDigest(entry.fixtureHash))
+                    put("configurationRevision", safeAuditConfigurationRevision(entry.configurationRevision))
                 }
             }
         )
@@ -185,6 +191,12 @@ suspend fun writeAppAuditExport(output: OutputStream, batch: BenchmarkBatch, sou
                     put("retryable", observation.retryable?.let(::JsonPrimitive) ?: JsonNull)
                     put("httpStatus", observation.httpStatus?.takeIf { it in 100..599 }?.let(::JsonPrimitive) ?: JsonNull)
                     put("configurationChanged", observation.configChanged)
+                    put("failurePhase", safeAuditFailurePhase(observation.failurePhase))
+                    put("failureCategory", safeAuditFailureCategory(observation.failureCategory))
+                    put("validationRule", safeAuditValidationRule(observation.validationRule))
+                    put("validationField", safeAuditDiagnosticField(observation.validationField))
+                    put("observedAtEpochMs", observation.observedAtEpochMs?.nonnegative() ?: JsonNull)
+                    put("configurationRevision", safeAuditConfigurationRevision(observation.configurationRevision))
                     put(
                         "metrics",
                         JsonArray(
@@ -200,6 +212,26 @@ suspend fun writeAppAuditExport(output: OutputStream, batch: BenchmarkBatch, sou
                 }
             }
         )
+        writer.records(
+            "evidenceByKind",
+            AppAuditEvidenceKind.entries.asSequence().map { kind ->
+                val scoped = boundedRun.copy(plan = retainedPlan.filter { it.evidenceKind == kind })
+                val counts = appAuditSummary(scoped)
+                val measured = appAuditScore(scoped)
+                buildJsonObject {
+                    put("evidenceKind", kind.name)
+                    put("planned", counts.planned)
+                    put("passed", counts.passed)
+                    put("failed", counts.failed)
+                    put("exercised", counts.exercised)
+                    put("verified", counts.verified)
+                    put("passedWeight", measured.passedWeight)
+                    put("measuredWeight", measured.measuredWeight)
+                    put("score", measured.score?.takeIf { completeEvidence }?.let(::JsonPrimitive) ?: JsonNull)
+                }
+            }
+        )
+        writer.field("qualificationPlan", appAuditQualificationPlan(boundedRun, ids, targets, completeEvidence))
         writer.records("sourceFiles", inventory.files.asSequence())
         writer.field(
             "diagnostics",
@@ -382,7 +414,7 @@ private val AUDIT_REASONS = AppAuditPluginProbeSource.reasonCodes + setOf(
     "INVALID_AUDIT_RECEIPTS", "INVALID_AUDIT_BUDGET", "RUN_BUDGET_EXHAUSTED", "RUN_DEADLINE_EXCEEDED", "NOT_SELECTED", "NOT_CONFIGURED",
     "UNSUPPORTED", "PERMISSION_REQUIRED", "EXTERNAL_HARNESS_REQUIRED", "MODEL_EXECUTION_NOT_SELECTED", "NETWORK_READS_DISABLED",
     "NETWORK_BUDGET_EXHAUSTED", "PROBE_SOURCE_UNAVAILABLE", "INVENTORY_UNAVAILABLE", "DISPATCH_NOT_ALLOWED", "PROBE_TIMEOUT",
-    "CHILD_OPERATION_ABORTED", "PROBE_FAILED", "PROBE_EVIDENCE_MISMATCH", "DISPATCH_RECEIPT_MISSING", "CONFIGURATION_CHANGED", "USER_STOP",
+    "CHILD_OPERATION_ABORTED", "PROBE_FAILED", "PROBE_EVIDENCE_MISMATCH", "DISPATCH_RECEIPT_MISSING", "DISPATCH_CONFIRMATION_MISSING", "CONFIGURATION_CHANGED", "USER_STOP",
     "SERVICE_INTERRUPTION", "PROCESS_INTERRUPTION", "STORAGE_CHECKPOINT_FAILED", "FIXTURE_PASSED", "FIXTURE_FAILED", "FIXTURE_CHANGED", "UNKNOWN_LOCAL_FIXTURE",
     "PROBE_CONTRACT_INVALID", "DISPATCH_POLICY_CHANGED", "POLICY_STALE", "AUDIT_PROBE_CHANGED", "LOCAL_CONTRACT_PASSED", "LOCAL_CONTRACT_FAILED"
 )

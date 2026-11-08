@@ -19,6 +19,40 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LlamaHealthDiagnosticsTest {
+    @Test fun admissionRestrictedMetadataIsRememberedWithoutDisablingGatewayReadiness() = runTest {
+        val selected = ProviderRequestConfig("https://restricted-health.example/v1", "restricted-health-test")
+        GatewayClientDiagnostics.observeInstance(selected, "a".repeat(32))
+        var now = 0L
+        var restrictedReads = 0
+        val http = HttpClient(MockEngine) {
+            engine {
+                dispatcher = StandardTestDispatcher(testScheduler)
+                addHandler { request ->
+                    when (request.url.encodedPath) {
+                        "/props", "/health" -> {
+                            restrictedReads++
+                            respond("""{"error":{"code":"remote_surface_not_admitted"}}""", HttpStatusCode.Forbidden)
+                        }
+                        "/v1/models" -> respond("""{"data":[{"id":"selected"}]}""")
+                        "/v1/gateway/ready" -> respond("""{"schemaVersion":1,"instanceId":"${"a".repeat(32)}","ready":true,"capabilities":{"selectedModelDigest":"${researchHash("selected")}","modelAvailable":true,"generationReady":true}}""")
+                        else -> error("Unexpected probe")
+                    }
+                }
+            }
+        }
+        http.use {
+            val diagnostics = LlamaHealthDiagnostics({ http }, { now })
+            assertEquals(LlamaConnectionPhase.MODEL_LOADED, diagnostics.inspect(selected, "selected").phase)
+            now = 31_000
+            val renewed = diagnostics.inspect(selected, "selected")
+            assertEquals(2, restrictedReads)
+            assertEquals(listOf("health", "props"), renewed.cachedRestrictedSurfaces)
+            assertTrue(renewed.metadataRestricted)
+            assertEquals(true, renewed.gatewayReady)
+            assertEquals(false, renewed.inferenceTested)
+        }
+    }
+
     @Test fun checksStayOnTheAuthenticatedRouteAndDoNotLoadAModelOrRunInference() = runTest {
         val paths = mutableListOf<String>()
         val http = HttpClient(MockEngine) {

@@ -53,7 +53,7 @@ class GitHubTaskCoverageTest {
         assertEquals(JsonPrimitive(1), row["failed_observations"])
         assertEquals(2, (row["receipt_ids"] as JsonArray).size)
         val text = GitHubTaskCoverage.render(receipts)
-        assertTrue(text.contains("partial verification"))
+        assertTrue(text.contains("partial acceptance"))
         assertTrue(text.contains("INVALID_ARGUMENTS"))
         assertTrue(text.contains("source inspection"))
         assertFalse(text.contains("@Test"))

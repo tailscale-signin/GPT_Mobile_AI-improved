@@ -41,16 +41,28 @@ internal object GitHubTestChecklist {
         (receipt["arguments"] as? JsonObject)?.containsKey("view_cursor") != true &&
         (capability.action.isBlank() || (receipt["arguments"] as? JsonObject)?.text("action") == capability.action)
 
+    private fun sameCall(receipt: JsonObject, recipe: JsonObject, issuer: JsonObject? = null): Boolean {
+        if (issuer != null && (issuer["binding"] != receipt["binding"] || issuer["repository"] != receipt["repository"])) return false
+        val arguments = recipe["arguments"] as? JsonObject ?: return false
+        return receipt.text("tool") == recipe.text("tool") && (receipt["arguments"] == arguments || GitHubActionIdentity.matches(recipe.text("tool"), arguments, receipt))
+    }
+
     /** Follow only exact issued read recipes. Local fragments and remote pages are independent. */
     fun pendingPages(receipts: Map<String, JsonObject>): List<JsonObject> {
         val observations = trusted(receipts)
-        val completed = observations.filter { it["success"] == JsonPrimitive(true) }.map { it.text("tool") to it["arguments"] }.toSet()
+        val completed = observations.filter { it["success"] == JsonPrimitive(true) }
+        val retired = GitHubSelfTestFixtures.retiredReadPredicate(receipts)
         val recovered = observations.mapIndexedNotNull { index, receipt ->
             val recovery = savedReadRecovery(receipt) ?: return@mapIndexedNotNull null
-            if (observations.drop(index + 1).none { it["success"] == JsonPrimitive(true) && it.text("tool") == recovery.text("tool") && it["arguments"] == recovery["arguments"] }) return@mapIndexedNotNull null
+            if (observations.drop(index + 1).none { it["success"] == JsonPrimitive(true) && sameCall(it, recovery, receipt) }) return@mapIndexedNotNull null
             receipt.text("tool") to receipt["arguments"]
         }.toSet()
-        return observations.flatMap(::issuedPages).distinct().filter { it.text("tool") to it["arguments"] !in completed + recovered }
+        return observations.flatMap { issuer ->
+            issuedPages(issuer).filter { recipe ->
+                val local = (recipe["arguments"] as? JsonObject)?.containsKey("view_cursor") == true
+                (local || !retired(issuer)) && completed.none { sameCall(it, recipe, issuer) } && recipe.text("tool") to recipe["arguments"] !in recovered
+            }
+        }.distinct()
     }
 
     /** An argument repair is admissible only for an exact local cursor returned by this facade. */
@@ -117,19 +129,46 @@ internal object GitHubTestChecklist {
     }
 
     private fun remoteSamples(observations: List<JsonObject>): Int {
-        val issued = observations.flatMap(::issuedPages).map { it.text("tool") to it["arguments"] }.toSet()
+        val issued = observations.flatMap { issuer -> issuedPages(issuer).map { issuer to it } }
         return observations.count { receipt ->
             val args = receipt["arguments"] as? JsonObject ?: return@count false
             "view_cursor" !in args &&
                 !(receipt.text("tool").substringBefore("__") == "github_ci" && args.text("action") == "definitions" && "index_cursor" in args) &&
-                ((args["page"] as? JsonPrimitive)?.longOrNull?.let { it > 1 } == true || receipt.text("tool") to args in issued)
+                ((args["page"] as? JsonPrimitive)?.longOrNull?.let { it > 1 } == true || issued.any { (issuer, recipe) -> sameCall(receipt, recipe, issuer) })
         }
+    }
+
+    /** Spend the next bounded page on an observed dependency or selected revision before broad history. */
+    private fun pagePriority(recipe: JsonObject, observations: List<JsonObject>): Int {
+        val arguments = recipe["arguments"] as? JsonObject ?: return 4
+        if ("view_cursor" in arguments) return 0
+        val tool = recipe.text("tool").substringBefore("__")
+        val action = arguments.text("action")
+        val head = observations.asReversed().firstNotNullOfOrNull { receipt ->
+            if (receipt["success"] == JsonPrimitive(true) && receipt.text("tool").substringBefore("__") == "github_context" && (receipt["arguments"] as? JsonObject)?.text("action") == "status") data(receipt)?.get("commit_sha") else null
+        }
+        if (tool == "github_ci" && action == "definitions") return 1
+        if (tool == "github_issue" &&
+            action == "list" &&
+            observations.none { receipt ->
+                receipt["success"] == JsonPrimitive(true) &&
+                    receipt.text("tool").substringBefore("__") == tool &&
+                    data(receipt)?.let { root ->
+                        listOf("issues", "items").any { key -> (root[key] as? JsonArray).orEmpty().filterIsInstance<JsonObject>().any { "pull_request" !in it } }
+                    } == true
+            }
+        ) {
+            return 1
+        }
+        if (head != null && arguments["commit_sha"] == head && (tool == "github_ci" && action == "runs" || tool == "github_context" && action == "commits")) return 2
+        if (tool == "github_release" && action in setOf("list", "tags")) return 3
+        return 4
     }
 
     /** Consume issued local fragments while their bounded cache entry is still live. */
     private fun continuation(task: String, tools: List<AgentToolDefinition>, receipts: Map<String, JsonObject>, localOnly: Boolean): ProviderEvent.ToolCall? {
         val observations = trusted(receipts)
-        fun same(receipt: JsonObject, recipe: JsonObject) = receipt.text("tool") == recipe.text("tool") && receipt["arguments"] == recipe["arguments"]
+        fun same(receipt: JsonObject, recipe: JsonObject) = sameCall(receipt, recipe)
         fun permitted(recipe: JsonObject): Boolean {
             val args = recipe["arguments"] as? JsonObject ?: return false
             val name = recipe.text("tool")
@@ -158,7 +197,7 @@ internal object GitHubTestChecklist {
             if ((lastAttempts[source] ?: -1) > index) continue
             return call(recovery.text("tool"), args)
         }
-        for (page in pendingPages(receipts)) {
+        for (page in pendingPages(receipts).sortedBy { pagePriority(it, observations) }) {
             val args = page["arguments"] as? JsonObject ?: continue
             if (localOnly && "view_cursor" !in args || !permitted(page)) continue
             val priorIndex = observations.indexOfLast { same(it, page) }
@@ -203,25 +242,45 @@ internal object GitHubTestChecklist {
         val observations = trusted(receipts)
         val remaining = GitHubChecklistBudget.remaining(receipts, remainingToolCalls)
         if (remaining == 0) return null
-        // Finish a verified owned fixture before optional acquisition can spend
-        // its cleanup allowance. Failed/unknown writes remain blocked.
-        GitHubSelfTestFixtures.next(task, tools, receipts, allowCreate = false)?.let { return it }
+        // Preserve cleanup allowance, but qualify required live reads while their
+        // owned resource still exists. A verified deletion retires those reads.
         val acquisitionAllowed = remaining == null || remaining > GitHubChecklistBudget.VERIFICATION_RESERVE
+        val cleanup = GitHubSelfTestFixtures.next(task, tools, receipts, allowCreate = false, cleanupOnly = true, abortIncomplete = !acquisitionAllowed)
+        if (!acquisitionAllowed && cleanup != null) return cleanup
+        // A deletion may already have happened. Reconcile its exact retained
+        // intent before attempting reads whose resource may no longer exist.
+        if (cleanup?.arguments?.get("action") == JsonPrimitive("recovery") && cleanup.arguments["fixture_plan"] == JsonPrimitive(GitHubOwnedFixtures.PLAN)) return cleanup
+        val retiredRead = GitHubSelfTestFixtures.retiredReadPredicate(receipts)
+        if (GitHubIntegrationAcceptance.requiresBuildBinding(task) && GitHubIntegrationAcceptance.binding(observations)["verified"] != JsonPrimitive(true)) {
+            val runtime = GitHubRuntimeIdentity.current()
+            val status = tools.firstOrNull { it.modelVisible && it.name.substringBefore("__") == "github_context" && (it.inputSchema["properties"] as? JsonObject)?.containsKey("verify_live") == true }
+            val args = buildJsonObject {
+                put("action", "status")
+                put("verify_live", true)
+            }
+            if (status != null &&
+                dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator.errors(args, status.inputSchema).isEmpty() &&
+                observations.none { it.text("tool") == status.name && (it["arguments"] == args || GitHubActionIdentity.matches(status.name, args, it)) && it["runtime_identity"] == runtime }
+            ) {
+                return call(status.name, args)
+            }
+        }
         // A cached observation is useful evidence but cannot qualify transport.
         // Retry that exact authorized read once with explicit cache bypass. The
         // retained argument prevents loops after process restart or another hit.
         val liveRead = observations.asReversed().firstNotNullOfOrNull { receipt ->
-            if (receipt["success"] != JsonPrimitive(true) || GitHubEvidenceOrigin.of(receipt) == "LIVE") return@firstNotNullOfOrNull null
+            if (receipt["success"] != JsonPrimitive(true) || GitHubEvidenceOrigin.of(receipt) == "LIVE" || retiredRead(receipt)) return@firstNotNullOfOrNull null
             val args = receipt["arguments"] as? JsonObject ?: return@firstNotNullOfOrNull null
             if (!requiresLiveTransport(Capability(receipt.text("tool").substringBefore("__"), args.text("action"), ""))) return@firstNotNullOfOrNull null
             if ("view_cursor" in args || args["verify_live"] == JsonPrimitive(true) || !dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary.isReplayableRead(receipt.text("tool"), args)) return@firstNotNullOfOrNull null
             val refreshed = JsonObject(args + ("verify_live" to JsonPrimitive(true)))
-            if (observations.any { it.text("tool") == receipt.text("tool") && it["arguments"] == refreshed }) return@firstNotNullOfOrNull null
+            if (observations.any { it.text("tool") == receipt.text("tool") && (it["arguments"] == refreshed || GitHubActionIdentity.matches(receipt.text("tool"), refreshed, it)) }) return@firstNotNullOfOrNull null
             val tool = tools.firstOrNull { it.name == receipt.text("tool") && it.modelVisible } ?: return@firstNotNullOfOrNull null
             if ((tool.inputSchema["properties"] as? JsonObject)?.containsKey("verify_live") != true || dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator.errors(refreshed, tool.inputSchema).isNotEmpty()) return@firstNotNullOfOrNull null
             call(tool.name, refreshed)
         }
         if (liveRead != null) return liveRead
+        if (cleanup != null) return cleanup
         if (acquisitionAllowed) continuation(task, tools, receipts, localOnly = true)?.let { return it }
         val watch = tools.firstOrNull { it.modelVisible && it.name.substringBefore("__") == "github_watch_checks" }
         val selectedHead = observations.asReversed().firstNotNullOfOrNull { receipt ->
@@ -260,7 +319,7 @@ internal object GitHubTestChecklist {
         GitHubSelfTestReads.next(tools, observations)?.let { return it }
         // A fixture is bounded and must leave capacity for its verification and
         // cleanup; optional inventory sampling runs only after this decision.
-        val fixtureAllowed = remaining == null || remaining >= GitHubChecklistBudget.FIXTURE_CALLS + GitHubChecklistBudget.VERIFICATION_RESERVE
+        val fixtureAllowed = remaining == null || remaining >= GitHubSelfTestFixtures.minimumCalls(tools) + GitHubChecklistBudget.VERIFICATION_RESERVE
         GitHubSelfTestFixtures.next(task, tools, receipts, allowCreate = fixtureAllowed)?.let { return it }
         return continuation(task, tools, receipts, localOnly = false)
     }
@@ -307,14 +366,17 @@ internal object GitHubTestChecklist {
                 val eligible = observed.filter { it["verification_eligible"] != JsonPrimitive(false) && (tools.isEmpty() || permitted(it)) }
                 val successes = eligible.filter { it["success"] == JsonPrimitive(true) }
                 val failures = observed.filter { it["success"] != JsonPrimitive(true) }
-                val transportMissing = requiresLiveTransport(capability) && successes.isNotEmpty() && successes.none { GitHubEvidenceOrigin.of(it) == "LIVE" }
+                val latest = eligible.lastOrNull()
+                val immediatePublication = capability.tool == "github_stage_patch" && (latest?.get("arguments") as? JsonObject)?.get("commit_immediately") == JsonPrimitive(true)
+                val liveRequired = requiresLiveTransport(capability) || immediatePublication
+                val transportCandidates = if (immediatePublication) successes.filter { (it["arguments"] as? JsonObject)?.get("commit_immediately") == JsonPrimitive(true) } else successes
+                val transportMissing = liveRequired && transportCandidates.isNotEmpty() && transportCandidates.none { GitHubEvidenceOrigin.of(it) == "LIVE" }
                 val unqualifiedStatus = when {
                     successes.any { GitHubEvidenceOrigin.of(it) == "CACHED" } -> "CACHED"
                     successes.any { GitHubEvidenceOrigin.of(it) == "MOCKED" } -> "MOCKED"
                     else -> "NOT_TESTED"
                 }
-                val latest = eligible.lastOrNull()
-                val incomplete = latest?.get("success") == JsonPrimitive(true) && data(latest)?.text("status") == "PENDING_LOG_AVAILABILITY"
+                val incomplete = latest?.get("success") == JsonPrimitive(true) && data(latest)?.text("status") in setOf("PENDING_LOG_AVAILABILITY", "PENDING_CHECKS")
                 val excluded = capability.tool == "github_context" && capability.action == "repositories"
                 val notRequested = GitHubChecklistScope.readOnly(task) && !readOnly(capability)
                 val blocker = when {
@@ -326,7 +388,7 @@ internal object GitHubTestChecklist {
                     failures.isNotEmpty() && (successes.isEmpty() || latest?.get("success") == JsonPrimitive(false)) -> "Resolve recorded errors: " + failures.map { it.text("error_code") }.distinct().joinToString(", ") + ". " + GitHubVerificationRecovery.advice(failures)
                     capability.tool == "github_decide" -> "Requires a genuine user decision; an integration test must not manufacture a blocking question."
                     capability.tool == "github_watch_checks" -> "Requires an observed pull request or workflow run and the active chat subscription."
-                    !readOnly(capability) -> "Requires an owned isolated fixture and operation-specific authorization; fixture cleanup must be verified before completion."
+                    !readOnly(capability) -> GitHubSelfTestFixtures.prerequisite(capability.tool, capability.action)
                     capability.tool == "github_issue" -> "No issue identifier observed from the issue inventory; a pull request number cannot satisfy this dependency."
                     capability.tool == "github_pr" -> "No pull request identifier observed from the pull request inventory."
                     capability.tool == "github_ci" -> "Requires an observed workflow/run and a completed job for logs or a failed completed run for failure analysis."
@@ -354,7 +416,8 @@ internal object GitHubTestChecklist {
                     put("evidence_origins", JsonArray(eligible.map { GitHubEvidenceOrigin.of(it) }.distinct().map(::JsonPrimitive)))
                     put("live_verified", successes.any { GitHubEvidenceOrigin.of(it) == "LIVE" })
                     put("response_validated", successes.isNotEmpty())
-                    put("requires_live_transport", requiresLiveTransport(capability))
+                    put("requires_live_transport", liveRequired)
+                    if (capability.tool == "github_stage_patch") put("publication_mode", if (immediatePublication) "IMMEDIATE_PUBLICATION" else "STAGED_ONLY")
                     put("fixture_state", if (readOnly(capability)) "NOT_APPLICABLE" else "REQUIRES_SEPARATE_VERIFICATION")
                     put(
                         "readiness",
@@ -422,9 +485,17 @@ internal object GitHubTestChecklist {
 
     /** API completion never implies device, benchmark or application-wide acceptance. */
     fun apiComplete(task: String, receipts: Map<String, JsonObject>, tools: List<AgentToolDefinition>): Boolean {
-        if (!integration(task) || GitHubRequestCompletion.requirements(task).size != 1 || tools.isEmpty() || Regex("(?i)device|android|app(?:lication)? health|stress|benchmark|reboot|process death|install apk|\\b(?:fix|implement|repair|improve|performance|latency|features?)\\b").containsMatchIn(task)) return false
+        if (!integration(task)) return false
+        val requirements = GitHubIntegrationAcceptance.requirements(task, receipts, tools)
+        return requirements.isNotEmpty() && requirements.all { (it as JsonObject)["acceptance_state"] == JsonPrimitive("PASS") }
+    }
+
+    /** Action coverage is one acceptance criterion, independent from build/device criteria. */
+    fun capabilitiesComplete(task: String, receipts: Map<String, JsonObject>, tools: List<AgentToolDefinition>): Boolean {
+        if (tools.isEmpty()) return false
+        if (GitHubAuthorizedCatalog.required(tools, receipts) && GitHubAuthorizedCatalog.snapshot(receipts, tools)["complete"] != JsonPrimitive(true)) return false
         val mutations = catalog(tools).filter { !readOnly(it) && !GitHubChecklistScope.readOnly(task) }
-        if (mutations.any { it.tool != "github_commit" || it.action !in setOf("branch", "delete_branch") }) return false
+        if (mutations.any { !GitHubSelfTestFixtures.supports(it.tool, it.action) }) return false
         if (mutations.isNotEmpty() && !GitHubSelfTestFixtures.complete(receipts)) return false
         val coverage = rows(receipts, tools, task)
         if (coverage.none { (it as JsonObject).text("status") in setOf("PASSED", "RECOVERED") } || coverage.any { (it as JsonObject).text("status") !in setOf("PASSED", "RECOVERED", "OUT_OF_SCOPE", "NOT_REQUESTED") }) return false
@@ -464,6 +535,7 @@ internal object GitHubTestChecklist {
     fun progressDigest(task: String, receipts: Map<String, JsonObject>, tools: List<AgentToolDefinition>): String = GitHubEvidenceBook.digest(
         buildJsonObject {
             put("request_digest", GitHubEvidenceBook.digest(task))
+            if (integration(task)) put("requirements", JsonArray(GitHubIntegrationAcceptance.requirements(task, receipts, tools).map { raw -> JsonObject((raw as JsonObject).filterKeys { it in setOf("id", "status", "acceptance_state") }) }))
             put("capabilities", JsonArray(rows(receipts, tools, task).map { raw -> JsonObject((raw as JsonObject).filterKeys { !it.endsWith("_ids") && it !in setOf("attempted", "dispatched", "rejected_before_dispatch", "completed") }) }))
             put("pending_pages", JsonArray(pendingPages(receipts)))
             put(
@@ -483,17 +555,24 @@ internal object GitHubTestChecklist {
         put("request_digest", GitHubEvidenceBook.digest(task))
         val capabilities = rows(receipts, tools, task)
         put("capabilities", capabilities)
-        put("stage_budget", GitHubChecklistBudget.checkpoint(receipts, remainingToolCalls))
+        val requirements = if (integration(task)) GitHubIntegrationAcceptance.requirements(task, receipts, tools) else JsonArray(emptyList())
+        put("requirements", requirements)
+        put("remaining_requirements", JsonArray(requirements.filter { (it as JsonObject)["acceptance_state"] != JsonPrimitive("PASS") }))
+        put("authorized_catalog", GitHubAuthorizedCatalog.snapshot(receipts, tools))
+        put("runtime_binding", GitHubIntegrationAcceptance.binding(receipts.values))
+        put("evidence_classes", GitHubIntegrationAcceptance.evidenceClasses(receipts))
+        put("stage_budget", GitHubChecklistBudget.checkpoint(receipts, remainingToolCalls, GitHubSelfTestFixtures.minimumCalls(tools)))
         put(
             "resume_plan",
             buildJsonObject {
                 put("source", "Trusted receipts revalidated against the current authorization catalog")
                 put("pending_capabilities", JsonArray(capabilities.filter { (it as JsonObject).text("status") !in setOf("PASSED", "RECOVERED", "OUT_OF_SCOPE", "NOT_REQUESTED") }))
-                put("cleanup_first", true)
+                put("cleanup_first", false)
+                put("cleanup_policy", "Finish required live existence reads before teardown; preserve cleanup reserve and reconcile exact owned-ref absence without repeating deletion.")
                 put("mutation_retry_policy", "Reconcile failed or uncertain writes; never replay a completed mutation or repeat a write to recover its response.")
             }
         )
-        put("acceptance_ledger", GitHubAcceptanceLedger.snapshot(capabilities = capabilities, requestDigest = GitHubEvidenceBook.digest(task)))
+        put("acceptance_ledger", GitHubAcceptanceLedger.snapshot(requirements = requirements, capabilities = capabilities, requestDigest = GitHubEvidenceBook.digest(task)))
         put("coverage_source", if (tools.isEmpty()) "BASELINE_CATALOG" else "AUTHORIZED_TOOL_ACTION_SCHEMAS")
         put("pagination_policy", "Reuse complete persisted originals and their exact remote recipes; consume display fragments only when no complete original was retained; up to 32 definition pages per revision independently of two remote inventory samples, or eight while locating an issue dependency, unless complete inventory is explicitly requested; restore retained pages locally before one bounded read-only source recovery")
         put("acceptance", JsonArray(listOf("Each requested capability has a result or explicit untested/blocker reason", "Every claim cites matching branch/PR/SHA receipts", "Complete durable sources or required local fragments, and remote pages, consumed or explicitly pending", "Application test results bound to newly executed runs at tested SHA", "Coverage, measured score or limitation, failures and solutions retained", "Authorized isolated write fixtures verified and cleaned up").map(::JsonPrimitive)))

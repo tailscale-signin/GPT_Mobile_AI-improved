@@ -25,6 +25,7 @@ import dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseFunctionTool
 import dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputContent
 import dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputMessage
 import dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponsesRequest
+import dev.chungjungsoo.gptmobile.data.dto.openai.response.ChatCompletionChunk
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseErrorEvent
 import io.ktor.client.engine.cio.CIO
 import java.net.InetSocketAddress
@@ -129,12 +130,14 @@ class ProviderToolRejectionTest {
     @Test
     fun `openai compatible rejects tool definitions before emitting provider events`() = withServer(422, openAIError()) { baseUrl ->
         val api = OpenAIAPIImpl(NetworkClient(CIO))
+        val observations = mutableListOf<ChatCompletionChunk>()
 
         assertThrows(ToolDefinitionsRejectedException::class.java) {
             runBlocking {
-                api.streamChatCompletion(chatRequest(withTools = true), 5, config(baseUrl)).toList()
+                api.streamChatCompletion(chatRequest(withTools = true), 5, config(baseUrl)).collect { observations += it }
             }
         }
+        assertTrue(observations.isEmpty())
         val chunk = runBlocking {
             api.streamChatCompletion(chatRequest(withTools = false), 5, config(baseUrl)).single()
         }
@@ -302,6 +305,9 @@ class ProviderToolRejectionTest {
             val api = OpenAIAPIImpl(client)
             val chunk = runBlocking { api.streamChatCompletion(chatRequest(withTools = true), 5, config(baseUrl)).single() }
             assertEquals("401", chunk.error?.code)
+            assertTrue(chunk.reasoningControlReceipt != null)
+            assertTrue(chunk.providerResponseTiming?.responseHeadersMs != null)
+            assertEquals(null, chunk.providerResponseTiming?.firstParsedPayloadMs)
             assertTrue(chunk.error!!.message.contains("platform connection"))
             assertTrue(chunk.error!!.message.contains("HTTP 401"))
             val response = runBlocking { api.streamResponses(responsesRequest(withTools = true), 5, config(baseUrl)).single() } as ResponseErrorEvent
@@ -319,6 +325,9 @@ class ProviderToolRejectionTest {
             try {
                 val chunk = runBlocking { OpenAIAPIImpl(client).streamChatCompletion(chatRequest(withTools = true), 5, config(baseUrl)).single() }
                 assertEquals("401", chunk.error?.code)
+                assertTrue(chunk.reasoningControlReceipt != null)
+                assertTrue(chunk.providerResponseTiming?.responseHeadersMs != null)
+                assertEquals(null, chunk.providerResponseTiming?.firstParsedPayloadMs)
                 assertTrue(chunk.error!!.message.contains("Settings → Platforms"))
             } finally {
                 client().close()

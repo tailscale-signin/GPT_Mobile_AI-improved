@@ -1,7 +1,10 @@
 package dev.chungjungsoo.gptmobile.data.github
 
+import java.security.MessageDigest
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 
 @Serializable
@@ -13,8 +16,15 @@ data class GatewayEngineeringCapabilities(
     @SerialName("gateway_version") val gatewayVersion: String? = null,
     @SerialName("server_build") val serverBuild: String? = null,
     @SerialName("code_graph") val codeGraph: GatewayGraphCapability? = null,
-    val readiness: GatewayEngineeringReadiness? = null
+    val readiness: GatewayEngineeringReadiness? = null,
+    @SerialName("gateway_id") val gatewayId: String? = null,
+    @SerialName("task_scope_protocol") val taskScopeProtocol: Int = 0,
+    @SerialName("task_scopes") val taskScopes: List<String> = emptyList(),
+    @SerialName("conversation_sync_v1") val conversationSync: Boolean = false,
+    @SerialName("durable_detach_v1") val durableDetach: Boolean = false
 ) {
+    val supportsDurableChat: Boolean get() = taskScopeProtocol == 1 && taskScopes.containsAll(listOf("read", "plan", "implement")) && conversationSync && durableDetach
+
     fun unavailableReason(graph: Boolean = false): String? {
         val ready = if (graph) codeGraph?.enabled == true && readiness?.graphReady != false else enabled && readiness?.ready != false
         if (ready) return null
@@ -91,7 +101,13 @@ data class GatewayEngineeringRequest(
     val acceptance: List<GatewayEngineeringAcceptance> = emptyList(),
     @SerialName("profile_id") val profileId: String? = null,
     @SerialName("memory_mode") val memoryMode: GitHubEngineeringMemoryMode = GitHubEngineeringMemoryMode.HYBRID,
-    @SerialName("execution_binding_id") val executionBindingId: String? = null
+    @SerialName("execution_binding_id") val executionBindingId: String? = null,
+    @SerialName("task_scope") val taskScope: String = "implement",
+    @SerialName("client_conversation_id") val clientConversationId: String? = null,
+    @SerialName("conversation_id") val conversationId: String? = null,
+    @SerialName("expected_revision") val expectedRevision: Long? = null,
+    @SerialName("source_branch") val sourceBranch: String? = null,
+    @SerialName("source_sha") val sourceSha: String? = null
 )
 
 @Serializable
@@ -130,9 +146,20 @@ data class GatewayEngineeringJob(
     @SerialName("execution_binding") val executionBinding: JsonObject? = null,
     @SerialName("latest_execution_receipt") val latestExecutionReceipt: JsonObject? = null,
     @SerialName("blocked_reason") val blockedReason: JsonObject? = null,
-    @SerialName("final_report") val finalReport: JsonObject? = null
+    @SerialName("final_report") val finalReport: JsonObject? = null,
+    @SerialName("gateway_id") val gatewayId: String? = null,
+    @SerialName("principal_id") val principalId: String? = null,
+    @SerialName("conversation_id") val conversationId: String? = null,
+    @SerialName("command_id") val commandId: String? = null,
+    @SerialName("accepted_at") val acceptedAt: Double? = null,
+    @SerialName("server_now") val serverNow: Double? = null,
+    @SerialName("detach_safe") val detachSafe: Boolean = false,
+    @SerialName("source_branch") val sourceBranch: String? = null,
+    @SerialName("source_sha") val sourceSha: String? = null,
+    @SerialName("working_branch") val workingBranch: String? = null,
+    val base: String? = null
 ) {
-    val terminal: Boolean get() = state in setOf("COMPLETED", "CANCELLED")
+    val terminal: Boolean get() = state in setOf("COMPLETED", "CANCELLED", "FAILED")
     val progress: Float get() = (milestonesCompleted.toFloat() / milestonesTotal.coerceAtLeast(1)).coerceIn(0f, 1f)
 }
 
@@ -150,8 +177,33 @@ data class GatewayEngineeringBinding(
     val principalId: String? = null,
     val localChatId: Int? = null,
     val executionSelection: GatewayExecutionSelection? = null,
-    val executionAdmission: GatewayExecutionAdmission? = null
+    val executionAdmission: GatewayExecutionAdmission? = null,
+    val localUserMessageId: Int? = null,
+    val localAssistantMessageId: Int? = null,
+    val localRunId: String? = null,
+    val gatewayId: String? = null,
+    val originalContext: GitHubConversationContext? = null
 ) {
     /** Remote request identity stays immutable when a backup maps local conversation IDs. */
     val chatId: Int get() = localChatId ?: request.chatId
+}
+
+/** The implement workflow commits changes; an explicit prohibition cannot be silently discarded. */
+internal fun requireGatewayCommitPermission(objective: String, taskScope: String) {
+    val denied = Regex("\\b(?:(?:do not|don't|never)\\s+(?:commit|push)|without\\s+(?:commit(?:s|ting)?|push(?:es|ing)?))\\b", RegexOption.IGNORE_CASE)
+    check(taskScope != "implement" || !denied.containsMatchIn(objective)) { "Gateway implementation jobs include commits. This request explicitly forbids them; revise the task or use a read/planning request." }
+}
+
+/** A server-owned branch is authorized only from this exact pinned implement request. */
+internal fun gatewayDerivedWorkingBranch(request: GatewayEngineeringRequest): String? {
+    if (request.taskScope != "implement" || request.branch != request.base || request.sourceBranch != request.branch || request.sourceSha?.matches(Regex("(?:[a-fA-F0-9]{40}|[a-fA-F0-9]{64})")) != true) return null
+    val payload = Json.encodeToString(listOf(request.requestId, request.repository, requireNotNull(request.sourceSha)))
+    val suffix = MessageDigest.getInstance("SHA-256").digest(payload.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }.take(20)
+    return "codex/gateway-$suffix"
+}
+
+internal fun gatewayWorkingBranchMatches(request: GatewayEngineeringRequest, actualBranch: String?, sourceBranch: String?, sourceSha: String?, workingBranch: String?): Boolean {
+    val derived = gatewayDerivedWorkingBranch(request)
+    if (derived != null) return actualBranch == derived && workingBranch == derived && sourceBranch == request.sourceBranch && sourceSha == request.sourceSha
+    return actualBranch == request.branch && (sourceBranch == null || request.sourceBranch == null || sourceBranch == request.sourceBranch) && (sourceSha == null || request.sourceSha == null || sourceSha == request.sourceSha)
 }

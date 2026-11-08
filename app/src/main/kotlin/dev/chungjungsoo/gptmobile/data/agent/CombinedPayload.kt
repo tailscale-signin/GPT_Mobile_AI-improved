@@ -20,14 +20,15 @@ internal object CombinedPayload {
     const val PAGE_CHARACTERS = 8192
     const val PAGE_BATCH = 8
 
-    fun pages(text: String): Sequence<Pair<Int, String>> = sequence {
+    fun pages(text: String, pageCharacters: Int = PAGE_CHARACTERS): Sequence<Pair<Int, String>> = sequence {
+        require(pageCharacters in 2..PAGE_CHARACTERS) { "COMBINED_PAGE_SIZE" }
         val characters = BreakIterator.getCharacterInstance(Locale.ROOT).apply { setText(text) }
         var start = 0
         while (start < text.length) {
-            var end = minOf(text.length, start + PAGE_CHARACTERS)
+            var end = minOf(text.length, start + pageCharacters)
             if (end < text.length) {
-                val paragraph = text.lastIndexOf("\n\n", end - 2).takeIf { it >= start + PAGE_CHARACTERS / 2 }
-                val line = text.lastIndexOf('\n', end - 1).takeIf { it >= start + PAGE_CHARACTERS / 2 }
+                val paragraph = text.lastIndexOf("\n\n", end - 2).takeIf { it >= start + pageCharacters / 2 }
+                val line = text.lastIndexOf('\n', end - 1).takeIf { it >= start + pageCharacters / 2 }
                 end = paragraph?.plus(2) ?: line?.plus(1) ?: end
                 val preferred = end
                 if (!characters.isBoundary(end)) end = characters.preceding(end)

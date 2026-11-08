@@ -14,16 +14,42 @@ import kotlinx.serialization.json.JsonPrimitive
 
 /** Bridges a physical serializer to its existing invocation owner without retaining prompt bytes. */
 internal class RequestDispatchContext(private val candidates: Set<JsonObject>, private val runId: String? = null, private val invocationId: String? = null, private val preparedEvidence: Set<JsonObject> = emptySet(), private val researchTrace: dev.chungjungsoo.gptmobile.data.research.ResearchStageTrace? = null) : AbstractCoroutineContextElement(Key) {
-    companion object Key : CoroutineContext.Key<RequestDispatchContext>
+    companion object Key : CoroutineContext.Key<RequestDispatchContext> {
+        const val MAX_RETAINED_REQUEST_SETTINGS = 64
+    }
     val queueScope: String? get() = runId ?: invocationId
     val queueInvocationId: String? get() = invocationId
     private val physicalOrdinal = java.util.concurrent.atomic.AtomicLong()
     val receipts = CopyOnWriteArrayList<RequestAdmissionReceipt>()
+    private val serializedSettings = CopyOnWriteArrayList<JsonObject>()
+    val serializedRequestSettings: List<JsonObject> get() = serializedSettings.toList()
+
+    @Volatile var latestSerializedRequestSettings: JsonObject? = null
+        private set
+    private val omittedSettings = java.util.concurrent.atomic.AtomicLong()
+    val omittedSerializedRequestSettings: Long get() = omittedSettings.get()
     val includedProducers = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
     private val httpTrace = java.util.concurrent.atomic.AtomicReference<dev.chungjungsoo.gptmobile.data.network.HttpAttemptTrace?>()
     private val attemptTraces = java.util.concurrent.ConcurrentHashMap<String, dev.chungjungsoo.gptmobile.data.network.HttpAttemptTrace>()
     private val pollTraces = java.util.concurrent.ConcurrentHashMap<String, dev.chungjungsoo.gptmobile.data.network.HttpAttemptTrace>()
+
+    @Volatile var preflightRejection: InferencePreflightRejection? = null
+        private set
+
+    /** Call only from the local preflight that owns the no-inference boundary, never an error string. */
+    fun rejectedBeforeInference(reason: InferencePreflightReason) {
+        preflightRejection = InferencePreflightRejection(reason)
+        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
+            "Admission",
+            "INFERENCE_PRECHECK_REJECTED · runId=${runId ?: "unavailable"} · invocationId=${invocationId ?: "unavailable"} · reason=${reason.name} · phase=LOCAL_INFERENCE_ADMISSION · dispatched=NOT_DISPATCHED · retryable=false"
+        )
+    }
+
+    /** A later rejected retry never erases a previous transmitted or uncertain attempt. */
+    fun provenEntirelyUnsent(unsent: Set<String> = provenUnsentAttemptIds()): Boolean =
+        if (receipts.isEmpty()) preflightRejection != null else receipts.all { it.physicalAttemptId in unsent }
+
     fun provenUnsentAttemptIds(): Set<String> {
         val unsent = attemptTraces.filterValues { it.provenUnsent }.keys
         (unsent + pollTraces.filterValues { it.provenUnsent }.keys).forEach { researchTrace?.notDispatched(it) }
@@ -93,9 +119,26 @@ internal class RequestDispatchContext(private val candidates: Set<JsonObject>, p
         }
     }
 
-    fun serialized(payload: String, receipt: RequestAdmissionReceipt) {
+    fun serialized(payload: String, receipt: RequestAdmissionReceipt, config: dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig? = null) {
         val ordinal = physicalOrdinal.incrementAndGet()
         receipts += receipt
+        if (config?.profileRevision?.matches(Regex("[a-f0-9]{64}")) == true) {
+            // Capture immutable, redacted intent from this admitted request. The profile may
+            // change before a later attempt; never reconstruct history from current settings.
+            val settings = dev.chungjungsoo.gptmobile.data.network.ReasoningControlReceipt.fromPayload(payload, config).evidence()
+            val snapshot = kotlinx.serialization.json.buildJsonObject {
+                put("physical_attempt_id", receipt.physicalAttemptId?.let(::JsonPrimitive) ?: kotlinx.serialization.json.JsonNull)
+                put("evidence_scope", JsonPrimitive("ADMITTED_REQUEST"))
+                put("serialized_output_tokens", receipt.outputTokens?.let(::JsonPrimitive) ?: kotlinx.serialization.json.JsonNull)
+                put("settings", settings)
+            }
+            synchronized(serializedSettings) {
+                latestSerializedRequestSettings = snapshot
+                // Preserve early attempts instead of overwriting their provenance on retry.
+                // The latest snapshot and explicit omitted count keep bounded retention honest.
+                if (serializedSettings.size < MAX_RETAINED_REQUEST_SETTINGS) serializedSettings += snapshot else omittedSettings.incrementAndGet()
+            }
+        }
         receipt.physicalAttemptId?.let { researchTrace?.prepared(it, invocationId, outputTokens = receipt.outputTokens, contextTokens = receipt.contextTokens, capacityProvenance = receipt.capacityProvenance.name, inputMeasurement = receipt.measurement.name) }
         runId?.let { owner ->
             dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(owner, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.REQUEST_SERIALIZED, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticRole.from(receipt.role), invocationId = invocationId, physicalAttempt = ordinal, physicalAttemptId = receipt.physicalAttemptId, inputTokens = receipt.promptTokens, outputTokens = receipt.outputTokens, safetyTokens = receipt.safetyTokens, contextTokens = receipt.contextTokens, measured = receipt.measurement == TokenMeasurementKind.SERVING_TOKENIZER)

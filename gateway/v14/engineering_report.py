@@ -1,9 +1,22 @@
 """Deterministic final/partial content assembled from persisted evidence only."""
+from v14.engineering_scope import accepted_scope
 from collections import Counter
 
 
 def build_report(job, state, verification):
     data = job['data']
+    task_scope = accepted_scope(job['request'])
+    if task_scope in {'read', 'plan'}:
+        return {'schema_version': 1, 'job_id': job['id'], 'request_id': job['request']['request_id'],
+                'status': state, 'task_scope': task_scope, 'repository': job['request']['repository'],
+                'branch': job['request']['branch'], 'head_sha': data.get('head_sha'),
+                'binding_id': job['request'].get('execution_binding_id'),
+                'summary': data.get('answer') or job.get('message', ''), 'repository_writes_authorized': False,
+                'inspected_paths': (data.get('read_report') or {}).get('paths', []),
+                'limitations': (data.get('read_report') or {}).get('limitations', []),
+                'scope_verification': data.get('scope_verification'), 'repository_mutations': 0,
+                'tests_executed': False, 'merge_performed': False,
+                'benchmark_status': 'NOT_MEASURED', 'device_performance': 'NOT_MEASURED'}
     requirements = verification.get('requirements', [])
     counts = dict(Counter(row['status'] for row in requirements))
     completed = state == 'COMPLETED' and verification.get('passed') is True

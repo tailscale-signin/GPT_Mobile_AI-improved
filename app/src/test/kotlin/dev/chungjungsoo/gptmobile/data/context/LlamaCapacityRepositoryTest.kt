@@ -1,22 +1,90 @@
 package dev.chungjungsoo.gptmobile.data.context
 
+import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayClientDiagnostics
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpMethod
 import io.ktor.http.content.TextContent
 import io.ktor.http.headersOf
+import io.mockk.coEvery
+import io.mockk.every
+import io.mockk.mockk
 import java.io.EOFException
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Test
 
 class LlamaCapacityRepositoryTest {
+    @Test fun exactModelProofRequiresReportedIdentityWhilePreservingLegacyAllocationEvidence() = runBlocking {
+        for ((index, reported) in listOf("", "\"model_alias\":\"test-model\",", "\"model\":\"test-model\",").withIndex()) {
+            var reads = 0
+            HttpClient(
+                MockEngine { request ->
+                    assertEquals(HttpMethod.Get, request.method)
+                    assertEquals("/props", request.url.encodedPath)
+                    reads++
+                    respond("""{$reported"build_info":"fixture-build","chat_template":"{{enable_thinking}}","default_generation_settings":{"n_ctx":8192}}""")
+                }
+            ).use { http ->
+                val repository = LlamaCapacityRepository({ http })
+                val config = ProviderRequestConfig("http://127.0.0.1:${29891 + index}/v1", null)
+                val capacity = requireNotNull(repository.discover(config, "test-model"))
+                assertEquals(CapacityProvenance.VERIFIED_ROUTE, capacity.provenance)
+                assertEquals(8192L, capacity.contextTokens)
+                assertEquals(reported.isNotEmpty(), repository.hasExactModelProof(config, "test-model", capacity))
+                assertFalse(repository.hasExactModelProof(config, "test-model", capacity.copy(fingerprint = capacity.fingerprint.copy(runtimeRevision = "changed"))))
+                assertEquals(1, reads)
+            }
+        }
+    }
+
+    @Test fun metadataPoolDoesNotTakeTemplateOrInferencePostsOrAddInferenceRetries() = runBlocking {
+        var reads = 0
+        val posts = mutableListOf<String>()
+        HttpClient(
+            MockEngine { request ->
+                assertEquals(HttpMethod.Get, request.method)
+                assertEquals("/props", request.url.encodedPath)
+                reads++
+                respond("""{"model_alias":"test-model","build_info":"fixture-build","chat_template":"{{enable_thinking}}","default_generation_settings":{"n_ctx":8192}}""")
+            }
+        ).use { metadata ->
+            HttpClient(
+                MockEngine { request ->
+                    assertEquals(HttpMethod.Post, request.method)
+                    posts += request.url.encodedPath
+                    if (request.url.encodedPath == "/v1/chat/completions") throw EOFException("response lost")
+                    assertEquals("/apply-template", request.url.encodedPath)
+                    val body = Json.parseToJsonElement((request.body as TextContent).text).jsonObject
+                    val on = body.getValue("chat_template_kwargs").jsonObject.getValue("enable_thinking").toString() == "true"
+                    respond(if (on) """{"prompt":"prefix<think>"}""" else """{"prompt":"prefix<think></think>"}""")
+                }
+            ).use { ordinary ->
+                val network = mockk<NetworkClient>()
+                every { network.gatewayReadClient() } returns metadata
+                every { network() } returns ordinary
+                coEvery { network.evictIdleConnections() } returns Unit
+                val repository = LlamaCapacityRepository(network)
+                val config = ProviderRequestConfig("http://127.0.0.1:29890/v1", null)
+                val capacity = requireNotNull(repository.discover(config, "test-model"))
+                assertNotNull(repository.reasoningControl(config, "test-model", capacity))
+                assertFalse(repository.supportsReviewSchema(config, "test-model", capacity))
+                assertFalse(repository.supportsReviewSchema(config, "test-model", capacity))
+                assertEquals(1, reads)
+                assertEquals(listOf("/apply-template", "/apply-template", "/v1/chat/completions"), posts)
+            }
+        }
+    }
+
     @Test fun protectedMetadataCannotDisableAnObservedSchemaCapabilityOrChangeTheSelectedModel() = runTest {
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
             var probes = 0

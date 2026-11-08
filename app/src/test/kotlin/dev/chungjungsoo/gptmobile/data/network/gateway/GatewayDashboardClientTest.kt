@@ -95,6 +95,49 @@ class GatewayDashboardClientTest {
         }
     }
 
+    @Test fun readinessCacheRetainsTheOriginalReceiptAndRejectsInvalidModelsBeforeDispatch() = runTest {
+        var calls = 0
+        http(
+            MockEngine { request ->
+                calls++
+                assertEquals("GET", request.method.value)
+                assertEquals("/v1/gateway/ready", request.url.encodedPath)
+                assertEquals("selected-model", request.url.parameters["model"])
+                respond(readinessFixture("selected-model").toString(), HttpStatusCode.OK)
+            }
+        ).use { http ->
+            val client = GatewayDashboardClient(http)
+            val first = client.readiness(config, "selected-model")!!
+            val cached = client.readiness(config, "selected-model")!!
+            assertEquals(first.receivedAtMillis, cached.receivedAtMillis)
+            assertEquals(first.receivedAtMonotonicMillis, cached.receivedAtMonotonicMillis)
+            assertNotNull(first.receivedAtMonotonicMillis)
+            for (model in listOf(" ", " selected-model ", "invalid\nmodel", "x".repeat(513))) {
+                assertTrue(runCatching { client.readiness(config, model) }.isFailure)
+            }
+            assertEquals(1, calls)
+        }
+    }
+
+    @Test fun timeSpentReceivingAResponseCannotExtendTheOriginalProbeFreshness() = runTest {
+        var elapsed = 0L
+        val base = readinessFixture("selected-model")
+        val capabilities = base["capabilities"] as JsonObject
+        val response = JsonObject(base + ("capabilities" to JsonObject(capabilities + mapOf("observedAtMs" to JsonPrimitive(1_000), "observationAgeMs" to JsonPrimitive(19_000)))))
+        http(
+            MockEngine {
+                elapsed = 1_050
+                respond(response.toString(), HttpStatusCode.OK)
+            }
+        ).use { http ->
+            val client = GatewayDashboardClient(http, {}, { elapsed })
+            val observed = client.readiness(config, "selected-model")!!
+            assertEquals(20_050L, observed.observationAgeMillis)
+            assertEquals(1_000L, observed.observedAtMillis)
+            assertTrue(requireNotNull(observed.observationAgeMillis) >= GATEWAY_AVAILABILITY_FRESH_MILLIS)
+        }
+    }
+
     @Test fun anotherModelsReadinessAndContradictoryStatusAreRejectedWithoutRetry() = runTest {
         for ((model, status) in listOf("other-model" to HttpStatusCode.OK, "selected-model" to HttpStatusCode.ServiceUnavailable)) {
             var calls = 0

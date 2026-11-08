@@ -25,6 +25,7 @@ import dev.chungjungsoo.gptmobile.data.network.gateway.hasClientOwnedExecutionPr
 import dev.chungjungsoo.gptmobile.data.network.gateway.matchesRequestedModel
 import dev.chungjungsoo.gptmobile.data.network.gateway.recoverableContent
 import dev.chungjungsoo.gptmobile.data.network.gateway.recoveryDisposition
+import dev.chungjungsoo.gptmobile.data.network.gateway.savedFailure
 import dev.chungjungsoo.gptmobile.data.repository.ChatRepository
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.presentation.service.AgentRunForegroundService
@@ -66,7 +67,9 @@ data class AgentRunRequest(
     val chatToolConfig: ChatMcpToolConfig? = null,
     val stage: AgentStageRequest? = null,
     val researchParticipantUids: List<String> = emptyList(),
-    val providerWaitAuthority: dev.chungjungsoo.gptmobile.data.context.CapturedProviderAuthority? = null
+    val providerWaitAuthority: dev.chungjungsoo.gptmobile.data.context.CapturedProviderAuthority? = null,
+    /** A live master-tool change can revoke an unsubmitted host command. */
+    val gatewayAdmissionAllowed: (() -> Boolean)? = null
 )
 
 data class ActiveAgentRun(
@@ -113,10 +116,12 @@ class AgentRunCoordinator @Inject constructor(
     private val synthesisPlanner: CombinedSynthesisPlanner? = null,
     private val researchSessions: dev.chungjungsoo.gptmobile.data.research.ResearchSessionStore? = null,
     private val providerWaits: ProviderWaitStore? = null,
-    private val collectionDecisions: CombinedCollectionDecisionStore? = null
+    private val collectionDecisions: CombinedCollectionDecisionStore? = null,
+    private val gatewayChatSubmission: GatewayChatSubmission? = null
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val jobs = ConcurrentHashMap<String, Job>()
+    private val checkpointWriteGate = CheckpointWriteGate()
     private val cancellationContexts = ConcurrentHashMap<String, dev.chungjungsoo.gptmobile.data.delegation.DelegationCancellationContext>()
     private val combinedRoots = ConcurrentHashMap<String, String>()
     private val researchLifecycles = ConcurrentHashMap<String, dev.chungjungsoo.gptmobile.data.research.ResearchDispatchLifecycle>()
@@ -431,6 +436,22 @@ class AgentRunCoordinator @Inject constructor(
         }
     }
 
+    suspend fun hasUnconfirmedGatewayAdmission(chatId: Int, profileUid: String): Boolean =
+        gatewayChatSubmission?.hasUnconfirmedAdmission(chatId, profileUid) == true
+
+    suspend fun gatewayOwnsConversation(chatId: Int): Boolean = gatewayChatSubmission?.ownsConversation(chatId) == true
+
+    suspend fun gatewayConversationWriteBlocker(chatId: Int): String? = gatewayChatSubmission?.conversationWriteBlocker(chatId)
+
+    suspend fun gatewayOwnsRequest(runId: String): Boolean = try {
+        gatewayChatSubmission?.ownsRequest(runId) == true
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (failure: Exception) {
+        AppLogRecorder.record("Agent", "GATEWAY_OWNERSHIP_READ_UNAVAILABLE · run=$runId · reason=${failure.javaClass.simpleName}", "W")
+        true
+    }
+
     private suspend fun remoteWaitingRuns(): List<AgentRun> = try {
         chatRepository.waitingRemoteAgentRuns()
     } catch (cancelled: CancellationException) {
@@ -447,6 +468,21 @@ class AgentRunCoordinator @Inject constructor(
 
     private suspend fun terminalizeAndCancel(runIds: Set<String>, isInterrupted: Boolean, origin: dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin = dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin.USER_WHOLE_RUN) {
         if (runIds.isEmpty()) return
+        val gatewayOwned = runIds.filter { !jobs.containsKey(it) && !deferredStarts.containsKey(it) && gatewayOwnsRequest(it) }.toSet()
+        if (gatewayOwned.isNotEmpty()) {
+            if (requestsRemoteGatewayCancellation(origin, isInterrupted)) {
+                try {
+                    gatewayChatSubmission?.cancel(gatewayOwned)?.forEach { _notices.tryEmit(it) }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (failure: Exception) {
+                    AppLogRecorder.record("Gateway", "CANCELLATION_CONFIRMATION_UNAVAILABLE · reason=${failure.javaClass.simpleName}", "W")
+                }
+            }
+            // Detached host work keeps its authoritative state until a server receipt.
+            terminalizeAndCancel(runIds - gatewayOwned, isInterrupted, origin)
+            return
+        }
         val waitingRemote = remoteWaitingRuns().filter { it.runId in runIds }.associateBy { it.runId }
         val researchRoots = runIds.mapNotNull { researchLifecycles[it] }.distinctBy { it.rootWorkId }
         val cancelCombined = !isInterrupted &&
@@ -493,6 +529,27 @@ class AgentRunCoordinator @Inject constructor(
                     }.onFailure { AppLogRecorder.record("Research", "TERMINAL_JOURNAL_PENDING · root=${lifecycle.rootWorkId} · reason=${it.javaClass.simpleName}", "W") }
                 }
             }
+            if (requestsRemoteGatewayCancellation(origin, isInterrupted)) {
+                // Join the local worker before reading its final saved job binding.
+                // This path is never entered by observer or platform interruption.
+                try {
+                    gatewayChatSubmission?.cancel(runIds)?.forEach { _notices.tryEmit(it) }
+                    val remoteRuns = chatRepository.gatewayRunsForCancellation(runIds)
+                    if (remoteRuns.isNotEmpty()) {
+                        val profiles = settingRepository.fetchPlatformV2s().associateBy { it.uid }
+                        remoteRuns.forEach { run ->
+                            val receipt = stopSavedGatewayRun(run, profiles[run.profileUid], gatewayAPI) {
+                                requireNotNull(gatewayChatSubmission) { "The saved gateway authority verifier is unavailable." }
+                                    .ordinaryCancellationConfig(run)
+                            }
+                            chatRepository.recordGatewayCancellation(run.runId, requireNotNull(run.gatewayJobId), receipt.retainedError)
+                            _notices.tryEmit(AgentRunNotice(run.chatId, run.runId, receipt.message, persistent = true))
+                        }
+                    }
+                } catch (failure: Exception) {
+                    AppLogRecorder.record("Gateway", "CANCELLATION_CONFIRMATION_UNAVAILABLE · reason=${failure.javaClass.simpleName}", "W")
+                }
+            }
         }
     }
 
@@ -530,7 +587,20 @@ class AgentRunCoordinator @Inject constructor(
             gatewayRecoveryNetworkEpoch = networkEpoch
             gatewayRecoveryAttemptAtMs.clear()
         }
+        val reconnectedConversations = mutableSetOf<Int>()
         for (run in chatRepository.getRecoverableGatewayRuns()) {
+            if (gatewayOwnsRequest(run.runId)) {
+                if (reconnectedConversations.add(run.chatId)) {
+                    try {
+                        gatewayChatSubmission?.refresh(run.chatId)
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (failure: Exception) {
+                        AppLogRecorder.record("Agent", "GATEWAY_CONVERSATION_RECONNECT_PENDING · chat=${run.chatId} · reason=${failure.javaClass.simpleName}", "W")
+                    }
+                }
+                continue
+            }
             // A live stream remains the owner of its answer. Recovery only adopts interrupted work.
             if (!GatewayOutcomeRecovery.canReadSavedResult(run) || jobs.containsKey(run.runId)) continue
             val jobId = run.gatewayJobId ?: continue
@@ -589,10 +659,13 @@ class AgentRunCoordinator @Inject constructor(
                 val uncertainty = if (GatewayOutcomeRecovery.requiresReconciliation(run.terminalError.orEmpty()) && status != AgentRunStatus.COMPLETED) "${GatewayOutcomeRecovery.ERROR_CODE}: " else ""
                 val error = when {
                     status == AgentRunStatus.COMPLETED -> null
+                    disposition == GatewayResultDisposition.FAILED ->
+                        "${uncertainty}GATEWAY_SAVED_RESULT_FAILED: " +
+                            (result.savedFailure()?.let { "${it.code}: ${it.message}" } ?: "GATEWAY_JOB_${result.status.uppercase()}")
                     requiresVerification && isolatedCompletion -> "${GatewayOutcomeRecovery.ISOLATED_RESULT_PREFIX} The saved generation was isolated from server tools. Task acceptance and answer verification remain pending; resume from the retained client operation receipts."
                     requiresVerification -> "${uncertainty}GATEWAY_RECOVERED_RESULT_UNVERIFIED: Saved gateway output was recovered. Task acceptance and answer verification remain pending; continue from the retained receipts."
                     disposition == GatewayResultDisposition.PARTIAL -> "${uncertainty}GATEWAY_SAVED_RESULT_PARTIAL: The saved answer is incomplete. Resume only the unfinished work."
-                    else -> uncertainty + "GATEWAY_SAVED_RESULT_FAILED: " + (result.error?.take(500) ?: "GATEWAY_JOB_${result.status.uppercase()}")
+                    else -> "${uncertainty}GATEWAY_SAVED_RESULT_FAILED: GATEWAY_JOB_${result.status.uppercase()}"
                 }
                 if (content == null) {
                     chatRepository.finishInterruptedAgentRun(
@@ -764,7 +837,7 @@ class AgentRunCoordinator @Inject constructor(
                 withContext(Dispatchers.Default) { journal.traceOutput(request.runId, dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceBoundary.REDUCER, message.content, fence = message.ownershipFence) }
             }
         }
-        fun newCheckpoints() = ConflatedCheckpointWriter<MessageV2>(this, minimumIntervalMillis = 500) { snapshot ->
+        fun newCheckpoints() = ConflatedCheckpointWriter<MessageV2>(this, minimumIntervalMillis = 500, writeGate = checkpointWriteGate) { snapshot ->
             traceReducedOutput(snapshot)
             chatRepository.updateAgentMessage(snapshot)
         }
@@ -809,6 +882,28 @@ class AgentRunCoordinator @Inject constructor(
                 if (committedForHandoff) assistantMessage = terminalAgentMessage(assistantMessage, eligibilityFailure, completedAt).withCombinedOutcome(AgentRunStatus.FAILED)
             } else {
                 if (!withContext(NonCancellable) { chatRepository.markAgentRunRunning(request.runId, startedAt) }) return@coroutineScope
+                gatewayChatSubmission?.submitIfSupported(request)?.let { handoff ->
+                    val transferred = withContext(NonCancellable) {
+                        chatRepository.commitAgentRun(
+                            assistantMessage,
+                            request.runId,
+                            AgentRunStatus.WAITING_REMOTE_JOB,
+                            currentEpochSeconds(),
+                            if (handoff.accepted) null else "GATEWAY_ADMISSION_UNCONFIRMED"
+                        )
+                    }
+                    if (transferred) {
+                        _notices.tryEmit(AgentRunNotice(request.chatId, request.runId, handoff.message, true))
+                        try {
+                            gatewayChatSubmission.refresh(request.chatId)
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) {
+                            // The server owns execution; losing this observer retains the handoff.
+                        }
+                    }
+                    return@coroutineScope
+                }
                 val recovered = if (request.chatToolConfig?.combined?.requested?.singlePass == true) {
                     chatRepository.observeAgentRuns(request.chatId).first().firstOrNull { it.runId == request.runId }?.let { CombinedAcceptedTurn.decode(it.synthesisSnapshot)?.recoveredProviderAnswer }
                 } else {
@@ -1013,7 +1108,7 @@ class AgentRunCoordinator @Inject constructor(
                 val completedAt = currentEpochSeconds()
                 val message = terminalFailure.message ?: "Unknown provider error."
                 val revokedWait = terminalFailure is dev.chungjungsoo.gptmobile.data.context.ProviderWaitAuthorityChanged
-                val status = if (revokedWait) AgentRunStatus.INTERRUPTED else AgentRunStatus.FAILED
+                val status = if (revokedWait) AgentRunStatus.INTERRUPTED else acceptanceFailureStatus(message)
                 if (finishUnavailablePolicy(terminalFailure, status)) return@withContext
                 if (assistantMessage.content.isBlank() && !revokedWait) {
                     val fallback = runCatching { chatRepository.publishCombinedRetainedFallback(request.runId, message) }.getOrNull()
@@ -1080,6 +1175,7 @@ internal const val DEFAULT_GATEWAY_RECOVERY_MAX_AGE_SECONDS = 10 * 60L
 
 /** A saved model response cannot certify GitHub acceptance or a combined synthesis. */
 internal fun recoveredGatewayRunStatus(disposition: GatewayResultDisposition, requiresVerification: Boolean): String = when {
+    disposition == GatewayResultDisposition.FAILED -> AgentRunStatus.FAILED
     requiresVerification -> AgentRunStatus.EVIDENCE_MISSING
     disposition == GatewayResultDisposition.COMPLETE -> AgentRunStatus.COMPLETED
     disposition == GatewayResultDisposition.PARTIAL -> AgentRunStatus.PARTIAL
@@ -1105,6 +1201,14 @@ internal fun resolvePublishInterval(
     return policy.streamPublishIntervalMillis.coerceAtLeast(33L)
 }
 
+/** Response delivery never upgrades missing task acceptance to success or a generic transport error. */
+internal fun acceptanceFailureStatus(message: String): String = when (ProfileFailureRecord.classify(message).category) {
+    "EVIDENCE_REQUIRED" -> AgentRunStatus.EVIDENCE_MISSING
+    "TASK_INCOMPLETE" -> AgentRunStatus.PARTIAL
+    "REVIEW_INPUT_REQUIRED" -> AgentRunStatus.BLOCKED
+    else -> AgentRunStatus.FAILED
+}
+
 internal fun terminalAgentMessage(message: MessageV2, error: String?, completedAt: Long): MessageV2 {
     if (error == null) return message.copy(createdAt = completedAt).resetActiveRevision()
 
@@ -1121,7 +1225,7 @@ internal fun ApiStateFlowOutcome.toTerminalUpdate(): AgentRunTerminalUpdate = wh
         when {
             errorCode == "QUEUE_JOB_PENDING" -> AgentRunStatus.WAITING_REMOTE_JOB
             taskOutcome == "BLOCKED" || errorCode in setOf("GITHUB_REVIEW_BLOCKED", "REVIEW_INPUT_REQUIRED") -> AgentRunStatus.BLOCKED
-            errorCode == "GITHUB_EVIDENCE_REQUIRED" -> AgentRunStatus.EVIDENCE_MISSING
+            errorCode in setOf("GITHUB_EVIDENCE_REQUIRED", "GITHUB_EVIDENCE_RETENTION_INCOMPLETE") -> AgentRunStatus.EVIDENCE_MISSING
             taskOutcome == "PARTIAL" -> AgentRunStatus.PARTIAL
             else -> AgentRunStatus.FAILED
         },

@@ -10,6 +10,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -52,5 +53,18 @@ class GitHubBackupPreferencesTest {
         assertEquals(12, resumed.request.chatId)
         assertEquals(binding.request, resumed.request)
         assertEquals(binding.principalId, resumed.principalId)
+    }
+
+    @Test fun legacyGatewayRestoreKeepsAllUnavailableBindingsAndDoesNotRemapMessageSlotsByCoincidence() {
+        val bindings = (1..80).map { number -> GatewayEngineeringBinding("missing-profile", "https://gateway/v1", GatewayEngineeringRequest("owner/repo", "feature/job", "main", "Saved task", "local", chatId = 12, requestId = "stable-$number"), principalId = "tailnet:owner", localUserMessageId = 5, localAssistantMessageId = 6, localRunId = "original-run") }
+        val saved = JsonObject(mapOf("gatewayEngineeringJobs" to JsonArray(bindings.map { Json.encodeToJsonElement(GatewayEngineeringBinding.serializer(), it) })))
+        val current = prefs("""{"conversationIdentities":{"24":"identity"}}""")
+        val restored = GitHubBackupPreferences.restore(current, current, prefs(saved.toString()), snapshot, false, true, setOf(24), emptySet(), emptySet())
+        val jobs = Json.parseToJsonElement(restored.values.single().value).jsonObject.getValue("gatewayEngineeringJobs").jsonArray.map { Json.decodeFromJsonElement(GatewayEngineeringBinding.serializer(), it) }
+        assertEquals(80, jobs.size)
+        assertTrue(jobs.all { it.chatId == 24 && it.request.chatId == 12 && it.profileUid == "missing-profile" })
+        assertNull(jobs.first().localUserMessageId)
+        assertNull(jobs.first().localAssistantMessageId)
+        assertNull(jobs.first().localRunId)
     }
 }

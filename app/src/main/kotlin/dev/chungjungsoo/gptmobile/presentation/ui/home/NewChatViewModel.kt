@@ -11,24 +11,25 @@ import dev.chungjungsoo.gptmobile.data.model.NewChatType
 import dev.chungjungsoo.gptmobile.data.model.ResearchContentScope
 import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
 import dev.chungjungsoo.gptmobile.data.model.researchStartBlockReason
-import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAvailability
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAvailabilityRepository
 import dev.chungjungsoo.gptmobile.data.network.gateway.gatewayAvailabilityTargets
 import dev.chungjungsoo.gptmobile.data.repository.ChatRepository
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 /** Shared by both full-screen creation destinations; selecting models never generates text. */
 @HiltViewModel
+@OptIn(ExperimentalCoroutinesApi::class)
 class NewChatViewModel @Inject constructor(
     private val savedStateHandle: SavedStateHandle,
     private val settings: SettingRepository,
@@ -40,6 +41,10 @@ class NewChatViewModel @Inject constructor(
     val features = settings.observeFeatureSettings()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AppFeatureSettings())
     val typeName = savedStateHandle.getStateFlow("new_chat_type", "")
+    internal val gatewayAvailability = combine(profiles, features, typeName) { savedProfiles, settings, type ->
+        gatewayAvailabilityTargets(savedProfiles, settings, type == NewChatType.GITHUB.name)
+    }.distinctUntilChanged().flatMapLatest(availability::observe)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(stopTimeoutMillis = 0, replayExpirationMillis = 0), emptyMap())
     val selectedUids = savedStateHandle.getStateFlow("new_chat_uids", emptyList<String>())
     val primaryUid = savedStateHandle.getStateFlow("new_chat_primary", "")
     val researchDepth = savedStateHandle.getStateFlow("new_chat_research_depth", 50)
@@ -49,17 +54,6 @@ class NewChatViewModel @Inject constructor(
     val approvingResearch = _approvingResearch.asStateFlow()
     private val _error = MutableStateFlow<String?>(null)
     val error = _error.asStateFlow()
-    private val mutableGatewayAvailability = MutableStateFlow<Map<String, GatewayAvailability>>(emptyMap())
-    internal val gatewayAvailability = mutableGatewayAvailability.asStateFlow()
-
-    /** The screen owns this collection; opening a profile never starts inference or a saved job. */
-    internal suspend fun observeGateways() {
-        combine(profiles, features, typeName) { savedProfiles, configuration, type ->
-            gatewayAvailabilityTargets(savedProfiles, configuration, type == NewChatType.GITHUB.name)
-        }.distinctUntilChanged().collectLatest { targets ->
-            availability.observe(targets).collect { mutableGatewayAvailability.value = it }
-        }
-    }
 
     val type: NewChatType?
         get() = NewChatType.entries.firstOrNull { it.name == typeName.value }

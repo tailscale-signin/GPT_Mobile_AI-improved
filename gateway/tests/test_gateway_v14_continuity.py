@@ -1,11 +1,19 @@
-"""Real journal/engine/HTTP contracts; only external GitHub/model I/O is mocked."""
+"""Integrated continuity regressions on the canonical conversation/job projection.
+
+The superseded continuity-v1 wire is intentionally not a second live API. These
+cases retain its behavioral protections and exercise import of its actual schema.
+Only external model/GitHub I/O is replaced; admission, SQLite, paging and recovery
+use the production implementations.
+"""
 import asyncio
 import base64
 import copy
 import hashlib
 import json
 import sqlite3
+import tempfile
 import threading
+import time
 import unittest
 from contextlib import closing
 from pathlib import Path
@@ -14,20 +22,20 @@ from unittest.mock import patch
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from starlette.requests import Request
 
 import test_gateway_v14_engineering as engineering_fixture
 import test_gateway_v14_jobs as journal_fixture
-import export_continuity_contract_fixtures as wire_fixtures
-from gateway_security import DeviceStore, current_device
-from v14.config import Config
-from v14.continuity_routes import install_continuity_routes
-from v14.continuity import profile_metadata
-from v14.engineering import EngineeringService, EngineeringStore, validate_request
+import test_gateway_conversations as conversation_fixture
+from v14.batch import digest
+from v14.conversations import Conversations, ConversationConflict, CursorExpired
+from v14.engineering import EngineeringStore, EngineeringService, validate_request
 from v14.engineering_backend import GitHubEngineeringBackend, blob_sha
 from v14.execution_binding import ExecutionBindingError
+from v14.job_catalog import catalog, install_routes
+from v14.config import Config
 from v14.identity import Admission
 from v14.jobs import DurableCommitError
+from v14.profile_metadata import profile_metadata
 from v14.service import ServiceState
 
 
@@ -35,280 +43,230 @@ class ConversationTests(unittest.TestCase):
     setUp = engineering_fixture.DurableEngineeringTests.setUp
     tearDown = engineering_fixture.DurableEngineeringTests.tearDown
 
-    def create(self, command='request'):
-        return self.store.create('owner', dict(self.request, request_id=command, scope='read', profile_name='Accepted profile'))
+    def create(self, command='request', **extra):
+        return self.store.create('owner', dict(self.request, request_id=command, task_scope='read',
+                                              profile_name='Accepted profile', **extra))
 
-    def test_lost_create_response_reconciles_without_another_job_or_model_dispatch(self):
-        job = self.create()
-        first = self.store.continuity.command('owner', 'request')
-        again = self.create()
-        self.assertEqual(job['id'], again['id'])
-        self.assertEqual(first, self.store.continuity.command('owner', 'request'))
-        self.assertEqual('accepted', first['status'])
+    def test_followup_and_instruction_identity_preconditions_precede_command_admission(self):
+        engineering_fixture.DurableEngineeringTests.admit(self, 'local:single-user')
+        job = self.store.create('local:single-user', dict(self.request, task_scope='read'))
+        projection, cid = self.store.conversations, job['conversation_id']
+        snapshot = projection.snapshot('local:single-user', cid)
+        headers = {'X-Gateway-Installation-ID': snapshot['gateway_id'], 'X-Gateway-Principal-ID': 'local:single-user'}
+        instruction = {'kind': 'instruction', 'command_id': 'instruction', 'content': 'Explain more', 'expected_revision': snapshot['revision']}
+        followup = dict(instruction, kind='message', command_id='followup', engineering_request=dict(self.request, task_scope='read'))
+        app = FastAPI()
+        app.add_middleware(Admission, config=Config(mode='loopback', allowed_hosts=('testserver',), allowed_origins=()))
+        install_routes(app, projection, self.service, ServiceState(), SimpleNamespace(owned_job_ids=lambda ids, owner: set()))
+        path = '/gateway/conversations/' + cid + '/messages'
+        with TestClient(app, client=('127.0.0.1', 12000)) as client:
+            with patch.object(self.store, 'create') as create, patch.object(self.service, 'validate_submission') as validate:
+                for command in (instruction, followup):
+                    for wrong in (dict(headers, **{'X-Gateway-Installation-ID': 'gw_other'}),
+                                  dict(headers, **{'X-Gateway-Principal-ID': 'other-owner'})):
+                        response = client.post(path, json=command, headers=wrong)
+                        self.assertEqual(409, response.status_code, response.text)
+                        self.assertEqual('CONTINUITY_IDENTITY_MISMATCH', response.json()['error']['code'])
+                create.assert_not_called()
+                validate.assert_not_called()
+            self.assertEqual(snapshot['revision'], projection.snapshot('local:single-user', cid)['revision'])
+            self.assertIsNone(projection.command('local:single-user', 'instruction'))
+            response = client.post(path, json=instruction, headers=headers)
+            self.assertEqual(200, response.status_code, response.text)
+            self.assertEqual('queued_instruction', response.json()['status'])
+            self.store.control(job['id'], 'local:single-user', 'cancel', job['revision'])
+            followup['expected_revision'] = projection.snapshot('local:single-user', cid)['revision']
+            with patch.object(self.service, 'validate_submission'), patch.object(self.service, 'readiness', return_value={'ready': True}):
+                response = client.post(path, json=followup, headers=headers)
+            self.assertEqual(200, response.status_code, response.text)
+            self.assertEqual(cid, response.json()['conversation_id'])
+        self.assertEqual(2, self.store.tx(lambda db: db.execute('SELECT COUNT(*) FROM engineering_jobs').fetchone()[0]))
         self.assertEqual([], self.backend.calls)
-        self.assertEqual(1, self.store.tx(lambda db: db.execute('SELECT COUNT(*) FROM engineering_jobs').fetchone()[0]))
-        with self.assertRaises(ExecutionBindingError) as error:
-            self.store.continuity.command('different-owner', 'request')
-        self.assertEqual(404, error.exception.status)
-        with self.assertRaises(ValueError):
-            self.store.create('owner', dict(self.request, scope='read', profile_name='Accepted profile', objective='Changed command'))
 
-    def test_catalog_cursor_survives_restart_is_scoped_and_excludes_later_admissions(self):
-        jobs = [self.create('page-' + str(index)) for index in range(5)]
-        identity = self.store.continuity.identity('owner', 'boot-one', 'user')
-        first = self.store.continuity.catalog('owner', limit=2)
-        self.create('arrived-after-snapshot')
-        restarted = EngineeringStore(self.runtime, lambda: self.time)
-        second_identity = restarted.continuity.identity('owner', 'boot-two', 'user')
-        self.assertEqual(identity['gateway_id'], second_identity['gateway_id'])
-        self.assertNotEqual(identity['instance_id'], second_identity['instance_id'])
-        seen = [row['job_id'] for row in first['items']]
-        page = first
-        while page['has_more']:
-            page = restarted.continuity.catalog('owner', page['next_cursor'], 2)
-            seen.extend(row['job_id'] for row in page['items'])
-        self.assertEqual({job['id'] for job in jobs}, set(seen))
-        self.assertEqual(5, len(seen))
-        with self.assertRaises(ExecutionBindingError):
-            restarted.continuity.catalog('another-owner', first['next_cursor'], 2)
-        with self.assertRaises(ExecutionBindingError):
-            restarted.continuity.catalog('owner', first['next_cursor'], 2, kinds=('chat',))
-
-    def test_message_replay_cursor_tails_new_messages_and_terminal_delivery_is_idempotent(self):
-        job = self.create()
-        conversation_id = job['conversation_id']
-        first = self.store.continuity.messages('owner', conversation_id)
-        self.assertFalse(first['has_more'])
-        self.assertTrue(first['next_cursor'])
-        self.assertEqual([1], [message['sequence'] for message in first['items']])
-        cancelled = self.store.control(job['id'], 'owner', 'cancel', 0)
-        self.store.tx(lambda db: self.store.continuity.record_engineering(db, cancelled, 'CANCELLED', 1))
-        tail = self.store.continuity.messages('owner', conversation_id, first['next_cursor'])
-        self.assertEqual(['final'], [message['kind'] for message in tail['items']])
-        self.assertEqual([2], [message['sequence'] for message in tail['items']])
-        empty = self.store.continuity.messages('owner', conversation_id, tail['next_cursor'])
-        self.assertEqual([], empty['items'])
-        self.assertEqual(tail['next_cursor'], empty['next_cursor'])
-        self.store.recover()
-        replay = self.store.continuity.messages('owner', conversation_id)
-        self.assertEqual(2, len(replay['items']))
-        self.assertEqual(1, sum(message['kind'] == 'final' for message in replay['items']))
-
-    def test_followup_revision_fence_exact_binding_and_lost_response(self):
-        job = self.create()
-        cid = job['conversation_id']
-        before = self.store.continuity.conversation('owner', cid)
-        self.store.control(job['id'], 'owner', 'cancel', 0)
-        command = {'command_id': 'follow-up', 'expected_revision': before['revision'], 'content': 'Explain the retained result', 'scope': 'plan'}
-        with self.assertRaises(ExecutionBindingError) as stale:
-            self.store.continuity.followup_source('owner', cid, command)
-        self.assertEqual('CONVERSATION_REVISION_CHANGED', stale.exception.code)
-        command['expected_revision'] = self.store.continuity.conversation('owner', cid)['revision']
-        source, existing, digest = self.store.continuity.followup_source('owner', cid, command)
-        self.assertIsNone(existing)
-        for name in ('profile_id', 'model', 'repository', 'branch', 'execution_binding_id'):
-            self.assertEqual(job['request'][name], source[name])
-        admitted = self.store.create('owner', source, followup=command, command_hash=digest)
-        replay_source, replay_job, _ = self.store.continuity.followup_source('owner', cid, command)
-        self.assertIsNone(replay_source)
-        self.assertEqual(admitted['id'], replay_job)
-        self.assertEqual(cid, admitted['conversation_id'])
-        self.assertEqual('plan', admitted['request']['scope'])
-        self.assertEqual([], self.backend.calls)
-        with self.assertRaises(ExecutionBindingError) as conflict:
-            self.store.continuity.followup_source('owner', cid, dict(command, scope='implement'))
-        self.assertEqual('COMMAND_ID_CONFLICT', conflict.exception.code)
-
-    def test_followup_rechecks_revision_inside_the_job_admission_transaction(self):
-        job = self.create()
-        self.store.control(job['id'], 'owner', 'cancel', 0)
-        cid = job['conversation_id']
-        command = {'command_id': 'racing-send', 'expected_revision': self.store.continuity.conversation('owner', cid)['revision'], 'content': 'Read more', 'scope': 'read'}
-        source, _, digest = self.store.continuity.followup_source('owner', cid, command)
-        self.store.tx(lambda db: self.store.continuity.append(db, cid, job['id'], 'newer-event', 'assistant', 'status', 'Newer retained event', self.time))
-        with self.assertRaises(ExecutionBindingError):
-            self.store.create('owner', source, followup=command, command_hash=digest)
-        self.assertEqual(1, self.store.tx(lambda db: db.execute('SELECT COUNT(*) FROM engineering_jobs').fetchone()[0]))
-
-    def test_followup_reads_confirmed_working_head_without_rebinding_original_source(self):
-        request = dict(self.request, scope='implement', branch='feature/source', base='feature/source',
-                       source_branch='feature/source', source_sha='a' * 40)
+    def test_derived_work_branch_and_command_receipt_reconcile_original_source_exactly(self):
+        request = dict(self.request, branch='feature/source', base='feature/source', source_branch='feature/source',
+                       source_sha='a' * 40, task_scope='implement', profile_name='原始 profile')
         job = self.store.create('owner', request)
+        expected = 'codex/gateway-' + digest([request['request_id'], request['repository'], request['source_sha']])[:20]
+        self.assertEqual(expected, job['request']['branch'])
+        self.assertEqual(request, dict(self.request, branch='feature/source', base='feature/source', source_branch='feature/source',
+                                      source_sha='a' * 40, task_scope='implement', profile_name='原始 profile'))
+        self.assertEqual(job['id'], self.store.create('owner', request)['id'])
+        receipt = self.store.conversations.command('owner', request['request_id'])
+        snapshot = self.store.conversations.snapshot('owner', job['conversation_id'])
+        for value in (receipt, snapshot):
+            self.assertEqual(expected, value['branch'])
+            self.assertEqual(expected, value['working_branch'])
+            self.assertEqual('feature/source', value['source_branch'])
+            self.assertEqual('feature/source', value['base'])
+            self.assertEqual('a' * 40, value['source_sha'])
+            self.assertEqual(job['execution_binding'], value['execution_binding'])
+        self.assertIsNone(self.store.conversations.command('different-owner', request['request_id']))
+        self.assertEqual([], self.backend.calls)
+        self.assertEqual(1, self.store.tx(lambda db: db.execute('SELECT COUNT(*) FROM engineering_jobs').fetchone()[0]))
+
+    def test_scope_alias_is_normalized_without_escalating_read_and_rejects_conflicts(self):
+        for scope in ('read', 'plan'):
+            value = validate_request(dict(self.request, branch='main', base='main', scope=scope))
+            self.assertEqual(scope, value['task_scope'])
+            self.assertNotIn('scope', value)
+            self.assertEqual('main', value['branch'])
+        with self.assertRaises(ExecutionBindingError):
+            validate_request(dict(self.request, scope='read', task_scope='implement'))
+        with self.assertRaises(ValueError):
+            validate_request(dict(self.request, branch='main', base='main', task_scope='implement'))
+
+    def test_catalog_monotonic_cursor_survives_restart_and_excludes_backdated_admission(self):
+        jobs = [self.create('page-' + str(index)) for index in range(5)]
+        self.store.tx(lambda db: db.execute('CREATE TABLE IF NOT EXISTS gateway_jobs(public_json TEXT)'))
+        principal = SimpleNamespace(id='owner', scopes={'engineering'}, local_admin=False)
+        owner = SimpleNamespace(owned_job_ids=lambda ids, principal: set())
+        first = catalog(self.store.conversations, self.service, principal, owner, limit=2)
+        self.time -= 100
+        later = self.create('later-with-older-clock')
+        restarted = EngineeringStore(self.runtime, lambda: self.time)
+        page, seen = first, []
+        while True:
+            seen.extend(item['job_id'] for item in page['items'])
+            if not page['has_more']:
+                break
+            page = catalog(restarted.conversations, self.service, principal, owner, page['next_cursor'], 2)
+        self.assertEqual({job['id'] for job in jobs}, set(seen))
+        self.assertNotIn(later['id'], seen)
+        self.assertEqual(len(jobs), len(seen))
+        wrong = SimpleNamespace(id='other', scopes={'engineering'}, local_admin=False)
+        with self.assertRaises(ValueError):
+            catalog(restarted.conversations, self.service, wrong, owner, first['next_cursor'], 2)
+        tampered = first['next_cursor'][:20] + ('A' if first['next_cursor'][20] != 'A' else 'B') + first['next_cursor'][21:]
+        with self.assertRaises(CursorExpired):
+            catalog(restarted.conversations, self.service, principal, owner, tampered, 2)
+
+    def test_multipart_replay_after_restart_is_bounded_complete_and_idempotent(self):
+        job = self.create()
+        projection, cid = self.store.conversations, job['conversation_id']
+        original = ('A retained answer 🌍\n' * 120000) + '\x00' * 270000
+        publish = lambda db: projection.message(db, cid, 'large-final', 'assistant', original, 'completed', 'large-final')
+        projection.tx(publish)
+        before = projection.snapshot('owner', cid)['revision']
+        projection.tx(publish)
+        self.assertEqual(before, projection.snapshot('owner', cid)['revision'])
+        first = projection.messages('owner', cid, limit=2)
+        self.assertEqual(first, projection.messages('owner', cid, limit=2))
+        restarted = EngineeringStore(self.runtime, lambda: self.time).conversations
+        pages, parts = [first], list(first['messages'])
+        while pages[-1]['has_more']:
+            page = restarted.messages('owner', cid, pages[-1]['next_cursor'], limit=3)
+            pages.append(page)
+            parts.extend(page['messages'])
+        self.assertGreater(len(pages), 3)
+        for page in pages:
+            self.assertLess(len(json.dumps(page, ensure_ascii=False, separators=(',', ':')).encode()), 1_900_000)
+            self.assertTrue(page['history_complete'])
+        finals = [part for part in parts if part['publication_id'] == 'large-final']
+        self.assertEqual(list(range(len(finals))), [part['part_index'] for part in finals])
+        self.assertEqual({len(finals)}, {part['part_count'] for part in finals})
+        self.assertEqual(1, len({part['logical_message_id'] for part in finals}))
+        self.assertEqual(len(parts), len({part['message_id'] for part in parts}))
+        self.assertTrue(all(len(part['content'].encode('utf-8')) <= 256 * 1024 for part in finals))
+        self.assertEqual(original, ''.join(part['content'] for part in finals))
+        self.assertEqual({hashlib.sha256(original.encode()).hexdigest()}, {part['content_sha256'] for part in finals})
+        tail = restarted.messages('owner', cid, pages[-1]['next_cursor'])
+        self.assertEqual([], tail['messages'])
+        self.assertEqual(pages[-1]['next_cursor'], tail['next_cursor'])
+
+    def test_retention_gaps_remain_explicit_on_snapshot_page_and_empty_tail(self):
+        job = self.create()
+        projection, cid = self.store.conversations, job['conversation_id']
+        projection.tx(lambda db: projection.message(db, cid, 'large', 'assistant', 'x' * 800000, 'completed', 'large'))
+        initial = projection.messages('owner', cid)
+        large = next(item for item in initial['messages'] if item['publication_id'] == 'large')
+        projection.tx(lambda db: db.execute('DELETE FROM gateway_message_parts WHERE message_id=? AND part_index IN (1,3)', (large['logical_message_id'],)))
+        for response in (projection.snapshot('owner', cid), projection.messages('owner', cid),
+                         projection.messages('owner', cid, initial['next_cursor'])):
+            self.assertFalse(response['history_complete'])
+            self.assertTrue(response['gap'])
+            self.assertEqual('retention_gap', response['history_limitation'])
+            self.assertEqual([{'first_revision': large['revision'], 'last_revision': large['revision']}], response['gap_details']['missing_ranges'])
+        self.assertEqual([], projection.list('owner')['items'])
+        projection.tx(lambda db: db.execute("DELETE FROM gateway_messages WHERE conversation_id=? AND role='user'", (cid,)))
+        self.assertEqual(2, projection.snapshot('owner', cid)['gap_details']['missing_revision_count'])
+
+    def test_mutated_partial_publication_requires_snapshot_hydration(self):
+        job = self.create()
+        projection, cid = self.store.conversations, job['conversation_id']
+        projection.tx(lambda db: projection.message(db, cid, 'mutable', 'assistant', 'a' * 900000, 'running', 'mutable'))
+        first = projection.messages('owner', cid, limit=3)
+        self.assertTrue(first['has_more'])
+        projection.tx(lambda db: projection.message(db, cid, 'mutable', 'assistant', 'Final revised answer', 'completed', 'mutable'))
+        with self.assertRaises(CursorExpired):
+            projection.messages('owner', cid, first['next_cursor'])
+        fresh = projection.messages('owner', cid)
+        self.assertEqual('Final revised answer', fresh['messages'][-1]['content'])
+        self.assertTrue(fresh['history_complete'])
+        self.assertEqual([], self.backend.calls)
+
+    def test_explicit_paused_followup_retires_approval_and_preserves_confirmed_head_and_context(self):
+        job = self.create()
         claimed, lease, _ = self.store.claim(job['id'])
-        claimed['data']['head_sha'] = 'b' * 40  # External write receipt boundary.
-        self.store.complete(claimed, lease, 'NEEDS_INPUT', {'head_sha': 'b' * 40})
+        claimed['data'].update(head_sha='b' * 40, answer='A retained observation')
+        self.assertTrue(self.store.complete(claimed, lease, 'NEEDS_INPUT', {'head_sha': 'b' * 40, 'answer': 'A retained observation'}))
         cid = job['conversation_id']
-        command = {'command_id': 'explain-change', 'expected_revision': self.store.continuity.conversation('owner', cid)['revision'],
-                   'content': 'Explain the confirmed change', 'scope': 'read'}
-        source, _, digest = self.store.continuity.followup_source('owner', cid, command)
-        followup = self.store.create('owner', source, followup=command, command_hash=digest)
-        self.assertEqual('a' * 40, followup['request']['source_sha'])
-        self.assertEqual('feature/source', followup['request']['source_branch'])
-        self.assertEqual('b' * 40, followup['continuation_head_sha'])
-        self.assertEqual(job['request']['branch'], followup['continuation_branch'])
+        snapshot = self.store.conversations.snapshot('owner', cid)
+        followup = dict(self.request, task_scope='read', profile_name='Accepted profile', request_id='followup',
+                        conversation_id=cid, expected_revision=snapshot['revision'], objective='Explain the confirmed change')
+        with self.assertRaises(ConversationConflict):
+            self.store.create('owner', dict(followup, expected_revision=snapshot['revision'] - 1))
+        next_job = self.store.create('owner', followup)
+        self.assertEqual('CANCELLED', self.store.get(job['id'])['state'])
+        self.assertIsNone(self.store.get(job['id'])['approval'])
+        self.assertEqual('b' * 40, next_job['continuation_head_sha'])
+        self.assertEqual(job['request']['branch'], next_job['continuation_branch'])
+        self.assertEqual(cid, next_job['conversation_id'])
+        self.assertTrue(next_job['conversation_context']['bounded_history'])
+        self.assertIn(job['request']['objective'], str(next_job['conversation_context']))
+        self.assertEqual(next_job['id'], self.store.create('owner', followup)['id'])
+        self.assertEqual([], self.backend.calls)
+
+    def test_pinned_source_and_derived_target_are_rechecked_before_model_or_writes(self):
+        request = dict(self.request, task_scope='implement', branch='source', base='source', source_branch='source', source_sha='a' * 40)
+        job = self.store.create('owner', request)
         backend = GitHubEngineeringBackend(self.runtime)
         backend.identity = lambda job: {'id': 7}
-        backend.api = lambda *args, **kwargs: {'default_branch': 'main', 'permissions': {'pull': True}}
-        backend.ref = lambda job, branch: 'c' * 40 if branch == 'feature/source' else None
+        backend.api = lambda *args, **kwargs: {'default_branch': 'main', 'permissions': {'pull': True, 'push': True}}
+        with patch.object(backend, 'model') as model:
+            backend.ref = lambda job, branch: 'b' * 40 if branch == 'source' else None
+            with self.assertRaises(ExecutionBindingError) as changed:
+                backend.step(job, 'PLAN')
+            self.assertEqual('SOURCE_REVISION_CHANGED', changed.exception.code)
+            backend.ref = lambda job, branch: 'a' * 40 if branch == 'source' else 'c' * 40
+            with self.assertRaises(ExecutionBindingError) as collision:
+                backend.step(job, 'PLAN')
+            self.assertEqual('OWNED_BRANCH_COLLISION', collision.exception.code)
+            model.assert_not_called()
+
+    def test_followup_reads_retained_head_even_when_branch_deleted_but_mutation_fails(self):
+        job = self.create()
+        job.update(continuation_head_sha='b' * 40, continuation_branch=job['request']['branch'])
+        backend = GitHubEngineeringBackend(self.runtime)
+        backend.identity = lambda job: {'id': 7}
+        backend.api = lambda *args, **kwargs: {'default_branch': 'main', 'permissions': {'pull': True, 'push': True}}
+        backend.ref = lambda job, branch: 'a' * 40 if branch == job['request']['base'] else None
         seen = []
         backend.tree = lambda job, head: seen.append(head) or {'README.md': {'mode': '100644', 'sha': 'd' * 40}}
-        backend.model = lambda *args: {'paths': ['README.md'], 'plan': 'Explain the retained change'}
-        self.assertEqual('b' * 40, backend.step(followup, 'PLAN')['head_sha'])
+        backend.model = lambda *args: {'paths': ['README.md'], 'plan': 'Inspect retained commit'}
+        self.assertEqual('b' * 40, backend.step(job, 'PLAN')['head_sha'])
         self.assertEqual(['b' * 40], seen)
-        implementing = copy.deepcopy(followup)
-        implementing['request']['scope'] = 'implement'
-        backend.api = lambda *args, **kwargs: {'default_branch': 'main', 'permissions': {'pull': True, 'push': True}}
+        implementing = copy.deepcopy(job)
+        implementing['request']['task_scope'] = 'implement'
         with self.assertRaises(ExecutionBindingError) as mismatch:
             backend.step(implementing, 'PLAN')
         self.assertEqual('WORKING_REVISION_CHANGED', mismatch.exception.code)
 
-    def test_explicit_retention_gap_is_incomplete_and_does_not_reset_cursor(self):
-        job = self.create()
-        self.store.control(job['id'], 'owner', 'cancel', 0)
-        cid = job['conversation_id']
-        self.store.tx(lambda db: db.execute('DELETE FROM gateway_conversation_messages WHERE conversation_id=? AND sequence=1', (cid,)))
-        page = self.store.continuity.messages('owner', cid)
-        self.assertTrue(page['gap'])
-        self.assertFalse(page['history_complete'])
-        self.assertEqual('retention_gap', page['history_limitation'])
-        self.assertEqual([2], [message['sequence'] for message in page['items']])
-        self.assertEqual([], self.store.continuity.messages('owner', cid, page['next_cursor'])['items'])
-
-    def test_large_logical_message_replays_bounded_parts_after_interruption_without_duplicate_final(self):
-        job = self.create()
-        cid = job['conversation_id']
-        original = ('A retained answer 🌍\n' * 120000) + '\x00' * 270000
-        self.assertGreater(len(original.encode('utf-8')), 2_000_000)
-        def append(db, content=original):
-            return self.store.continuity.append(db, cid, job['id'], 'large-final', 'assistant', 'final', content, self.time)
-        self.assertTrue(self.store.tx(append))
-        self.assertFalse(self.store.tx(append))
-        with self.assertRaises(ValueError):
-            self.store.tx(lambda db: append(db, original + 'changed'))
-        first = self.store.continuity.messages('owner', cid, limit=2)
-        replay_first = self.store.continuity.messages('owner', cid, limit=2)
-        self.assertEqual(first, replay_first)
-        # Simulate a client crash after committing its first physical page.
-        restarted = EngineeringStore(self.runtime, lambda: self.time)
-        pages, parts = [first], list(first['items'])
-        while pages[-1]['has_more']:
-            page = restarted.continuity.messages('owner', cid, pages[-1]['next_cursor'])
-            pages.append(page)
-            parts.extend(page['items'])
-        for page in pages:
-            self.assertLess(len(json.dumps(page, ensure_ascii=False, separators=(',', ':')).encode()), 2_000_000)
-            self.assertFalse(page['gap'])
-        finals = [item for item in parts if item['kind'] == 'final']
-        self.assertGreater(len(finals), 1)
-        self.assertEqual(list(range(len(finals))), [part['part_index'] for part in finals])
-        self.assertEqual({len(finals)}, {part['part_count'] for part in finals})
-        self.assertEqual(1, len({part['logical_message_id'] for part in finals}))
-        self.assertEqual(len(parts), len({part['sequence'] for part in parts}))
-        self.assertTrue(all(len(part['content'].encode('utf-8')) <= 256 * 1024 for part in finals))
-        restored = ''.join(part['content'] for part in finals)
-        self.assertEqual(original, restored)
-        self.assertEqual({hashlib.sha256(restored.encode()).hexdigest()}, {part['content_sha256'] for part in finals})
-        self.assertEqual(original, self.store.tx(lambda db: db.execute(
-            'SELECT content FROM gateway_logical_messages WHERE logical_message_id=?', (finals[0]['logical_message_id'],)).fetchone()[0]))
-        self.assertEqual([], restarted.continuity.messages('owner', cid, pages[-1]['next_cursor'])['items'])
-
-    def test_terminal_page_reports_a_missing_trailing_part_immediately(self):
-        job = self.create()
-        cid = job['conversation_id']
-        self.store.tx(lambda db: self.store.continuity.append(db, cid, job['id'], 'partial-final',
-            'assistant', 'final', 'x' * 300000, self.time))
-        watermark = self.store.continuity.conversation('owner', cid)['message_watermark']
-        self.store.tx(lambda db: db.execute('DELETE FROM gateway_conversation_messages WHERE conversation_id=? AND sequence=?', (cid, watermark)))
-        page = self.store.continuity.messages('owner', cid)
-        self.assertFalse(page['has_more'])
-        self.assertTrue(page['gap'])
-        self.assertFalse(page['history_complete'])
-        self.assertEqual({'missing_ranges': [{'first_sequence': watermark, 'last_sequence': watermark}]}, page['gap_details'])
-        final_parts = [item for item in page['items'] if item['kind'] == 'final']
-        self.assertLess(len(final_parts), final_parts[0]['part_count'])
-        self.assertFalse(self.store.continuity.conversation('owner', cid)['history_complete'])
-        tail = self.store.continuity.messages('owner', cid, page['next_cursor'])
-        self.assertEqual([], tail['items'])
-        self.assertFalse(tail['history_complete'])
-        self.assertFalse(tail['gap'])
-
-    def test_real_http_gap_fixture_covers_interior_and_trailing_ranges_without_replay(self):
-        destination = Path(self.temp.name) / 'http-wire-fixtures'
-        wire_fixtures.export_gaps(destination)
-        page = json.loads((destination / 'replay-interior-trailing-gap.json').read_text())
-        self.assertEqual([1, 3], [item['sequence'] for item in page['items']])
-        self.assertEqual(4, page['latest_sequence'])
-        self.assertEqual({'missing_ranges': [{'first_sequence': 2, 'last_sequence': 2},
-                                             {'first_sequence': 4, 'last_sequence': 4}]}, page['gap_details'])
-        snapshot = json.loads((destination / 'replay-interior-trailing-gap-snapshot.json').read_text())
-        tail = json.loads((destination / 'replay-interior-trailing-gap-tail.json').read_text())
-        self.assertFalse(snapshot['history_complete'])
-        self.assertEqual([], tail['items'])
-        self.assertFalse(tail['gap'])
-        self.assertFalse(tail['history_complete'])
-        self.assertEqual(page['next_cursor'], tail['next_cursor'])
-
-    def test_snapshot_and_command_keep_full_job_shape_and_original_source_binding(self):
-        job = self.store.create('owner', dict(self.request, scope='read', branch='feature/source', base='feature/source',
-            source_branch='feature/source', source_sha='a' * 40, profile_name='原始 profile'))
-        snapshot = self.store.continuity.conversation('owner', job['conversation_id'])
-        receipt = self.store.continuity.command('owner', 'request')
-        self.assertEqual(job['id'], snapshot['latest_job']['job_id'])
-        self.assertEqual('queued', snapshot['latest_job']['scheduling_state'])
-        self.assertEqual('feature/source', snapshot['source_branch'])
-        self.assertEqual('a' * 40, snapshot['source_sha'])
-        self.assertEqual('feature/source', snapshot['working_branch'])
-        self.assertEqual(job['execution_binding'], snapshot['execution_binding'])
-        self.assertEqual(job['execution_binding'], receipt['job']['execution_binding'])
-        self.assertEqual(job['id'], receipt['job']['id'])
-        self.assertEqual(12, receipt['job']['chat_id'])
-        self.assertEqual(job['created_at'], receipt['job']['created_at'])
-        self.assertEqual(job['deadline'], receipt['job']['deadline'])
-
-    def test_http_custom_target_keeps_original_base_distinct_from_source_and_working_branch(self):
-        destination = Path(self.temp.name) / 'custom-base-fixtures'
-        wire_fixtures.export_custom_base(destination)
-        catalog = json.loads((destination / 'custom-base-catalog.json').read_text())
-        snapshot = json.loads((destination / 'custom-base-snapshot.json').read_text())
-        command = json.loads((destination / 'custom-base-command.json').read_text())
-        for value in (catalog['items'][0], snapshot, snapshot['latest_job'], command['job']):
-            self.assertEqual('release/base', value['base'])
-            self.assertEqual('feature/source', value['source_branch'])
-            self.assertEqual('a' * 40, value['source_sha'])
-            self.assertEqual('work/custom', value['working_branch'])
-            self.assertEqual(snapshot['execution_binding'], value['execution_binding'])
-        self.assertEqual('work/custom', command['job']['branch'])
-        self.assertEqual('feature/source', snapshot['branch'])
-        self.assertIn('follow_up', snapshot['permitted_actions'])
-
-    def test_current_source_branch_read_and_plan_are_valid_and_implementation_gets_owned_target(self):
-        for scope in ('read', 'plan'):
-            value = validate_request(dict(self.request, branch='feature/source', base='feature/source', source_branch='feature/source', source_sha='a' * 40, scope=scope))
-            self.assertEqual('feature/source', value['branch'])
-        value = validate_request(dict(self.request, branch='feature/source', base='feature/source', source_branch='feature/source', source_sha='a' * 40, scope='implement'))
-        self.assertTrue(value['branch'].startswith('codex/gateway-'))
-        self.assertEqual('feature/source', value['base'])
-        self.assertEqual('a' * 40, value['source_sha'])
-        self.assertEqual(value, validate_request(value))
-
-    def test_read_scope_cannot_progress_to_mutation_even_with_a_tampered_phase(self):
-        for phase in ('COMMIT', 'MERGE', 'CI', 'VERIFY', 'IMPLEMENT'):
-            with self.subTest(phase=phase):
-                job = self.create('tampered-' + phase)
-                self.store.tx(lambda db: db.execute('UPDATE engineering_jobs SET state=? WHERE id=?', (phase, job['id'])))
-                self.service.tick(job['id'])
-                blocked = self.store.get(job['id'])
-                self.assertEqual('NEEDS_INPUT', blocked['state'])
-                self.assertEqual('ENGINEERING_SCOPE_READ_ONLY', blocked['data']['blocked_reason']['code'])
-                self.assertFalse(blocked['data']['blocked_reason']['dispatched'])
-                self.assertEqual([], self.backend.calls)
-
-    def test_actual_read_and_plan_backend_finish_on_pinned_source_without_a_write_or_pr_engine(self):
-        self.time = __import__('time').time()
-        probe = self.service.capabilities._probe
+    def test_actual_read_and_plan_inspect_pinned_source_without_repository_mutation(self):
+        self.time = time.time()
         backend = GitHubEngineeringBackend(self.runtime)
         service = EngineeringService(self.store, backend)
-        service.capabilities._probe = probe
+        service.capabilities._probe = self.service.capabilities._probe
         source = 'A documented read-only behavior.\n'
         sha = blob_sha(source)
         requests, models = [], []
@@ -336,243 +294,284 @@ class ConversationTests(unittest.TestCase):
         backend.api = api
         backend.model_executor = selected_model
         for scope in ('read', 'plan'):
-            with self.subTest(scope=scope):
-                job = self.store.create('owner', dict(self.request, request_id=scope, branch='feature/source', base='feature/source',
-                    source_branch='feature/source', source_sha='a' * 40, scope=scope))
-                service.tick(job['id'])
-                service.tick(job['id'])
-                completed = self.store.get(job['id'])
-                self.assertEqual('COMPLETED', completed['state'], completed['message'])
-                report = completed['data']['final_report']
-                self.assertEqual('COMPLETED_' + scope.upper(), report['status'])
-                self.assertEqual('a' * 40, report['head_sha'])
-                self.assertEqual(['README.md'], report['inspected_paths'])
-                self.assertEqual(0, report['repository_mutations'])
-                self.assertFalse(report['tests_executed'])
-                self.assertFalse(report['merge_performed'])
-                self.assertEqual(0, self.store.tx(lambda db: db.execute(
-                    "SELECT COUNT(*) FROM engineering_receipts WHERE job_id=? AND phase IN ('COMMIT','OPEN_PR','PROMOTE','MERGE')", (job['id'],)).fetchone()[0]))
-        self.assertEqual([('planner', 'local'), ('final report', 'local')] * 2, models)
+            job = self.store.create('owner', dict(self.request, request_id=scope, branch='feature/source', base='feature/source',
+                source_branch='feature/source', source_sha='a' * 40, task_scope=scope))
+            service.tick(job['id'])
+            service.tick(job['id'])
+            completed = self.store.get(job['id'])
+            self.assertEqual('COMPLETED', completed['state'], completed['message'])
+            report = completed['data']['final_report']
+            self.assertEqual('COMPLETED', report['status'])
+            self.assertEqual(scope, report['task_scope'])
+            self.assertEqual('a' * 40, report['head_sha'])
+            self.assertEqual(['README.md'], report['inspected_paths'])
+            self.assertEqual(0, report['repository_mutations'])
+            self.assertFalse(report['tests_executed'])
+            self.assertFalse(report['merge_performed'])
+            self.assertEqual(0, self.store.tx(lambda db: db.execute(
+                "SELECT COUNT(*) FROM engineering_receipts WHERE job_id=? AND phase IN ('COMMIT','OPEN_PR','PROMOTE','MERGE')", (job['id'],)).fetchone()[0]))
+        self.assertEqual([('planner', 'local'), ('repository answerer', 'local'), ('planner', 'local'), ('repository planner', 'local')], models)
         self.assertTrue(requests)
         self.assertFalse(any('/pulls' in path for _, path in requests))
 
-    def test_http_catalog_replay_and_command_lookup_never_dispatch_and_enforce_current_scopes(self):
-        engineering_fixture.DurableEngineeringTests.admit(self, 'tailnet:owner')
-        job = self.store.create('tailnet:owner', dict(self.request, scope='read'))
-        config = Config(mode='trusted_proxy', trusted_users={'alice': {'principalId': 'owner', 'scopes': ['engineering']},
-                                                            'bob': {'principalId': 'other', 'scopes': ['engineering']}})
-        app = FastAPI()
-        app.add_middleware(Admission, config=config, store=DeviceStore(self.temp.name + '/auth.db'))
-        install_continuity_routes(app, self.service, ServiceState(), config)
-        with TestClient(app, base_url='http://127.0.0.1:8090', client=('127.0.0.1', 1234)) as client:
-            owner = {'tailscale-user-login': 'alice', 'x-gateway-principal': 'forged'}
-            identity = client.get('/v1/gateway/identity', headers=owner)
-            self.assertEqual('tailnet:owner', identity.json()['principal_id'])
-            catalog = client.get('/v1/gateway/job-catalog', headers=owner)
-            self.assertEqual([job['id']], [item['job_id'] for item in catalog.json()['items']])
-            snapshot = client.get('/v1/gateway/conversations/' + job['conversation_id'], headers=owner)
-            self.assertTrue(snapshot.json()['history_complete'])
-            messages = client.get('/v1/gateway/conversations/' + job['conversation_id'] + '/messages', headers=owner)
-            self.assertEqual(1, len(messages.json()['items']))
-            self.assertEqual(200, client.get('/v1/gateway/commands/request', headers=owner).status_code)
-            other = {'tailscale-user-login': 'bob'}
-            self.assertEqual(404, client.get('/v1/gateway/conversations/' + job['conversation_id'], headers=other).status_code)
-            self.assertEqual(404, client.get('/v1/gateway/commands/request', headers=other).status_code)
-            config.trusted_users['alice']['scopes'] = ['jobs']
-            self.assertEqual([], client.get('/v1/gateway/job-catalog', headers=owner).json()['items'])
-            self.assertEqual(403, client.get('/v1/gateway/conversations/' + job['conversation_id'], headers=owner).status_code)
-        self.assertEqual([], self.backend.calls)
 
-    def test_followup_checks_gateway_and_principal_before_creating_a_command(self):
-        engineering_fixture.DurableEngineeringTests.admit(self, 'local:single-user')
-        job = self.store.create('local:single-user', dict(self.request, scope='read'))
-        self.store.control(job['id'], 'local:single-user', 'cancel', 0)
-        snapshot = self.store.continuity.conversation('local:single-user', job['conversation_id'])
-        command = {'command_id': 'identity-fenced-followup', 'expected_revision': snapshot['revision'],
-                   'content': 'Explain the saved result', 'scope': 'read'}
-        app = FastAPI()
-        config = Config(mode='loopback')
-        app.add_middleware(Admission, config=config, store=DeviceStore(self.temp.name + '/auth.db'))
-        install_continuity_routes(app, self.service, ServiceState(), config)
-        headers = {'X-Gateway-Installation-ID': snapshot['gateway_id'], 'X-Gateway-Principal-ID': 'local:single-user'}
-        path = '/v1/gateway/conversations/' + job['conversation_id'] + '/messages'
-        with TestClient(app, base_url='http://127.0.0.1:8090', client=('127.0.0.1', 1234)) as client:
-            with patch.object(self.store, 'create') as create, patch.object(self.service, 'validate_submission') as validate:
-                for changed in (dict(headers, **{'X-Gateway-Installation-ID': 'gw_different'}),
-                                dict(headers, **{'X-Gateway-Principal-ID': 'another-account'})):
-                    rejected = client.post(path, json=command, headers=changed)
-                    self.assertEqual(409, rejected.status_code, rejected.text)
-                    self.assertEqual('CONTINUITY_IDENTITY_MISMATCH', rejected.json()['error']['code'])
-                create.assert_not_called()
-                validate.assert_not_called()
-            self.assertEqual(1, self.store.tx(lambda db: db.execute('SELECT COUNT(*) FROM engineering_jobs').fetchone()[0]))
-            self.assertEqual(snapshot['revision'], self.store.continuity.conversation('local:single-user', job['conversation_id'])['revision'])
-            with patch.object(self.service, 'validate_submission'):
-                accepted = client.post(path, json=command, headers=headers)
-            self.assertEqual(202, accepted.status_code, accepted.text)
-            self.assertEqual(command['command_id'], accepted.json()['command_id'])
-        self.assertEqual(2, self.store.tx(lambda db: db.execute('SELECT COUNT(*) FROM engineering_jobs').fetchone()[0]))
-        self.assertEqual([], self.backend.calls)
+class LegacyMigrationTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.path = Path(self.temp.name) / 'legacy.sqlite3'
+        self.runtime = SimpleNamespace(GATEWAY_DURABLE_JOBS=True, durable_job_initialized=True,
+            durable_job_lock=threading.RLock(), _durable_connect=lambda: sqlite3.connect(self.path))
+        self.projection = Conversations(self.runtime, lambda: 1000.)
+        self.cid, self.jid = 'conversation-retained', 'eng_retained'
+        self.request = {'repository': 'owner/repo', 'branch': 'work/custom', 'base': 'release/base',
+            'source_branch': 'feature/source', 'source_sha': 'a' * 40, 'scope': 'read', 'model': 'local',
+            'objective': 'Original actual question', 'request_id': 'legacy-command', 'profile_id': 'original-profile'}
+        self.binding = {'profile_id': 'original-profile', 'profile_name': '原始 profile', 'model': 'local',
+            'repository': 'owner/repo', 'branch': 'feature/source', 'source_branch': 'feature/source', 'source_sha': 'a' * 40,
+            'execution_binding': {'binding_id': 'bind_' + 'a' * 32, 'privacy_scope': 'original-scope'}}
+        self.answer = 'Retained visible response 🌍' * 15000
+        with closing(sqlite3.connect(self.path)) as db, db:
+            db.execute('CREATE TABLE engineering_identity(name TEXT PRIMARY KEY,value TEXT NOT NULL)')
+            db.execute("INSERT INTO engineering_identity VALUES('installation','gw_original_installation')")
+            db.execute('CREATE TABLE engineering_jobs(id TEXT PRIMARY KEY,principal TEXT,request_id TEXT,request_digest TEXT,state TEXT,revision INTEGER,next_at REAL,lease TEXT,data TEXT)')
+            job = {'id': self.jid, 'principal': 'owner', 'request': self.request, 'data': {'scope_result': {'answer': self.answer}}, 'execution_binding': self.binding['execution_binding']}
+            db.execute('INSERT INTO engineering_jobs VALUES(?,?,?,?,?,1,1000,NULL,?)', (self.jid, 'owner', 'legacy-command', 'old-digest', 'COMPLETED', json.dumps(job)))
+            db.execute('CREATE TABLE gateway_conversations(id TEXT PRIMARY KEY,principal TEXT,binding TEXT,title TEXT,revision INTEGER,message_sequence INTEGER,created_at REAL,updated_at REAL,latest_job_id TEXT,history_complete INTEGER,history_limitation TEXT)')
+            db.execute('INSERT INTO gateway_conversations VALUES(?,?,?,?,4,4,100,200,?,1,NULL)', (self.cid, 'owner', json.dumps(self.binding), 'Actual conversation', self.jid))
+            db.execute('CREATE TABLE gateway_commands(principal TEXT,command_id TEXT,digest TEXT,conversation_id TEXT,job_id TEXT,accepted_at REAL,accepted_revision INTEGER,PRIMARY KEY(principal,command_id))')
+            db.execute('INSERT INTO gateway_commands VALUES(?,?,?,?,?,100,0)', ('owner', 'legacy-command', 'old-digest', self.cid, self.jid))
+            db.execute('CREATE TABLE gateway_continuity_jobs(catalog_sequence INTEGER PRIMARY KEY AUTOINCREMENT,kind TEXT,job_id TEXT,principal TEXT,conversation_id TEXT,public_json TEXT)')
+            db.execute('INSERT INTO gateway_continuity_jobs(kind,job_id,principal,conversation_id,public_json) VALUES(?,?,?,?,?)', ('engineering', self.jid, 'owner', self.cid, json.dumps({'working_branch': 'work/custom', 'base': 'release/base'})))
+            db.execute('CREATE TABLE gateway_logical_messages(logical_message_id TEXT PRIMARY KEY,conversation_id TEXT,job_id TEXT,role TEXT,kind TEXT,content TEXT,content_sha256 TEXT,part_count INTEGER,created_at REAL)')
+            db.execute('CREATE TABLE gateway_conversation_messages(conversation_id TEXT,sequence INTEGER,message_id TEXT,job_id TEXT,role TEXT,kind TEXT,content TEXT,created_at REAL,logical_message_id TEXT,part_index INTEGER,part_count INTEGER,content_sha256 TEXT)')
+            messages = [('user:' + self.jid, 'user', 'user', self.request['objective']),
+                        ('private-tool', 'assistant', 'tool_request', 'Hidden tool arguments'),
+                        ('private-reasoning', 'reasoning', 'status', 'Hidden reasoning'),
+                        ('answer', 'assistant', 'final', self.answer)]
+            for sequence, (key, role, kind, content) in enumerate(messages, 1):
+                logical = self.cid + ':' + key
+                checksum = hashlib.sha256(content.encode()).hexdigest()
+                db.execute('INSERT INTO gateway_logical_messages VALUES(?,?,?,?,?,?,?,1,?)', (logical, self.cid, self.jid, role, kind, content, checksum, 100 + sequence))
+                db.execute('INSERT INTO gateway_conversation_messages VALUES(?,?,?,?,?,?,?,?,?,0,1,?)', (self.cid, sequence, logical, self.jid, role, kind, content, 100 + sequence, logical, checksum))
+
+    def test_atomic_import_preserves_identity_binding_receipt_and_complete_actual_text(self):
+        self.assertEqual('gw_original_installation', self.projection.gateway_id())
+        snapshot = self.projection.snapshot('owner', self.cid)
+        receipt = self.projection.command('owner', 'legacy-command')
+        for value in (snapshot, receipt):
+            self.assertEqual(self.binding['execution_binding'], value['execution_binding'])
+            self.assertEqual('feature/source', value['source_branch'])
+            self.assertEqual('work/custom', value['working_branch'])
+            self.assertEqual('work/custom', value['branch'])
+            self.assertEqual('release/base', value['base'])
+        self.assertTrue(snapshot['history_complete'])
+        page = self.projection.messages('owner', self.cid)
+        self.assertEqual(self.request['objective'] + self.answer, ''.join(item['content'] for item in page['messages']))
+        self.assertNotIn('Hidden', str(page))
+        self.assertGreater(len(page['messages']), 2)
+        self.assertEqual(self.cid, self.projection.list('owner')['items'][0]['conversation_id'])
+        with closing(sqlite3.connect(self.path)) as db:
+            stored = json.loads(db.execute('SELECT data FROM engineering_jobs').fetchone()[0])
+            self.assertEqual('read', stored['request']['task_scope'])
+            self.assertNotIn('scope', stored['request'])
+            self.assertEqual(self.answer, stored['data']['answer'])
+            self.assertEqual(4, db.execute('SELECT COUNT(*) FROM gateway_continuity_v1_logical_messages').fetchone()[0])
+        reopened = Conversations(self.runtime, lambda: 1000.)
+        self.assertEqual(snapshot, reopened.snapshot('owner', self.cid))
+        self.assertEqual(receipt, reopened.command('owner', 'legacy-command'))
+        self.assertIsNone(reopened.snapshot('other-owner', self.cid))
+
+    def test_incomplete_import_stays_visible_as_limited_history_but_not_in_full_browser(self):
+        with closing(sqlite3.connect(self.path)) as db, db:
+            db.execute('DELETE FROM gateway_conversation_messages WHERE sequence=2')
+        snapshot = self.projection.snapshot('owner', self.cid)
+        self.assertFalse(snapshot['history_complete'])
+        self.assertEqual('retention_gap', snapshot['history_limitation'])
+        self.assertEqual([], self.projection.list('owner')['items'])
+        self.assertFalse(self.projection.messages('owner', self.cid)['history_complete'])
+        self.assertEqual(self.cid, self.projection.command('owner', 'legacy-command')['conversation_id'])
+
+    def test_import_failure_rolls_back_table_renames_and_never_publishes_partial_migration(self):
+        original = self.runtime._durable_connect
+        def denied():
+            db = original()
+            db.set_authorizer(lambda action, table, *rest: sqlite3.SQLITE_DENY if action == sqlite3.SQLITE_INSERT and table == 'gateway_messages' else sqlite3.SQLITE_OK)
+            return db
+        with patch.object(self.runtime, '_durable_connect', side_effect=denied), self.assertRaises(sqlite3.DatabaseError):
+            self.projection.gateway_id()
+        with closing(sqlite3.connect(self.path)) as db:
+            columns = {row[1] for row in db.execute('PRAGMA table_info(gateway_conversations)')}
+            self.assertIn('message_sequence', columns)
+            self.assertNotIn('client_key', columns)
+            self.assertEqual(4, db.execute('SELECT COUNT(*) FROM gateway_logical_messages').fetchone()[0])
+            self.assertIsNone(db.execute("SELECT name FROM sqlite_master WHERE name='gateway_continuity_v1_conversations'").fetchone())
+        self.assertTrue(self.projection.snapshot('owner', self.cid)['history_complete'])
+
+    def test_missing_logical_record_with_retained_physical_parts_is_not_complete_history(self):
+        with closing(sqlite3.connect(self.path)) as db, db:
+            db.execute("DELETE FROM gateway_logical_messages WHERE kind='final'")
+        snapshot = self.projection.snapshot('owner', self.cid)
+        self.assertFalse(snapshot['history_complete'])
+        self.assertEqual('retention_gap', snapshot['history_limitation'])
+        self.assertEqual([], self.projection.list('owner')['items'])
+        self.assertEqual(self.request['objective'], self.projection.messages('owner', self.cid)['messages'][0]['content'])
+        with closing(sqlite3.connect(self.path)) as db:
+            self.assertEqual(self.answer, db.execute("SELECT content FROM gateway_continuity_v1_messages WHERE kind='final'").fetchone()[0])
 
 
 class OrdinaryLifecycleTests(unittest.TestCase):
     setUpClass = classmethod(journal_fixture.JournalTests.setUpClass.__func__)
     setUp = journal_fixture.JournalTests.setUp
     client = journal_fixture.JournalTests.client
+    completion = journal_fixture.JournalTests.completion
 
-    def test_captured_unicode_profile_and_full_visible_input_transcript_survive_recovery(self):
-        name = '  原始 profile 🌍  '
-        metadata = {'X-Gateway-Profile-ID': 'profile_original-1',
-                    'X-Gateway-Conversation-Retention': 'full',
-                    'X-Gateway-Profile-Name-Base64': base64.urlsafe_b64encode(name.encode()).decode().rstrip('=')}
-        transcript = [{'role': 'system', 'content': 'Internal prompt is not visible conversation history'},
-                      {'role': 'user', 'content': 'Original question'},
-                      {'role': 'assistant', 'content': 'Earlier visible response'},
-                      {'role': 'user', 'content': 'Follow-up question'}]
-        result = {'choices': [{'message': {'role': 'assistant', 'content': 'Saved final answer'}, 'finish_reason': 'stop'}]}
-        with self.client() as client, patch.object(self.runtime, 'process_chat_payload', return_value=(200, result)) as model:
-            response = client.post('/v1/chat/completions', headers=metadata,
-                json={'model': 'original-model', 'stream': False, 'messages': transcript})
-            self.assertEqual(200, response.status_code, response.text)
-            self.assertEqual(1, model.call_count)
-            catalog = client.get('/v1/gateway/job-catalog').json()
-            item = catalog['items'][0]
-            self.assertEqual(name, item['profile_name'])
-            self.assertEqual('profile_original-1', item['profile_id'])
-            self.assertEqual('original-model', item['model'])
-            self.assertTrue(item['history_complete'])
-            snapshot = client.get('/v1/gateway/conversations/' + item['conversation_id']).json()
-            self.assertEqual(item['job_id'], snapshot['latest_job']['job_id'])
-            self.assertEqual('completed', snapshot['latest_job']['scheduling_state'])
-            messages = client.get('/v1/gateway/conversations/' + item['conversation_id'] + '/messages').json()
-            visible = [message['content'] for message in messages['items'] if message['kind'] != 'status']
-            self.assertEqual([message['content'] for message in transcript[1:]] + ['Saved final answer'], visible)
-        self.runtime.job_registry.clear()
-        self.runtime.durable_job_initialized = False
-        with self.client() as client, patch.object(self.runtime, 'process_chat_payload') as forbidden:
-            restored = client.get('/v1/gateway/conversations/' + item['conversation_id']).json()
-            self.assertEqual(name, restored['profile_name'])
-            self.assertEqual('original-model', restored['model'])
-            self.assertTrue(restored['history_complete'])
-            forbidden.assert_not_called()
-
-    def test_absent_and_none_retention_do_not_create_an_additional_transcript(self):
+    def test_absent_or_none_retention_does_not_create_extra_transcripts_or_task_titles(self):
         jobs = []
-        def complete(payload, cancel, progress, hard_cancel):
+        def complete(payload, cancel, progress, hard):
             progress({'phase': 'working', 'message': 'PRIVATE_PROGRESS'})
             return 200, {'choices': [{'message': {'role': 'assistant', 'content': 'PRIVATE_ANSWER'}, 'finish_reason': 'stop'}]}
         with self.client() as client, patch.object(self.runtime, 'process_chat_payload', side_effect=complete) as model:
             for index, (retention, stream) in enumerate(((None, False), (None, True), ('none', False), ('none', True))):
-                headers = {'Idempotency-Key': 'private-retention-' + str(index), 'X-Gateway-Profile-ID': 'private_profile'}
-                if retention is not None:
+                headers = {'Idempotency-Key': 'private-retention-' + str(index), 'X-Gateway-Profile-ID': 'original-profile'}
+                if retention:
                     headers['X-Gateway-Conversation-Retention'] = retention
-                body = {'model': 'original-model', 'stream': stream, 'messages': [
-                    {'role': 'user', 'content': 'PRIVATE_QUESTION_' + str(index)},
-                    {'role': 'assistant', 'content': 'PRIVATE_PREVIOUS_ANSWER'},
-                    {'role': 'user', 'content': 'PRIVATE_FOLLOWUP_' + str(index)}]}
-                response = client.post('/v1/chat/completions', headers=headers, json=body)
-                self.assertEqual(200, response.status_code, response.text)
-                job_id = response.headers['x-gateway-job-id']
-                replay = client.post('/v1/chat/completions', headers=headers, json=body)
+                body = {'model': 'local', 'stream': stream, 'messages': [{'role': 'user', 'content': 'PRIVATE_QUESTION_' + str(index)}]}
+                first = client.post('/v1/chat/completions', json=body, headers=headers)
+                self.assertEqual(200, first.status_code, first.text)
+                replay = client.post('/v1/chat/completions', json=body, headers=headers)
                 self.assertEqual(200, replay.status_code, replay.text)
-                self.assertEqual(job_id, replay.headers['x-gateway-job-id'])
-                item = next(item for item in client.get('/v1/gateway/job-catalog').json()['items'] if item['job_id'] == job_id)
-                self.assertEqual('Gateway conversation', item['title'])
-                self.assertIsNone(item['message'])
-                self.assertFalse(item['history_complete'])
-                self.assertEqual('conversation_retention_disabled', item['history_limitation'])
-                messages = client.get('/v1/gateway/conversations/' + item['conversation_id'] + '/messages').json()
-                self.assertEqual([], messages['items'])
-                jobs.append((job_id, item['conversation_id']))
+                self.assertEqual(first.headers['x-gateway-job-id'], replay.headers['x-gateway-job-id'])
+                jobs.append(first.headers['x-gateway-job-id'])
             self.assertEqual(4, model.call_count)
+            self.assertEqual([], client.get('/gateway/conversations').json()['items'])
+            for row in client.get('/gateway/job-catalog').json()['items']:
+                self.assertIsNone(row['conversation_id'])
+                self.assertEqual('Gateway conversation', row['title'])
+                self.assertEqual('original-profile', row['profile_id'])
+                self.assertFalse(row['history_complete'])
+                self.assertEqual('conversation_retention_disabled', row['history_limitation'])
         self.runtime.job_registry.clear()
         self.runtime.durable_job_initialized = False
-        with self.client() as client, patch.object(self.runtime, 'process_chat_payload') as no_dispatch:
-            for job_id, conversation_id in jobs:
-                snapshot = client.get('/v1/gateway/conversations/' + conversation_id).json()
-                self.assertFalse(snapshot['history_complete'])
-                self.assertEqual('conversation_retention_disabled', snapshot['history_limitation'])
-                self.assertEqual([], client.get('/v1/gateway/conversations/' + conversation_id + '/messages').json()['items'])
-                saved = client.get('/gateway/jobs/' + job_id + '/result')
-                self.assertEqual(200, saved.status_code)
-                self.assertIn('PRIVATE_ANSWER', saved.text)
-            no_dispatch.assert_not_called()
+        with self.client() as client, patch.object(self.runtime, 'process_chat_payload') as forbidden:
+            self.assertEqual([], client.get('/gateway/conversations').json()['items'])
+            for job_id in jobs:
+                self.assertIn('PRIVATE_ANSWER', client.get('/gateway/jobs/' + job_id + '/result').text)
+            forbidden.assert_not_called()
         with closing(sqlite3.connect(self.db)) as db:
-            self.assertEqual(0, db.execute('SELECT COUNT(*) FROM gateway_conversation_messages').fetchone()[0])
-            self.assertEqual(0, db.execute('SELECT COUNT(*) FROM gateway_logical_messages').fetchone()[0])
-            self.assertNotIn('PRIVATE_', repr(db.execute('SELECT title FROM gateway_conversations').fetchall()))
-            self.assertNotIn('PRIVATE_', repr(db.execute('SELECT public_json FROM gateway_continuity_jobs').fetchall()))
+            self.assertEqual(0, db.execute('SELECT COUNT(*) FROM gateway_messages').fetchone()[0])
+            self.assertEqual(0, db.execute('SELECT COUNT(*) FROM gateway_conversations').fetchone()[0])
 
-    def test_retention_validation_and_same_job_policy_changes_do_not_dispatch(self):
-        body = {'model': 'local', 'stream': False, 'messages': [{'role': 'user', 'content': 'Private task'}]}
-        result = {'choices': [{'message': {'role': 'assistant', 'content': 'Private answer'}, 'finish_reason': 'stop'}]}
-        with self.client() as client, patch.object(self.runtime, 'process_chat_payload', return_value=(200, result)) as model:
-            invalid_headers = [
-                {'X-Gateway-Conversation-Retention': 'full'},
-                {'X-Gateway-Profile-ID': 'profile', 'X-Gateway-Conversation-Retention': 'FULL'},
-                [('X-Gateway-Conversation-Retention', 'full'), ('X-Gateway-Conversation-Retention', 'none')],
-            ]
-            for headers in invalid_headers:
-                rejected = client.post('/v1/chat/completions', headers=headers, json=body)
+    def test_retention_header_and_canonical_privacy_agree_and_cannot_change_job_policy(self):
+        body = {'model': 'local', 'stream': False, 'messages': [{'role': 'user', 'content': 'Original task'}]}
+        with self.client() as client, patch.object(self.runtime, 'process_chat_payload', side_effect=self.completion) as model:
+            for headers in ({'X-Gateway-Conversation-Retention': 'full'}, {'X-Gateway-Conversation-Retention': 'FULL'},
+                            [('X-Gateway-Conversation-Retention', 'full'), ('X-Gateway-Conversation-Retention', 'none')]):
+                rejected = client.post('/v1/chat/completions', json=body, headers=headers)
                 self.assertEqual(400, rejected.status_code, rejected.text)
+            for persistent, header in ((False, 'full'), (True, 'none')):
+                payload = conversation_fixture.ConversationHTTPTests.payload(persistent=persistent)
+                rejected = client.post('/v1/chat/completions', json=payload, headers={'X-Gateway-Conversation-Retention': header})
+                self.assertEqual(400, rejected.status_code, rejected.text)
+                self.assertEqual('CONVERSATION_RETENTION_CONFLICT', rejected.json()['error']['code'])
             model.assert_not_called()
-            headers = {'X-Gateway-Profile-ID': 'profile', 'Idempotency-Key': 'private-task'}
-            accepted = client.post('/v1/chat/completions', headers=headers, json=body)
-            self.assertEqual(200, accepted.status_code, accepted.text)
-            job_id = accepted.headers['x-gateway-job-id']
-            changed = client.post('/v1/chat/completions', headers=dict(headers, **{'X-Gateway-Conversation-Retention': 'full'}), json=body)
+            headers = {'X-Gateway-Profile-ID': 'original-profile', 'Idempotency-Key': 'retained-policy'}
+            first = client.post('/v1/chat/completions', json=body, headers=headers)
+            self.assertEqual(200, first.status_code, first.text)
+            job_id = first.headers['x-gateway-job-id']
+            changed = client.post('/v1/chat/completions', json=body, headers=dict(headers, **{'X-Gateway-Conversation-Retention': 'full'}))
             self.assertEqual(409, changed.status_code, changed.text)
             self.assertEqual('idempotency_conflict', changed.json()['error']['code'])
             self.runtime.job_registry.clear()
             self.runtime.singleflight_workers.clear()
             self.runtime.singleflight_request_index.clear()
-            self.runtime.durable_job_initialized = False
-            self.assertTrue(self.runtime.init_durable_job_store())
-            changed = client.post('/v1/chat/completions', headers={'X-Gateway-Profile-ID': 'profile',
-                'X-Gateway-Job-ID': job_id, 'X-Gateway-Conversation-Retention': 'full'}, json=body)
+            changed = client.post('/v1/chat/completions', json=body, headers={'X-Gateway-Job-ID': job_id, 'X-Gateway-Profile-ID': 'original-profile', 'X-Gateway-Conversation-Retention': 'full'})
             self.assertEqual(409, changed.status_code, changed.text)
             self.assertEqual('job_retention_changed', changed.json()['error']['code'])
-            self.assertEqual('not_dispatched', changed.json()['error']['dispatch_state'])
-            model.assert_called_once()
+            self.assertEqual(1, model.call_count)
+            retained = client.post('/v1/chat/completions', json=body, headers={'X-Gateway-Profile-ID': 'original-profile', 'X-Gateway-Conversation-Retention': 'full', 'Idempotency-Key': 'explicit-full'})
+            self.assertEqual(200, retained.status_code, retained.text)
+            cid = retained.headers['x-gateway-conversation-id']
+            self.assertEqual(['Original task', 'SQLite reply'], [item['content'] for item in client.get('/gateway/conversations/' + cid + '/messages').json()['messages']])
 
-    def test_retention_capability_matches_the_wire_fixture(self):
-        fixtures = Path(__file__).resolve().parents[1] / 'contracts/continuity-v1-fixtures'
+    def test_ordinary_identity_preconditions_precede_dispatch_and_explicit_cancel(self):
         with self.client() as client:
-            capabilities = client.get('/v1/gateway/capabilities').json()
-            for filename, field in (('ordinary-retention-policy.json', 'ordinaryConversationRetention'),
-                                    ('mutation-identity-preconditions.json', 'mutationIdentityPreconditions')):
-                wire = json.dumps(capabilities['continuity'][field], ensure_ascii=False, indent=2) + '\n'
-                self.assertEqual((fixtures / filename).read_bytes(), wire.encode())
-            for header in capabilities['continuity']['mutationIdentityPreconditions'] + [
-                    capabilities['continuity']['ordinaryConversationRetention']['header']]:
-                self.assertIn(header, capabilities['accepted_request_headers'])
-
-    def test_ordinary_mutations_reject_changed_installation_before_dispatch_or_cancel(self):
-        with self.client() as client:
-            identity = client.get('/v1/gateway/identity').json()
-            changed = {'X-Gateway-Installation-ID': 'gw_other', 'X-Gateway-Principal-ID': identity['principal_id']}
-            with patch.object(self.runtime, 'process_chat_payload') as model:
-                rejected = client.post('/v1/chat/completions', headers=changed,
-                    json={'model': 'local', 'stream': False, 'messages': [{'role': 'user', 'content': 'Original account task'}]})
-                self.assertEqual(409, rejected.status_code, rejected.text)
-                self.assertEqual('CONTINUITY_IDENTITY_MISMATCH', rejected.json()['error']['code'])
-                self.assertEqual('not_dispatched', rejected.json()['error']['dispatch_state'])
+            identity = client.get('/gateway/identity').json()
+            self.runtime.register_gateway_job('owned-cancel', 'local', 'interactive', threading.Event(), threading.Event())
+            self.store.claim('owned-cancel', identity['principal_id'])
+            valid = {'X-Gateway-Installation-ID': identity['gateway_id'], 'X-Gateway-Principal-ID': identity['principal_id']}
+            invalid = [(dict(valid, **{'X-Gateway-Installation-ID': 'gw_other'}), 409, 'CONTINUITY_IDENTITY_MISMATCH'),
+                       (dict(valid, **{'X-Gateway-Principal-ID': 'another-owner'}), 409, 'CONTINUITY_IDENTITY_MISMATCH'),
+                       ({'X-Gateway-Installation-ID': identity['gateway_id']}, 400, 'CONTINUITY_IDENTITY_INVALID'),
+                       ({'X-Gateway-Principal-ID': identity['principal_id']}, 400, 'CONTINUITY_IDENTITY_INVALID')]
+            payload = conversation_fixture.ConversationHTTPTests.payload()
+            with patch.object(self.runtime, 'process_chat_payload') as model, patch.object(self.runtime, 'cancel_gateway_job') as cancel:
+                for headers, status, code in invalid:
+                    for path, body in (('/v1/chat/completions', payload), ('/gateway/jobs/owned-cancel/cancel', {})):
+                        response = client.post(path, json=body, headers=headers)
+                        self.assertEqual(status, response.status_code, response.text)
+                        self.assertEqual(code, response.json()['error']['code'])
                 model.assert_not_called()
-            self.assertFalse(self.runtime.job_registry)
-            marker = current_device.set(identity['principal_id'])
-            try:
-                self.runtime.register_gateway_job('cancel-original', 'local', 'interactive', threading.Event(), threading.Event())
-                self.store.claim('cancel-original', identity['principal_id'])
-            finally:
-                current_device.reset(marker)
-            with patch.object(self.runtime, 'cancel_gateway_job') as cancel:
-                rejected = client.post('/v1/gateway/jobs/cancel-original/cancel', headers=changed)
-                self.assertEqual(409, rejected.status_code, rejected.text)
-                self.assertEqual('CONTINUITY_IDENTITY_MISMATCH', rejected.json()['error']['code'])
                 cancel.assert_not_called()
+            self.assertEqual({'owned-cancel'}, set(self.runtime.job_registry))
+            with patch.object(self.runtime, 'process_chat_payload', side_effect=self.completion) as model:
+                accepted = client.post('/v1/chat/completions', json=payload, headers=valid)
+                self.assertEqual(200, accepted.status_code, accepted.text)
+                self.assertEqual(1, model.call_count)
+            capabilities = client.get('/gateway/capabilities').json()
+            self.assertTrue(capabilities['features']['mutation_identity_preconditions_v1'])
+            self.assertTrue(capabilities['features']['ordinary_conversation_retention_v1'])
+            self.assertEqual(['X-Gateway-Installation-ID', 'X-Gateway-Principal-ID'], capabilities['mutationIdentityPreconditions'])
+            self.assertEqual({'header': 'X-Gateway-Conversation-Retention', 'values': ['full', 'none'], 'default': 'none'}, capabilities['ordinaryConversationRetention'])
 
-    def test_profile_headers_validate_alphabet_bounds_encoding_and_controls_without_granting_authority(self):
-        self.assertEqual({'profile_id': '', 'profile_name': ''}, profile_metadata({}))
+    def test_prior_canonical_command_digest_replays_after_retention_header_upgrade(self):
+        payload = conversation_fixture.ConversationHTTPTests.payload()
+        ledger = self.runtime.gateway_action_ledger
+        original = ledger.admit_request
+        def previous_release(principal, route, command, value, job):
+            legacy = dict(value)
+            legacy.pop('_gateway_conversation_retention', None)
+            return original(principal, route, command, legacy, job)
+        with self.client() as client, patch.object(self.runtime, 'process_chat_payload', side_effect=self.completion) as model:
+            with patch.object(ledger, 'admit_request', side_effect=previous_release):
+                accepted = client.post('/v1/chat/completions', json=payload)
+            self.assertEqual(200, accepted.status_code, accepted.text)
+            self.runtime.job_registry.clear()
+            self.runtime.singleflight_workers.clear()
+            self.runtime.singleflight_request_index.clear()
+            replay = client.post('/v1/chat/completions', json=payload, headers={'X-Gateway-Conversation-Retention': 'full'})
+            self.assertEqual(200, replay.status_code, replay.text)
+            self.assertEqual(accepted.headers['x-gateway-job-id'], replay.headers['x-gateway-job-id'])
+            self.assertEqual(accepted.headers['x-gateway-conversation-id'], replay.headers['x-gateway-conversation-id'])
+            self.assertEqual(1, model.call_count)
+
+    def test_captured_unicode_profile_is_original_metadata_not_current_reader_authority(self):
+        name = '  原始 profile 🌍  '
+        payload = conversation_fixture.ConversationHTTPTests.payload()
+        payload['gateway']['profile_id'] = 'profile_original-1'
+        headers = {'X-Gateway-Profile-ID': 'profile_original-1',
+                   'X-Gateway-Profile-Name-Base64': base64.urlsafe_b64encode(name.encode()).decode().rstrip('=')}
+        with self.client() as client, patch.object(self.runtime, 'process_chat_payload', side_effect=self.completion) as model:
+            response = client.post('/v1/chat/completions', headers=headers, json=payload)
+            self.assertEqual(200, response.status_code, response.text)
+            cid = response.headers['x-gateway-conversation-id']
+            snapshot = client.get('/gateway/conversations/' + cid, headers={'X-Gateway-Profile-ID': 'current-reader'}).json()
+            self.assertEqual(name, snapshot['profile_name'])
+            self.assertEqual('profile_original-1', snapshot['profile_id'])
+            self.assertEqual('local:single-user', snapshot['principal_id'])
+            conflict = client.post('/v1/chat/completions', headers=dict(headers, **{'X-Gateway-Profile-ID': 'different'}), json=payload)
+            self.assertEqual(409, conflict.status_code)
+            self.assertEqual(1, model.call_count)
+            duplicate = client.get('/gateway/conversations', headers=[('X-Gateway-Profile-ID', 'one'), ('X-Gateway-Profile-ID', 'two')])
+            self.assertEqual(400, duplicate.status_code)
+        self.runtime.job_registry.clear()
+        self.runtime.durable_job_initialized = False
+        with self.client() as client, patch.object(self.runtime, 'process_chat_payload') as forbidden:
+            self.assertEqual(name, client.get('/gateway/conversations/' + cid).json()['profile_name'])
+            forbidden.assert_not_called()
+
+    def test_profile_headers_validate_encoding_bounds_and_control_characters(self):
+        self.assertEqual({'profile_id': None, 'profile_name': None}, profile_metadata({}))
         self.assertEqual('a' * 160, profile_metadata({'x-gateway-profile-id': 'a' * 160})['profile_id'])
         for headers in ({'x-gateway-profile-id': 'a' * 161}, {'x-gateway-profile-id': 'owner:admin'},
                         {'x-gateway-profile-name-base64': 'YQ=='}, {'x-gateway-profile-name-base64': '+'},
@@ -582,250 +581,59 @@ class OrdinaryLifecycleTests(unittest.TestCase):
             with self.subTest(headers=headers), self.assertRaises(ValueError):
                 profile_metadata(headers)
 
-    def test_disabled_journal_does_not_advertise_persistent_gateway_identity(self):
-        with patch.object(self.runtime, 'GATEWAY_DURABLE_JOBS', False), patch.object(self.gateway.engineering.bindings, 'installation_id') as read:
+    def test_disabled_storage_does_not_claim_durable_identity_or_conversation_support(self):
+        with patch.object(self.runtime, 'GATEWAY_DURABLE_JOBS', False):
             result = self.gateway.capabilities()
             self.assertIsNone(result['gatewayId'])
-            self.assertFalse(result['continuity']['available'])
+            self.assertIsNone(result['gateway_id'])
             self.assertFalse(result['features']['durableEngineeringJobs'])
-            read.assert_not_called()
+            self.assertFalse(result['features']['conversation_sync_v1'])
+            with self.client() as client:
+                self.assertEqual(503, client.get('/gateway/identity').status_code)
+        self.assertNotIn('continuity', result)
 
-    def test_legacy_catalog_retains_explicit_history_and_unknown_original_profile_limits(self):
-        journal_fixture.JournalTests.legacy_database(self)
-        with self.client() as client, patch.object(self.runtime, 'process_chat_payload') as no_dispatch:
-            catalog = client.get('/v1/gateway/job-catalog', headers={'X-Gateway-Profile-ID': 'current-reader-profile'}).json()
-            self.assertEqual(1, len(catalog['items']))
-            item = catalog['items'][0]
-            self.assertEqual('', item['profile_id'])
-            self.assertEqual('', item['profile_name'])
-            self.assertFalse(item['original_profile_known'])
-            self.assertEqual('unknown_original_profile', item['original_profile_limitation'])
-            self.assertFalse(item['history_complete'])
-            self.assertEqual('legacy_snapshot_only', item['history_limitation'])
-            snapshot = client.get('/v1/gateway/conversations/' + item['conversation_id']).json()
-            self.assertEqual('', snapshot['profile_id'])
-            self.assertFalse(snapshot['history_complete'])
-            self.assertEqual('completed', snapshot['latest_job']['phase'])
-            no_dispatch.assert_not_called()
-
-    def test_readiness_accepts_busy_queue_only_with_selected_model_and_healthy_durable_admission(self):
-        from v14.health import readiness
-        runtime = self.runtime
-        self.assertTrue(runtime.init_durable_job_store())
-        state = ServiceState(max_workers=1, max_queued=1)
-        state.workers['busy'] = (None, None)
-        state.admitted.add('busy')
-        observed = {'networkReachable': True, 'modelAvailable': True, 'generationReady': True,
-                    'metadataAccess': 'available', 'backend': 'ready'}
-        with patch('v14.health._backend_readiness.inspect', return_value=observed):
-            ready = readiness(runtime, state, 'selected')
-            self.assertTrue(ready['capabilities']['canQueue'])
-            self.assertTrue(ready['capabilities']['canAccept'])
-        for change in ('model_missing', 'journal_failed', 'draining', 'queue_full'):
-            with self.subTest(change=change), patch('v14.health._backend_readiness.inspect', return_value=dict(observed,
-                    modelAvailable=change != 'model_missing')), \
-                    patch.object(runtime, 'durable_write_healthy', change != 'journal_failed'), \
-                    patch.object(state, 'draining', change == 'draining'), \
-                    patch.object(state, 'admitted', {'busy', 'queued'} if change == 'queue_full' else {'busy'}):
-                result = readiness(runtime, state, 'selected')
-                self.assertFalse(result['capabilities']['canQueue'])
-                self.assertFalse(result['capabilities']['canAccept'])
-
-    def test_nonstream_http_waiter_cancellation_does_not_lose_worker_commit(self):
-        started, release = threading.Event(), threading.Event()
-        calls = []
-        result = {'choices': [{'message': {'role': 'assistant', 'content': 'Finished after the client left'}, 'finish_reason': 'stop'}]}
-        def model(*args):
-            calls.append('dispatch')
-            started.set()
-            if not release.wait(3):
-                raise AssertionError('Test worker was not released')
-            return 200, result
-        async def scenario():
-            payload = json.dumps({'model': 'local', 'stream': False, 'messages': [{'role': 'user', 'content': 'Continue this owned task'}]}).encode()
-            async def receive():
-                return {'type': 'http.request', 'body': payload, 'more_body': False}
-            request = Request({'type': 'http', 'method': 'POST', 'path': '/v1/chat/completions',
-                               'headers': [(b'x-gateway-conversation-retention', b'full')]}, receive)
-            request.state.gateway_admission_snapshot = {'profile_id': 'original', 'profile_name': '', 'conversation_retention': 'full',
-                                                        'messages': json.loads(payload)['messages']}
-            marker = current_device.set('local:single-user')
-            try:
-                caller = asyncio.create_task(self.runtime.chat_completions(request))
-                self.assertTrue(await asyncio.to_thread(started.wait, 2))
-                caller.cancel()
-                with self.assertRaises(asyncio.CancelledError):
-                    await caller
-                job_id = next(iter(self.runtime.job_registry))
-                self.assertTrue(self.runtime.job_registry[job_id]['disconnected'])
-                # Completion belongs to durable admission even if a future cache
-                # policy or a concurrent cache reset removes the active object.
-                self.runtime.job_registry.pop(job_id)
-                release.set()
-                await asyncio.wait_for(self.runtime.singleflight_workers[job_id]['task'], 3)
-                self.assertEqual('completed', self.runtime.job_registry[job_id]['status'])
-                return job_id
-            finally:
-                release.set()
-                current_device.reset(marker)
-        with patch.object(self.runtime, 'process_chat_payload', side_effect=model):
-            job_id = asyncio.run(scenario())
-        self.assertEqual(['dispatch'], calls)
-        with closing(sqlite3.connect(self.db)) as db:
-            self.assertEqual(result, json.loads(db.execute('SELECT result_json FROM gateway_jobs WHERE job_id=?', (job_id,)).fetchone()[0]))
-            self.assertEqual(1, db.execute("SELECT COUNT(*) FROM gateway_conversation_messages WHERE job_id=? AND kind='final'", (job_id,)).fetchone()[0])
-
-    def test_completion_rejects_missing_identity_and_an_older_worker_generation(self):
+    def test_worker_finalization_restores_only_matching_durable_generation(self):
         runtime = self.runtime
         with self.assertRaises(DurableCommitError):
             runtime.finish_gateway_job('never-admitted', 200, {'content': 'not accepted'}, expected_generation='unknown')
         original = runtime.register_gateway_job('generation-fence', 'local', 'interactive', threading.Event(), threading.Event())
-        old_generation = original['generation']
-        runtime.job_registry['generation-fence']['generation'] = 'newer-owned-generation'
-        runtime.durable_persist_job('generation-fence')
+        generation = original['generation']
         runtime.job_registry.pop('generation-fence')
+        runtime.finish_gateway_job('generation-fence', 200, {'content': 'retained answer'}, expected_generation=generation)
+        self.assertEqual('completed', runtime.job_registry['generation-fence']['status'])
+        current = runtime.register_gateway_job('other-generation', 'local', 'interactive', threading.Event(), threading.Event())
+        old = current['generation']
+        runtime.job_registry['other-generation']['generation'] = 'newer-owned-generation'
+        runtime.durable_persist_job('other-generation')
+        runtime.job_registry.pop('other-generation')
         with self.assertRaises(DurableCommitError):
-            runtime.finish_gateway_job('generation-fence', 200, {'content': 'stale answer'}, expected_generation=old_generation)
+            runtime.finish_gateway_job('other-generation', 200, {'content': 'stale answer'}, expected_generation=old)
         with closing(sqlite3.connect(self.db)) as db:
-            public, result = db.execute('SELECT public_json,result_json FROM gateway_jobs WHERE job_id=?', ('generation-fence',)).fetchone()
+            public, result = db.execute('SELECT public_json,result_json FROM gateway_jobs WHERE job_id=?', ('other-generation',)).fetchone()
             self.assertEqual('newer-owned-generation', json.loads(public)['generation'])
             self.assertIsNone(result)
 
-    def test_worker_contention_is_queued_in_the_real_journal_before_model_dispatch(self):
-        runtime = self.runtime
+    def test_busy_readiness_requires_selected_model_healthy_durable_queue_and_capacity(self):
+        from v14.health import readiness
+        self.assertTrue(self.runtime.init_durable_job_store())
         state = ServiceState(max_workers=1, max_queued=1)
-        running, queued, release = threading.Event(), threading.Event(), threading.Event()
-        dispatched, completed, errors = [], [], []
-        def model(payload, *args):
-            dispatched.append(payload['_gateway_job_id'])
-            if payload['_gateway_job_id'] == 'busy-first':
-                running.set()
-                if not release.wait(3):
-                    raise AssertionError('Worker was not released')
-            return 200, {'choices': [{'message': {'role': 'assistant', 'content': payload['_gateway_job_id']}, 'finish_reason': 'stop'}]}
-        with patch.object(runtime, 'process_chat_payload', side_effect=model), \
-                patch.object(runtime, 'register_gateway_job', runtime.register_gateway_job), \
-                patch.object(runtime, 'finish_gateway_job', runtime.finish_gateway_job):
-            state.install(runtime)
-            marker = current_device.set('local:single-user')
-            try:
-                identities = {name: runtime.register_gateway_job(name, 'local', 'interactive', threading.Event(), threading.Event(),
-                    admission_snapshot={'profile_id': 'original', 'profile_name': 'Original', 'messages': [{'role': 'user', 'content': name}]})
-                    for name in ('busy-first', 'durable-second')}
-            finally:
-                current_device.reset(marker)
-            def run(name):
-                try:
-                    def progress(event):
-                        runtime.update_gateway_job(name, event)
-                        if name == 'durable-second' and event.get('scheduling_state') == 'queued':
-                            queued.set()
-                    status, result = runtime.process_chat_payload({'_gateway_job_id': name}, progress_callback=progress)
-                    runtime.finish_gateway_job(name, status, result, expected_generation=identities[name]['generation'])
-                    completed.append(name)
-                except BaseException as error:
-                    errors.append(error)
-            first = threading.Thread(target=run, args=('busy-first',))
-            second = threading.Thread(target=run, args=('durable-second',))
-            first.start()
-            try:
-                self.assertTrue(running.wait(1))
-                second.start()
-                self.assertTrue(queued.wait(1))
-                with closing(sqlite3.connect(self.db)) as db:
-                    saved = json.loads(db.execute('SELECT public_json FROM gateway_jobs WHERE job_id=?', ('durable-second',)).fetchone()[0])
-                    self.assertEqual('queued', saved['scheduling_state'])
-                    self.assertIsNone(saved['started_at'])
-                self.assertEqual(['busy-first'], dispatched)
-                release.set()
-                first.join(3); second.join(3)
-                self.assertFalse(first.is_alive() or second.is_alive())
-                self.assertEqual([], errors)
-                self.assertEqual(['busy-first', 'durable-second'], dispatched)
-                self.assertEqual({'busy-first', 'durable-second'}, set(completed))
-                with closing(sqlite3.connect(self.db)) as db:
-                    self.assertEqual(2, db.execute("SELECT COUNT(*) FROM gateway_jobs WHERE status='completed'").fetchone()[0])
-                self.assertEqual(0, state.snapshot()['queuedWorkers'])
-            finally:
-                release.set()
-                first.join(3)
-                if second.ident is not None:
-                    second.join(3)
-
-    def test_registry_and_durable_retention_pin_queued_running_and_client_wait_jobs(self):
-        runtime = self.runtime
-        now = __import__('time').time()
-        marker = current_device.set('local:single-user')
-        try:
-            for name, state in [('queued', 'queued'), ('running', 'running'), ('waiting', 'waiting_for_client_tool'), ('old-final', 'completed')]:
-                runtime.register_gateway_job(name, 'local', 'interactive', threading.Event(), threading.Event())
-                runtime.job_registry[name].update(status=state, created_at=0, updated_at=0, finished_at=0 if state == 'completed' else None)
-                runtime.durable_persist_job(name)
-            with patch.object(runtime, 'JOB_REGISTRY_MAX_ITEMS', 1), patch.object(runtime, 'DURABLE_JOB_RETENTION_SECONDS', 1):
-                runtime.cleanup_job_registry()
-                runtime.durable_cleanup_old_jobs()
-            self.assertEqual({'queued', 'running', 'waiting'}, set(runtime.job_registry))
-            with closing(sqlite3.connect(self.db)) as db:
-                self.assertEqual({'queued', 'running', 'waiting'}, {row[0] for row in db.execute('SELECT job_id FROM gateway_jobs')})
-        finally:
-            current_device.reset(marker)
-
-    def test_durably_accepted_worker_contention_queues_then_dispatches_once(self):
-        state = ServiceState(max_workers=1, max_queued=1)
-        running, release, queued = threading.Event(), threading.Event(), threading.Event()
-        calls = []
-        def model(payload, *args):
-            calls.append(payload['_gateway_job_id'])
-            if payload['_gateway_job_id'] == 'first':
-                running.set()
-                if not release.wait(3):
-                    raise AssertionError('Queue test did not release its worker')
-            return 200, {}
-        runtime = SimpleNamespace(process_chat_payload=model, GATEWAY_DURABLE_JOBS=True, gateway_draining=False,
-            register_gateway_job=lambda job_id, *args: {'job_id': job_id}, finish_gateway_job=lambda *args: None)
-        state.install(runtime)
-        runtime.register_gateway_job('first')
-        runtime.register_gateway_job('second')
-        with self.assertRaises(Exception):
-            runtime.register_gateway_job('not-admitted')
-        self.assertNotIn('not-admitted', state.admitted)
-        results = []
-        def progress(event):
-            if event.get('scheduling_state') == 'queued':
-                queued.set()
-        first = threading.Thread(target=lambda: results.append(runtime.process_chat_payload({'_gateway_job_id': 'first'})))
-        second = threading.Thread(target=lambda: results.append(runtime.process_chat_payload({'_gateway_job_id': 'second'}, progress_callback=progress)))
-        first.start()
-        try:
-            self.assertTrue(running.wait(1))
-            second.start()
-            self.assertTrue(queued.wait(1))
-            self.assertEqual(['first'], calls)
-            self.assertEqual(1, state.snapshot()['queuedWorkers'])
-            release.set()
-            first.join(2); second.join(2)
-            self.assertFalse(first.is_alive() or second.is_alive())
-            self.assertEqual(['first', 'second'], calls)
-            self.assertEqual([200, 200], sorted(row[0] for row in results))
-        finally:
-            release.set()
-            first.join(2)
-            if second.ident is not None:
-                second.join(2)
-
-    def test_restart_marks_ordinary_queue_interrupted_without_replaying_it(self):
-        runtime = self.runtime
-        runtime.register_gateway_job('queued-before-restart', 'local', 'interactive', threading.Event(), threading.Event())
-        runtime.job_registry['queued-before-restart']['status'] = 'queued'
-        runtime.durable_persist_job('queued-before-restart')
-        runtime.job_registry.clear()
-        runtime.durable_job_initialized = False
-        with patch.object(runtime, 'process_chat_payload') as dispatch:
-            self.assertTrue(runtime.init_durable_job_store())
-            saved = runtime.job_registry['queued-before-restart']
-            self.assertEqual('failed', saved['status'])
-            self.assertEqual('interrupted', saved['scheduling_state'])
-            dispatch.assert_not_called()
+        with patch.object(self.runtime, 'process_chat_payload', self.runtime.process_chat_payload):
+            state.install(self.runtime)
+            state.workers['busy'] = (None, None)
+            observed = {'networkReachable': True, 'modelAvailable': True, 'generationReady': True,
+                        'metadataAccess': 'available', 'backend': 'ready'}
+            with patch('v14.health._backend_readiness.inspect', return_value=dict(observed)):
+                ready = readiness(self.runtime, state, 'selected')
+                self.assertTrue(ready['capabilities']['canQueue'])
+                self.assertTrue(ready['capabilities']['canAccept'])
+            for change in ('model_missing', 'journal_failed', 'draining', 'queue_full'):
+                if change == 'queue_full':
+                    self.runtime.gateway_conversations.tx(lambda db: db.execute('INSERT INTO gateway_generation_admissions VALUES(?,?,?,?,?,?,?)', ('queued', 'owner', '{}', 'queued', time.time(), time.time() + 60, 'binding')))
+                with self.subTest(change=change), patch('v14.health._backend_readiness.inspect', return_value=dict(observed, modelAvailable=change != 'model_missing')), \
+                        patch.object(self.runtime, 'durable_write_healthy', change != 'journal_failed'), patch.object(state, 'draining', change == 'draining'):
+                    result = readiness(self.runtime, state, 'selected')
+                    self.assertFalse(result['capabilities']['canQueue'])
+                    self.assertFalse(result['capabilities']['canAccept'])
 
 
 if __name__ == '__main__':

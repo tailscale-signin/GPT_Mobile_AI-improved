@@ -41,6 +41,18 @@ internal object CompleteBackupDatabase {
                 if (copy.rawQuery("PRAGMA table_info(chats_v2)", null).use { rows -> generateSequence { if (rows.moveToNext()) rows.getString(1) else null }.any { it == "is_temporary" } }) {
                     copy.execSQL("DELETE FROM tool_approvals WHERE runId IN (SELECT run_id FROM agent_runs WHERE chat_id IN (SELECT chat_id FROM chats_v2 WHERE is_temporary = 1))")
                     copy.execSQL("DELETE FROM model_invocations WHERE parentRunId IN (SELECT run_id FROM agent_runs WHERE chat_id IN (SELECT chat_id FROM chats_v2 WHERE is_temporary = 1))")
+                    if (copy.rawQuery("SELECT name FROM sqlite_master WHERE name='gateway_conversations'", null).use { it.moveToFirst() }) {
+                        val temporary = "SELECT chat_id FROM chats_v2 WHERE is_temporary = 1"
+                        val conversations = "SELECT `key` FROM gateway_conversations WHERE localChatId IN ($temporary)"
+                        copy.execSQL("DELETE FROM gateway_messages WHERE conversationKey IN ($conversations)")
+                        if (copy.rawQuery("SELECT name FROM sqlite_master WHERE name='gateway_message_parts'", null).use { it.moveToFirst() }) copy.execSQL("DELETE FROM gateway_message_parts WHERE conversationKey IN ($conversations)")
+                        copy.execSQL("DELETE FROM gateway_jobs WHERE conversationKey IN ($conversations)")
+                        copy.execSQL("DELETE FROM gateway_conversations WHERE localChatId IN ($temporary)")
+                        copy.execSQL("DELETE FROM gateway_engineering_events WHERE requestId IN (SELECT requestId FROM gateway_engineering_bindings WHERE chatId IN ($temporary))")
+                        copy.execSQL("DELETE FROM gateway_engineering_bindings WHERE chatId IN ($temporary)")
+                        copy.execSQL("DELETE FROM gateway_submissions WHERE chatId IN ($temporary)")
+                        copy.execSQL("DELETE FROM gateway_migrations WHERE `key` IN (SELECT 'conversation-client-key:' || chat_id FROM chats_v2 WHERE is_temporary = 1)")
+                    }
                     copy.execSQL("DELETE FROM chats_v2 WHERE is_temporary = 1")
                     copy.execSQL("UPDATE chats_v2 SET last_share_token = NULL")
                     if (copy.rawQuery("SELECT name FROM sqlite_master WHERE name='messages_search'", null).use { it.moveToFirst() }) copy.execSQL("INSERT INTO messages_search(messages_search) VALUES('rebuild')")
@@ -56,6 +68,7 @@ internal object CompleteBackupDatabase {
         require(source.version == destination.version) { "Unsupported backup database version." }
         val sourceTables = tables(source).toSet()
         val destinationTables = tables(destination)
+        require(sourceTables.none { it.startsWith("retained_v50_gateway_") && it !in destinationTables }) { "This backup includes retained gateway evidence from an earlier database format. Its archive schema is unavailable in this installation, so restoration was stopped before changing any data. Keep the complete backup and reconnect to the original gateway to recover its canonical transcript." }
         val missingTables = destinationTables.filterNot { it in sourceTables }
         require(missingTables.isEmpty()) {
             "The backup is missing required records (${missingTables.joinToString()}). Your current data has not been changed."
@@ -195,8 +208,9 @@ internal object CompleteBackupDatabase {
         val sections = selection.normalized().sections
         return buildSet {
             if (CompleteBackupSection.CONVERSATIONS in sections) {
-                addAll(dev.chungjungsoo.gptmobile.data.database.GatewayWorkDatabaseSchema.tables)
                 add("chats_v2")
+                addAll(listOf("gateway_jobs", "gateway_conversations", "gateway_messages", "gateway_message_parts", "gateway_engineering_bindings", "gateway_engineering_events", "gateway_submissions", "gateway_migrations"))
+                addAll(listOf("gateway_scopes", "gateway_conversations", "gateway_jobs", "gateway_messages", "gateway_replay_cursors", "gateway_commands", "gateway_engineering_bindings", "gateway_engineering_updates").map { "retained_v50_$it" })
                 addAll(listOf("conversation_folders", "conversation_folder_members", "conversation_folder_moves", "reply_publications"))
                 add("workspace_records")
                 add("pending_prompts")

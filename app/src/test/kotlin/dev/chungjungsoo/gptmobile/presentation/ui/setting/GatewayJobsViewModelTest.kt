@@ -1,19 +1,21 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
+import android.app.Application
 import androidx.lifecycle.ViewModelStore
+import dev.chungjungsoo.gptmobile.data.database.entity.GatewayJobRecord
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
-import dev.chungjungsoo.gptmobile.data.github.GatewayCatalogJob
-import dev.chungjungsoo.gptmobile.data.github.GatewayCommandRecord
-import dev.chungjungsoo.gptmobile.data.github.GatewayConversationRecord
+import dev.chungjungsoo.gptmobile.data.github.GatewayConversationAttachment
 import dev.chungjungsoo.gptmobile.data.github.GatewayConversationRepository
-import dev.chungjungsoo.gptmobile.data.github.GatewayJobRecord
-import dev.chungjungsoo.gptmobile.data.github.GatewaySavedJob
-import dev.chungjungsoo.gptmobile.data.github.GatewayScopeRecord
-import dev.chungjungsoo.gptmobile.data.github.GatewayStopOutcome
-import dev.chungjungsoo.gptmobile.data.github.GatewayWorkDao
-import dev.chungjungsoo.gptmobile.data.github.GatewayWorkStore
-import dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride
-import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
+import dev.chungjungsoo.gptmobile.data.github.GatewayJobCatalog
+import dev.chungjungsoo.gptmobile.data.github.GatewayJobControl
+import dev.chungjungsoo.gptmobile.data.github.GatewayJobRepository
+import dev.chungjungsoo.gptmobile.data.github.GatewayJobRoute
+import dev.chungjungsoo.gptmobile.data.github.GatewayJobStopOutcome
+import dev.chungjungsoo.gptmobile.data.github.GatewayJobStopResult
+import dev.chungjungsoo.gptmobile.data.github.GatewayJobStopReview
+import dev.chungjungsoo.gptmobile.data.github.GatewayJobSummary
+import dev.chungjungsoo.gptmobile.data.github.gatewayIdentityKey
+import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -24,6 +26,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -34,34 +37,43 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
+@RunWith(RobolectricTestRunner::class)
+@Config(application = Application::class, sdk = [34])
 @OptIn(ExperimentalCoroutinesApi::class)
 class GatewayJobsViewModelTest {
     private val dispatcher = UnconfinedTestDispatcher()
     private val owner = ViewModelStore()
-    private val repository = mockk<GatewayConversationRepository>(relaxed = true)
-    private val store = mockk<GatewayWorkStore>(relaxed = true)
-    private val dao = mockk<GatewayWorkDao>(relaxed = true)
+    private val repository = mockk<GatewayJobRepository>(relaxed = true)
+    private val conversations = mockk<GatewayConversationRepository>(relaxed = true)
     private val settings = mockk<SettingRepository>(relaxed = true)
-    private val scope = GatewayScopeRecord("scope-a", "gateway-a", "https://gateway.invalid/v1", "installation", "account", "principal", "ONLINE", 1000)
-    private val conversation = GatewayConversationRecord("conversation-key", scope.id, "conversation-id", 7, "original-profile", "Original profile", "exact-model", "owner/repo", "original-branch", "Saved work", 9, null, null, true, null, 1000)
-    private val job = GatewayCatalogJob("job-id", "engineering", "conversation-id", 9, "CI", "waiting", title = "Saved work", updatedAtMs = 1000, serverTimeMs = 1000, permittedActions = listOf("cancel"))
-    private val saved = GatewaySavedJob(GatewayJobRecord("row-id", scope.id, job.jobId, conversation.id, job.kind, 9, "waiting", "CI", 500, null, 1000, 100, "clock", 1000, "{}"), job, conversation, scope)
-    private val command = GatewayCommandRecord("original-command", scope.id, null, 7, 8, 9, "original-run", "create", "digest", "{}", "UNKNOWN", null, 1000, 1000)
+    private val control = mockk<GatewayJobControl>(relaxed = true)
+    private val config = ProviderRequestConfig("https://gateway.invalid/v1", token = null, profileUid = "gateway-a")
+    private val route = GatewayJobRoute("gateway-a", config.apiUrl, config)
+    private val summary = GatewayJobSummary("job-id", "engineering", "conversation-id", title = "Saved work", profileId = "original-profile", model = "exact-model", repository = "owner/repo", branch = "original-branch", state = "running", phase = "CI", revision = 9, acceptedAt = 0.5, serverNow = 1.0, allowedActions = listOf("cancel"))
+    private val record = GatewayJobRecord(gatewayIdentityKey("installation", "principal", "engineering", summary.jobId), "installation", "principal", "engineering", summary.jobId, gatewayIdentityKey("installation", "principal", "conversation-id"), "gateway-a", config.apiUrl, "original-profile", "snapshot", 1000)
+    private val row = GatewayJobRow(record, summary)
+    private val page = GatewayJobCatalog(gatewayId = "installation", principalId = "principal", serverNow = 1.0, items = listOf(summary), complete = true)
     private lateinit var model: GatewayJobsViewModel
 
     @Before fun setUp() {
         Dispatchers.setMain(dispatcher)
-        every { store.dao } returns dao
-        every { dao.observeScopes() } returns flowOf(listOf(scope))
-        every { dao.observeCommandsForGateway(any()) } answers { flowOf(if (firstArg<String>() == scope.connectionUid) listOf(command) else emptyList()) }
-        every { repository.jobs(any(), any()) } answers { flowOf(if (firstArg<String>() == scope.connectionUid) listOf(saved) else emptyList()) }
+        coEvery { repository.configured(any()) } returns true
+        coEvery { repository.route("profile-a", requireEnabled = false) } returns route
+        coEvery { repository.route("profile-b", requireEnabled = false) } returns GatewayJobRoute("gateway-b", "https://other.invalid/v1", config.copy(apiUrl = "https://other.invalid/v1", profileUid = "gateway-b"))
+        every { repository.observe(any()) } answers { flowOf(if (firstArg<String>() == "profile-a") listOf(record) else emptyList()) }
+        every { repository.summary(record) } returns summary
+        coEvery { repository.refresh("profile-a", any()) } returns page
+        coEvery { repository.refresh("profile-b", any()) } returns page.copy(gatewayId = "other-installation", items = emptyList())
         coEvery { settings.fetchPlatformV2s() } returns listOf(PlatformV2(uid = "gateway-a", name = "Gateway A"), PlatformV2(uid = "gateway-b", name = "Gateway B"))
-        coEvery { settings.getFeatureSettings() } returns AppFeatureSettings(githubProfileOverrides = mapOf("profile-a" to GitHubChatProfileOverride(engineeringGatewayProfileUid = "gateway-a"), "profile-b" to GitHubChatProfileOverride(engineeringGatewayProfileUid = "gateway-b")))
-        model = GatewayJobsViewModel(repository, store, settings)
+        model = GatewayJobsViewModel(repository, conversations, settings, control)
         owner.put("jobs", model)
     }
 
@@ -70,74 +82,99 @@ class GatewayJobsViewModelTest {
         Dispatchers.resetMain()
     }
 
+    private suspend fun bindOriginal() {
+        model.bind("profile-a")
+        model.state.first { it.rows.size == 1 && it.configured }
+    }
+
     @Test fun offlineRefreshKeepsTheCachedOriginalJobAndDoesNotSubmitWork() = runTest(dispatcher) {
-        coEvery { repository.refreshCatalog("gateway-a") } throws IOException("Offline fixture")
-        backgroundScope.launch(dispatcher) { model.state.collect {} }
-        backgroundScope.launch(dispatcher) { model.visible("profile-a") }
-        assertEquals(listOf(saved), model.state.value.jobs)
-        assertTrue(model.state.value.notice.orEmpty().contains("Offline"))
-        coVerify(exactly = 1) { repository.refreshCatalog("gateway-a") }
-        coVerify(exactly = 0) { repository.retrySavedSubmission(any()) }
-        coVerify(exactly = 0) { repository.stopJob(any()) }
+        bindOriginal()
+        coEvery { repository.refresh("profile-a", any()) } throws IOException("Offline fixture")
+        model.refresh()
+        assertEquals(listOf(record), model.state.value.rows.map { it.record })
+        assertTrue(model.state.value.error.orEmpty().contains("Offline"))
+        coVerify(exactly = 1) { repository.refresh("profile-a", null) }
+        coVerify(exactly = 0) { conversations.queueInstruction(any(), any(), any()) }
+        coVerify(exactly = 0) { control.stop(any()) }
     }
 
     @Test fun repeatedOpenUsesOneReadAndNavigatesToTheSavedConversationOnce() = runTest(dispatcher) {
-        backgroundScope.launch(dispatcher) { model.state.collect {} }
-        backgroundScope.launch(dispatcher) { model.visible("profile-a") }
+        bindOriginal()
+        val started = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
         val opened = CompletableDeferred<Int>()
-        coEvery { repository.openConversation(conversation.id, "github-connection") } coAnswers { opened.await() }
-        val destinations = mutableListOf<Int>()
-        repeat(2) { model.open(saved, "github-connection", destinations::add) }
-        coVerify(exactly = 1) { repository.openConversation(conversation.id, "github-connection") }
-        opened.complete(7)
-        assertEquals(listOf(7), destinations)
-        coVerify(exactly = 0) { repository.retrySavedSubmission(any()) }
-        coVerify(exactly = 0) { repository.stopJob(any()) }
+        coEvery { conversations.attach(record.key) } coAnswers {
+            started.complete(Unit)
+            release.await()
+            GatewayConversationAttachment(7, "original-profile", null, requireNotNull(record.conversationKey))
+        }
+        repeat(2) { model.open(row) { opened.complete(it) } }
+        started.await()
+        coVerify(exactly = 1) { conversations.attach(record.key) }
+        release.complete(Unit)
+        assertEquals(7, opened.await())
+        coVerify(exactly = 0) { conversations.queueInstruction(any(), any(), any()) }
+        coVerify(exactly = 0) { control.stop(any()) }
     }
 
     @Test fun anOpenFinishingAfterSelectionChangesCannotNavigateTheNewScreen() = runTest(dispatcher) {
-        backgroundScope.launch(dispatcher) { model.state.collect {} }
-        val first = backgroundScope.launch(dispatcher) { model.visible("profile-a") }
-        val opened = CompletableDeferred<Int>()
-        coEvery { repository.openConversation(any(), any()) } coAnswers { opened.await() }
+        bindOriginal()
+        val started = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val finished = CompletableDeferred<Unit>()
+        coEvery { conversations.attach(record.key) } coAnswers {
+            started.complete(Unit)
+            release.await()
+            finished.complete(Unit)
+            GatewayConversationAttachment(7, "original-profile", null, requireNotNull(record.conversationKey))
+        }
         val destinations = mutableListOf<Int>()
-        model.open(saved, "github-connection", destinations::add)
-        first.cancelAndJoin()
-        backgroundScope.launch(dispatcher) { model.visible("profile-b") }
-        opened.complete(7)
+        model.open(row, destinations::add)
+        started.await()
+        model.bind("profile-b")
+        model.state.first { it.profileUid == "profile-b" && it.configured }
+        release.complete(Unit)
+        finished.await()
+        runCurrent()
         assertTrue(destinations.isEmpty())
-        assertEquals("gateway-b", model.state.value.selection.gatewayUid)
+        assertEquals("profile-b", model.state.value.profileUid)
     }
 
-    @Test fun staleRowsCannotStopOrRetryThroughAnotherSelectedGateway() = runTest(dispatcher) {
-        backgroundScope.launch(dispatcher) { model.state.collect {} }
-        val first = backgroundScope.launch(dispatcher) { model.visible("profile-a") }
-        first.cancelAndJoin()
-        backgroundScope.launch(dispatcher) { model.visible("profile-b") }
-        model.stop(saved)
-        model.retry(command)
-        coVerify(exactly = 0) { repository.stopJob(any()) }
-        coVerify(exactly = 0) { repository.retrySavedSubmission(any()) }
+    @Test fun staleRowsCannotStopOrSendInstructionsThroughAnotherSelectedGateway() = runTest(dispatcher) {
+        bindOriginal()
+        model.bind("profile-b")
+        model.state.first { it.profileUid == "profile-b" && it.configured }
+        model.showStop(row)
+        model.showInstruction(row)
+        assertNull(model.state.value.stop)
+        assertNull(model.state.value.instruction)
+        coVerify(exactly = 0) { control.inspect(any()) }
+        coVerify(exactly = 0) { control.stop(any()) }
+        coVerify(exactly = 0) { conversations.queueInstruction(any(), any(), any()) }
     }
 
-    @Test fun explicitStopUsesTheOriginalScopedJobAndRevisionAndKeepsRequestedDistinct() = runTest(dispatcher) {
-        backgroundScope.launch(dispatcher) { model.state.collect {} }
-        backgroundScope.launch(dispatcher) { model.visible("profile-a") }
-        coEvery { repository.stopJob(saved) } returns GatewayStopOutcome("REQUESTED", "Cancellation requested; not yet confirmed.")
-        model.stop(saved)
-        coVerify(exactly = 1) { repository.stopJob(saved) }
-        assertEquals("Cancellation requested; not yet confirmed.", model.state.value.notice)
-        assertEquals(9L, model.state.value.jobs.single().job.revision)
-        assertEquals("waiting", model.state.value.jobs.single().job.schedulingState)
+    @Test fun explicitStopUsesTheOriginalScopedJobAndKeepsRequestedDistinct() = runTest(dispatcher) {
+        bindOriginal()
+        val review = GatewayJobStopReview(record, summary)
+        coEvery { control.inspect(record) } returns review
+        coEvery { control.stop(review) } returns GatewayJobStopResult(GatewayJobStopOutcome.REQUESTED)
+        model.showStop(row)
+        model.state.first { it.stop?.review != null && it.stop?.busy == false }
+        coVerify(exactly = 0) { control.stop(any()) }
+        model.confirmStop()
+        model.state.first { it.stop?.result?.outcome == GatewayJobStopOutcome.REQUESTED }
+        coVerify(exactly = 1) { control.stop(review) }
+        assertEquals(9L, model.state.value.rows.single().summary.revision)
+        assertEquals("running", model.state.value.rows.single().summary.state)
     }
 
     @Test fun leavingTheVisibleScreenStopsPollingWithoutStoppingTheJob() = runTest(dispatcher) {
-        backgroundScope.launch(dispatcher) { model.state.collect {} }
         val observing = backgroundScope.launch(dispatcher) { model.visible("profile-a") }
+        model.state.first { it.loaded && !it.loading }
         observing.cancelAndJoin()
         advanceTimeBy(30_000)
         runCurrent()
-        coVerify(exactly = 1) { repository.refreshCatalog("gateway-a") }
-        coVerify(exactly = 0) { repository.stopJob(any()) }
+        coVerify(exactly = 1) { repository.refresh("profile-a", null) }
+        coVerify(exactly = 0) { control.stop(any()) }
     }
 }

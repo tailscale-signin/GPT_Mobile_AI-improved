@@ -189,7 +189,8 @@ class OpenAIAPIImpl @Inject constructor(
                 ProviderCooldown.await(config)
                 config.freeDiagnostics?.stage = "preparation"
                 var admittedOutputTokens: Int? = null
-                val admittedPayload = requestPreparation.prepare(NetworkClient.openAIJson.encodeToString(preparedRequest), config.copy(onSerializedOutputTokens = { admittedOutputTokens = it }), preparedRequest.model, null)
+                val gatewayRequest = dev.chungjungsoo.gptmobile.data.network.gateway.gatewayConversationRequest(NetworkClient.openAIJson.encodeToString(preparedRequest), config)
+                val admittedPayload = requestPreparation.prepare(gatewayRequest.payload, config.copy(onSerializedOutputTokens = { admittedOutputTokens = it }), preparedRequest.model, null)
                 // The serializer bridge retains intent even when no response arrives. A
                 // request observation must not masquerade as a provider response chunk.
                 val reasoningControlReceipt = ReasoningControlReceipt.fromPayload(admittedPayload, config).also { activeControlReceipt = it }
@@ -206,6 +207,7 @@ class OpenAIAPIImpl @Inject constructor(
                 var definitelyNotTransmitted = false
                 try {
                     kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                    gatewayRequest.beforeDispatch(config)
                     config.freeDiagnostics?.stage = "dispatch"
                     config.freeDiagnostics?.attempted()
                     dispatchStarted = true

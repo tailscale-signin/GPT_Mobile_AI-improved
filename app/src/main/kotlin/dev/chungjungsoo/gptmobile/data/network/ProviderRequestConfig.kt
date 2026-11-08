@@ -12,6 +12,12 @@ data class ProviderRequestConfig(
     val freeProvider: FreeAiProvider? = null,
     val queueScope: String? = null,
     val queuePersistent: Boolean = false,
+    val gatewayConversationKey: String? = null,
+    val gatewayConversationId: String? = null,
+    /** Suspends until the exact command identity is durable locally; failures prevent dispatch. */
+    val onGatewayCommandPrepared: (suspend (String) -> Unit)? = null,
+    /** Set only by verified capability negotiation, never from the profile label. */
+    val gatewayConversationSync: Boolean = false,
     val openRouterReceipt: dev.chungjungsoo.gptmobile.data.openrouter.account.OpenRouterReceiptContext? = null,
     val profileUid: String? = null,
     val profileRevision: String? = null,

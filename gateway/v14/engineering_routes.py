@@ -13,7 +13,8 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from v14.engineering import public_job, validate_request
 from v14.engineering_diagnostics import diagnostic_job
 from v14.execution_binding import ExecutionBindingError
-from v14.continuity import verify_mutation_identity
+from v14.conversations import FEATURES, QueueFull, ConversationConflict
+from v14.conversation_policy import verify_mutation_identity, MUTATION_IDENTITY_HEADERS
 
 
 def install_engineering_routes(app, service):
@@ -25,7 +26,7 @@ def install_engineering_routes(app, service):
         if not user.local_admin and 'engineering' not in user.scopes:
             raise PermissionError('Engineering scope is required')
         if request.method not in {'GET', 'HEAD', 'OPTIONS'}:
-            verify_mutation_identity(request.headers, user.id, service.bindings.installation_id)
+            verify_mutation_identity(request.headers, user.id, service.store.conversations.gateway_id)
         return user.id
 
     async def body(request):
@@ -43,6 +44,10 @@ def install_engineering_routes(app, service):
         except ExecutionBindingError as error:
             return JSONResponse({'error': {'code': error.code, 'message': str(error),
                                            'retryable': error.retryable, 'routeSubstituted': False}}, status_code=error.status)
+        except QueueFull:
+            return JSONResponse({'error': {'code': 'queue_full', 'retryable': True}}, status_code=429)
+        except ConversationConflict as error:
+            return JSONResponse({'error': {'code': 'conversation_conflict', 'message': str(error), 'retryable': False}}, status_code=409)
         except PermissionError:
             return JSONResponse({'error': {'code': 'engineering_scope_required'}}, status_code=403)
         except (ValueError, KeyError, TypeError):
@@ -58,7 +63,10 @@ def install_engineering_routes(app, service):
             owner = principal(request)
             readiness = await asyncio.to_thread(service.readiness)
             return {'service': 'engineering-gateway', 'protocol_version': 1, 'diagnostic_protocol': 1, 'gateway_version': VERSION, 'server_build': server_build, 'enabled': readiness['ready'], 'readiness': readiness, 'duration_hours': [3, 6, 12, 0], 'until_complete_limit_hours': 72,
-                    'principal_id': owner,
+                    'principal_id': owner, 'gateway_id': await asyncio.to_thread(service.store.conversations.gateway_id) if service.store.runtime.GATEWAY_DURABLE_JOBS else None,
+                    'instance_id': getattr(getattr(service.store.runtime, 'gateway_service', None), 'instance_id', None),
+                    'task_scope_protocol': 1, 'task_scopes': ['read', 'plan', 'implement'], 'features': dict({key: bool(service.store.runtime.GATEWAY_DURABLE_JOBS) for key in FEATURES}, mutation_identity_preconditions_v1=True), **{key: bool(service.store.runtime.GATEWAY_DURABLE_JOBS) for key in FEATURES},
+                    'mutationIdentityPreconditions': MUTATION_IDENTITY_HEADERS,
                     'repair_attempts': 5, 'explicit_merge_approval': True, 'approval_ttl_seconds': 1800,
                     'notifications': 'android_background_sync', 'batch_reads': True,
                     'execution_binding_protocol': 1, 'routing_policy': 'SELECTED_ONLY',

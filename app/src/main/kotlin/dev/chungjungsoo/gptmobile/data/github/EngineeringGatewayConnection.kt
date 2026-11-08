@@ -22,8 +22,8 @@ internal fun engineeringGatewayProfile(profiles: List<PlatformV2>, gatewayProfil
 internal fun PlatformV2.engineeringConfig() = ProviderRequestConfig(apiUrl, token, profileUid = uid)
 
 /** Preconditions are derived from a verified identity, never from a selected label. */
-internal fun ProviderRequestConfig.withGatewayIdentity(identity: GatewayIdentity): ProviderRequestConfig {
-    identity.validate()
+internal fun ProviderRequestConfig.withGatewayIdentity(identity: GatewayScopeIdentity): ProviderRequestConfig {
+    requireGatewayIdentity(identity.gatewayId, identity.principalId)
     val names = setOf("x-gateway-installation-id", "x-gateway-principal-id")
     return copy(extraHeaders = extraHeaders.filterKeys { it.lowercase(java.util.Locale.ROOT) !in names } + mapOf("X-Gateway-Installation-ID" to identity.gatewayId, "X-Gateway-Principal-ID" to identity.principalId))
 }

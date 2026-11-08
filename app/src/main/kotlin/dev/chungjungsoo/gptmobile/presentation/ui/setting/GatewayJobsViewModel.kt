@@ -1,171 +1,369 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
+import android.os.SystemClock
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
-import dev.chungjungsoo.gptmobile.data.github.GatewayCommandRecord
+import dev.chungjungsoo.gptmobile.data.database.entity.GatewayJobRecord
+import dev.chungjungsoo.gptmobile.data.github.GatewayConversationConflict
 import dev.chungjungsoo.gptmobile.data.github.GatewayConversationRepository
-import dev.chungjungsoo.gptmobile.data.github.GatewaySavedJob
-import dev.chungjungsoo.gptmobile.data.github.GatewayWorkStore
+import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringBinding
+import dev.chungjungsoo.gptmobile.data.github.GatewayHistoryUnsupported
+import dev.chungjungsoo.gptmobile.data.github.GatewayJobControl
+import dev.chungjungsoo.gptmobile.data.github.GatewayJobCounts
+import dev.chungjungsoo.gptmobile.data.github.GatewayJobRepository
+import dev.chungjungsoo.gptmobile.data.github.GatewayJobRoute
+import dev.chungjungsoo.gptmobile.data.github.GatewayJobStopOutcome
+import dev.chungjungsoo.gptmobile.data.github.GatewayJobStopResult
+import dev.chungjungsoo.gptmobile.data.github.GatewayJobStopReview
+import dev.chungjungsoo.gptmobile.data.github.GatewayJobSummary
+import dev.chungjungsoo.gptmobile.data.github.gatewayIdentityKey
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
+import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
-data class GatewayJobsSelection(val profileUid: String?, val gatewayUid: String?, val label: String, val error: String? = null)
-
-data class GatewayJobsState(
-    val selection: GatewayJobsSelection = GatewayJobsSelection(null, null, "Select an engineering gateway in GitHub settings"),
-    val jobs: List<GatewaySavedJob> = emptyList(),
-    val pending: List<GatewayCommandRecord> = emptyList(),
-    val loading: Boolean = false,
-    val notice: String? = null,
-    val limit: Int = 200
-)
-
-/** Visibility drives bounded reads. Elapsed-time rendering never enters this model. */
 @HiltViewModel
 class GatewayJobsViewModel @Inject constructor(
-    private val repository: GatewayConversationRepository,
-    private val store: GatewayWorkStore,
-    private val settings: SettingRepository
+    private val repository: GatewayJobRepository,
+    private val conversations: GatewayConversationRepository,
+    private val settings: SettingRepository,
+    private val control: GatewayJobControl
 ) : ViewModel() {
-    private val selected = MutableStateFlow(GatewayJobsSelection(null, null, "Select an engineering gateway in GitHub settings"))
-    private val limit = MutableStateFlow(200)
-    private val busy = MutableStateFlow(false)
-    private val notice = MutableStateFlow<String?>(null)
+    private val mutable = MutableStateFlow(GatewayJobsState())
+    val state = mutable.asStateFlow()
+    private var observer: Job? = null
     private val refreshLock = Mutex()
-    private var visibleGeneration = 0L
-    private val pendingActions = mutableSetOf<String>()
+    private var epoch = 0
+    private var cachedRows = emptyList<GatewayJobRecord>()
+    private var stopAction: Job? = null
+    private var boundRoute: GatewayJobRoute? = null
+    private var visibleEpoch = 0L
 
-    @OptIn(ExperimentalCoroutinesApi::class)
-    private val cached = combine(selected, limit) { selection, count -> selection.gatewayUid.orEmpty() to count }.flatMapLatest { (gateway, count) -> repository.jobs(gateway, count) }
-
-    @OptIn(ExperimentalCoroutinesApi::class)
-    private val commands = selected.flatMapLatest { store.dao.observeCommandsForGateway(it.gatewayUid.orEmpty()) }
-    private val rows = combine(cached, commands, store.dao.observeScopes(), selected) { jobs, commands, scopes, selection ->
-        val scopeIds = scopes.filter { it.connectionUid == selection.gatewayUid }.map { it.id }.toSet()
-        GatewayJobsState(selection, jobs.filter { it.connection.connectionUid == selection.gatewayUid }, commands.filter { it.scopeId in scopeIds })
-    }
-    val state = combine(rows, busy, notice, limit) { rows, loading, message, count -> rows.copy(loading = loading, notice = message, limit = count) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), GatewayJobsState())
-
-    suspend fun visible(profileUid: String?) {
-        val generation = ++visibleGeneration
-        try {
-            bind(profileUid, generation)
-            store.importLegacy()
-            while (generation == visibleGeneration) {
-                bind(profileUid, generation)
-                refreshNow()
-                delay(10_000)
-            }
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (failure: Exception) {
-            if (generation == visibleGeneration) notice.value = failure.message ?: "Saved gateway work is temporarily unavailable."
-        } finally {
-            if (generation == visibleGeneration) visibleGeneration++
-        }
-    }
-
-    private suspend fun bind(profileUid: String?, generation: Long) {
-        val profiles = settings.fetchPlatformV2s()
-        val gatewayUid = settings.getFeatureSettings().githubProfileOverrides[profileUid]?.engineeringGatewayProfileUid
-        val gateway = profiles.firstOrNull { it.uid == gatewayUid }
-        if (generation != visibleGeneration) return
-        if (selected.value.profileUid != profileUid || selected.value.gatewayUid != gatewayUid) {
-            notice.value = null
-            limit.value = 200
-        }
-        selected.value = GatewayJobsSelection(profileUid, gatewayUid, gateway?.name ?: "Original engineering gateway unavailable", if (gatewayUid == null) "Choose an explicit engineering gateway in this GitHub profile's settings. Saved work is never moved to another gateway." else null)
-    }
-
-    fun refresh() = viewModelScope.launch { refreshNow() }
-
-    private suspend fun refreshNow() {
-        if (!refreshLock.tryLock()) return
-        val selection = selected.value
-        val generation = visibleGeneration
-        try {
-            busy.value = true
-            val uid = selection.gatewayUid ?: return
-            repository.refreshCatalog(uid)
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (failure: Exception) {
-            if (isCurrent(generation, selection)) notice.value = failure.message ?: "Gateway unavailable. Retained jobs remain readable."
-        } finally {
-            busy.value = false
-            refreshLock.unlock()
-        }
-    }
-
-    fun loadMore() {
-        limit.value = (limit.value + 200).coerceAtMost(5000)
-        refresh()
-    }
-
-    fun reconnect(job: GatewaySavedJob) = action("reconnect:${job.row.id}", job.connection.connectionUid) { current ->
-        repository.reconnectSaved(job.conversation)
-        if (current()) notice.value = "Reconnected to the original conversation."
-    }
-
-    fun reconcile(command: GatewayCommandRecord) = action("command:${command.id}", command = command) { current ->
-        repository.observeRequest(command.id)
-        if (current()) notice.value = "Read the original command receipt. No new work was submitted."
-    }
-
-    fun retry(command: GatewayCommandRecord) = action("command:${command.id}", command = command) { current ->
-        val observed = repository.retrySavedSubmission(command.id)
-        if (current()) notice.value = if (observed.job != null) "The gateway confirmed the original saved command." else "The original command was retained. Read its submission status before any further action."
-    }
-
-    fun open(job: GatewaySavedJob, connectionUid: String, onOpen: (Int) -> Unit) = action("open:${job.row.id}", job.connection.connectionUid) { current ->
-        val chatId = repository.openConversation(job.conversation.id, connectionUid)
-        if (current()) onOpen(chatId)
-    }
-
-    fun stop(job: GatewaySavedJob) = action("stop:${job.row.id}", job.connection.connectionUid) { current ->
-        val outcome = repository.stopJob(job)
-        if (current()) notice.value = outcome.message
-    }
-
-    private fun isCurrent(generation: Long, selection: GatewayJobsSelection): Boolean = generation == visibleGeneration && selection == selected.value
-
-    private fun action(key: String, gatewayUid: String? = null, command: GatewayCommandRecord? = null, block: suspend (() -> Boolean) -> Unit) {
-        val selection = selected.value
-        val generation = visibleGeneration
-        if (gatewayUid != null && gatewayUid != selection.gatewayUid) return
-        if (command != null && state.value.pending.none { it.id == command.id && it.scopeId == command.scopeId }) return
-        if (!pendingActions.add(key)) return
-        viewModelScope.launch {
+    fun bind(profileUid: String?, force: Boolean = false) {
+        if (!force && mutable.value.profileUid == profileUid && observer?.isActive == true) return
+        val generation = ++epoch
+        observer?.cancel()
+        stopAction?.cancel()
+        cachedRows = emptyList()
+        boundRoute = null
+        mutable.value = GatewayJobsState(profileUid = profileUid)
+        if (profileUid == null) return
+        observer = viewModelScope.launch(Dispatchers.IO) {
             try {
-                refreshLock.withLock {
-                    if (!isCurrent(generation, selection)) return@withLock
-                    busy.value = true
-                    try {
-                        block { isCurrent(generation, selection) }
-                    } catch (cancelled: CancellationException) {
-                        throw cancelled
-                    } catch (failure: Exception) {
-                        if (isCurrent(generation, selection)) notice.value = failure.message ?: "The original gateway is unavailable. Saved work remains retained."
-                    } finally {
-                        busy.value = false
+                val configured = repository.configured(profileUid)
+                val route = if (configured) repository.route(profileUid, requireEnabled = false) else null
+                val profiles = settings.fetchPlatformV2s().associate { it.uid to it.name }
+                if (generation != epoch) return@launch
+                boundRoute = route
+                mutable.update { it.copy(configured = configured, profileNames = profiles, connectionName = route?.let { saved -> profiles[saved.profileUid] ?: "Gateway" }.orEmpty()) }
+                if (configured) {
+                    repository.observe(profileUid).collect { rows ->
+                        if (generation == epoch) cachedRows = rows
+                        if (generation == epoch) {
+                            mutable.update { current ->
+                                val previous = current.rows.associateBy { it.record.key }
+                                current.copy(
+                                    rows = rows.filter { row -> (current.gatewayId == null || row.gatewayId == current.gatewayId && row.principalId == current.principalId) && (!current.inventoryComplete || row.key in current.catalogKeys) }.map { row ->
+                                        val prior = previous[row.key]
+                                        val observed = if (prior?.record?.observedAtMillis == row.observedAtMillis) {
+                                            prior.observedAtElapsed
+                                        } else if (current.refreshStartedAtMillis > 0 && row.observedAtMillis >= current.refreshStartedAtMillis) {
+                                            SystemClock.elapsedRealtime()
+                                        } else {
+                                            0
+                                        }
+                                        GatewayJobRow(row, repository.summary(row), observed)
+                                    }
+                                )
+                            }
+                        }
                     }
                 }
-            } finally {
-                pendingActions.remove(key)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                if (generation == epoch) mutable.update { it.copy(error = failure.message) }
             }
         }
     }
+
+    /** The visible screen owns catalog polling, never the server job's lifetime. */
+    suspend fun visible(profileUid: String?) {
+        val visibility = ++visibleEpoch
+        bind(profileUid)
+        try {
+            if (profileUid == null) return
+            state.first { it.profileUid != profileUid || it.configured || it.error != null }
+            while (visibility == visibleEpoch && mutable.value.profileUid == profileUid) {
+                refresh()
+                delay(5_000)
+            }
+        } finally {
+            if (visibility == visibleEpoch) {
+                visibleEpoch++
+                epoch++
+                observer?.cancel()
+                observer = null
+                mutable.update { it.copy(loading = false, opening = null) }
+            }
+        }
+    }
+
+    private fun currentRow(candidate: GatewayJobRow): GatewayJobRow? {
+        val current = mutable.value
+        val route = boundRoute ?: return null
+        return current.rows.singleOrNull { row ->
+            row.record.key == candidate.record.key &&
+                row.record.connectionProfileUid == route.profileUid &&
+                row.record.endpoint == route.endpoint &&
+                (current.gatewayId == null || row.record.gatewayId == current.gatewayId && row.record.principalId == current.principalId)
+        }
+    }
+
+    suspend fun refresh(loadMore: Boolean = false, restart: Boolean = false) = refreshLock.withLock {
+        val profileUid = mutable.value.profileUid ?: return@withLock
+        if (!mutable.value.configured) return@withLock
+        val generation = epoch
+        val cursor = if (loadMore) mutable.value.nextCursor ?: return@withLock else null
+        mutable.update { it.copy(loading = true, refreshStartedAtMillis = System.currentTimeMillis()) }
+        try {
+            val route = repository.route(profileUid, requireEnabled = false)
+            if (route != boundRoute) {
+                bind(profileUid, force = true)
+                return@withLock
+            }
+            val page = repository.refresh(profileUid, cursor)
+            if (generation != epoch) return@withLock
+            if (loadMore) {
+                check(page.nextCursor != cursor || !page.hasMore) { "The gateway catalog cursor did not advance." }
+                check(page.gatewayId == mutable.value.gatewayId && page.principalId == mutable.value.principalId) { "The catalog account changed during pagination." }
+            }
+            mutable.update {
+                val reset = !it.loaded || restart || !loadMore && (!it.hasMore || page.complete)
+                val pageKeys = page.items.map { job -> gatewayIdentityKey(page.gatewayId, page.principalId, job.jobKind, job.jobId) }.toSet()
+                val keys = if (reset) pageKeys else it.catalogKeys + pageKeys
+                val complete = if (reset || loadMore) page.complete else it.inventoryComplete
+                it.copy(
+                    loading = false, error = null, legacy = false, loaded = true, counts = page.counts,
+                    hasMore = if (reset || loadMore) page.hasMore else it.hasMore,
+                    nextCursor = if (reset || loadMore) page.nextCursor else it.nextCursor, serverNow = page.serverNow,
+                    inventoryComplete = complete, catalogKeys = keys,
+                    rows = cachedRows.filter { row -> row.gatewayId == page.gatewayId && row.principalId == page.principalId && (!complete || row.key in keys) }.map { row ->
+                        val prior = it.rows.find { old -> old.record.key == row.key }
+                        val observed = if (prior?.record?.observedAtMillis == row.observedAtMillis) {
+                            prior.observedAtElapsed
+                        } else if (row.observedAtMillis >= it.refreshStartedAtMillis) {
+                            SystemClock.elapsedRealtime()
+                        } else {
+                            0
+                        }
+                        GatewayJobRow(row, repository.summary(row), observed)
+                    },
+                    observedAtElapsed = SystemClock.elapsedRealtime(), syncedAtMillis = System.currentTimeMillis(),
+                    gatewayId = page.gatewayId, principalId = page.principalId
+                )
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (unsupported: GatewayHistoryUnsupported) {
+            val legacy = repository.legacyJobs(profileUid)
+            if (generation == epoch) mutable.update { it.copy(loading = false, legacy = true, loaded = true, error = unsupported.message, rows = legacy.map { row -> GatewayJobRow(row, repository.summary(row)) }) }
+        } catch (failure: Exception) {
+            if (generation == epoch) mutable.update { it.copy(loading = false, error = failure.message ?: "Gateway history unavailable") }
+        }
+    }
+
+    fun requestRefresh(loadMore: Boolean = false) {
+        viewModelScope.launch(Dispatchers.IO) { refresh(loadMore, restart = !loadMore) }
+    }
+
+    fun open(candidate: GatewayJobRow, onOpen: (Int) -> Unit) {
+        val row = currentRow(candidate) ?: return
+        if (mutable.value.opening != null) return
+        mutable.update { it.copy(opening = row.record.key, error = null) }
+        val generation = epoch
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                if (generation != epoch) return@launch
+                if (row.summary.conversationId == null || mutable.value.legacy) {
+                    val binding = repository.legacyBinding(row.record.remoteJobId)
+                    if (generation == epoch) mutable.update { it.copy(legacyDetail = binding, opening = null) }
+                    return@launch
+                }
+                val attached = conversations.attach(row.record.key)
+                if (generation == epoch) {
+                    mutable.update { it.copy(opening = null, partialHistoryKeys = if (attached.historyComplete) it.partialHistoryKeys - row.record.key else it.partialHistoryKeys + row.record.key) }
+                    kotlinx.coroutines.withContext(Dispatchers.Main) { if (generation == epoch) onOpen(attached.chatId) }
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                val cached = conversations.cachedAttachment(row.record.key)
+                if (generation == epoch) mutable.update { it.copy(opening = null, error = failure.message, cachedChatId = cached?.chatId) }
+            }
+        }
+    }
+
+    fun showInstruction(candidate: GatewayJobRow) {
+        val row = currentRow(candidate)?.takeIf { it.summary.acceptsInstruction } ?: return
+        if (mutable.value.instruction?.sending == true) return
+        mutable.update { it.copy(instruction = GatewayInstructionDraft(row, UUID.randomUUID().toString()), instructionQueued = false) }
+    }
+
+    fun editInstruction(content: String) {
+        mutable.update { current -> current.copy(instruction = current.instruction?.let { if (!it.sending && !it.attempted) it.copy(content = content.take(16000)) else it }) }
+    }
+
+    fun dismissInstruction() {
+        if (mutable.value.instruction?.sending != true) mutable.update { it.copy(instruction = null) }
+    }
+
+    fun sendInstruction() {
+        val draft = mutable.value.instruction?.takeIf { !it.sending && it.content.isNotBlank() } ?: return
+        if (currentRow(draft.row) == null) return
+        val generation = epoch
+        mutable.update { it.copy(instruction = draft.copy(sending = true, attempted = true, error = null)) }
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                if (generation != epoch) return@launch
+                conversations.queueInstruction(draft.row.record.key, draft.content, draft.commandId)
+                if (generation == epoch) mutable.update { it.copy(instruction = null, instructionQueued = true) }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                if (generation == epoch) {
+                    mutable.update {
+                        it.copy(instruction = draft.copy(sending = false, attempted = failure !is GatewayConversationConflict, commandId = if (failure is GatewayConversationConflict) UUID.randomUUID().toString() else draft.commandId, error = failure.message))
+                    }
+                }
+            }
+        }
+    }
+
+    fun dismissLegacy() {
+        mutable.update { it.copy(legacyDetail = null) }
+    }
+    fun dismissCached() {
+        mutable.update { it.copy(cachedChatId = null) }
+    }
+
+    fun showTranscript(candidate: GatewayJobRow) {
+        val row = currentRow(candidate) ?: return
+        val conversationId = row.summary.conversationId ?: return
+        if (mutable.value.readingTranscript != null) return
+        val generation = epoch
+        mutable.update { it.copy(readingTranscript = row.record.key, error = null) }
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                if (generation != epoch) return@launch
+                val key = conversations.prepareTranscript(row.record.connectionProfileUid, row.record.gatewayId, row.record.principalId, conversationId)
+                if (generation == epoch) mutable.update { it.copy(transcriptKey = key, readingTranscript = null) }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                if (generation == epoch) mutable.update { it.copy(transcriptKey = row.record.conversationKey, readingTranscript = null, error = failure.message) }
+            }
+        }
+    }
+
+    fun dismissTranscript() {
+        mutable.update { it.copy(transcriptKey = null) }
+    }
+
+    fun showStop(candidate: GatewayJobRow) {
+        val row = currentRow(candidate) ?: return
+        if (mutable.value.stop?.busy == true) return
+        mutable.update { it.copy(stop = GatewayStopDraft(row)) }
+        checkStop()
+    }
+
+    /** Initial review and subsequent status checks never send a cancellation request. */
+    fun checkStop() {
+        val draft = mutable.value.stop?.takeIf { !it.busy } ?: return
+        if (currentRow(draft.row) == null) return
+        val generation = epoch
+        mutable.update { it.copy(stop = draft.copy(busy = true, error = null)) }
+        stopAction = viewModelScope.launch(Dispatchers.IO) {
+            try {
+                if (generation != epoch) return@launch
+                val review = control.inspect(draft.row.record)
+                if (generation == epoch) mutable.update { it.copy(stop = draft.copy(review = review, result = review.observedResult)) }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                if (generation == epoch) mutable.update { it.copy(stop = draft.copy(error = failure.message, result = GatewayJobStopResult(GatewayJobStopOutcome.UNKNOWN))) }
+            }
+        }
+    }
+
+    /** Only the confirmation button enters this method; refresh and attach cannot dispatch Stop. */
+    fun confirmStop() {
+        val draft = mutable.value.stop?.takeIf { !it.busy } ?: return
+        if (currentRow(draft.row) == null) return
+        val review = draft.review ?: return
+        if (draft.result?.outcome !in setOf(null, GatewayJobStopOutcome.UNKNOWN)) return
+        val generation = epoch
+        mutable.update { it.copy(stop = draft.copy(busy = true, error = null)) }
+        stopAction = viewModelScope.launch(Dispatchers.IO) {
+            if (generation != epoch) return@launch
+            val result = control.stop(review)
+            if (generation == epoch) {
+                mutable.update { it.copy(stop = draft.copy(result = result)) }
+                refresh()
+            }
+        }
+    }
+
+    fun dismissStop() {
+        if (mutable.value.stop?.busy != true) mutable.update { it.copy(stop = null) }
+    }
 }
+
+data class GatewayInstructionDraft(val row: GatewayJobRow, val commandId: String, val content: String = "", val sending: Boolean = false, val attempted: Boolean = false, val error: String? = null)
+
+data class GatewayJobRow(val record: GatewayJobRecord, val summary: GatewayJobSummary, val observedAtElapsed: Long = 0)
+
+data class GatewayStopDraft(val row: GatewayJobRow, val review: GatewayJobStopReview? = null, val busy: Boolean = false, val result: GatewayJobStopResult? = null, val error: String? = null)
+
+data class GatewayJobsState(
+    val profileUid: String? = null,
+    val configured: Boolean = false,
+    val connectionName: String = "",
+    val profileNames: Map<String, String> = emptyMap(),
+    val rows: List<GatewayJobRow> = emptyList(),
+    val loading: Boolean = false,
+    val loaded: Boolean = false,
+    val legacy: Boolean = false,
+    val error: String? = null,
+    val counts: GatewayJobCounts? = null,
+    val hasMore: Boolean = false,
+    val inventoryComplete: Boolean = false,
+    val catalogKeys: Set<String> = emptySet(),
+    val nextCursor: String? = null,
+    val serverNow: Double = 0.0,
+    val observedAtElapsed: Long = 0,
+    val refreshStartedAtMillis: Long = 0,
+    val syncedAtMillis: Long = 0,
+    val gatewayId: String? = null,
+    val principalId: String? = null,
+    val opening: String? = null,
+    val legacyDetail: GatewayEngineeringBinding? = null,
+    val cachedChatId: Int? = null,
+    val instruction: GatewayInstructionDraft? = null,
+    val instructionQueued: Boolean = false,
+    val stop: GatewayStopDraft? = null,
+    val partialHistoryKeys: Set<String> = emptySet(),
+    val readingTranscript: String? = null,
+    val transcriptKey: String? = null
+)

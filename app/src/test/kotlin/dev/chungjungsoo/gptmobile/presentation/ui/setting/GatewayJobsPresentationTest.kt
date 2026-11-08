@@ -1,20 +1,21 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
+import dev.chungjungsoo.gptmobile.data.github.GatewayJobGroup
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class GatewayJobsPresentationTest {
     @Test fun schedulingGroupsKeepWaitingDistinctFromRunningPhases() {
-        assertEquals("Running", gatewayJobGroup("running"))
-        assertEquals("Queued", gatewayJobGroup("queued"))
-        assertEquals("Needs attention", gatewayJobGroup("waiting"))
-        assertEquals("Running", gatewayJobGroup("waiting", "CI"))
-        assertEquals("Running", gatewayJobGroup("waiting", "WAITING_FOR_CI"))
-        assertEquals("Needs attention", gatewayJobGroup("waiting", "MERGE_READY"))
-        assertEquals("Needs attention", gatewayJobGroup("unknown"))
-        assertEquals("Needs attention", gatewayJobGroup("interrupted"))
-        assertEquals("Recent", gatewayJobGroup("completed"))
-        assertEquals("Recent", gatewayJobGroup("cancelled"))
+        assertEquals(GatewayJobGroup.RUNNING, gatewayJobDisplayGroup("running"))
+        assertEquals(GatewayJobGroup.QUEUED, gatewayJobDisplayGroup("queued"))
+        assertEquals(GatewayJobGroup.NEEDS_ATTENTION, gatewayJobDisplayGroup("waiting"))
+        assertEquals(GatewayJobGroup.RUNNING, gatewayJobDisplayGroup("waiting", "CI"))
+        assertEquals(GatewayJobGroup.RUNNING, gatewayJobDisplayGroup("waiting", "WAITING_FOR_CI"))
+        assertEquals(GatewayJobGroup.NEEDS_ATTENTION, gatewayJobDisplayGroup("waiting", "MERGE_READY"))
+        assertEquals(GatewayJobGroup.NEEDS_ATTENTION, gatewayJobDisplayGroup("unknown"))
+        assertEquals(GatewayJobGroup.NEEDS_ATTENTION, gatewayJobDisplayGroup("interrupted"))
+        assertEquals(GatewayJobGroup.RECENT, gatewayJobDisplayGroup("completed"))
+        assertEquals(GatewayJobGroup.RECENT, gatewayJobDisplayGroup("cancelled"))
         assertEquals("Waiting for CI", gatewayPhaseLabel("CI"))
         assertEquals("Waiting for device validation", gatewayPhaseLabel("WAITING_FOR_DEVICE"))
         assertEquals("Waiting for approval", gatewayPhaseLabel("MERGE_READY"))

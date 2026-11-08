@@ -310,7 +310,7 @@ class DurableFailureTests(unittest.TestCase):
         from types import SimpleNamespace
         from v14.jobs import install_terminal_guard, DurableCommitError
         job={"status":"running","_segment_results":deque(maxlen=16)}
-        def finish(job_id,status,result,error=None):
+        def finish(job_id,status,result,error=None,expected_generation=None):
             job["status"]="completed"
             runtime.durable_persist_job(job_id)
         runtime=SimpleNamespace(job_registry={'j':job},job_registry_lock=threading.RLock(),

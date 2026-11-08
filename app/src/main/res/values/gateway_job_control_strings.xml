@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="gateway_job_stop">Stop job</string>
+    <string name="gateway_job_stop_title">Stop this gateway job?</string>
+    <string name="gateway_job_stop_help">This sends Stop to the original gateway. Work already applied is retained, and a running operation may need to reach a safe stopping point.</string>
+    <string name="gateway_job_stop_confirm">Confirm Stop</string>
+    <string name="gateway_job_stop_retry">Check and retry Stop</string>
+    <string name="gateway_job_stop_check">Check Stop status</string>
+    <string name="gateway_job_stop_checking">Checking the original gateway…</string>
+    <string name="gateway_job_stop_requested">Stop requested. The gateway has not yet confirmed that the job stopped.</string>
+    <string name="gateway_job_stop_confirmed">The gateway confirmed that the job stopped.</string>
+    <string name="gateway_job_stop_terminal">The job already finished. Its saved result and history are retained.</string>
+    <string name="gateway_job_stop_unknown">Stop is unconfirmed. The job may still be running. Check its current status before retrying.</string>
+    <string name="gateway_job_stop_unavailable">The gateway does not currently allow Stop for this job. Its saved state is retained.</string>
+</resources>

@@ -1,8 +1,0 @@
-{
-  "header": "X-Gateway-Conversation-Retention",
-  "values": [
-    "full",
-    "none"
-  ],
-  "default": "none"
-}

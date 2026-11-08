@@ -7,6 +7,8 @@ import asyncio
 import uuid
 import json
 import sqlite3
+import copy
+import hashlib
 import importlib.metadata
 from pathlib import Path
 
@@ -20,8 +22,9 @@ manifest = validate_package(Path(__file__).parent)
 
 import gateway_v13 as runtime
 from fastapi import FastAPI, Request
+from starlette.datastructures import Headers
 from fastapi.responses import JSONResponse, Response, StreamingResponse
-from v14.identity import Admission
+from v14.identity import Admission, principal_can_chat
 from v14.research import run_searches
 from v14.jobs import install_terminal_guard, migrate_legacy_owner, TERMINAL, DurableCommitError
 from v14.errors import GatewayFailure
@@ -44,10 +47,12 @@ from v14.engineering import EngineeringStore, EngineeringService, principal_auth
 from gateway_security import device_store
 from v14.engineering_backend import GitHubEngineeringBackend
 from v14.engineering_routes import install_engineering_routes
-from v14.continuity_routes import install_continuity_routes
-from v14.continuity import profile_metadata, conversation_retention, verify_mutation_identity
-from v14.execution_binding import ExecutionBindingError
 from v14.usage import install_usage
+from v14.conversations import admission_context, ConversationConflict, QueueFull, FEATURES
+from v14.job_catalog import install_routes as install_conversation_routes
+from v14.profile_metadata import profile_metadata
+from v14.conversation_policy import conversation_retention, verify_mutation_identity, MUTATION_IDENTITY_HEADERS, ORDINARY_RETENTION_POLICY
+from v14.execution_binding import ExecutionBindingError
 
 runtime.GATEWAY_VERSION = VERSION
 runtime.AUTO_MEMORY_RETRIEVE = False
@@ -77,13 +82,14 @@ install_batch(runtime)
 install_usage(runtime)
 service = ServiceState(config.max_workers)
 service.install(runtime)
+runtime.gateway_service = service
+service.authorized = lambda principal: principal_can_chat(config, principal, runtime.device_store)
 activity = ActivityTracker(os.getenv("GATEWAY_ACTIVITY_STATE"))
 activity.install_tools(runtime)
 engineering = EngineeringService(EngineeringStore(runtime), GitHubEngineeringBackend(runtime))
 runtime.gateway_engineering = engineering
-runtime.gateway_continuity = engineering.store.continuity
 engineering.authorized = lambda job: principal_authorized(config, job['principal'], device_store)
-engineering.backend.cancelled = lambda job_id: (engineering.store.get(job_id) or {}).get('state') == 'CANCELLED'
+engineering.backend.cancelled = lambda job_id: (engineering.store.get(job_id) or {}).get('state') in {'CANCELLED', 'CANCELLING'}
 from v14.code_graph.tools import install_graph_tool
 install_graph_tool(runtime, engineering, lambda principal: principal_authorized(config, principal, device_store))
 debug_log = DebugLogStore(os.getenv("GATEWAY_DEBUG_LOG") or str(Path(runtime.GATEWAY_JOB_DB_PATH).with_name("gateway-debug.jsonl")),
@@ -97,7 +103,7 @@ app.add_middleware(Admission, config=config)
 app.add_middleware(DebugMiddleware, store=debug_log, instance_id=service.instance_id)
 install_debug_routes(app, debug_log)
 install_engineering_routes(app, engineering)
-install_continuity_routes(app, engineering, service, config)
+install_conversation_routes(app, runtime.gateway_conversations, engineering, service, lambda: runtime.device_store)
 from v14.maintenance import install_maintenance
 install_maintenance(app, runtime, service, engineering)
 
@@ -117,6 +123,7 @@ async def mobile_dashboard_snapshot(request: Request):
 @app.post("/chat/completions")
 async def chat(request: Request):
     payload = None
+    context_token = None
     stage = "request_validation"
     request_id = request.headers.get("x-request-id") or uuid.uuid4().hex
     def rejected(code, message, status=400, retryable=False, details=None):
@@ -135,14 +142,13 @@ async def chat(request: Request):
     try:
         payload = await request.json()
         runtime.validate_chat_request(payload)
-        verify_mutation_identity(request.headers, request.state.principal.id, engineering.bindings.installation_id)
-        metadata = profile_metadata(request.headers)
-        retention = conversation_retention(request.headers)
-        if retention == 'full' and not metadata['profile_id']:
-            return rejected('conversation_profile_required', 'Full conversation retention requires an original profile identity.')
-        request.state.gateway_admission_snapshot = dict(metadata, conversation_retention=retention, messages=[
-            json.loads(json.dumps(message)) for message in payload.get('messages', [])
-            if isinstance(message, dict) and message.get('role') in {'user', 'assistant', 'tool'}] if retention == 'full' else None)
+        verify_mutation_identity(request.headers, request.state.principal.id, runtime.gateway_conversations.gateway_id)
+        presentation = profile_metadata(request.headers)
+        retention = conversation_retention(payload, request.headers, presentation)
+        request.state.gateway_conversation_retention = retention
+        supplied_profile = (payload.get('gateway') or {}).get('profile_id')
+        if supplied_profile and presentation['profile_id'] and supplied_profile != presentation['profile_id']:
+            raise ConversationConflict('Conflicting original profile identities')
         stage = "run_control_validation"
         try:
             request_deadline(payload)
@@ -152,6 +158,18 @@ async def chat(request: Request):
         stage = "recall_preparation"
         request._json = apply_client_recall(payload, runtime.LLAMA_BASE)
         stage = "job_admission"
+        metadata = payload.get('gateway') or {}
+        command_id = metadata.get('command_id') or request.headers.get('idempotency-key') or request_id
+        if metadata.get('command_id') and metadata.get('store_conversation') is not False:
+            # The existing durable request ledger coalesces lost-response retries.
+            # The client gives each tool-continuation segment its own command ID.
+            supplied = request.headers.get('idempotency-key')
+            if supplied and supplied != command_id:
+                raise ConversationConflict('Conflicting command and idempotency identities')
+            request.scope['headers'] = [(key, value) for key, value in request.scope.get('headers', []) if key.lower() != b'idempotency-key'] + [(b'idempotency-key', command_id.encode())]
+            request._headers = Headers(scope=request.scope)
+        context_token = admission_context.set({'principal': request.state.principal.id, 'command_id': command_id,
+                                               'payload': copy.deepcopy(request._json), 'profile': presentation, 'retention': retention})
         response = await runtime.chat_completions(request)
         if isinstance(response, StreamingResponse):
             # Registration happens before the first keepalive. Prime it here,
@@ -166,9 +184,23 @@ async def chat(request: Request):
                 finally:
                     await iterator.aclose()
             response.body_iterator = admitted_stream()
+        job_id = response.headers.get('x-gateway-job-id')
+        with runtime.job_registry_lock:
+            job = runtime.job_registry.get(job_id) or {}
+            if job.get('gateway_id'):
+                response.headers['X-Gateway-ID'] = job['gateway_id']
+                response.headers['X-Gateway-Principal-ID'] = job['principal_id']
+                response.headers['X-Gateway-Conversation-ID'] = job['conversation_id']
+                response.headers['X-Gateway-Command-ID'] = command_id
+            response.headers['X-Gateway-Detach-Safe'] = 'true' if job.get('_durable_background_admitted') and not job.get('_ephemeral') else 'false'
+        response.headers['Access-Control-Expose-Headers'] = response.headers.get('Access-Control-Expose-Headers', '') + ', X-Gateway-ID, X-Gateway-Principal-ID, X-Gateway-Conversation-ID, X-Gateway-Command-ID, X-Gateway-Detach-Safe'
         return response
     except ExecutionBindingError as error:
         return rejected(error.code, str(error), error.status)
+    except QueueFull:
+        return JSONResponse({'error': {'code': 'queue_full', 'retryable': True, 'dispatch_state': 'not_dispatched'}}, status_code=429)
+    except ConversationConflict as error:
+        return JSONResponse({'error': {'code': 'conversation_conflict', 'message': str(error), 'retryable': False, 'dispatch_state': 'not_dispatched'}}, status_code=409)
     except DurableCommitError:
         return JSONResponse({"error": {"code": "durable_commit_failed", "failureCode": "persistence_failed",
                                          "message": "The gateway could not durably commit this run.", "retryable": True}}, status_code=503)
@@ -197,13 +229,16 @@ async def chat(request: Request):
         # Unknown exception text may contain prompt content. Preserve location and
         # identifiers without exposing raw input or misclassifying it as verification.
         return rejected("invalid_v14_request", "The gateway rejected the request during " + stage + ". Correct the request before retrying.")
+    finally:
+        if context_token is not None:
+            admission_context.reset(context_token)
 
 
 @app.post("/gateway/jobs/{job_id}/cancel")
 @app.post("/v1/gateway/jobs/{job_id}/cancel")
 def cancel(job_id: str, request: Request):
     try:
-        verify_mutation_identity(request.headers, request.state.principal.id, engineering.bindings.installation_id)
+        verify_mutation_identity(request.headers, request.state.principal.id, runtime.gateway_conversations.gateway_id)
     except ExecutionBindingError as error:
         return JSONResponse({'error': {'code': error.code, 'message': str(error), 'retryable': False}}, status_code=error.status)
     runtime.ensure_gateway_job_loaded(job_id)
@@ -226,14 +261,11 @@ def capabilities(model=""):
         build.update(packaged_build)
     result = runtime.gateway_capabilities()
     diagnostic_snapshot = debug_log.snapshot()
-    installation_id = None
+    gateway_id = None
     if runtime.GATEWAY_DURABLE_JOBS:
         try:
-            installation_id = engineering.bindings.installation_id()
+            gateway_id = runtime.gateway_conversations.gateway_id()
         except (DurableCommitError, sqlite3.Error, OSError, ValueError):
-            # Basic capability negotiation must remain available when the
-            # durable journal is disabled or unhealthy. Do not advertise an
-            # installation identity or continuity that was never persisted.
             pass
     result.update({"gatewayVersion": VERSION, "contractVersion": 1,
                    "build": build,
@@ -243,15 +275,9 @@ def capabilities(model=""):
                                "stateSchema": 1, "updateAuthority": "local-manager", "idleUpdates": True},
                    "identityScope": "shared-network" if config.mode == "open_network" else "user" if config.mode == "trusted_proxy" else "local-machine",
                    "diagnostics": {key: diagnostic_snapshot.get(key) for key in ("protocolVersion", "clientMetadata", "bidirectionalEvents", "retainedLineLimit", "recordByteLimit", "debugEnabled", "storageReady", "storageChecked")},
-                   "instanceId": service.instance_id,
-                   "gatewayId": installation_id,
-                   "continuity": {"protocolVersion": 1, "available": installation_id is not None,
-                                  "jobCatalog": installation_id is not None, "conversationMessages": installation_id is not None,
-                                  "commandReconciliation": installation_id is not None, "messageParts": True,
-                                  "ordinaryConversationRetention": {"header": "X-Gateway-Conversation-Retention", "values": ["full", "none"], "default": "none"},
-                                  "mutationIdentityPreconditions": ["X-Gateway-Installation-ID", "X-Gateway-Principal-ID"],
-                                  "ordinaryRestartPolicy": "interrupt_without_replay",
-                                  "engineeringRestartPolicy": "reconcile_and_resume"},
+                   "instanceId": service.instance_id, "gateway_id": gateway_id, "gatewayId": gateway_id,
+                   "mutationIdentityPreconditions": MUTATION_IDENTITY_HEADERS,
+                   "ordinaryConversationRetention": ORDINARY_RETENTION_POLICY,
                    "memory": {"authority": "client", "protocolVersion": 1, "workspaceAdapterEnabled": False},
                    "supportedMcpEras": ["legacy", "2026-07-28"], "eventVersions": [runtime.GATEWAY_PROGRESS_PROTOCOL],
                    "mcpTransportAdapters": {"stdio": ["legacy", "2026-07-28"], "streamableHttp": [], "continuationCapabilities": []},
@@ -265,24 +291,29 @@ def capabilities(model=""):
                                     modernMcp=True, clientMemoryAuthority=True, packageValidation=True,
                                     validatedToolArguments=True, githubClientOwnedFastPath=True,
                                     githubImmutableReadCache=True, githubPerformanceMetrics=True, intelligentToolBatch=True, mobileDashboard=True,
-                                    batchDependencies=True, batchDurableReceipts=True, durableEngineeringJobs=installation_id is not None,
+                                    batchDependencies=True, batchDurableReceipts=True, durableEngineeringJobs=gateway_id is not None,
                                     shaBoundMergeApproval=True, engineeringSupervisor=True, repositoryCodeGraph=True,
                                     loopbackBrowserCsrf=config.mode == "loopback", boundedAdmission=True,
                                     versionedJournal=True, mcpCircuitBreakers=True, supervisedShutdown=True,
-                                    selectedModelLimits=True)})
+                                    selectedModelLimits=True, mutation_identity_preconditions_v1=True,
+                                    ordinary_conversation_retention_v1=True, **{key: gateway_id is not None for key in FEATURES})})
+    result['accepted_request_headers'].extend(['X-Gateway-Profile-ID', 'X-Gateway-Profile-Name-Base64', 'X-Gateway-Conversation-Retention', *MUTATION_IDENTITY_HEADERS])
+    result['endpoints'].update(identity='/gateway/identity', job_catalog='/gateway/job-catalog', conversations='/gateway/conversations', conversation_messages='/gateway/conversations/{conversation_id}/messages', command='/gateway/commands/{command_id}')
+    result['headers'].update(gateway_id='X-Gateway-ID', principal_id='X-Gateway-Principal-ID', conversation_id='X-Gateway-Conversation-ID', command_id='X-Gateway-Command-ID', detach_safe='X-Gateway-Detach-Safe')
+    result['contracts'].update(gatewayJobCatalog=['gptmobile.gateway.job-catalog.v1'], gatewayConversations=['gptmobile.gateway.conversations.v1'])
     if model:
         result['selectedModel'] = engineering.capabilities.selected_model(model)
-    result['accepted_request_headers'].extend(['X-Gateway-Profile-ID', 'X-Gateway-Profile-Name-Base64', 'X-Gateway-Conversation-Retention',
-                                               'X-Gateway-Installation-ID', 'X-Gateway-Principal-ID'])
     return result
 
 
 @app.get("/gateway/capabilities")
 @app.get("/v1/gateway/capabilities")
-async def v14_capabilities(model: str = ""):
+async def v14_capabilities(request: Request, model: str = ""):
     if len(model) > 512 or model != model.strip() or any(ord(c) < 32 for c in model):
         return JSONResponse({'error': {'code': 'invalid_model_identifier'}}, status_code=400)
-    return await asyncio.to_thread(capabilities, model)
+    result = await asyncio.to_thread(capabilities, model)
+    result["principal_id"] = request.state.principal.id
+    return result
 
 
 @app.get("/gateway/v15")

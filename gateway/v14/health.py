@@ -154,7 +154,7 @@ def readiness(runtime, state, model=''):
         service.get('activeWorkers', 0) < service.get('maxWorkers', 0) or can_queue)))
     return {'schemaVersion': 1, 'ready': ready, 'version': runtime.GATEWAY_VERSION,
             'serverTimeMs': int(time.time() * 1000),
-            'instanceId': state.instance_id, 'checks': {'journal': journal, 'backend': backend['backend']},
+            'instanceId': state.instance_id, 'gateway_id': runtime.gateway_conversations.gateway_id() if getattr(runtime, 'gateway_conversations', None) and runtime.GATEWAY_DURABLE_JOBS and journal == 'ready' else None, 'checks': {'journal': journal, 'backend': backend['backend']},
             'capabilities': backend, 'service': service, 'durableJobs': runtime.GATEWAY_DURABLE_JOBS,
             'components': observations(runtime, service, backend, journal)}
 

@@ -19,6 +19,8 @@ class IsolatedValidationTests(unittest.TestCase):
 
     def validate_fixture(self, commands, coverage=None, changes=()):
         """Exercise real archive/patch/command/report order; this is not Docker qualification."""
+        fixture_env = {key: value for key, value in os.environ.items() if not key.upper().startswith('GIT_')}
+        fixture_env.update(GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL=os.devnull)
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             mirror = root / 'repository'
@@ -27,12 +29,12 @@ class IsolatedValidationTests(unittest.TestCase):
             (mirror / 'reports/behavior.xml').write_text(self.REPORT)
             (mirror / 'reports/unmapped.xml').write_text('keep this unrelated file')
             (mirror / 'source.txt').write_text('pinned candidate')
-            subprocess.run(['git', 'init', '-q', str(mirror)], check=True, capture_output=True)
-            subprocess.run(['git', '-C', str(mirror), 'add', '.'], check=True, capture_output=True)
+            subprocess.run(['git', 'init', '-q', str(mirror)], check=True, capture_output=True, env=fixture_env)
+            subprocess.run(['git', '-C', str(mirror), 'add', '.'], check=True, capture_output=True, env=fixture_env)
             subprocess.run(['git', '-C', str(mirror), '-c', 'user.name=Validation Fixture', '-c',
                             'user.email=fixture@example.invalid', '-c', 'commit.gpgsign=false', 'commit', '-qm', 'Fixture'],
-                           check=True, capture_output=True)
-            head = subprocess.check_output(['git', '-C', str(mirror), 'rev-parse', 'HEAD'], text=True).strip()
+                           check=True, capture_output=True, env=fixture_env)
+            head = subprocess.check_output(['git', '-C', str(mirror), 'rev-parse', 'HEAD'], text=True, env=fixture_env).strip()
             coverage = coverage or [{'requirement_id': 'behavior', 'case_id': 'Fixture.behavior', 'command_index': 0,
                                     'scope': 'behavior', 'report_path': 'reports/behavior.xml'}]
             image = 'fixture@sha256:' + 'a' * 64
@@ -66,6 +68,16 @@ class IsolatedValidationTests(unittest.TestCase):
         self.assertEqual('FAILED', result['status'])
         self.assertEqual('UNAVAILABLE', result['requirement_evidence'][0]['status'])
         self.assertIsNone(result['requirement_evidence'][0]['report_sha256'])
+
+    def test_fixture_git_does_not_inherit_another_checkout_or_index(self):
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {
+                'GIT_DIR': str(Path(directory) / 'unrelated.git'),
+                'GIT_WORK_TREE': str(Path(directory) / 'unrelated-checkout'),
+                'GIT_INDEX_FILE': str(Path(directory) / 'unrelated-index'),
+                'GIT_CONFIG_COUNT': '1', 'GIT_CONFIG_KEY_0': 'core.bare', 'GIT_CONFIG_VALUE_0': 'true'}):
+            result = self.validate_fixture([self.emit_report(self.REPORT)])
+            self.assertEqual('PASSED', result['status'])
+            self.assertEqual([], list(Path(directory).iterdir()))
 
     def test_a_report_added_by_the_candidate_patch_is_not_execution_evidence(self):
         result = self.validate_fixture([[sys.executable, '-c', 'pass']],

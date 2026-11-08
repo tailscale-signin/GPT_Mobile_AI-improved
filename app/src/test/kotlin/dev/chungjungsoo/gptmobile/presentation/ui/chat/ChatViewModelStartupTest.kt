@@ -34,10 +34,6 @@ import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveContent
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveRunId
 import dev.chungjungsoo.gptmobile.data.database.entity.snapshotLatestAssistantRevision
-import dev.chungjungsoo.gptmobile.data.github.GatewayConversationObservation
-import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringBinding
-import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringRepository
-import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringRequest
 import dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride
 import dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
@@ -120,6 +116,9 @@ class ChatViewModelStartupTest {
         every { coordinator.activeRuns } returns activeRuns
         every { coordinator.streamMessages } returns MutableStateFlow(emptyMap())
         every { coordinator.notices } returns MutableSharedFlow<AgentRunNotice>()
+        coEvery { coordinator.gatewayConversationWriteBlocker(any()) } returns null
+        coEvery { coordinator.gatewayOwnsConversation(any()) } returns false
+        coEvery { coordinator.gatewayOwnsRequest(any()) } returns false
     }
 
     @After fun cleanup() = runTest(dispatcher) {
@@ -146,49 +145,43 @@ class ChatViewModelStartupTest {
         assertTrue(model.loadingStates.value.all { it == ChatViewModel.LoadingState.Idle })
     }
 
-    @Test fun normalGitHubSendPersistsOriginalMessageAndRunBeforeGatewayHandoff() = runTest(dispatcher) {
-        verifyGatewayHandoff(backgroundScope)
+    @Test fun normalGatewayTurnIsPersistedBeforeItsCoordinatorHandoff() = runTest(dispatcher) {
+        verifyGatewayCoordinatorHandoff(backgroundScope)
     }
 
-    @Test fun lostGatewayResponseRetainsOwnedRunWithoutStartingLocalExecution() = runTest(dispatcher) {
-        verifyGatewayHandoff(backgroundScope, lostResponse = true)
-    }
-
-    @Test fun eligibleGatewaySendBypassesThePhoneQueueWhileAnotherRunIsActive() = runTest(dispatcher) {
-        verifyGatewayHandoff(backgroundScope, busy = true)
-    }
-
-    @Test fun chatMasterToolDisableKeepsSendOutOfTheGatewayEngine() = runTest(dispatcher) {
-        verifyGatewayHandoff(backgroundScope, disabledTools = true)
+    @Test fun chatMasterToolDisableIsCapturedBeforeGatewayRouting() = runTest(dispatcher) {
+        verifyGatewayCoordinatorHandoff(backgroundScope, disabledTools = true)
     }
 
     @Test fun anUnconfirmedGatewaySubmissionKeepsTheNextDraftWithoutDispatchingIt() = runTest(dispatcher) {
-        verifyGatewayHandoff(backgroundScope, pendingSubmission = true)
+        verifyGatewayCoordinatorHandoff(backgroundScope, pendingSubmission = true)
+    }
+
+    @Test fun anImportedGatewayConversationKeepsItsDraftWhileAdmissionIsUnconfirmed() = runTest(dispatcher) {
+        verifyGatewayCoordinatorHandoff(backgroundScope, pendingSubmission = true, imported = true)
     }
 
     @Test fun retryCannotReplaceAnUnacknowledgedGatewayCommandWithANewRun() = runTest(dispatcher) {
         StartupRecoveryGate.start(backgroundScope) {}
-        val gateway = mockk<GatewayEngineeringRepository>(relaxed = true)
-        every { gateway.observeConversation(any()) } returns flowOf(GatewayConversationObservation())
-        coEvery { gateway.conversationWriteBlocker(any()) } returns null
-        coEvery { gateway.ownsConversation(any()) } returns false
+        coEvery { coordinator.gatewayConversationWriteBlocker(any()) } returns null
+        coEvery { coordinator.gatewayOwnsConversation(any()) } returns false
         val user = MessageV2(id = 1, chatId = 7, content = "Original saved request", platformType = null)
         val answer = MessageV2(id = 2, chatId = 7, content = "", platformType = profiles.first().uid, currentRunId = "saved-run")
         messages.value = listOf(user, answer)
         runs.value = listOf(AgentRun("saved-run", 7, 1, 2, profiles.first().uid, profiles.first().compatibleType.name, profiles.first().model, AgentRunStatus.WAITING_REMOTE_JOB))
         val checked = CompletableDeferred<Unit>()
-        coEvery { gateway.ownsRequest("saved-run") } coAnswers {
+        coEvery { coordinator.gatewayOwnsRequest("saved-run") } coAnswers {
             checked.complete(Unit)
             true
         }
         coEvery { coordinator.withChatGate<Unit>(7, any()) } coAnswers { secondArg<suspend () -> Unit>().invoke() }
-        val model = createViewModel(combined = false, gateway = gateway)
+        val model = createViewModel(combined = false)
         model.retryChat(0, 0)
         withTimeout(10_000) {
             checked.await()
             model.attachmentNotice.first { it.orEmpty().contains("Use Jobs to confirm") }
         }
-        coVerify(exactly = 1) { gateway.ownsRequest("saved-run") }
+        coVerify(exactly = 1) { coordinator.gatewayOwnsRequest("saved-run") }
         coVerify(exactly = 0) { repository.persistAgentRetry(any()) }
         verify(exactly = 0) { coordinator.start(any()) }
         assertTrue(model.attachmentNotice.value.orEmpty().contains("Use Jobs to confirm"))
@@ -196,33 +189,28 @@ class ChatViewModelStartupTest {
 
     @Test fun aChangedGatewayBindingCannotFallBackToLocalSendAndKeepsTheDraft() = runTest(dispatcher) {
         StartupRecoveryGate.start(backgroundScope) {}
-        val gateway = mockk<GatewayEngineeringRepository>(relaxed = true)
-        every { gateway.observeConversation(any()) } returns flowOf(GatewayConversationObservation())
         val reason = "Restore the original gateway profile before sending."
-        coEvery { gateway.conversationWriteBlocker(7) } returns reason
-        val model = createViewModel(combined = false, gateway = gateway)
+        coEvery { coordinator.gatewayConversationWriteBlocker(7) } returns reason
+        val model = createViewModel(combined = false)
         model.question.edit { replace(0, length, "Continue the original task") }
         model.askQuestion()
         withTimeout(10_000) { model.attachmentNotice.first { it == reason } }
         assertEquals("Continue the original task", model.question.text.toString())
         assertEquals(reason, model.gatewayWriteBlocker.value)
         coVerify(exactly = 0) { repository.persistAgentTurn(any()) }
-        coVerify(exactly = 0) { gateway.submitNormalTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
         verify(exactly = 0) { coordinator.start(any()) }
     }
 
     @Test fun aForeignGatewayConversationCannotRegenerateThroughLocalRetry() = runTest(dispatcher) {
         StartupRecoveryGate.start(backgroundScope) {}
-        val gateway = mockk<GatewayEngineeringRepository>(relaxed = true)
-        every { gateway.observeConversation(any()) } returns flowOf(GatewayConversationObservation())
-        coEvery { gateway.conversationWriteBlocker(7) } returns null
-        coEvery { gateway.ownsConversation(7) } returns true
+        coEvery { coordinator.gatewayConversationWriteBlocker(7) } returns null
+        coEvery { coordinator.gatewayOwnsConversation(7) } returns true
         messages.value = listOf(
             MessageV2(id = 1, chatId = 7, content = "Saved remote request", platformType = null),
             MessageV2(id = 2, chatId = 7, content = "Saved answer", platformType = profiles.first().uid)
         )
         coEvery { coordinator.withChatGate<Unit>(7, any()) } coAnswers { secondArg<suspend () -> Unit>().invoke() }
-        val model = createViewModel(combined = false, gateway = gateway)
+        val model = createViewModel(combined = false)
         model.retryChat(0, 0)
         withTimeout(10_000) { model.attachmentNotice.first { it.orEmpty().contains("Use Jobs to confirm") } }
         coVerify(exactly = 0) { repository.persistAgentRetry(any()) }
@@ -231,29 +219,22 @@ class ChatViewModelStartupTest {
 
     @Test fun ordinarySavedConversationObservationDoesNotNeedAGitHubWorkspaceOrSubmitWork() = runTest(dispatcher) {
         StartupRecoveryGate.start(backgroundScope) {}
-        val gateway = mockk<GatewayEngineeringRepository>(relaxed = true)
-        every { gateway.observeConversation(any()) } returns flowOf(GatewayConversationObservation(conversationId = "ordinary-conversation"))
-        coEvery { gateway.conversationWriteBlocker(7) } returns "This retained ordinary transcript is read-only."
-        val model = createViewModel(combined = false, gateway = gateway)
+        coEvery { coordinator.gatewayConversationWriteBlocker(7) } returns "This retained ordinary transcript is read-only."
+        val model = createViewModel(combined = false)
         val observing = backgroundScope.launch(dispatcher) { model.observeGatewayConversation(7) }
         withTimeout(10_000) { model.gatewayWriteBlocker.first { it != null } }
         observing.cancel()
         observing.join()
-        coVerify(exactly = 1) { gateway.reconnectConversation(7) }
-        coVerify(exactly = 0) { gateway.stopConversation(any()) }
-        coVerify(exactly = 0) { gateway.submitNormalTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+        coVerify(exactly = 1) { repository.refreshGatewayConversation(7) }
         verify(exactly = 0) { coordinator.start(any()) }
     }
 
-    private suspend fun verifyGatewayHandoff(scope: CoroutineScope, lostResponse: Boolean = false, busy: Boolean = false, disabledTools: Boolean = false, pendingSubmission: Boolean = false) {
+    private suspend fun verifyGatewayCoordinatorHandoff(scope: CoroutineScope, disabledTools: Boolean = false, pendingSubmission: Boolean = false, imported: Boolean = false) {
         StartupRecoveryGate.start(scope) {}
         profiles = listOf(profiles.first().copy(compatibleType = dev.chungjungsoo.gptmobile.data.model.ClientType.LLAMA, apiUrl = "http://127.0.0.1:8090"))
         val profile = profiles.single()
         val workspace = GitHubConversationContext("github", "owner", "repository", "feature/original", "a".repeat(40), profile.uid)
-        val gateway = mockk<GatewayEngineeringRepository>(relaxed = true)
-        every { gateway.observeConversation(any()) } returns flowOf(if (pendingSubmission) GatewayConversationObservation(requestId = "older-command", submissionState = "UNKNOWN") else GatewayConversationObservation())
-        coEvery { gateway.conversationWriteBlocker(any()) } returns null
-        coEvery { gateway.ownsRequest(any()) } returns true
+        coEvery { coordinator.hasUnconfirmedGatewayAdmission(7, profile.uid) } returns pendingSubmission
         val persisted = CompletableDeferred<PersistAgentTurnResult>()
         coEvery { repository.persistAgentTurn(any()) } answers {
             val request = firstArg<PersistAgentTurnRequest>()
@@ -267,63 +248,40 @@ class ChatViewModelStartupTest {
                 runs.value = listOf(run)
             }
         }
-        val dispatched = CompletableDeferred<String>()
-        coEvery { gateway.submitNormalTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } coAnswers {
-            val accepted = persisted.await()
-            assertEquals(workspace, arg<GitHubConversationContext>(1))
-            assertEquals(accepted.runs.single().runId, arg<String>(3))
-            assertEquals("read", arg<String>(5))
-            assertEquals(accepted.userMessage.id, arg<Int>(6))
-            assertEquals(accepted.assistantMessages.single().id, arg<Int>(7))
-            assertEquals(workspace.ref, arg<String>(8))
-            assertEquals(accepted.runs.single().runId, arg<String>(9))
-            assertTrue(arg<() -> Boolean>(10).invoke())
-            dispatched.complete(arg(3))
-            if (lostResponse) throw java.io.IOException("Lost durable admission response")
-            GatewayEngineeringBinding("gateway", "http://127.0.0.1:8091", GatewayEngineeringRequest("owner/repository", workspace.ref, workspace.ref, arg(4), profile.model, chatId = 7, requestId = arg(3), scope = "read"))
-        }
         val model = createViewModel(
             combined = false,
-            gateway = gateway,
             testFeatures = features.copy(
-                conversationGitHub = mapOf(7 to workspace),
-                githubProfileOverrides = mapOf(profile.uid to GitHubChatProfileOverride(engineeringGatewayProfileUid = "gateway"))
+                conversationGitHub = if (imported) emptyMap() else mapOf(7 to workspace),
+                githubProfileOverrides = if (imported) emptyMap() else mapOf(profile.uid to GitHubChatProfileOverride(engineeringGatewayProfileUid = "gateway"))
             )
         )
-        val localStarted = CompletableDeferred<Unit>()
-        if (disabledTools) {
-            every { coordinator.start(any()) } answers {
-                assertTrue(firstArg<List<AgentRunRequest>>().single().chatToolConfig?.allToolsDisabled == true)
-                localStarted.complete(Unit)
-                Unit
-            }
-            model.disableAllChatTools()
+        val dispatched = CompletableDeferred<AgentRunRequest>()
+        every { coordinator.start(any()) } answers {
+            assertTrue(persisted.isCompleted)
+            dispatched.complete(firstArg<List<AgentRunRequest>>().single())
+            Unit
         }
-        if (pendingSubmission) {
-            scope.launch(UnconfinedTestDispatcher()) { model.gatewayConversation.collect {} }
-            withTimeout(10_000) { model.gatewayConversation.first { it.requestId == "older-command" } }
-        }
-        if (busy) activeRuns.value = mapOf("older-run" to ActiveAgentRun("older-run", 7, profile.uid, 70))
+        if (disabledTools) model.disableAllChatTools()
         model.question.edit { replace(0, length, "What is the repository status?") }
         model.askQuestion()
         if (pendingSubmission) {
+            withTimeout(10_000) { model.attachmentNotice.first { it.orEmpty().contains("previous gateway submission") } }
             assertEquals("What is the repository status?", model.question.text.toString())
-            assertTrue(model.attachmentNotice.value.orEmpty().contains("previous gateway submission"))
             coVerify(exactly = 0) { repository.persistAgentTurn(any()) }
-            coVerify(exactly = 0) { gateway.submitNormalTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
             verify(exactly = 0) { coordinator.start(any()) }
             return
         }
-        if (disabledTools) {
-            withTimeout(10_000) { localStarted.await() }
-            coVerify(exactly = 0) { gateway.submitNormalTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
-            return
-        }
-        withTimeout(10_000) { dispatched.await() }
-        withTimeout(10_000) { model.attachmentNotice.first { it.orEmpty().contains(if (lostResponse) "Confirming" else "Gateway request saved") } }
-        assertEquals(0, model.queuedPromptCount.value)
-        verify(exactly = 0) { coordinator.start(any()) }
-        coVerify(exactly = 1) { gateway.submitNormalTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+        val handoff = withTimeout(10_000) { dispatched.await() }
+        val accepted = persisted.await()
+        assertEquals(accepted.runs.single().runId, handoff.runId)
+        assertEquals(accepted.userMessage.id, handoff.userMessages.last().id)
+        assertEquals(accepted.assistantMessages.single().id, handoff.assistantMessage.id)
+        assertEquals(workspace, handoff.chatToolConfig?.github)
+        assertEquals(profile.model, handoff.platform.model)
+        assertEquals(disabledTools, handoff.chatToolConfig?.allToolsDisabled)
+        assertEquals(!disabledTools, requireNotNull(handoff.gatewayAdmissionAllowed).invoke())
+        model.disableAllChatTools()
+        assertFalse(requireNotNull(handoff.gatewayAdmissionAllowed).invoke())
         coVerify(exactly = 0) { repository.finishQueuedAgentRun(any(), any(), any(), any()) }
     }
 
@@ -775,7 +733,7 @@ class ChatViewModelStartupTest {
         activeRuns.value = runs.value.filter { it.status == AgentRunStatus.RUNNING }.associate { it.runId to ActiveAgentRun(it.runId, 7, it.profileUid, it.assistantMessageId) }
     }
 
-    private fun createViewModel(chatId: Int = 7, combined: Boolean = true, research: ResearchSessionStore? = null, combinedSettings: ConversationCombinedSettings? = null, toolConnections: ToolConnectionRepository = mockk(relaxed = true), gateway: GatewayEngineeringRepository? = null, testFeatures: AppFeatureSettings? = null): ChatViewModel {
+    private fun createViewModel(chatId: Int = 7, combined: Boolean = true, research: ResearchSessionStore? = null, combinedSettings: ConversationCombinedSettings? = null, toolConnections: ToolConnectionRepository = mockk(relaxed = true), testFeatures: AppFeatureSettings? = null): ChatViewModel {
         val room = ChatRoomV2(id = chatId, title = "Saved chat", enabledPlatform = profiles.map { it.uid }, activePlatform = profiles.map { it.uid }, conversationMode = if (combined) ConversationMode.COMBINED else ConversationMode.STANDARD, draftText = "Saved draft")
         every { repository.observeMessageWindow(chatId, any()) } returns messages
         every { repository.observeTurnCount(chatId) } returns flowOf(messages.value.count { it.platformType == null })
@@ -819,8 +777,7 @@ class ChatViewModelStartupTest {
             generationCompletionStore = completions,
             researchSessionStore = research,
             conversationExitWork = exitWork,
-            messageGroupingDispatcher = dispatcher,
-            gatewayEngineering = gateway
+            messageGroupingDispatcher = dispatcher
         ).also {
             viewModelJobs += requireNotNull(it.viewModelScope.coroutineContext[Job])
             store.put("chat", it)

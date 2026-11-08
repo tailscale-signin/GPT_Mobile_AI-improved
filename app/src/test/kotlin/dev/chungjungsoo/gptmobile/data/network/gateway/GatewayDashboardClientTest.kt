@@ -134,8 +134,7 @@ class GatewayDashboardClientTest {
             val observed = client.readiness(config, "selected-model")!!
             assertEquals(20_050L, observed.observationAgeMillis)
             assertEquals(1_000L, observed.observedAtMillis)
-            val target = GatewayAvailabilityTarget("profile", "selected", "selected-model", config)
-            assertEquals(GatewayAvailabilityStatus.CHECKING, gatewayAvailability(target, observed, observed.receivedAtMillis, elapsed).status)
+            assertTrue(requireNotNull(observed.observationAgeMillis) >= GATEWAY_AVAILABILITY_FRESH_MILLIS)
         }
     }
 

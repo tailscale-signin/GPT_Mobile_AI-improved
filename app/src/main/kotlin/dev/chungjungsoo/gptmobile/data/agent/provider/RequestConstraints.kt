@@ -16,6 +16,11 @@ data class RequestConstraints(
     val attemptId: String? = null,
     val queueScope: String? = null,
     val queuePersistent: Boolean = false,
+    /** Stable logical chat identity; never inferred from a transient request/job ID. */
+    val gatewayConversationKey: String? = null,
+    val gatewayConversationId: String? = null,
+    /** Complete the local turn/command reservation before a gateway model POST can begin. */
+    val onGatewayCommandPrepared: (suspend (String) -> Unit)? = null,
     val freshResponse: Boolean = false,
     val contextCeiling: Int? = null,
     val permissionRevision: String = "legacy-unverified",
@@ -47,6 +52,9 @@ data class RequestConstraints(
             requestRole = role,
             restoredGatewayJob = restoredGatewayJob.takeIf { role == "primary" },
             gatewayNewStageAfterTerminal = gatewayNewStageAfterTerminal && role == "primary",
+            gatewayConversationKey = gatewayConversationKey.takeIf { role == "primary" || role == "synthesis" },
+            gatewayConversationId = gatewayConversationId.takeIf { role == "primary" || role == "synthesis" },
+            onGatewayCommandPrepared = onGatewayCommandPrepared.takeIf { role == "primary" || role == "synthesis" },
             maxOutputTokens = if (role == "github-review-preflight") minOf(maxOutputTokens ?: 512, 512) else maxOutputTokens,
             allowReasoning = roleAllowsReasoning,
             reasoningModeOverride = if (roleAllowsReasoning) reasoningModeOverride else dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF,

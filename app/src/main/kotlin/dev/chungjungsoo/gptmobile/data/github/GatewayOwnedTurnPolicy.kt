@@ -15,20 +15,28 @@ internal object GatewayOwnedTurnPolicy {
 
     /** Only the new instruction can authorize implementation; quoted history is data. */
     fun scope(request: String): String {
-        val instruction = request.replace(Regex("(?s)```.*?(?:```|$)"), " ")
-            .lineSequence().filterNot { it.trimStart().startsWith('>') }.joinToString("\n")
-            .trim().lowercase(java.util.Locale.ROOT)
+        var fenced = false
+        val instruction = request.lineSequence().map(String::trim).filter { line ->
+            if (line.startsWith("```") || line.startsWith("~~~")) {
+                fenced = !fenced
+                false
+            } else {
+                !fenced && line.isNotBlank() && !line.startsWith('>') && !line.startsWith('"') && !line.startsWith('\'')
+            }
+        }.joinToString("\n").lowercase(java.util.Locale.ROOT)
         if (Regex("\\b(?:(?:read|review|audit|inspect)[- ]only|plan(?:ning)? only|no (?:code )?(?:changes|writes))\\b").containsMatchIn(instruction) ||
             Regex("\\b(?:do not|don't|never)\\s+(?:(?:edit|modify|change|write|implement)\\b|make\\s+(?:any\\s+)?(?:code\\s+)?changes\\b)").containsMatchIn(instruction) ||
             Regex("\\bwithout\\s+(?:editing|modifying|changing|writing|implementing)\\b").containsMatchIn(instruction)
         ) {
             return if (Regex("\\b(?:plan|design|propos\\w*)\\b").containsMatchIn(instruction)) "plan" else "read"
         }
-        val polite = instruction.replace(Regex("^(?:(?:please|can you|could you|would you|help me)\\s+)+"), "")
+        val polite = instruction.replace(Regex("^(?:(?:please|can you|could you|would you|help me|i want you to|i need you to)\\s+)+"), "")
+        val planArtifact = Regex("^(?:create|make|write|prepare|draft|build)\\s+(?:(?:a|an|the)\\s+)?(?:(?:detailed|implementation|technical|migration|testing|design)\\s+){0,3}(?:plan|design|proposal|outline|specification)\\b")
+        if (planArtifact.containsMatchIn(polite) && !Regex("\\b(?:and|then)\\s+(?:implement|apply|fix|add|remove|delete|refactor)\\b").containsMatchIn(polite)) return "plan"
         if (Regex("^(?:how|what|why|where|when|which|is|are|does|did|should|would)\\b").containsMatchIn(polite)) {
             return if (Regex("^(?:how|should|would)\\b|^what\\b.*\\b(?:plan|design|approach|would|should)\\b").containsMatchIn(polite)) "plan" else "read"
         }
-        if (Regex("^(?:plan|design|outline|propose|explain|review|audit|analy[sz]e|inspect|summari[sz]e)\\b").containsMatchIn(polite) &&
+        if (Regex("^(?:plan|design|outline|propose|review|audit|analy[sz]e|inspect|summari[sz]e)\\b").containsMatchIn(polite) &&
             !Regex("\\b(?:and|then)\\s+(?:implement|apply|fix|build|make|add)\\b").containsMatchIn(polite)
         ) {
             return "plan"

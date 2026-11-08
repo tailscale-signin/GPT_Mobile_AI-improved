@@ -56,6 +56,7 @@ import androidx.compose.material.icons.rounded.Archive
 import androidx.compose.material.icons.rounded.ChatBubble
 import androidx.compose.material.icons.rounded.ChatBubbleOutline
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.CloudQueue
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Folder
@@ -187,8 +188,12 @@ fun HomeScreen(
     onExistingChatClick: (chatRoom: ChatRoomV2, targetMessageId: Int?) -> Unit = { _, _ -> },
     navigateToNewChat: (androidx.compose.ui.geometry.Offset) -> Unit = {},
     navigateToVoice: (androidx.compose.ui.geometry.Offset) -> Unit = {},
-    navigateToWorkspace: (Int) -> Unit = {}
+    navigateToWorkspace: (Int) -> Unit = {},
+    navigateToGateway: () -> Unit = {}
 ) {
+    val gatewayMenuViewModel: GatewayMenuViewModel = hiltViewModel()
+    val gatewayConnections by gatewayMenuViewModel.connections.collectAsStateWithLifecycle(minActiveState = Lifecycle.State.RESUMED)
+    val gatewayConnected = gatewayConnections.any { it.availability.isConnected }
     val listState = rememberLazyListState()
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     val homeFeatures by homeViewModel.featureSettings.collectAsStateWithLifecycle()
@@ -415,12 +420,12 @@ fun HomeScreen(
             Column(modifier = Modifier.fillMaxSize()) {
                 if (!chatListState.isSelectionMode && !chatListState.isSearchMode) {
                     PrimaryTabRow(
-                        selectedTabIndex = currentTab.ordinal,
+                        selectedTabIndex = if (currentTab == HomeTab.FAVORITES && gatewayConnected) 2 else currentTab.ordinal,
                         containerColor = MaterialTheme.colorScheme.background,
                         contentColor = MaterialTheme.colorScheme.primary,
                         indicator = {
                             TabRowDefaults.PrimaryIndicator(
-                                modifier = Modifier.tabIndicatorOffset(currentTab.ordinal, matchContentSize = true),
+                                modifier = Modifier.tabIndicatorOffset(if (currentTab == HomeTab.FAVORITES && gatewayConnected) 2 else currentTab.ordinal, matchContentSize = true),
                                 width = androidx.compose.ui.unit.Dp.Unspecified,
                                 color = MaterialTheme.colorScheme.primary
                             )
@@ -441,6 +446,20 @@ fun HomeScreen(
                                 )
                             }
                         )
+                        if (gatewayConnected) {
+                            Tab(
+                                modifier = Modifier.testTag("home_gateway"),
+                                selected = false,
+                                onClick = navigateToGateway,
+                                text = { Text(stringResource(R.string.gateway_menu_title)) },
+                                icon = {
+                                    Icon(
+                                        imageVector = Icons.Rounded.CloudQueue,
+                                        contentDescription = null
+                                    )
+                                }
+                            )
+                        }
                         Tab(
                             selectedContentColor = MaterialTheme.colorScheme.primary,
                             unselectedContentColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.65f),

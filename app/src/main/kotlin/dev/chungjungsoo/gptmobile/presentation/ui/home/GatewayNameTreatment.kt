@@ -1,9 +1,13 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.home
 
+import androidx.compose.ui.semantics.SemanticsPropertyKey
+import androidx.compose.ui.semantics.SemanticsPropertyReceiver
 import kotlin.math.pow
 
 internal const val GATEWAY_NAME_FADE_HALF_CYCLE_MS = 3_000
 internal const val GATEWAY_NAME_MINIMUM_OPACITY = 0.86f
+internal val GatewayNameOpacityKey = SemanticsPropertyKey<Float>("GatewayNameOpacity")
+internal var SemanticsPropertyReceiver.gatewayNameOpacity by GatewayNameOpacityKey
 
 internal data class GatewayNameTreatment(val backgroundArgb: Int, val minimumOpacity: Float)
 

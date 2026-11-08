@@ -1,13 +1,12 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
-internal fun gatewayJobGroup(state: String, phase: String = ""): String = when {
-    state == "waiting" && phase.uppercase(java.util.Locale.ROOT) in setOf("CI", "CHECKS", "WAITING_CI", "WAITING_FOR_CI") -> "Running"
-    else -> when (state) {
-        "queued" -> "Queued"
-        "running" -> "Running"
-        "completed", "failed", "cancelled" -> "Recent"
-        else -> "Needs attention"
-    }
+import dev.chungjungsoo.gptmobile.data.github.GatewayJobGroup
+import dev.chungjungsoo.gptmobile.data.github.gatewayJobGroup
+
+internal fun gatewayJobDisplayGroup(state: String, phase: String? = null): GatewayJobGroup = when {
+    state.equals("interrupted", ignoreCase = true) -> GatewayJobGroup.NEEDS_ATTENTION
+    state.equals("waiting", ignoreCase = true) && phase?.uppercase(java.util.Locale.ROOT) in setOf("CI", "CHECKS", "WAITING_CI", "WAITING_FOR_CI") -> GatewayJobGroup.RUNNING
+    else -> gatewayJobGroup(state)
 }
 
 internal fun gatewaySchedulingLabel(state: String): String = when (state) {
@@ -31,7 +30,7 @@ internal fun gatewayPhaseLabel(phase: String): String = when (phase.uppercase(ja
     "IMPLEMENT", "IMPLEMENTING" -> "Implementing"
     "INSPECT", "INSPECTING" -> "Inspecting"
     "VERIFY", "VERIFYING" -> "Verifying"
-    else -> phase.lowercase(java.util.Locale.ROOT).replace('_', ' ').replaceFirstChar { it.titlecase(java.util.Locale.ROOT) }
+    else -> phase.replace('_', ' ').replaceFirstChar { it.titlecase(java.util.Locale.ROOT) }
 }
 
 internal fun gatewayElapsedLabel(millis: Long?): String {

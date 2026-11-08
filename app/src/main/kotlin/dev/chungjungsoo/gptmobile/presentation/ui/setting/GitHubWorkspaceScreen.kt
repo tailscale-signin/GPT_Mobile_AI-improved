@@ -119,10 +119,13 @@ fun GitHubWorkspaceScreen(
     val engineering by engineeringModel.state.collectAsStateWithLifecycle()
     dev.chungjungsoo.gptmobile.presentation.ui.chat.GatewayEngineeringObservation(engineeringModel, visibleProgrammer.chatId)
     val engineeringProfile = visibleProgrammer.profiles.firstOrNull { it.uid == commandContext?.mainProfileUid }
+    val jobsModel: GatewayJobsViewModel = hiltViewModel()
+    val gatewayJobs by jobsModel.state.collectAsStateWithLifecycle()
+    GatewayJobsObservation(jobsModel, commandContext?.mainProfileUid ?: visibleProgrammer.profileUid)
     val repositoryMapAvailable = commandContext != null && visibleProgrammer.chatId?.let { it > 0 } == true && visibleProgrammer.chatId == programmerState.chatId && dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.supportsSavedJobs(engineeringProfile)
     var repositoryMapOpen by remember(commandContext) { mutableStateOf(false) }
     val engineeringJob = if (dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.supportsSavedJobs(engineeringProfile)) {
-        engineering.bindings.lastOrNull { it.chatId == visibleProgrammer.chatId && it.profileUid == engineeringProfile?.uid && it.job?.terminal == false }?.job
+        engineering.bindings.lastOrNull { it.chatId == visibleProgrammer.chatId && (it.request.profileId ?: it.profileUid) == engineeringProfile?.uid && it.job?.terminal == false }?.job
     } else {
         null
     }
@@ -235,14 +238,13 @@ fun GitHubWorkspaceScreen(
                 },
                 bottomBar = {}
             ) { padding ->
-                Column(Modifier.fillMaxSize().padding(padding).then(if (tab != 6 && (state.selection == null || state.setupRequired)) Modifier.verticalScroll(setupScroll) else Modifier)) {
-                    if (tab != 6 && (state.selection == null || state.setupRequired)) {
+                Column(Modifier.fillMaxSize().padding(padding).then(if (state.selection == null || state.setupRequired) Modifier.verticalScroll(setupScroll) else Modifier)) {
+                    if (state.selection == null || state.setupRequired) {
                         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
                             GitHubSetupOverview(step = if (state.selection == null) 2 else 3)
-                            OutlinedButton(onClick = { tab = 6 }) { Text("Open retained gateway jobs") }
                         }
                     }
-                    if (tab != 6 && (tab == 5 || state.selection == null || state.setupRequired)) {
+                    if (tab == 5 || state.selection == null || state.setupRequired) {
                         Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
                             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 state.recoveryRepository?.let { repository ->
@@ -356,13 +358,18 @@ fun GitHubWorkspaceScreen(
                             }
                         }
                     }
-                    if (tab != 6 && (state.selection == null || state.setupRequired)) return@Column
+                    if (state.selection == null || state.setupRequired) return@Column
                     if (tab != 5) {
                         listOfNotNull(state.error, visibleProgrammer.error).distinct().joinToString("\n").takeIf(String::isNotBlank)?.let { error ->
                             Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.fillMaxWidth().heightIn(max = 80.dp).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp))
                         }
                     }
-                    val workspaceTabs = listOf(3 to "Chat", 6 to "Jobs", 2 to "Status", 5 to "Settings")
+                    val workspaceTabs = buildList {
+                        add(GitHubWorkspaceDestination.CHAT.id to "Chat")
+                        if (gatewayJobs.configured) add(GitHubWorkspaceDestination.JOBS.id to (gatewayJobs.counts?.active?.takeIf { it > 0 }?.let { "Jobs ($it)" } ?: "Jobs"))
+                        add(GitHubWorkspaceDestination.STATUS.id to "Status")
+                        add(GitHubWorkspaceDestination.SETTINGS.id to "Settings")
+                    }
                     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         workspaceTabs.forEach { (id, label) ->
                             val selected = tab == id || id == 5 && tab in setOf(0, 1, 4)
@@ -371,18 +378,20 @@ fun GitHubWorkspaceScreen(
                                 modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                                 shape = RoundedCornerShape(14.dp),
                                 border = BorderStroke(if (selected) 1.5.dp else 1.dp, MaterialTheme.colorScheme.primary.copy(alpha = if (selected) 1f else 0.35f)),
-                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
                                 colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(containerColor = Color.Transparent)
                             ) { Text(label, style = MaterialTheme.typography.labelLarge) }
                         }
                     }
-                    if (tab != 6) Column(Modifier.padding(horizontal = 16.dp)) { GitHubChatProgress(state, visibleProgrammer, engineeringJob) }
+                    Column(Modifier.padding(horizontal = 16.dp)) { GitHubChatProgress(state, visibleProgrammer, engineeringJob) }
                     Column(Modifier.weight(1f).then(if (tab in setOf(3, 4, 6)) Modifier else Modifier.verticalScroll(workspaceScroll)).padding(if (tab in setOf(3, 4, 6)) 0.dp else 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         if (state.selection == null && tab !in setOf(3, 5, 6)) {
                             WorkspaceEmpty(Icons.Rounded.FolderOpen, "Your code, within reach", "Choose a repository above to browse files, prepare changes and review pull requests.")
                         } else {
                             when (tab) {
-                                6 -> GatewayJobsPanel(visibleProgrammer.selectedProfileUid ?: commandContext?.mainProfileUid ?: initialProfileUid, connection.connectionUid, onOpenConversation)
+                                6 -> GatewayJobsScreen(jobsModel, onOpenConversation = { chatId ->
+                                    if (chatId == visibleProgrammer.chatId) tab = GitHubWorkspaceDestination.CHAT.id else onOpenConversation(chatId)
+                                }, modifier = Modifier.fillMaxSize())
                                 4 -> {
                                     val selection = requireNotNull(state.selection)
                                     GitHubBuildsPanel(connection.connectionUid, selection.owner, selection.repo, selection.ref, Modifier.fillMaxSize(), buildsViewModel)

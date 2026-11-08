@@ -34,7 +34,7 @@ class JournalTests(unittest.TestCase):
         # Each fixture represents a fresh server lifetime. Admission state is
         # process-local; a preceding TestClient shutdown must not leak draining
         # or reserved worker slots into a new temporary journal.
-        for name, value in {'draining': False, 'workers': {}, 'queued': set(), 'admitted': set()}.items():
+        for name, value in {'draining': False, 'workers': {}, 'pending': {}, 'recovery_tasks': set()}.items():
             self.stack.enter_context(patch.object(self.gateway.service, name, value))
         for name, value in {
             'GATEWAY_JOB_DB_PATH': self.db, 'GATEWAY_DURABLE_JOBS': True,
@@ -44,6 +44,7 @@ class JournalTests(unittest.TestCase):
             'durable_job_metrics': dict.fromkeys(self.runtime.durable_job_metrics, 0),
             'device_store': self.store,
             'gateway_draining': False,
+            'gateway_max_queued': 64,
         }.items():
             self.stack.enter_context(patch.object(self.runtime, name, value))
         self.stack.enter_context(patch('v14.identity.device_store', self.store))

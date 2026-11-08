@@ -919,8 +919,6 @@ def cleanup_job_registry():
             for job_id, job
             in job_registry.items()
             if (
-                job.get('status') in {'completed', 'failed', 'cancelled', 'canceled', 'interrupted'}
-                and
                 job.get(
                     "finished_at"
                 )
@@ -944,8 +942,7 @@ def cleanup_job_registry():
             > JOB_REGISTRY_MAX_ITEMS
         ):
             ordered = sorted(
-                ((key, value) for key, value in job_registry.items()
-                 if value.get('status') in {'completed', 'failed', 'cancelled', 'canceled', 'interrupted'}),
+                ((job_id, job) for job_id, job in job_registry.items() if job.get('status') in {'completed', 'failed', 'cancelled', 'canceled', 'interrupted'}),
                 key=lambda item:
                     item[1].get(
                         "created_at",
@@ -975,7 +972,6 @@ def register_gateway_job(
     hard_cancel_event,
     task_text=None,
     request_id=None,
-    admission_snapshot=None,
 ):
     """Register a new root job or resume an existing root job."""
 
@@ -986,8 +982,6 @@ def register_gateway_job(
         existing = job_registry.get(job_id)
 
         if existing is not None:
-            if admission_snapshot is not None:
-                existing['_conversation_messages'] = admission_snapshot.get('messages', [])
             if existing.get("pending_client_tool_call_ids"):
                 # The admission boundary validated every result before resume.
                 # A consumed handoff is not the current segment's saved result.
@@ -1022,11 +1016,6 @@ def register_gateway_job(
             "job_id": job_id,
             "generation": uuid.uuid4().hex,
             "request_id": request_id,
-            "principal_id": current_device.get(),
-            "profile_id": (admission_snapshot or {}).get('profile_id', ''),
-            "profile_name": (admission_snapshot or {}).get('profile_name', ''),
-            "conversation_retention": (admission_snapshot or {}).get('conversation_retention', 'none'),
-            "_conversation_messages": admission_snapshot.get('messages', []) if admission_snapshot is not None else None,
             "model": model,
             "mode": mode,
             "task_text": task_text,
@@ -1036,8 +1025,6 @@ def register_gateway_job(
             "phase": "starting",
             "message": "Job registered",
             "created_at": now,
-            "started_at": None,
-            "scheduling_state": "queued",
             "updated_at": now,
             "finished_at": None,
             "disconnected": False,
@@ -1100,7 +1087,7 @@ def update_gateway_job(
             ("checkpoint", "checkpoint"),
             ("request_id", "request_id"),
             ("scheduling_state", "scheduling_state"),
-            ("started_at", "started_at"),
+            ("queue_reason", "queue_reason"),
         ):
             if (
                 source_key in event
@@ -1214,7 +1201,6 @@ def finish_gateway_job(
             job["_result"] = result
             job["finished_at"] = None
             job["status"] = "waiting_for_client_tool"
-            job['scheduling_state'] = 'waiting'
             job["stage"] = "waiting_for_client_tool"
             job["message"] = "Waiting for remote client tool result"
             job["result_available"] = False
@@ -1252,7 +1238,6 @@ def finish_gateway_job(
             job["_result"] = result
 
         job["result_available"] = result is not None
-        job['scheduling_state'] = job['status']
 
         if result is not None:
             job["result_preview"] = _job_result_preview(result)
@@ -1380,6 +1365,10 @@ def durable_cleanup_old_jobs(connection=None):
             ).fetchall()
         ]
         if old_ids:
+            projection = globals().get('gateway_conversations')
+            if projection:
+                for job_id in old_ids:
+                    projection.mark_expired(conn, job_id)
             conn.executemany(
                 "DELETE FROM gateway_events WHERE job_id = ?",
                 [(job_id,) for job_id in old_ids],
@@ -1456,12 +1445,14 @@ def init_durable_job_store():
                     status = str(public.get("status") or row["status"] or "")
                     pending_client = public.get("pending_client_tool_call_ids")
                     durable_handoff = status == "waiting_for_client_tool" and isinstance(pending_client, list) and bool(pending_client) and all(isinstance(call_id, str) and call_id for call_id in pending_client)
-                    was_interrupted = status in {"running", "resuming", "queued"} or status == "waiting_for_client_tool" and not durable_handoff
+                    pending_admission = None
+                    if status == 'queued' and conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='gateway_generation_admissions'").fetchone():
+                        pending_admission = conn.execute("SELECT 1 FROM gateway_generation_admissions WHERE job_id=? AND dispatch_state='queued' AND payload_json IS NOT NULL", (row['job_id'],)).fetchone()
+                    was_interrupted = status in {"running", "resuming"} or status == "waiting_for_client_tool" and not durable_handoff or status == 'queued' and not pending_admission
                     if was_interrupted:
                         # Never blindly replay a job after a process restart: it may
                         # already have performed a mutation before the crash.
                         public["status"] = "failed"
-                        public['scheduling_state'] = 'interrupted'
                         public["stage"] = "failed"
                         public["message"] = (
                             "Gateway restarted while this job was active; "
@@ -1494,6 +1485,9 @@ def init_durable_job_store():
                     restored += 1
 
                     if was_interrupted:
+                        projection = globals().get('gateway_conversations')
+                        if projection:
+                            projection.generation_projection(conn, runtime, public, result)
                         conn.execute(
                             "UPDATE gateway_jobs SET public_json=?, status=?, "
                             "updated_at=?, finished_at=? WHERE job_id=?",
@@ -2039,6 +2033,10 @@ def resolve_root_job_id(incoming_payload, request_headers=None):
     cleanup_job_registry()
 
     headers = request_headers or {}
+    from v14.conversation_policy import retained_policy
+    requested_store = (incoming_payload.get('gateway') or {}).get('store_conversation')
+    requested_retention = ('full' if requested_store is True else 'none' if requested_store is False else
+                           headers.get('x-gateway-conversation-retention', 'none'))
     explicit = (
         headers.get("x-gateway-job-id")
         or headers.get("X-Gateway-Job-ID")
@@ -2046,6 +2044,10 @@ def resolve_root_job_id(incoming_payload, request_headers=None):
     )
 
     def validate_continuation(job_id, existing):
+        if retained_policy(existing) != requested_retention:
+            raise GatewayContractError('Continue this job with its originally admitted conversation retention policy.',
+                'job_retention_changed', 409,
+                details={'job_id': job_id, 'failed_stage': 'job_admission', 'dispatch_state': 'not_dispatched'})
         pending = existing.get("pending_client_tool_call_ids") or []
         if not pending:
             return job_id
@@ -2088,6 +2090,12 @@ def resolve_root_job_id(incoming_payload, request_headers=None):
                 if candidate in job_registry and device_store.owns(candidate):
                     return validate_continuation(candidate, job_registry[candidate])
 
+    metadata = incoming_payload.get('gateway')
+    if isinstance(metadata, dict) and metadata.get('command_id'):
+        # Explicit commands/conversations cannot inherit an unrelated active
+        # job merely because the last user sentence happens to be identical.
+        return 'gwjob_' + uuid.uuid4().hex
+
     try:
         task_text = get_effective_user_text(messages)
     except Exception:
@@ -2101,7 +2109,7 @@ def resolve_root_job_id(incoming_payload, request_headers=None):
                 for job_id, job in job_registry.items()
                 if (
                     job.get("task_key") == task_key
-                    and job.get('conversation_retention', 'none') == headers.get('x-gateway-conversation-retention', 'none')
+                    and retained_policy(job) == requested_retention
                     and device_store.owns(job_id)
                     and job.get("status")
                     in {"running", "waiting_for_client_tool"}
@@ -18284,6 +18292,9 @@ def gateway_capabilities():
 @app.get("/v1/gateway/jobs/{job_id}/result")
 @app.get("/gateway/jobs/{job_id}/result")
 def gateway_job_result(job_id: str):
+    projection = globals().get('gateway_conversations')
+    if projection and GATEWAY_DURABLE_JOBS and projection.is_expired(current_device.get(), 'generation', job_id):
+        raise HTTPException(status_code=410, detail='Saved job result expired; its conversation may still be available')
     cleanup_job_registry()
     ensure_gateway_job_loaded(job_id)
 
@@ -18312,7 +18323,7 @@ def gateway_job_result(job_id: str):
         "X-Gateway-Version": GATEWAY_VERSION,
     }
 
-    if status in {"running", "resuming", "waiting_for_client_tool"}:
+    if status in {"queued", "running", "resuming", "waiting_for_client_tool"}:
         headers["Retry-After"] = "2"
         return JSONResponse(status_code=202, content=body, headers=headers)
 
@@ -18728,7 +18739,6 @@ async def stream_chat_with_keepalive(
     gateway_job_id,
     gateway_request_id,
     singleflight_follower=False,
-    admission_snapshot=None,
 ):
     """
     OpenAI-compatible SSE stream with single-flight worker sharing.
@@ -18887,7 +18897,6 @@ async def stream_chat_with_keepalive(
                 stream_task_text,
             request_id=
                 gateway_request_id,
-            admission_snapshot=admission_snapshot,
         )
         admitted_generation = admitted_job['generation']
 
@@ -19361,10 +19370,8 @@ async def chat_completions(
         return JSONResponse(status_code=exc.status, content={"error": {
             "message": str(exc), "type": "gateway_contract_error", "code": exc.code}})
     incoming_payload.pop("_gateway_performance", None)
-    admission_snapshot = getattr(request.state, 'gateway_admission_snapshot', None)
-    if admission_snapshot is None:
-        admission_snapshot = {'profile_id': '', 'profile_name': '', 'conversation_retention': 'none', 'messages': None}
-    retention = admission_snapshot.get('conversation_retention', 'none')
+
+    retention = getattr(request.state, 'gateway_conversation_retention', 'none')
 
     wants_stream = bool(
         incoming_payload.get(
@@ -19408,7 +19415,9 @@ async def chat_completions(
             raise HTTPException(status_code=503, detail="Durable request admission is unavailable")
         canonical_payload = dict(incoming_payload)
         canonical_payload.pop("gateway_job_id", None)
-        if retention == 'full':
+        if retention == 'full' and (incoming_payload.get('gateway') or {}).get('store_conversation') is not True:
+            # Canonical payloads already bind retention in their durable digest.
+            # Keep those existing receipts replayable across this header upgrade.
             canonical_payload['_gateway_conversation_retention'] = retention
         admitted_job_id, idempotency_replay = ledger.admit_request(
             current_device.get(), "POST /v1/chat/completions", idempotency_key,
@@ -19418,19 +19427,18 @@ async def chat_completions(
             gateway_job_id = admitted_job_id
             singleflight_follower = True
             if ensure_gateway_job_loaded(gateway_job_id) is not None:
-                # A terminal result can outlive its in-memory cache. Recover
-                # its exact admitted identity before any possible registration;
-                # revalidate client-tool waits instead of dispatching them again.
                 resolve_root_job_id(incoming_payload, dict(request.headers, **{'x-gateway-job-id': gateway_job_id}))
 
     device_store.claim(gateway_job_id)
 
     with job_registry_lock:
         retained_job = job_registry.get(gateway_job_id)
-        if retained_job and retained_job.get('conversation_retention', 'none') != retention:
-            raise GatewayContractError('Continue this job with its originally admitted conversation retention policy.',
-                                       'job_retention_changed', 409,
-                                       details={'job_id': gateway_job_id, 'failed_stage': 'job_admission', 'dispatch_state': 'not_dispatched'})
+        if retained_job:
+            from v14.conversation_policy import retained_policy
+            if retained_policy(retained_job) != retention:
+                raise GatewayContractError('Continue this job with its originally admitted conversation retention policy.',
+                    'job_retention_changed', 409,
+                    details={'job_id': gateway_job_id, 'failed_stage': 'job_admission', 'dispatch_state': 'not_dispatched'})
 
     incoming_payload.pop(
         "gateway_job_id",
@@ -19478,15 +19486,9 @@ async def chat_completions(
     response_headers["X-Gateway-Performance-Profile"] = (incoming_payload.get("_gateway_performance") or {}).get("profile", GATEWAY_PERFORMANCE_PROFILE_DEFAULT)
 
     retained_worker = get_singleflight_worker(gateway_job_id)
-    if retained_worker and retained_worker.get("persistence_error") is not None:
-        # The accepted worker already ran. A failed result commit leaves an
-        # uncertain outcome; neither a late stream nor a nonstream retry may
-        # replace it with another execution under the same job identity.
-        return JSONResponse(
-            status_code=503,
-            content={"error": {"code": "durable_commit_failed", "dispatch_state": "unknown"}},
-            headers=response_headers,
-        )
+    if retained_worker and retained_worker.get('persistence_error') is not None:
+        return JSONResponse(status_code=503,
+            content={'error': {'code': 'durable_commit_failed', 'dispatch_state': 'unknown'}}, headers=response_headers)
 
     # IMPORTANT:
     # For streaming clients we return StreamingResponse before
@@ -19500,7 +19502,6 @@ async def chat_completions(
                 gateway_request_id,
                 singleflight_follower=
                     singleflight_follower,
-                admission_snapshot=admission_snapshot,
             ),
             media_type=
                 "text/event-stream",
@@ -19559,13 +19560,9 @@ async def chat_completions(
                 )
 
             except Exception:
-                # A shared worker exception is an outcome of the original
-                # admission, never permission to dispatch a replacement.
-                return JSONResponse(
-                    status_code=503,
-                    content={"error": {"code": "durable_commit_failed", "dispatch_state": "unknown"}},
-                    headers=response_headers,
-                )
+                # A shared worker failure is an observed outcome, never permission
+                # for a follower to register and execute the same command again.
+                return JSONResponse(status_code=503, content={"error": {"code": "durable_commit_failed" if worker.get("persistence_error") else "gateway_worker_failed"}}, headers=response_headers)
 
         with job_registry_lock:
             completed_job = (
@@ -19613,7 +19610,6 @@ async def chat_completions(
         nonstream_hard_cancel,
         task_text=task_text,
         request_id=gateway_request_id,
-        admission_snapshot=admission_snapshot,
     )
     admitted_generation = admitted_job['generation']
 
@@ -19644,38 +19640,32 @@ async def chat_completions(
             enriched,
         )
 
-    def execute_and_commit():
-        # The worker owns persistence. Cancelling the HTTP waiter must not lose
-        # the final result of a still-running, durably admitted model/tool loop.
+    def run_nonstream_worker():
         try:
-            status_code, result = process_chat_payload(incoming_payload, nonstream_cancel,
-                                                       nonstream_progress_callback, nonstream_hard_cancel)
+            code, value = process_chat_payload(incoming_payload, nonstream_cancel,
+                                               nonstream_progress_callback, nonstream_hard_cancel)
         except Exception as error:
             finish_gateway_job(gateway_job_id, 500, None, error=error, expected_generation=admitted_generation)
             raise
-        finish_gateway_job(gateway_job_id, status_code, result, expected_generation=admitted_generation)
-        return status_code, result
+        finish_gateway_job(gateway_job_id, code, value, expected_generation=admitted_generation)
+        return code, value
 
-    task = asyncio.create_task(asyncio.to_thread(execute_and_commit))
-    worker_entry = {'task': task, 'cancel_event': nonstream_cancel, 'hard_cancel_event': nonstream_hard_cancel,
-                    'job_mode': classify_job_mode(task_text), 'clients': 1, 'created_at': time.time(), 'finished_at': None}
-    if SINGLEFLIGHT_ENABLED:
-        with singleflight_lock:
-            singleflight_workers[gateway_job_id] = worker_entry
-    def worker_done(done):
-        try:
-            if not done.cancelled():
-                worker_entry['persistence_error'] = done.exception()
-        finally:
-            mark_singleflight_worker_finished(gateway_job_id, done)
-    task.add_done_callback(worker_done)
+    worker_task = asyncio.create_task(asyncio.to_thread(run_nonstream_worker))
+    worker_entry = {'task': worker_task, 'cancel_event': nonstream_cancel,
+        'hard_cancel_event': nonstream_hard_cancel, 'clients': 1, 'orphan_task': None, 'job_mode': classify_job_mode(task_text),
+        'created_at': time.time(), 'finished_at': None}
+    with singleflight_lock:
+        singleflight_workers[gateway_job_id] = worker_entry
+    def observe_nonstream_result(task):
+        if not task.cancelled() and task.exception() is not None:
+            worker_entry['persistence_error'] = task.exception()
+        mark_singleflight_worker_finished(gateway_job_id, task)
+    worker_task.add_done_callback(observe_nonstream_result)
     try:
-        status_code, result = await asyncio.shield(task)
-    except asyncio.CancelledError:
-        mark_gateway_job_disconnected(gateway_job_id)
-        if not should_continue_after_disconnect(classify_job_mode(task_text), gateway_job_id):
-            nonstream_cancel.set()
-        raise
+        status_code, result = await asyncio.shield(worker_task)
+    finally:
+        detach_singleflight_client(gateway_job_id)
+
 
     if status_code != 200:
         return JSONResponse(

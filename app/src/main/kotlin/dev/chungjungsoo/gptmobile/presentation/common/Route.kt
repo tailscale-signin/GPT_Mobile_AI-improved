@@ -22,6 +22,7 @@ object Route {
     const val OLLAMA_API_ADDRESS = "ollama_api_address"
 
     const val CHAT_LIST = "chat_list"
+    const val GATEWAY_CONVERSATIONS = "gateway_conversations"
     const val VOICE_ENTRY = "voice_start"
     const val VOICE_CHAT = "voice_chat/{chatRoomId}?enabled={enabledPlatforms}"
     const val NEW_CHAT_FLOW = "new_chat_flow"

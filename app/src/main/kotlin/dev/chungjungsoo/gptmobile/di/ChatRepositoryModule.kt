@@ -94,7 +94,9 @@ object ChatRepositoryModule {
         gitHubDecisionNotifications: dev.chungjungsoo.gptmobile.data.github.GitHubDecisionNotifications,
         engineeringMemory: dev.chungjungsoo.gptmobile.data.github.GitHubEngineeringMemory,
         privacyPreflight: dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterPrivacyPreflight,
-        gatewayAPI: dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAPI
+        gatewayAPI: dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAPI,
+        gatewayConversations: dev.chungjungsoo.gptmobile.data.github.GatewayConversationRepository,
+        gatewayEngineering: dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringRepository
     ): ChatRepository = ChatRepositoryImpl(
         context = context,
         chatRoomV2Dao = chatRoomV2Dao,
@@ -141,6 +143,8 @@ object ChatRepositoryModule {
         gitHubDecisionNotifications = gitHubDecisionNotifications,
         engineeringMemory = engineeringMemory,
         privacyPreflight = privacyPreflight,
-        gatewayAPI = gatewayAPI
+        gatewayAPI = gatewayAPI,
+        gatewayConversations = gatewayConversations,
+        gatewayEngineering = gatewayEngineering
     )
 }

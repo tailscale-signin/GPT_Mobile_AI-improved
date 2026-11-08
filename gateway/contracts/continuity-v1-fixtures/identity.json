@@ -1,8 +1,0 @@
-{
-  "protocol_version": 1,
-  "gateway_id": "gw_d1665bfbcbf744408387656fdd6379dd",
-  "instance_id": "fixture_process_instance",
-  "principal_id": "owner",
-  "identity_scope": "user",
-  "server_time_ms": 1794052800000
-}

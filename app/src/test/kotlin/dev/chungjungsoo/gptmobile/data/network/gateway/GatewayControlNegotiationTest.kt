@@ -23,6 +23,42 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GatewayControlNegotiationTest {
+    @Test fun canonicalPayloadAndNegotiatedRetentionAgreeForVisibleAndPrivateTurns() = runBlocking {
+        val header = "X-Gateway-Conversation-Retention"
+        val capability = GatewayCapabilities(
+            gatewayVersion = "15.0.0",
+            acceptedRequestHeaders = listOf(header, "X-Gateway-Profile-ID", "X-Gateway-Request-Role", "X-Gateway-Delegated-Worker"),
+            features = mapOf("conversation_sync_v1" to JsonPrimitive(true))
+        )
+        val saved = ProviderRequestConfig(
+            "https://canonical-retention.example/v1",
+            null,
+            providerType = "LLAMA",
+            profileUid = "saved-profile",
+            queuePersistent = true,
+            gatewayConversationKey = "saved-conversation"
+        )
+        val cases = listOf(
+            saved to true,
+            saved.copy(requestRole = "synthesis") to true,
+            saved.copy(queuePersistent = false) to false,
+            saved.copy(gatewayConversationKey = null) to false,
+            saved.copy(requestRole = "github-review") to false,
+            saved.copy(extraHeaders = mapOf("X-Gateway-Request-Role" to "reviewer")) to false,
+            saved.copy(extraHeaders = mapOf("X-Gateway-Delegated-Worker" to "true")) to false
+        )
+        for ((request, retained) in cases) {
+            val prepared = GatewayControlNegotiation(Fake(capability)).prepare(request)
+            assertEquals(if (retained) "full" else "none", prepared.extraHeaders[header])
+            val payload = gatewayConversationPayload("""{"model":"selected","messages":[]}""", prepared)
+            assertEquals(JsonPrimitive(retained), Json.parseToJsonElement(payload).jsonObject.getValue("gateway").jsonObject["store_conversation"])
+        }
+        val withoutDisplayHeaders = capability.copy(acceptedRequestHeaders = listOf(header))
+        val prepared = GatewayControlNegotiation(Fake(withoutDisplayHeaders)).prepare(saved)
+        assertEquals("full", prepared.extraHeaders[header])
+        assertEquals(JsonPrimitive(true), Json.parseToJsonElement(gatewayConversationPayload("{}", prepared)).jsonObject.getValue("gateway").jsonObject["store_conversation"])
+    }
+
     @Test fun onlyPersistentPrimaryRequestsCanNegotiateFullConversationRetention() = runBlocking {
         val header = "X-Gateway-Conversation-Retention"
         val api = Fake(GatewayCapabilities(gatewayVersion = "15.0.0", acceptedRequestHeaders = listOf(header, "X-Gateway-Profile-ID")))
@@ -73,12 +109,14 @@ class GatewayControlNegotiationTest {
                 val network = mockk<NetworkClient>()
                 every { network() } returns http
                 val prepared = GatewayControlNegotiation(GatewayAPIImpl(network)).prepare(config)
-                val negotiatedMetadata = if (name == "gateway-v15-capabilities-full.json") {
-                    mapOf("X-Gateway-Profile-ID" to "selected-profile", "X-Gateway-Conversation-Retention" to "none")
-                } else {
-                    emptyMap()
-                }
-                assertEquals(config.copy(extraHeaders = isolation + ("X-Api-Key" to "selected-key") + negotiatedMetadata), prepared)
+                assertEquals(
+                    config.copy(
+                        extraHeaders = isolation + ("X-Api-Key" to "selected-key") +
+                            if (name == "gateway-v15-capabilities-full.json") mapOf("X-Gateway-Profile-ID" to "selected-profile", "X-Gateway-Conversation-Retention" to "none") else emptyMap(),
+                        gatewayConversationSync = name == "gateway-v15-capabilities-full.json"
+                    ),
+                    prepared
+                )
                 assertEquals(1, calls)
             }
         }
@@ -125,15 +163,42 @@ class GatewayControlNegotiationTest {
         override suspend fun cancelJob(jobId: String, config: ProviderRequestConfig): GatewayCancelResult? = null
     }
 
-    @Test fun directRoutesWithoutGatewayControlsDoNotRequireGatewaySoftware() = runBlocking {
+    @Test fun hostedDirectRoutesWithoutGatewayControlsDoNotRequireGatewaySoftware() = runBlocking {
         val api = Fake().apply { failure = GatewayCapabilityDiscoveryException("Direct inference has no gateway service") }
         val negotiation = GatewayControlNegotiation(api)
-        for (provider in listOf("LLAMA", "OLLAMA", "CUSTOM", "OPENAI")) {
-            val config = ProviderRequestConfig("https://${provider.lowercase()}.headerless-direct.example/v1", "selected-account", providerType = provider, profileUid = "saved-profile", profileName = "Local · 東京 🦙", extraHeaders = mapOf("X-Client" to "app"))
+        for (provider in listOf("CUSTOM", "OPENAI")) {
+            val config = ProviderRequestConfig("https://${provider.lowercase()}.headerless-direct.example/v1", "selected-account", providerType = provider, extraHeaders = mapOf("X-Client" to "app"))
             assertEquals(config, negotiation.prepare(config))
-            assertEquals(config, negotiation.prepare(config.copy(extraHeaders = config.extraHeaders + mapOf("x-gateway-profile-id" to "untrusted", "X-Gateway-Profile-Name-Base64" to "dW50cnVzdGVk"))))
         }
         assertEquals(0, api.probes)
+    }
+
+    @Test fun coldLocalRoutesDiscoverHistoryEvenWithoutDiagnosticHeaders() = runBlocking {
+        for (provider in listOf("LLAMA", "OLLAMA")) {
+            val api = Fake(GatewayCapabilities(gatewayVersion = "15.0.0", features = mapOf("conversation_sync_v1" to JsonPrimitive(true))))
+            val config = ProviderRequestConfig("http://cold-${provider.lowercase()}.local:8090/v1", null, providerType = provider, queuePersistent = true, gatewayConversationKey = "conversation")
+            val prepared = GatewayControlNegotiation(api).prepare(config)
+            assertTrue(prepared.gatewayConversationSync)
+            assertEquals(1, api.probes)
+            val privatePrepared = prepared.copy(queuePersistent = false, gatewayConversationKey = null)
+            val payload = Json.parseToJsonElement(gatewayConversationPayload("{\"model\":\"selected\"}", privatePrepared)).jsonObject
+            assertEquals(JsonPrimitive(false), payload.getValue("gateway").jsonObject["store_conversation"])
+        }
+    }
+
+    @Test fun localRouteWithDefinitivelyUnsupportedHistoryStillUsesDirectInference() = runBlocking {
+        val api = Fake()
+        val config = ProviderRequestConfig("http://direct-ollama.local:11434/v1", null, providerType = "OLLAMA")
+        assertEquals(config, GatewayControlNegotiation(api).prepare(config))
+        assertEquals(1, api.probes)
+    }
+
+    @Test fun inconclusiveColdLocalProbeCannotSendAnUnmarkedTemporaryRequest() = runBlocking {
+        val failure = GatewayCapabilityDiscoveryException("connection lost")
+        val api = Fake().apply { this.failure = failure }
+        val config = ProviderRequestConfig("http://private-ollama.local:8090/v1", null, providerType = "OLLAMA", queuePersistent = false)
+        assertSame(failure, runCatching { GatewayControlNegotiation(api).prepare(config) }.exceptionOrNull())
+        assertEquals(1, api.probes)
     }
 
     @Test fun unicodeDisplayLabelsAreCapturedOnlyAfterTheRealGatewayAcceptsTheirHeaders() = runBlocking {
@@ -187,9 +252,11 @@ class GatewayControlNegotiationTest {
 
     @Test fun displayMetadataBoundsUseUtf8BytesAndUnsafeIdentifiersCannotBecomeHeaders() = runBlocking {
         val accepted = listOf("X-Gateway-Profile-ID", "X-Gateway-Profile-Name-Base64")
-        val api = Fake(GatewayCapabilities(gatewayVersion = "15.0.0", acceptedRequestHeaders = accepted))
+        val instance = "9".repeat(32)
+        val api = Fake(GatewayCapabilities(gatewayVersion = "15.0.0", instanceId = instance, acceptedRequestHeaders = accepted))
         val negotiation = GatewayControlNegotiation(api)
         val config = ProviderRequestConfig("https://profile-label-bounds.example/v1", null, profileUid = "p".repeat(160), profileName = "é".repeat(512), extraHeaders = mapOf("X-Gateway-Cache-Reuse" to "1024"))
+        GatewayClientDiagnostics.observeInstance(config, instance)
         val prepared = negotiation.prepare(config)
         assertEquals(config.profileUid, prepared.extraHeaders[accepted[0]])
         val bytes = Base64.getUrlDecoder().decode(prepared.extraHeaders[accepted[1]])
@@ -281,10 +348,17 @@ class GatewayControlNegotiationTest {
         GatewayClientDiagnostics.observeInstance(config, "f".repeat(32))
         val api = Fake()
         val negotiation = GatewayControlNegotiation(api)
-        for (direct in listOf(config.copy(apiUrl = "https://another-headerless-identity.example/v1"), config.copy(token = "direct-account"), config.copy(extraHeaders = mapOf("X-Api-Key" to "direct-key")))) {
-            assertEquals(direct, negotiation.prepare(direct))
+        val directRoutes = listOf(config.copy(apiUrl = "https://another-headerless-identity.example/v1"), config.copy(token = "direct-account"), config.copy(extraHeaders = mapOf("X-Api-Key" to "direct-key")))
+        val scopedHeaders = setOf("x-gateway-installation-id", "x-gateway-principal-id", "x-gateway-conversation-retention")
+        for (direct in directRoutes) {
+            assertEquals("unobserved", GatewayClientDiagnostics.runtimeEpoch(direct))
+            val prepared = negotiation.prepare(direct)
+            assertEquals(direct, prepared)
+            assertEquals("unobserved", GatewayClientDiagnostics.runtimeEpoch(prepared))
+            assertTrue(prepared.extraHeaders.keys.none { it.lowercase() in scopedHeaders })
         }
-        assertEquals(0, api.probes)
+        assertEquals(3, api.probes)
+        assertEquals(directRoutes, api.configurations)
     }
 
     @Test fun gatewayIdentifiedByUnsupportedCapabilityResponseCannotBecomeDirect() = runBlocking {

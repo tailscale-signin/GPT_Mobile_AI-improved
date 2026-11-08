@@ -1,5 +1,13 @@
 # Gateway-owned jobs, conversations, and availability
 
+> **Historical implementation checkpoint.** Commit `5acf0ea` was integrated
+> with the concurrent gateway implementation and the Home Gateway browser.
+> The current protocol, schema-51 upgrade path, ownership rules, and final
+> validation evidence are recorded in
+> [Gateway availability and persistent conversations](../architecture/gateway-persistent-jobs.md).
+> The overlapping prototype stores and wire envelopes described below are
+> superseded; earlier validation counts apply only to their recorded sources.
+
 ## Accepted scope
 
 This extends the active repair of PR 813 in `tailscale-signin/GPT_Mobile_AI-improved`. The original diagnostic/GitHub fixes and the request to merge after current-head validation remain in force. The starting main revision is `3ac89ceafd9083f67da30e92f9f93aae27be4600`; the concurrent MCP/audit repair at `54faf9a197e1ee897901e56106802d920a5fd41e` is preserved.

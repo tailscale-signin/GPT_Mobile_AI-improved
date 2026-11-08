@@ -29,4 +29,18 @@ class GatewayEngineeringModelsTest {
         assertTrue(job.copy(state = "COMPLETED").terminal)
         assertEquals(3, GatewayEngineeringSettings().durationHours)
     }
+
+    @Test fun derivedWorkingBranchMatchesOnlyThePinnedCanonicalRequestAndNeverTheBase() {
+        val request = GatewayEngineeringRequest("owner/repo", "main", "main", "Implement the change", "model", chatId = 7, requestId = "request", taskScope = "implement", sourceBranch = "main", sourceSha = "a".repeat(40))
+        val derived = "codex/gateway-74ae4eaeb8567f989cf6"
+        assertEquals(derived, gatewayDerivedWorkingBranch(request))
+        assertTrue(gatewayWorkingBranchMatches(request, derived, "main", "a".repeat(40), derived))
+        assertFalse(gatewayWorkingBranchMatches(request, "main", "main", "a".repeat(40), "main"))
+        assertFalse(gatewayWorkingBranchMatches(request, "codex/gateway-unrelated", "main", "a".repeat(40), "codex/gateway-unrelated"))
+        assertFalse(gatewayWorkingBranchMatches(request, derived, "main", "b".repeat(40), derived))
+        assertEquals(null, gatewayDerivedWorkingBranch(request.copy(sourceSha = null)))
+        assertEquals(null, gatewayDerivedWorkingBranch(request.copy(taskScope = "read")))
+        assertTrue(gatewayWorkingBranchMatches(request.copy(branch = "selected-work"), "selected-work", "main", "a".repeat(40), "selected-work"))
+        assertFalse(gatewayWorkingBranchMatches(request.copy(branch = "selected-work"), derived, "main", "a".repeat(40), derived))
+    }
 }

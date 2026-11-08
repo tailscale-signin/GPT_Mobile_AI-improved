@@ -10,6 +10,8 @@ TERMINAL = {"completed", "failed", "cancelled", "canceled", "interrupted"}
 
 
 def install_terminal_guard(runtime):
+    from v14.conversations import Conversations
+    runtime.gateway_conversations = Conversations(runtime)
     install_strict_journal(runtime)
     finish = runtime.finish_gateway_job
     update = runtime.update_gateway_job
@@ -21,28 +23,35 @@ def install_terminal_guard(runtime):
             if previous is not None and previous.get('model') and model and previous['model'] != model:
                 raise GatewayContractError('Continue this job using its original admitted model.', 'job_binding_changed', 409,
                     details={'job_id': job_id, 'failed_stage': 'job_admission', 'dispatch_state': 'not_dispatched'})
-            admitted_profile = (kwargs.get('admission_snapshot') or {}).get('profile_id')
-            admitted_retention = (kwargs.get('admission_snapshot') or {}).get('conversation_retention', 'none')
-            if previous is not None and previous.get('conversation_retention', 'none') != admitted_retention:
-                raise GatewayContractError('Continue this job with its originally admitted conversation retention policy.', 'job_retention_changed', 409,
-                    details={'job_id': job_id, 'failed_stage': 'job_admission', 'dispatch_state': 'not_dispatched'})
-            if previous is not None and previous.get('profile_id') and admitted_profile and previous['profile_id'] != admitted_profile:
-                raise GatewayContractError('Continue this job using its original admitted profile.', 'job_binding_changed', 409,
-                    details={'job_id': job_id, 'failed_stage': 'job_admission', 'dispatch_state': 'not_dispatched'})
             if previous is not None and previous.get('status') in TERMINAL:
                 raise GatewayContractError('This gateway job is already terminal. Retrieve its saved result or start a new request without the old job ID.', 'terminal_job_not_resumable', 409,
                     details={'job_id': job_id, 'terminal_status': previous.get('status'),
                              'terminal_status_code': previous.get('status_code'),
                              'result_available': previous.get('_result') is not None,
                              'failed_stage': 'tool_continuation', 'dispatch_state': 'not_dispatched'})
+            from v14.conversations import admission_context, ConversationConflict
+            from v14.conversation_policy import retained_policy
+            context = admission_context.get()
+            if previous is not None and context and retained_policy(previous) != context.get('retention', 'full'):
+                raise GatewayContractError('Continue this job with its originally admitted conversation retention policy.', 'job_retention_changed', 409,
+                    details={'job_id': job_id, 'failed_stage': 'job_admission', 'dispatch_state': 'not_dispatched'})
+            admitted_profile = ((context['payload'].get('gateway') or {}).get('profile_id') or
+                                (context.get('profile') or {}).get('profile_id')) if context else None
+            if previous is not None and previous.get('profile_id') and admitted_profile and previous['profile_id'] != admitted_profile:
+                raise GatewayContractError('Continue this job using its original admitted profile.', 'job_binding_changed', 409,
+                    details={'job_id': job_id, 'failed_stage': 'job_admission', 'dispatch_state': 'not_dispatched'})
+            if previous is not None and context and bool(previous.get('_ephemeral')) != ((context['payload'].get('gateway') or {}).get('store_conversation') is False):
+                raise ConversationConflict('An active job cannot change its transcript privacy mode')
             snapshot = dict(previous) if previous is not None else None
+            if previous is not None:
+                previous['_admission_pending'] = True
             try:
                 result = register(job_id, *args, **kwargs)
                 if previous is None and isinstance(result, dict):
                     # Volatile birth marker: an older persisted job with unknown
                     # history must never acquire an entire-job isolation proof.
                     result['_server_isolation_new'] = True
-                if isinstance(result, dict) and runtime.GATEWAY_DURABLE_JOBS and runtime.durable_job_initialized:
+                if isinstance(result, dict) and not result.get('_ephemeral') and runtime.GATEWAY_DURABLE_JOBS and runtime.durable_job_initialized:
                     # register() has returned only after the strict SQLite commit.
                     # This volatile admission proof belongs to the current worker;
                     # restart recovery still reconciles stored outcomes, never replays.
@@ -59,10 +68,10 @@ def install_terminal_guard(runtime):
         # Hold the same reentrant registry lock through persistence so a racing
         # late disconnect cannot overwrite a committed terminal result.
         with runtime.job_registry_lock:
+            if isinstance(result, dict) and result.get('_gateway_deferred') is True:
+                return
             job = runtime.job_registry.get(job_id)
             if job is None:
-                # The durable admission owns completion. A cache miss cannot
-                # silently turn a successful worker result into lost history.
                 job = restore_completion_identity(runtime, job_id, expected_generation)
                 runtime.job_registry[job_id] = job
             if expected_generation is not None and job.get('generation') != expected_generation:
@@ -73,7 +82,7 @@ def install_terminal_guard(runtime):
             if snapshot and isinstance(snapshot.get("_segment_results"), deque):
                 snapshot["_segment_results"] = deque(snapshot["_segment_results"], maxlen=snapshot["_segment_results"].maxlen)
             try:
-                return finish(job_id, status_code, result, error)
+                return finish(job_id, status_code, result, error, expected_generation=expected_generation)
             except Exception:
                 if job is not None and snapshot is not None:
                     job.clear()
@@ -152,14 +161,8 @@ class DurableCommitError(RuntimeError):
 
 
 def restore_completion_identity(runtime, job_id, expected_generation):
-    """Rehydrate one admitted identity, without executing or replaying any work.
-
-    The caller holds job_registry_lock; all journal access follows the same
-    registry-before-journal ordering as normal completion. An unknown or newer
-    identity fails explicitly instead of accepting a result for another job.
-    """
-    if (not expected_generation or not runtime.GATEWAY_DURABLE_JOBS
-            or not runtime.durable_job_initialized):
+    """Rehydrate the exact admitted worker without model or side-effect replay."""
+    if not expected_generation or not runtime.GATEWAY_DURABLE_JOBS or not runtime.durable_job_initialized:
         raise DurableCommitError('The admitted worker identity is unavailable; completion was not acknowledged')
     with runtime.durable_job_lock:
         conn = runtime._durable_connect()
@@ -173,8 +176,7 @@ def restore_completion_identity(runtime, job_id, expected_generation):
             result = json.loads(row[1]) if row[1] is not None else None
             rows = conn.execute('SELECT event_json FROM gateway_events WHERE job_id=? ORDER BY sequence DESC LIMIT ?',
                                 (job_id, runtime.DURABLE_JOB_EVENT_MAX)).fetchall()
-            events = [json.loads(row[0]) for row in reversed(rows)]
-            return runtime._runtime_job_from_persisted(public, result, events)
+            return runtime._runtime_job_from_persisted(public, result, [json.loads(row[0]) for row in reversed(rows)])
         finally:
             conn.close()
 
@@ -265,21 +267,37 @@ def install_journal_upgrade(runtime):
 def install_strict_journal(runtime):
     install_journal_upgrade(runtime)
     def persist(job_id, event=None):
+        from v14.conversations import admission_context
+        context = admission_context.get()
+        with runtime.job_registry_lock:
+            job = runtime.job_registry.get(job_id)
+            if job is not None and context and 'conversation_retention' not in job:
+                job['conversation_retention'] = context.get('retention', 'full')
+                presentation = context.get('profile') or {}
+                job.update(profile_id=(context['payload'].get('gateway') or {}).get('profile_id') or presentation.get('profile_id'),
+                           profile_name=presentation.get('profile_name'), principal_id=context['principal'])
+                if job['conversation_retention'] == 'none':
+                    job['title'] = 'Gateway conversation'
+            if job is not None and context and (context['payload'].get('gateway') or {}).get('store_conversation') is False:
+                job['_ephemeral'] = True
+            if job is not None and job.get('_ephemeral'):
+                return
         if not runtime.GATEWAY_DURABLE_JOBS:
             return
         if not runtime.durable_job_initialized and not runtime.init_durable_job_store():
             raise DurableCommitError("Durable job store unavailable")
-        with runtime.job_registry_lock:
-            job = runtime.job_registry.get(job_id)
-            if job is None:
-                return
-            public, result = runtime._persisted_job_payload(job)
-            transcript = job.get('_conversation_messages')
         try:
-            with runtime.durable_job_lock:
+            with runtime.job_registry_lock, runtime.durable_job_lock:
+                job = runtime.job_registry.get(job_id)
+                if job is None:
+                    return
+                public, result = runtime._persisted_job_payload(job)
                 conn = runtime._durable_connect()
                 try:
                     with conn:
+                        projection = getattr(runtime, 'gateway_conversations', None)
+                        if projection:
+                            projection.generation_projection(conn, job, public, result)
                         conn.execute("INSERT INTO gateway_jobs(job_id,public_json,result_json,status,created_at,updated_at,finished_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(job_id) DO UPDATE SET public_json=excluded.public_json,result_json=excluded.result_json,status=excluded.status,updated_at=excluded.updated_at,finished_at=excluded.finished_at",
                             (job_id, runtime._json_safe_dump(public), runtime._json_safe_dump(result) if result is not None else None,
                              public.get("status"), public.get("created_at"), public.get("updated_at"), public.get("finished_at")))
@@ -288,22 +306,16 @@ def install_strict_journal(runtime):
                                 (job_id,event["sequence"],runtime._json_safe_dump(event),time.time()))
                             conn.execute("DELETE FROM gateway_events WHERE job_id=? AND sequence NOT IN (SELECT sequence FROM gateway_events WHERE job_id=? ORDER BY sequence DESC LIMIT ?)",
                                 (job_id,job_id,runtime.DURABLE_JOB_EVENT_MAX))
-                        continuity = getattr(runtime, 'gateway_continuity', None)
-                        if continuity is not None:
-                            continuity.record_ordinary(conn, public, result, event, transcript=transcript)
                     runtime.durable_job_metrics["writes"] += 1
                     runtime.durable_write_healthy = True
                     if isinstance(event, dict) and isinstance(event.get("sequence"), int) and event["sequence"] > 0:
                         runtime.durable_job_metrics["event_writes"] += 1
                 finally:
                     conn.close()
-            # Registry mutation normally takes the registry lock before the
-            # journal lock. Never reverse that order while dropping transient
-            # input that was just committed to the conversation journal.
-            with runtime.job_registry_lock:
-                if job is runtime.job_registry.get(job_id) and job.get('_conversation_messages') is transcript:
-                    job.pop('_conversation_messages', None)
         except Exception as exc:
+            from v14.conversations import ConversationConflict, QueueFull
+            if isinstance(exc, (ConversationConflict, QueueFull)):
+                raise
             runtime.durable_write_healthy = False
             runtime._durable_metric("failures")
             raise DurableCommitError("Durable job commit failed; completion was not acknowledged") from exc

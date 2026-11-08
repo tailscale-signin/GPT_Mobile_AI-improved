@@ -38,7 +38,7 @@ preserving the original remote request, job ID and authorization binding.
 ## Host setup
 
 Follow [V14_UPGRADE.md](V14_UPGRADE.md) for the private listener, durable state
-directory, single-process lock and Tailscale Serve configuration. Durable jobs
+directory and single-process lock. The desktop open-network mode uses its existing shared network principal; deployments using trusted proxy mode may use Tailscale Serve. Durable jobs
 must remain enabled. The existing `GATEWAY_JOB_DB` holds engineering jobs,
 dispatch intents, receipts and update events. Back it up with the gateway
 stopped; retained source and logs require the same protection as the repository.
@@ -170,3 +170,7 @@ After a network error, recover the same job/request and cursor. Do not use a new
 request ID to retry an uncertain creation. Restore the original gateway/account
 if the binding changes. Check permissions and host connectivity separately for
 403 responses; batching does not repair authentication or unsupported models.
+
+## Saved chat turns and scoped work
+
+Supported Android clients can send GitHub chat turns through the same supervisor with explicit `read`, `plan` or `implement` scope. Read/plan permit the selected branch to equal the base and cannot publish changes or merge. The Jobs tab and server conversation browser use the canonical conversation and immutable execution binding rather than a current Android room number. See [GATEWAY_CONVERSATIONS.md](GATEWAY_CONVERSATIONS.md) for the additive routes, queued instructions, cancellation confirmation and detached-worker behavior.

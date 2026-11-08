@@ -1,23 +1,23 @@
 package dev.chungjungsoo.gptmobile.data.network.gateway
 
 import android.os.SystemClock
+import dev.chungjungsoo.gptmobile.data.network.ConnectionHealth
 import dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth
+import dev.chungjungsoo.gptmobile.data.network.LocalServiceUnavailableException
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
+import dev.chungjungsoo.gptmobile.data.research.researchHash
 import java.net.ConnectException
 import java.net.NoRouteToHostException
 import java.net.UnknownHostException
-import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
-import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitCancellation
-import kotlinx.coroutines.cancel
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -25,194 +25,250 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
-import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.withTimeout
 
-internal fun interface GatewayAvailabilityProbe {
-    suspend fun readiness(config: ProviderRequestConfig, model: String): GatewayReadinessObservation?
-}
-
-/** Read-only, shared admission observations. Every polling coroutine belongs to a visible collector. */
+/**
+ * Shared, subscription-owned readiness. Two screens observing the same authenticated route
+ * and model share a StateFlow and an in-flight request. The last unsubscribe cancels polling
+ * and reads; it cannot cancel remote generation because this service only reads metadata.
+ */
 @Singleton
 class GatewayAvailabilityRepository internal constructor(
-    private val source: GatewayAvailabilityProbe,
-    private val now: () -> Long = System::currentTimeMillis,
-    private val routeAvailable: Flow<Boolean> = flowOf(true),
+    private val source: GatewayAvailabilitySource,
+    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+    private val now: () -> Long = { System.nanoTime() / 1_000_000 },
+    private val wallNow: () -> Long = System::currentTimeMillis,
     private val networkEpoch: () -> Long = { LocalServiceHealth.networkEpoch },
-    private val elapsedMillis: () -> Long = now
+    private val processEpoch: (ProviderRequestConfig) -> String = GatewayClientDiagnostics::runtimeEpoch,
+    private val routeAvailable: Flow<Boolean> = flowOf(true)
 ) {
-    @Inject internal constructor(client: GatewayDashboardClient, network: GatewayNetworkRecoveryMonitor) : this(
-        GatewayAvailabilityProbe { config, model -> client.readiness(config, model) },
-        routeAvailable = network.routeAvailable,
-        elapsedMillis = SystemClock::elapsedRealtime
-    )
+    @Inject internal constructor(gateway: GatewayAPI, dashboard: GatewayDashboardClient, network: GatewayNetworkRecoveryMonitor) : this(GatewayAvailabilityNetworkSource(gateway, dashboard), now = SystemClock::elapsedRealtime, routeAvailable = network.routeAvailable)
 
-    private val permits = Semaphore(2)
-    private class SharedProbe(val scope: CoroutineScope, val result: Deferred<GatewayAvailability>, var users: Int = 0)
-    private data class Recorded(val result: GatewayAvailability, val startedAtMillis: Long)
-    private val pending = mutableMapOf<String, SharedProbe>()
-    private val saved = linkedMapOf<String, Recorded>()
+    private class Entry(val target: GatewayAvailabilityTarget, var epoch: String) {
+        val state = MutableStateFlow(GatewayAvailability())
+        var references = 0
+        var generation = 0L
+        var polling: Job? = null
+    }
+
     private val lock = Any()
-    private val routeRevision = AtomicLong()
-    private var lastRouteAvailable: Boolean? = null
+    private val entries = linkedMapOf<String, Entry>()
+    private val probes = Semaphore(2)
 
-    private fun key(target: GatewayAvailabilityTarget) = "${target.identity}:${networkEpoch()}:${routeRevision.get()}"
-
-    private fun recordRoute(available: Boolean) = synchronized(lock) {
-        if (lastRouteAvailable == false && available) routeRevision.incrementAndGet()
-        lastRouteAvailable = available
-    }
-
-    private fun routeUnavailable(): Boolean {
-        (routeAvailable as? StateFlow<Boolean>)?.value?.let(::recordRoute)
-        return synchronized(lock) { lastRouteAvailable == false }
-    }
-
-    internal fun snapshot(target: GatewayAvailabilityTarget): GatewayAvailability =
-        if (target.config == null || target.problem != null || !validGatewayAvailabilityModel(target.model)) {
-            GatewayAvailability(target.identity, GatewayAvailabilityStatus.ATTENTION, target.problem ?: "Check this gateway connection.")
-        } else {
-            val offline = routeUnavailable()
-            synchronized(lock) {
-                if (offline) {
-                    GatewayAvailability(target.identity, GatewayAvailabilityStatus.OFFLINE, "No network route to the gateway.")
+    internal fun observe(targets: List<GatewayAvailabilityTarget>): Flow<Map<String, GatewayAvailability>> {
+        if (targets.isEmpty()) return flowOf(emptyMap())
+        return combine(
+            targets.map { target ->
+                val states = if (target.config == null || !validGatewayAvailabilityModel(target.model)) {
+                    flowOf(GatewayAvailability(status = GatewayAvailabilityStatus.CONFIGURATION_REQUIRED))
                 } else {
-                    saved[key(target)]?.result
+                    observeTarget(target)
                 }
-            }?.at(now(), elapsedMillis())
-                ?: GatewayAvailability(target.identity, GatewayAvailabilityStatus.CHECKING, "Checking model availability…")
-        }
-
-    internal suspend fun refresh(target: GatewayAvailabilityTarget): GatewayAvailability {
-        if (target.config == null || target.problem != null || !validGatewayAvailabilityModel(target.model)) return snapshot(target)
-        if (routeUnavailable()) return snapshot(target)
-        val requestKey = key(target)
-        val caller = currentCoroutineContext()
-        caller.ensureActive()
-        val probe = synchronized(lock) {
-            saved[requestKey]?.takeIf { elapsedMillis() - it.startedAtMillis in 0 until GATEWAY_AVAILABILITY_POLL_MILLIS }?.let {
-                return it.result.at(now(), elapsedMillis())
+                flow {
+                    states.collect { state ->
+                        emit(
+                            target.profileUid to state.copy(
+                                gatewayName = target.gatewayName,
+                                gatewayProfileUid = target.gatewayProfileUid,
+                                engineeringBinding = target.engineeringBinding
+                            )
+                        )
+                    }
+                }
             }
-            pending.getOrPut(requestKey) {
-                // A visible consumer owns a reference, not another consumer's job.
-                val scope = CoroutineScope(caller.minusKey(Job) + SupervisorJob())
-                SharedProbe(scope, scope.async(start = CoroutineStart.LAZY) { readOnce(target, requestKey) })
-            }.also { it.users++ }
+        ) { observations -> observations.toMap() }
+    }
+
+    private fun key(target: GatewayAvailabilityTarget): String {
+        val config = requireNotNull(target.config)
+        return "${GatewayClientDiagnostics.routeIdentity(config)}|${researchHash(target.model)}|${researchHash(config.profileRevision.orEmpty())}"
+    }
+
+    private fun epoch(target: GatewayAvailabilityTarget) = "${networkEpoch()}|${processEpoch(requireNotNull(target.config))}"
+
+    private fun observeTarget(target: GatewayAvailabilityTarget): Flow<GatewayAvailability> = flow {
+        val key = key(target)
+        val entry = synchronized(lock) {
+            val current = entries.getOrPut(key) { Entry(target, epoch(target)) }
+            if (current.epoch != epoch(target)) {
+                current.epoch = epoch(target)
+                current.generation++
+                current.state.value = GatewayAvailability()
+            } else if ((routeAvailable as? StateFlow<Boolean>)?.value == false) {
+                current.state.value = GatewayAvailability(status = GatewayAvailabilityStatus.OFFLINE)
+            } else {
+                current.state.value = current.state.value.fresh(now())
+            }
+            current.references++
+            if (current.polling == null) {
+                current.polling = scope.launch(start = CoroutineStart.LAZY) { poll(current) }.also { it.start() }
+            }
+            current
         }
-        return try {
-            probe.result.start()
-            val result = probe.result.await()
-            currentCoroutineContext().ensureActive()
-            if (routeUnavailable() || requestKey != key(target)) snapshot(target) else result.at(now(), elapsedMillis())
+        try {
+            emitAll(entry.state)
         } finally {
-            val unused = synchronized(lock) {
-                probe.users--
-                if (probe.users == 0 && pending[requestKey] === probe) {
-                    pending.remove(requestKey)
+            synchronized(lock) {
+                entry.references--
+                if (entry.references == 0) {
+                    entry.polling?.cancel()
+                    entry.polling = null
+                    entry.generation++
+                }
+                while (entries.size > 128) {
+                    val oldestIdle = entries.entries.firstOrNull { it.value.references == 0 } ?: break
+                    entries.remove(oldestIdle.key)
+                }
+            }
+        }
+    }
+
+    private suspend fun poll(entry: Entry) {
+        var wasUnavailable = entry.state.value.status == GatewayAvailabilityStatus.OFFLINE
+        routeAvailable.distinctUntilChanged().collectLatest { available ->
+            val recovered = available && wasUnavailable
+            wasUnavailable = !available
+            synchronized(lock) {
+                entry.generation++
+                if (!available) entry.state.value = GatewayAvailability(status = GatewayAvailabilityStatus.OFFLINE)
+                if (recovered) entry.state.value = GatewayAvailability()
+            }
+            if (available) pollAvailable(entry, recovered)
+        }
+    }
+
+    private suspend fun pollAvailable(entry: Entry, recovered: Boolean) = coroutineScope {
+        launch {
+            entry.state.collectLatest { observed ->
+                val remaining = observed.freshnessRemainingMillis(now())
+                if (remaining > 0) {
+                    delay(remaining)
+                    synchronized(lock) {
+                        if (entry.state.value == observed) entry.state.value = observed.fresh(now())
+                    }
+                }
+            }
+        }
+        var nextCheck = now()
+        var running: Job? = null
+        var forceRefresh = recovered
+        while (isActive) {
+            val changed = synchronized(lock) {
+                val currentEpoch = epoch(entry.target)
+                if (entry.epoch != currentEpoch) {
+                    entry.epoch = currentEpoch
+                    entry.generation++
+                    entry.state.value = GatewayAvailability()
                     true
                 } else {
+                    entry.state.value = entry.state.value.fresh(now())
                     false
                 }
             }
-            if (unused) probe.scope.cancel()
+            if (changed) {
+                running?.cancel()
+                running = null
+                forceRefresh = true
+                nextCheck = now()
+            }
+            if (now() >= nextCheck && running?.isActive != true) {
+                val generation = synchronized(lock) { entry.generation }
+                val requestRefresh = forceRefresh
+                forceRefresh = false
+                // Advance from the scheduled time, skipping missed ticks instead of bursting.
+                nextCheck += ((now() - nextCheck) / GATEWAY_AVAILABILITY_POLL_MILLIS + 1) * GATEWAY_AVAILABILITY_POLL_MILLIS
+                running = launch {
+                    probes.withPermit { refresh(entry, generation, requestRefresh) }
+                }
+            }
+            delay(1_000)
         }
     }
 
-    private suspend fun readOnce(target: GatewayAvailabilityTarget, requestKey: String): GatewayAvailability = permits.withPermit {
-        currentCoroutineContext().ensureActive()
-        val started = elapsedMillis()
-        fun state(status: GatewayAvailabilityStatus, message: String) = GatewayAvailability(target.identity, status, message, now(), receivedAtMonotonicMillis = elapsedMillis())
-        val result = try {
-            val attempt = withTimeoutOrNull(6_000) { source.readiness(requireNotNull(target.config), target.model) to Unit }
+    private suspend fun refresh(entry: Entry, generation: Long, forceRefresh: Boolean) {
+        val network = networkEpoch()
+        val config = requireNotNull(entry.target.config)
+        val state = try {
+            val probe = withTimeout(8_000) { source.probe(config, entry.target.model, forceRefresh) }
+            observedState(probe, entry.state.value)
+        } catch (_: TimeoutCancellationException) {
             currentCoroutineContext().ensureActive()
-            if (attempt == null) {
-                state(GatewayAvailabilityStatus.CHECKING, "Gateway response is still unverified.")
-            } else {
-                gatewayAvailability(target, attempt.first, now(), elapsedMillis())
-            }
+            GatewayAvailability(status = GatewayAvailabilityStatus.CHECKING)
         } catch (cancelled: CancellationException) {
             throw cancelled
-        } catch (_: GatewayDashboardAccessDenied) {
-            state(GatewayAvailabilityStatus.ATTENTION, "Check gateway access in connection settings.")
         } catch (failure: Exception) {
-            if (failure.confirmedUnreachable()) {
-                state(GatewayAvailabilityStatus.OFFLINE, "Gateway is unreachable.")
+            GatewayAvailability(status = failureStatus(failure))
+        }
+        synchronized(lock) {
+            if (entry.generation != generation || network != networkEpoch() || entry.references == 0) return
+            val instance = processEpoch(config)
+            // A new instance discovered by another reader cannot bless an old cached response.
+            entry.state.value = if (state.instanceId != null && instance != "unobserved" && instance != state.instanceId) {
+                GatewayAvailability()
             } else {
-                state(GatewayAvailabilityStatus.CHECKING, "Gateway readiness could not be verified.")
+                state.fresh(now())
             }
+            entry.epoch = epoch(entry.target)
         }
-        currentCoroutineContext().ensureActive()
-        if (!routeUnavailable() && requestKey == key(target)) {
-            synchronized(lock) {
-                if (saved.size >= 128 && requestKey !in saved) saved.remove(saved.keys.first())
-                saved[requestKey] = Recorded(result, started)
-            }
-        }
-        result
     }
 
-    /** Cancelling the collector cancels pending probes, freshness ticks, and the ten-second poll. */
-    internal fun observe(targets: List<GatewayAvailabilityTarget>): Flow<Map<String, GatewayAvailability>> = channelFlow {
-        if (targets.isEmpty()) {
-            send(emptyMap())
-            return@channelFlow
+    private fun observedState(probe: GatewayAvailabilityProbe, previous: GatewayAvailability): GatewayAvailability {
+        val capability = probe.capabilities
+            ?: return GatewayAvailability(status = if (probe.readiness == null) GatewayAvailabilityStatus.NOT_GATEWAY else GatewayAvailabilityStatus.INCOMPATIBLE)
+        if (capability.version.isNullOrBlank() && capability.gatewayVersion.isNullOrBlank()) {
+            return GatewayAvailability(status = GatewayAvailabilityStatus.INCOMPATIBLE)
         }
-        val current = MutableStateFlow(targets.associate { it.profileUid to snapshot(it) })
-        launch {
-            var published: Map<String, GatewayAvailability>? = null
-            current.collectLatest { states ->
-                while (currentCoroutineContext().isActive) {
-                    val wall = now()
-                    val elapsed = elapsedMillis()
-                    val next = states.mapValues { (_, state) -> state.at(wall, elapsed) }
-                    if (next != published) {
-                        send(next)
-                        published = next
-                    }
-                    // Cached backend evidence may have only a few milliseconds
-                    // left; invalidate at that deadline, not at a whole-second tick.
-                    val expiry = states.values.map { it.freshnessRemainingMillis(wall, elapsed) }.filter { it > 0 }.minOrNull()
-                    if (expiry == null) awaitCancellation() else delay(expiry)
-                }
-            }
+        val readiness = probe.readiness ?: return GatewayAvailability()
+        if (!capability.instanceId.isNullOrBlank() && capability.instanceId != readiness.instanceId) return GatewayAvailability()
+        val elapsed = now()
+        val clientAge = readiness.receivedAtMonotonicMillis?.let { elapsed - it } ?: (wallNow() - readiness.receivedAtMillis)
+        val serverAge = readiness.observationAgeMillis ?: 0
+        val age = if (clientAge < 0 || serverAge < 0 || serverAge > Long.MAX_VALUE - clientAge) Long.MAX_VALUE else clientAge + serverAge
+        val observedAt = readiness.observedAtMillis ?: readiness.receivedAtMillis
+        val candidate = elapsed - age.coerceAtMost(GATEWAY_AVAILABILITY_FRESH_MILLIS)
+        // A cached response keeps its original evidence age across client and server caches.
+        val observed = previous.observedAtElapsedMillis?.takeIf { previous.observedAtMillis == observedAt && previous.instanceId == readiness.instanceId }?.let { minOf(it, candidate) } ?: candidate
+        val status = when {
+            age >= GATEWAY_AVAILABILITY_FRESH_MILLIS -> GatewayAvailabilityStatus.CHECKING
+            readiness.draining -> GatewayAvailabilityStatus.DRAINING
+            readiness.modelLoading == true -> GatewayAvailabilityStatus.MODEL_LOADING
+            readiness.selectedModelAvailable == false -> GatewayAvailabilityStatus.MODEL_UNAVAILABLE
+            !readiness.ready || readiness.generationReady != true || readiness.selectedModelAvailable != true -> GatewayAvailabilityStatus.NOT_READY
+            readiness.canAccept == false -> GatewayAvailabilityStatus.NOT_READY
+            readiness.availableWorkers == 0L -> if (readiness.canAccept == true && readiness.canQueue == true) GatewayAvailabilityStatus.BUSY_QUEUE else GatewayAvailabilityStatus.NOT_READY
+            readiness.ready && readiness.generationReady == true && readiness.selectedModelAvailable == true -> GatewayAvailabilityStatus.ONLINE
+            else -> GatewayAvailabilityStatus.NOT_READY
         }
-        routeAvailable.distinctUntilChanged().collectLatest { available ->
-            recordRoute(available)
-            if (!available) {
-                current.value = targets.associate { it.profileUid to snapshot(it) }
-                return@collectLatest
-            }
-            coroutineScope {
-                targets.groupBy { it.identity }.values.forEach { group ->
-                    launch {
-                        val target = group.first()
-                        while (currentCoroutineContext().isActive) {
-                            val started = elapsedMillis()
-                            val result = refresh(target)
-                            current.update { it + group.associate { selected -> selected.profileUid to result } }
-                            if (result.status == GatewayAvailabilityStatus.ATTENTION && target.problem != null) return@launch
-                            delay((GATEWAY_AVAILABILITY_POLL_MILLIS - (elapsedMillis() - started)).coerceAtLeast(1))
-                        }
-                    }
-                }
-            }
-        }
+        return GatewayAvailability(
+            status = status,
+            observedAtMillis = observedAt,
+            observedAtElapsedMillis = observed,
+            instanceId = readiness.instanceId,
+            conversationSyncAvailable = capability.supportsFeature("conversation_sync_v1")
+        ).fresh(now())
     }
 }
 
-private fun Throwable.confirmedUnreachable(): Boolean {
-    var failure: Throwable? = this
-    repeat(8) {
-        if (failure is ConnectException || failure is NoRouteToHostException || failure is UnknownHostException) return true
-        failure = failure?.cause ?: return false
+private fun failureStatus(failure: Exception): GatewayAvailabilityStatus {
+    val causes = generateSequence<Throwable>(failure) { it.cause }.take(8).toList()
+    return when {
+        causes.any { it is GatewayDashboardAccessDenied } -> GatewayAvailabilityStatus.ACCESS_DENIED
+        causes.any { it is ConnectException || it is NoRouteToHostException || it is UnknownHostException } -> GatewayAvailabilityStatus.OFFLINE
+        causes.any {
+            it is LocalServiceUnavailableException && it.health in setOf(ConnectionHealth.DNS_FAILED, ConnectionHealth.ROUTE_UNAVAILABLE, ConnectionHealth.CONNECTION_REFUSED)
+        } -> GatewayAvailabilityStatus.OFFLINE
+        causes.any { it is IllegalArgumentException || it is kotlinx.serialization.SerializationException } -> GatewayAvailabilityStatus.INCOMPATIBLE
+        else -> GatewayAvailabilityStatus.CHECKING
     }
-    return false
 }

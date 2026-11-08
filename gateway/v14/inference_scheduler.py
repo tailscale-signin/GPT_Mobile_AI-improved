@@ -158,14 +158,22 @@ def install_scheduler(runtime):
         metadata = admission_context.get() or {}
         invocation = bound_invocation.get()
         timeout = getattr(runtime, 'LLAMA_LONG_MODEL_QUEUE_TIMEOUT_SECONDS', 45) if mode == 'long' else getattr(runtime, 'LLAMA_MODEL_QUEUE_TIMEOUT_SECONDS', 20)
+        from v14.actions import current_gateway_job_id
+        job_id = current_gateway_job_id.get()
+        with getattr(runtime, 'job_registry_lock', threading.RLock()):
+            job = getattr(runtime, 'job_registry', {}).get(job_id) or {}
+            if job.get('_durable_background_admitted') and job.get('run_deadline'):
+                timeout = max(.001, job['run_deadline'] - time.time())
         cancelled = lambda: any(signal is not None and signal.is_set() for signal in (cancel_event, hard_cancel_event))
         def progress(event):
             if progress_callback:
-                progress_callback(dict(event, event='model_queue_wait', status='running', round=round_number))
+                progress_callback(dict(event, event='model_queue_wait', status='running', scheduling_state='queued', queue_reason='model_capacity', round=round_number))
         ticket = scheduler.acquire(mode, byte_length=metadata.get('byte_length', 0), tokens=metadata.get('tokens', 0),
                                    memory_bytes=metadata.get('memory_bytes', 0), timeout=timeout, cancelled=cancelled,
                                    progress=progress, validate=(invocation.validate_queue if invocation else lambda: None))
         local.ticket = ticket
+        if progress_callback:
+            progress_callback({'event': 'model_queue_admitted', 'phase': 'model_execution', 'status': 'running', 'scheduling_state': 'running', 'queue_reason': '', 'round': round_number})
         if invocation:
             try:
                 invocation.queue_receipt(ticket, scheduler)

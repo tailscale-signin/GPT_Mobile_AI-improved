@@ -8,6 +8,7 @@ import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -65,26 +66,26 @@ internal fun SelectPlatformProfileCard(
     onFavorite: () -> Unit,
     onInsights: () -> Unit,
     gatewayAvailability: GatewayAvailability? = null,
-    animateGatewayName: Boolean = false,
-    onProfileFocusChanged: (Boolean) -> Unit = {}
+    animateGateway: Boolean = false,
+    onFocus: (Boolean) -> Unit = {}
 ) {
     val health by dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.status.collectAsState()
     val now by dev.chungjungsoo.gptmobile.presentation.common.freeProviderClock()
     val unavailable = androidx.compose.runtime.remember(profile, health, now) { dev.chungjungsoo.gptmobile.data.network.FreeProviderPreflight.check(profile) }
     val favoriteLabel = stringResource(if (profile.isFavorite) R.string.picker_remove_favorite else R.string.picker_add_favorite)
     val lines = if (LocalDensity.current.fontScale >= 1.3f) 3 else 1
-    val online = gatewayAvailability?.status in setOf(GatewayAvailabilityStatus.ONLINE, GatewayAvailabilityStatus.BUSY_QUEUE)
-    val cardColor = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow
+    val surface = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow
+    val online = gatewayAvailability?.isOnline == true
     val nameColor = if (online) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-    val treatment = remember(online, nameColor, cardColor) {
-        if (online) gatewayNameTreatment(nameColor.toArgb(), cardColor.toArgb()) else GatewayNameTreatment(cardColor.toArgb(), 1f)
+    val treatment = remember(online, nameColor, surface) {
+        if (online) gatewayNameTreatment(nameColor.toArgb(), surface.toArgb()) else GatewayNameTreatment(surface.toArgb(), 1f)
     }
-    val nameOpacity by rememberGatewayNameOpacity(online && animateGatewayName, treatment.minimumOpacity)
-    DisposableEffect(profile.uid) { onDispose { onProfileFocusChanged(false) } }
+    val nameAlpha by rememberGatewayNameAlpha(online && animateGateway, Color(treatment.backgroundArgb), nameColor, treatment.minimumOpacity)
+    DisposableEffect(profile.uid) { onDispose { onFocus(false) } }
     Surface(
-        Modifier.fillMaxWidth().testTag("profile_card_${profile.uid}").onFocusChanged { onProfileFocusChanged(it.hasFocus) }.focusGroup(),
+        Modifier.fillMaxWidth().testTag("profile_card_${profile.uid}").onFocusChanged { onFocus(it.hasFocus) }.focusGroup(),
         shape = RoundedCornerShape(16.dp),
-        color = cardColor,
+        color = surface,
         border = BorderStroke(1.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant)
     ) {
         BoxWithConstraints {
@@ -107,16 +108,23 @@ internal fun SelectPlatformProfileCard(
                 ) {
                     Checkbox(checked = selected, onCheckedChange = null, enabled = selected || unavailable == null)
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text(
                                 profile.name,
-                                Modifier.weight(1f).background(Color(treatment.backgroundArgb), MaterialTheme.shapes.extraSmall).alpha(nameOpacity)
-                                    .testTag("gateway_name_${profile.uid}").semantics { gatewayNameOpacity = nameOpacity },
+                                Modifier.weight(1f).background(Color(treatment.backgroundArgb), MaterialTheme.shapes.extraSmall).alpha(nameAlpha)
+                                    .testTag("gateway_name_${profile.uid}").semantics { gatewayNameOpacity = nameAlpha },
+                                color = nameColor,
                                 style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                color = nameColor
+                                fontWeight = FontWeight.SemiBold
                             )
                             if (profile.isFavorite) Icon(Icons.Rounded.Star, stringResource(R.string.picker_favorite), Modifier.size(16.dp), tint = MaterialTheme.colorScheme.tertiary)
+                            if (online) GatewayProfileStatus(requireNotNull(gatewayAvailability), Modifier.testTag("gateway_availability_${profile.uid}"))
+                        }
+                        gatewayAvailability?.takeIf { !it.isOnline && it.status != GatewayAvailabilityStatus.NOT_GATEWAY }?.let {
+                            GatewayProfileStatus(it)
+                        }
+                        if (gatewayAvailability?.engineeringBinding == true && gatewayAvailability.gatewayProfileUid != profile.uid && gatewayAvailability.gatewayName.isNotBlank()) {
+                            Text(stringResource(R.string.gateway_availability_via, gatewayAvailability.gatewayName), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         unavailable?.let { blocked ->
                             val provider = dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.fromApiUrl(profile.apiUrl)
@@ -124,10 +132,6 @@ internal fun SelectPlatformProfileCard(
                             Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Text(profile.model, style = MaterialTheme.typography.bodySmall.copy(textDirection = TextDirection.Ltr), color = MaterialTheme.colorScheme.primary, maxLines = lines, overflow = TextOverflow.Ellipsis)
-                        gatewayAvailability?.let { GatewayAvailabilityBadge(it, profile.uid) }
-                        if (gatewayAvailability?.status == GatewayAvailabilityStatus.ATTENTION) {
-                            Text(gatewayAvailability.message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
                     }
                 }
                 insight?.compact()?.let { compact ->

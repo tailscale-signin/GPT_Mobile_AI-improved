@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="gateway_availability_online">Online</string>
+    <string name="gateway_availability_busy_queue">Online · can queue</string>
+    <string name="gateway_availability_model_loading">Connected · model loading</string>
+    <string name="gateway_availability_checking">Checking connection</string>
+    <string name="gateway_availability_model_unavailable">Connected · model unavailable</string>
+    <string name="gateway_availability_not_ready">Connected · not ready for new work</string>
+    <string name="gateway_availability_draining">Connected · finishing existing work</string>
+    <string name="gateway_availability_access_denied">Connection needs attention · access denied</string>
+    <string name="gateway_availability_incompatible">Connection needs attention · incompatible response</string>
+    <string name="gateway_availability_offline">Offline</string>
+    <string name="gateway_availability_configuration">Check the gateway connection and selected model in profile settings</string>
+    <string name="gateway_availability_not_gateway">Gateway unavailable</string>
+    <string name="gateway_availability_via">via %1$s</string>
+    <string name="gateway_availability_reorder">Update profile order</string>
+    <string name="gateway_menu_title">Gateway</string>
+    <string name="gateway_browser_title">Gateway conversations</string>
+    <string name="gateway_browser_description">Conversations saved on this gateway</string>
+    <string name="gateway_browser_refresh">Refresh</string>
+    <string name="gateway_browser_more">Load more</string>
+    <string name="gateway_browser_empty">No conversations are saved on this gateway yet.</string>
+    <string name="gateway_browser_select">Select a gateway connection</string>
+    <string name="gateway_browser_no_connections">No gateway connection is configured. Add or enable a gateway profile to reconnect.</string>
+    <string name="gateway_browser_loading">Reading saved conversations…</string>
+    <string name="gateway_browser_opening">Opening conversation…</string>
+    <string name="gateway_browser_last_synced">Last synced %1$s. Refresh to confirm the current server state.</string>
+    <string name="gateway_browser_shared">This gateway uses shared network access. Everyone admitted under that shared identity can see these conversations.</string>
+    <string name="gateway_browser_unavailable">Could not read this gateway. Saved rows remain available; check the connection and refresh.</string>
+    <string name="gateway_browser_open_failed">Could not open this conversation. Refresh the gateway connection and try again.</string>
+    <string name="gateway_browser_transcript_unavailable">Saved transcript unavailable</string>
+    <string name="gateway_browser_untitled">Untitled conversation</string>
+    <string name="gateway_browser_back">Back</string>
+    <string name="gateway_browser_unsupported">This gateway does not provide complete saved conversations. Update the gateway to use this browser.</string>
+    <string name="gateway_browser_identity_changed">The gateway identity changed. Refresh to read its current conversations.</string>
+    <string name="gateway_browser_active_job">Active job at last sync</string>
+</resources>

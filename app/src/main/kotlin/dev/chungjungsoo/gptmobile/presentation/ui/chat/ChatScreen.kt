@@ -401,20 +401,16 @@ private fun ChatScreenContent(
     val chatPlatformModels by chatViewModel.chatPlatformModels.collectAsStateWithLifecycle()
     val availableChatTools by chatViewModel.availableChatTools.collectAsStateWithLifecycle()
     val chatToolConfig by chatViewModel.chatToolConfig.collectAsStateWithLifecycle()
-    val gatewayConversation by chatViewModel.gatewayConversation.collectAsStateWithLifecycle()
     val gatewayWriteBlocker by chatViewModel.gatewayWriteBlocker.collectAsStateWithLifecycle()
-    val hasGatewayConversation = gatewayConversation.requestId != null || gatewayConversation.currentJob != null || gatewayConversation.conversationId != null
-    val gatewayLifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current
-    LaunchedEffect(chatRoom.id, chatToolConfig.github != null, hasGatewayConversation, gatewayLifecycle) {
-        if (chatToolConfig.github != null || hasGatewayConversation) {
-            gatewayLifecycle.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
-                chatViewModel.observeGatewayConversation(chatRoom.id)
-            }
-        }
-    }
     val githubDecisions by chatViewModel.githubDecisions.collectAsStateWithLifecycle()
     val githubWaiting by chatViewModel.waitingGitHubDecisions.collectAsStateWithLifecycle()
     GitHubChatPresenceEffect(chatRoom.id.takeIf { chatToolConfig.github != null })
+    val gatewayLifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    LaunchedEffect(chatRoom.id, chatRoom.isTemporary, gatewayLifecycle) {
+        gatewayLifecycle.lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.RESUMED) {
+            chatViewModel.observeGatewayConversation(chatRoom.id)
+        }
+    }
     LaunchedEffect(chatRoom.id, chatToolConfig.github != null) { if (chatToolConfig.github != null) chatViewModel.loadGitHubDecisions() }
     val githubDecisionScope = chatToolConfig.github?.let(dev.chungjungsoo.gptmobile.data.github.GitHubChatDecisions::workspaceKey)
     val visibleGitHubDecisions = githubDecisions.filter { it.chatId == chatRoom.id && it.workspace == githubDecisionScope && !it.delivered }
@@ -1027,13 +1023,10 @@ private fun ChatScreenContent(
                         }
                     }
                 }
-                if (hasGatewayConversation) {
-                    item(key = "gateway-conversation-state") {
-                        GatewayConversationStatusCard(gatewayConversation, chatViewModel::reconnectGatewayConversation, chatViewModel::cancelActiveRuns)
-                    }
-                }
                 gatewayWriteBlocker?.let { reason ->
-                    item(key = "gateway-conversation-read-only") { Text(reason, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium) }
+                    item(key = "gateway-conversation-read-only") {
+                        Text(reason, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+                    }
                 }
                 if (chatToolConfig.github != null) {
                     val activeMessage = groupedMessages.assistantMessages.flatten().lastOrNull { it.currentRunId in activeAgentRuns }
@@ -1117,7 +1110,7 @@ private fun ChatScreenContent(
                         }.orEmpty(),
                         chatEnabled = canUseChat,
                         sendButtonEnabled = selectedAttachments.none { it.status != ChatAttachmentDraft.Status.Ready },
-                        isRunning = !isIdle || gatewayConversation.currentJob?.let { !it.terminal && "cancel" in it.permittedActions } == true,
+                        isRunning = !isIdle,
                         queuedPromptCount = queuedPromptCount,
                         selectedAttachments = selectedAttachments,
                         onFileSelected = { filePath -> chatViewModel.addSelectedFile(filePath) },

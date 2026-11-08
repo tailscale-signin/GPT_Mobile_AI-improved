@@ -67,14 +67,14 @@ class GatewayProfileAvailabilityTest {
             CompositionLocalProvider(LocalDensity provides Density(1f, fontScale = 2f)) {
                 MaterialTheme {
                     Box(Modifier.width(280.dp)) {
-                        SelectPlatformProfileCard(profile, false, null, {}, {}, {}, GatewayAvailability("route", GatewayAvailabilityStatus.ONLINE, "Selected model is ready", 0))
+                        SelectPlatformProfileCard(profile, false, null, {}, {}, {}, GatewayAvailability(status = GatewayAvailabilityStatus.ONLINE))
                     }
                 }
             }
         }
         compose.onNodeWithText(profile.name, useUnmergedTree = true).assertIsDisplayed()
         compose.onNodeWithText("Online", useUnmergedTree = true).assertIsDisplayed()
-        val dot = compose.onNodeWithTag("gateway_online_dot_saved", useUnmergedTree = true).assertIsDisplayed().fetchSemanticsNode()
+        val dot = compose.onNodeWithTag("gateway_online_dot", useUnmergedTree = true).assertIsDisplayed().fetchSemanticsNode()
         val online = compose.onNodeWithText("Online", useUnmergedTree = true).fetchSemanticsNode()
         assertTrue(dot.boundsInRoot.right <= online.boundsInRoot.left)
         assertTrue(dot.boundsInRoot.center.y in online.boundsInRoot.top..online.boundsInRoot.bottom)
@@ -94,7 +94,7 @@ class GatewayProfileAvailabilityTest {
                 SelectPlatformProfileCard(profile, selected, null, {
                     toggled += it
                     selected = !selected
-                }, {}, {}, GatewayAvailability("route", GatewayAvailabilityStatus.OFFLINE, "Gateway is unreachable.", 0))
+                }, {}, {}, GatewayAvailability(status = GatewayAvailabilityStatus.OFFLINE))
             }
         }
         compose.onNodeWithText("Offline", useUnmergedTree = true).assertIsDisplayed()
@@ -109,7 +109,7 @@ class GatewayProfileAvailabilityTest {
         val primary = Color(0xFF999999)
         compose.setContent {
             MaterialTheme(colorScheme = lightColorScheme(primary = primary, surfaceContainerLow = Color.White)) {
-                SelectPlatformProfileCard(profile, false, null, {}, {}, {}, GatewayAvailability("route", GatewayAvailabilityStatus.ONLINE, "Selected model is ready", 0))
+                SelectPlatformProfileCard(profile, false, null, {}, {}, {}, GatewayAvailability(status = GatewayAvailabilityStatus.ONLINE))
             }
         }
         val layout = mutableListOf<TextLayoutResult>()
@@ -129,7 +129,7 @@ class GatewayProfileAvailabilityTest {
                 }
             ) {
                 MaterialTheme(colorScheme = lightColorScheme(primary = Color(0xFF43116B), surfaceContainerLow = Color.White)) {
-                    SelectPlatformProfileCard(profile, false, null, {}, {}, {}, GatewayAvailability("route", GatewayAvailabilityStatus.ONLINE, "Selected model is ready", 0), animateGatewayName = active)
+                    SelectPlatformProfileCard(profile, false, null, {}, {}, {}, GatewayAvailability(status = GatewayAvailabilityStatus.ONLINE), animateGateway = active)
                 }
             }
         }
@@ -143,7 +143,7 @@ class GatewayProfileAvailabilityTest {
         assertTrue(nameOpacity() in .85f..0.90f)
         val badge = compose.onNodeWithTag("gateway_availability_saved", useUnmergedTree = true).fetchSemanticsNode()
         assertFalse(badge.config.contains(GatewayNameOpacityKey))
-        assertFalse(compose.onNodeWithTag("gateway_online_dot_saved", useUnmergedTree = true).fetchSemanticsNode().config.contains(GatewayNameOpacityKey))
+        assertFalse(compose.onNodeWithTag("gateway_online_dot", useUnmergedTree = true).fetchSemanticsNode().config.contains(GatewayNameOpacityKey))
         compose.mainClock.advanceTimeBy(3_000)
         assertTrue(nameOpacity() >= .98f)
         compose.runOnIdle { focused = false }
@@ -171,7 +171,7 @@ class GatewayProfileAvailabilityTest {
         compose.setContent {
             MaterialTheme {
                 Column {
-                    SelectPlatformProfileCard(profile, false, null, {}, {}, {}, onProfileFocusChanged = { focused = it })
+                    SelectPlatformProfileCard(profile, false, null, {}, {}, {}, onFocus = { focused = it })
                     Button(onClick = {}, modifier = Modifier.testTag("next")) { Text("Next") }
                 }
             }

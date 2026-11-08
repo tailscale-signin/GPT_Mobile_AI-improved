@@ -265,7 +265,9 @@ class ChatRepositoryImpl(
     private val gitHubDecisionNotifications: dev.chungjungsoo.gptmobile.data.github.GitHubDecisionNotifications? = null,
     private val engineeringMemory: dev.chungjungsoo.gptmobile.data.github.GitHubEngineeringMemory? = null,
     private val privacyPreflight: dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterPrivacyPreflight? = null,
-    private val gatewayAPI: dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAPI? = null
+    private val gatewayAPI: dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAPI? = null,
+    private val gatewayConversations: dev.chungjungsoo.gptmobile.data.github.GatewayConversationRepository? = null,
+    private val gatewayEngineering: dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringRepository? = null
 ) : ChatRepository {
     override suspend fun prepareCombinedTurn(
         execution: dev.chungjungsoo.gptmobile.data.agent.CombinedExecutionContext,
@@ -4446,6 +4448,8 @@ class ChatRepositoryImpl(
         } else {
             null
         }
+        val savedGatewayConversation = latestUser?.takeIf { agentPersistenceDao.getChatRoom(it.chatId)?.isTemporary == false }
+            ?.let { gatewayConversations?.requestBinding(it.chatId, platform.uid, platform.apiUrl, platform.model) }
         val requestConstraints = RequestConstraints(
             restoredGatewayJob = restoredGatewayJob?.waiting,
             gatewayNewStageAfterTerminal = restoredGatewayJob?.verifiedTerminal == true,
@@ -4454,6 +4458,26 @@ class ChatRepositoryImpl(
             requestRole = if (editorialPass) "synthesis" else "primary",
             queueScope = latestUser?.let { "${it.chatId}:${it.id}:$runId" },
             queuePersistent = latestUser?.let { agentPersistenceDao.getChatRoom(it.chatId)?.isTemporary == false } == true,
+            gatewayConversationKey = latestUser?.takeIf { it.chatId > 0 && agentPersistenceDao.getChatRoom(it.chatId)?.isTemporary == false }
+                ?.let { settingRepository.ensureConversationIdentity(it.chatId) },
+            gatewayConversationId = savedGatewayConversation?.conversationId,
+            onGatewayCommandPrepared = if (gatewayConversations == null) {
+                null
+            } else {
+                { commandId ->
+                    val original = requireNotNull(agentPersistenceDao.recoveryRun(runId)) { "The original gateway turn must be saved before dispatch." }
+                    gatewayConversations.reserveOrdinaryTurn(
+                        original.chatId,
+                        platform.uid,
+                        platform.apiUrl,
+                        commandId,
+                        original.userMessageId,
+                        original.assistantMessageId,
+                        runId,
+                        platform.model
+                    )
+                }
+            },
             maxOutputTokens = resolvedOutputCap,
             allowTools = !editorialPass,
             // A chat switch is authoritative; otherwise the migrated per-profile enum owns Llama reasoning.
@@ -5690,6 +5714,22 @@ class ChatRepositoryImpl(
                     is ProviderEvent.GatewayMetadataCaptured -> {
                         emit(ApiState.ResponseSourceCaptured(providerEvent.metadata.observedResponseSource(platform.uid, platform.model)))
                         providerEvent.metadata.takeIf { it.transportVerified }?.jobId?.let { agentRunDao.bindGatewayJob(runId, it, platform.apiUrl) }
+                        val receipt = providerEvent.metadata.takeIf { it.transportVerified && it.detachSafe }
+                        if (receipt?.gatewayId != null && receipt.principalId != null && receipt.conversationId != null && receipt.commandId != null) {
+                            val run = agentPersistenceDao.recoveryRun(runId)
+                            if (run != null && agentPersistenceDao.getChatRoom(run.chatId)?.isTemporary == false) {
+                                try {
+                                    gatewayConversations?.associateTurn(
+                                        run.chatId, platform.uid, platform.apiUrl, receipt.gatewayId, receipt.principalId,
+                                        receipt.conversationId, receipt.commandId, run.userMessageId, run.assistantMessageId, run.runId
+                                    )
+                                } catch (cancelled: CancellationException) {
+                                    throw cancelled
+                                } catch (failure: Exception) {
+                                    AppLogRecorder.record("Gateway", "CONVERSATION_SYNC_PENDING · run=$runId · reason=${failure.javaClass.simpleName}", "W")
+                                }
+                            }
+                        }
                     }
                     is ProviderEvent.GatewayProgressUpdate -> {
                         gatewayTelemetrySeen = true
@@ -6586,6 +6626,16 @@ class ChatRepositoryImpl(
 
     override suspend fun getRecoverableGatewayRuns(): List<AgentRun> =
         agentRunDao.getRecoverableGatewayRuns()
+
+    override suspend fun refreshGatewayConversation(chatId: Int) {
+        if (gatewayEngineering != null) gatewayEngineering.refreshChat(chatId) else gatewayConversations?.refreshChat(chatId)
+    }
+
+    override suspend fun gatewayRunsForCancellation(runIds: Set<String>): List<AgentRun> =
+        runIds.mapNotNull { agentRunDao.rawGetById(it) }.filter { !it.gatewayJobId.isNullOrBlank() && !it.gatewayBaseUrl.isNullOrBlank() }
+
+    override suspend fun recordGatewayCancellation(runId: String, jobId: String, receipt: String): Boolean =
+        agentRunDao.recordGatewayCancellation(runId, jobId, receipt) == 1
 
     override suspend fun hasSavedGitHubTask(run: AgentRun): Boolean =
         workspace?.dao?.hasGitHubTaskForRun(run.chatId, run.runId) == true ||

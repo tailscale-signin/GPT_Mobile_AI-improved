@@ -32,14 +32,6 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 
 @Database(
     entities = [
-        dev.chungjungsoo.gptmobile.data.github.GatewayScopeRecord::class,
-        dev.chungjungsoo.gptmobile.data.github.GatewayConversationRecord::class,
-        dev.chungjungsoo.gptmobile.data.github.GatewayJobRecord::class,
-        dev.chungjungsoo.gptmobile.data.github.GatewayMessageRecord::class,
-        dev.chungjungsoo.gptmobile.data.github.GatewayReplayCursor::class,
-        dev.chungjungsoo.gptmobile.data.github.GatewayCommandRecord::class,
-        dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringRecord::class,
-        dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringUpdateRecord::class,
         dev.chungjungsoo.gptmobile.data.universalmarketplace.MarketplaceSavedSearch::class,
         dev.chungjungsoo.gptmobile.data.universalmarketplace.MarketplaceBookmark::class,
         dev.chungjungsoo.gptmobile.data.amazon.AmazonObservationEntity::class,
@@ -55,6 +47,14 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
         dev.chungjungsoo.gptmobile.data.memory.v2.MemoryStoreStateEntity::class,
         dev.chungjungsoo.gptmobile.data.memory.v2.MemoryRecordEntity::class,
         ChatRoomV2::class,
+        dev.chungjungsoo.gptmobile.data.database.entity.GatewayJobRecord::class,
+        dev.chungjungsoo.gptmobile.data.database.entity.GatewayConversationRecord::class,
+        dev.chungjungsoo.gptmobile.data.database.entity.GatewayMessageRecord::class,
+        dev.chungjungsoo.gptmobile.data.database.entity.GatewayMessagePartRecord::class,
+        dev.chungjungsoo.gptmobile.data.database.entity.GatewayEngineeringBindingRecord::class,
+        dev.chungjungsoo.gptmobile.data.database.entity.GatewayEngineeringEventRecord::class,
+        dev.chungjungsoo.gptmobile.data.database.entity.GatewaySubmissionRecord::class,
+        dev.chungjungsoo.gptmobile.data.database.entity.GatewayMigrationRecord::class,
         dev.chungjungsoo.gptmobile.data.workspace.WorkspaceRecord::class,
         MessageV2::class,
         dev.chungjungsoo.gptmobile.data.database.entity.CombinedFinalMessage::class,
@@ -89,7 +89,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
         dev.chungjungsoo.gptmobile.data.memory.MemoryGraphObservationRecord::class,
         dev.chungjungsoo.gptmobile.data.memory.MemoryGraphRelationRecord::class
     ],
-    version = 50,
+    version = 51,
     exportSchema = true
 )
 @TypeConverters(
@@ -102,7 +102,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
     CombinedModelResponseListConverter::class
 )
 abstract class ChatDatabaseV2 : RoomDatabase() {
-    abstract fun gatewayWorkDao(): dev.chungjungsoo.gptmobile.data.github.GatewayWorkDao
+    abstract fun gatewayJobDao(): dev.chungjungsoo.gptmobile.data.database.dao.GatewayJobDao
     abstract fun marketplaceSavesDao(): dev.chungjungsoo.gptmobile.data.universalmarketplace.MarketplaceSavesDao
     abstract fun replyPublicationDao(): dev.chungjungsoo.gptmobile.data.chat.ReplyPublicationDao
     abstract fun conversationFolderDao(): dev.chungjungsoo.gptmobile.data.chat.ConversationFolderDao

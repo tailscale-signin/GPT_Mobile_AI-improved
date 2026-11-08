@@ -79,6 +79,33 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 class ProviderAdaptersTest {
+    @Test fun gatewayReservationCallbackIsKeptOnlyForVisibleConversationRoles() = runBlocking {
+        val reservation: suspend (String) -> Unit = {}
+        val original = RequestConstraints(
+            gatewayConversationKey = "saved-conversation",
+            gatewayConversationId = "canonical-conversation",
+            onGatewayCommandPrepared = reservation
+        )
+        for (role in listOf(null, "primary", "synthesis", "github-review", "requested_length_continuation", "benchmark")) {
+            val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(emptyFlow())))
+            OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
+                .openSession(turns(), platform(ClientType.LLAMA), original.copy(requestRole = role))
+                .streamRound(emptyList(), emptyList()).toList()
+            if (role == null || role in setOf("primary", "synthesis")) {
+                assertSame(reservation, api.configs.single().onGatewayCommandPrepared)
+            } else {
+                assertNull(api.configs.single().onGatewayCommandPrepared)
+                val helper = original.forRole(role)
+                assertNull(helper.gatewayConversationKey)
+                assertNull(helper.gatewayConversationId)
+                assertNull(helper.onGatewayCommandPrepared)
+                assertNull(helper.forRole("primary").onGatewayCommandPrepared)
+            }
+        }
+        assertSame(reservation, original.forRole("primary").withoutTools().onGatewayCommandPrepared)
+        assertSame(reservation, original.forRole("synthesis").onGatewayCommandPrepared)
+    }
+
     @Test fun githubRouteLockDisablesRouterFallbackAndPreservesItsSelectedConnection() = runBlocking {
         val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(emptyFlow())))
         val profile = platform(ClientType.OPENROUTER).copy(model = "selected-model", openRouterRouting = """{"provider":{"allow_fallbacks":true}}""")

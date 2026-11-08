@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
 import android.app.Application
+import android.view.Surface
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.text.input.rememberTextFieldState
@@ -40,37 +41,20 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
-import org.junit.rules.ExternalResource
-import org.junit.rules.RuleChain
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import org.robolectric.annotation.Implementation
+import org.robolectric.annotation.Implements
+import org.robolectric.shadows.ShadowBlastBufferQueue
+import org.robolectric.util.ReflectionHelpers
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34], application = Application::class)
-@GraphicsMode(GraphicsMode.Mode.NATIVE)
+@Config(sdk = [34], application = Application::class, shadows = [ComposerInputLifecycleTest.ComposerBlastBufferQueueShadow::class])
+@GraphicsMode(GraphicsMode.Mode.LEGACY)
 class ComposerInputLifecycleTest {
-    private val compose = createComposeRule()
-
-    // Keep surfaces available through the inner Compose rule's Activity teardown.
-    @get:Rule val rules: RuleChain = RuleChain.outerRule(
-        object : ExternalResource() {
-            private var previousRealDrawTraversals: String? = null
-
-            override fun before() {
-                // API 34 magnifiers use BLAST surfaces. Robolectric returns null
-                // for those surfaces unless native graphics and real drawing are enabled.
-                previousRealDrawTraversals = System.getProperty(REAL_DRAW_TRAVERSALS)
-                System.setProperty(REAL_DRAW_TRAVERSALS, "true")
-            }
-
-            override fun after() {
-                val previous = previousRealDrawTraversals
-                if (previous == null) System.clearProperty(REAL_DRAW_TRAVERSALS) else System.setProperty(REAL_DRAW_TRAVERSALS, previous)
-            }
-        }
-    ).around(compose)
+    @get:Rule val compose = createComposeRule()
 
     @Test fun sendingReleasesFocusBeforeDispatchAndPreservesTheExactDraft() {
         var focused = false
@@ -285,7 +269,37 @@ class ComposerInputLifecycleTest {
         assertFalse("Editor still owns focus at dispatch", editor.config[SemanticsProperties.Focused])
     }
 
-    private companion object {
-        const val REAL_DRAW_TRAVERSALS = "robolectric.useRealDrawTraversals"
+    @Test fun platformBufferQueueSurfacesRetainTheirReleaseLifecycle() {
+        // Call the Android object, not the shadow, to verify the hidden API mapping.
+        val queueClass = Class.forName("android.graphics.BLASTBufferQueue")
+        val queue = queueClass.getConstructor(String::class.java, Boolean::class.javaPrimitiveType)
+            .newInstance("composer-lifecycle-test", false)
+        try {
+            for (factory in listOf("createSurface", "createSurfaceWithHandle")) {
+                val surface = queueClass.getMethod(factory).invoke(queue) as Surface
+                try {
+                    assertTrue("$factory must allocate a valid surface", surface.isValid)
+                } finally {
+                    surface.release()
+                }
+                assertFalse("$factory must retain real release semantics", surface.isValid)
+            }
+        } finally {
+            queueClass.getMethod("destroy").invoke(queue)
+        }
+    }
+
+    /**
+     * Robolectric's API 34 BLAST factory returns null in legacy graphics. Supply
+     * its existing lifecycle-aware Surface shadow without starting native HWUI.
+     * Android Magnifier creation/dismissal and Compose input cleanup remain real.
+     */
+    @Implements(className = "android.graphics.BLASTBufferQueue", isInAndroidSdk = false, minSdk = 34, maxSdk = 34)
+    class ComposerBlastBufferQueueShadow : ShadowBlastBufferQueue() {
+        @Implementation
+        protected override fun createSurface(): Surface = ReflectionHelpers.callConstructor(Surface::class.java)
+
+        @Implementation
+        protected override fun createSurfaceWithHandle(): Surface = ReflectionHelpers.callConstructor(Surface::class.java)
     }
 }

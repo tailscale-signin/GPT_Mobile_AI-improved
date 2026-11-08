@@ -48,6 +48,7 @@
     "Retain dispatch evidence across URL redirects and MCP remote errors, so later precheck failures cannot refund consumed operations or authorize replay of a completed write.",
     "Retain speech transcript review during cooldown, clean up composer focus and frame-observer ownership, and reduce diagnostic hot-path allocations.",
     "Stabilize CI and release validation by isolating source generation, compilation and lint in bounded processes.",
+    "Stabilize the API 34 composer lifecycle host fixture with scoped legacy BLAST surfaces, preserve actual focus and teardown assertions, and retain actionable native-worker crash evidence in bounded redacted CI summaries.",
     "Stream URL retrieval into bounded buffers or complete temporary documents; continue PDFs with page/text offsets and pinned source identity, and disclose incomplete coverage and exhausted budgets.",
     "Validate MCP catalogs before publishing tool readiness, separate connection/catalog/gateway/inference evidence and add explicit bounded generation probes."
   ],
@@ -1126,6 +1127,7 @@
     "release-scope.json",
     "scripts/await_release_checks.py",
     "scripts/check_research_dispatch_size.py",
+    "scripts/collect_ci_diagnostics.py",
     "scripts/generate_app_audit_inventory.py",
     "scripts/generate_architecture_index.py",
     "scripts/heap-stress.init.gradle",
@@ -1138,6 +1140,7 @@
     "scripts/replay_conversation_debug.py",
     "scripts/run_release0950_acceptance.sh",
     "scripts/tests/test_app_audit_inventory.py",
+    "scripts/tests/test_ci_modernization.py",
     "scripts/tests/test_combined_dispatch_size.py",
     "scripts/tests/test_gateway_capability_fixtures.py",
     "scripts/tests/test_gateway_github_performance.py",

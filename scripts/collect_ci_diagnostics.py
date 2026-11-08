@@ -8,7 +8,11 @@ from collections import Counter
 from pathlib import Path
 
 ANSI = re.compile(r'\x1b\[[0-9;]*[A-Za-z]')
-ERROR = re.compile(r'(?:^e: |error:|fatal:|FAILURE:|Caused by:|Execution failed for task|OutOfMemoryError|licenses? not accepted|Could not resolve)', re.I)
+ERROR = re.compile(
+    r'(?:^e: |error:|fatal:|FAILURE:|Caused by:|Execution failed for task|OutOfMemoryError|'
+    r'licenses? not accepted|Could not resolve|'
+    r'#\s*(?:SIG(?:SEGV|BUS|ABRT|ILL|FPE)\b|EXCEPTION_ACCESS_VIOLATION\b|C\s+\[[^]]+\])|'
+    r"Process '[^']+' finished with non-zero exit value \d+)", re.I)
 TOKEN = re.compile(r'(?:gh[pousr]_[A-Za-z0-9]+|github_pat_[A-Za-z0-9_]+|Bearer\s+\S+|(?:token|password|secret|authorization)\s*[:=]\s*\S+)', re.I)
 
 

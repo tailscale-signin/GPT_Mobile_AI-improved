@@ -37,6 +37,27 @@ class DiagnosticsTest(unittest.TestCase):
         self.assertNotIn('private-value', str(report))
         self.assertNotIn('private-token', str(report))
 
+    def test_native_worker_crash_precedes_generic_gradle_failure(self):
+        digest = module('collect_ci_diagnostics')
+        signal = '#  SIGSEGV (0xb) at pc=0x00007f59f4e22fcf, pid=6649, tid=6718'
+        frame = '# C  [librobolectric-nativeruntime.so+0x822fcf] CanvasContext::prepareTree token=private-value'
+        report = digest.summarize(
+            '# A fatal error has been detected by the Java Runtime Environment:\n'
+            + signal + '\n# Problematic frame:\n' + frame + '\n'
+            + '7733 tests run, 7727 passed, 6 skipped, 0 failed.\n'
+            + 'FAILURE: Build failed with an exception.\n')
+        self.assertEqual(signal, report['first_actionable_failure'])
+        self.assertIn('CanvasContext::prepareTree', report['groups'][1]['message'])
+        self.assertNotIn('private-value', str(report))
+        self.assertEqual('[REDACTED]', report['groups'][1]['message'].split()[-1])
+
+    def test_abnormal_test_worker_exit_is_actionable_without_assertion_failure(self):
+        digest = module('collect_ci_diagnostics')
+        failure = "Process 'Gradle Test Executor 17' finished with non-zero exit value 134"
+        report = digest.summarize('0 assertion failures\n' + failure + '\n')
+        self.assertEqual(failure, report['first_actionable_failure'])
+        self.assertIsNone(digest.summarize('7733 tests completed, 0 failed\n')['first_actionable_failure'])
+
     def test_high_confidence_scan_reports_lines_only(self):
         scan = module('scan_secrets')
         self.assertEqual([2], scan.findings(b'line1\n' + b'ghp_' + b'A' * 36))

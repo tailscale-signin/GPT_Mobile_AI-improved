@@ -80,7 +80,7 @@ absence is not permission to invent selectors or repeat writes.
 | F19 | Timeline reuses the captured journal; source/chunk hashes and counts are verified; serialization and hashing are bounded; resume refreshes partial derived stages | Frozen-source adapter regression, corrupt-source rollback, cancellation/resume, coverage, and 64 MiB heap gate |
 | F20 | Immutable profile revision, configured/requested/serialized reasoning, backend-reported model, and endpoint digest remain distinct from unmeasured runtime facts | Reasoning receipt, provenance DTO, parser, transport, and invocation-ledger tests |
 | F21 | Resumed and corrective repository prompts use the accepted task and bounded execution ledger instead of accumulated plans | Exact selector, constraint, latest-intent, bounded-count, and private-body exclusion tests |
-| F22 | Composer input ownership is released before send, at externally started runs, and on disposal without clearing the draft or stealing another editor's focus | Eight Compose lifecycle regressions, including actual focus at dispatch, keyboard mode and traversal; Android CI required |
+| F22 | Composer input ownership is released before send, at externally started runs, and on disposal without clearing the draft or stealing another editor's focus | Eight Compose lifecycle regressions plus a real Android BLAST-factory lifecycle check; actual focus at dispatch, keyboard mode and traversal remain asserted |
 | F23 | Routine omissions become compact changes; bounded inventory snapshots are exported; actual authority failures retain detailed warnings | Snapshot/diff/clear/privacy tests and staged-export adapter tests |
 
 ## CI integration follow-up
@@ -194,6 +194,54 @@ and narrows conversational diagnostic intent without replacing repository work.
 It has no overlapping path with the composer fixture and this ledger update.
 The final fixture correction is applied on top of that combined source; the
 complete resulting head requires fresh Android CI.
+
+## Legacy surface fixture and native-crash evidence
+
+The native-drawing attempt on `3c455ff7573fc2a3dc84ff4983f5593991b246e0`
+exposed a second host-renderer limitation. Both independent Android workflows
+abort the same test worker inside Robolectric's native
+`CanvasContext::prepareTree`, with `SIGSEGV` followed by exit 134. Their 1,224 XML
+reports contain 7,733 recorded cases: 7,727 passes, six skips and no assertion
+failures. This is **an incomplete, failed execution**, not a passing full suite.
+Only two composer records were emitted: the unfocused-disposal case passed, and
+the keyboard case was skipped after the abort. Six remaining composer cases and
+both `ConflatedRenderPreparationTest` cases are absent. All 88 cases in the 11
+changed MCP classes and all 63 transport/negotiation cases passed in both runs.
+
+The focus fixture returns to explicit legacy graphics and replaces only the
+unsupported API 34 BLAST surface factory with a class-scoped shadow. Its surface
+objects use Robolectric's existing `ShadowSurface`, including validity and
+release tracking. Android's actual magnifier creation, dismissal and teardown,
+Compose input sessions and all eight original focus/draft assertions remain in
+place. Native drawing and the process-wide draw-property rule are removed. A
+separate fixture regression calls the real hidden Android BLAST factories and
+checks allocation and release, so a missing shadow registration cannot silently
+pass. This fixture does not qualify native rendering or physical-device IME
+behavior.
+
+The bounded CI diagnostic summary now recognizes JVM crash signals, native
+frames and abnormal worker exits before the generic Gradle failure. Tests cover
+the observed crash shape, an exit without an assertion failure, unchanged secret
+redaction and ordinary successful output. Raw JVM crash/environment files are
+not added to uploads. Reprocessing the actual failed log identifies `SIGSEGV`
+and `CanvasContext::prepareTree` as the cause instead of only the later build
+failure. Current-head Android execution remains required for the corrected
+fixture and for the heap/schema/APK stages skipped after the failed unit step.
+
+The corrected source passes all 400 canonical fast tests, 1,284 literal-regex
+checks and 30 resource XML checks; 77 dynamic regex patterns remain explicitly
+outside the static check. Kotlin formatting, generated architecture and the
+2,244-file / 26-area production inventory validate. The release scope adds only
+the two exact diagnostic-script paths, for 1,050 paths in total; its release
+identity, base, qualification and limitations remain unchanged.
+
+The actual added shadow, annotations and factory/release regression compile
+against SDK 37, JDK 21, Kotlin 2.4.20 and hash-verified pinned Robolectric 4.17 /
+JUnit 4.13.2 APIs. This check caught the hidden no-argument `Surface` constructor;
+the fixture now invokes that same constructor with Robolectric's
+`ReflectionHelpers.callConstructor`. A full local Compose attempt stops during
+Gradle plugin resolution, before compilation or tests. The SDK compilation check
+does not substitute for running all nine fixture cases in current-head CI.
 
 ## Measurement boundaries
 

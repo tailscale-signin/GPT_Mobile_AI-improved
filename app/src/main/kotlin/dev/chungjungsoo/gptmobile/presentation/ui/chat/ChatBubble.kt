@@ -287,8 +287,11 @@ fun OpponentChatBubble(
         if (effectiveExecutionTrace && showReasoning) thoughts.ifBlank { if (isLoading) "" else ThinkingParser.extractThinking(text).thinking.orEmpty() } else ""
     }
     val processToolEvents = if (effectiveExecutionTrace) toolEvents else emptyList()
-    val contentTimeline = remember(timeline, showReasoning, effectiveExecutionTrace) {
-        timeline.filter { if (effectiveExecutionTrace) showReasoning || it.type != AssistantTimelineItemType.THINKING else it.type == AssistantTimelineItemType.TEXT }
+    val githubPresentation = remember(text, timeline, githubTask) { if (githubTask != null) gitHubResponsePresentation(text, timeline) else null }
+    val displayedText = githubPresentation?.text ?: text
+    val displayedTimeline = githubPresentation?.timeline ?: timeline
+    val contentTimeline = remember(displayedTimeline, showReasoning, effectiveExecutionTrace) {
+        displayedTimeline.filter { if (effectiveExecutionTrace) showReasoning || it.type != AssistantTimelineItemType.THINKING else it.type == AssistantTimelineItemType.TEXT }
     }
     val (telemetryNotice, nonTelemetryNotices) = remember(noticeMessages) {
         extractTelemetryNotice(noticeMessages)
@@ -368,7 +371,7 @@ fun OpponentChatBubble(
 
     val hasVisibleText = combinedManifest != null ||
         originalSource != null ||
-        text.isNotBlank() ||
+        displayedText.isNotBlank() ||
         (debugMode && showAnswerStreamingIndicator && (!hasDetails || areDetailsVisible))
     val hasVisibleProcess = hasDetails && areDetailsVisible
     val hasVisibleExtras = (debugMode && (nonTelemetryNotices.isNotEmpty() || agentRun != null)) ||
@@ -379,7 +382,7 @@ fun OpponentChatBubble(
         combinedManifest == null &&
         originalSource == null &&
         isLastMessage &&
-        !dev.chungjungsoo.gptmobile.data.conversation.AnswerProjection.hasAnswer(text) &&
+        !dev.chungjungsoo.gptmobile.data.conversation.AnswerProjection.hasAnswer(displayedText) &&
         attachments.isEmpty()
     val shouldShowBubble =
         isLoading ||
@@ -441,7 +444,7 @@ fun OpponentChatBubble(
                         proseColor = profileColorIdentity?.let { ProfileAttributionPalette.foreground(it, bubbleColor.compositeOver(MaterialTheme.colorScheme.background)) },
                         responseSurface = bubbleColor.compositeOver(MaterialTheme.colorScheme.background),
                         toolEvents = processToolEvents,
-                        fallbackText = text,
+                        fallbackText = displayedText,
                         fallbackThoughts = visibleThoughts,
                         contentIdentity = contentIdentity,
                         isLoading = isLoading,
@@ -457,8 +460,11 @@ fun OpponentChatBubble(
                             responseIcon
                         },
                         beforeAnswer = {
-                            if (githubTask != null && (isLoading || activityExpanded)) {
+                            if (githubTask != null && (activityExpanded || isLoading && displayedText.isBlank())) {
                                 GitHubLiveProgressCard(timeline, githubTask, toolEvents, expanded = activityExpanded, active = isLoading)
+                            }
+                            if (githubPresentation?.progressOnly == true) {
+                                Text(if (isLoading) "Progress update" else "Saved progress", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         },
                         debugSettings = debugSettings,

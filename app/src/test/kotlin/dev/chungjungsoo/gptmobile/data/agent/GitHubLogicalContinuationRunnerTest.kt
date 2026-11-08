@@ -3,7 +3,6 @@ package dev.chungjungsoo.gptmobile.data.agent
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonObject
@@ -22,6 +21,7 @@ class GitHubLogicalContinuationRunnerTest {
         var reads = 0
         var requests = 0
         var waits = 0
+        var reopens = 0
         var checkpoint: JsonObject? = null
         val tool = object : AgentTool {
             override val definition = AgentToolDefinition("github_read", "Read", JsonObject(emptyMap()))
@@ -33,26 +33,38 @@ class GitHubLogicalContinuationRunnerTest {
         val provider = object : AgentProviderSession {
             override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
                 requests++
-                emit(ProviderEvent.ToolCall("read-once", tool.definition.name, JsonObject(emptyMap())))
-                emit(ProviderEvent.Completed)
+                if (requests == 1) {
+                    assertTrue(exchanges.isEmpty())
+                    emit(ProviderEvent.ToolCall("read-once", tool.definition.name, JsonObject(emptyMap())))
+                    emit(ProviderEvent.Completed)
+                } else {
+                    // An ordinary post-tool round still belongs to this provider.
+                    // Its reasoning-only interruption creates the recovery boundary.
+                    assertEquals(2, requests)
+                    assertEquals(1, reads)
+                    assertSavedRead(exchanges)
+                    emit(ProviderEvent.ThinkingDelta("Unpublished reasoning"))
+                    emit(interrupted())
+                }
             }
         }
         val session = GitHubOutputContinuationSession(provider, recoveryRevision = "run", readCheckpoint = { checkpoint }, saveCheckpoint = { checkpoint = it }, awaitConnectivity = {
             waits++
             true
-        }) { _, retained, _ ->
-            requests++
-            assertEquals("read-once", retained.single().results.single().callId)
-            if (requests == 2) {
-                object : AgentProviderSession {
-                    override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flowOf(
-                        ProviderEvent.ThinkingDelta("Unpublished reasoning"),
-                        interrupted()
-                    )
-                }
-            } else {
-                object : AgentProviderSession {
-                    override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flowOf(ProviderEvent.TextDelta("Completed from saved evidence."), ProviderEvent.Completed)
+        }) { draft, retained, _ ->
+            reopens++
+            assertEquals("", draft)
+            assertEquals(2, requests)
+            assertEquals(1, reads)
+            assertSavedRead(retained)
+            object : AgentProviderSession {
+                override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
+                    requests++
+                    assertEquals(3, requests)
+                    assertTrue(exchanges.isEmpty())
+                    assertSavedRead(retained)
+                    emit(ProviderEvent.TextDelta("Completed from saved evidence."))
+                    emit(ProviderEvent.Completed)
                 }
             }
         }
@@ -60,9 +72,19 @@ class GitHubLogicalContinuationRunnerTest {
         assertEquals(1, reads)
         assertEquals(3, requests)
         assertEquals(1, waits)
+        assertEquals(1, reopens)
         assertTrue(events.any { it is AgentRunEvent.Provider && it.event is ProviderEvent.Completed })
         assertFalse(events.any { it is AgentRunEvent.Provider && it.event is ProviderEvent.Failed })
         assertEquals(JsonPrimitive(false), checkpoint?.get("tool_actions_replayed"))
+    }
+
+    private fun assertSavedRead(exchanges: List<AgentToolExchange>) {
+        val exchange = exchanges.single()
+        assertEquals("read-once", exchange.calls.single().callId)
+        assertEquals("github_read", exchange.calls.single().name)
+        assertEquals("read-once", exchange.results.single().callId)
+        assertEquals(ToolResultContent.Text("Saved repository evidence"), exchange.results.single().content)
+        assertFalse(exchange.results.single().isError)
     }
 
     @Test fun boundedConnectivityWaitKeepsTypedFailureAndDoesNotDispatchAnotherRequest() = runTest {

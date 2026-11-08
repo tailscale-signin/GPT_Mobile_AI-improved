@@ -85,6 +85,12 @@ The process-scoped monitor retains its state while navigating between screens. I
 
 Acceptance must cover offline creation and queued input, multiple chats competing for one slot, reconnect and restart, lost acknowledgment, cancellation, changed profile/model, backup restore, opening every queue state into its original chat, and an always-present Gateway tab. Full Compose/Hilt/Room compilation and Android lifecycle behavior remain subject to the build/device qualification below.
 
+## GitHub public summary presentation
+
+GitHub conversations prioritize the current public answer or the latest explicitly public progress summary over generic operation-counter narration. Saved public prose that previously required expanding activity/debug history is rendered in the main conversation with the normal Markdown, link and long-answer paging behavior. This also applies to retained conversations, including the narrowly identified historical ticker fallback, without rerunning their tasks.
+
+Starting another GitHub round retains the current public response until replacement answer text arrives. A round that produces no replacement cannot treat the retained response as newly completed work. Public interim content is labeled **Progress update** or **Saved progress**; approval, failure and unfinished-task states keep their own authority. Only explicitly public answer/progress content qualifies for this presentation, so reasoning and raw tool/delegate diagnostics keep their separate display rules.
+
 ## Repository issue inventory
 
 The [repository issue search](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues?q=is%3Aissue) was paged to completion during this work: 250 unique issues, all closed, including 248 automated build-failure reports. Pull requests were excluded from that count. This inventory is not evidence that the newly requested repairs were already fixed; the supplied diagnostic reviews and Gateway home request define this implementation's scope. Existing draft PR #814 is the delivery vehicle.

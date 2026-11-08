@@ -207,6 +207,69 @@ class ApiStateFlowExtensionsTest {
         assertTrue(timeline.any { it.progressCheckpoint && it.content == "Inspected sources" })
     }
 
+    @Test fun startingContinuationKeepsTheFullPublicReportUntilReplacementArrives() = runBlocking {
+        val report = "# Findings\n\n" + "The selected commit still needs approval before publication.\n".repeat(100)
+        var answer = ""
+        var timeline = emptyList<AssistantTimelineItem>()
+        val result = flow {
+            emit(ApiState.GitHubRoundStarted)
+            emit(ApiState.Success(report))
+            emit(ApiState.GitHubRoundStarted)
+            emit(ApiState.Success("\n\n"))
+            emit(ApiState.Success("<thi"))
+            emit(ApiState.Success("nk>Private continuation reasoning"))
+            emit(ApiState.Success("</think>"))
+            emit(ApiState.ActivitySummary("I have completed 5 repository operations. Reviewing the latest result and the next step."))
+            emit(ApiState.Error("Review the existing Approve & Commit card.", errorCode = "WAITING_FOR_APPROVAL", taskOutcome = "WAITING_FOR_APPROVAL"))
+        }.collectApiStateUpdates(onUpdate = { text, _, items ->
+            answer = text
+            timeline = items
+        })
+        assertEquals(report, answer)
+        assertEquals(report, timeline.filter { it.type == AssistantTimelineItemType.TEXT }.joinToString("") { it.content })
+        assertFalse(timeline.any { it.progressCheckpoint && it.content.startsWith("# Findings") })
+        assertFalse(timeline.any { it.content.contains("Private continuation reasoning") })
+        assertEquals(ApiStateFlowOutcome.Failed("Review the existing Approve & Commit card.", errorCode = "WAITING_FOR_APPROVAL", taskOutcome = "WAITING_FOR_APPROVAL"), result)
+    }
+
+    @Test fun retainedReportDoesNotCertifyAnEmptyContinuationAsComplete() = runBlocking {
+        var answer = ""
+        val result = flowOf(ApiState.GitHubRoundStarted, ApiState.Success("Retained findings"), ApiState.GitHubRoundStarted, ApiState.Done)
+            .collectApiStateUpdates(onUpdate = { text, _, _ -> answer = text })
+        assertEquals("Retained findings", answer)
+        assertTrue(result is ApiStateFlowOutcome.Failed)
+    }
+
+    @Test fun automaticSummaryCannotSplitStreamedPublicExplanation() = runBlocking {
+        var timeline = emptyList<AssistantTimelineItem>()
+        flowOf(
+            ApiState.GitHubRoundStarted,
+            ApiState.ProgressCheckpoint("The failing check is ", modelAuthored = true),
+            ApiState.ActivitySummary("I have completed 5 repository operations. Reviewing the latest result."),
+            ApiState.ProgressCheckpoint("Kotlin compilation. Approval is still required before publishing.", modelAuthored = true),
+            ApiState.Error("Waiting for approval", errorCode = "WAITING_FOR_APPROVAL")
+        ).collectApiStateUpdates(onUpdate = { _, _, items -> timeline = items })
+        assertEquals("The failing check is Kotlin compilation. Approval is still required before publishing.", timeline.single { it.progressCheckpoint && it.modelAuthored }.content)
+        assertEquals(1, timeline.count { it.statusSummary && !it.modelAuthored })
+    }
+
+    @Test fun replacementAnswerKeepsItsBufferedFormattingAndReasoningStaysOutOfItsProjection() = runBlocking {
+        val prefix = "\n\n<think>Private continuation reasoning</think>\n\n"
+        var answer = ""
+        val result = flowOf(
+            ApiState.GitHubRoundStarted,
+            ApiState.Success("Earlier public findings"),
+            ApiState.GitHubRoundStarted,
+            ApiState.Success("\n\n"),
+            ApiState.Success("<think>Private continuation reasoning</think>\n\n"),
+            ApiState.Success("## New findings\n\nApproval is still required."),
+            ApiState.Done
+        ).collectApiStateUpdates(onUpdate = { text, _, _ -> answer = text })
+        assertEquals(ApiStateFlowOutcome.Completed, result)
+        assertEquals(prefix + "## New findings\n\nApproval is still required.", answer)
+        assertEquals("## New findings\n\nApproval is still required.", dev.chungjungsoo.gptmobile.data.conversation.AnswerProjection.text(answer))
+    }
+
     @Test fun longGithubWorkKeepsABoundedProgressPresentation() = runBlocking {
         var timeline = emptyList<AssistantTimelineItem>()
         flow {

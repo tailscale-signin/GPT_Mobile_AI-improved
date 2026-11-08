@@ -5,7 +5,7 @@
   "base_sha": "f1dc03894fbc250945634d6a1f11e6149926c469",
   "working_branch": "fix/gateway-readiness-diagnostics-2026-11-08",
   "pull_request": 814,
-  "intent": "Implement both diagnostic reviews and the Gateway chat home/offline serial queue request on the existing repair branch, preserving selected-model identity, native approvals, original workflow modes, durable evidence and unknown-mutation reconciliation.",
+  "intent": "Implement both diagnostic reviews, the Gateway chat home/offline serial queue request and the GitHub public-summary correction on the existing repair branch, preserving selected-model identity, native approvals, original workflow modes, durable evidence and unknown-mutation reconciliation.",
   "state": "SOURCE_PUBLISHED",
   "task_store": "engineering_agent_checkpoints",
   "task_store_key": "interrupted-work-readiness-2026-11-08",
@@ -14,7 +14,8 @@
     "github": "Durable approval/fixture lifecycle, catalog invalidation and rediscovery, bounded no-failed-CI completion, saved-result cursor consumption, canonical evidence coverage, outcome/budget/duration presentation",
     "recovery": "Typed provider/stream failures, accepted-request identity, checkpoint continuation separate from request replay, no-progress detection, selected-profile progress narration, review compatibility/error propagation",
     "android": "Explicit MCP lifecycle/version policy, rendering/serialization/lock costs, frame/incident coverage, complete diagnostic evidence, deferred memory wakeup and warning classification",
-    "gateway_home": "Gateway-only chat destination matching main menu; immediate stable navigation; direct single-profile creation or gateway-supported model picker; durable offline ordered messages; one gateway job at a time; row-to-chat navigation; retained process-wide availability monitor with background cadence and network/configuration wakeups."
+    "gateway_home": "Gateway-only chat destination matching main menu; immediate stable navigation; direct single-profile creation or gateway-supported model picker; durable offline ordered messages; one gateway job at a time; row-to-chat navigation; retained process-wide availability monitor with background cadence and network/configuration wakeups.",
+    "github_summary": "Promote substantive explicitly public summary/progress into the normal GitHub chat display, replacing generic operation-counter fallback for current and retained conversations. Keep the previous public response until replacement text arrives; retain completion, approval and failure boundaries; use the normal Markdown and bounded document renderer."
   },
   "validation": {
     "canonical_host": {
@@ -35,6 +36,8 @@
       "accounting": 11,
       "recovery": 125,
       "workflow": 48,
+      "github_public_summary": 42,
+      "logical_continuation_runner": 2,
       "fixture_binding_publication": 21,
       "tool_schema_admission": 2,
       "provider_transport": 51,

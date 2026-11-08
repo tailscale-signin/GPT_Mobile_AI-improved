@@ -84,7 +84,10 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
     @Synchronized fun forward(event: ApiState): ApiState? {
         observe(event)
         return when (event) {
-            is ApiState.ProgressCheckpoint -> null
+            // Public model prose has already been separated from reasoning.
+            // Preserve its chunks so the UI can show the actual update, rather
+            // than replacing it with the ticker's operation-count template.
+            is ApiState.ProgressCheckpoint -> event.takeIf { it.modelAuthored }
             is ApiState.ActivitySummary -> {
                 val generated = pendingSummary.takeIf { pendingSummaryRevision == revision } ?: return null
                 pendingSummary = null

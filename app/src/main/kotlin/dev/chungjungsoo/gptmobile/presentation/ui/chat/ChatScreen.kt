@@ -1617,6 +1617,15 @@ internal fun ChatMessagePair(
             }
         }
     }
+    val githubTask = message.content.takeIf { LocalChatProgressInHeader.current && !hasCombinedTabs }
+    val readAssistantActionText: suspend () -> String = {
+        when {
+            selectedSourceReader != null -> selectedSourceReader.readAll()
+            githubTask != null && !combinedMode && selectedAssistantMessage?.effectiveCombinedManifest() == null ->
+                gitHubResponsePresentation(assistantContent, assistantTimeline).text
+            else -> selectedAssistantMessage?.let { resolveCombinedMessage(it).effectiveContent() } ?: assistantContent
+        }
+    }
     val readLifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current
     val readLifecycleState by readLifecycle.lifecycle.currentStateFlow.collectAsStateWithLifecycle()
     LaunchedEffect(replyRevision, replyVisible, selectedAssistantMessage, rawAssistantContent, readLifecycleState) {
@@ -1821,8 +1830,8 @@ internal fun ChatMessagePair(
                     isFavorite = selectedAssistantMessage?.isFavorite ?: false,
                     debugMode = debugMode,
                     showExecutionTrace = !isCombinedConversation,
-                    githubTask = message.content.takeIf { LocalChatProgressInHeader.current && !hasCombinedTabs },
-                    responseIcon = if (LocalChatProgressInHeader.current && !hasCombinedTabs) {
+                    githubTask = githubTask,
+                    responseIcon = if (githubTask != null) {
                         { GPTMobileIcon(loading = isResponseLoading, github = true) }
                     } else {
                         null
@@ -1892,10 +1901,10 @@ internal fun ChatMessagePair(
                     canShowPreviousRevision = canShowPreviousRevision,
                     canShowNextRevision = canShowNextRevision,
                     onCopyClick = {
-                        documentScope.launch { onCopyText(selectedSourceReader?.readAll() ?: selectedAssistantMessage?.let { resolveCombinedMessage(it).effectiveContent() } ?: assistantContent) }
+                        documentScope.launch { onCopyText(readAssistantActionText()) }
                     },
                     onSelectClick = {
-                        documentScope.launch { onSelectText(selectedSourceReader?.readAll() ?: selectedAssistantMessage?.let { resolveCombinedMessage(it).effectiveContent() } ?: assistantContent) }
+                        documentScope.launch { onSelectText(readAssistantActionText()) }
                     },
                     onRetryClick = {
                         if (needsAnswerCorrection) revisionTarget?.let { onReviseCombinedAnswer(messageIndex, it) } else onRetry(messageIndex, displayPlatformIndex)

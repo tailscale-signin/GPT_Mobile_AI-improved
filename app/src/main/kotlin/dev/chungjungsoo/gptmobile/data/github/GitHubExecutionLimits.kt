@@ -18,7 +18,13 @@ internal object GitHubExecutionLimits {
             amount.coerceAtMost(Long.MAX_VALUE / unit) * unit
         }.minOrNull()
 
-    fun toolCalls(task: String, configured: Int, preset: GitHubWorkflowPreset): Int {
+    data class CallLimit(val effective: Int, val configured: Int, val workflow: Int, val scope: Int, val requested: Int?, val sources: List<String>) {
+        fun description(): String = "$effective tool calls · limited by ${sources.joinToString(", ")}"
+    }
+
+    fun toolCalls(task: String, configured: Int, preset: GitHubWorkflowPreset): Int = callLimit(task, configured, preset).effective
+
+    fun callLimit(task: String, configured: Int, preset: GitHubWorkflowPreset): CallLimit {
         val selected = GitHubWorkflowPreset.fromRequest(task) ?: preset
         val scopeLimit = when {
             GitHubStatusRequest.matches(task) -> 6
@@ -29,7 +35,13 @@ internal object GitHubExecutionLimits {
         }
         val explicitLimit = requestLimit.findAll(task).mapNotNull { it.groupValues[1].toLongOrNull() }
             .minOrNull()?.coerceIn(0, Int.MAX_VALUE.toLong())?.toInt() ?: Int.MAX_VALUE
-        return minOf(configured.coerceAtLeast(0), scopeLimit, explicitLimit)
+        val effective = minOf(configured.coerceAtLeast(0), scopeLimit, explicitLimit)
+        val sources = buildList {
+            if (effective == configured.coerceAtLeast(0)) add("profile/chat allowance")
+            if (effective == scopeLimit) add(if (scopeLimit == selected.toolCalls) "workflow preset" else "task scope policy")
+            if (effective == explicitLimit) add("request ceiling")
+        }
+        return CallLimit(effective, configured.coerceAtLeast(0), selected.toolCalls, scopeLimit, explicitLimit.takeUnless { it == Int.MAX_VALUE }, sources)
     }
 
     private val requestLimit = Regex(

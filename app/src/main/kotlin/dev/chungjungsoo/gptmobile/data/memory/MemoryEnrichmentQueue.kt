@@ -53,9 +53,10 @@ class MemoryEnrichmentQueue @Inject constructor(
                 if (dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.enabled.value) {
                     infos.forEach { info ->
                         val outcome = info.outputData.getString("outcome") ?: info.progress.getString("outcome") ?: "PENDING"
-                        val key = "${info.state}:$outcome:${info.runAttemptCount}"
+                        val completed = info.outputData.getBoolean("enrichmentComplete", false)
+                        val key = "${info.state}:$outcome:${info.runAttemptCount}:$completed"
                         if (observedStates.put(info.id.toString(), key) != key) {
-                            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Memory", "ENRICHMENT_LIFECYCLE · work=${info.id} · workerState=${info.state} · outcome=$outcome · attempt=${info.runAttemptCount} · deferred=${outcome.startsWith("WAITING_")}")
+                            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Memory", "ENRICHMENT_LIFECYCLE · work=${info.id} · workerState=${info.state} · outcome=$outcome · attempt=${info.runAttemptCount} · deferred=${outcome.startsWith("WAITING_")} · enrichmentComplete=$completed · wakeTrigger=${info.outputData.getString("wakeTrigger") ?: "NOT_RECORDED"}")
                         }
                     }
                     observedStates.keys.retainAll(infos.map { it.id.toString() }.toSet())
@@ -200,7 +201,7 @@ class MemoryEnrichmentQueue @Inject constructor(
         internal fun markCompleted(context: Context, data: androidx.work.Data) {
             val id = data.getInt("messageId", 0)
             val hash = data.getString("hash") ?: return
-            if (id > 0) completedStore(context).edit().putString(id.toString(), completionKey(data.getInt("chatId", 0), hash)).apply()
+            if (id > 0) check(completedStore(context).edit().putString(id.toString(), completionKey(data.getInt("chatId", 0), hash)).commit()) { "Cannot persist semantic enrichment receipt" }
         }
         internal fun waitingStore(context: Context) = context.getSharedPreferences("memory-enrichment-waiting", Context.MODE_PRIVATE)
         internal fun observeWaitingCount(context: Context): Flow<Int> = callbackFlow<Unit> {

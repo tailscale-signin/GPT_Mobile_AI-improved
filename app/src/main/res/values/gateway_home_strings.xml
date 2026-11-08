@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="gateway_home_title">Gateway chats</string>
+    <string name="gateway_home_loading_profiles">Loading saved gateway profiles…</string>
+    <string name="gateway_home_queue_hint">Messages wait here while the gateway is offline and send one job at a time when it is ready.</string>
+    <string name="gateway_home_queued_count">Queued messages: %1$d</string>
+    <string name="gateway_home_chat_queued">%1$d queued · Open chat to view</string>
+    <string name="gateway_home_profiles">AI profiles</string>
+    <string name="gateway_home_dismiss">Dismiss</string>
+    <string name="gateway_home_setup">Add a local AI profile connected to your gateway. Once its connection is verified, you can create chats here even when it is offline.</string>
+    <string name="gateway_home_history_offline">Gateway history is unavailable right now. Your saved chats and queued messages remain available.</string>
+    <string name="gateway_home_saved_history">Showing saved gateway history</string>
+    <string name="gateway_home_empty">No gateway chats yet. Tap New Chat to start.</string>
+    <string name="gateway_home_no_matches">No matching gateway chats.</string>
+    <string name="gateway_home_server_history">On the gateway</string>
+    <string name="gateway_home_choose_profile">Choose a gateway AI profile</string>
+    <string name="gateway_home_choose_hint">Select the model for this chat. Offline profiles keep messages queued until their gateway is ready.</string>
+    <string name="gateway_home_queue_waiting_turn">Queued · Waiting for the previous job</string>
+    <string name="gateway_home_queue_waiting_connection">Queued · Waiting for the gateway</string>
+    <string name="gateway_home_queue_running">Gateway work in progress</string>
+    <string name="gateway_home_queue_reconciling">Checking the saved job status</string>
+    <string name="gateway_home_queue_blocked">Queue paused · Open chat for details</string>
+</resources>

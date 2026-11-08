@@ -46,7 +46,10 @@ class OpenAIResponsesEventAssembler {
 
     fun accept(event: ResponsesStreamEvent): List<ProviderEvent> = when (event) {
         is dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseGatewayMetadataEvent ->
-            event.metadata?.let { listOf(ProviderEvent.GatewayMetadataCaptured(it)) }.orEmpty()
+            listOfNotNull(
+                event.metadata?.let { ProviderEvent.GatewayMetadataCaptured(it) },
+                event.providerResponseTiming?.let { ProviderEvent.Usage(providerResponseTiming = it, phase = dev.chungjungsoo.gptmobile.data.agent.ProviderUsagePhase.INITIAL) }
+            )
 
         is ReasoningSummaryTextDeltaEvent -> listOf(ProviderEvent.ThinkingDelta(event.delta))
 

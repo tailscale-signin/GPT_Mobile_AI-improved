@@ -524,7 +524,9 @@ class GitHubReviewedSessionTest {
         )
         val interruptedOutput = gate().streamRound(emptyList(), emptyList()).toList()
         assertTrue(interruptedOutput.none { it is ProviderEvent.TextDelta })
-        assertEquals("GITHUB_REVIEW_UNAVAILABLE", interruptedOutput.filterIsInstance<ProviderEvent.Failed>().single().errorCode)
+        val interruption = interruptedOutput.filterIsInstance<ProviderEvent.Failed>().single()
+        assertEquals("LOCAL_SERVICE_UNREACHABLE", interruption.errorCode)
+        assertEquals(JsonPrimitive("answer_review"), interruption.failureDetails?.get("review_stage"))
         val resumed = gate().streamRound(emptyList(), emptyList()).toList()
         assertEquals(ProviderEvent.Completed, resumed.last())
         val published = resumed.filterIsInstance<ProviderEvent.TextDelta>().single().text

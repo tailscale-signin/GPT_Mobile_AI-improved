@@ -56,7 +56,6 @@ import androidx.compose.material.icons.rounded.Archive
 import androidx.compose.material.icons.rounded.ChatBubble
 import androidx.compose.material.icons.rounded.ChatBubbleOutline
 import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.CloudQueue
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Folder
@@ -64,8 +63,6 @@ import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
-import androidx.compose.material.icons.rounded.Star
-import androidx.compose.material.icons.rounded.StarBorder
 import androidx.compose.material.icons.rounded.Unarchive
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -82,7 +79,6 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -90,8 +86,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxState
 import androidx.compose.material3.SwipeToDismissBoxValue
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRowDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
@@ -191,9 +185,8 @@ fun HomeScreen(
     navigateToWorkspace: (Int) -> Unit = {},
     navigateToGateway: () -> Unit = {}
 ) {
-    val gatewayMenuViewModel: GatewayMenuViewModel = hiltViewModel()
-    val gatewayConnections by gatewayMenuViewModel.connections.collectAsStateWithLifecycle(minActiveState = Lifecycle.State.RESUMED)
-    val gatewayConnected = gatewayConnections.any { it.canBrowseHistory }
+    // Start the retained process monitor; destination visibility never depends on a probe.
+    hiltViewModel<GatewayMenuViewModel>()
     val listState = rememberLazyListState()
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     val homeFeatures by homeViewModel.featureSettings.collectAsStateWithLifecycle()
@@ -419,61 +412,12 @@ fun HomeScreen(
         Box(modifier = Modifier.fillMaxSize().padding(innerPadding).glassBackdropSource()) {
             Column(modifier = Modifier.fillMaxSize()) {
                 if (!chatListState.isSelectionMode && !chatListState.isSearchMode) {
-                    PrimaryTabRow(
-                        selectedTabIndex = if (currentTab == HomeTab.FAVORITES && gatewayConnected) 2 else currentTab.ordinal,
-                        containerColor = MaterialTheme.colorScheme.background,
-                        contentColor = MaterialTheme.colorScheme.primary,
-                        indicator = {
-                            TabRowDefaults.PrimaryIndicator(
-                                modifier = Modifier.tabIndicatorOffset(if (currentTab == HomeTab.FAVORITES && gatewayConnected) 2 else currentTab.ordinal, matchContentSize = true),
-                                width = androidx.compose.ui.unit.Dp.Unspecified,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        },
-                        divider = { HorizontalDivider(color = MaterialTheme.colorScheme.primary.copy(alpha = 0.24f)) }
-                    ) {
-                        Tab(
-                            modifier = Modifier.background(MaterialTheme.colorScheme.background),
-                            selectedContentColor = MaterialTheme.colorScheme.primary,
-                            unselectedContentColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.65f),
-                            selected = currentTab == HomeTab.CHATS,
-                            onClick = { homeViewModel.selectTab(HomeTab.CHATS) },
-                            text = { Text(stringResource(R.string.chats)) },
-                            icon = {
-                                Icon(
-                                    imageVector = Icons.Rounded.ChatBubbleOutline,
-                                    contentDescription = stringResource(R.string.chats)
-                                )
-                            }
-                        )
-                        if (gatewayConnected) {
-                            Tab(
-                                modifier = Modifier.testTag("home_gateway"),
-                                selected = false,
-                                onClick = navigateToGateway,
-                                text = { Text(stringResource(R.string.gateway_menu_title)) },
-                                icon = {
-                                    Icon(
-                                        imageVector = Icons.Rounded.CloudQueue,
-                                        contentDescription = null
-                                    )
-                                }
-                            )
-                        }
-                        Tab(
-                            selectedContentColor = MaterialTheme.colorScheme.primary,
-                            unselectedContentColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.65f),
-                            selected = currentTab == HomeTab.FAVORITES,
-                            onClick = { homeViewModel.selectTab(HomeTab.FAVORITES) },
-                            text = { Text(stringResource(R.string.favorites)) },
-                            icon = {
-                                Icon(
-                                    imageVector = if (currentTab == HomeTab.FAVORITES) Icons.Rounded.Star else Icons.Rounded.StarBorder,
-                                    contentDescription = stringResource(R.string.favorites)
-                                )
-                            }
-                        )
-                    }
+                    HomeNavigationTabs(
+                        selected = if (currentTab == HomeTab.FAVORITES) HomeDestination.FAVORITES else HomeDestination.CHATS,
+                        onChats = { homeViewModel.selectTab(HomeTab.CHATS) },
+                        onGateway = navigateToGateway,
+                        onFavorites = { homeViewModel.selectTab(HomeTab.FAVORITES) }
+                    )
                 }
 
                 when (currentTab) {

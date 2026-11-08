@@ -11,23 +11,42 @@ import kotlinx.serialization.json.put
 
 /** The command ID is frozen together with the metadata that will be sent on this attempt. */
 internal data class GatewayConversationRequest(val payload: String, val commandId: String? = null) {
+    suspend fun armDispatch(config: ProviderRequestConfig) {
+        if (commandId == null) return
+        config.onGatewayCommandDispatching?.invoke(commandId)
+    }
+
     suspend fun beforeDispatch(config: ProviderRequestConfig) {
         if (commandId == null) return
         currentCoroutineContext().ensureActive()
         val reserve = checkNotNull(config.onGatewayCommandPrepared) {
             "The gateway request could not be saved locally. Reopen the chat and retry; no model request was sent."
         }
-        reserve(commandId)
-        // A local reservation may finish under a non-cancellable database transaction.
-        // Cancellation after that commit still must not start the HTTP request.
-        currentCoroutineContext().ensureActive()
+        try {
+            reserve(commandId)
+            // A local reservation may finish under a non-cancellable database transaction.
+            // Cancellation after that commit still must not start the HTTP request.
+            currentCoroutineContext().ensureActive()
+        } catch (failure: Throwable) {
+            // This function returns before HTTP can begin. Its own failure is
+            // positive non-dispatch evidence, unlike an absent server receipt.
+            kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                runCatching { config.onGatewayCommandNotDispatched?.invoke(commandId) }
+            }
+            throw failure
+        }
     }
 }
 
 /** Add history metadata only to a gateway that explicitly supports this contract. */
 internal fun gatewayConversationRequest(serialized: String, config: ProviderRequestConfig): GatewayConversationRequest {
+    check(!config.requireGatewayConversation || config.gatewayConversationSync && gatewayStoresVisibleTurn(config) && config.onGatewayCommandPrepared != null && config.onGatewayCommandDispatching != null) {
+        "GATEWAY_QUEUE_DURABILITY_REQUIRED: The original Gateway did not confirm saved conversation support. The queued turn was not dispatched."
+    }
     if (!config.gatewayConversationSync) return GatewayConversationRequest(serialized)
-    val payload = Json.parseToJsonElement(serialized) as? JsonObject ?: return GatewayConversationRequest(serialized)
+    val payload = Json.parseToJsonElement(serialized) as? JsonObject
+    check(payload != null || !config.requireGatewayConversation) { "GATEWAY_QUEUE_DURABILITY_REQUIRED: The queued request could not retain its command identity." }
+    if (payload == null) return GatewayConversationRequest(serialized)
     val key = config.gatewayConversationKey
     val persistent = gatewayStoresVisibleTurn(config)
     // A changed tool-stage payload gets its own command; transport retries of

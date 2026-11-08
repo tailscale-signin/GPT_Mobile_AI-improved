@@ -149,6 +149,10 @@ internal object GitHubContentFixture {
         val matching = observations.filter { GitHubActionIdentity.matches(recipe.tool, recipe.arguments, it) }
         return matching.lastOrNull(::successful) ?: matching.lastOrNull()
     }
+    private fun resolvedApproval(receipt: JsonObject?, observations: List<JsonObject>): JsonObject? {
+        if (receipt == null) return null
+        return GitHubPendingApproval.resolution(receipt, observations) ?: receipt
+    }
     private fun call(recipe: Recipe, tools: List<AgentToolDefinition>, observations: List<JsonObject>): ProviderEvent.ToolCall? {
         if (prior(recipe, observations) != null) return null
         val tool = tool(recipe, tools) ?: return null
@@ -223,9 +227,10 @@ internal object GitHubContentFixture {
         }
         var head = origin
         val write = write(branch, origin)
-        val written = prior(write, observations)
+        val written = resolvedApproval(prior(write, observations), observations)
         val firstHead = contentReceipt(written, branch, origin, false)
         if (written != null && firstHead == null) {
+            if (root(written)?.text("approval_state") == "CANCELLED_BEFORE_PUBLICATION") return call(cleanup(branch, origin, head), tools, observations)
             // A queued exact review may still publish later. It cannot be turned
             // into permission to remove its destination or to repeat the write.
             if (successful(written)) return null
@@ -252,9 +257,10 @@ internal object GitHubContentFixture {
         val stageResult = root(staged)
         if (!successful(staged) || stageResult?.text("stage_id").isNullOrBlank() || stageResult.text("expected_head_sha") != head || stageResult.text("branch") != branch) return call(cleanup(branch, origin, head), tools, observations)
         val commit = commit(branch, head, stageResult.text("stage_id"))
-        val committed = prior(commit, observations)
+        val committed = resolvedApproval(prior(commit, observations), observations)
         val finalHead = contentReceipt(committed, branch, head, true)
         if (committed != null && finalHead == null) {
+            if (root(committed)?.text("approval_state") == "CANCELLED_BEFORE_PUBLICATION") return call(cleanup(branch, origin, head), tools, observations)
             if (successful(committed)) return null
             return recoveryCleanup(branch, origin, head, tools, observations)
         }
@@ -319,11 +325,11 @@ internal object GitHubContentFixture {
         val observations = GitHubSelfTestFixtures.lifecycle(creation, receipts).filter(::eligible)
         val source = receipts.values.firstOrNull { it.text("tool").substringBefore("__") == "github_context" && arguments(it)?.text("action") == "status" && owned(it, creation) }
         val ownership = owned(source, creation)
-        val written = prior(write(branch, origin), observations)
+        val written = resolvedApproval(prior(write(branch, origin), observations), observations)
         val first = contentReceipt(written, branch, origin, false)
         val staged = first?.let { prior(stage(branch, it), observations) }
         val stageId = staged?.let(::root)?.text("stage_id").orEmpty()
-        val committed = first?.takeIf { stageId.isNotBlank() }?.let { prior(commit(branch, it, stageId), observations) }
+        val committed = first?.takeIf { stageId.isNotBlank() }?.let { resolvedApproval(prior(commit(branch, it, stageId), observations), observations) }
         val final = first?.let { contentReceipt(committed, branch, it, true) }
         val proved = listOfNotNull(creation, written, staged, committed).mapNotNull { it["receipt_id"] }
         val stageVerified = staged != null && successful(staged) && root(staged)?.text("expected_head_sha") == first && root(staged)?.text("branch") == branch
@@ -353,6 +359,7 @@ internal object GitHubContentFixture {
             emptyList()
         }
         val cleanup = verifiedCleanup ?: cleanups.lastOrNull()
+        val approvals = GitHubPendingApproval.snapshot(observations.mapIndexed { index, receipt -> index.toString() to receipt }.toMap())
         return buildJsonObject {
             put("branch", branch)
             put("fixture_plan", GitHubOwnedFixtures.PLAN)
@@ -365,6 +372,8 @@ internal object GitHubContentFixture {
                     "OWNERSHIP_NOT_ESTABLISHED"
                 } else if (cleaned) {
                     "CLEANED"
+                } else if (approvals.isNotEmpty()) {
+                    "WAITING_FOR_APPROVAL"
                 } else {
                     "PENDING_OR_BLOCKED"
                 }
@@ -374,6 +383,9 @@ internal object GitHubContentFixture {
             put("cleanup_attempt_receipts", JsonArray(cleanups.takeLast(8).mapNotNull { it["receipt_id"] }))
             put("reconciled_deletion_receipts", JsonArray(reconciledDeletions))
             put("mutation_receipts", JsonArray(proved))
+            put("pending_approvals", approvals)
+            put("cleanup_obligation", if (cleaned) "VERIFIED_ABSENT" else "DURABLE_UNTIL_VERIFIED_ABSENT")
+            put("cleanup_after_cancellation", "Reconcile the exact native approval and current owned head; cancellation cannot erase this obligation or authorize replay.")
             put("mutation_scope", "Owned branch, exact nonempty synthetic content, staged revision, pinned content reads/searches and nonempty diff; absence verified after cleanup.")
         }
     }

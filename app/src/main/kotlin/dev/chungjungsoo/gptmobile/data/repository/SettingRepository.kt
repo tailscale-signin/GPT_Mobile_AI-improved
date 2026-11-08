@@ -49,7 +49,10 @@ interface SettingRepository {
     suspend fun copyConversationCombinedSettings(sourceId: Int, targetId: Int) {
         mutateFeatureSettings { current ->
             val copied = ConversationCombinedLifecycle.copy(current, sourceId, targetId)
-            copied.copy(conversationGitHub = copied.conversationGitHub + listOfNotNull(current.conversationGitHub[sourceId]?.let { targetId to it }).toMap())
+            copied.copy(
+                conversationGitHub = copied.conversationGitHub + listOfNotNull(current.conversationGitHub[sourceId]?.let { targetId to it }).toMap(),
+                conversationGateway = copied.conversationGateway + listOfNotNull(current.conversationGateway[sourceId]?.let { targetId to it }).toMap()
+            )
         }
     }
     suspend fun adoptConversationCombinedSettings(sourceId: Int, targetId: Int, expectedIdentity: String) {
@@ -59,10 +62,20 @@ interface SettingRepository {
         mutateFeatureSettings { ConversationCombinedLifecycle.prepareDeletion(it, chatId) }
     }
     suspend fun deleteConversationCombinedSettings(chatId: Int) {
-        mutateFeatureSettings { ConversationCombinedLifecycle.delete(it, chatId).copy(conversationGitHub = it.conversationGitHub - chatId) }
+        mutateFeatureSettings {
+            ConversationCombinedLifecycle.delete(it, chatId).copy(
+                conversationGitHub = it.conversationGitHub - chatId,
+                conversationGateway = it.conversationGateway - chatId
+            )
+        }
     }
     suspend fun recoverConversationCombinedDeletions(existingChatIds: Set<Int>) {
-        mutateFeatureSettings { ConversationCombinedLifecycle.recoverDeletions(it, existingChatIds).copy(conversationGitHub = it.conversationGitHub.filterKeys(existingChatIds::contains)) }
+        mutateFeatureSettings {
+            ConversationCombinedLifecycle.recoverDeletions(it, existingChatIds).copy(
+                conversationGitHub = it.conversationGitHub.filterKeys(existingChatIds::contains),
+                conversationGateway = it.conversationGateway.filterKeys(existingChatIds::contains)
+            )
+        }
     }
     suspend fun ensureFreeModels() {}
     suspend fun migrateToPlatformV2()

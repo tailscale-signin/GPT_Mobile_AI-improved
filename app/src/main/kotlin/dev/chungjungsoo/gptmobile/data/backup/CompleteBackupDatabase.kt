@@ -110,6 +110,7 @@ internal object CompleteBackupDatabase {
         // History is portable; active jobs must never be replayed by service recovery.
         if ("agent_runs" in tables(destination)) destination.execSQL("UPDATE agent_runs SET status = 'INTERRUPTED', terminal_error = 'BACKUP_RESTORED' WHERE status IN ('QUEUED', 'RUNNING', 'WAITING_PROVIDER_LIMIT', 'WAITING_REMOTE_JOB')")
         if ("tool_events" in tables(destination)) destination.execSQL("UPDATE tool_events SET status = 'CANCELED', error = 'BACKUP_RESTORED' WHERE status IN ('PENDING', 'RUNNING')")
+        quarantineRestoredGatewayQueue(destination)
     }
 
     fun retainSections(database: SupportSQLiteDatabase, selection: CompleteBackupSelection) {
@@ -189,7 +190,12 @@ internal object CompleteBackupDatabase {
             destination.execSQL("DELETE FROM amazon_check_events")
             pauseRestoredAmazon(destination)
         }
+        quarantineRestoredGatewayQueue(destination)
         rebuildSearch(destination)
+    }
+
+    private fun quarantineRestoredGatewayQueue(database: SupportSQLiteDatabase) {
+        if ("gateway_submissions" in tables(database)) database.execSQL("UPDATE gateway_submissions SET receipt='BACKUP_RESTORED' WHERE state IN ('LOCAL_QUEUE_ACTIVE','LOCAL_QUEUE_DELIVERY_PENDING')")
     }
 
     private val AMAZON_OPERATIONAL = setOf("amazon_request_budget", "amazon_check_events")

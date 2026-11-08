@@ -221,6 +221,9 @@ internal class GitHubEvidenceBook(
                 else -> null
             }
             if (visible is JsonObject && visible != content) put("view", visible)
+            if (!result.isError && operation != null && effectiveArguments["view_cursor"] == null) {
+                GitHubInventoryObservation.capture(content, visible)?.let { put("inventory_observation", it) }
+            }
             put("result_sha256", digest(content.toString()))
             put("result_bytes", content.toString().encodeToByteArray().size)
         }
@@ -447,6 +450,9 @@ internal class GitHubEvidenceBook(
             put("required_tool_names", JsonArray(tools.filter { it.modelVisible }.map { JsonPrimitive(it.name) }.distinct()))
             put("accepted_at_ms", acceptedAt)
             put("tool_call_limit", callLimit.coerceAtLeast(0))
+            put("tool_call_limit_source", "AUTHORIZED_RUN_CONTRACT")
+            put("tool_call_limit_rule", "Minimum of the profile/chat allowance, workflow/task policy and explicit request ceiling.")
+            GitHubWorkflowPreset.fromRequest(task)?.let { put("workflow_preset_call_limit", it.toolCalls) }
             duration?.let { put("deadline_at_ms", acceptedAt + it.coerceAtMost(Long.MAX_VALUE - acceptedAt)) }
             put("receipt_store", "github-evidence:$binding")
             put("remaining_work_store", "verification_current_" + digest(binding).take(24))
@@ -507,7 +513,8 @@ internal class GitHubEvidenceBook(
                     tools.filter { it.modelVisible }.sortedBy { it.name }.map { tool ->
                         buildJsonObject {
                             put("name", tool.name)
-                            put("contract_digest", digest(tool.inputSchema.toString()))
+                            put("contract_digest", dev.chungjungsoo.gptmobile.data.agent.ToolContractFingerprint.schema(tool.inputSchema))
+                            put("contract_digest_kind", "SEMANTIC_SCHEMA_V1")
                         }
                     }
                 )

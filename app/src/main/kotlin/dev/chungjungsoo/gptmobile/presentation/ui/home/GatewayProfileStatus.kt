@@ -27,6 +27,7 @@ import androidx.compose.ui.MotionDurationScale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -38,6 +39,8 @@ import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.diagnostics.FrameEffectPressure
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAvailability
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAvailabilityStatus
+import java.text.DateFormat
+import java.util.Date
 
 @Composable
 internal fun gatewayAvailabilityLabel(status: GatewayAvailabilityStatus): String = stringResource(
@@ -59,13 +62,25 @@ internal fun gatewayAvailabilityLabel(status: GatewayAvailabilityStatus): String
 
 @Composable
 internal fun GatewayProfileStatus(availability: GatewayAvailability, modifier: Modifier = Modifier) {
+    val previous = availability.lastObservedStatus?.takeIf {
+        availability.status == GatewayAvailabilityStatus.CHECKING && availability.lastObservedAtMillis != null
+    }
+    val label = if (previous != null) {
+        val locale = LocalConfiguration.current.locales[0]
+        val checkedAt = remember(availability.lastObservedAtMillis, locale) {
+            DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT, locale).format(Date(requireNotNull(availability.lastObservedAtMillis)))
+        }
+        stringResource(R.string.gateway_availability_last_checked, checkedAt, gatewayAvailabilityLabel(previous))
+    } else {
+        gatewayAvailabilityLabel(availability.status)
+    }
     Row(modifier, horizontalArrangement = Arrangement.spacedBy(5.dp), verticalAlignment = Alignment.CenterVertically) {
         if (availability.isOnline) {
             val green = if (MaterialTheme.colorScheme.surface.luminance() < .5f) Color(0xFF81C784) else Color(0xFF1B5E20)
             Box(Modifier.size(8.dp).background(green, CircleShape).testTag("gateway_online_dot"))
         }
         Text(
-            gatewayAvailabilityLabel(availability.status),
+            label,
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )

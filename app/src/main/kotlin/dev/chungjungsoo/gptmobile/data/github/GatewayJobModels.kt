@@ -167,7 +167,8 @@ data class GatewayConversationAttachment(
     val profileUid: String,
     val context: GitHubConversationContext?,
     val conversationKey: String,
-    val historyComplete: Boolean = true
+    val historyComplete: Boolean = true,
+    val conversationMode: String? = null
 )
 
 class GatewayHistoryUnsupported internal constructor(surface: GatewayAdmissionSurface = GatewayAdmissionSurface.CONVERSATIONS, httpStatus: Int? = null) : GatewayAdmissionException(GatewayAdmissionReason.UNSUPPORTED_CONTRACT, httpStatus, null, surface)

@@ -58,6 +58,7 @@ internal fun providerExceptionDetails(error: Exception, partialOutput: Boolean, 
                 put("retryable", false)
                 put("repair", "CHECK_CONNECTION")
                 put("partial_output_preserved", partialOutput)
+                error.gatewayFailure?.failureFields()?.forEach { (name, value) -> put(name, value) }
             }
         )
     }

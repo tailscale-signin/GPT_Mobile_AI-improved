@@ -151,55 +151,63 @@ internal class RunDiagnosticJournal(
                 }
                 if (batch.isEmpty()) continue
                 try {
-                    writes.withLock {
-                        if (synchronized(lock) { epoch != captureEpoch }) return@withLock
-                        // Keep each encrypted vault record below the vault's 64 KiB bound.
-                        for ((run, events) in batch.groupBy { it.runId }) {
-                            if (synchronized(lock) { run !in permittedRuns }) continue
-                            // Persist the allocated sequence boundary separately from retained event batches.
-                            // A later restart or retention eviction must not turn a missing tail into completeness.
-                            val checkpoint = RunJournalCheckpoint(run, "$sessionId:$run", synchronized(lock) { sequences[run] ?: 0L }, now())
-                            val checkpointReference = "journalcheckpoint-${identity(run)}-${identity(sessionId)}"
-                            val checkpointBytes = json.encodeToString(checkpoint).toByteArray(Charsets.UTF_8)
-                            try {
+                    if (synchronized(lock) { epoch != captureEpoch }) continue
+                    // Keep each encrypted vault record below the vault's 64 KiB bound.
+                    for ((run, events) in batch.groupBy { it.runId }) {
+                        if (synchronized(lock) { run !in permittedRuns }) continue
+                        // Persist the allocated sequence boundary separately from retained event batches.
+                        // A later restart or retention eviction must not turn a missing tail into completeness.
+                        val checkpoint = RunJournalCheckpoint(run, "$sessionId:$run", synchronized(lock) { sequences[run] ?: 0L }, now())
+                        val checkpointReference = "journalcheckpoint-${identity(run)}-${identity(sessionId)}"
+                        val checkpointBytes = json.encodeToString(checkpoint).toByteArray(Charsets.UTF_8)
+                        try {
+                            writes.withLock {
+                                if (synchronized(lock) { epoch != captureEpoch || run !in permittedRuns }) return@withLock
                                 vault.put(checkpointReference, checkpointBytes)
                                 if (synchronized(lock) { run !in permittedRuns }) vault.delete(checkpointReference)
-                            } finally {
-                                checkpointBytes.fill(0)
                             }
-                            // Pack by encoded bytes as well as event count: enriched typed receipts can
-                            // exceed a 64 KiB vault record even when a fixed batch contains only 32 events.
-                            var encoded = mutableListOf<String>()
-                            var encodedBytes = 2
-                            suspend fun flush() {
-                                if (encoded.isEmpty()) return
-                                val reference = "journal-${identity(run)}-${now()}-${UUID.randomUUID()}"
-                                val bytes = encoded.joinToString(",", "[", "]").toByteArray(Charsets.UTF_8)
-                                try {
+                        } finally {
+                            checkpointBytes.fill(0)
+                        }
+                        // Pack by encoded bytes as well as event count: enriched typed receipts can
+                        // exceed a 64 KiB vault record even when a fixed batch contains only 32 events.
+                        var encoded = mutableListOf<String>()
+                        var encodedBytes = 2
+                        suspend fun flush() {
+                            if (encoded.isEmpty()) return
+                            val reference = "journal-${identity(run)}-${now()}-${UUID.randomUUID()}"
+                            val bytes = encoded.joinToString(",", "[", "]").toByteArray(Charsets.UTF_8)
+                            try {
+                                writes.withLock {
+                                    if (synchronized(lock) { epoch != captureEpoch || run !in permittedRuns }) return@withLock
                                     vault.put(reference, bytes)
                                     if (synchronized(lock) { run !in permittedRuns }) vault.delete(reference)
-                                } finally {
-                                    bytes.fill(0)
                                 }
-                                encoded = mutableListOf()
-                                encodedBytes = 2
+                            } finally {
+                                bytes.fill(0)
                             }
-                            for (event in events) {
-                                val value = json.encodeToString(event)
-                                val length = value.toByteArray(Charsets.UTF_8).size
-                                if (length + 2 > 60 * 1024) {
-                                    failed = true
-                                    dropped.incrementAndGet()
-                                    storageFailedEvents.incrementAndGet()
-                                    continue
-                                }
-                                if (encoded.size >= 32 || encodedBytes + length + 1 > 60 * 1024) flush()
-                                encoded += value
-                                encodedBytes += length + 1
-                            }
-                            flush()
+                            encoded = mutableListOf()
+                            encodedBytes = 2
                         }
-                        if (now() - retentionCheckedAt >= 60_000 || retentionCheckedAt == 0L) {
+                        for (event in events) {
+                            val value = json.encodeToString(event)
+                            val length = value.toByteArray(Charsets.UTF_8).size
+                            if (length + 2 > 60 * 1024) {
+                                failed = true
+                                dropped.incrementAndGet()
+                                storageFailedEvents.incrementAndGet()
+                                continue
+                            }
+                            if (encoded.size >= 32 || encodedBytes + length + 1 > 60 * 1024) flush()
+                            encoded += value
+                            encodedBytes += length + 1
+                        }
+                        flush()
+                    }
+                    // Encoding/packing stays outside the storage lock. Frozen exports
+                    // include this immutable in-flight batch between physical writes.
+                    writes.withLock {
+                        if (synchronized(lock) { epoch == captureEpoch } && (now() - retentionCheckedAt >= 60_000 || retentionCheckedAt == 0L)) {
                             prune()
                             retentionCheckedAt = now()
                         }
@@ -364,8 +372,8 @@ internal class RunDiagnosticJournal(
     suspend fun snapshot(runIds: Set<String>, byteLimit: Long = maxSnapshotBytes, eventLimit: Int = maxSnapshotEvents): RunJournalSnapshot {
         val boundedBytes = byteLimit.coerceIn(1, maxSnapshotBytes)
         val boundedEvents = eventLimit.coerceIn(1, maxSnapshotEvents)
-        val (watermarks, queued) = synchronized(lock) {
-            runIds.associate { "$sessionId:$it" to (sequences[it] ?: 0L) } to (pending + inFlight).filter { it.runId in runIds }
+        val (watermarks, queued, epoch) = synchronized(lock) {
+            Triple(runIds.associate { "$sessionId:$it" to (sequences[it] ?: 0L) }, (pending + inFlight).filter { it.runId in runIds }, captureEpoch)
         }
         val events = mutableListOf<RunDiagnosticEvent>()
         var missing = 0
@@ -426,19 +434,29 @@ internal class RunDiagnosticJournal(
             retainedBytes += required
         }
         retained.reverse()
-        val frozen = retained.groupBy { it.streamId }.mapValues { (_, rows) -> rows.maxOf { it.sequence } } + watermarks
-        return RunJournalSnapshot(
-            events = retained,
-            highWatermarks = frozen,
-            droppedEvents = dropped.get(),
-            missingBatches = missing,
-            storageFailed = failed,
-            missingSequences = frozen.entries.sumOf { (stream, high) -> (high - retained.count { it.streamId == stream }).coerceAtLeast(0) },
-            captureEnabled = enabled,
-            intentionallyOmittedBatches = intentionallyOmitted,
-            captureLevel = if (enabled) "metadata" else "minimal_lifecycle",
-            lossReasons = mapOf("suppressed_disabled" to disabledSuppressed.get(), "suppressed_private" to privacySuppressed.get(), "rejected_validation" to rejected.get(), "capacity_dropped" to capacityDropped.get(), "storage_failed_events" to storageFailedEvents.get(), "retention_pruned_batches" to retentionPrunedBatches.get())
-        )
+        // A read can overlap clear or privacy revocation. Publish only an authorized
+        // frozen boundary, including its watermarks; stale identifiers are data too.
+        return synchronized(lock) {
+            val revoked = captureEpoch != epoch || privateSession
+            val allowedRuns = if (revoked) emptySet() else runIds - privateRuns
+            val authorized = retained.filter { it.runId in allowedRuns }
+            val grouped = authorized.groupBy { it.streamId }
+            val currentStreams = allowedRuns.mapTo(hashSetOf()) { "$sessionId:$it" }
+            val frozen = grouped.mapValues { (_, rows) -> rows.maxOf { it.sequence } } + watermarks.filterKeys { it in currentStreams }
+            RunJournalSnapshot(
+                events = authorized,
+                highWatermarks = frozen,
+                droppedEvents = dropped.get(),
+                missingBatches = if (revoked) 0 else missing,
+                storageFailed = failed,
+                missingSequences = frozen.entries.sumOf { (stream, high) -> (high - grouped[stream].orEmpty().size).coerceAtLeast(0) },
+                captureEnabled = enabled,
+                intentionallyOmittedBatches = if (revoked) 0 else intentionallyOmitted,
+                coverageScope = if (revoked) "capture_revoked" else "bounded_recent_window",
+                captureLevel = if (enabled) "metadata" else "minimal_lifecycle",
+                lossReasons = mapOf("suppressed_disabled" to disabledSuppressed.get(), "suppressed_private" to privacySuppressed.get(), "rejected_validation" to rejected.get(), "capacity_dropped" to capacityDropped.get(), "storage_failed_events" to storageFailedEvents.get(), "retention_pruned_batches" to retentionPrunedBatches.get())
+            )
+        }
     }
 
     /** Export every retained batch at a frozen boundary, decoding only one vault record at a time. */

@@ -6,6 +6,19 @@ import org.junit.Test
 class GitHubExecutionLimitsTest {
     private val preset = GitHubWorkflowPreset.selected(GitHubWorkflowPreset.DEFAULT_ID)
 
+    @Test fun displayedLimitsExplainTheEffectiveProfileAndDiagnosticCeilings() {
+        val integration = GitHubWorkflowPreset.selected("test_integration")
+        val profileLimited = GitHubExecutionLimits.callLimit(integration.prompt(), 100, integration)
+        assertEquals(100, profileLimited.effective)
+        assertEquals(256, profileLimited.workflow)
+        assertEquals(listOf("profile/chat allowance"), profileLimited.sources)
+        val ci = GitHubWorkflowPreset.selected("diagnose_ci")
+        val diagnostic = GitHubExecutionLimits.callLimit(ci.prompt(), 100, ci)
+        assertEquals(32, diagnostic.effective)
+        assertEquals(48, diagnostic.workflow)
+        assertEquals(listOf("task scope policy"), diagnostic.sources)
+    }
+
     @Test fun integrationCannotExceedItsPresetOrExplicitUserLimit() {
         assertEquals(256, GitHubExecutionLimits.toolCalls("Test all GitHub integration tools", 512, preset))
         assertEquals(12, GitHubExecutionLimits.toolCalls("Test all GitHub integration tools with at most 12 tool calls", 512, preset))

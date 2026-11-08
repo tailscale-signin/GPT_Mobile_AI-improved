@@ -42,7 +42,8 @@ class GitHubProgressNarratorTest {
             validate = {},
             admit = { _, _ -> true },
             publish = { summaries += it },
-            now = { clock }
+            now = { clock },
+            deterministic = false
         )
         clock = 14_999
         narrator.beforeRound()
@@ -73,7 +74,8 @@ class GitHubProgressNarratorTest {
             validate = {},
             admit = { _, _ -> true },
             publish = { error("Failed generation cannot become authored progress") },
-            now = { clock }
+            now = { clock },
+            deterministic = false
         )
         val work = session(ProviderEvent.TextDelta("Repository result"), ProviderEvent.Completed)
         val wrapped = GitHubProgressSession(work, beforeRound = { narrator.beforeRound() }) {}
@@ -110,7 +112,8 @@ class GitHubProgressNarratorTest {
                 validate = {},
                 admit = { _, _ -> true },
                 publish = { summaries += it },
-                now = { clock }
+                now = { clock },
+                deterministic = false
             )
             val firstRun = narrator()
             clock = 15_000
@@ -137,7 +140,8 @@ class GitHubProgressNarratorTest {
             admit = { _, _ -> true },
             publish = {},
             tokenBudget = 0,
-            now = { clock }
+            now = { clock },
+            deterministic = false
         )
         val reserved = GitHubProgressNarrator(
             snapshot = { state() },
@@ -145,7 +149,8 @@ class GitHubProgressNarratorTest {
             validate = {},
             admit = { _, _ -> false },
             publish = {},
-            now = { clock }
+            now = { clock },
+            deterministic = false
         )
         clock = 15_000
         limited.beforeRound()
@@ -164,7 +169,8 @@ class GitHubProgressNarratorTest {
             validate = {},
             admit = { reservation, replay -> reservation + replay + 1000 <= 4000 },
             publish = {},
-            now = { clock }
+            now = { clock },
+            deterministic = false
         )
         clock = 15_000
         narrator.beforeRound(workReplayTokens = 4000)
@@ -195,7 +201,8 @@ class GitHubProgressNarratorTest {
             validate = {},
             admit = { _, _ -> true },
             publish = { error("Incomplete prose must not publish") },
-            now = { clock }
+            now = { clock },
+            deterministic = false
         )
         val work = object : AgentProviderSession {
             override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
@@ -226,7 +233,8 @@ class GitHubProgressNarratorTest {
             validate = { throw CancellationException("Stopped") },
             admit = { _, _ -> true },
             publish = {},
-            now = { clock }
+            now = { clock },
+            deterministic = false
         )
         clock = 15_000
         try {

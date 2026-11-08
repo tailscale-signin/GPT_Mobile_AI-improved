@@ -18,6 +18,16 @@ interface ChatRoomV2Dao : RunPolicySnapshotAccess {
     @Query("SELECT * FROM chats_v2 WHERE is_archived = 0 ORDER BY is_favorite DESC, updated_at DESC LIMIT 200")
     fun observeNavigationChats(): kotlinx.coroutines.flow.Flow<List<ChatRoomV2>>
 
+    @Query(
+        """SELECT * FROM chats_v2 WHERE is_archived = 0 AND (
+            conversation_mode = 'GATEWAY'
+            OR EXISTS (SELECT 1 FROM gateway_conversations WHERE localChatId = chats_v2.chat_id)
+            OR EXISTS (SELECT 1 FROM gateway_engineering_bindings WHERE chatId = chats_v2.chat_id)
+            OR EXISTS (SELECT 1 FROM gateway_submissions WHERE chatId = chats_v2.chat_id)
+        ) ORDER BY is_favorite DESC, updated_at DESC"""
+    )
+    fun observeGatewayChats(): kotlinx.coroutines.flow.Flow<List<ChatRoomV2>>
+
     @Query("SELECT * FROM chats_v2 WHERE is_archived = 0 ORDER BY updated_at DESC")
     suspend fun getChatRooms(): List<ChatRoomV2>
 
@@ -39,8 +49,11 @@ interface ChatRoomV2Dao : RunPolicySnapshotAccess {
     @Query("UPDATE chats_v2 SET enabled_platform = :history, active_platform = :active, updated_at = :updatedAt WHERE chat_id = :chatId")
     suspend fun updatePlatforms(chatId: Int, history: List<String>, active: List<String>, updatedAt: Long)
 
-    @Query("UPDATE chats_v2 SET enabled_platform = :profile, active_platform = :profile, conversation_mode = 'STANDARD', combined_primary_uid = NULL, updated_at = :updatedAt WHERE chat_id = :chatId")
+    @Query("UPDATE chats_v2 SET enabled_platform = :profile, active_platform = :profile, conversation_mode = CASE WHEN conversation_mode = 'GATEWAY' THEN 'GATEWAY' ELSE 'STANDARD' END, combined_primary_uid = NULL, updated_at = :updatedAt WHERE chat_id = :chatId")
     suspend fun updateGitHubProfile(chatId: Int, profile: List<String>, updatedAt: Long)
+
+    @Query("UPDATE chats_v2 SET conversation_mode = 'GATEWAY', combined_primary_uid = NULL WHERE chat_id = :chatId")
+    suspend fun markGatewayChat(chatId: Int): Int
 
     @Query("UPDATE chats_v2 SET is_temporary = :enabled WHERE chat_id = :chatId")
     suspend fun rawUpdateTemporary(chatId: Int, enabled: Boolean)

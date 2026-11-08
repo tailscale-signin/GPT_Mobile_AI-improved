@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.github
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator
+import dev.chungjungsoo.gptmobile.data.agent.ToolContractFingerprint
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -38,8 +39,13 @@ internal object GitHubAuthorizedCatalog {
                 val entries = (value["authorized_inventory"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
                 val pageNames = entries.map { it.text("name") }
                 val changedContract = entries.any { entry ->
-                    val definition = tools.firstOrNull { it.name == entry.text("name") }
-                    definition != null && entry.text("schema_fingerprint") != GitHubEvidenceBook.digest(definition.inputSchema.toString())
+                    val definition = tools.firstOrNull { it.name == entry.text("name") } ?: return@any false
+                    val schemaChanged = if (entry.text("semantic_schema_fingerprint").isNotBlank()) {
+                        entry.text("semantic_schema_fingerprint") != ToolContractFingerprint.schema(definition.inputSchema)
+                    } else {
+                        entry.text("schema_fingerprint") != GitHubEvidenceBook.digest(definition.inputSchema.toString())
+                    }
+                    schemaChanged || entry.text("invocation_contract_version").let { it.isNotBlank() && it != definition.contractVersion.toString() }
                 }
                 if (value.text("inventory_version") != version ||
                     page["binding"] != first["binding"] ||
@@ -157,6 +163,19 @@ internal object GitHubAuthorizedCatalog {
                 return ProviderEvent.ToolCall("catalog-restart-" + GitHubEvidenceBook.digest(stale.text("receipt_id")).take(20), tool.name, arguments)
             }
             return null
+        }
+        if (state.text("blocker") == "CATALOG_CONTRACT_CHANGED") {
+            // One read-only refresh per current semantic contract. Existing operation
+            // receipts remain independently revalidated against their own arguments.
+            val signature = GitHubEvidenceBook.digest(
+                catalogTools.filter { it.modelVisible }.sortedBy { it.name }.joinToString("\n") {
+                    "${it.name}:${it.contractVersion}:${ToolContractFingerprint.schema(it.inputSchema)}"
+                }
+            ).take(20)
+            val callId = "catalog-contract-refresh-$signature"
+            val arguments = JsonObject(emptyMap())
+            if (observations.any { it.text("call_id") == callId || it.text("call_id").startsWith("$callId-") } || ToolArgumentValidator.errors(arguments, tool.inputSchema).isNotEmpty()) return null
+            return ProviderEvent.ToolCall(callId, tool.name, arguments)
         }
         if (state.text("status") == "BLOCKED") return null
         val arguments = (state["continuation_call"] as? JsonObject)?.get("arguments") as? JsonObject

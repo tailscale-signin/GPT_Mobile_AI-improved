@@ -28,6 +28,7 @@ FAILURES = {
     'deadline': ('BACKEND_METADATA_DEADLINE', True),
     'configuration': ('BACKEND_CONFIGURATION_INVALID', False),
     'model_unavailable': ('SELECTED_MODEL_NOT_AVAILABLE', False),
+    'model_not_loaded': ('SELECTED_MODEL_NOT_LOADED', False),
     'model_loading': ('SELECTED_MODEL_LOADING', True),
     'generation_unavailable': ('BACKEND_GENERATION_UNAVAILABLE', True),
     'unverified': ('BACKEND_GENERATION_UNVERIFIED', True),
@@ -35,6 +36,87 @@ FAILURES = {
 DEPENDENCIES = {'model_backend', 'backend_health', 'backend_models', 'backend_properties',
                 'backend_template', 'selected_model', 'durable_storage', 'process'}
 _recovery_lock = threading.Lock()
+
+# Only this vocabulary crosses the diagnostic boundary. Arbitrary upstream text
+# can contain paths, credentials or echoed request data, even in an error field.
+UPSTREAM_ERROR_TYPES = {'invalid_request_error', 'authentication_error', 'permission_error',
+                        'not_found_error', 'server_error', 'unavailable_error', 'not_supported_error'}
+UPSTREAM_ERROR_CODES = {'model_not_loaded', 'model_loading', 'model_not_found', 'invalid_model',
+                        'invalid_request', 'invalid_request_error', 'not_supported', 'permission_denied',
+                        'unauthorized', 'internal_error', 'server_error'}
+UPSTREAM_MESSAGES = {
+    'MODEL_NOT_LOADED': 'The selected model is not loaded.',
+    'MODEL_LOADING': 'The selected model is loading.',
+    'MODEL_NOT_FOUND': 'The selected model was not found.',
+    'MODEL_LOAD_FAILED': 'Loading the selected model failed.',
+    'INVALID_API_KEY': 'The backend rejected its API key.',
+    'ENDPOINT_DISABLED': 'The backend endpoint is disabled.',
+}
+UPSTREAM_BODY_STATES = {'PARSED', 'INVALID', 'TOO_LARGE', 'UNAVAILABLE', 'DEADLINE'}
+MODEL_STATES = {'UNKNOWN', 'UNAVAILABLE', 'UNLOADED', 'LOADING', 'LOADED', 'SLEEPING'}
+
+
+def model_state(row):
+    """Catalogue membership and a router's measured load state are separate facts."""
+    status = row.get('status') if isinstance(row, dict) else None
+    value = status.get('value') if isinstance(status, dict) else None
+    return {'unloaded': 'UNLOADED', 'loading': 'LOADING', 'loaded': 'LOADED',
+            'sleeping': 'SLEEPING'}.get(value, 'UNKNOWN')
+
+
+def upstream_error(response, model=None):
+    """Read a small error envelope; retain only known codes and normalized messages.
+
+    Failure while reading the error body must not replace the original HTTP status.
+    This function never returns raw body bytes or arbitrary upstream strings.
+    """
+    raw, deadline = bytearray(), time.monotonic() + 1
+    try:
+        for chunk in response.iter_content(4096):
+            if len(raw) + len(chunk) > 16 * 1024:
+                return {'upstreamErrorBodyState': 'TOO_LARGE'}
+            if time.monotonic() > deadline:
+                return {'upstreamErrorBodyState': 'DEADLINE'}
+            raw.extend(chunk)
+        body = json.loads(raw)
+    except (requests.RequestException, TimeoutError, OSError):
+        return {'upstreamErrorBodyState': 'UNAVAILABLE'}
+    except (ValueError, TypeError, UnicodeDecodeError, RecursionError):
+        return {'upstreamErrorBodyState': 'INVALID'}
+    error = body.get('error') if isinstance(body, dict) else None
+    if not isinstance(error, dict):
+        return {'upstreamErrorBodyState': 'INVALID'}
+    result = {'upstreamErrorBodyState': 'PARSED'}
+    code, kind = error.get('code'), error.get('type')
+    if (type(code) is int and 100 <= code <= 599) or (isinstance(code, str) and code in UPSTREAM_ERROR_CODES):
+        result['upstreamCode'] = code
+    if isinstance(kind, str) and kind in UPSTREAM_ERROR_TYPES:
+        result['upstreamErrorType'] = kind
+    message = error.get('message')
+    if isinstance(message, str) and len(message) <= 1024 and not any(ord(c) < 32 for c in message):
+        normalized = message.strip().rstrip('.').casefold()
+        messages = {
+            'model not loaded': 'MODEL_NOT_LOADED', 'model is not loaded': 'MODEL_NOT_LOADED',
+            'the model is not loaded': 'MODEL_NOT_LOADED', 'model <selected> is not loaded': 'MODEL_NOT_LOADED',
+            'model not loaded and autoload is disabled': 'MODEL_NOT_LOADED',
+            'model <selected> is not loaded and autoload is disabled': 'MODEL_NOT_LOADED',
+            'loading model': 'MODEL_LOADING', 'model is loading': 'MODEL_LOADING',
+            'model <selected> is loading': 'MODEL_LOADING', 'model not found': 'MODEL_NOT_FOUND',
+            'model <selected> not found': 'MODEL_NOT_FOUND', 'failed to load model': 'MODEL_LOAD_FAILED',
+            'failed to load model <selected>': 'MODEL_LOAD_FAILED', 'invalid api key': 'INVALID_API_KEY',
+            'this endpoint is disabled': 'ENDPOINT_DISABLED', 'endpoint is disabled': 'ENDPOINT_DISABLED',
+        }
+        # Match only the selected identity against known complete templates;
+        # never retain or infer an unrelated model's name from free text.
+        if isinstance(model, str) and model:
+            for template, key in list(messages.items()):
+                if '<selected>' in template:
+                    for quoted in (f'"{model}"', f"'{model}'", model):
+                        messages[template.replace('<selected>', quoted.casefold())] = key
+        message_code = messages.get(normalized)
+        if message_code:
+            result.update(upstreamMessageCode=message_code, upstreamMessage=UPSTREAM_MESSAGES[message_code])
+    return result
 
 
 def backend_root(runtime):
@@ -67,6 +149,26 @@ def http_failure(status, dependency):
     return failure(category, dependency, status)
 
 
+def response_failure(response, dependency, model=None):
+    details = upstream_error(response, model)
+    category = None
+    if response.status_code in {400, 404, 409, 422, 503}:
+        marker = details.get('upstreamMessageCode')
+        code = details.get('upstreamCode')
+        if marker == 'MODEL_NOT_LOADED' or code == 'model_not_loaded':
+            category = 'model_not_loaded'
+        elif marker == 'MODEL_LOADING' or code == 'model_loading':
+            category = 'model_loading'
+        elif marker == 'MODEL_NOT_FOUND' or code in {'model_not_found', 'invalid_model'}:
+            category = 'model_unavailable'
+    result = failure(category, dependency, response.status_code) if category else http_failure(response.status_code, dependency)
+    result.update(details)
+    if category in {'model_not_loaded', 'model_loading'}:
+        result.update(modelLoaded=False,
+                      modelState='LOADING' if category == 'model_loading' else 'UNLOADED')
+    return result
+
+
 def _causes(error):
     # requests/urllib3 wrap socket causes in args/reason as well as __cause__.
     pending, seen = [error], set()
@@ -87,7 +189,8 @@ def exception_failure(error, dependency='model_backend'):
             'EXECUTION_METADATA_DENIED': 'denied', 'EXECUTION_METADATA_DEADLINE': 'deadline',
             'EXECUTION_METADATA_OVERSIZE': 'oversize', 'EXECUTION_CAPABILITY_UNSUPPORTED': 'unsupported',
             'EXECUTION_BACKEND_UNAVAILABLE': 'connection', 'EXECUTION_MODEL_UNAVAILABLE': 'model_unavailable',
-            'EXECUTION_MODEL_NOT_LOADED': 'model_unavailable', 'EXECUTION_ENDPOINT_INVALID': 'configuration',
+            'EXECUTION_MODEL_NOT_LOADED': 'model_not_loaded', 'EXECUTION_MODEL_LOADING': 'model_loading',
+            'EXECUTION_ENDPOINT_INVALID': 'configuration',
             'EXECUTION_PROVIDER_UNAVAILABLE': 'configuration',
         }.get(error.code, 'invalid_response')
         return failure(category, dependency)
@@ -143,7 +246,7 @@ def model_catalog(runtime):
         with closing(runtime.http_get(root + '/v1/models', params={'autoload': 'false'},
                                       timeout=(0.5, 1), stream=True, allow_redirects=False)) as response:
             if response.status_code != 200:
-                raise MetadataFailure(http_failure(response.status_code, dependency))
+                raise MetadataFailure(response_failure(response, dependency))
             body = read_metadata(response, dependency)
             rows = body.get('data') if isinstance(body, dict) else None
             if (not isinstance(rows, list) or len(rows) > 1024

@@ -63,6 +63,48 @@ class GitHubEngineeringController @Inject constructor(
     internal suspend fun events(taskId: String): List<EngineeringEventRow> = dao.events(taskId)
     internal suspend fun run(taskId: String): EngineeringRunRow? = dao.run(taskId)
 
+    /** Retained remote ref proof only; startup reconciliation establishes this before UI continuation. */
+    internal suspend fun verifiedPublication(taskId: String): kotlinx.serialization.json.JsonObject? {
+        val task = ledger.task(taskId) ?: return null
+        return GitHubEngineeringPublication.verified(task, dao.run(taskId), ledger.operations(taskId))
+    }
+
+    /** Read-only lifecycle observation; a caller's claim of approval never advances the task. */
+    internal suspend fun approvalStatus(taskId: String, connectionUid: String, repositoryRoot: String): kotlinx.serialization.json.JsonObject? {
+        val task = ledger.task(taskId) ?: return null
+        val run = dao.run(taskId) ?: return null
+        require(run.connectionUid == connectionUid && root(task) == repositoryRoot) { "The approval belongs to another GitHub connection or repository." }
+        val operations = ledger.operations(taskId)
+        return kotlinx.serialization.json.buildJsonObject {
+            put("engineering_task_id", kotlinx.serialization.json.JsonPrimitive(taskId))
+            put("state", kotlinx.serialization.json.JsonPrimitive(task.state))
+            put("branch", kotlinx.serialization.json.JsonPrimitive(task.workingBranch))
+            put("expected_head_sha", kotlinx.serialization.json.JsonPrimitive(task.baseSha))
+            put("cancelled_before_publication", kotlinx.serialization.json.JsonPrimitive(task.state == EngineeringState.CANCELLED.name && operations.isEmpty()))
+            put("publication_may_have_started", kotlinx.serialization.json.JsonPrimitive(operations.isNotEmpty()))
+            put(
+                "publication_intent",
+                kotlinx.serialization.json.buildJsonObject {
+                    put("branch", kotlinx.serialization.json.JsonPrimitive(task.workingBranch))
+                    put("expected_head_sha", kotlinx.serialization.json.JsonPrimitive(task.baseSha))
+                    put("message", kotlinx.serialization.json.JsonPrimitive(run.commitMessage))
+                    put(
+                        "files",
+                        kotlinx.serialization.json.JsonArray(
+                            GitHubEngineeringAuthorization.files(run.patchJson).map { file ->
+                                kotlinx.serialization.json.buildJsonObject {
+                                    put("path", kotlinx.serialization.json.JsonPrimitive(file.path))
+                                    if (file.delete) put("delete", kotlinx.serialization.json.JsonPrimitive(true)) else put("content", kotlinx.serialization.json.JsonPrimitive(file.after))
+                                    if (file.before.isNotEmpty()) put("expected_blob_sha", kotlinx.serialization.json.JsonPrimitive(gitBlob(file.before)))
+                                }
+                            }
+                        )
+                    )
+                }
+            )
+        }
+    }
+
     private suspend fun advance(taskId: String, evidence: EngineeringEvidence, receipt: String) {
         val task = requireNotNull(ledger.task(taskId))
         val state = EngineeringState.valueOf(task.state)

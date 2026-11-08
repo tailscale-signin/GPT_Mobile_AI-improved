@@ -44,11 +44,19 @@ internal fun networkFailureKind(failure: Throwable): NetworkFailureKind {
     }
 }
 
-internal fun NetworkFailureKind.userMessage(partialOutput: Boolean): String = when (this) {
+internal fun NetworkFailureKind.userMessage(partialOutput: Boolean, responseAccepted: Boolean = false): String = when (this) {
     NetworkFailureKind.DNS -> "DNS could not resolve the configured endpoint. Check your connection and DNS settings, then retry the saved prompt."
     NetworkFailureKind.DISCONNECTED -> "The configured endpoint is unreachable. Check its address, listener, firewall and network connection, then retry."
-    NetworkFailureKind.ABORTED -> if (partialOutput) "The connection was interrupted. Your partial response has been retained; continue after connectivity returns." else "The connection closed before the response arrived. Retry when connectivity returns."
-    NetworkFailureKind.TIMEOUT -> if (partialOutput) "The response timed out. Your partial response has been retained; continue or retry when the endpoint is available." else "The endpoint timed out. Retry when it is available."
+    NetworkFailureKind.ABORTED -> when {
+        partialOutput -> "The connection was interrupted. Your partial response has been retained; continue after connectivity returns."
+        responseAccepted -> "The connection was interrupted after the provider accepted the request, before a visible answer completed. Continue from the saved task results after connectivity returns."
+        else -> "The connection closed before the response arrived. Retry when connectivity returns."
+    }
+    NetworkFailureKind.TIMEOUT -> when {
+        partialOutput -> "The response timed out. Your partial response has been retained; continue when the endpoint is available."
+        responseAccepted -> "The accepted response timed out before a visible answer completed. Continue from the saved task results when the endpoint is available."
+        else -> "The endpoint timed out. Retry when it is available."
+    }
     NetworkFailureKind.TLS -> "The endpoint's secure connection could not be verified. Check its certificate and TLS configuration before retrying."
     NetworkFailureKind.CANCELLED -> "The request was cancelled."
     NetworkFailureKind.UNKNOWN -> "The request failed during transport. Review the connection diagnostics before retrying."

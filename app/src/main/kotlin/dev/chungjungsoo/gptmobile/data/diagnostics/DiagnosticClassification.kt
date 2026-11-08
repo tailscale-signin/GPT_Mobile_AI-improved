@@ -49,7 +49,7 @@ internal fun classifyDiagnostic(level: String?, tag: String?, message: String): 
         "strictmode" in text && ("diskreadviolation" in text || "diskwriteviolation" in text) -> DiagnosticClassification("main_thread_disk_io", "warning", true, "move_work_to_io")
         "method exceeds compiler instruction limit" in text || "method exceeds compiler" in text -> DiagnosticClassification("compiler_method_size", "warning", true, "split_coroutine_stages")
         text.startsWith("synthesis_quality") && ("missing_contribution_link" in text || "word_target_undershot" in text || "word_limit_exceeded" in text || "exact_word_count_unmet" in text) -> DiagnosticClassification("combined_contract", "warning", true, "retain_answer_and_review_quality")
-        text.startsWith("discovery_negotiation") && "outcome=legacy_fallback" in text -> DiagnosticClassification("compatibility_probe", "info", false)
+        text.startsWith("discovery_negotiation") && ("outcome=legacy_fallback" in text || "outcome=legacy_initialization_required" in text) -> DiagnosticClassification("compatibility_probe", "info", false)
         text.startsWith("gguf_template_metadata") || text.startsWith("gguf_template_compatible") -> DiagnosticClassification("model_compatibility", "info", false)
         text.startsWith("gguf_template_rejected") -> DiagnosticClassification("model_compatibility", "error", true, "choose_compatible_gguf_template")
         tag == "MCP" && text.startsWith("connect failed") -> DiagnosticClassification("mcp_connectivity", "error", true, "check_server_address_and_reachability")
@@ -106,7 +106,11 @@ internal fun classifyDiagnostic(level: String?, tag: String?, message: String): 
             capturedTag?.startsWith("adrenovk") == true &&
             ("shader compilation failed" in text || "pipeline create failed" in text) ->
             DiagnosticClassification("graphics_driver_failure", "warning", true)
-        text.startsWith("enrichment_waiting_") -> DiagnosticClassification("deferred_work", "info", false, "waiting")
+        text.startsWith("enrichment_waiting_") ||
+            text.startsWith("enrichment_deferred") ||
+            text.startsWith("enrichment_local_fallback") ||
+            text.startsWith("enrichment_lifecycle") &&
+            "deferred=true" in text -> DiagnosticClassification("deferred_work", "info", false, "waiting")
         text.startsWith("connectivity_recovered") -> DiagnosticClassification("recovery", "info", false, "response_observed_on_current_network")
         text.startsWith("search_index_ready") ||
             text.startsWith("refresh_ok") ||

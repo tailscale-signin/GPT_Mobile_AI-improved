@@ -4,6 +4,7 @@
     <string name="gateway_availability_busy_queue">Online · can queue</string>
     <string name="gateway_availability_model_loading">Connected · model loading</string>
     <string name="gateway_availability_checking">Checking connection</string>
+    <string name="gateway_availability_last_checked">Last checked %1$s: %2$s</string>
     <string name="gateway_availability_model_unavailable">Connected · model unavailable</string>
     <string name="gateway_availability_not_ready">Connected · not ready for new work</string>
     <string name="gateway_availability_draining">Connected · finishing existing work</string>

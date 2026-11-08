@@ -426,7 +426,7 @@ def doctor(model=''):
                 'Run this doctor on the gateway host with --model and the exact selected model ID.',
                 'For connection refusal or timeout, check the configured backend listener, address, port and local firewall.',
                 'For denied metadata, authorize gateway-to-backend metadata access; keep remote gateway restrictions enabled.',
-                'For an unavailable selected model, load that exact model and rerun the check.',
+                'For an advertised but unloaded llama.cpp router model, run prepare-model --model with that exact ID on the gateway host, then rerun doctor. This explicit command sends at most one load request and reconciles its outcome.',
                 'For invalid metadata or context, verify the backend version and expose the loaded model allocation.',
                 'Confirm readiness and verified selected-model metadata before a separate generation smoke test.'],
             "mcpTransportAdapters": capabilities()['mcpTransportAdapters'],
@@ -438,12 +438,18 @@ def doctor(model=''):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", nargs="?", choices=["serve", "doctor", "validate-config", "migrate-owner", "backup-journal"], default="serve")
+    parser.add_argument("command", nargs="?", choices=["serve", "doctor", "prepare-model", "validate-config", "migrate-owner", "backup-journal"], default="serve")
     parser.add_argument("--legacy-device")
     parser.add_argument("--principal")
     parser.add_argument('--output', help='New local SQLite snapshot path for backup-journal')
-    parser.add_argument('--model', default='', help='Exact selected model ID for read-only backend and capacity diagnostics')
+    parser.add_argument('--model', default='', help='Exact selected model ID for doctor or the explicit prepare-model host action')
     args = parser.parse_args()
+    if args.command == 'prepare-model':
+        from v14.model_preparation import prepare_model
+        if not args.model or len(args.model) > 512 or args.model != args.model.strip() or any(ord(c) < 32 for c in args.model):
+            parser.error('prepare-model requires --model with one exact model identifier')
+        print(json.dumps(prepare_model(engineering.capabilities, args.model), indent=2))
+        return
     if args.command == 'backup-journal':
         if not args.output:
             parser.error('backup-journal requires --output')

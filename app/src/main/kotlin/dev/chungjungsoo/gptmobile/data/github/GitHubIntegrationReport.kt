@@ -19,6 +19,7 @@ internal object GitHubIntegrationReport {
         val pending = GitHubTestChecklist.pendingPages(receipts)
         val reason = when {
             GitHubTestChecklist.apiComplete(task, receipts, tools) -> "ACCEPTANCE_COMPLETE" to "Every requested criterion has qualifying evidence."
+            GitHubPendingApproval.snapshot(receipts).isNotEmpty() -> "WAITING_FOR_APPROVAL" to "The existing native Approve & Commit card must be resolved. Its exact patch, task identity and fixture are retained; another Continue does not approve the commit."
             remaining == 0 -> "TOOL_BUDGET_EXHAUSTED" to "The recorded authorized tool-call budget has no remaining calls. Resume requires a new authorized budget."
             remaining != null && remaining <= GitHubChecklistBudget.VERIFICATION_RESERVE -> "VERIFICATION_RESERVE_REACHED" to "The remaining $remaining calls are reserved for verification and cleanup; acquisition stopped before the hard ceiling."
             fixtures.any { it["final_state_verified"] != JsonPrimitive(true) } -> "FIXTURE_CLEANUP_UNVERIFIED" to "An owned fixture has unverified final state or cleanup. Reconcile its retained mutation receipt before further writes."
@@ -76,6 +77,10 @@ internal object GitHubIntegrationReport {
         val reads = requests.mapNotNull { it.number("read_requests") }.takeIf { it.isNotEmpty() }?.sum()?.toString() ?: "unknown"
         val writes = requests.mapNotNull { it.number("mutation_requests") }.takeIf { it.isNotEmpty() }?.sum()?.toString() ?: "unknown"
         append("\nRecorded tool receipts: ${observations.size}; dispatched tool calls: $dispatched; recorded HTTP reads: $reads; mutation requests: $writes. Missing transport counters are unknown, not measured zero. Repeated pages increase calls, not the number of tools exercised.\n")
+        val kinds = observations.groupingBy(GitHubExecutionLedger::observationKind).eachCount()
+        append("\n| Recorded outcome | Count |\n| --- | ---: |\n")
+        GitHubExecutionLedger.ObservationKind.entries.forEach { kind -> append("| ${kind.name} | ${kinds.getOrDefault(kind, 0)} |\n") }
+        append("\nThese categories separate remote responses, completed mutations, saved/cache results, suppressed duplicates and pending approval. A successful local tool response is not proof that a remote write occurred.\n")
         append("\n### Independent acceptance criteria\n\n| Criterion | Result | Evidence / remaining prerequisite |\n| --- | --- | --- |\n")
         criteria.forEach { row -> append("| ${safe(row.text("requirement"))} | ${row.text("acceptance_state")} | ${safe(row.text("acceptance"))} ${ids(row["evidence_receipt_ids"] as? JsonArray)} |\n") }
         append("\n### Issues and exact observations\n\n")
@@ -128,7 +133,7 @@ internal object GitHubIntegrationReport {
         val stop = stopReason(task, receipts, tools, remainingToolCalls)
         append("\n**${stop.text("code")}**: ${safe(stop.text("detail"))}\n")
         val budget = checkpoint["stage_budget"] as JsonObject
-        append("\nBudget remaining: ${budget.text("remaining_calls").ifBlank { "not recorded" }}; verification reserve: ${budget.text("verification_reserve")}. Elapsed run time is not inferred from tool counts. The checkpoint preserves unmet criteria, exact continuation recipes, fixture state and receipt IDs for resumption.\n")
+        append("\nEffective tool-call limit: ${budget.text("effective_call_limit").ifBlank { "not recorded" }} (${budget.text("limit_source")}). Budget remaining: ${budget.text("remaining_calls").ifBlank { "not recorded" }}; verification reserve: ${budget.text("verification_reserve")}. ${budget.text("limit_rule")} Elapsed run time is not inferred from tool counts. The checkpoint preserves unmet criteria, exact continuation recipes, fixture state and receipt IDs for resumption.\n")
         append("\n**Overall integration health: Not measured.** API response acceptance, traversal completeness, new CI execution and current-device tests are independent.\n")
     }
 

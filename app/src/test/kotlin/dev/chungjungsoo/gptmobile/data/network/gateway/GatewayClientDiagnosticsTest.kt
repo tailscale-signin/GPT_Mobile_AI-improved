@@ -153,6 +153,10 @@ class GatewayClientDiagnosticsTest {
         assertEquals("NOT_REQUESTED", acknowledgment(plain, 200, emptyMap()))
         assertEquals("ACCEPTED", acknowledgment(requested, 500, mapOf("X-Gateway-Client-Diagnostics-Accepted" to "1")))
         assertEquals("NOT_CONFIRMED", acknowledgment(requested, 200, mapOf("X-Gateway-Client-Diagnostics-Accepted" to "0")))
+        assertEquals("CAPTURE_DISABLED", acknowledgment(requested, 200, mapOf("X-Gateway-Client-Diagnostics-Status" to "capture_disabled")))
+        assertEquals("INVALID_METADATA", acknowledgment(requested, 200, mapOf("X-Gateway-Client-Diagnostics-Status" to "invalid_metadata")))
+        assertEquals("NOT_CONFIRMED", acknowledgment(requested, 200, mapOf("X-Gateway-Debug-Enabled" to "false")))
+        assertEquals("NOT_REQUESTED", acknowledgment(plain, 200, mapOf("X-Gateway-Client-Diagnostics-Status" to "capture_disabled")))
         for ((code, status) in mapOf("remote_surface_not_admitted" to 403, "scope_not_granted" to 403, "transport_identity_required" to 401, "duplicate_admission_header" to 400, "unknown_job" to 404)) {
             val headers = mapOf("X-Gateway-Admission-Error" to code)
             assertEquals("REJECTED_BEFORE_PROCESSING", acknowledgment(requested, status, headers))

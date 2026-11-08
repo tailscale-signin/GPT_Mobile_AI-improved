@@ -652,6 +652,11 @@ internal class GitHubOperationTool(
                     properties["base_sha"] = field("string")
                     properties["stage_id"] = field("string")
                     properties["fixture_plan"] = buildJsonObject { put("enum", JsonArray(listOf(JsonPrimitive(dev.chungjungsoo.gptmobile.data.github.GitHubOwnedFixtures.PLAN)))) }
+                    properties["engineering_task_id"] = buildJsonObject {
+                        put("type", "string")
+                        put("description", "With action=recovery, read the exact saved native approval and reconcile publication. This cannot approve or repeat its write.")
+                        put("pattern", "^[A-Za-z0-9_-]{1,128}$")
+                    }
                     properties["refresh"] = field("boolean")
                     properties["page"] = field("integer")
                     properties["per_page"] = integer(1, 100, default = 30)

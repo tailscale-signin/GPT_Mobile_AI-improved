@@ -76,7 +76,11 @@ internal object DeviceNetworkDiagnostics {
                 capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) -> "VALIDATED"
                 else -> "UNVALIDATED"
             }
-            if (episodes.networkChanged(network?.toString(), validation)) dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.networkChanged()
+            if (episodes.networkChanged(network?.toString(), validation)) {
+                val snapshot = episodes.current()
+                ProviderConnectivityPreflight.continuation.networkChanged(snapshot.changeId, snapshot.validation)
+                dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.networkChanged()
+            }
         }
         val listener = object : ConnectivityManager.NetworkCallback() {
             override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) = update(network, capabilities)

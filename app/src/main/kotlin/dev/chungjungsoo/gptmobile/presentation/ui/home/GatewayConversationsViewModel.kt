@@ -4,24 +4,33 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2
+import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
+import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.github.GatewayChatBoundaryUnavailable
+import dev.chungjungsoo.gptmobile.data.github.GatewayChatCreator
 import dev.chungjungsoo.gptmobile.data.github.GatewayConversationAttachment
 import dev.chungjungsoo.gptmobile.data.github.GatewayConversationPage
 import dev.chungjungsoo.gptmobile.data.github.GatewayConversationRepository
 import dev.chungjungsoo.gptmobile.data.github.GatewayConversationSnapshot
 import dev.chungjungsoo.gptmobile.data.github.GatewayHistoryUnsupported
 import dev.chungjungsoo.gptmobile.data.github.GatewayJobRepository
+import dev.chungjungsoo.gptmobile.data.github.GatewayKnownProfileStore
 import dev.chungjungsoo.gptmobile.data.github.GatewayVerifiedScopeStore
 import dev.chungjungsoo.gptmobile.data.github.gatewayIdentityKey
-import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAvailabilityRepository
+import dev.chungjungsoo.gptmobile.data.queue.DurablePromptQueue
+import dev.chungjungsoo.gptmobile.data.queue.GatewayQueuedChatState
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -36,25 +45,140 @@ internal data class GatewayConversationsState(
     val lastSyncedAt: Long? = null,
     val error: GatewayBrowserError? = null,
     val transcriptKey: String? = null,
-    val cachedInventory: Boolean = false
+    val cachedInventory: Boolean = false,
+    val localChats: List<ChatRoomV2> = emptyList(),
+    val profileChoices: List<GatewayChatProfileChoice> = emptyList(),
+    val profileChoicesLoaded: Boolean = false,
+    val profilePickerVisible: Boolean = false,
+    val creatingChat: Boolean = false,
+    val creationError: String? = null,
+    val queuedCounts: Map<Int, Int> = emptyMap(),
+    val activeChatIds: Set<Int> = emptySet(),
+    val gatewayStates: Map<Int, GatewayQueuedChatState> = emptyMap(),
+    val localConversationKeys: Set<String> = emptySet()
 )
 
 @HiltViewModel
 internal class GatewayConversationsViewModel @Inject constructor(
     private val savedState: SavedStateHandle,
-    settings: SettingRepository,
-    availability: GatewayAvailabilityRepository,
+    private val settings: SettingRepository,
     private val jobs: GatewayJobRepository,
     private val conversations: GatewayConversationRepository,
-    scopes: GatewayVerifiedScopeStore
+    private val scopes: GatewayVerifiedScopeStore,
+    monitor: GatewayMenuMonitor,
+    private val knownProfiles: GatewayKnownProfileStore,
+    private val chatCreator: GatewayChatCreator,
+    database: ChatDatabaseV2,
+    queue: DurablePromptQueue
 ) : ViewModel() {
-    val connections = gatewayMenuConnections(settings, availability, scopes)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(stopTimeoutMillis = 0, replayExpirationMillis = 0), emptyList())
+    val connections = monitor.connections
     private val _state = MutableStateFlow(GatewayConversationsState(connectionUid = savedState["gateway_browser_profile"]))
     val state = _state.asStateFlow()
     private var refreshJob: Job? = null
     private var openJob: Job? = null
+    private var creationJob: Job? = null
     private var generation = 0L
+
+    init {
+        viewModelScope.launch {
+            database.chatRoomDao().observeGatewayChats().collect { rooms -> _state.update { it.copy(localChats = rooms) } }
+        }
+        viewModelScope.launch {
+            database.gatewayJobDao().observeAttachedConversations().collect { records ->
+                _state.update { it.copy(localConversationKeys = records.map { record -> record.key }.toSet()) }
+            }
+        }
+        viewModelScope.launch {
+            combine(settings.observePlatformV2s(), connections, scopes.changes, knownProfiles.changes) { profiles, connections, _, _ ->
+                choices(profiles, connections)
+            }.collect { choices -> _state.update { it.copy(profileChoices = choices, profileChoicesLoaded = true) } }
+        }
+        viewModelScope.launch {
+            combine(queue.pending, database.agentRunDao().observeActive(), queue.gatewayStates) { prompts, runs, gatewayStates ->
+                Triple(prompts.groupingBy { it.chatId }.eachCount(), runs.map { it.chatId }.toSet(), gatewayStates)
+            }.collect { (counts, active, gatewayStates) ->
+                _state.update { it.copy(queuedCounts = counts, activeChatIds = active, gatewayStates = gatewayStates) }
+            }
+        }
+    }
+
+    fun newChat(onOpenLocal: (ChatRoomV2) -> Unit) {
+        if (_state.value.creatingChat) return
+        _state.update { it.copy(creatingChat = true, profilePickerVisible = false, creationError = null) }
+        creationJob = viewModelScope.launch {
+            try {
+                val choices = withContext(Dispatchers.IO) { choices(settings.fetchPlatformV2s(), connections.value) }
+                _state.update { it.copy(profileChoices = choices, profileChoicesLoaded = true) }
+                when (choices.size) {
+                    0 -> _state.update { it.copy(creationError = "No enabled profile has confirmed gateway support. Configure a gateway profile in Settings and let its connection check finish.") }
+                    1 -> create(choices.single(), onOpenLocal)
+                    else -> _state.update { it.copy(profilePickerVisible = true) }
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                _state.update { it.copy(creationError = "The gateway profiles could not be loaded. Check Settings and try again.") }
+            } finally {
+                _state.update { it.copy(creatingChat = false) }
+            }
+        }
+    }
+
+    fun chooseProfile(profileUid: String, onOpenLocal: (ChatRoomV2) -> Unit) {
+        if (_state.value.creatingChat) return
+        val choice = _state.value.profileChoices.singleOrNull { it.profileUid == profileUid } ?: return
+        _state.update { it.copy(creatingChat = true, creationError = null) }
+        creationJob = viewModelScope.launch {
+            try {
+                create(choice, onOpenLocal)
+            } finally {
+                _state.update { it.copy(creatingChat = false) }
+            }
+        }
+    }
+
+    fun dismissProfilePicker() {
+        _state.update { it.copy(profilePickerVisible = false) }
+    }
+
+    fun clearCreationError() {
+        _state.update { it.copy(creationError = null) }
+    }
+
+    private suspend fun choices(profiles: List<PlatformV2>, connections: List<GatewayMenuConnection>): List<GatewayChatProfileChoice> {
+        val known = profiles.filter { profile -> knownProfiles.remembered(profile) }.map { it.uid }.toSet()
+        val revisions = profiles.mapNotNull { profile -> scopes.configurationRevision(profile)?.let { profile.uid to it } }.toMap()
+        return GatewayChatProfiles.choices(profiles, known, connections, revisions)
+    }
+
+    private suspend fun create(choice: GatewayChatProfileChoice, onOpenLocal: (ChatRoomV2) -> Unit) {
+        try {
+            val room = withContext(Dispatchers.IO) { chatCreator.create(choice.selection) }
+            currentCoroutineContext().ensureActive()
+            _state.update { it.copy(profilePickerVisible = false, creationError = null) }
+            onOpenLocal(room)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            _state.update { it.copy(creationError = "The gateway chat could not be created with that saved profile. Check its connection settings and choose it again.") }
+        }
+    }
+
+    private fun resetHistory(connectionUid: String?, routeIdentity: String? = null) {
+        _state.update {
+            it.copy(
+                connectionUid = connectionUid,
+                routeIdentity = routeIdentity,
+                page = null,
+                loading = false,
+                openingId = null,
+                lastSyncedAt = null,
+                error = null,
+                transcriptKey = null,
+                cachedInventory = false
+            )
+        }
+    }
 
     fun select(connection: GatewayMenuConnection) {
         if (_state.value.connectionUid == connection.profileUid && _state.value.routeIdentity == connection.navigationIdentity) return
@@ -62,7 +186,7 @@ internal class GatewayConversationsViewModel @Inject constructor(
         refreshJob?.cancel()
         openJob?.cancel()
         savedState["gateway_browser_profile"] = connection.profileUid
-        _state.value = GatewayConversationsState(connectionUid = connection.profileUid, routeIdentity = connection.navigationIdentity)
+        resetHistory(connection.profileUid, connection.navigationIdentity)
         refresh()
     }
 
@@ -75,7 +199,7 @@ internal class GatewayConversationsViewModel @Inject constructor(
             generation++
             refreshJob?.cancel()
             openJob?.cancel()
-            _state.value = GatewayConversationsState(connectionUid = _state.value.connectionUid)
+            resetHistory(_state.value.connectionUid)
         }
     }
 
@@ -127,22 +251,73 @@ internal class GatewayConversationsViewModel @Inject constructor(
         val current = _state.value
         val uid = current.connectionUid ?: return
         val page = current.page ?: return
-        if (current.openingId != null || !conversation.transcriptAvailable || page.items.none { it.conversationId == conversation.conversationId }) return
+        val key = gatewayIdentityKey(page.gatewayId, page.principalId, conversation.conversationId)
+        if (current.openingId != null || (!conversation.transcriptAvailable && key !in current.localConversationKeys) || page.items.none { it.conversationId == conversation.conversationId }) return
         refreshJob?.cancel()
         val requestGeneration = generation
         _state.value = current.copy(openingId = conversation.conversationId, loading = false, error = null)
         openJob = viewModelScope.launch {
             try {
-                val attachment = withContext(Dispatchers.IO) {
-                    conversations.openConversation(uid, page.gatewayId, page.principalId, conversation.conversationId)
+                val (attachment, blocker) = withContext(Dispatchers.IO) {
+                    val attached = chatCreator.localAttachment(uid, page.gatewayId, page.principalId, conversation.conversationId)
+                        ?: conversations.openConversation(uid, page.gatewayId, page.principalId, conversation.conversationId)
+                    val adoption = try {
+                        chatCreator.adopt(attached.chatId, attached.profileUid)
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        if (!chatCreator.hasQueueBoundary(attached.chatId)) throw GatewayChatBoundaryUnavailable()
+                        dev.chungjungsoo.gptmobile.data.github.GatewayChatAdoption(
+                            ChatRoomV2(id = attached.chatId, title = "Retained Gateway chat", conversationMode = dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode.GATEWAY),
+                            "The saved Gateway queue binding could not be restored. Its retained transcript remains readable."
+                        )
+                    }
+                    attached.copy(conversationMode = adoption.room.conversationMode) to adoption.blocker
                 }
-                if (requestGeneration == generation) onOpen(attachment)
+                if (requestGeneration == generation) {
+                    _state.update { it.copy(creationError = blocker) }
+                    onOpen(attachment)
+                }
             } catch (cancelled: CancellationException) {
                 throw cancelled
+            } catch (blocked: GatewayChatBoundaryUnavailable) {
+                if (requestGeneration == generation) _state.update { it.copy(error = GatewayBrowserError.OPEN, creationError = blocked.message) }
             } catch (_: Exception) {
                 if (requestGeneration == generation) _state.value = _state.value.copy(error = GatewayBrowserError.OPEN)
             } finally {
                 if (requestGeneration == generation) _state.value = _state.value.copy(openingId = null)
+            }
+        }
+    }
+
+    fun openLocalChat(room: ChatRoomV2, onOpenLocal: (ChatRoomV2) -> Unit) {
+        if (_state.value.openingId != null) return
+        refreshJob?.cancel()
+        creationJob?.cancel()
+        val requestGeneration = generation
+        _state.update { it.copy(openingId = "local:${room.id}", loading = false, creationError = null) }
+        openJob = viewModelScope.launch {
+            try {
+                val adopted = withContext(Dispatchers.IO) { chatCreator.adopt(room.id) }
+                if (requestGeneration == generation) {
+                    _state.update { it.copy(creationError = adopted.blocker) }
+                    onOpenLocal(adopted.room)
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                if (requestGeneration == generation) {
+                    val boundarySaved = withContext(Dispatchers.IO) { chatCreator.hasQueueBoundary(room.id) }
+                    if (requestGeneration != generation) return@launch
+                    if (boundarySaved) {
+                        _state.update { it.copy(creationError = "The saved Gateway queue binding could not be restored. You can read this conversation; restore its original profile before adding a message.") }
+                        onOpenLocal(room.copy(conversationMode = dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode.GATEWAY, combinedPrimaryUid = null))
+                    } else {
+                        _state.update { it.copy(creationError = GatewayChatBoundaryUnavailable().message) }
+                    }
+                }
+            } finally {
+                if (requestGeneration == generation) _state.update { it.copy(openingId = null) }
             }
         }
     }
@@ -179,6 +354,8 @@ internal class GatewayConversationsViewModel @Inject constructor(
         refreshJob = null
         openJob?.cancel()
         openJob = null
+        creationJob?.cancel()
+        creationJob = null
         _state.value = _state.value.copy(loading = false, openingId = null)
     }
 }

@@ -100,6 +100,75 @@ class GitHubProgrammerViewModelTest {
         }
     }
 
+    @Test fun restoredApprovedFixtureResumesOnlyItsOriginalChatAndFrozenModel() = runBlocking {
+        val context = dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext("github", "owner", "repo", "feature", "a".repeat(40), "coder")
+        features.value = features.value.copy(conversationGitHub = mapOf(42 to context))
+        model.configureSession("coder", 42)
+        withTimeout(5000) { model.state.first { it.chatId == 42 && it.draftLoaded } }
+        val publication = dev.chungjungsoo.gptmobile.data.github.GitHubApprovalBinding.Continuation(
+            "original-task",
+            42,
+            15,
+            "codex-self-test/" + "d".repeat(20),
+            "b".repeat(40),
+            profile.model,
+            dev.chungjungsoo.gptmobile.data.github.GitHubApprovalBinding.profileContract(profile.compatibleType.name, profile.apiUrl, profile.providerConnectionUid, profile.reasoning)
+        )
+        val accepted = CompletableDeferred<Unit>()
+        model.continueAfterCommit(publication.sha, publication.branch, publication) { accepted.complete(Unit) }
+        withTimeout(5000) { accepted.await() }
+        coVerify(exactly = 1) { queue.enqueue(42, any(), match { it.models == mapOf("coder" to "selected-model") && it.tools.github?.ref == "feature" }, "github-approved-commit:${publication.sha}") }
+        coVerify(exactly = 0) { chats.createDraftChat(any(), any(), any(), any()) }
+        assertEquals(context.commitSha, model.state.value.context?.commitSha)
+    }
+
+    @Test fun changedModelBlocksAutomaticApprovalContinuationWithoutCreatingAnotherRoom() = runBlocking {
+        val context = dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext("github", "owner", "repo", "feature", "a".repeat(40), "coder")
+        features.value = features.value.copy(conversationGitHub = mapOf(42 to context))
+        model.configureSession("coder", 42)
+        withTimeout(5000) { model.state.first { it.chatId == 42 && it.draftLoaded } }
+        val publication = dev.chungjungsoo.gptmobile.data.github.GitHubApprovalBinding.Continuation(
+            "original-task",
+            42,
+            15,
+            "feature",
+            "b".repeat(40),
+            "previous-model",
+            dev.chungjungsoo.gptmobile.data.github.GitHubApprovalBinding.profileContract(profile.compatibleType.name, profile.apiUrl, profile.providerConnectionUid, profile.reasoning)
+        )
+        model.continueAfterCommit(publication.sha, publication.branch, publication)
+        val blocked = withTimeout(5000) { model.state.first { !it.submitting && it.error?.contains("saved AI model") == true } }
+        assertEquals(42, blocked.chatId)
+        coVerify(exactly = 0) { queue.enqueue(any(), any(), any(), any()) }
+        coVerify(exactly = 0) { chats.createDraftChat(any(), any(), any(), any()) }
+    }
+
+    @Test fun approvedCommitInAnExplicitGatewayRoomRetainsItsFrozenQueueRoute() = runBlocking {
+        val gatewayProfile = profile.copy(compatibleType = dev.chungjungsoo.gptmobile.data.model.ClientType.LLAMA, apiUrl = "http://192.168.1.4:8090")
+        val selection = dev.chungjungsoo.gptmobile.data.queue.GatewayQueuedSelection.capture(gatewayProfile, gatewayProfile.model)
+        profiles.value = listOf(gatewayProfile)
+        rooms[42] = room.copy(conversationMode = dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode.GATEWAY)
+        val context = dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext("github", "owner", "repo", "feature", "a".repeat(40), "coder")
+        features.value = features.value.copy(conversationGitHub = mapOf(42 to context), conversationGateway = mapOf(42 to selection))
+        model.configureSession("coder", 42)
+        withTimeout(5000) { model.state.first { it.chatId == 42 && it.draftLoaded } }
+        val publication = dev.chungjungsoo.gptmobile.data.github.GitHubApprovalBinding.Continuation(
+            "original-task",
+            42,
+            15,
+            "codex-self-test/" + "d".repeat(20),
+            "b".repeat(40),
+            gatewayProfile.model,
+            dev.chungjungsoo.gptmobile.data.github.GitHubApprovalBinding.profileContract(gatewayProfile.compatibleType.name, gatewayProfile.apiUrl, gatewayProfile.providerConnectionUid, gatewayProfile.reasoning)
+        )
+        val accepted = CompletableDeferred<Unit>()
+        model.continueAfterCommit(publication.sha, publication.branch, publication) { accepted.complete(Unit) }
+        withTimeout(5000) { accepted.await() }
+        coVerify(exactly = 1) { queue.enqueue(42, any(), match { it.gateway == selection && it.models == mapOf("coder" to selection.model) }, "github-approved-commit:${publication.sha}") }
+        coVerify(exactly = 0) { chats.createDraftChat(any(), any(), any(), any()) }
+        assertEquals(selection, features.value.conversationGateway[42])
+    }
+
     @Test fun savedProfileSelectionWinsOverTheOriginalRouteAfterRecreation() = runBlocking {
         val handle = androidx.lifecycle.SavedStateHandle(
             mapOf("github_session_initialized" to true, "github_session_profile" to "coder", "github_session_chat" to 42)

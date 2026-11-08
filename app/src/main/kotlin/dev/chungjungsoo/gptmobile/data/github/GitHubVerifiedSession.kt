@@ -136,11 +136,32 @@ internal class GitHubVerifiedSession(
             initiallyVerifiedComplete = evidence.diagnostic()?.get("completion_verified") == kotlinx.serialization.json.JsonPrimitive(true)
         }
         retainProgress(tools)
+        val approvalReceipts = evidence.snapshot().first
+        if (GitHubPendingApproval.snapshot(approvalReceipts).isNotEmpty()) {
+            GitHubApprovalContinuation.next(resumeRequestKey, tools, approvalReceipts, initialReceiptIds.orEmpty())?.let { call ->
+                progress("Checking the existing saved approval; no commit is being repeated")
+                emit(call)
+                emit(ProviderEvent.Completed)
+                return@flow
+            }
+            emitAll(publish(null))
+            return@flow
+        }
         resumeCommitSha?.let { sha ->
             GitHubCommitContinuation.next(sha, resumeRequestKey, tools, evidence.snapshot().first)?.let { call ->
                 progress("Reconciling the approved commit and its checks; completed writes are retained")
                 emit(call)
                 emit(ProviderEvent.Completed)
+                return@flow
+            }
+        }
+        if (GitHubCiObservationReport.matches(task)) {
+            val (receipts, epoch) = evidence.snapshot()
+            val observed = withContext(computationDispatcher) { GitHubCiObservationReport.render(task, receipts, now(), epoch) }
+            if (observed != null) {
+                // Complete this bounded factual diagnosis directly from retained
+                // evidence; another model request cannot discover a missing failure.
+                emitAll(publish(null))
                 return@flow
             }
         }
@@ -395,6 +416,7 @@ internal class GitHubVerifiedSession(
         val publication = try {
             validatePublication()
             val (receipts, epoch) = evidence.snapshot()
+            val ciObservation = withContext(computationDispatcher) { GitHubCiObservationReport.render(task, receipts, now(), epoch) }
             val status = if (GitHubStatusRequest.matches(task)) {
                 withContext(computationDispatcher) { GitHubEvidencePolicy.status(receipts, now(), epoch, task) }
             } else {
@@ -407,13 +429,13 @@ internal class GitHubVerifiedSession(
             } else {
                 null
             }
-            val request = if (draft == null || status != null || coverage != null) {
+            val request = if (draft == null || status != null || coverage != null || ciObservation != null) {
                 null
             } else {
                 progress("Verifying factual claims against exact tool receipts")
                 withContext(computationDispatcher) { verificationRequest(draft, receipts) }
             }
-            val (renderedText, report) = status ?: coverage ?: if (request == null) partial(receipts, epoch, failureCode ?: "GITHUB_EXTRACTION_UNAVAILABLE") else extract(request, receipts, epoch)
+            val (renderedText, report) = status ?: coverage ?: ciObservation ?: if (request == null) partial(receipts, epoch, failureCode ?: "GITHUB_EXTRACTION_UNAVAILABLE") else extract(request, receipts, epoch)
             val (checklist, progressDigest) = withContext(computationDispatcher) {
                 val checklist = if (coverage != null) GitHubTestChecklist.checkpoint(task, receipts, authorizedTools, remainingToolCalls()) else null
                 checklist to checklist?.let { GitHubTestChecklist.progressDigest(task, receipts, authorizedTools) }
@@ -432,7 +454,7 @@ internal class GitHubVerifiedSession(
             val retention = evidence.retentionStatus()
             val retentionComplete = retention["evidence_retention_complete"] == kotlinx.serialization.json.JsonPrimitive(true)
             val partial = !retentionComplete || originalFailure != null || failureCode != null || report["task_outcome"] != kotlinx.serialization.json.JsonPrimitive("COMPLETED") || report["completion_verified"] != kotlinx.serialization.json.JsonPrimitive(true)
-            val oversizedWithoutEvidence = draft != null && status == null && coverage == null && request == null && receipts.isEmpty()
+            val oversizedWithoutEvidence = draft != null && status == null && coverage == null && ciObservation == null && request == null && receipts.isEmpty()
             check(!oversizedWithoutEvidence) { "No retained GitHub evidence is available for publication" }
             val retained = JsonObject(
                 report + buildJsonObject {
@@ -517,7 +539,12 @@ internal class GitHubVerifiedSession(
             } else {
                 ""
             }
-            Publication(cause + reconciliationNotice + text + failures + retentionNotice, effectivePartial, effectiveReport)
+            val approvalNotice = if (executionLedger?.get("recovery") == kotlinx.serialization.json.JsonPrimitive("WAITING_FOR_APPROVAL")) {
+                "**Waiting for approval.** Open the existing **Approve & Commit** card and review its saved patch. The commit has not been published. Another Continue cannot replace this approval; its fixture and completed results are preserved.\n\n"
+            } else {
+                ""
+            }
+            Publication(cause + reconciliationNotice + approvalNotice + text + failures + retentionNotice, effectivePartial, effectiveReport)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
@@ -564,15 +591,32 @@ internal class GitHubVerifiedSession(
         onPublication(delivered)
         val unresolved = ((delivered["execution_ledger"] as? JsonObject)?.get("unresolved_remote_outcomes") as? kotlinx.serialization.json.JsonPrimitive)?.content?.toIntOrNull()?.let { it > 0 } == true
         val extractionCode = (delivered["failure_code"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.takeUnless { it == "null" }
+        val waitingApproval = (delivered["execution_ledger"] as? JsonObject)?.get("recovery") == kotlinx.serialization.json.JsonPrimitive("WAITING_FOR_APPROVAL")
         if (partial || delivered["completion_verified"] != kotlinx.serialization.json.JsonPrimitive(true)) {
             lifecycle(dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.VERIFICATION_REJECTED)
             emit(
                 ProviderEvent.Failed(
-                    originalFailure?.message ?: "Partial response delivered. The requested task remains incomplete; saved receipts and the task checkpoint are available for continuation.",
-                    errorCode = if (unresolved) "RECONCILIATION_REQUIRED" else failureCode ?: extractionCode ?: (delivered["verification_failure"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: "GITHUB_TASK_INCOMPLETE",
+                    if (waitingApproval) "Waiting for approval of the existing saved patch. Open its Approve & Commit card to continue." else originalFailure?.message ?: "Partial response delivered. The requested task remains incomplete; saved receipts and the task checkpoint are available for continuation.",
+                    errorCode = if (unresolved) {
+                        "RECONCILIATION_REQUIRED"
+                    } else if (waitingApproval) {
+                        "WAITING_FOR_APPROVAL"
+                    } else {
+                        failureCode ?: extractionCode ?: (delivered["verification_failure"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: "GITHUB_TASK_INCOMPLETE"
+                    },
                     transportComplete = true,
-                    taskOutcome = if (originalFailure?.taskOutcome == "BLOCKED") "BLOCKED" else "PARTIAL",
-                    failureDetails = originalFailure?.failureDetails
+                    taskOutcome = if (waitingApproval || originalFailure?.taskOutcome == "BLOCKED") "BLOCKED" else "PARTIAL",
+                    failureDetails = if (waitingApproval) {
+                        buildJsonObject {
+                            put("failed_stage", "approval")
+                            put("dispatched", false)
+                            put("user_input_required", true)
+                            put("retryable", false)
+                            put("pending_approvals", delivered["pending_approvals"] ?: (delivered["execution_ledger"] as? JsonObject)?.get("pending_approvals") ?: JsonArray(emptyList()))
+                        }
+                    } else {
+                        originalFailure?.failureDetails
+                    }
                 )
             )
         } else {

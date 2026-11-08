@@ -50,6 +50,7 @@ internal class InvocationRoundAccounting(
     var reasoningBytes = 0L
     var hasVisibleAnswer = false
     var completedWithoutAnswer = false
+    private var providerGenerationCompleted = false
     val inputCounter = ProviderUsageCounter()
     val outputCounter = ProviderUsageCounter()
     fun retainedInput(): Int = if (measuredUsageSource(inputSource)) input ?: record.inputTokens else maxOf(input ?: 0, record.inputTokens)
@@ -85,6 +86,7 @@ internal class InvocationRoundAccounting(
         gatewayProvenance?.let { put("gateway_provenance", it) }
         gatewayDelivery?.let { put("gateway_delivery", it) }
         responseParsing?.let { put("response_parsing", it) }
+        diagnosticFailure?.let { put("failure", kotlinx.serialization.json.Json.encodeToJsonElement(dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.serializer(), it)) }
         gatewayTiming?.observedFields()?.takeIf { it.isNotEmpty() }?.let { timings ->
             put(
                 "gateway_timing",
@@ -135,6 +137,7 @@ internal class InvocationRoundAccounting(
     private fun hasNoExecutionEvidence() = generatedBytes == 0L &&
         toolCallCount == 0 &&
         !hasVisibleAnswer &&
+        (responseParsing?.get("http_status") as? kotlinx.serialization.json.JsonPrimitive)?.content?.toIntOrNull() == null &&
         (inputCounter.value ?: 0) == 0L &&
         (outputCounter.value ?: 0) == 0L
 
@@ -188,7 +191,10 @@ internal class InvocationRoundAccounting(
                 event.reasoningControlReceipt?.let { requestSettings = it.evidence() }
                 event.gatewayProvenance?.let { gatewayProvenance = it }
                 event.gatewayDeliveryTiming?.evidence()?.let { gatewayDelivery = it }
-                event.providerResponseTiming?.let { responseParsing = it.evidence() }
+                event.providerResponseTiming?.let {
+                    responseParsing = it.evidence()
+                    serverRequestId = it.serverRequestId ?: serverRequestId
+                }
                 event.gatewayTiming?.takeIf { it.observedFields().isNotEmpty() }?.let { gatewayTiming = it }
                 inputCounter.accept(event.inputTokens, event.cumulative, event.inputSource, event.phase)
                 outputCounter.accept(event.outputTokens, event.cumulative, event.outputSource, event.phase)
@@ -202,9 +208,12 @@ internal class InvocationRoundAccounting(
                 settingsConfirmed = settingsConfirmed || event.effectiveSettingsConfirmed
             }
             is ProviderEvent.GatewayMetadataCaptured -> serverRequestId = event.metadata.requestId ?: serverRequestId
-            ProviderEvent.Completed -> if (status !in setOf("FAILED", "PARTIAL", "WAITING_REMOTE_JOB")) {
-                completedWithoutAnswer = !hasVisibleAnswer && !firstToolRecorded
-                status = if (completedWithoutAnswer) "FAILED" else "COMPLETED"
+            ProviderEvent.Completed -> {
+                providerGenerationCompleted = true
+                if (status !in setOf("FAILED", "PARTIAL", "WAITING_REMOTE_JOB")) {
+                    completedWithoutAnswer = !hasVisibleAnswer && !firstToolRecorded
+                    status = if (completedWithoutAnswer) "FAILED" else "COMPLETED"
+                }
             }
             is ProviderEvent.Failed -> {
                 status = when {
@@ -213,6 +222,18 @@ internal class InvocationRoundAccounting(
                     else -> "FAILED"
                 }
                 diagnosticFailure = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.fromProvider(event.message, event.errorCode, event.failureDetails)
+                diagnosticFailure = diagnosticFailure?.let { failure ->
+                    val observedAcceptance = (responseParsing?.get("remote_acceptance") as? kotlinx.serialization.json.JsonPrimitive)?.content
+                    failure.copy(
+                        remoteAcceptance = if (failure.remoteAcceptance == dev.chungjungsoo.gptmobile.data.agent.RemoteRequestAcceptance.UNKNOWN) {
+                            dev.chungjungsoo.gptmobile.data.agent.RemoteRequestAcceptance.entries.firstOrNull { it.name == observedAcceptance } ?: failure.remoteAcceptance
+                        } else {
+                            failure.remoteAcceptance
+                        },
+                        serverRequestId = failure.serverRequestId ?: serverRequestId
+                    )
+                }
+                serverRequestId = diagnosticFailure?.serverRequestId ?: serverRequestId
                 dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.recordEvent(
                     "Model",
                     "INVOCATION_FAILED",
@@ -323,9 +344,18 @@ internal class InvocationRoundAccounting(
             visibleBytes = visibleBytes,
             reasoningBytes = reasoningBytes,
             reasoningTokens = providerReasoningTokens,
-            dispatchEvidence = if (entirelyUnsent) "NOT_DISPATCHED" else "UNKNOWN",
-            failurePhase = dispatch.preflightRejection?.phase,
-            reasonCode = dispatch.preflightRejection?.reason?.name,
+            dispatchEvidence = if (entirelyUnsent) {
+                "NOT_DISPATCHED"
+            } else if (diagnosticFailure?.dispatched == true || (responseParsing?.get("http_status") as? kotlinx.serialization.json.JsonPrimitive)?.content?.toIntOrNull() != null) {
+                "DISPATCHED"
+            } else {
+                "UNKNOWN"
+            },
+            failurePhase = dispatch.preflightRejection?.phase ?: diagnosticFailure?.phase,
+            reasonCode = dispatch.preflightRejection?.reason?.name ?: diagnosticFailure?.category,
+            remoteAcceptance = if (entirelyUnsent) "NO" else diagnosticFailure?.remoteAcceptance?.name?.takeUnless { it == "UNKNOWN" } ?: (responseParsing?.get("remote_acceptance") as? kotlinx.serialization.json.JsonPrimitive)?.content ?: "UNKNOWN",
+            generationCompleted = diagnosticFailure?.generationCompleted ?: providerGenerationCompleted,
+            requestReplayAllowed = diagnosticFailure?.requestReplayAllowed,
             usageObservations = kotlinx.serialization.json.buildJsonObject {
                 put("input", inputCounter.evidence())
                 put("output", outputCounter.evidence())

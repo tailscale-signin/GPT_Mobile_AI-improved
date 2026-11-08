@@ -67,7 +67,8 @@ class GitHubWorkspaceClient(
     private val legacyCredentialIdentities: List<String> = emptyList(),
     private val credentialProvider: (suspend () -> String)? = null,
     private val apiOrigins: GitHubApiOrigins = GitHubApiOrigins.GITHUB_COM,
-    refAvailability: GitHubRefAvailability? = null
+    refAvailability: GitHubRefAvailability? = null,
+    private val engineeringStatus: (suspend (String, String) -> JsonObject?)? = null
 ) {
     private val responseCache = responseCache ?: if (client === sharedClient) GitHubSessionCaches.forCredential(token, apiOrigins.hostIdentity) else GitHubResponseCache()
     private val rateLimits = rateLimits ?: if (client === sharedClient) GitHubSessionCaches.rateLimitsForCredential(token, apiOrigins.hostIdentity) else GitHubRateLimitManager()
@@ -257,12 +258,50 @@ class GitHubWorkspaceClient(
             return GitHubHeaderQuery.normalize(response, pullRequest, args)
         }
         val ref = field("commit_sha").ifBlank { field("ref").ifBlank { field("branch") } }
+        if (action == "recovery_context" && args["engineering_task_id"] != null) {
+            val id = field("engineering_task_id")
+            require(id.matches(Regex("[A-Za-z0-9_-]{1,128}"))) { "Use the exact engineering_task_id from the saved approval receipt." }
+            val status = requireNotNull(engineeringStatus?.invoke(root, id)) { "APPROVAL_STATE_UNAVAILABLE: The saved native approval could not be loaded. Keep its patch and fixture; no mutation was repeated." }
+            ownedFixtures.recoverApproval(
+                root,
+                status,
+                read = { requestUntracked(it, HttpMethod.Get, null, false, forceLiveRead = true) },
+                expectedAbsence = { requestUntracked(it, HttpMethod.Get, null, false, forceLiveRead = true, expectedOwnedRefAbsence = true) == JsonNull },
+                reconcile = { reconcileCommit(root, it, forceLiveRead = true) }
+            )?.let { return it }
+            val intent = requireNotNull(status["publication_intent"] as? JsonObject)
+            val waiting = status["state"] == JsonPrimitive("AWAITING_APPROVAL")
+            val cancelled = status["cancelled_before_publication"] == JsonPrimitive(true)
+            if (waiting || cancelled) {
+                return buildJsonObject {
+                    put("engineering_task_id", id)
+                    put("branch", intent.getValue("branch"))
+                    put("expected_head_sha", intent.getValue("expected_head_sha"))
+                    put("committed", false)
+                    put("remote_mutation_performed", false)
+                    put("status", if (waiting) "AWAITING_APPROVAL" else "CANCELLED")
+                    put("approval_state", if (waiting) "WAITING_FOR_APPROVAL" else "CANCELLED_BEFORE_PUBLICATION")
+                    put("user_input_required", waiting)
+                    put("card_id", "github-approval-$id")
+                }
+            }
+            val proof = requireNotNull(reconcileCommit(root, intent, forceLiveRead = true)) { "APPROVAL_PUBLICATION_UNCONFIRMED: The saved patch has no matching remote publication proof. Reconcile the existing native task; do not repeat its commit." }
+            return JsonObject(
+                proof + buildJsonObject {
+                    put("engineering_task_id", id)
+                    put("approval_state", "PUBLISHED")
+                    put("remote_state_verified", true)
+                }
+            )
+        }
         if (action == "recovery_context" && args["fixture_plan"] != null) {
-            return ownedFixtures.reconcileDeletion(
+            return ownedFixtures.reconcile(
                 root,
                 args,
                 read = { requestUntracked(it, HttpMethod.Get, null, false, forceLiveRead = true) },
-                expectedAbsence = { requestUntracked(it, HttpMethod.Get, null, false, forceLiveRead = true, expectedOwnedRefAbsence = true) == JsonNull }
+                expectedAbsence = { requestUntracked(it, HttpMethod.Get, null, false, forceLiveRead = true, expectedOwnedRefAbsence = true) == JsonNull },
+                approvalStatus = { id -> engineeringStatus?.invoke(root, id) },
+                reconcile = { reconcileCommit(root, it, forceLiveRead = true) }
             )
         }
         if (action in setOf("resolve_context", "task_context", "index_status", "build_index", "workflow_catalog", "search_repository", "read_ranges", "stage_patch", "commit_staged_patch", "changed_since", "recovery_context")) {
@@ -1152,7 +1191,10 @@ class GitHubWorkspaceClient(
         require(Regex("[a-fA-F0-9]{40}").matches(expected)) { "Read the branch head first and supply expected_head_sha." }
         val message = args["message"]?.jsonPrimitive?.content.orEmpty()
         require(message.isNotBlank() && message.length <= 4000) { "A commit message of at most 4,000 characters is required." }
-        engineeringPrepare?.let { return it(root, args) }
+        engineeringPrepare?.let { prepare ->
+            ownedFixtures.prepareCommit(root, args)
+            return prepare(root, args).also { ownedFixtures.awaitApproval(root, args, it) }
+        }
         require(token.isNotBlank()) { "Connect a GitHub account before committing." }
         val files = args["files"]?.jsonArray ?: error("files is required.")
         require(files.size in 1..20) { "Commit between 1 and 20 text files at a time." }

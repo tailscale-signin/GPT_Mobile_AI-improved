@@ -137,9 +137,20 @@ fun GitHubWorkspaceScreen(
         if (state.uiReady && !state.setupRequired && commandContext != null && programmerState.draftLoaded && programmerState.chatId == null) programmer.ensureConversation()
     }
     val commitReview: dev.chungjungsoo.gptmobile.presentation.ui.workspace.GitHubReviewViewModel = hiltViewModel()
+    val publishedContinuations by commitReview.publishedContinuations.collectAsStateWithLifecycle()
     LaunchedEffect(commandContext) {
         commitReview.restrictTo(commandContext)
         if (commandContext != null) commitReview.observeWorkspaceApproval(commandContext)
+    }
+    LaunchedEffect(publishedContinuations, visibleProgrammer.chatId, visibleProgrammer.submitting, visibleProgrammer.error, commandContext) {
+        if (commandContext != null && !visibleProgrammer.submitting && visibleProgrammer.error == null) {
+            publishedContinuations.firstOrNull { it.chatId == visibleProgrammer.chatId }?.let { publication ->
+                if (publication.branch == commandContext.ref) viewModel.acceptPublishedCommit(publication.sha)
+                programmer.continueAfterCommit(publication.sha, publication.branch, publication) {
+                    commitReview.publicationContinuationQueued(publication.taskId, publication.sha)
+                }
+            }
+        }
     }
     val buildsViewModel: GitHubBuildsViewModel = hiltViewModel()
     val buildsState by buildsViewModel.state.collectAsStateWithLifecycle()
@@ -401,8 +412,9 @@ fun GitHubWorkspaceScreen(
                                     val chatId = visibleProgrammer.chatId
                                     if (chatId != null && commandContext != null) {
                                         dev.chungjungsoo.gptmobile.presentation.ui.workspace.GitHubChatApprovalCard(commitReview) { sha ->
-                                            viewModel.acceptPublishedCommit(sha)
-                                            programmer.continueAfterCommit(sha)
+                                            val publishedBranch = commitReview.review.value?.branch
+                                            if (publishedBranch == commandContext.ref) viewModel.acceptPublishedCommit(sha)
+                                            commitReview.refreshEngineeringTasks()
                                         }
                                         GitHubChatChecks(chatId)
                                         androidx.compose.foundation.layout.Box(Modifier.weight(1f)) {

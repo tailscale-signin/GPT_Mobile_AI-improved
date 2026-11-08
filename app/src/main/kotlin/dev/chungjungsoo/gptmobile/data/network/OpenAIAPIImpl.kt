@@ -118,6 +118,8 @@ class OpenAIAPIImpl @Inject constructor(
         val workerBudget = kotlinx.coroutines.currentCoroutineContext()[WorkerRequestBudget]
         val connectionTimeout = kotlinx.coroutines.currentCoroutineContext()[ProfileConnectionTimeout]?.millis
         var receivedAssistantPayload = false
+        var receivedVisibleText = false
+        var requestDispatched = false
         var llamaActivity: AutoCloseable? = null
         var receivedGatewayToolActivity = false
         val dispatchRetryGuard = ProviderDispatchRetryGuard(config)
@@ -181,8 +183,6 @@ class OpenAIAPIImpl @Inject constructor(
             val endpoint = config.buildEndpoint("chat/completions")
 
             val executeRequest: suspend () -> Unit = {
-                activeControlReceipt = null
-                activeResponseObserver = null
                 LocalConnectionPreflight.requireReady(config.apiUrl)
                 config.freeDiagnostics?.permitAcquiredAt = ProviderElapsedClock.now()
                 if (transportRetries > 0) emit(ChatCompletionChunk(retryDurationMs = (System.nanoTime() - transportStartedNs) / 1_000_000, retryAttempts = transportRetries))
@@ -208,11 +208,13 @@ class OpenAIAPIImpl @Inject constructor(
                 try {
                     kotlinx.coroutines.currentCoroutineContext().ensureActive()
                     gatewayRequest.beforeDispatch(config)
+                    gatewayRequest.armDispatch(config)
                     config.freeDiagnostics?.stage = "dispatch"
                     config.freeDiagnostics?.attempted()
                     dispatchStarted = true
                     val responseObserver = ProviderResponseObserver().also { activeResponseObserver = it }
                     dispatchRetryGuard.dispatched()
+                    requestDispatched = true
                     networkClient().preparePost(endpoint) {
                         applyPlatformStreamingTimeout(timeoutSeconds, workerBudget, connectionTimeout)
                         contentType(ContentType.Application.Json)
@@ -222,7 +224,10 @@ class OpenAIAPIImpl @Inject constructor(
                         GatewayClientDiagnostics.requestHeaders(config).forEach { (key, value) -> header(key, value) }
                         if (LocalEndpointConnectionPolicy.freshConnection(endpoint)) header(HttpHeaders.Connection, "close")
                     }.execute { response ->
-                        responseObserver.headersReceived()
+                        responseObserver.headersReceived(response.status.value) { response.headers[it] }
+                        if (response.status.isSuccess()) dispatchRetryGuard.accepted()
+                        // Retain acceptance before parsing: even a reasoning-only interrupted stream has a request identity.
+                        emit(ChatCompletionChunk(providerResponseTiming = responseObserver.snapshot(), reasoningControlReceipt = reasoningControlReceipt))
                         ProviderConnectivityPreflight.responseReceived(config.apiUrl)
                         GatewayClientDiagnostics.observe(config, response.status.value) { response.headers[it] }
                         config.freeDiagnostics?.responded()
@@ -476,6 +481,7 @@ class OpenAIAPIImpl @Inject constructor(
                             if (receivedTerminal) terminalDrain.markTerminal()
                             receivedReasoning = receivedReasoning || chunk.choices.orEmpty().any { !it.effectiveDelta.effectiveReasoning.isNullOrBlank() }
                             receivedAnswer = receivedAnswer || chunk.choices.orEmpty().any { !it.effectiveDelta.content.isNullOrBlank() }
+                            receivedVisibleText = receivedVisibleText || receivedAnswer
                             receivedError = receivedError || chunk.error != null
                             if (free != null && chunk.error != null) dev.chungjungsoo.gptmobile.data.free.FreeProviderDiagnostics.record(config, preparedRequest.model, chunk.error.message, status = 200, body = data, event = "error", terminal = true)
                             reachedOutputLimit = reachedOutputLimit || chunk.choices.orEmpty().any { it.finishReason == "length" }
@@ -526,7 +532,14 @@ class OpenAIAPIImpl @Inject constructor(
                     FreeAiRequestLimiter.shared.settle(quotaReservation, usageReceipt.settledTokens(), definitelyNotTransmitted)
                 }
             }
-            val guardedRequest: suspend () -> Unit = { ProviderConnectivityPreflight.withAvailability(config.apiUrl, block = executeRequest) }
+            val guardedRequest: suspend () -> Unit = {
+                // Preflight may reject this attempt before executeRequest runs.
+                // Its receipt must not inherit a prior attempt's headers or dispatch.
+                activeControlReceipt = null
+                activeResponseObserver = null
+                requestDispatched = false
+                ProviderConnectivityPreflight.withAvailability(config.apiUrl, block = executeRequest)
+            }
             if (free != null) {
                 config.freeDiagnostics?.permitWaitStartedAt = ProviderElapsedClock.now()
                 try {
@@ -561,7 +574,7 @@ class OpenAIAPIImpl @Inject constructor(
             val transportFailure = networkFailureKind(e)
             val providerFailure = providerExceptionDetails(e, receivedAssistantPayload)
             val failureCode = providerFailure?.code ?: if (transportFailure == NetworkFailureKind.UNKNOWN) "PROVIDER_INVOCATION_FAILED" else transportFailure.code
-            val failureRetryable = !gatewayOutcomeUnknown && e !is LocalServiceUnavailableException && e !is ProviderConnectivityPendingException && !receivedAssistantPayload && (providerFailure?.retryable ?: transportFailure.retryable)
+            val failureRetryable = !gatewayOutcomeUnknown && e !is LocalServiceUnavailableException && e !is ProviderConnectivityPendingException && dispatchRetryGuard.mayRetry(receivedAssistantPayload || receivedGatewayToolActivity) && (providerFailure?.retryable ?: transportFailure.retryable)
             val errorMessage = if (gatewayOutcomeUnknown) {
                 "GATEWAY_OUTCOME_UNKNOWN: The connection ended after a request that allows server tools was dispatched. Check the saved gateway job before resuming; the request was not replayed."
             } else if (providerFailure != null) {
@@ -569,7 +582,7 @@ class OpenAIAPIImpl @Inject constructor(
             } else if (e.message.orEmpty().startsWith("LOCAL_SERVICE_UNREACHABLE:")) {
                 e.message.orEmpty() + ". Local server offline or unreachable; check the server listen address, port and firewall, then use Test connection to retry immediately."
             } else if (transportFailure != NetworkFailureKind.UNKNOWN) {
-                transportFailure.userMessage(receivedAssistantPayload)
+                transportFailure.userMessage(receivedVisibleText, activeResponseObserver?.snapshot()?.httpStatus in 200..299)
             } else {
                 when (e) {
                     is java.net.UnknownHostException -> config.freeProvider?.let { "${it.displayName}: DNS could not resolve ${java.net.URI(it.apiUrl).host}. Check this provider's availability and your connection; no alternate host was contacted." } ?: "Network error: Unable to resolve host."
@@ -619,40 +632,50 @@ class OpenAIAPIImpl @Inject constructor(
                             failureCode
                         },
                         retryable = failureRetryable,
-                        failureDetails = when {
-                            gatewayOutcomeUnknown -> kotlinx.serialization.json.buildJsonObject {
-                                put("failed_stage", kotlinx.serialization.json.JsonPrimitive("gateway_dispatch"))
-                                put("outcome", kotlinx.serialization.json.JsonPrimitive("unknown"))
-                                put("replay_safe", kotlinx.serialization.json.JsonPrimitive(false))
-                            }
-                            e is LocalServiceUnavailableException -> e.failureDetails()
-                            providerFailure != null -> providerFailure.failureDetails
-                            else -> kotlinx.serialization.json.buildJsonObject {
-                                put("code", kotlinx.serialization.json.JsonPrimitive(failureCode))
-                                put(
-                                    "failed_stage",
-                                    kotlinx.serialization.json.JsonPrimitive(
-                                        if (e is ProviderConnectivityPendingException) {
-                                            "provider_admission"
-                                        } else if (transportFailure == NetworkFailureKind.UNKNOWN) {
-                                            "stage_not_recorded"
-                                        } else {
-                                            transportFailure.failedStage
-                                        }
+                        failureDetails = providerTransportFailureDetails(
+                            details = when {
+                                gatewayOutcomeUnknown -> kotlinx.serialization.json.buildJsonObject {
+                                    put("failed_stage", kotlinx.serialization.json.JsonPrimitive("gateway_dispatch"))
+                                    put("outcome", kotlinx.serialization.json.JsonPrimitive("unknown"))
+                                    put("replay_safe", kotlinx.serialization.json.JsonPrimitive(false))
+                                }
+                                e is LocalServiceUnavailableException -> e.failureDetails()
+                                providerFailure != null -> providerFailure.failureDetails
+                                else -> kotlinx.serialization.json.buildJsonObject {
+                                    put("code", kotlinx.serialization.json.JsonPrimitive(failureCode))
+                                    put(
+                                        "failed_stage",
+                                        kotlinx.serialization.json.JsonPrimitive(
+                                            if (e is ProviderConnectivityPendingException) {
+                                                "provider_admission"
+                                            } else if (transportFailure == NetworkFailureKind.UNKNOWN) {
+                                                "stage_not_recorded"
+                                            } else {
+                                                transportFailure.failedStage
+                                            }
+                                        )
                                     )
-                                )
-                                if (e is ProviderConnectivityPendingException) {
-                                    put("dispatch_state", kotlinx.serialization.json.JsonPrimitive("PRECHECK_REJECTED"))
-                                    put("dispatched", kotlinx.serialization.json.JsonPrimitive(false))
+                                    if (e is ProviderConnectivityPendingException) {
+                                        put("dispatch_state", kotlinx.serialization.json.JsonPrimitive("PRECHECK_REJECTED"))
+                                        put("dispatched", kotlinx.serialization.json.JsonPrimitive(false))
+                                    }
+                                    put("retryable", kotlinx.serialization.json.JsonPrimitive(failureRetryable))
+                                    if (e is ProviderConnectivityPendingException) {
+                                        put("waiting_for_connectivity", kotlinx.serialization.json.JsonPrimitive(true))
+                                        put("retry_after_ms", kotlinx.serialization.json.JsonPrimitive(e.retryAfterMs))
+                                    }
+                                    put("partial_output_preserved", kotlinx.serialization.json.JsonPrimitive(receivedAssistantPayload))
                                 }
-                                put("retryable", kotlinx.serialization.json.JsonPrimitive(failureRetryable))
-                                if (e is ProviderConnectivityPendingException) {
-                                    put("waiting_for_connectivity", kotlinx.serialization.json.JsonPrimitive(true))
-                                    put("retry_after_ms", kotlinx.serialization.json.JsonPrimitive(e.retryAfterMs))
-                                }
-                                put("partial_output_preserved", kotlinx.serialization.json.JsonPrimitive(receivedAssistantPayload))
-                            }
-                        },
+                            },
+                            error = e,
+                            timing = activeResponseObserver?.snapshot(),
+                            dispatched = requestDispatched,
+                            receivedPayload = receivedAssistantPayload,
+                            receivedVisibleText = receivedVisibleText,
+                            generationCompleted = receivedTerminal,
+                            replayAllowed = failureRetryable,
+                            requiresReconciliation = gatewayOutcomeUnknown
+                        ),
                         providerLimit = providerLimitDecision(config, request.model, receivedAssistantPayload || receivedGatewayToolActivity, e)
                     )
                 )
@@ -671,6 +694,9 @@ class OpenAIAPIImpl @Inject constructor(
         val workerBudget = kotlinx.coroutines.currentCoroutineContext()[WorkerRequestBudget]
         val connectionTimeout = kotlinx.coroutines.currentCoroutineContext()[ProfileConnectionTimeout]?.millis
         var receivedResponsePayload = false
+        var receivedVisibleText = false
+        var requestDispatched = false
+        var activeResponseObserver: ProviderResponseObserver? = null
         val dispatchRetryGuard = ProviderDispatchRetryGuard(config)
         var receivedTerminal = false
         var resolvedFreeModel: String? = null
@@ -695,15 +721,24 @@ class OpenAIAPIImpl @Inject constructor(
                     )
                 }
             ) {
+                // Reset before the availability gate, including retries rejected
+                // without dispatch after a preceding transport/DNS failure.
+                requestDispatched = false
+                activeResponseObserver = null
                 ProviderConnectivityPreflight.withAvailability(effectiveConfig.apiUrl) {
                     LocalConnectionPreflight.requireReady(effectiveConfig.apiUrl)
                     ProviderCooldown.await(effectiveConfig)
                     effectiveConfig.freeDiagnostics?.stage = "preparation"
                     var admittedOutputTokens: Int? = null
-                    val admittedPayload = requestPreparation.prepare(NetworkClient.openAIJson.encodeToString(preparedRequest), effectiveConfig.copy(onSerializedOutputTokens = { admittedOutputTokens = it }), preparedRequest.model, null)
+                    val gatewayRequest = dev.chungjungsoo.gptmobile.data.network.gateway.gatewayConversationRequest(NetworkClient.openAIJson.encodeToString(preparedRequest), effectiveConfig)
+                    val admittedPayload = requestPreparation.prepare(gatewayRequest.payload, effectiveConfig.copy(onSerializedOutputTokens = { admittedOutputTokens = it }), preparedRequest.model, null)
+                    gatewayRequest.beforeDispatch(effectiveConfig)
+                    gatewayRequest.armDispatch(effectiveConfig)
                     effectiveConfig.freeDiagnostics?.stage = "dispatch"
                     effectiveConfig.freeDiagnostics?.attempted()
                     dispatchRetryGuard.dispatched()
+                    requestDispatched = true
+                    val responseObserver = ProviderResponseObserver().also { activeResponseObserver = it }
                     networkClient().preparePost(endpoint) {
                         applyPlatformStreamingTimeout(timeoutSeconds, workerBudget, connectionTimeout)
                         contentType(ContentType.Application.Json)
@@ -712,6 +747,9 @@ class OpenAIAPIImpl @Inject constructor(
                         effectiveConfig.token?.let { bearerAuth(it) }
                         GatewayClientDiagnostics.requestHeaders(effectiveConfig).forEach { (key, value) -> header(key, value) }
                     }.execute { response ->
+                        responseObserver.headersReceived(response.status.value) { response.headers[it] }
+                        if (response.status.isSuccess()) dispatchRetryGuard.accepted()
+                        emit(ResponseGatewayMetadataEvent(providerResponseTiming = responseObserver.snapshot()))
                         ProviderConnectivityPreflight.responseReceived(effectiveConfig.apiUrl)
                         GatewayClientDiagnostics.observe(config, response.status.value) { response.headers[it] }
                         effectiveConfig.freeDiagnostics?.responded()
@@ -781,6 +819,7 @@ class OpenAIAPIImpl @Inject constructor(
                                 streamEvent is dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseIncompleteEvent ||
                                 streamEvent is ResponseErrorEvent
                             receivedResponsePayload = receivedResponsePayload || streamEvent.hasResponseStreamPayload()
+                            receivedVisibleText = receivedVisibleText || streamEvent is dev.chungjungsoo.gptmobile.data.dto.openai.response.OutputTextDeltaEvent && streamEvent.delta.isNotBlank()
                             emit(streamEvent)
                         }
                         if (!receivedTerminal) throw java.io.EOFException("STREAM_INTERRUPTED: provider closed SSE before response.completed")
@@ -795,7 +834,7 @@ class OpenAIAPIImpl @Inject constructor(
             val transportFailure = networkFailureKind(e)
             val providerFailure = providerExceptionDetails(e, receivedResponsePayload)
             val failureCode = providerFailure?.code ?: if (transportFailure == NetworkFailureKind.UNKNOWN) "PROVIDER_INVOCATION_FAILED" else transportFailure.code
-            val failureRetryable = !gatewayOutcomeUnknown && e !is LocalServiceUnavailableException && e !is ProviderConnectivityPendingException && !receivedResponsePayload && (providerFailure?.retryable ?: transportFailure.retryable)
+            val failureRetryable = !gatewayOutcomeUnknown && e !is LocalServiceUnavailableException && e !is ProviderConnectivityPendingException && dispatchRetryGuard.mayRetry(receivedResponsePayload) && (providerFailure?.retryable ?: transportFailure.retryable)
             val errorMessage = if (gatewayOutcomeUnknown) {
                 "GATEWAY_OUTCOME_UNKNOWN: The connection ended after a request that allows server tools was dispatched. Check the saved gateway job before resuming; the request was not replayed."
             } else if (providerFailure != null) {
@@ -803,7 +842,7 @@ class OpenAIAPIImpl @Inject constructor(
             } else if (e.message.orEmpty().startsWith("LOCAL_SERVICE_UNREACHABLE:")) {
                 e.message.orEmpty() + ". Local server offline or unreachable; check the server listen address, port and firewall, then use Test connection to retry immediately."
             } else if (transportFailure != NetworkFailureKind.UNKNOWN) {
-                transportFailure.userMessage(receivedResponsePayload)
+                transportFailure.userMessage(receivedVisibleText, activeResponseObserver?.snapshot()?.httpStatus in 200..299)
             } else {
                 when (e) {
                     is java.net.UnknownHostException -> "Network error: Unable to resolve host."
@@ -829,40 +868,50 @@ class OpenAIAPIImpl @Inject constructor(
                     } else {
                         failureCode
                     },
-                    failureDetails = when {
-                        gatewayOutcomeUnknown -> kotlinx.serialization.json.buildJsonObject {
-                            put("failed_stage", kotlinx.serialization.json.JsonPrimitive("gateway_dispatch"))
-                            put("outcome", kotlinx.serialization.json.JsonPrimitive("unknown"))
-                            put("replay_safe", kotlinx.serialization.json.JsonPrimitive(false))
-                        }
-                        e is LocalServiceUnavailableException -> e.failureDetails()
-                        providerFailure != null -> providerFailure.failureDetails
-                        else -> kotlinx.serialization.json.buildJsonObject {
-                            put("code", kotlinx.serialization.json.JsonPrimitive(failureCode))
-                            put(
-                                "failed_stage",
-                                kotlinx.serialization.json.JsonPrimitive(
-                                    if (e is ProviderConnectivityPendingException) {
-                                        "provider_admission"
-                                    } else if (transportFailure == NetworkFailureKind.UNKNOWN) {
-                                        "stage_not_recorded"
-                                    } else {
-                                        transportFailure.failedStage
-                                    }
+                    failureDetails = providerTransportFailureDetails(
+                        details = when {
+                            gatewayOutcomeUnknown -> kotlinx.serialization.json.buildJsonObject {
+                                put("failed_stage", kotlinx.serialization.json.JsonPrimitive("gateway_dispatch"))
+                                put("outcome", kotlinx.serialization.json.JsonPrimitive("unknown"))
+                                put("replay_safe", kotlinx.serialization.json.JsonPrimitive(false))
+                            }
+                            e is LocalServiceUnavailableException -> e.failureDetails()
+                            providerFailure != null -> providerFailure.failureDetails
+                            else -> kotlinx.serialization.json.buildJsonObject {
+                                put("code", kotlinx.serialization.json.JsonPrimitive(failureCode))
+                                put(
+                                    "failed_stage",
+                                    kotlinx.serialization.json.JsonPrimitive(
+                                        if (e is ProviderConnectivityPendingException) {
+                                            "provider_admission"
+                                        } else if (transportFailure == NetworkFailureKind.UNKNOWN) {
+                                            "stage_not_recorded"
+                                        } else {
+                                            transportFailure.failedStage
+                                        }
+                                    )
                                 )
-                            )
-                            if (e is ProviderConnectivityPendingException) {
-                                put("dispatch_state", kotlinx.serialization.json.JsonPrimitive("PRECHECK_REJECTED"))
-                                put("dispatched", kotlinx.serialization.json.JsonPrimitive(false))
+                                if (e is ProviderConnectivityPendingException) {
+                                    put("dispatch_state", kotlinx.serialization.json.JsonPrimitive("PRECHECK_REJECTED"))
+                                    put("dispatched", kotlinx.serialization.json.JsonPrimitive(false))
+                                }
+                                put("retryable", kotlinx.serialization.json.JsonPrimitive(failureRetryable))
+                                if (e is ProviderConnectivityPendingException) {
+                                    put("waiting_for_connectivity", kotlinx.serialization.json.JsonPrimitive(true))
+                                    put("retry_after_ms", kotlinx.serialization.json.JsonPrimitive(e.retryAfterMs))
+                                }
+                                put("partial_output_preserved", kotlinx.serialization.json.JsonPrimitive(receivedResponsePayload))
                             }
-                            put("retryable", kotlinx.serialization.json.JsonPrimitive(failureRetryable))
-                            if (e is ProviderConnectivityPendingException) {
-                                put("waiting_for_connectivity", kotlinx.serialization.json.JsonPrimitive(true))
-                                put("retry_after_ms", kotlinx.serialization.json.JsonPrimitive(e.retryAfterMs))
-                            }
-                            put("partial_output_preserved", kotlinx.serialization.json.JsonPrimitive(receivedResponsePayload))
-                        }
-                    }
+                        },
+                        error = e,
+                        timing = activeResponseObserver?.snapshot(),
+                        dispatched = requestDispatched,
+                        receivedPayload = receivedResponsePayload,
+                        receivedVisibleText = receivedVisibleText,
+                        generationCompleted = receivedTerminal,
+                        replayAllowed = failureRetryable,
+                        requiresReconciliation = gatewayOutcomeUnknown
+                    )
                 )
             )
         }

@@ -17,6 +17,15 @@ class HomeArchivePolicyTest {
     }
 
     @Test
+    fun `offline gateway chats neither consume the ordinary quota nor become archive targets`() {
+        val gateway = (100..130).map { chat(it).copy(conversationMode = dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode.GATEWAY) }
+        assertEquals(emptyList<ChatRoomV2>(), automaticArchiveTargets((1..20).map(::chat) + gateway, emptySet()))
+        val overflow = automaticArchiveTargets((1..24).map(::chat) + gateway, emptySet())
+        assertEquals(listOf(1, 3, 5, 7), overflow.map { it.id })
+        assertFalse(overflow.any { it.id >= 100 })
+    }
+
+    @Test
     fun `overflow archives alternating oldest chats`() {
         val chats = (1..24).map(::chat)
 

@@ -118,7 +118,8 @@ class AgentRunCoordinator @Inject constructor(
     private val researchSessions: dev.chungjungsoo.gptmobile.data.research.ResearchSessionStore? = null,
     private val providerWaits: ProviderWaitStore? = null,
     private val collectionDecisions: CombinedCollectionDecisionStore? = null,
-    private val gatewayChatSubmission: GatewayChatSubmission? = null
+    private val gatewayChatSubmission: GatewayChatSubmission? = null,
+    private val gatewayQueue: dev.chungjungsoo.gptmobile.data.queue.GatewayQueueStore? = null
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val jobs = ConcurrentHashMap<String, Job>()
@@ -281,7 +282,8 @@ class AgentRunCoordinator @Inject constructor(
             val request = original.copy(researchParticipantUids = original.researchParticipantUids.ifEmpty { participants[rootWorkId(original.userMessages, original.runId)].orEmpty() })
             val rootMessage = resolveTaskRecovery(request.userMessages)?.sourceMessageId ?: request.userMessages.lastOrNull()?.id
             val cancellation = dev.chungjungsoo.gptmobile.data.delegation.DelegationCancellationContext("${request.chatId}:$rootMessage", request.runId)
-            val savedAuthority = request.providerWaitAuthority?.requestGuard(settingRepository) ?: kotlin.coroutines.EmptyCoroutineContext
+            val waitAuthority = request.providerWaitAuthority?.requestGuard(settingRepository)
+            val savedAuthority = gatewayQueue?.guard(request, waitAuthority) ?: waitAuthority ?: kotlin.coroutines.EmptyCoroutineContext
             val job = scope.launch(context = cancellation + savedAuthority, start = CoroutineStart.LAZY) {
                 execute(request)
             }
@@ -873,6 +875,7 @@ class AgentRunCoordinator @Inject constructor(
             }
         }
         try {
+            currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard]?.validate?.invoke()
             request.providerWaitAuthority?.validate(settingRepository)
             researchLifecycle = prepareResearchLifecycle(request, eligibilityFailure)
             researchLifecycle?.let { researchLifecycles[request.runId] = it }

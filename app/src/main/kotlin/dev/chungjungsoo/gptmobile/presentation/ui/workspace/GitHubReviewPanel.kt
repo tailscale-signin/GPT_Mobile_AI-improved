@@ -65,7 +65,7 @@ data class GitHubFileProposal(val path: String, val before: String, val after: S
 data class GitHubReview(val connectionUid: String, val owner: String, val repo: String, val branch: String, val head: String, val checks: JsonObject = JsonObject(emptyMap()), val files: List<GitHubFileProposal> = emptyList(), val pullNumber: Int? = null, val changedFiles: JsonObject = JsonObject(emptyMap()), val reviewNotes: String = "", val inspectedAt: Long = System.currentTimeMillis(), val stale: Boolean = false)
 
 @HiltViewModel
-class GitHubReviewViewModel @Inject constructor(private val connections: ToolConnectionRepository, private val vault: SecretVault, private val workspace: WorkspaceRepository, private val engineering: dev.chungjungsoo.gptmobile.data.agent.tool.GitHubEngineeringController, private val gitHubPublicAuth: dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator? = null) : ViewModel() {
+class GitHubReviewViewModel @Inject constructor(private val connections: ToolConnectionRepository, private val vault: SecretVault, private val workspace: WorkspaceRepository, private val engineering: dev.chungjungsoo.gptmobile.data.agent.tool.GitHubEngineeringController, private val gitHubPublicAuth: dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator? = null, private val gitHubRepositoryState: dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore? = null) : ViewModel() {
     val accounts = MutableStateFlow<List<ToolConnection>>(emptyList())
     val record = MutableStateFlow<WorkspaceRecord?>(null)
     val review = MutableStateFlow<GitHubReview?>(null)
@@ -76,6 +76,7 @@ class GitHubReviewViewModel @Inject constructor(private val connections: ToolCon
     internal val selectedEngineeringRun = MutableStateFlow<dev.chungjungsoo.gptmobile.data.agent.tool.EngineeringRunRow?>(null)
     private val dismissedCommitTasks = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     internal val pendingEngineeringTask = MutableStateFlow<String?>(null)
+    internal val publishedContinuations = MutableStateFlow<List<dev.chungjungsoo.gptmobile.data.github.GitHubApprovalBinding.Continuation>>(emptyList())
     internal val programmerScope = MutableStateFlow<dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext?>(null)
     fun restrictTo(scope: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext?) {
         if (programmerScope.value == scope) return
@@ -84,15 +85,57 @@ class GitHubReviewViewModel @Inject constructor(private val connections: ToolCon
         engineeringEvents.value = emptyList()
         selectedEngineeringRun.value = null
         pendingEngineeringTask.value = null
+        publishedContinuations.value = emptyList()
         review.value = null
         record.value = null
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) { refreshEngineeringTasksNow() }
     }
     private suspend fun refreshEngineeringTasksNow() {
         val scope = programmerScope.value
-        val tasks = engineering.recent().filter { task -> scope == null || (task.repositoryOwner.equals(scope.owner, true) && task.repositoryName.equals(scope.repo, true) && task.workingBranch == scope.ref && engineering.run(task.taskId)?.connectionUid == scope.connectionUid) }
-        if (programmerScope.value == scope) engineeringTasks.value = tasks
+        val recent = engineering.recent()
+        val tasks = recent.filter { task -> scope == null || belongsToWorkspace(task, scope) }
+        val continuations = if (scope == null || gitHubRepositoryState == null) {
+            emptyList()
+        } else {
+            tasks.mapNotNull { task ->
+                engineering.verifiedPublication(task.taskId)?.let { publication ->
+                    dev.chungjungsoo.gptmobile.data.github.GitHubApprovalBinding.continuation(gitHubRepositoryState, task.taskId, scope, task.workingBranch, publication)
+                }
+            }
+        }
+        if (programmerScope.value == scope) {
+            engineeringTasks.value = tasks
+            publishedContinuations.value = continuations
+            if (scope != null && tasks.none { it.state == "AWAITING_APPROVAL" }) {
+                val unbound = recent.firstOrNull { task ->
+                    task.state == "AWAITING_APPROVAL" &&
+                        task !in tasks &&
+                        task.repositoryOwner.equals(scope.owner, true) &&
+                        task.repositoryName.equals(scope.repo, true) &&
+                        engineering.run(task.taskId)?.connectionUid == scope.connectionUid
+                }
+                if (unbound != null) notice.value = "Saved approval ${unbound.taskId} on ${unbound.workingBranch} has no verified link to this workspace. Resume its original saved task once to restore that exact card. Its patch and fixture are preserved."
+            }
+        }
     }
+    internal fun publicationContinuationQueued(taskId: String, sha: String) {
+        val store = gitHubRepositoryState ?: return
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                dev.chungjungsoo.gptmobile.data.github.GitHubApprovalBinding.continuationQueued(store, taskId, sha)
+                publishedContinuations.value = publishedContinuations.value.filterNot { it.taskId == taskId && it.sha == sha }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                notice.value = "The continuation is saved in the original chat. Its publication acknowledgment will be reconciled when this workspace reopens."
+            }
+        }
+    }
+    private suspend fun belongsToWorkspace(task: dev.chungjungsoo.gptmobile.data.agent.tool.EngineeringTaskRow, scope: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext): Boolean =
+        task.repositoryOwner.equals(scope.owner, true) &&
+            task.repositoryName.equals(scope.repo, true) &&
+            engineering.run(task.taskId)?.connectionUid == scope.connectionUid &&
+            (task.workingBranch == scope.ref || gitHubRepositoryState?.let { dev.chungjungsoo.gptmobile.data.github.GitHubApprovalBinding.belongs(it, task.taskId, scope, task.workingBranch) } == true)
     fun refreshEngineeringTasks() = action { refreshEngineeringTasksNow() }
     init {
         action {
@@ -266,7 +309,7 @@ class GitHubReviewViewModel @Inject constructor(private val connections: ToolCon
         val scope = programmerScope.value
         val task = engineering.recent().single { it.taskId == taskId }
         val run = requireNotNull(engineering.run(taskId))
-        require(scope == null || (run.connectionUid == scope.connectionUid && task.repositoryOwner.equals(scope.owner, true) && task.repositoryName.equals(scope.repo, true) && task.workingBranch == scope.ref)) { "This proposal belongs to another workspace." }
+        require(scope == null || belongsToWorkspace(task, scope)) { "This proposal belongs to another workspace." }
         require(scope != null || review.value?.files?.none { it.changed } != false || selectedEngineeringRun.value?.taskId == taskId) { "Save or discard the current proposal before reviewing a saved task." }
         val files = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
             dev.chungjungsoo.gptmobile.data.agent.tool.GitHubEngineeringAuthorization.files(run.patchJson).map { GitHubFileProposal(it.path, it.before, it.after, it.delete) }
@@ -293,7 +336,7 @@ class GitHubReviewViewModel @Inject constructor(private val connections: ToolCon
     }
     suspend fun observeWorkspaceApproval(scope: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext) {
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            engineering.observeChanges().collect {
+            kotlinx.coroutines.flow.combine(engineering.observeChanges(), dev.chungjungsoo.gptmobile.data.github.GitHubApprovalBinding.observeChanges()) { _, _ -> Unit }.collect {
                 try {
                     // An invalidation received during preparation or approval must
                     // survive until that action releases the review state.

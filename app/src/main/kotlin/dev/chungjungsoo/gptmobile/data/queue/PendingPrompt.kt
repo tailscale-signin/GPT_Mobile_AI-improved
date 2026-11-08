@@ -39,5 +39,6 @@ data class PendingPromptPayload(
     val tools: ChatMcpToolConfig = ChatMcpToolConfig(),
     val localOnly: Boolean = false,
     val requiresSpendAllowance: Boolean = false,
-    val requestId: String? = null
+    val requestId: String? = null,
+    val gateway: GatewayQueuedSelection? = null
 )

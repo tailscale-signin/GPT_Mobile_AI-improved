@@ -96,7 +96,7 @@ class McpCatalogueDeadlineTest {
                         buildJsonObject {
                             put("jsonrpc", "2.0")
                             put("id", body.getValue("id"))
-                            put("result", Json.parseToJsonElement("""{"supportedVersions":["2026-07-28"]}"""))
+                            put("result", Json.parseToJsonElement("""{"supportedVersions":["2026-07-28"],"capabilities":{"tools":{}}}"""))
                         }.toString(),
                         headers = headersOf("Content-Type", "application/json")
                     )
@@ -135,7 +135,7 @@ class McpCatalogueDeadlineTest {
             MockEngine { request ->
                 val body = Json.parseToJsonElement((request.body as TextContent).text).jsonObject
                 val result = if (body.getValue("method").jsonPrimitive.content == "server/discover") {
-                    Json.parseToJsonElement("""{"supportedVersions":["2026-07-28"]}""")
+                    Json.parseToJsonElement("""{"supportedVersions":["2026-07-28"],"capabilities":{"tools":{}}}""")
                 } else {
                     release.await()
                     Json.parseToJsonElement("""{"tools":[{"name":"read","inputSchema":{"type":"object"}}]}""")
@@ -192,7 +192,7 @@ class McpCatalogueDeadlineTest {
             MockEngine { request ->
                 val body = Json.parseToJsonElement((request.body as TextContent).text).jsonObject
                 val result = if (body.getValue("method").jsonPrimitive.content == "server/discover") {
-                    Json.parseToJsonElement("""{"supportedVersions":["2026-07-28"]}""")
+                    Json.parseToJsonElement("""{"supportedVersions":["2026-07-28"],"capabilities":{"tools":{}}}""")
                 } else {
                     Json.parseToJsonElement("""{"tools":[{"name":"read","inputSchema":{"type":"object"}}]}""")
                 }
@@ -227,7 +227,7 @@ class McpCatalogueDeadlineTest {
             MockEngine { request ->
                 val body = Json.parseToJsonElement((request.body as TextContent).text).jsonObject
                 val result = if (body.getValue("method").jsonPrimitive.content == "server/discover") {
-                    Json.parseToJsonElement("""{"supportedVersions":["2026-07-28"]}""")
+                    Json.parseToJsonElement("""{"supportedVersions":["2026-07-28"],"capabilities":{"tools":{}}}""")
                 } else {
                     Json.parseToJsonElement("""{"tools":[{"name":"read","inputSchema":{"type":"object"}}]}""")
                 }
@@ -264,7 +264,7 @@ class McpCatalogueDeadlineTest {
             MockEngine { request ->
                 val body = Json.parseToJsonElement((request.body as TextContent).text).jsonObject
                 val result = if (body.getValue("method").jsonPrimitive.content == "server/discover") {
-                    Json.parseToJsonElement("""{"supportedVersions":["2026-07-28"]}""")
+                    Json.parseToJsonElement("""{"supportedVersions":["2026-07-28"],"capabilities":{"tools":{}}}""")
                 } else {
                     catalogs++
                     Json.parseToJsonElement("""{"tools":[{"name":"read","inputSchema":{"type":"object"}}]}""")

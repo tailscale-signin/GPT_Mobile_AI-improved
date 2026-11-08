@@ -8,7 +8,7 @@ internal object GitHubChatMembership {
     fun normalize(room: ChatRoomV2, context: GitHubConversationContext): ChatRoomV2 = room.copy(
         enabledPlatform = listOf(context.mainProfileUid),
         activePlatform = listOf(context.mainProfileUid),
-        conversationMode = ConversationMode.STANDARD,
+        conversationMode = if (room.conversationMode == ConversationMode.GATEWAY) ConversationMode.GATEWAY else ConversationMode.STANDARD,
         combinedPrimaryUid = null
     )
 

@@ -346,6 +346,8 @@ internal object GitHubTestChecklist {
 
     fun rows(receipts: Map<String, JsonObject>, tools: List<AgentToolDefinition> = emptyList(), task: String = ""): JsonArray {
         val historical = receipts.values.filter { it["trusted"] == JsonPrimitive(true) || it["success"] == JsonPrimitive(false) && it["dispatched"] == JsonPrimitive(false) }
+        val allTrusted = trusted(receipts)
+        val pendingApprovals = GitHubPendingApproval.snapshot(receipts).filterIsInstance<JsonObject>()
         val active = catalog(tools)
         val union = (
             active + historical.filter { (it.text("tool").startsWith("github_") || it.text("tool").substringBefore("__") == "repository_graph") && (it["arguments"] as? JsonObject)?.containsKey("view_cursor") != true }.map {
@@ -364,7 +366,16 @@ internal object GitHubTestChecklist {
                 }
                 val authorized = tools.isNotEmpty() && (active.any { it.tool == capability.tool && it.action == capability.action } || observed.any(::permitted))
                 val eligible = observed.filter { it["verification_eligible"] != JsonPrimitive(false) && (tools.isEmpty() || permitted(it)) }
-                val successes = eligible.filter { it["success"] == JsonPrimitive(true) }
+                val successes = eligible.mapNotNull { receipt ->
+                    if (receipt["success"] != JsonPrimitive(true) || data(receipt)?.text("schema") == "github.repeat.v1") {
+                        null
+                    } else if (GitHubPendingApproval.taskId(receipt) != null) {
+                        GitHubPendingApproval.publication(receipt, allTrusted)
+                    } else {
+                        receipt
+                    }
+                }.distinct()
+                val waitingApproval = eligible.any { receipt -> GitHubPendingApproval.taskId(receipt)?.let { id -> pendingApprovals.any { it.text("engineering_task_id") == id } } == true }
                 val failures = observed.filter { it["success"] != JsonPrimitive(true) }
                 val latest = eligible.lastOrNull()
                 val immediatePublication = capability.tool == "github_stage_patch" && (latest?.get("arguments") as? JsonObject)?.get("commit_immediately") == JsonPrimitive(true)
@@ -383,6 +394,7 @@ internal object GitHubTestChecklist {
                     notRequested -> "Write operations are excluded by the requested read-only scope."
                     excluded -> "Account-wide repository discovery is outside this workspace's selected repository scope."
                     eligible.isEmpty() && observed.isNotEmpty() -> "Current catalog excludes the historical receipts; reauthorize this operation before using them as proof."
+                    waitingApproval -> "The exact staged patch is waiting for its existing Approve & Commit card. Generic continuation cannot grant approval; preserve the task and fixture."
                     transportMissing -> "Saved, local or mocked responses cannot qualify this remote operation; an authorized live read or verified mutation is still required."
                     incomplete -> "The endpoint responded but traversal or log availability remains incomplete; follow the saved continuation or wait for the recorded state change."
                     failures.isNotEmpty() && (successes.isEmpty() || latest?.get("success") == JsonPrimitive(false)) -> "Resolve recorded errors: " + failures.map { it.text("error_code") }.distinct().joinToString(", ") + ". " + GitHubVerificationRecovery.advice(failures)
@@ -398,6 +410,7 @@ internal object GitHubTestChecklist {
                 val status = when {
                     notRequested -> "NOT_REQUESTED"
                     excluded -> "OUT_OF_SCOPE"
+                    waitingApproval -> "BLOCKED"
                     incomplete || tools.isNotEmpty() && !authorized -> "BLOCKED"
                     latest?.get("success") == JsonPrimitive(false) -> if (latest["dispatched"] == JsonPrimitive(false)) "PREFLIGHT_REJECTED" else "FAILED"
                     transportMissing -> unqualifiedStatus
@@ -415,7 +428,8 @@ internal object GitHubTestChecklist {
                     put("acceptance_state", GitHubAcceptanceLedger.state(status).name)
                     put("evidence_origins", JsonArray(eligible.map { GitHubEvidenceOrigin.of(it) }.distinct().map(::JsonPrimitive)))
                     put("live_verified", successes.any { GitHubEvidenceOrigin.of(it) == "LIVE" })
-                    put("response_validated", successes.isNotEmpty())
+                    put("response_validated", eligible.any { it["success"] == JsonPrimitive(true) })
+                    put("waiting_for_approval", waitingApproval)
                     put("requires_live_transport", liveRequired)
                     if (capability.tool == "github_stage_patch") put("publication_mode", if (immediatePublication) "IMMEDIATE_PUBLICATION" else "STAGED_ONLY")
                     put("fixture_state", if (readOnly(capability)) "NOT_APPLICABLE" else "REQUIRES_SEPARATE_VERIFICATION")
@@ -663,7 +677,9 @@ internal object GitHubTestChecklist {
             return JsonObject(if (pageSize == null) selected else selected + ("per_page" to pageSize))
         }
         val groups = trusted.filter { receipt ->
-            receipt["success"] == JsonPrimitive(true) && (receipt["arguments"] as? JsonObject)?.text("action") in setOf("workflows", "branches", "list", "commits", "runs", "tags")
+            receipt["success"] == JsonPrimitive(true) &&
+                data(receipt)?.text("schema") != "github.repeat.v1" &&
+                (receipt["arguments"] as? JsonObject)?.text("action") in setOf("workflows", "branches", "list", "commits", "runs", "tags")
         }.groupBy {
             val args = it["arguments"] as? JsonObject
             Triple(it.text("tool"), args?.text("action"), filters(it))
@@ -675,10 +691,15 @@ internal object GitHubTestChecklist {
                         ?: (data(receipt)?.get("page") as? JsonPrimitive)?.longOrNull ?: 1L
                 }.mapValues { (_, versions) -> versions.last() }
                 val pages = byPage.toSortedMap().values.mapNotNull(::data)
-                val arrays = pages.mapNotNull { page -> (page["workflows"] ?: page["items"] ?: page["pull_requests"] ?: page["workflow_runs"] ?: page["tags"]) as? JsonArray }
+                val inventories = byPage.toSortedMap().values.map(GitHubInventoryObservation::of)
+                val canonical = inventories.all { it != null }
+                val arrays = pages.mapNotNull { page -> (page["workflows"] ?: page["items"] ?: page["pull_requests"] ?: page["workflow_runs"] ?: page["tags"] ?: page["recent_commits"] ?: page["commits"] ?: page["issues"] ?: page["releases"] ?: page["branches"]) as? JsonArray }
                 val records = arrays.flatMap { it.mapNotNull { item -> item as? JsonObject } }
-                val identities = records.mapNotNull { item -> item["id"] ?: item["number"] ?: item["name"] ?: item["sha"] }.distinct()
-                val totals = pages.mapNotNull { (it["total_count"] as? JsonPrimitive)?.longOrNull }.distinct()
+                val identities = if (canonical) inventories.flatMap { (it?.get("record_keys") as? JsonArray).orEmpty() }.distinct() else records.mapNotNull { item -> item["id"] ?: item["number"] ?: item["name"] ?: item["sha"] }.distinct()
+                val fetched = if (canonical) inventories.sumOf { (it?.get("fetched") as? JsonPrimitive)?.longOrNull ?: 0 } else records.size.toLong()
+                val displayed = inventories.mapNotNull { (it?.get("displayed") as? JsonPrimitive)?.longOrNull }.takeIf { it.size == inventories.size }?.sum()
+                val coveragePages = if (canonical) inventories.filterNotNull() else pages
+                val totals = coveragePages.mapNotNull { (it["total_count"] as? JsonPrimitive)?.longOrNull }.distinct()
                 val total = totals.singleOrNull()
                 val viewIds = observations.mapNotNull { receipt ->
                     val view = (receipt["view"] as? JsonObject) ?: (receipt["result"] as? JsonObject)
@@ -697,7 +718,10 @@ internal object GitHubTestChecklist {
                 val end = byPage.keys.maxOrNull() ?: 0L
                 val contiguous = end in 1..1000 &&
                     (1L..end).all { it in byPage } &&
-                    (1L until end).all { data(requireNotNull(byPage[it]))?.get("has_more") == JsonPrimitive(true) }
+                    (1L until end).all { page ->
+                        val receipt = requireNotNull(byPage[page])
+                        (GitHubInventoryObservation.of(receipt) ?: data(receipt))?.get("has_more") == JsonPrimitive(true)
+                    }
                 val unresolvedFailure = trusted.withIndex().any { (index, failed) ->
                     if (failed["success"] == JsonPrimitive(true) || !belongs(failed)) return@any false
                     val later = trusted.drop(index + 1)
@@ -706,11 +730,11 @@ internal object GitHubTestChecklist {
                     !reopened && later.none { it["success"] == JsonPrimitive(true) && it["tool"] == failed["tool"] && it["arguments"] == failed["arguments"] }
                 }
                 val complete = contiguous &&
-                    pages.lastOrNull()?.get("has_more") == JsonPrimitive(false) &&
-                    pages.none { it["complete"] == JsonPrimitive(false) } &&
-                    arrays.size == pages.size &&
-                    arrays.sumOf { it.size } == records.size &&
-                    identities.size == records.size &&
+                    coveragePages.lastOrNull()?.get("has_more") == JsonPrimitive(false) &&
+                    coveragePages.none { it["complete"] == JsonPrimitive(false) } &&
+                    canonical &&
+                    inventories.all { it?.get("record_keys_complete") == JsonPrimitive(true) } &&
+                    identities.size.toLong() == fetched &&
                     totals.size <= 1 &&
                     (total == null || total == identities.size.toLong()) &&
                     pending.none(::belongs) &&
@@ -722,6 +746,12 @@ internal object GitHubTestChecklist {
                     put("pending_continuations", pending.count(::belongs))
                     put("filters", key.third)
                     put("retrieved", identities.size)
+                    put("fetched", fetched)
+                    put("fetched_count_scope", if (canonical) "CANONICAL_RETURNED_PAGES" else "RETAINED_PROJECTION_ONLY")
+                    put("displayed", displayed?.let(::JsonPrimitive) ?: kotlinx.serialization.json.JsonNull)
+                    put("consumed", kotlinx.serialization.json.JsonNull)
+                    put("consumption_status", "NOT_RECORDED")
+                    put("retained_review_records", records.size)
                     put("total", total?.toString() ?: "unknown total")
                     put("coverage", if (complete) "retrieval complete at observation" else "incomplete or pending pagination")
                 }

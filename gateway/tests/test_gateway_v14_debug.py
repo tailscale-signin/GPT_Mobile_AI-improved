@@ -160,6 +160,7 @@ class DebugHTTPTests(unittest.TestCase):
         self.assertEqual(200, response.status_code)
         self.assertEqual('a' * 32, response.headers['X-Gateway-Instance-ID'])
         self.assertEqual('1', response.headers['X-Gateway-Client-Diagnostics-Accepted'])
+        self.assertEqual('accepted', response.headers['X-Gateway-Client-Diagnostics-Status'])
         self.assertEqual('request1', response.headers['X-Gateway-Request-ID'])
         exported = self.client.get('/gateway/admin/debug/export')
         self.assertEqual(200, exported.status_code)
@@ -179,11 +180,18 @@ class DebugHTTPTests(unittest.TestCase):
         response = self.client.post('/v1/chat/completions', content=b'hello', headers={CLIENT_HEADER: '{"schemaVersion":1}'})
         self.assertEqual('false', response.headers['X-Gateway-Debug-Enabled'])
         self.assertNotIn('X-Gateway-Client-Diagnostics-Accepted', response.headers)
+        self.assertEqual('capture_disabled', response.headers['X-Gateway-Client-Diagnostics-Status'])
         self.assertEqual(before, self.store.export())
         for payload in [{'enabled': 'true'}, {'enabled': True, 'secret': 'anything'}, {'enabled': True, 'padding': 'x' * 1000}]:
             with self.subTest(payload=payload):
                 self.assertEqual(400, self.client.post('/gateway/admin/debug', json=payload).status_code)
         self.assertFalse(self.store.snapshot()['enabled'])
+
+    def test_malformed_client_metadata_is_explicit_without_echoing_it(self):
+        response = self.client.post('/v1/chat/completions', content=b'hello', headers={CLIENT_HEADER: 'private-invalid-metadata'})
+        self.assertEqual('invalid_metadata', response.headers['X-Gateway-Client-Diagnostics-Status'])
+        self.assertNotIn('X-Gateway-Client-Diagnostics-Accepted', response.headers)
+        self.assertNotIn('private-invalid-metadata', self.store.export())
 
     def test_restricted_health_response_is_recorded_without_accepting_unadmitted_client_metadata(self):
         self.app.user_middleware[1].kwargs['config'] = Config(mode='open_network', host='0.0.0.0')

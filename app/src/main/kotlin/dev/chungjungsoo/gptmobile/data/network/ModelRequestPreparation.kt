@@ -95,7 +95,7 @@ internal class ModelRequestPreparation(client: NetworkClient) {
                     else -> dev.chungjungsoo.gptmobile.data.context.InferencePreflightReason.REASONING_CAPABILITY_UNVERIFIED
                 }
                 kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.rejectedBeforeInference(reason)
-                throw dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityUnavailableException(reason.name)
+                throw dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityUnavailableException(reason.name, gatewayObservation)
             }
             try {
                 dev.chungjungsoo.gptmobile.data.context.ReasoningPolicy.forRequest(

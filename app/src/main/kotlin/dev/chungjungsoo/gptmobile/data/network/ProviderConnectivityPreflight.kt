@@ -17,6 +17,16 @@ internal class ProviderConnectivityPendingException(val dnsRecovery: Boolean, va
     )
 
 internal object ProviderConnectivityPreflight {
+    val continuation = ProviderContinuationConnectivity()
+
+    suspend fun awaitUsableForContinuation(endpoint: String, maximumWaitMillis: Long): Boolean {
+        if (endpointLocality(endpoint) != EndpointLocality.EXTERNAL) return true
+        val host = runCatching { URI(endpoint).host }.getOrNull() ?: return false
+        val snapshot = DeviceNetworkDiagnostics.episodes.current()
+        continuation.networkChanged(snapshot.changeId, snapshot.validation)
+        return continuation.awaitUsable(host, maximumWaitMillis)
+    }
+
     suspend fun <T> withAvailability(endpoint: String, validation: String = DeviceNetworkDiagnostics.episodes.current().validation, block: suspend () -> T): T {
         if (endpointLocality(endpoint) != EndpointLocality.EXTERNAL) return block()
         val host = runCatching { URI(endpoint).host }.getOrNull() ?: return block()
@@ -39,5 +49,8 @@ internal object ProviderConnectivityPreflight {
     fun responseReceived(endpoint: String) {
         val host = runCatching { URI(endpoint).host }.getOrNull() ?: return
         ResearchConnectivityGate.shared.success(host)
+        val snapshot = DeviceNetworkDiagnostics.episodes.current()
+        continuation.networkChanged(snapshot.changeId, snapshot.validation)
+        continuation.responseReceived(host)
     }
 }

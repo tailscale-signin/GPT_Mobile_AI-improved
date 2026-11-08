@@ -428,6 +428,7 @@ private fun ChatScreenContent(
     val availableChatTools by chatViewModel.availableChatTools.collectAsStateWithLifecycle()
     val chatToolConfig by chatViewModel.chatToolConfig.collectAsStateWithLifecycle()
     val gatewayWriteBlocker by chatViewModel.gatewayWriteBlocker.collectAsStateWithLifecycle()
+    val gatewayQueueState by chatViewModel.gatewayQueueState.collectAsStateWithLifecycle()
     val githubDecisions by chatViewModel.githubDecisions.collectAsStateWithLifecycle()
     val githubWaiting by chatViewModel.waitingGitHubDecisions.collectAsStateWithLifecycle()
     GitHubChatPresenceEffect(chatRoom.id.takeIf { chatToolConfig.github != null })
@@ -1057,6 +1058,30 @@ private fun ChatScreenContent(
                 gatewayWriteBlocker?.let { reason ->
                     item(key = "gateway-conversation-read-only") {
                         Text(reason, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+                gatewayQueueState?.let { queued ->
+                    item(key = "gateway-queue-state") {
+                        androidx.compose.material3.Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                            Column(Modifier.padding(16.dp)) {
+                                Text(
+                                    when (queued.state) {
+                                        dev.chungjungsoo.gptmobile.data.queue.GatewayQueuedState.QUEUED -> "Gateway message saved"
+                                        dev.chungjungsoo.gptmobile.data.queue.GatewayQueuedState.WAITING_FOR_GATEWAY -> "Waiting for Gateway"
+                                        dev.chungjungsoo.gptmobile.data.queue.GatewayQueuedState.RUNNING -> "Gateway work in progress"
+                                        dev.chungjungsoo.gptmobile.data.queue.GatewayQueuedState.RECONCILING -> "Checking the previous Gateway job"
+                                        dev.chungjungsoo.gptmobile.data.queue.GatewayQueuedState.BLOCKED -> "Gateway queue needs attention"
+                                    },
+                                    style = MaterialTheme.typography.titleSmall
+                                )
+                                queued.message?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                                if (queued.queuedCount > 0) Text("${queued.queuedCount} saved message${if (queued.queuedCount == 1) "" else "s"} waiting", style = MaterialTheme.typography.bodySmall)
+                                if (queued.state != dev.chungjungsoo.gptmobile.data.queue.GatewayQueuedState.RUNNING) {
+                                    TextButton(onClick = chatViewModel::checkGatewayQueue) { Text("Check saved jobs") }
+                                }
+                                if (queued.canCancelUnsubmitted) TextButton(onClick = chatViewModel::cancelUnsubmittedGateway) { Text("Stop unsubmitted message") }
+                            }
+                        }
                     }
                 }
                 if (chatToolConfig.github != null) {

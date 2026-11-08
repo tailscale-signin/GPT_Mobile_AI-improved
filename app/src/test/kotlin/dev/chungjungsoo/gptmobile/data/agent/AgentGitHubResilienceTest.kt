@@ -16,6 +16,70 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentGitHubResilienceTest {
+    @Test fun suppressedCiReadConsumesItsLocalCursorBeforeTheNextModelRound() = runTest {
+        var rounds = 0
+        var remoteReads = 0
+        var savedReads = 0
+        val read = tool("github_ci") { id, arguments ->
+            if (arguments["view_cursor"] != null) {
+                savedReads++
+                AgentToolResult(
+                    id,
+                    ToolResultContent.Json(
+                        buildJsonObject {
+                            put("schema", "github.operation.v1")
+                            put("data", buildJsonObject { put("saved_result", "all 18 returned runs") })
+                        }
+                    ),
+                    false,
+                    dispatched = false
+                )
+            } else {
+                remoteReads++
+                AgentToolResult(
+                    id,
+                    ToolResultContent.Json(
+                        buildJsonObject {
+                            put("schema", "github.operation.v1")
+                            put("data", buildJsonObject { put("preview", "returned CI evidence") })
+                            put(
+                                "recovery_call",
+                                buildJsonObject {
+                                    put("tool", "github_ci")
+                                    put("arguments", buildJsonObject { put("view_cursor", "saved:0:1536") })
+                                }
+                            )
+                        }
+                    ),
+                    false
+                )
+            }
+        }
+        val session = session { _, exchanges ->
+            if (++rounds <= 4) {
+                emit(
+                    ProviderEvent.ToolCall(
+                        "ci-$rounds",
+                        "github_ci",
+                        buildJsonObject {
+                            put("action", "runs")
+                            put("commit_sha", "a".repeat(40))
+                        }
+                    )
+                )
+            } else {
+                assertEquals(1, savedReads)
+                assertTrue(exchanges.any { it.calls.any { call -> call.callId.startsWith("saved-result-consume-") } })
+                emit(ProviderEvent.TextDelta("Completed from the saved CI result."))
+            }
+            emit(ProviderEvent.Completed)
+        }
+        assertCompleted(AgentRunner(AgentRunLimits(githubTask = true, maxToolCalls = 12)).run(session, listOf(read)).toList())
+        assertEquals(3, remoteReads)
+        assertEquals(1, savedReads)
+        assertEquals(5, rounds)
+    }
+
     @Test fun rejectedWriteDoesNotConsumeTheOnlyExecutionSlotBeforeRepair() = runTest {
         var rounds = 0
         var dispatched = 0

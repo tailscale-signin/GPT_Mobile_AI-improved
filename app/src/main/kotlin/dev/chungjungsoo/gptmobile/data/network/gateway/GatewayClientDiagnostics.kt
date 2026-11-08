@@ -15,7 +15,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
-internal enum class GatewayMetadataAcknowledgment { ACCEPTED, NOT_REQUESTED, REJECTED_BEFORE_PROCESSING, NOT_CONFIRMED }
+internal enum class GatewayMetadataAcknowledgment { ACCEPTED, NOT_REQUESTED, REJECTED_BEFORE_PROCESSING, NOT_CONFIRMED, CAPTURE_DISABLED, INVALID_METADATA }
 
 /** Opt-in allowlisted event metadata. Raw app logs, prompts, device identifiers and credentials are never uploaded. */
 internal object GatewayClientDiagnostics {
@@ -285,6 +285,8 @@ internal object GatewayClientDiagnostics {
             header("X-Gateway-Client-Diagnostics-Accepted") == "1" -> GatewayMetadataAcknowledgment.ACCEPTED
             !requested -> GatewayMetadataAcknowledgment.NOT_REQUESTED
             admissionRejected -> GatewayMetadataAcknowledgment.REJECTED_BEFORE_PROCESSING
+            header("X-Gateway-Client-Diagnostics-Status") == "capture_disabled" -> GatewayMetadataAcknowledgment.CAPTURE_DISABLED
+            header("X-Gateway-Client-Diagnostics-Status") == "invalid_metadata" -> GatewayMetadataAcknowledgment.INVALID_METADATA
             else -> GatewayMetadataAcknowledgment.NOT_CONFIRMED
         }
         return GatewayDiagnosticEvent.fields(

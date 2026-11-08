@@ -627,6 +627,15 @@ class DebugMiddleware:
                     additions[b'x-gateway-client-span-id'] = trace['parent_span_id'].encode('ascii')
                 if client and self.store.enabled and scope.get('state', {}).get('principal'):
                     additions[b'x-gateway-client-diagnostics-accepted'] = b'1'
+                    additions[b'x-gateway-client-diagnostics-status'] = b'accepted'
+                elif CLIENT_HEADER.lower().encode() not in headers:
+                    additions[b'x-gateway-client-diagnostics-status'] = b'not_requested'
+                elif not scope.get('state', {}).get('principal'):
+                    additions[b'x-gateway-client-diagnostics-status'] = b'rejected_before_processing'
+                elif not client:
+                    additions[b'x-gateway-client-diagnostics-status'] = b'invalid_metadata'
+                else:
+                    additions[b'x-gateway-client-diagnostics-status'] = b'capture_disabled'
                 prior = list(message.get('headers', []))
                 admission = next((v.decode('ascii', errors='ignore') for k, v in prior if k.lower() == b'x-gateway-admission-error'), None)
                 returned_id = next((v.decode('latin1') for k, v in prior if k.lower() == b'x-gateway-request-id'), None)

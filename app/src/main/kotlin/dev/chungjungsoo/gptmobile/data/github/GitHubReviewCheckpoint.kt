@@ -121,7 +121,8 @@ internal class GitHubReviewCheckpoint(
                     "failure_code" to JsonPrimitive(code),
                     "review_state" to JsonPrimitive(if (code == "GITHUB_REVIEW_INDETERMINATE") "INDETERMINATE" else "FAILED"),
                     "delivery_state" to JsonPrimitive("WITHHELD"),
-                    "failed_stage" to JsonPrimitive("answer_review"),
+                    "failed_stage" to (details["failed_stage"] ?: JsonPrimitive("answer_review")),
+                    "review_stage" to JsonPrimitive("answer_review"),
                     "retryable_without_new_evidence" to JsonPrimitive(!blocked || code == "GITHUB_REVIEW_INVALID_VERDICT" && ((current["format_retries"] as? JsonPrimitive)?.intOrNull ?: 0) == 0)
                 )
             )

@@ -1,7 +1,8 @@
 """Static diagnostic vocabulary. No response text, URLs or user-supplied paths are exported."""
 import re
 
-from v14.backend_observation import DEPENDENCIES, FAILURES
+from v14.backend_observation import (DEPENDENCIES, FAILURES, MODEL_STATES, UPSTREAM_BODY_STATES,
+                                     UPSTREAM_ERROR_CODES, UPSTREAM_ERROR_TYPES, UPSTREAM_MESSAGES)
 
 ROUTES = {'chat', 'models', 'readiness', 'liveness', 'capabilities', 'dashboard', 'job', 'engineering',
           'management_dashboard', 'maintenance', 'identity', 'job_catalog', 'conversations', 'messages',
@@ -13,7 +14,7 @@ ADMISSION_CODES = {'remote_surface_not_admitted', 'scope_not_granted', 'engineer
 FAILURE_CODES = {value[0] for value in FAILURES.values()} | {
     'EXECUTION_METADATA_DENIED', 'EXECUTION_METADATA_DEADLINE', 'EXECUTION_METADATA_OVERSIZE',
     'EXECUTION_BACKEND_UNAVAILABLE', 'EXECUTION_CAPABILITY_UNSUPPORTED', 'EXECUTION_CAPABILITY_INVALID',
-    'EXECUTION_MODEL_IDENTITY_INVALID', 'EXECUTION_MODEL_UNAVAILABLE', 'EXECUTION_MODEL_NOT_LOADED',
+    'EXECUTION_MODEL_IDENTITY_INVALID', 'EXECUTION_MODEL_UNAVAILABLE', 'EXECUTION_MODEL_NOT_LOADED', 'EXECUTION_MODEL_LOADING',
     'EXECUTION_MODEL_MISMATCH', 'EXECUTION_CONTEXT_UNAVAILABLE', 'EXECUTION_ENDPOINT_INVALID',
     'EXECUTION_PROVIDER_UNAVAILABLE', 'SELECTED_ONLY_UNSUPPORTED', 'SELECTED_MODEL_UNVERIFIED',
     'GATEWAY_DRAINING', 'DURABLE_STORAGE_WRITE_FAILED', 'DURABLE_STORAGE_UNAVAILABLE',
@@ -84,11 +85,12 @@ def failure_fields(value, *, conditions=True):
         result['failureCategory'] = value['failureCategory']
     for field in ('retryable', 'ready', 'networkReachable', 'modelAvailable', 'generationReady',
                   'limitsVerified', 'inferenceTested', 'automaticSubstitution', 'draining',
-                  'toolsReady', 'schemaReady', 'executionVerified', 'canQueue', 'canAccept', 'modelLoading', 'inferenceVerified'):
+                  'toolsReady', 'schemaReady', 'executionVerified', 'canQueue', 'canAccept', 'modelLoading', 'inferenceVerified',
+                  'modelAdvertised', 'modelLoaded'):
         if type(value.get(field)) is bool:
             result[field] = value[field]
         elif field in value and value[field] is None and field in {'ready', 'networkReachable', 'modelAvailable', 'generationReady',
-                                                                  'toolsReady', 'schemaReady', 'executionVerified', 'inferenceVerified'}:
+                                                                  'toolsReady', 'schemaReady', 'executionVerified', 'inferenceVerified', 'modelAdvertised', 'modelLoaded'}:
             result[field] = None
     for field in ('upstreamStatus', 'healthHttpStatus', 'modelsHttpStatus', 'observedAtMillis', 'observedAtMs', 'observationAgeMs',
                   'toolCount', 'toolConnectionCount'):
@@ -99,10 +101,20 @@ def failure_fields(value, *, conditions=True):
     for field, choices in {'metadataAccess': {'unknown', 'available', 'restricted'},
                            'backend': {'unreachable', 'restricted', 'ready', 'loading', 'unavailable'},
                            'reasoningControlState': {'VERIFIED', 'UNVERIFIED', 'UNSUPPORTED'},
+                           'modelState': MODEL_STATES,
+                           'upstreamErrorType': UPSTREAM_ERROR_TYPES,
+                           'upstreamErrorBodyState': UPSTREAM_BODY_STATES,
+                           'upstreamMessageCode': set(UPSTREAM_MESSAGES),
                            'toolsState': {'NOT_CONFIGURED', 'AUTH_REQUIRED', 'UNAVAILABLE', 'NOT_DISCOVERED', 'STALE', 'READY', 'NOT_MEASURED'},
                            'journal': {'ready', 'disabled', 'unavailable', 'write_failed'}}.items():
         if choice(value.get(field), choices):
             result[field] = value[field]
+    code = value.get('upstreamCode')
+    if (type(code) is int and 100 <= code <= 599) or choice(code, UPSTREAM_ERROR_CODES):
+        result['upstreamCode'] = code
+    # Derive the public summary from its code, never copy an upstream body field.
+    if result.get('upstreamMessageCode') in UPSTREAM_MESSAGES:
+        result['upstreamMessage'] = UPSTREAM_MESSAGES[result['upstreamMessageCode']]
     nested = value.get('conditions')
     if conditions and isinstance(nested, dict):
         projected = {key: item for key in ('backend', 'health', 'models', 'selectedModel', 'storage', 'process')

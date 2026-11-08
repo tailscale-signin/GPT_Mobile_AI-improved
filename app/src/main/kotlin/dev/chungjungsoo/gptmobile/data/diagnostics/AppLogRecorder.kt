@@ -64,6 +64,8 @@ object AppLogRecorder {
             privateSessions.add(owner)
             dev.chungjungsoo.gptmobile.data.network.gateway.GatewayClientDiagnostics.pause()
             captureEpoch.incrementAndGet()
+            CombinedOperationTrace.clearFrameHistory()
+            FrameTimingRecorder.clearRunHistory()
             process?.destroy()
             process = null
             reader?.cancel()
@@ -191,6 +193,8 @@ object AppLogRecorder {
             reader?.cancel()
             reader = null
             captureEpoch.incrementAndGet()
+            CombinedOperationTrace.clearFrameHistory()
+            FrameTimingRecorder.clearRunHistory()
             queue.clear()
             coalescer.clear()
             dev.chungjungsoo.gptmobile.data.agent.ToolCatalogDiagnostics.clear()
@@ -234,9 +238,18 @@ object AppLogRecorder {
         }
     }
 
-    fun record(tag: String, message: String, level: String = "I") {
-        if (!mutableEnabled.value || privateSessions.isNotEmpty()) return
+    internal fun operationCaptureEpoch(): Long? {
         val epoch = captureEpoch.get()
+        return epoch.takeIf { mutableEnabled.value && privateSessions.isEmpty() }
+    }
+
+    internal fun operationCaptureCurrent(epoch: Long): Boolean = mutableEnabled.value && privateSessions.isEmpty() && epoch == captureEpoch.get()
+
+    fun record(tag: String, message: String, level: String = "I") = recordCaptured(captureEpoch.get(), tag, message, level)
+
+    /** A long-running producer cannot publish old capture data after clear or a privacy transition. */
+    internal fun recordCaptured(epoch: Long, tag: String, message: String, level: String = "I") {
+        if (!operationCaptureCurrent(epoch)) return
         coalescer.accept(tag.take(64), diagnosticMessageForStorage(message), level).forEach { (eventTag, eventMessage, eventLevel) ->
             if (!mutableEnabled.value || privateSessions.isNotEmpty() || epoch != captureEpoch.get()) return@forEach
             val entry = AppLogEntry(System.currentTimeMillis(), eventLevel.take(1), eventTag, eventMessage)
@@ -280,6 +293,8 @@ object AppLogRecorder {
                 synchronized(fileLock) {
                     // Invalidate producers that began sanitizing a record before this clear.
                     captureEpoch.incrementAndGet()
+                    CombinedOperationTrace.clearFrameHistory()
+                    FrameTimingRecorder.clearRunHistory()
                     queue.clear()
                     recent.clear()
                     recentCharacters = 0

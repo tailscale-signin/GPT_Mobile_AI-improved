@@ -1,6 +1,11 @@
 package dev.chungjungsoo.gptmobile.data.network.gateway
 
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
+import java.io.IOException
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -44,6 +49,90 @@ class GatewayConversationRequestTest {
         val failure = runCatching { gatewayConversationRequest(payload, config).beforeDispatch(config) }.exceptionOrNull()
         assertTrue(failure is IllegalStateException)
         assertTrue(failure?.message.orEmpty().contains("no model request was sent"))
+    }
+
+    @Test
+    fun queuedGatewayRequestsRequireTheSavedConversationAndDispatchContracts() = runTest {
+        val selected = config.copy(requireGatewayConversation = true, onGatewayCommandPrepared = {}, onGatewayCommandDispatching = {})
+        gatewayConversationRequest(payload, selected).beforeDispatch(selected)
+        for (invalid in listOf(
+            selected.copy(gatewayConversationSync = false),
+            selected.copy(queuePersistent = false),
+            selected.copy(gatewayConversationKey = null),
+            selected.copy(onGatewayCommandPrepared = null),
+            selected.copy(onGatewayCommandDispatching = null)
+        )) {
+            val failure = runCatching { gatewayConversationRequest(payload, invalid) }.exceptionOrNull()
+            assertTrue(failure is IllegalStateException)
+            assertTrue(failure?.message.orEmpty().contains("GATEWAY_QUEUE_DURABILITY_REQUIRED"))
+        }
+    }
+
+    @Test
+    fun cancellationAfterReservationRecordsTheExactUnsentCommandBeforePropagatingCancellation() = runTest {
+        val reservations = mutableListOf<String>()
+        val unsent = mutableListOf<String>()
+        var wireAttempts = 0
+        var dispatchArmed = false
+        val selected = config.copy(
+            requireGatewayConversation = true,
+            onGatewayCommandPrepared = {
+                reservations += it
+                currentCoroutineContext().cancel()
+            },
+            onGatewayCommandNotDispatched = {
+                assertTrue(currentCoroutineContext().isActive)
+                unsent += it
+            },
+            onGatewayCommandDispatching = { dispatchArmed = true }
+        )
+        val frozen = gatewayConversationRequest(payload, selected)
+        val attempt = launch {
+            frozen.beforeDispatch(selected)
+            frozen.armDispatch(selected)
+            wireAttempts++
+        }
+        attempt.join()
+        assertTrue(attempt.isCancelled)
+        assertEquals(listOf(frozen.commandId), reservations)
+        assertEquals(listOf(frozen.commandId), unsent)
+        assertFalse(dispatchArmed)
+        assertEquals(0, wireAttempts)
+    }
+
+    @Test
+    fun aReservationFailureRetainsItsOriginalErrorAfterBestEffortUnsentRecording() = runTest {
+        val original = IOException("reservation failed")
+        val unsent = mutableListOf<String>()
+        val selected = config.copy(
+            onGatewayCommandPrepared = { throw original },
+            onGatewayCommandNotDispatched = {
+                unsent += it
+                throw IOException("journal temporarily unavailable")
+            }
+        )
+        val frozen = gatewayConversationRequest(payload, selected)
+        assertEquals(original, runCatching { frozen.beforeDispatch(selected) }.exceptionOrNull())
+        assertEquals(listOf(frozen.commandId), unsent)
+    }
+
+    @Test
+    fun aDispatchBoundaryFailureCannotPublishUnsentProofForAnAlreadyArmedCommand() = runTest {
+        val unsent = mutableListOf<String>()
+        var armed: String? = null
+        val selected = config.copy(
+            onGatewayCommandPrepared = {},
+            onGatewayCommandNotDispatched = { unsent += it },
+            onGatewayCommandDispatching = {
+                armed = it
+                throw IOException("dispatch-state acknowledgement lost")
+            }
+        )
+        val frozen = gatewayConversationRequest(payload, selected)
+        frozen.beforeDispatch(selected)
+        assertTrue(runCatching { frozen.armDispatch(selected) }.exceptionOrNull() is IOException)
+        assertEquals(frozen.commandId, armed)
+        assertTrue(unsent.isEmpty())
     }
 
     @Test

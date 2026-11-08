@@ -36,6 +36,12 @@ class GatewayChatSubmission @Inject constructor(
     /** Null means this route has no compatible autonomous protocol, before any submission. */
     suspend fun submitIfSupported(request: AgentRunRequest): GatewayChatHandoff? {
         val tools = request.chatToolConfig
+        // Explicit Gateway chats use their own frozen inference destination. A GitHub
+        // engineering override cannot turn their queued ordinary turn into another job.
+        if (request.chatId in settings.getFeatureSettings().conversationGateway) {
+            conversations.conversationWriteBlocker(request.chatId)?.let { error(it) }
+            return null
+        }
         if (request.stage == null && tools?.combined == null && chats.researchPersistenceAllowed(request.chatId)) {
             engineering.conversationWriteBlocker(request.chatId)?.let { error(it) }
         }

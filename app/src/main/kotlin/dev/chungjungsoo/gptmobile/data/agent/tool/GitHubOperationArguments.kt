@@ -62,6 +62,10 @@ internal object GitHubOperationArguments {
         }
         when (operation) {
             "github_context" -> {
+                if ("engineering_task_id" in args) {
+                    if (text("action") != "recovery") errors += "engineering_task_id is only used by read-only native approval recovery"
+                    unused("fixture_plan", "ref", "stage_id", "branch", "base_sha", "commit_sha")
+                }
                 if ("fixture_plan" in args) {
                     if (text("action") != "recovery") errors += "fixture_plan is only used by read-only fixture recovery"
                     required("branch", "base_sha", "commit_sha")

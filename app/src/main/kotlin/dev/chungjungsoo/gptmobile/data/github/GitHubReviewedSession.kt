@@ -201,17 +201,35 @@ internal class GitHubReviewedSession(
         }
         if (compatibility != null) {
             progress("Checking the selected profile's review format before repository work")
-            val compatible = compatibility.supports(reviewerRevision) {
-                try {
-                    val response = collectPass(GitHubReviewCompatibility.PROMPT, "github-review-preflight", GitHubReviewSchema.MAX_OUTPUT_CHARACTERS)
-                    GitHubReviewSchema.validate(response, listOf(GitHubReviewCompatibility.EVIDENCE_ID)).approved
+            val compatible = compatibility.check(reviewerRevision) {
+                val response = try {
+                    collectPass(GitHubReviewCompatibility.PROMPT, "github-review-preflight", GitHubReviewSchema.MAX_OUTPUT_CHARACTERS)
                 } catch (cancelled: CancellationException) {
                     throw cancelled
-                } catch (_: Exception) {
-                    false
+                } catch (failure: Exception) {
+                    return@check GitHubReviewCompatibility.Result.Unavailable(reviewUnavailable(failure, "review_compatibility"))
+                }
+                if (runCatching { GitHubReviewSchema.validate(response, listOf(GitHubReviewCompatibility.EVIDENCE_ID)) }.isSuccess) {
+                    GitHubReviewCompatibility.Result.Supported
+                } else {
+                    GitHubReviewCompatibility.Result.UnsupportedFormat
                 }
             }
-            if (!compatible) {
+            if (compatible is GitHubReviewCompatibility.Result.Unavailable) {
+                emit(
+                    compatible.failure.copy(
+                        failureDetails = JsonObject(
+                            compatible.failure.failureDetails.orEmpty() + buildJsonObject {
+                                put("review_stage", "review_compatibility")
+                                put("repository_operations_started", false)
+                                put("profile_fallback", false)
+                            }
+                        )
+                    )
+                )
+                return@flow
+            }
+            if (compatible == GitHubReviewCompatibility.Result.UnsupportedFormat) {
                 emit(
                     ProviderEvent.Failed(
                         "GITHUB_REVIEW_INCOMPATIBLE: The selected AI profile could not produce the required review contract. Check this profile's model, gateway and structured-output settings, then retry. No alternate profile was used and this request did not start repository operations.",
@@ -321,7 +339,8 @@ internal class GitHubReviewedSession(
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
-            val code = when (failure) {
+            val original = (failure as? ReviewPassFailure)?.original
+            val code = original?.errorCode ?: when (failure) {
                 is ReviewInputFailure -> if (failure.missing == listOf("REVIEW_INPUT_CAPACITY")) "GITHUB_REVIEW_CAPACITY" else "GITHUB_REVIEW_BLOCKED"
                 is ReviewVerdictFailure -> "GITHUB_REVIEW_INVALID_VERDICT"
                 is ReviewIndeterminateFailure -> "GITHUB_REVIEW_INDETERMINATE"
@@ -330,7 +349,8 @@ internal class GitHubReviewedSession(
             }
             val blocked = failure !is ReviewPassFailure || failure.splittable
             val details = JsonObject(
-                reviewFailureDetails((failure as? ReviewInputFailure)?.missing.orEmpty(), undispatched = failure is ReviewInputFailure) + buildJsonObject {
+                reviewFailureDetails((failure as? ReviewInputFailure)?.missing.orEmpty(), undispatched = failure is ReviewInputFailure) + original?.failureDetails.orEmpty() + buildJsonObject {
+                    put("review_stage", "answer_review")
                     put("draft_retained", draft.isNotBlank())
                     put("evidence_records", receipts.size)
                     put("verdict_schema_version", GitHubReviewSchema.VERSION)
@@ -348,7 +368,7 @@ internal class GitHubReviewedSession(
                 else -> "Retry can resume saved verdicts after model availability recovers."
             }
             progress("Answer review blocked · $code · saved draft and ${receipts.size} evidence records retained. $recovery")
-            emit(ProviderEvent.Failed("$code: GitHub answer withheld: ${failure.message.orEmpty().take(1200)} $recovery", errorCode = code, transportComplete = true, taskOutcome = if (blocked && !formatRetry) "BLOCKED" else "PARTIAL", failureDetails = details))
+            emit(ProviderEvent.Failed("$code: GitHub answer withheld: ${failure.message.orEmpty().take(1200)} $recovery", errorCode = code, transportComplete = original?.transportComplete ?: (failure !is ReviewPassFailure), providerLimit = original?.providerLimit, taskOutcome = if (blocked && !formatRetry) "BLOCKED" else "PARTIAL", failureDetails = details))
         }
     }
 
@@ -532,8 +552,25 @@ internal class GitHubReviewedSession(
     }
 
     private var reviewPasses = 0
-    private class ReviewPassFailure(message: String, val splittable: Boolean) : IllegalStateException(message)
+    private class ReviewPassFailure(message: String, val splittable: Boolean, val original: ProviderEvent.Failed? = null) : IllegalStateException(message)
     private class ReviewVerdictFailure(message: String) : IllegalStateException(message)
+
+    private fun reviewUnavailable(failure: Exception, stage: String): ProviderEvent.Failed {
+        (failure as? ReviewPassFailure)?.original?.let { return it }
+        val provider = dev.chungjungsoo.gptmobile.data.network.providerExceptionDetails(failure, partialOutput = false)
+        val kind = dev.chungjungsoo.gptmobile.data.network.networkFailureKind(failure)
+        return ProviderEvent.Failed(
+            provider?.message ?: "The selected review request could not complete. Saved work remains available; retry after the recorded service condition is resolved.",
+            errorCode = provider?.code ?: kind.code.takeUnless { kind == dev.chungjungsoo.gptmobile.data.network.NetworkFailureKind.UNKNOWN } ?: "GITHUB_REVIEW_UNAVAILABLE",
+            failureDetails = JsonObject(
+                provider?.failureDetails.orEmpty() + buildJsonObject {
+                    if (provider?.failureDetails?.get("failed_stage") == null) put("failed_stage", stage)
+                    put("review_stage", stage)
+                    put("cause_types", JsonArray(dev.chungjungsoo.gptmobile.data.network.sanitizedCauseTypes(failure).map(::JsonPrimitive)))
+                }
+            )
+        )
+    }
 
     private suspend fun validatedPass(prompt: String, kind: String, ids: List<String>): GitHubReviewSchema.Verdict {
         var request = prompt
@@ -595,38 +632,47 @@ internal class GitHubReviewedSession(
         if (!kind.endsWith("-preflight") && checkpoint?.claimPass(32) == false) throw ReviewPassFailure("The saved review allowance is exhausted; change the evidence or supported profile configuration before retrying.", false)
         val output = StringBuilder()
         var completed = false
-        var failure: String? = null
+        var failure: ProviderEvent.Failed? = null
         var limitFailureComplete = false
         var unsafeFailure = false
         var splittable = false
         var length = false
-        openReview(prompt, kind).streamRound(emptyList(), emptyList()).collect { event ->
-            when (event) {
-                is ProviderEvent.TextDelta -> {
-                    if (output.length.toLong() + event.text.length > cap) throw ReviewPassFailure("Review response exceeded its bounded output allowance.", true)
-                    output.append(event.text)
+        try {
+            openReview(prompt, kind).streamRound(emptyList(), emptyList()).collect { event ->
+                when (event) {
+                    is ProviderEvent.TextDelta -> {
+                        if (output.length.toLong() + event.text.length > cap) throw ReviewPassFailure("Review response exceeded its bounded output allowance.", true)
+                        output.append(event.text)
+                    }
+                    is ProviderEvent.Failed -> {
+                        failure = event
+                        splittable = event.errorCode in setOf("CONTEXT_CAPACITY_EXCEEDED", "OUTPUT_LIMIT") || Regex("(?i)context.*(?:exceed|capacity)|output.*limit|finishReason=length").containsMatchIn(event.message)
+                        limitFailureComplete = event.transportComplete && (event.errorCode == "OUTPUT_LIMIT" || dev.chungjungsoo.gptmobile.data.agent.tool.isProviderOutputLimitFailure(event.message))
+                        if (!limitFailureComplete) unsafeFailure = true
+                    }
+                    is ProviderEvent.Usage -> if (event.finishReason == "length") length = true
+                    is ProviderEvent.ToolCall, is ProviderEvent.ToolResult -> {
+                        failure = ProviderEvent.Failed("Review attempted a tool operation.", errorCode = "TOOL_PROTOCOL_INVALID_FRAME")
+                        limitFailureComplete = false
+                        unsafeFailure = true
+                    }
+                    is ProviderEvent.Completed -> completed = true
+                    else -> Unit // Private reviewer text, metadata and usage are not the user's answer; the invocation ledger observes usage upstream.
                 }
-                is ProviderEvent.Failed -> {
-                    failure = event.message
-                    splittable = event.errorCode in setOf("CONTEXT_CAPACITY_EXCEEDED", "OUTPUT_LIMIT") || Regex("(?i)context.*(?:exceed|capacity)|output.*limit|finishReason=length").containsMatchIn(event.message)
-                    limitFailureComplete = event.transportComplete && (event.errorCode == "OUTPUT_LIMIT" || dev.chungjungsoo.gptmobile.data.agent.tool.isProviderOutputLimitFailure(event.message))
-                    if (!limitFailureComplete) unsafeFailure = true
-                }
-                is ProviderEvent.Usage -> if (event.finishReason == "length") length = true
-                is ProviderEvent.ToolCall, is ProviderEvent.ToolResult -> {
-                    failure = "Review attempted a tool operation."
-                    limitFailureComplete = false
-                    unsafeFailure = true
-                }
-                is ProviderEvent.Completed -> completed = true
-                else -> Unit // Private reviewer text, metadata and usage are not the user's answer; the invocation ledger observes usage upstream.
             }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: ReviewPassFailure) {
+            throw error
+        } catch (error: Exception) {
+            val unavailable = reviewUnavailable(error, if (kind.endsWith("-preflight")) "review_compatibility" else "answer_review")
+            throw ReviewPassFailure(unavailable.message, false, unavailable)
         }
         // A fully closed verdict remains usable when the provider labels the packet
         // length-limited. Exact schema and evidence-ID validation still decide acceptance.
         // Truncated JSON, interrupted transports and corrections cannot take this path.
         if (!kind.endsWith("repair") && !unsafeFailure && (length && completed && failure == null || limitFailureComplete) && runCatching { GitHubReviewSchema.parseVerdict(output.toString()) }.isSuccess) return output.toString()
-        if (failure != null || !completed || length || output.isBlank()) throw ReviewPassFailure(failure ?: "Review produced no complete visible verdict.", splittable || length || completed && output.isBlank())
+        if (failure != null || !completed || length || output.isBlank()) throw ReviewPassFailure(failure?.message ?: "Review produced no complete visible verdict.", splittable || length || completed && output.isBlank(), failure)
         return output.toString()
     }
 

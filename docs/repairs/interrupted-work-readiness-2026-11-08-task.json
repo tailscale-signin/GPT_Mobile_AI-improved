@@ -1,0 +1,71 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "fix/gateway-readiness-diagnostics-2026-11-08",
+  "base_sha": "f1dc03894fbc250945634d6a1f11e6149926c469",
+  "working_branch": "fix/gateway-readiness-diagnostics-2026-11-08",
+  "pull_request": 814,
+  "intent": "Implement both diagnostic reviews and the Gateway chat home/offline serial queue request on the existing repair branch, preserving selected-model identity, native approvals, original workflow modes, durable evidence and unknown-mutation reconciliation.",
+  "state": "READY_FOR_BRANCH_CI",
+  "task_store": "engineering_agent_checkpoints",
+  "task_store_key": "interrupted-work-readiness-2026-11-08",
+  "scope": {
+    "gateway": "Exact-model loaded state and preparation, bounded upstream error evidence, scoped readiness, safe management-read recovery, host GitHub prerequisites, client diagnostic acknowledgements and probe coalescing",
+    "github": "Durable approval/fixture lifecycle, catalog invalidation and rediscovery, bounded no-failed-CI completion, saved-result cursor consumption, canonical evidence coverage, outcome/budget/duration presentation",
+    "recovery": "Typed provider/stream failures, accepted-request identity, checkpoint continuation separate from request replay, no-progress detection, selected-profile progress narration, review compatibility/error propagation",
+    "android": "Explicit MCP lifecycle/version policy, rendering/serialization/lock costs, frame/incident coverage, complete diagnostic evidence, deferred memory wakeup and warning classification",
+    "gateway_home": "Gateway-only chat destination matching main menu; immediate stable navigation; direct single-profile creation or gateway-supported model picker; durable offline ordered messages; one gateway job at a time; row-to-chat navigation; retained process-wide availability monitor with background cadence and network/configuration wakeups."
+  },
+  "validation": {
+    "canonical_host": {
+      "fast_checks": "PASS",
+      "script_tests_passed": 404,
+      "gateway_python_passed": 665,
+      "gateway_python_skipped": 1,
+      "gateway_browser_passed": 7,
+      "authentication_passed": 25,
+      "android_gradle": "BLOCKED: Gradle9.8 download failed with Network is unreachable; JDK21/SDK37 unavailable"
+    },
+    "focused_jvm": {
+      "gateway": 205,
+      "diagnostics": 109,
+      "journal": 28,
+      "mcp": 41,
+      "ci_reporting": 27,
+      "accounting": 11,
+      "recovery": 98,
+      "workflow": 48,
+      "fixture_binding_publication": 20,
+      "queue_deduplication": 2,
+      "frame_and_memory_helpers": 6
+    },
+    "compile_only": {
+      "provider_adapter": "PASS using cached Android signatures/current DTO/helpers at JVM21",
+      "agent_runner": "PASS using cached Android signatures/current production helpers at JVM21",
+      "gateway_queue": "PASS current queue, worker, store and DAO against explicit Android/Room/WorkManager signature boundaries",
+      "gateway_room_tests": "PASS current store/DAO and 17 Room test sources; runtime not executed locally",
+      "full_chat_runtime": "BLOCKED locally by missing Android/Compose/Hilt dependencies; source reviewed; full branch CI required"
+    },
+    "gateway_home": {
+      "profile_creator_history_backup_host_passed": 62,
+      "shared_monitor_host_passed": 16,
+      "archive_policy_host_passed": 4,
+      "queue_dao_sql_assertions_passed": 29,
+      "chat_dao_sql_cases_passed": 4,
+      "queue_room_tests_added": 17,
+      "chat_room_tests_added": 3,
+      "room_runtime": "NOT_RUN_LOCALLY: full Android CI required",
+      "native_approval_gateway_continuation": "Regression added for Android CI"
+    },
+    "head_ci": "PENDING_PUBLICATION: changes prepared for the requested branch"
+  },
+  "qualification": "Requested source changes are implemented. Canonical host, focused behavioral, SQL and compile checks are recorded separately. Complete Android compilation/generated Room/Hilt/Compose checks await exact-head CI. Physical device lifecycle/performance and incident-PC model/service/fixture qualification remain unverified.",
+  "issue_inventory": {
+    "unique_issues": 250,
+    "open": 0,
+    "closed": 250,
+    "automated_build_failure_reports": 248,
+    "pull_requests_excluded": true,
+    "complete": true
+  }
+}

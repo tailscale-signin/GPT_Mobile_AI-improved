@@ -7,6 +7,29 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class ProviderExceptionDetailsTest {
+    @Test fun gatewayModelQualificationPreservesOriginalPropertiesFailureThroughProviderAdapter() {
+        val observation = dev.chungjungsoo.gptmobile.data.context.GatewayModelCapabilityObservation(
+            failureCode = "EXECUTION_MODEL_NOT_LOADED",
+            reasonCode = "SELECTED_MODEL_NOT_LOADED",
+            dependency = "backend_properties",
+            upstreamStatus = 400,
+            modelState = "UNLOADED",
+            modelAdvertised = true,
+            modelLoaded = false,
+            upstreamMessageCode = "MODEL_NOT_LOADED"
+        )
+        val exception = dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityUnavailableException("REASONING_CAPABILITY_UNAVAILABLE", observation)
+        val failure = requireNotNull(providerExceptionDetails(exception, partialOutput = false))
+        assertEquals("REASONING_CAPABILITY_UNAVAILABLE", failure.code)
+        assertEquals(false, failure.retryable)
+        assertEquals(JsonPrimitive("provider_admission"), failure.failureDetails?.get("failed_stage"))
+        assertEquals(JsonPrimitive("NOT_DISPATCHED"), failure.failureDetails?.get("attempt_dispatch_state"))
+        assertEquals(JsonPrimitive("SELECTED_MODEL_NOT_LOADED"), failure.failureDetails?.get("gateway_reason_code"))
+        assertEquals(JsonPrimitive("backend_properties"), failure.failureDetails?.get("gateway_dependency"))
+        assertEquals(JsonPrimitive(400), failure.failureDetails?.get("gateway_upstream_status"))
+        org.junit.Assert.assertTrue(failure.message.contains("prepare-model --model"))
+    }
+
     @Test fun gatewayPrerequisitesPreserveTypedCauseWithoutClaimingEarlierAttemptsWereUnsent() {
         val error = dev.chungjungsoo.gptmobile.data.github.GatewayAdmissionException(dev.chungjungsoo.gptmobile.data.github.GatewayAdmissionReason.ENGINEERING_GITHUB_REQUIRED, 200, null, dev.chungjungsoo.gptmobile.data.github.GatewayAdmissionSurface.CAPABILITIES)
         val failure = requireNotNull(providerExceptionDetails(error, partialOutput = true))

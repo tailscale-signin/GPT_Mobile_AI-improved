@@ -57,7 +57,7 @@ BOOL_ATTRIBUTES = {'vendor_log_available', 'source_available', 'client_metadata_
                    'response_headers_received', 'response_headers_sent', 'response_body_completed'}
 ENUM_ATTRIBUTES = {'route': ROUTES, 'failure_code': FAILURE_CODES, 'reason_code': FAILURE_CODES, 'dependency': DEPENDENCIES,
                    'method': {'GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'},
-                   'client_metadata_acknowledgment': {'ACCEPTED', 'NOT_REQUESTED', 'REJECTED_BEFORE_PROCESSING', 'NOT_CONFIRMED'},
+                   'client_metadata_acknowledgment': {'ACCEPTED', 'NOT_REQUESTED', 'REJECTED_BEFORE_PROCESSING', 'NOT_CONFIRMED', 'CAPTURE_DISABLED', 'INVALID_METADATA'},
                    'gateway_admission_code': {'remote_surface_not_admitted', 'scope_not_granted', 'engineering_scope_required',
                                               'tool_scope_required_for_runtime', 'local_admin_required', 'transport_identity_required',
                                               'invalid_host', 'invalid_origin', 'duplicate_admission_header', 'browser_csrf_required',

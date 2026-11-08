@@ -11,7 +11,7 @@ from contextlib import closing
 from v14.journal import SCHEMA_VERSION, schema_version
 from v14.readiness import observations
 from v14.backend_observation import (backend_root, exception_failure, failure, http_failure,
-                                     read_metadata, MetadataFailure, record_backend_result)
+                                     read_metadata, MetadataFailure, model_state, record_backend_result)
 from v14.execution_binding import ExecutionBindingError
 
 
@@ -79,6 +79,7 @@ class BackendReadiness:
 
     def _probe(self, runtime, model):
         result = {'networkReachable': False, 'modelAvailable': None, 'generationReady': None,
+                  'modelLoaded': None, 'modelState': 'UNKNOWN',
                   'metadataAccess': 'unknown', 'healthHttpStatus': None, 'modelsHttpStatus': None,
                   'backend': 'unreachable', 'inferenceVerified': None,
                   'readinessEvidence': 'health_and_model_catalog'}
@@ -130,6 +131,14 @@ class BackendReadiness:
                             values = body.get('data') if isinstance(body, dict) else None
                             if isinstance(values, list) and len(values) <= 1024 and all(isinstance(item, dict) and isinstance(item.get('id'), str) for item in values):
                                 result['modelAvailable'] = any(item['id'] == model for item in values) if model else bool(values)
+                                selected = next((item for item in values if item['id'] == model), None) if model else None
+                                state = model_state(selected)
+                                result['modelState'] = state
+                                if state in {'UNLOADED', 'LOADING', 'SLEEPING'}:
+                                    result.update(modelLoaded=False, generationReady=False,
+                                                  modelLoading=state == 'LOADING', backend='loading' if state == 'LOADING' else 'unavailable')
+                                elif state == 'LOADED':
+                                    result['modelLoaded'] = True
                             else:
                                 result['modelsFailure'] = failure('invalid_response', 'backend_models')
                         except MetadataFailure as error:
@@ -142,6 +151,8 @@ class BackendReadiness:
                 result['modelsFailure'] = exception_failure(error, 'backend_models')
         if result.get('modelLoading'):
             result.update(failure('model_loading', 'backend_health', result['healthHttpStatus']))
+        elif result['modelLoaded'] is False:
+            result.update(failure('model_not_loaded', 'selected_model'))
         elif result['modelAvailable'] is False:
             result.update(failure('model_unavailable', 'selected_model'))
         elif result.get('healthFailure'):

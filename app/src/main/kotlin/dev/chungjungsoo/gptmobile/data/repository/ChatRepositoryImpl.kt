@@ -4481,6 +4481,9 @@ class ChatRepositoryImpl(
             gatewayConversationKey = latestUser?.takeIf { it.chatId > 0 && agentPersistenceDao.getChatRoom(it.chatId)?.isTemporary == false }
                 ?.let { settingRepository.ensureConversationIdentity(it.chatId) },
             gatewayConversationId = savedGatewayConversation?.conversationId,
+            requireGatewayConversation = latestUser?.let { agentPersistenceDao.getChatRoom(it.chatId)?.conversationMode == dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode.GATEWAY } == true,
+            onGatewayCommandNotDispatched = gatewayConversations?.let { conversations -> { commandId -> conversations.ordinaryNotDispatched(commandId, runId) } },
+            onGatewayCommandDispatching = gatewayConversations?.let { conversations -> { commandId -> conversations.ordinaryDispatching(commandId, runId) } },
             onGatewayCommandPrepared = if (gatewayConversations == null) {
                 null
             } else {
@@ -5300,6 +5303,26 @@ class ChatRepositoryImpl(
                 selectedSession,
                 maxCharacters = budgetSettings.responseCharacterLimit.takeIf { it > 0 }?.coerceAtMost(1_048_576) ?: 1_048_576,
                 continuationRevision = dev.chungjungsoo.gptmobile.data.research.researchHash("${platform.uid}:${platform.model}:${platform.apiUrl}:${dispatchAuthority.revision}:${limits.contextTokens}:$resolvedOutputCap"),
+                recoveryRevision = runId,
+                checkpointContext = buildJsonObject {
+                    put("profile_uid", platform.uid)
+                    put("provider", platform.compatibleType.name)
+                    put("model", platform.model)
+                    put("task_binding", verifiedEvidence.checkpointBinding())
+                    put("accepted_task", verifiedEvidence.acceptedTaskRequest() ?: githubEffectiveTask)
+                    githubContext?.let {
+                        put("repository", "${it.owner}/${it.repo}")
+                        put("selected_ref", it.ref)
+                        put("captured_head_sha", it.commitSha)
+                    }
+                },
+                awaitConnectivity = { maximumWait -> dev.chungjungsoo.gptmobile.data.network.ProviderConnectivityPreflight.awaitUsableForContinuation(platform.apiUrl, maximumWait) },
+                reconciledCallIds = {
+                    val receipts = verifiedEvidence.snapshot().first
+                    dev.chungjungsoo.gptmobile.data.github.GitHubExecutionLedger.reconciledReceiptIds(receipts).mapNotNullTo(mutableSetOf()) { id ->
+                        (receipts[id]?.get("call_id") as? kotlinx.serialization.json.JsonPrimitive)?.content
+                    }
+                },
                 readCheckpoint = {
                     dispatchAuthority.validate()
                     check(validateSavedEvidence())
@@ -5308,7 +5331,9 @@ class ChatRepositoryImpl(
                 saveCheckpoint = { value ->
                     dispatchAuthority.validate()
                     check(validateSavedEvidence())
-                    workspace?.saveProtectedSynthesisCheckpoint(checkpointKey, latestUser.chatId, runId, value)
+                    val store = checkNotNull(workspace) { "GITHUB_EVIDENCE_RETENTION_INCOMPLETE: The continuation checkpoint store is unavailable; no new generation was dispatched." }
+                    store.saveProtectedSynthesisCheckpoint(checkpointKey, latestUser.chatId, runId, value)
+                    check(store.protectedSynthesisCheckpoint(checkpointKey) == value) { "GITHUB_EVIDENCE_RETENTION_INCOMPLETE: The continuation boundary could not be verified after saving." }
                 }
             ) { draft, exchanges, tools ->
                 val selected = catalog?.selected(tools) ?: tools

@@ -27,7 +27,7 @@ internal data class GitHubProgressSnapshot(
     }.take(2400)
 }
 
-/** Optional prose runs only between work rounds on the already selected, authorized profile. */
+/** Receipt-derived progress needs no model output budget. Optional prose keeps the selected profile. */
 internal class GitHubProgressNarrator(
     private val snapshot: () -> GitHubProgressSnapshot,
     private val openSelected: suspend (String, Int) -> AgentProviderSession,
@@ -36,7 +36,8 @@ internal class GitHubProgressNarrator(
     private val publish: suspend (ApiState.ActivitySummary) -> Unit,
     private val tokenBudget: Int = 8192,
     private val now: () -> Long = { System.nanoTime() / 1_000_000 },
-    private val timeoutMs: Long = 8000L
+    private val timeoutMs: Long = 8000L,
+    private val deterministic: Boolean = true
 ) {
     private var lastAttemptAt = now()
     private var lastRevision = -1L
@@ -50,6 +51,14 @@ internal class GitHubProgressNarrator(
         if (unavailableForRun || at - lastAttemptAt < GitHubChatProgress.SUMMARY_INTERVAL_MS || attempts >= 16) return
         val current = snapshot()
         if (current.revision == lastRevision || current.revision == 0L) return
+        if (deterministic) {
+            validate()
+            lastAttemptAt = at
+            lastRevision = current.revision
+            val text = factualSummary(current)
+            if (published.add(GitHubProgressPresentation.lineKey(text))) publish(ApiState.ActivitySummary(text, modelAuthored = false))
+            return
+        }
         val prompt = current.prompt()
         val reservation = TextTokenEstimate.estimate(INSTRUCTION + prompt) + OUTPUT_TOKENS
         if (reservation > tokenBudget - reservedTokens || !admit(reservation, workReplayTokens)) return
@@ -104,6 +113,17 @@ internal class GitHubProgressNarrator(
         private const val QUANTITY = "(?:[0-9]+(?:\\.[0-9]+)?|zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand)(?:[ -](?:one|two|three|four|five|six|seven|eight|nine))?"
         private const val COUNT_UNIT = "(?:tools?|operations?|tests?|checks?|schemas?|pages?|items?|records?|requests?|calls?|percent|%)"
         private val quantitativeClaim = Regex("(?i)\\b$QUANTITY\\s+(?:(?:authorized|advertised|listed|executed|observed|successful|failed|remaining|untested)\\s+){0,2}$COUNT_UNIT\\b|\\b$QUANTITY\\s+(?:authorized|advertised|remaining|untested)\\b|\\b$COUNT_UNIT\\s*[:=]\\s*$QUANTITY\\b")
+
+        internal fun factualSummary(snapshot: GitHubProgressSnapshot): String {
+            fun line(value: String) = (dev.chungjungsoo.gptmobile.data.diagnostics.redactChatDebugData(JsonPrimitive(value)) as JsonPrimitive).content
+                .lineSequence().firstOrNull().orEmpty().trim().take(320)
+            return buildString {
+                append("Saved operation results: ").append(snapshot.completed.coerceAtLeast(0)).append("; failed outcomes: ").append(snapshot.failed.coerceAtLeast(0)).append(". ")
+                snapshot.activity.takeIf { it.isNotBlank() }?.let { append("Current activity: ").append(line(it)).append(". ") }
+                snapshot.recentSteps.takeLast(2).forEach { append(line(it)).append(' ') }
+                snapshot.next.takeIf { it.isNotBlank() }?.let { append("Next: ").append(line(it)) }
+            }.trim().take(MAXIMUM_CHARACTERS)
+        }
 
         internal fun validSummary(raw: String, evidence: String): String? {
             val text = (dev.chungjungsoo.gptmobile.data.diagnostics.redactChatDebugData(JsonPrimitive(raw)) as JsonPrimitive).content.trim()

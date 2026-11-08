@@ -163,7 +163,15 @@ class AgentRunner(
                 val roundDefinitions = fitProviderToolSchemas(selectDefinitions(exposedDefinitions), limits, initialSchemaTokens, replayTokens)
                 reconcileDiscoveryExchange(exchanges, roundDefinitions)
                 val restoringBatch = restoredCalls.isNotEmpty()
-                val round = if (restoringBatch) RoundResult(calls = restoredCalls, completed = true, observedCalls = restoredCalls.size).also { restoredCalls = emptyList() } else collectRound(session, roundDefinitions, exchanges, (observedLimit - observedToolCalls).coerceAtLeast(0), searchContext.successful, searchContext.names, consumedCallIds, retainedUnknownOutcome || unknownOutcomes.isNotEmpty())
+                val savedRead = if (limits.githubTask && !finalResponseRequested && !restoringBatch && observedToolCalls < observedLimit) GitHubReplayRecovery.nextSavedRead(exchanges, roundDefinitions) else null
+                val round = if (restoringBatch) {
+                    RoundResult(calls = restoredCalls, completed = true, observedCalls = restoredCalls.size).also { restoredCalls = emptyList() }
+                } else if (savedRead != null) {
+                    emit(AgentRunEvent.Notice("Reading the saved GitHub result; the remote operation is not being repeated.", persistent = false))
+                    RoundResult(calls = listOf(savedRead), completed = true, observedCalls = 1)
+                } else {
+                    collectRound(session, roundDefinitions, exchanges, (observedLimit - observedToolCalls).coerceAtLeast(0), searchContext.successful, searchContext.names, consumedCallIds, retainedUnknownOutcome || unknownOutcomes.isNotEmpty())
+                }
                 observedToolCalls += round.observedCalls
                 if (round.batchRejected) {
                     if (limits.combined?.requested?.singlePass == true) {
@@ -493,9 +501,32 @@ class AgentRunner(
             emit(AgentRunEvent.Provider(ProviderEvent.Failed(roundFailure, round.progressDeadline, if (hasUnknownOutcome) "RECONCILIATION_REQUIRED" else round.errorCode, round.failureTransportComplete, round.providerLimit, if (hasUnknownOutcome) "PARTIAL" else "CONFIGURATION_INVALIDATED", details)))
             return null
         }
+        if (hasUnknownOutcome) {
+            emit(
+                AgentRunEvent.Provider(
+                    ProviderEvent.Failed(
+                        "RECONCILIATION_REQUIRED: A saved remote operation has an uncertain outcome. Check that operation before continuing; the failed model request did not authorize repeating it.",
+                        errorCode = "RECONCILIATION_REQUIRED",
+                        taskOutcome = "PARTIAL",
+                        failureDetails = JsonObject(
+                            round.failureDetails.orEmpty() + kotlinx.serialization.json.buildJsonObject {
+                                put("failed_stage", "tool_dispatch")
+                                put("interrupted_provider_code", round.errorCode.orEmpty())
+                                put("requires_reconciliation", true)
+                                put("logical_continuation_allowed", false)
+                            }
+                        )
+                    )
+                )
+            )
+            return null
+        }
+        val typedFailure = ProviderEvent.Failed(roundFailure, round.progressDeadline, round.errorCode, round.failureTransportComplete, round.providerLimit, round.taskOutcome, round.failureDetails)
+        val continuationDelay = GitHubTaskRecovery.delayMillis(typedFailure, state.githubRecoveries, hasUnknownOutcome)
+        val recoverableConnection = GitHubTaskRecovery.isConnectionUnavailable(typedFailure) && continuationDelay != null
         var exposedDefinitions = definitions
         var finalize = false
-        if (round.providerLimit != null || round.taskOutcome == "PARTIAL") {
+        if (round.providerLimit != null || round.taskOutcome in setOf("BLOCKED", "CONFIGURATION_INVALIDATED", "WAITING_FOR_APPROVAL") || round.errorCode == "WAITING_FOR_APPROVAL" || round.taskOutcome == "PARTIAL" && !recoverableConnection) {
             emit(AgentRunEvent.Provider(ProviderEvent.Failed(roundFailure, round.progressDeadline, round.errorCode, round.failureTransportComplete, round.providerLimit, round.taskOutcome, round.failureDetails)))
             return null
         }
@@ -532,20 +563,38 @@ class AgentRunner(
             }
             return null
         }
-        if (limits.githubTask && !session.handlesToolsInternally && !finalResponseRequested) {
-            if (!state.githubOutputRepairAttempted && dev.chungjungsoo.gptmobile.data.agent.tool.isProviderOutputLimitFailure(roundFailure)) {
+        if (limits.githubTask && !session.handlesToolsInternally && !hasUnknownOutcome && (!finalResponseRequested || recoverableConnection)) {
+            if (!finalResponseRequested && !state.githubOutputRepairAttempted && dev.chungjungsoo.gptmobile.data.agent.tool.isProviderOutputLimitFailure(roundFailure)) {
                 state.githubOutputRepairAttempted = true
 
                 exposedDefinitions = exposedDefinitions.map { it.copy(description = it.description + " The previous round reached its output limit. Continue unfinished work with a concise valid function call using retained receipts; do not repeat completed mutations.") }
                 emit(AgentRunEvent.Notice("The provider reached its output limit. Repairing the unfinished GitHub round once with its tools and completed results retained.", persistent = false))
                 return RoundRecovery(exposedDefinitions, limits.githubTask, finalize)
             }
-            val recoveryDelay = GitHubTaskRecovery.delayMillis(roundFailure, state.githubRecoveries, round.errorCode)
+            val recoveryDelay = continuationDelay
             if (recoveryDelay != null) {
                 state.githubRecoveries++
 
-                emit(AgentRunEvent.Notice("Waiting for the GitHub chat provider; resuming the saved task in ${(recoveryDelay + 999) / 1000}s (${state.githubRecoveries}/${GitHubTaskRecovery.recoveryLimit(roundFailure)}). Completed tool actions are retained.", persistent = false))
+                emit(AgentRunEvent.Notice("Waiting for connection before continuing the saved GitHub task (${state.githubRecoveries}/${GitHubTaskRecovery.recoveryLimit(typedFailure)}). Completed tool results are retained.", persistent = false))
                 kotlinx.coroutines.delay(recoveryDelay)
+                if (!session.awaitRecoveryReady(30_000L)) {
+                    emit(
+                        AgentRunEvent.Provider(
+                            typedFailure.copy(
+                                taskOutcome = "PARTIAL",
+                                failureDetails = JsonObject(
+                                    typedFailure.failureDetails.orEmpty() + kotlinx.serialization.json.buildJsonObject {
+                                        put("waiting_for_connectivity", true)
+                                        put("recovery_state", "WAITING_FOR_CONNECTION")
+                                        put("resume_required", true)
+                                    }
+                                )
+                            )
+                        )
+                    )
+                    return null
+                }
+                emit(AgentRunEvent.Notice("Resuming from saved tool results; the interrupted HTTP request and completed actions are not replayed.", persistent = false))
                 return RoundRecovery(exposedDefinitions, limits.githubTask, finalize)
             }
         }
@@ -683,7 +732,13 @@ class AgentRunner(
 
         val deferredResults = deferredToolResults(deferredCalls, hostSuppressedIds, perToolSuppressedIds, plan.unavailableIds, executableToolByName.keys, exchanges).map { result -> if (result.callId in plan.dependencyDeferredIds) ToolResultEnvelope.error(result.callId, "DEPENDENCY_DEFERRED", "This dependent remains undispatched because a prerequisite was not admitted. Complete the missing read or correct its arguments before resuming this saved dependency group.") else result }
         deferredCalls.zip(deferredResults).forEach { (call, result) -> checkpoint?.complete(call, result) }
-        val canReadOtherSources = (plan.unavailableIds.isNotEmpty() && executableToolByName.isNotEmpty()) ||
+        val savedReadAvailable = limits.githubTask &&
+            GitHubReplayRecovery.nextSavedRead(
+                exchanges + AgentToolExchange(calls, executedResults + deferredResults),
+                exposedDefinitions.filter { it.name in executableToolByName }
+            ) != null
+        val canReadOtherSources = savedReadAvailable ||
+            (plan.unavailableIds.isNotEmpty() && executableToolByName.isNotEmpty()) ||
             hostSuppressedIds.isNotEmpty() ||
             deferredCalls.any { it.callId in perToolSuppressedIds && it.name in executableToolByName }
         // Give a scoped read one round to choose another source, then stop
@@ -691,7 +746,7 @@ class AgentRunner(
         suppressedReadRounds = if (executableCalls.isEmpty() && canReadOtherSources) suppressedReadRounds + 1 else 0
         val completedBatch = finishBatch(
             calls, executedResults + deferredResults, exchanges, executableCalls.isEmpty(),
-            canReadOtherSources, suppressedReadRounds >= 2,
+            canReadOtherSources, suppressedReadRounds >= 2 && !savedReadAvailable,
             roundLimitReached, toolCallCount, executionToolCallLimit,
             unproductiveDiscoveryRounds, finalResponseRequested, executableCalls.mapTo(hashSetOf()) { it.callId }
         )

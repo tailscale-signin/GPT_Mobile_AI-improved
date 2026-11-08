@@ -26,9 +26,9 @@ class ReasoningAdmissionException(val requested: ReasoningMode) :
     }
 }
 
-class ReasoningCapabilityUnavailableException(val code: String) :
+class ReasoningCapabilityUnavailableException internal constructor(val code: String, internal val gatewayFailure: GatewayModelCapabilityObservation? = null) :
     IllegalStateException(
-        "$code: The selected model's exact route and reasoning controls are not qualified. Recheck its connection and capabilities; the saved reasoning setting is unchanged and no inference was sent."
+        "$code: ${gatewayFailure?.blockingSummary() ?: "The selected model's exact route and reasoning controls are not qualified. Recheck its connection and capabilities."} The saved reasoning setting is unchanged and no inference was sent."
     ) {
     init {
         require(code in setOf("REASONING_CAPABILITY_UNVERIFIED", "REASONING_CAPABILITY_UNAVAILABLE", "REASONING_CAPABILITY_TIMEOUT"))

@@ -100,8 +100,132 @@ internal class GitHubOwnedFixtures(private val store: GitHubRepositoryStateStore
         store.update(scope, key(root, branch)) { current ->
             require(current?.get("pending_commit") == pending && current.text("head_sha") == pending.text("expected_head_sha")) { "Fixture changed while recording its publication." }
             val committed = JsonObject(pending + mapOf("sha" to receipt.getValue("sha"), "tree_sha" to receipt.getValue("tree_sha")))
-            JsonObject((current - "pending_commit") + mapOf("head_sha" to receipt.getValue("sha"), "commits" to JsonArray((current["commits"] as? JsonArray).orEmpty() + committed)))
+            JsonObject((current - "pending_commit" - "pending_approval") + mapOf("head_sha" to receipt.getValue("sha"), "commits" to JsonArray((current["commits"] as? JsonArray).orEmpty() + committed), "last_publication" to receipt))
         }
+    }
+
+    suspend fun awaitApproval(root: String, arguments: JsonObject, receipt: JsonObject) {
+        val branch = arguments.text("branch")
+        if (!branchPattern.matches(branch) || saved(root, branch) == null) return
+        val taskId = receipt.text("engineering_task_id")
+        require(taskId.isNotBlank() && receipt.text("status") == "AWAITING_APPROVAL" && receipt["committed"] == JsonPrimitive(false)) { "The native approval receipt is incomplete; preserve the pending fixture for reconciliation." }
+        store.update(scope, key(root, branch)) { current ->
+            val pending = current?.get("pending_commit") as? JsonObject
+            require(pending != null && pending.text("expected_head_sha") == arguments.text("expected_head_sha"))
+            JsonObject(current + ("pending_approval" to receipt))
+        }
+    }
+
+    suspend fun recoverApproval(
+        root: String,
+        status: JsonObject,
+        read: suspend (String) -> JsonElement,
+        expectedAbsence: suspend (String) -> Boolean,
+        reconcile: suspend (JsonObject) -> JsonObject?
+    ): JsonObject? {
+        val branch = status.text("branch")
+        if (!branchPattern.matches(branch)) return null
+        var retained = saved(root, branch) ?: return null
+        val intent = status["publication_intent"] as? JsonObject ?: return null
+        val id = status.text("engineering_task_id")
+        val published = retained["last_publication"] as? JsonObject
+        if (published?.text("engineering_task_id") == id) return published
+        val cancelled = retained["cancelled_approval"] as? JsonObject
+        if (cancelled?.text("engineering_task_id") == id) return cancelled
+        // Older builds saved native approval before fixture intent. Upgrade only
+        // the exact task-owned synthetic change; the original branch must exist.
+        if (retained["pending_commit"] == null) {
+            prepareCommit(root, intent)
+            awaitApproval(
+                root,
+                intent,
+                buildJsonObject {
+                    put("engineering_task_id", id)
+                    put("status", "AWAITING_APPROVAL")
+                    put("committed", false)
+                    put("branch", branch)
+                    put("expected_head_sha", intent.getValue("expected_head_sha"))
+                }
+            )
+            retained = requireNotNull(saved(root, branch))
+        }
+        require((retained["pending_approval"] as? JsonObject)?.text("engineering_task_id") == id) { "The fixture belongs to another pending approval; retain both records for review." }
+        return this.reconcile(
+            root,
+            buildJsonObject {
+                put("fixture_plan", PLAN)
+                put("branch", branch)
+                put("base_sha", retained.getValue("origin_head_sha"))
+                put("commit_sha", intent.getValue("expected_head_sha"))
+            },
+            read,
+            expectedAbsence,
+            { status },
+            reconcile
+        )
+    }
+
+    /** Observe approval/publication or deletion using the retained intent, never dispatch a write. */
+    suspend fun reconcile(
+        root: String,
+        arguments: JsonObject,
+        read: suspend (String) -> JsonElement,
+        expectedAbsence: suspend (String) -> Boolean,
+        approvalStatus: suspend (String) -> JsonObject?,
+        reconcile: suspend (JsonObject) -> JsonObject?
+    ): JsonObject {
+        val branch = arguments.text("branch")
+        val retained = requireNotNull(saved(root, branch)) { "FIXTURE_OWNERSHIP_UNAVAILABLE: No owned fixture is recorded for this task." }
+        require(arguments.text("fixture_plan") == PLAN && branchPattern.matches(branch) && arguments.text("base_sha") == retained.text("origin_head_sha")) { "Fixture recovery must use its exact recorded origin and branch." }
+        if (retained["cleanup_started"] == JsonPrimitive(true)) return reconcileDeletion(root, arguments, read, expectedAbsence)
+        val pending = retained["pending_commit"] as? JsonObject
+        val approval = retained["pending_approval"] as? JsonObject
+        if (pending == null) {
+            return (retained["last_publication"] as? JsonObject) ?: buildJsonObject {
+                put("branch", branch)
+                put("ownership_verified", true)
+                put("origin_head_sha", retained.getValue("origin_head_sha"))
+                put("head_sha", retained.getValue("head_sha"))
+                put("cleanup_status", "PENDING")
+            }
+        }
+        require(arguments.text("commit_sha") in setOf(pending.text("expected_head_sha"), retained.text("head_sha"))) { "Fixture recovery head differs from the retained publication intent." }
+        val id = approval?.text("engineering_task_id")
+        val status = id?.let { approvalStatus(it) }
+        if (status?.text("state") == "AWAITING_APPROVAL") return JsonObject(requireNotNull(approval) + ("cleanup_status" to JsonPrimitive("WAITING_FOR_APPROVAL")))
+        if (status?.get("cancelled_before_publication") == JsonPrimitive(true)) {
+            val ref = read("$root/git/ref/heads/${GitHubWorkspaceClient.segment(branch)}") as? JsonObject
+            require((ref?.get("object") as? JsonObject)?.text("sha") == pending.text("expected_head_sha")) { "Fixture changed after cancellation; its publication must be reconciled before cleanup." }
+            val cancelled = buildJsonObject {
+                put("engineering_task_id", requireNotNull(id))
+                put("approval_state", "CANCELLED_BEFORE_PUBLICATION")
+                put("remote_mutation_performed", false)
+                put("branch", branch)
+                put("head_sha", pending.getValue("expected_head_sha"))
+                put("ownership_verified", true)
+                put("cleanup_status", "PENDING")
+            }
+            store.update(scope, key(root, branch)) { current ->
+                require(current?.get("pending_commit") == pending && current["pending_approval"] == approval)
+                JsonObject((current - "pending_commit" - "pending_approval") + ("cancelled_approval" to cancelled))
+            }
+            return cancelled
+        }
+        val proof = requireNotNull(reconcile(pending)) { "FIXTURE_RECONCILE_REQUIRED: The saved publication is not verified. Keep the existing approval and fixture; no mutation was repeated." }
+        // The transport's reconciliation callback may already have accepted this exact receipt.
+        if (saved(root, branch)?.get("pending_commit") != null) acceptCommit(root, pending, proof)
+        val publication = JsonObject(
+            proof + buildJsonObject {
+                id?.let { put("engineering_task_id", it) }
+                put("approval_state", "PUBLISHED")
+                put("remote_state_verified", true)
+            }
+        )
+        store.update(scope, key(root, branch)) { current ->
+            require(current?.text("head_sha") == proof.text("sha"))
+            JsonObject(current + ("last_publication" to publication))
+        }
+        return publication
     }
 
     /** A separate read-only entry point cannot repeat the original deletion. */
@@ -169,6 +293,7 @@ internal class GitHubOwnedFixtures(private val store: GitHubRepositoryStateStore
             require(retained.text("head_sha") == expected) { "The cleanup head lease differs from the durable deletion intent." }
             return verifyDeletion(root, branch, origin, retained, read, ::absent)
         }
+        require(retained["pending_approval"] == null) { "WAITING_FOR_APPROVAL: Resolve the existing saved approval and reconcile its status before cleaning this fixture." }
         (retained["pending_commit"] as? JsonObject)?.let { pending ->
             val proof = requireNotNull(reconcile(pending)) { "FIXTURE_RECONCILE_REQUIRED: An interrupted content publication has not been proved; no branch will be deleted." }
             acceptCommit(root, pending, proof)

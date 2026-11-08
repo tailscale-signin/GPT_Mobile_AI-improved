@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.diagnostics
 
 import dev.chungjungsoo.gptmobile.data.security.SecretVault
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -10,6 +11,65 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class RunDiagnosticJournalTest {
+    @Test fun boundedSnapshotCannotPublishCapturedEventsOrWatermarksAfterClearOrPrivateSession() = runTest {
+        for (clear in listOf(true, false)) {
+            val storage = MemoryVault()
+            val entered = CompletableDeferred<Unit>()
+            val release = CompletableDeferred<Unit>()
+            var intercept = false
+            val vault = object : SecretVault by storage {
+                override suspend fun read(secretRef: String): ByteArray? {
+                    val bytes = storage.read(secretRef)
+                    if (intercept && secretRef.startsWith("journal-")) {
+                        entered.complete(Unit)
+                        release.await()
+                    }
+                    return bytes
+                }
+            }
+            val journal = RunDiagnosticJournal(vault, backgroundScope).apply {
+                enabled = true
+                setRunPrivacy("run", false)
+            }
+            journal.record("run", RunDiagnosticKind.REQUEST_SERIALIZED)
+            runCurrent()
+            intercept = true
+            val pending = async { journal.snapshot(setOf("run")) }
+            entered.await()
+            if (clear) journal.clear() else journal.privateSession = true
+            release.complete(Unit)
+            val snapshot = pending.await()
+            assertTrue(snapshot.events.isEmpty())
+            assertTrue(snapshot.highWatermarks.isEmpty())
+            assertEquals("capture_revoked", snapshot.coverageScope)
+        }
+    }
+
+    @Test fun exportCanFreezeBetweenPhysicalWritesWithoutLosingTheInFlightBatch() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        val vault = MemoryVault(gate)
+        val journal = RunDiagnosticJournal(vault, backgroundScope).apply {
+            enabled = true
+            setRunPrivacy("run", false)
+        }
+        repeat(40) { journal.record("run", RunDiagnosticKind.REQUEST_SERIALIZED) }
+        runCurrent()
+        val retained = mutableListOf<Long>()
+        val export = async { journal.stream("run", {}) { retained += it.sequence } }
+        runCurrent()
+        gate.complete(Unit)
+        runCurrent()
+        val coverage = export.await()
+        assertEquals((1L..40L).toList(), retained)
+        assertEquals(0L, coverage.missingSequences)
+        // The queued export acquires the lock after the checkpoint write, before
+        // any encoded event chunk. Its immutable in-flight snapshot fills the gap.
+        assertEquals(0L, coverage.decodedBatchCount)
+        val restored = mutableListOf<Long>()
+        journal.stream("run", {}) { restored += it.sequence }
+        assertEquals(retained, restored)
+    }
+
     @Test fun failureReceiptsSurviveDisabledVerboseCaptureWithoutRawIdentityOrErrorContent() = runTest {
         val vault = MemoryVault()
         val journal = RunDiagnosticJournal(vault, backgroundScope)

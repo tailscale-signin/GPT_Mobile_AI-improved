@@ -225,7 +225,7 @@ class AgentToolResolver @Inject constructor(
         resolved += resolveNativeMarketplace(profileUid, platform, featureSettings, chatToolConfig, disableLocal, disableRemote)
 
         if (!disableRemote) {
-            resolved += resolveRemoteBuiltIns(profileUid, platform, featureSettings, chatToolConfig, userMessage, connections)
+            resolved += resolveRemoteBuiltIns(profileUid, platform, featureSettings, chatToolConfig, userMessage, connections, consentPlatform?.model)
         }
 
         val discoveryContext = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.permissions.PersonalDataContext]
@@ -577,7 +577,8 @@ class AgentToolResolver @Inject constructor(
         featureSettings: AppFeatureSettings,
         chatToolConfig: ChatMcpToolConfig?,
         userMessage: MessageV2?,
-        connections: List<ToolConnection>
+        connections: List<ToolConnection>,
+        requestedModel: String? = null
     ): List<ResolvedAgentTool> {
         val configuredNativeGitHubConnections = connections.filter { it.type == ToolConnectionType.GITHUB }
         val nativeGitHubConnections = configuredNativeGitHubConnections.filter { connection ->
@@ -613,7 +614,7 @@ class AgentToolResolver @Inject constructor(
             if (configuredNativeGitHubConnections.isEmpty() && chatToolConfig?.github == null) {
                 resolved += resolveGitHub(null, profileUid, userMessage)
             }
-            nativeGitHubConnections.forEach { connection -> resolved += resolveGitHub(connection, profileUid, userMessage, chatToolConfig?.github) }
+            nativeGitHubConnections.forEach { connection -> resolved += resolveGitHub(connection, profileUid, userMessage, chatToolConfig?.github, requestedModel) }
         }
         if (featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.WEB_SEARCH)) {
             // Baseline zero-config tools available out of the box to all models
@@ -1275,7 +1276,7 @@ class AgentToolResolver @Inject constructor(
         ).execute(callId)
     }
 
-    private suspend fun resolveGitHub(connection: ToolConnection?, profileUid: String, userMessage: MessageV2?, workspaceContext: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext? = null): ResolvedAgentTool {
+    private suspend fun resolveGitHub(connection: ToolConnection?, profileUid: String, userMessage: MessageV2?, workspaceContext: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext? = null, requestedModel: String? = null): ResolvedAgentTool {
         val actualConnection = connection
         var authorizationFailed = false
         var refreshedToken: String? = null
@@ -1299,12 +1300,25 @@ class AgentToolResolver @Inject constructor(
         }.orEmpty()
 
         val features = GitHubChatPolicy.features(settingRepository.getFeatureSettings(), profileUid, workspaceContext)
+        val approvalProfile = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
         val engineeringPrepare: (suspend (String, JsonObject) -> JsonObject)? = if (actualConnection != null && engineeringController != null) {
             { root, args ->
                 require(userMessage?.chatId?.let { factVault?.scopeForChat(it)?.isTemporary != true } != false) {
                     "Engineering review stores the exact patch. Use a saved conversation or open GitHub review explicitly."
                 }
                 val engineeringTaskId = engineeringController.prepareFromTool(actualConnection.connectionUid, root, args.toString())
+                if (workspaceContext != null && gitHubRepositoryState != null && userMessage != null) {
+                    dev.chungjungsoo.gptmobile.data.github.GitHubApprovalBinding.bind(
+                        gitHubRepositoryState,
+                        engineeringTaskId,
+                        workspaceContext,
+                        (args["branch"] as? kotlinx.serialization.json.JsonPrimitive)?.content.orEmpty(),
+                        userMessage.chatId,
+                        userMessage.id,
+                        requestedModel ?: approvalProfile?.model.orEmpty(),
+                        approvalProfile?.let { dev.chungjungsoo.gptmobile.data.github.GitHubApprovalBinding.profileContract(it.compatibleType.name, it.apiUrl, it.providerConnectionUid, it.reasoning) }.orEmpty()
+                    )
+                }
                 userMessage?.takeIf { it.chatId > 0 && it.id > 0 }?.let {
                     gitHubDecisionNotifications?.prompt("github-approval-$engineeringTaskId", it.chatId, it.id, "Your repository changes are ready for review and approval.")
                 }
@@ -1312,6 +1326,10 @@ class AgentToolResolver @Inject constructor(
                     put("engineering_task_id", engineeringTaskId)
                     put("status", "AWAITING_APPROVAL")
                     put("committed", false)
+                    put("card_id", "github-approval-$engineeringTaskId")
+                    put("user_input_required", true)
+                    args["branch"]?.let { put("branch", it) }
+                    args["expected_head_sha"]?.let { put("expected_head_sha", it) }
                     put("next_action", "The exact patch is awaiting native approval in the GitHub chat card. Stop polling or restating the plan. Approve & Commit resumes the chat automatically; no remote write has occurred.")
                 }
             }
@@ -1350,6 +1368,28 @@ class AgentToolResolver @Inject constructor(
             persistentState = userMessage?.chatId?.let { factVault?.scopeForChat(it)?.isTemporary != true } ?: true,
             stateStore = gitHubRepositoryState,
             engineeringPrepare = engineeringPrepare,
+            engineeringStatus = if (actualConnection != null && engineeringController != null) {
+                { root, taskId ->
+                    engineeringController.approvalStatus(taskId, actualConnection.connectionUid, root)?.also { status ->
+                        // Explicitly resuming an older saved approval restores its exact
+                        // native card association. Existing bindings remain immutable.
+                        if (status["state"] == kotlinx.serialization.json.JsonPrimitive("AWAITING_APPROVAL") && workspaceContext != null && gitHubRepositoryState != null && userMessage != null) {
+                            dev.chungjungsoo.gptmobile.data.github.GitHubApprovalBinding.bind(
+                                gitHubRepositoryState,
+                                taskId,
+                                workspaceContext,
+                                (status["branch"] as? kotlinx.serialization.json.JsonPrimitive)?.content.orEmpty(),
+                                userMessage.chatId,
+                                userMessage.id,
+                                requestedModel ?: approvalProfile?.model.orEmpty(),
+                                approvalProfile?.let { dev.chungjungsoo.gptmobile.data.github.GitHubApprovalBinding.profileContract(it.compatibleType.name, it.apiUrl, it.providerConnectionUid, it.reasoning) }.orEmpty()
+                            )
+                        }
+                    }
+                }
+            } else {
+                null
+            },
             repositoryScope = workspaceContext,
             credentialAdmissionFailed = authorizationFailed,
             graphQuery = if (!authorizationFailed &&

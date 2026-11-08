@@ -65,7 +65,8 @@ class GitHubTool(
     private val credentialProvider: (suspend () -> String)? = null,
     private val graphQuery: (suspend (JsonObject) -> JsonObject)? = null,
     private val apiOrigins: dev.chungjungsoo.gptmobile.data.github.GitHubApiOrigins = dev.chungjungsoo.gptmobile.data.github.GitHubApiOrigins.GITHUB_COM,
-    private val taskRequest: String? = null
+    private val taskRequest: String? = null,
+    private val engineeringStatus: (suspend (String, String) -> JsonObject?)? = null
 ) : AgentTool {
 
     private val BASE_URL get() = apiOrigins.rest
@@ -110,7 +111,7 @@ class GitHubTool(
             responseCache = responseCache,
             conditionalReads = featureSettings.githubConditionalReads, blobCache = featureSettings.githubBlobCache,
             freshnessSeconds = featureSettings.pluginExecution[dev.chungjungsoo.gptmobile.data.model.ToolPluginId.GITHUB]?.githubCacheSeconds ?: 15,
-            connectionUid = connectionUid, conversationId = conversationId, taskId = taskId, persistentState = persistentState, stateStore = stateStore, scheduler = scheduler, engineeringPrepare = engineeringPrepare,
+            connectionUid = connectionUid, conversationId = conversationId, taskId = taskId, persistentState = persistentState, stateStore = stateStore, scheduler = scheduler, engineeringPrepare = engineeringPrepare, engineeringStatus = engineeringStatus,
             durableIdentity = durableIdentity, legacyCredentialIdentities = legacyCredentialIdentities, credentialProvider = credentialProvider, apiOrigins = apiOrigins, refAvailability = refAvailability
         )
     }
@@ -1448,11 +1449,10 @@ class GitHubTool(
                     key,
                     buildJsonArray {
                         values.forEach { value ->
-                            add(
-                                buildJsonObject {
-                                    fields.forEach { field -> value.jsonObject[field]?.let { put(field, it) } }
-                                }
-                            )
+                            val projected = buildJsonObject {
+                                fields.forEach { field -> value.jsonObject[field]?.let { put(field, it) } }
+                            }
+                            add(if (key == "jobs") dev.chungjungsoo.gptmobile.data.github.githubWorkflowTiming(projected) else projected)
                         }
                     }
                 )
@@ -1470,7 +1470,7 @@ class GitHubTool(
                     "workflow_id", "path", "run_number", "run_attempt", "run_started_at", "created_at", "updated_at", "html_url", "jobs_url", "logs_url", "artifacts_url"
                 ).forEach { field -> parsed[field]?.let { put(field, it) } }
             }.toString()
-            "get_workflow_job" -> parsed.toString()
+            "get_workflow_job" -> dev.chungjungsoo.gptmobile.data.github.githubWorkflowTiming(parsed).toString()
             "list_workflow_jobs" -> projectedArray(
                 "jobs",
                 listOf("id", "run_id", "head_sha", "name", "status", "conclusion", "started_at", "completed_at", "steps", "runner_name", "runner_group_name", "labels", "html_url")

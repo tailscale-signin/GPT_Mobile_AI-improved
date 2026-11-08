@@ -12,6 +12,21 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class McpReadRecoveryTest {
+    @Test fun aFailedSafeReadRetryRetainsItsOriginalTransportEvidence() = runTest {
+        val first = UnknownHostException("first attempt")
+        val second = EOFException("second attempt")
+        var attempts = 0
+        val observed = runCatching {
+            withMcpReadRecovery("server/discover", pause = {}) {
+                attempts++
+                throw if (attempts == 1) first else second
+            }
+        }.exceptionOrNull()
+        assertTrue(observed === second)
+        assertEquals(listOf(first), second.suppressed.toList())
+        assertEquals(2, attempts)
+    }
+
     @Test fun incompleteCatalogReadRetriesOnceAndRetainsAlreadyCompletedPages() = runTest {
         val previousPages = mutableListOf("first page")
         var calls = 0

@@ -9,6 +9,40 @@ import kotlinx.serialization.json.put
 
 /** Keep executable continuation arguments intact when replaying a large GitHub result. */
 internal object GitHubReplayRecovery {
+    /** Consume only an exact local read cursor issued by native replay recovery. */
+    fun nextSavedRead(exchanges: List<AgentToolExchange>, tools: Collection<AgentToolDefinition>): ProviderEvent.ToolCall? {
+        val calls = exchanges.flatMap { it.calls }
+        if (calls.count { it.callId.startsWith("saved-result-consume-") } >= 32) return null
+        val recoverySources = exchanges.flatMap { exchange ->
+            exchange.results.mapNotNull { result ->
+                val call = exchange.calls.firstOrNull { it.callId == result.callId } ?: return@mapNotNull null
+                val source = envelope(result.content) ?: return@mapNotNull null
+                if (result.isError ||
+                    source["schema"] != JsonPrimitive("github.repeat.v1") &&
+                    !(source["replay_compacted"] == JsonPrimitive(true) && source["recovery_required"] == JsonPrimitive(true)) &&
+                    !call.callId.startsWith("saved-result-consume-")
+                ) {
+                    return@mapNotNull null
+                }
+                call to source
+            }
+        }
+        for ((issuer, source) in recoverySources.asReversed()) {
+            for (field in listOf("recovery_call", "continuation_call")) {
+                val recipe = source[field] as? JsonObject ?: continue
+                val name = (recipe["tool"] as? JsonPrimitive)?.content ?: continue
+                val arguments = recipe["arguments"] as? JsonObject ?: continue
+                val cursor = (arguments["view_cursor"] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: continue
+                if (arguments.keys != setOf("view_cursor") || ':' !in cursor || name != issuer.name || GitHubOperationTool.operationName(name) == null) continue
+                val tool = tools.firstOrNull { it.name == name && it.modelVisible } ?: continue
+                if (ToolArgumentValidator.errors(arguments, tool.inputSchema).isNotEmpty() || calls.any { it.name == name && it.arguments == arguments }) continue
+                val key = dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest("$name:$cursor").take(24)
+                return ProviderEvent.ToolCall("saved-result-consume-$key", name, arguments)
+            }
+        }
+        return null
+    }
+
     fun envelope(content: ToolResultContent): JsonObject? = when (content) {
         is ToolResultContent.Json -> content.value as? JsonObject
         is ToolResultContent.Text -> runCatching { Json.parseToJsonElement(content.text) as? JsonObject }.getOrNull()

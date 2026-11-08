@@ -354,25 +354,45 @@ class GitHubProgrammerViewModel @Inject constructor(
     }
 
     fun send(text: String, accepted: () -> Unit) {
+        sendCommand(text, null, accepted)
+    }
+
+    private fun sendCommand(text: String, deduplicationKey: String?, accepted: () -> Unit, publication: dev.chungjungsoo.gptmobile.data.github.GitHubApprovalBinding.Continuation? = null) {
         val context = mutable.value.context ?: return
         if (text.isBlank() || mutable.value.submitting) return
         mutable.update { it.copy(submitting = true, error = null) }
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val profile = settings.fetchPlatformV2s().singleOrNull { it.uid == context.mainProfileUid && it.enabled } ?: error("Select an available main AI profile.")
+                if (publication != null) {
+                    require(mutable.value.chatId == publication.chatId) { "The approved task belongs to its original saved conversation. Open that conversation to continue." }
+                    require(dev.chungjungsoo.gptmobile.data.github.GitHubApprovalBinding.matchesProfile(publication, profile.model, profile.compatibleType.name, profile.apiUrl, profile.providerConnectionUid, profile.reasoning)) {
+                        "The approved task's saved AI model or profile settings changed or are unavailable. Restore its original profile and model, then explicitly resume the saved task. Its commit will not be repeated."
+                    }
+                }
                 val features = dev.chungjungsoo.gptmobile.data.github.GitHubChatPolicy.features(settings.getFeatureSettings(), profile.uid, context)
                 require(!settings.providerActivationRequired(profile)) { "Review this AI profile's provider privacy settings before sending." }
                 dev.chungjungsoo.gptmobile.data.network.FreeProviderPreflight.check(profile)?.let { error(it.message) }
                 val connection = connections.getConnection(context.connectionUid) ?: error("The GitHub connection was removed.")
                 require(connection.type == "GITHUB" && connection.secretRef != null) { "Connect GitHub before starting an engineering task." }
                 var room = mutable.value.chatId?.let { database.agentPersistenceDao().getChatRoom(it) }?.takeIf { !it.isArchived && it.activePlatform == listOf(profile.uid) && features.conversationGitHub[it.id]?.sameWorkspace(context) == true }
+                if (publication != null) require(room?.id == publication.chatId) { "The original approval conversation or repository binding is unavailable. Restore that saved conversation before continuing." }
                 if (room == null) room = chats.createDraftChat(listOf(profile.uid), "STANDARD", context.repo, profile.uid)
                 val chatId = room.id
+                val gatewaySelection = if (room.conversationMode == dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode.GATEWAY) {
+                    val selected = checkNotNull(features.conversationGateway[chatId]) { "Restore this Gateway chat's original profile selection before continuing the approved task." }
+                    require(selected.profileUid == profile.uid && selected.model == profile.model && selected.validate(profile) == null) {
+                        "Restore this Gateway chat's saved profile and model before continuing. Its approved commit will not be repeated."
+                    }
+                    selected
+                } else {
+                    null
+                }
                 chats.saveChatPlatformModels(chatId, mapOf(profile.uid to profile.model))
                 settings.mutateFeatureSettings { it.copy(conversationGitHub = it.conversationGitHub + (chatId to context)) }
                 val tools = ChatMcpToolConfig(allowAllByDefault = false, enabledToolIds = setOf(context.connectionUid), github = context)
                 val prompt = "GitHub workspace: ${context.owner}/${context.repo}\nBranch: ${context.ref}\n\n" + text
-                queue.enqueue(chatId, prompt, PendingPromptPayload(profileUids = listOf(profile.uid), models = mapOf(profile.uid to profile.model), tools = tools))
+                queue.enqueue(chatId, prompt, PendingPromptPayload(profileUids = listOf(profile.uid), models = mapOf(profile.uid to profile.model), tools = tools, gateway = gatewaySelection), deduplicationKey)
                 if (mutable.value.context?.sameWorkspace(context) == true) observeConversation(chatId)
                 withContextMain(accepted)
             } catch (cancelled: CancellationException) {
@@ -385,10 +405,12 @@ class GitHubProgrammerViewModel @Inject constructor(
         }
     }
 
-    fun continueAfterCommit(sha: String) {
+    internal fun continueAfterCommit(sha: String, publishedBranch: String? = null, publication: dev.chungjungsoo.gptmobile.data.github.GitHubApprovalBinding.Continuation? = null, accepted: () -> Unit = {}) {
         require(sha.matches(Regex("[a-fA-F0-9]{40}")))
-        mutable.update { state -> state.copy(context = state.context?.copy(commitSha = sha, stagedFileCount = 0, recentCommits = emptyList(), observedAtMillis = System.currentTimeMillis())) }
-        send("Commit $sha was approved and published. Continue from the saved task using this exact commit. Subscribe with github_watch_checks when CI is pending; do not repeat the commit.") {}
+        mutable.update { state ->
+            if (publishedBranch == null || state.context?.ref == publishedBranch) state.copy(context = state.context?.copy(commitSha = sha, stagedFileCount = 0, recentCommits = emptyList(), observedAtMillis = System.currentTimeMillis())) else state
+        }
+        sendCommand("Commit $sha was approved and published. Continue from the saved task using this exact commit. Subscribe with github_watch_checks when CI is pending; do not repeat the commit.", "github-approved-commit:$sha", accepted, publication)
     }
 
     private suspend fun withContextMain(action: () -> Unit) = kotlinx.coroutines.withContext(Dispatchers.Main) { action() }

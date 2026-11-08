@@ -54,6 +54,7 @@ class GatewayEngineeringStore @Inject constructor(private val database: ChatData
     suspend fun add(binding: GatewayEngineeringBinding) {
         migrateLegacy()
         database.withTransaction {
+            check(dao.queuedDispatches().all { it.runId == binding.localRunId }) { "The Gateway queue is waiting for its current job. This engineering job was not dispatched." }
             val existing = dao.binding(binding.request.requestId)
             if (existing != null) {
                 val saved = json.decodeFromString<GatewayEngineeringBinding>(existing.binding)
@@ -101,7 +102,7 @@ class GatewayEngineeringStore @Inject constructor(private val database: ChatData
         if (job != null) {
             dao.submission(binding.request.requestId)?.let { submission ->
                 val key = if (job.gatewayId != null && job.conversationId != null && binding.principalId != null) gatewayIdentityKey(job.gatewayId, binding.principalId, job.conversationId) else submission.conversationKey
-                dao.saveSubmission(submission.copy(state = "ACCEPTED", conversationKey = key, receipt = json.encodeToString(job)))
+                dao.saveSubmission(submission.copy(state = if (job.terminal) "SETTLED" else "ACCEPTED", conversationKey = key, receipt = json.encodeToString(job)))
             }
         }
     }

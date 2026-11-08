@@ -43,10 +43,13 @@ internal fun automaticArchiveTargets(
     activeIds: Set<Int>,
     maxVisible: Int = 20
 ): List<ChatRoomV2> {
-    val overflow = (chats.size - maxVisible).coerceAtLeast(0)
+    // Gateway work has its own destination and may be waiting offline without an
+    // active run. The ordinary home quota must not archive those queued chats.
+    val managed = chats.filter { it.conversationMode != dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode.GATEWAY }
+    val overflow = (managed.size - maxVisible).coerceAtLeast(0)
     if (overflow == 0) return emptyList()
 
-    return chats
+    return managed
         .filter { !it.isFavorite && it.id !in activeIds }
         .sortedWith(compareBy<ChatRoomV2> { it.updatedAt }.thenBy { it.id })
         .take(overflow * 2)

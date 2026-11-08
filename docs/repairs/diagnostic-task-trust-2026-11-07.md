@@ -519,6 +519,74 @@ to the release identity, base, qualification or limits. Both incoming-parent
 Android workflows also pass production and unit-test compilation; their active
 full suites are not treated as completed validation of this follow-up.
 
+## Backup migration route follow-up
+
+The `0b5661fbe9652841f2f1f6968bcf5c697db4ba99` follow-up passes all 58
+acceptance cases in 21 invocations on both API 34 and API 36. Both new gateway
+profile-card cases have independently checked successful packets. Each retained
+emulator artifact reports 100 acknowledged operations, 100 successful journal
+records and no coverage gap; these remain measurement-only emulator samples.
+Both production and unit-test compilation phases pass. The exported Room 51
+schema is byte-identical to the committed schema. The full unit runs are then
+cancelled after the branch advances, but both terminal logs contain two genuine
+backup failures before cancellation. Their partial artifacts contain no JUnit
+XML, so they do not establish a completed suite, priority coverage or heap pass.
+The separate review APK build and device-test compilation pass, then benchmark
+compilation is cancelled before packaged runtime gates or artifact publication.
+
+The incoming `525ff8bce34c27f0904591d263b8d4a74a0b280b` recovery/account-scope
+changes and `ba6c275291fd0c4721866aec1f7d1cc741d58705` manifest correction
+are preserved. They retain queued cancellation and finalization failure receipts,
+verify original account authority for Stop and cached history, keep authorized
+offline history accessible, and exclude device-local account proof from portable
+backups. All 177 package file hashes match the checkout. The shared no-commit
+correction, both gateway card device cases, the acceptance runner and the original
+F01–F23 implementations remain present. Source review finds no additional blocker
+in the incoming authority, backup-proof exclusion or UI changes; their final
+runtime qualification still belongs to the current combined head.
+
+Both observed failures are in `CompleteBackupManagerTest`:
+`olderModernBackupMigratesNewTablesAndColumnsBeforeRestore` and
+`version30BackupAddsProfileAttributionWithoutLosingRequests`. Their historical
+fixtures lower a current database's version but leave later gateway tables in
+place, causing the obsolete version-50 migration to create an index on absent
+`scopeId`. The fixture helper now removes the eight post-version-30 gateway
+tables; every existing test assertion is retained.
+
+The production restore path has a separate real defect: choosing the first
+registered migration at each version takes 49→50→51 instead of Room's direct
+49→51 route. Even a genuine older backup consequently acquires obsolete archive
+tables that the fresh-schema restore guard correctly rejects. Restore now resolves
+the complete path with the pinned Room `MigrationContainer.findMigrationPath`
+before applying migrations. Missing paths still fail before migration writes,
+and all source validation, foreign-key checks, staging transactions and the guard
+against discarding retained gateway evidence remain unchanged. Actual version-50
+archives retain their existing explicit recovery boundary.
+
+The focused comparison recompiles the actual manager and both original backup
+test classes with pinned Kotlin/Compose/serialization 2.4.20, JDK 21 and the existing
+Byte Buddy agent. It executes real Room 2.8.5 generated schema-51 code under
+Robolectric 4.17 / API 34 against 256 byte-matching cached supporting sources.
+With identical corrected historical fixtures, the unfixed manager produces exactly
+the two expected retained-archive failures among 27 cases. The corrected manager
+passes all 27 cases: 21 complete-backup cases and six gateway-backup cases, with
+no source drift. No replacement production implementations are used. An initial
+host setup used a scratch working directory that could not locate the existing
+Marketplace README fixture; both authoritative comparisons use the repository
+working directory. The newer additive cached-conversation DAO query is not used
+by these cases and remains subject to fresh generated-code CI.
+
+All 400 canonical fast tests pass, along with 1,305 literal-regex checks and 33
+resource XML checks; 77 dynamic regex patterns remain outside static evaluation.
+All three changed Kotlin files pass formatting. Architecture, the regenerated
+2,292-file / 26-area inventory and the existing 1,328 exact allowed release paths
+validate, with no release identity, qualification, limit or allowed-path change
+in this follow-up. The expected current priority set is 610 cases across 61
+classes, now including the complete-backup regressions explicitly; the inferred
+7,994 ordinary cases require confirmation from fresh complete XML reports.
+Full Android, constrained heaps, device, APK and aggregate checks remain required
+on the published combined source, rather than inherited from a superseded run.
+
 ## Measurement boundaries
 
 The gateway reports `completion_buffered` because generated content still passes

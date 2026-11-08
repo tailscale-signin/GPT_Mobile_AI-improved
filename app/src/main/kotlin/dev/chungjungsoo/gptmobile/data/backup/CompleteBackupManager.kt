@@ -8,6 +8,7 @@ import android.provider.OpenableColumns
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.room.Room
+import androidx.room.RoomDatabase
 import androidx.room.withTransaction
 import androidx.sqlite.db.SupportSQLiteDatabase
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -908,11 +909,15 @@ class CompleteBackupManager @Inject constructor(
             )
             helper.use {
                 val source = it.writableDatabase
+                // Use Room's complete path so direct upgrades (such as 49 -> 51)
+                // avoid manufacturing an obsolete intermediate gateway archive.
+                val migrations = RoomDatabase.MigrationContainer().apply {
+                    addMigrations(*ChatDatabaseV2Migrations.ALL_MIGRATIONS)
+                }.findMigrationPath(source.version, target.version)
+                    ?: error("No upgrade path exists for this backup. Your current data is unchanged.")
                 source.beginTransaction()
                 try {
-                    while (source.version < target.version) {
-                        val migration = ChatDatabaseV2Migrations.ALL_MIGRATIONS.firstOrNull { step -> step.startVersion == source.version }
-                            ?: error("No upgrade path exists for this backup. Your current data is unchanged.")
+                    for (migration in migrations) {
                         migration.migrate(source)
                         source.version = migration.endVersion
                     }

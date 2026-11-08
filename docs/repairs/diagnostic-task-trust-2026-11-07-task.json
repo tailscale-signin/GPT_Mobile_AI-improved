@@ -7,7 +7,7 @@
   "working_branch": "fix/diagnostic-remediation-8597579-2026-11-07",
   "pull_request": 813,
   "intent": "Implement all F01-F23 findings in the supplied diagnostic review, preserve existing branch changes, validate actual behavior, and publish to the requested branch.",
-  "state": "SOURCE_CORRECTED_FRESH_ROOM51_CI_REQUIRED",
+  "state": "BACKUP_MIGRATION_SOURCE_FIXED_FRESH_COMBINED_CI_REQUIRED",
   "task_store": "engineering_agent_checkpoints",
   "task_store_key": "diagnostic-task-trust-2026-11-07",
   "accepted_scope": [
@@ -18,7 +18,7 @@
     "F22-F23: input lifecycle and compact diagnostic changes"
   ],
   "pending": [
-    "verify fresh full Android unit, Room51 schema, constrained heaps, all58devicecases, APK and required CI on the published combined followup; repair demonstrated failures"
+    "verify fresh full Android units, Room 51, five dedicated heap cases, 58 device cases per API, APK, lint, security and Required verification on the published combined follow-up; repair any demonstrated remaining failure"
   ],
   "validation": {
     "device": "NOT_RUN_NO_CONNECTED_DEVICE",
@@ -148,8 +148,8 @@
       "packaged_variants": 3
     }
   },
-  "reconciled_remote_head": "6058217056cec0fecc5bdea0733ae33a10baf45e",
-  "reconciled_remote_change": "Preserved the concurrent persistent gateway, conversation browser and Room 51 integration, plus its manifest provenance correction. All prior F01–F23 commits remain in history. This follow-up only fixes the demonstrated bound-conversation commit prohibition and selects the two existing new gateway-card device tests, with regression evidence and regenerated source inventory.",
+  "reconciled_remote_head": "ba6c275291fd0c4721866aec1f7d1cc741d58705",
+  "reconciled_remote_change": "Preserved the concurrent durable gateway recovery, account-authority and offline-history follow-up and its manifest provenance correction. Corrected backup migration path selection and historical backup fixtures after two real failures appeared before superseded full-unit cancellation; all prior F01-F23 work, shared commit restrictions and the acceptance runner with 58 device cases remain present.",
   "verification_boundaries": [
     "Focused JVM suites compile current production implementations with explicit Android/service boundaries; full Android CI remains required.",
     "Diagnostic suite counts overlap and must not be summed into a unique-test count.",
@@ -184,7 +184,10 @@
     "7b346cc9cc0388af9b647d617f89ab8244a2be97",
     "0582f3428736261ee0399e52fc9be4ce4c7db10c",
     "66ac834e09806c187e6fa92fad8d82c837be1ed5",
-    "6058217056cec0fecc5bdea0733ae33a10baf45e"
+    "6058217056cec0fecc5bdea0733ae33a10baf45e",
+    "0b5661fbe9652841f2f1f6968bcf5c697db4ba99",
+    "525ff8bce34c27f0904591d263b8d4a74a0b280b",
+    "ba6c275291fd0c4721866aec1f7d1cc741d58705"
   ],
   "ci_followup": {
     "parent_head": "87709e6f5ff91befb4ede0f30fcbd1d48999afe7",
@@ -1181,5 +1184,209 @@
       "audit_unit_compilation": "PASSED"
     },
     "fresh_current_head_ci": "Fresh full Android/Room 51, heap, emulator and package verification is required after publication. The expected 7,957 ordinary cases are source-inferred and 58 device cases are selected; neither count is claimed executed on the follow-up."
+  },
+  "backup_migration_route_followup": {
+    "parent_head": "ba6c275291fd0c4721866aec1f7d1cc741d58705",
+    "parent_tree": "4acd3bf376948fcd071d44a755e6a87e647995a3",
+    "feature_parent": "525ff8bce34c27f0904591d263b8d4a74a0b280b",
+    "prior_head_ci": {
+      "head": "0b5661fbe9652841f2f1f6968bcf5c697db4ba99",
+      "producer_merge_sha": "4d4ddf6cd36c3f506116c3dddc517539a44d3ce6",
+      "superseding_head": "ba6c275291fd0c4721866aec1f7d1cc741d58705",
+      "qualification": "Cancelled during full unit execution; no complete suite or priority completion claim. Two genuine observed backup failures precede cancellation in both jobs.",
+      "observed_failures": [
+        "dev.chungjungsoo.gptmobile.data.backup.CompleteBackupManagerTest.olderModernBackupMigratesNewTablesAndColumnsBeforeRestore",
+        "dev.chungjungsoo.gptmobile.data.backup.CompleteBackupManagerTest.version30BackupAddsProfileAttributionWithoutLosingRequests"
+      ],
+      "failure_cause": "no such column: scopeId while creating index_gateway_conversations_scopeId_conversationId",
+      "canonical": {
+        "run": 42442667082,
+        "job": 128615097399,
+        "conclusion": "cancelled",
+        "xml_reports": 0,
+        "artifact_id": 13602828983,
+        "verified_zip_sha256": "15a1302482027a9124da6fe38f1878511206287125a0acd4785bf31372cbd810",
+        "workflow_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/42442667082"
+      },
+      "audit": {
+        "run": 42442667122,
+        "job": 128615072168,
+        "conclusion": "cancelled",
+        "xml_reports": 0,
+        "artifact_id": 13603201385,
+        "verified_zip_sha256": "f8c0857f0a479947ced3f52ee0af184f929db1596f06767fdcaf8e70bc54c561",
+        "workflow_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/42442667122"
+      },
+      "canonical_exported_room51_sha256": "20761194ba2e9f96b8fb6769458fd05a089153baf08bbd46d5a6210769a0e708",
+      "canonical_exported_room51_byte_identical_to_committed": true
+    },
+    "prior_head_api34": {
+      "state": "SUCCESS",
+      "cases": 58,
+      "invocations": 21,
+      "new_gateway_card_cases": 2,
+      "artifact_id": 13602003688,
+      "sha256": "7d6e735c04e397d55ac00c1a21c867f8ac3e94f9dae6a4cdad06ddd4b828f614",
+      "digest_locally_verified": true,
+      "acknowledged": 100,
+      "unacknowledged": 0,
+      "journal_recorded": 100,
+      "journal_success": 100,
+      "journal_in_progress": 0,
+      "coverage_gap": false,
+      "measurement_only": true,
+      "representative_device": false,
+      "source": "ci-0b5661-api34-performance.json"
+    },
+    "prior_head_api36": {
+      "state": "SUCCESS",
+      "cases": 58,
+      "invocations": 21,
+      "new_gateway_card_cases": 2,
+      "artifact_id": 13602019175,
+      "sha256": "7fac4bec899f9b5f0671d28a73315c17132bf3f5740020888c729edfde26be32",
+      "digest_locally_verified": true,
+      "acknowledged": 100,
+      "unacknowledged": 0,
+      "journal_recorded": 100,
+      "journal_success": 100,
+      "journal_in_progress": 0,
+      "coverage_gap": false,
+      "measurement_only": true,
+      "representative_device": false,
+      "source": "ci-0b5661-api36-performance.json"
+    },
+    "prior_head_producer_verification": {
+      "sha": "4d4ddf6cd36c3f506116c3dddc517539a44d3ce6",
+      "parents": [
+        "3ac89ceafd9083f67da30e92f9f93aae27be4600",
+        "0b5661fbe9652841f2f1f6968bcf5c697db4ba99"
+      ],
+      "tree": "c3af572737ea046834aafaedf50f840e5a68adad",
+      "immutable_git_metadata_verified": true,
+      "tree_equals_published_tree": true
+    },
+    "prior_head_ui_terminal": {
+      "state": "CANCELLED_DURING_BENCHMARK_COMPILATION",
+      "review_apk_build": "SUCCESS",
+      "device_regression_compilation": "SUCCESS",
+      "benchmark_source_generation": "SUCCESS",
+      "packaged_gates": "NOT_EXECUTED",
+      "artifact": "NONE"
+    },
+    "preservation_review": {
+      "changed_incoming_paths": 37,
+      "all177_gateway_manifest_files_match": true,
+      "current_release_allowed_paths": 1328,
+      "original_task_catalog_evidence_mcp_diagnostics": "PRESERVED",
+      "shared_commit_guard_and58case_acceptance_script": "UNCHANGED",
+      "authority_backup_proof_exclusion_ui": "NO_ADDITIONAL_CONCRETE_BLOCKER_SOURCE_REVIEW_ONLY"
+    },
+    "production_repair": "Resolve the complete registered migration path with RoomDatabase.MigrationContainer.findMigrationPath from pinned Room 2.8.5 before applying staged migrations. This uses 49-to-51 directly for backups older than version 50 instead of manufacturing an obsolete version-50 archive.",
+    "fixture_repair": "Remove eight gateway tables introduced after version 30 from the version 29/30 historical fixtures. All existing assertions and test identities remain unchanged.",
+    "guards_preserved": [
+      "Unavailable migration path rejects before migration writes",
+      "Retained gateway archive guard unchanged",
+      "Source schema, integrity and foreign-key validation unchanged",
+      "Staging and target transaction boundaries unchanged",
+      "No destructive fallback"
+    ],
+    "local_validation": {
+      "focused_actual_source_comparison": "PASS_27_OF_27_FIXED_VERSUS_TWO_EXPECTED_BASELINE_FAILURES",
+      "formatting_changed_kotlin_files": 3,
+      "formatting": "PASS",
+      "architecture_index": "PASS",
+      "source_inventory_files": 2292,
+      "source_inventory_areas": 26,
+      "source_inventory": "PASS",
+      "release_scope": "PASS",
+      "changed_paths_including_worktree": 1187,
+      "canonical_fast": {
+        "tests": 400,
+        "passed": 400,
+        "seconds": 22.769,
+        "literal_regex_patterns": 1305,
+        "dynamic_regex_not_evaluated": 77,
+        "resource_xml_files": 33,
+        "mock_http_failure_output": "EXPECTED_TEST_FIXTURES_NOT_REAL_DEPENDENCY_FAILURES"
+      },
+      "independent_path_review": "Pinned Room bytecode confirms an empty path for identical versions, descending eligible upgrade destinations (49-to-51 preferred), and null for a missing path. Current version bounds and all validation/transaction guards are preserved.",
+      "baseline_actual_source": {
+        "tests": 27,
+        "passed": 25,
+        "failed": 2,
+        "skipped": 0,
+        "failure_cases": [
+          "olderModernBackupMigratesNewTablesAndColumnsBeforeRestore",
+          "version30BackupAddsProfileAttributionWithoutLosingRequests"
+        ],
+        "failure_reason": "Corrected historical fixtures expose the obsolete retained-v50 archive created by first-match migration selection."
+      },
+      "test_scope": {
+        "CompleteBackupManagerTest": 21,
+        "GatewayWorkBackupTest": 6,
+        "new_cached_conversations_dao_query": "Not exercised by this focused host comparison; fresh generated-code CI required."
+      },
+      "actual_source_comparison": {
+        "baseline": {
+          "productionSha256": "7c3cd89a6a0c99b3d395cab9c94c165f0bf08262cac7791dba7e9d8cac6fbc58",
+          "tests": 27,
+          "failures": [
+            {
+              "class": "dev.chungjungsoo.gptmobile.data.backup.CompleteBackupManagerTest",
+              "method": "olderModernBackupMigratesNewTablesAndColumnsBeforeRestore",
+              "cause": "retained gateway archive schema safeguard rejects path through schema 50"
+            },
+            {
+              "class": "dev.chungjungsoo.gptmobile.data.backup.CompleteBackupManagerTest",
+              "method": "version30BackupAddsProfileAttributionWithoutLosingRequests",
+              "cause": "retained gateway archive schema safeguard rejects path through schema 50"
+            }
+          ],
+          "report": "baseline/validation.json"
+        },
+        "fixed": {
+          "productionSha256": "0427939f2a60970ad204497ed186e1c042144a97f91ca37f61b7300303620432",
+          "tests": 27,
+          "passed": 27,
+          "failures": 0,
+          "report": "fixed/validation.json"
+        },
+        "identicalActualTestSources": {
+          "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/backup/CompleteBackupManagerTest.kt": "9d5f5d99b277ea103caa1db05d2d5677704bb6e0855d2f65da6d45ba0d75e2b9",
+          "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/backup/GatewayWorkBackupTest.kt": "5858b54c4a952e1e431bef1a4c615457f11a1866452968be6fce92138ba6f5d8"
+        },
+        "fixedLiveSourceDrift": [],
+        "snapshotSourceDrift": {
+          "baseline": [],
+          "fixed": []
+        },
+        "matchingCachedSupportSourceCount": 256,
+        "runtimeBoundary": "Actual manager and both unmodified test classes recompiled first on the cached full Android classpath. Real Room 2.8.5 generated schema-51 implementation and Robolectric 4.17 SDK34 execute. No production substitutes. Cached GatewayJobDao differs only by the newer additive cachedConversations query, which neither selected test class invokes; that query and newer gateway repositories are not qualified by this focused harness. Generated resource config uses absolute paths to the same cached manifest/resources.",
+        "setupCorrection": "Initial scratch cwd could not locate the existing marketplace README fixture; that run is retained under baseline-workdir-setup. Both authoritative phases run from the repository root with unchanged test/source snapshots.",
+        "evidenceSha256": {
+          "baseline/tests.log": "5910a6490b59d64a73a8f76ef0dde9fce6b6715ec78f6e150bf86091d2bcfd74",
+          "fixed/tests.log": "2a9c8b006417412d94e0eeff5b8d3f38b88984ec6103ef8d725bbf82d2ac6d51",
+          "baseline/validation.json": "08931d8f210b12fd70c1a9acfcbc18b26cae615ba9db3ad657182b384c82f04e",
+          "fixed/validation.json": "5647cd48569322562e94ad5f54bc6370c543708bf7def29c68f7a626423d5cdb",
+          "run.py": "168d3a29205cc78b63fbead44aa26407ccd493f306b9701c1e040a9c1c5a9205"
+        }
+      }
+    },
+    "source_sha256": {
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/backup/CompleteBackupManager.kt": "0427939f2a60970ad204497ed186e1c042144a97f91ca37f61b7300303620432",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/backup/CompleteBackupManagerTest.kt": "9d5f5d99b277ea103caa1db05d2d5677704bb6e0855d2f65da6d45ba0d75e2b9"
+    },
+    "fresh_current_head_ci": "REQUIRED_AFTER_PUBLICATION; no superseded-run completeness claim",
+    "fresh_current_head_expectation": {
+      "priority_classes": 61,
+      "priority_cases": 610,
+      "ordinary_cases_inferred_from_source": 7994,
+      "actual_xml_required": true,
+      "device_cases_each": 58,
+      "device_invocations_each": 21,
+      "dedicated_heap_cases": 5,
+      "room_version": 51
+    }
   }
 }

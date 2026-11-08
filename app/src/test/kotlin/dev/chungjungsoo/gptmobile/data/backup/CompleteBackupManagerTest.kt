@@ -827,6 +827,20 @@ class CompleteBackupManagerTest {
     }
 
     private fun removeRoadmapColumns(db: android.database.sqlite.SQLiteDatabase) {
+        // These fixtures predate gateway persistence; retaining its current tables
+        // would not represent a version 29 or 30 backup.
+        for (table in listOf(
+            "gateway_message_parts",
+            "gateway_messages",
+            "gateway_submissions",
+            "gateway_engineering_events",
+            "gateway_engineering_bindings",
+            "gateway_migrations",
+            "gateway_jobs",
+            "gateway_conversations"
+        )) {
+            db.execSQL("DROP TABLE IF EXISTS `$table`")
+        }
         db.execSQL("DROP TABLE IF EXISTS reply_publications")
         db.execSQL("DROP TABLE IF EXISTS conversation_folder_moves")
         db.execSQL("DROP TABLE IF EXISTS workspace_records")

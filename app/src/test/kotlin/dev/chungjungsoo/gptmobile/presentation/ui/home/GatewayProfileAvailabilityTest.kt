@@ -59,7 +59,10 @@ class GatewayProfileAvailabilityTest {
     @get:Rule val compose = createComposeRule(effectContext = durationScale)
     private val profile = PlatformV2(uid = "saved", name = "A long saved gateway profile name", compatibleType = ClientType.LLAMA, model = "selected-model", apiUrl = "http://127.0.0.1/v1")
 
-    @Test fun largeTextWrapsTheFullNameAndKeepsTheOnlineBadgeVisible() {
+    // Legacy graphics reports one line regardless of width; wrapping needs native font metrics.
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    @Test
+    fun largeTextWrapsTheFullNameAndKeepsTheOnlineBadgeVisible() {
         compose.setContent {
             CompositionLocalProvider(LocalDensity provides Density(1f, fontScale = 2f)) {
                 MaterialTheme {

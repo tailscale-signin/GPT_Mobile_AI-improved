@@ -7,7 +7,7 @@
   "working_branch": "fix/diagnostic-remediation-8597579-2026-11-07",
   "pull_request": 813,
   "intent": "Implement all F01-F23 findings in the supplied diagnostic review, preserve existing branch changes, validate actual behavior, and publish to the requested branch.",
-  "state": "SOURCE_PUBLISHED_CI_IN_PROGRESS",
+  "state": "SOURCE_CORRECTED_FRESH_FULL_CI_REQUIRED",
   "task_store": "engineering_agent_checkpoints",
   "task_store_key": "diagnostic-task-trust-2026-11-07",
   "accepted_scope": [
@@ -18,7 +18,7 @@
     "F22-F23: input lifecycle and compact diagnostic changes"
   ],
   "pending": [
-    "observe required Android/CI checks on the current published commit and repair relevant failures"
+    "observe fresh full Android unit, constrained-heap, emulator, APK and required CI checks on the published correction and repair any demonstrated remaining failure"
   ],
   "validation": {
     "device": "NOT_RUN_NO_CONNECTED_DEVICE",
@@ -148,8 +148,8 @@
       "packaged_variants": 3
     }
   },
-  "reconciled_remote_head": "5acf0eaed06ed34d7972752e40c8ffd733eacea3",
-  "reconciled_remote_change": "Preserved all prior concurrent task, transport, focus and MCP/audit repairs, plus the 5acf durable gateway jobs, conversation replay, model-specific availability, Room50 migration and scoped Surface/Magnifier fixtures. Added only the demonstrated bitmap and coroutine fixture repairs, profile-card call-site compile correction and exact CI-exported schema.",
+  "reconciled_remote_head": "7b346cc9cc0388af9b647d617f89ab8244a2be97",
+  "reconciled_remote_change": "Preserved all original F01-F23, transport, composer, MCP, gateway continuity, Jobs, transcript retention and backup work, including 446f43 continuity hardening and the 7b346 explicit Room database close correction. The only new executable-source change is method-scoped native font measurement for the existing large-text layout regression; production behavior and all assertions remain unchanged.",
   "verification_boundaries": [
     "Focused JVM suites compile current production implementations with explicit Android/service boundaries; full Android CI remains required.",
     "Diagnostic suite counts overlap and must not be summed into a unique-test count.",
@@ -177,7 +177,11 @@
     "87709e6f5ff91befb4ede0f30fcbd1d48999afe7",
     "515d9b064eda674feaea1f411b1ee8d4af4a7d0d",
     "54faf9a197e1ee897901e56106802d920a5fd41e",
-    "5acf0eaed06ed34d7972752e40c8ffd733eacea3"
+    "5acf0eaed06ed34d7972752e40c8ffd733eacea3",
+    "ab2845442fd30e317c4266b78e28c3880ecf851b",
+    "d93b6f3729370517d7c9a2f284d54a4fb166acbf",
+    "446f43e396c28cece0f2e6f5d6bfb2cb40bdcf5e",
+    "7b346cc9cc0388af9b647d617f89ab8244a2be97"
   ],
   "ci_followup": {
     "parent_head": "87709e6f5ff91befb4ede0f30fcbd1d48999afe7",
@@ -631,5 +635,235 @@
       "source_drift": false
     },
     "message_constructor_validation": "Required content verified against current production MessageV2 source; no false compile claim from retained host stubs."
+  },
+  "large_text_layout_followup": {
+    "parent_head": "7b346cc9cc0388af9b647d617f89ab8244a2be97",
+    "parent_tree": "b859913ce878acf0d7083c1b6e6ed5e882e93c45",
+    "producer_pr_merge": "115c1aa713bc58ca9bb910a3146ceafa73084138",
+    "canonical_full_unit": {
+      "artifact_id": 13599668878,
+      "sha256": "2a605fbdfae038cf1f028fa2cf989cd93180c845ba4244734ade4687dfe17f1c",
+      "xml_reports": 1245,
+      "tests": 7902,
+      "passed": 7896,
+      "failures": 1,
+      "errors": 0,
+      "skipped": 5,
+      "sole_failure": "GatewayProfileAvailabilityTest.largeTextWrapsTheFullNameAndKeepsTheOnlineBadgeVisible",
+      "priority_classes": 23,
+      "priority_cases": 202,
+      "all_priority_case_identities_present": true,
+      "no_predecessor_suite_or_case_drop": true,
+      "native_crash_observed": false,
+      "room_schema_gate": "PASSED",
+      "heap_and_canonical_review_apk": "SKIPPED_AFTER_UNIT_FAILURE"
+    },
+    "diagnostic_full_unit": {
+      "artifact_id": 13599394828,
+      "sha256": "453f9b25e56ae83b093e6beb48f9360a8c07155233d746a02fcd2b5e5d496490",
+      "xml_reports": 1245,
+      "tests": 7902,
+      "passed": 7896,
+      "failures": 1,
+      "errors": 0,
+      "skipped": 5,
+      "sole_failure": "GatewayProfileAvailabilityTest.largeTextWrapsTheFullNameAndKeepsTheOnlineBadgeVisible",
+      "assertion": "lineCount > 1 at line82",
+      "expected_priority_cases_present": true,
+      "prior_composer_bitmap_surface_status_conflated_mcp_transport_persistence_cases": "ALL_PASSED",
+      "native_crash_observed": false,
+      "repair_owner": "diagnostic_ui"
+    },
+    "required_verification": {
+      "job": 128597801300,
+      "conclusion": "FAILURE",
+      "unsuccessful_dependency": {
+        "validate": "failure"
+      },
+      "successful_dependencies": [
+        "lint",
+        "contracts",
+        "reliability",
+        "changed_format"
+      ],
+      "reason": "Same real current-head unit test failure; not cancellation"
+    },
+    "unchanged_skips": [
+      {
+        "class": "dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkColdStreamingExportHeapTest",
+        "case": "fortyEightMiBOfColdCanonicalRoomHistoryStreamsWithoutHydrationOrMirrorParsing",
+        "reason": "org.junit.AssumptionViolatedException: The cold Room gate requires scripts/heap-stress.init.gradle"
+      },
+      {
+        "class": "dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkStreamingExportHeapTest",
+        "case": "moreThanFortyMiBOfRawHistoryAndAttemptCopiesStreamsWithin256MiBHeap",
+        "reason": "org.junit.AssumptionViolatedException: The large export gate requires scripts/heap-stress.init.gradle"
+      },
+      {
+        "class": "dev.chungjungsoo.gptmobile.data.diagnostics.StagedDiagnosticCaptureHeapTest",
+        "case": "streamsAndResumesHistoryLargerThanHeapWithIndependentFailure",
+        "reason": "org.junit.AssumptionViolatedException: Requires the diagnostic 64 MiB heap gate"
+      },
+      {
+        "class": "dev.chungjungsoo.gptmobile.data.research.ResearchSessionStoreHeapTest",
+        "case": "moreThanFortyMiBOfRetainedEvidenceStreamsWithoutLoadingAllSessionsInto256MiBHeap",
+        "reason": "org.junit.AssumptionViolatedException: The large corpus gate requires scripts/heap-stress.init.gradle"
+      },
+      {
+        "class": "dev.chungjungsoo.gptmobile.presentation.ui.chat.StreamingDebugBundleTest",
+        "case": "fortyMiBTwoThousandMessageExportCompletesUnder256MiBHeapWithoutConversationTree",
+        "reason": "org.junit.AssumptionViolatedException: The large export gate requires scripts/heap-stress.init.gradle"
+      }
+    ],
+    "skips_match_previous_complete_2dde_suite": true,
+    "repair": {
+      "file": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/GatewayProfileAvailabilityTest.kt",
+      "cause": "Pinned Robolectric4.17 legacy ShadowLineBreaker returns one line and legacy ShadowPaint measures character-count pixels instead of real font geometry. The production Text already wraps without a maxLines restriction.",
+      "change": "Add method-scoped GraphicsMode.NATIVE only to largeTextWrapsTheFullNameAndKeepsTheOnlineBadgeVisible; retain class GraphicsMode.LEGACY and all five test bodies and assertions.",
+      "real_draw_traversal_opt_in": false,
+      "production_files_changed": 0,
+      "test_identities_changed": 0,
+      "assertions_removed_or_relaxed": 0,
+      "composer_fixtures_unchanged": true,
+      "source_sha256": "849cc28bb1b5b195415217340bdde78cac4825828978383cc1ed770865fd0496"
+    },
+    "independent_review": {
+      "method_overrides_class_only": true,
+      "sdk34_native_does_not_enable_real_draw_traversals": true,
+      "existing_native_compose_render_pattern": true,
+      "all_original_assertions_preserved": true
+    },
+    "room50_generated_export": {
+      "byte_identical": true,
+      "sha256": "07aa423477019550ad9c2f42c5a9c9aa0e31250ff66ecd9fc646c02e48710f50"
+    },
+    "review_apk": {
+      "run": 42434895599,
+      "job": 128591591079,
+      "conclusion": "SUCCESS",
+      "artifact_id": 13599856088,
+      "producer_merge": "115c1aa713bc58ca9bb910a3146ceafa73084138",
+      "variants": [
+        "arm64",
+        "universal",
+        "x86_64"
+      ],
+      "dex_files_each": 27,
+      "checked_dispatch_methods_each": 2941,
+      "largest_checked_method_code_units": 15900,
+      "unchanged_limit": 16383,
+      "over_limit_checked_methods": 0,
+      "jni_checks": "PASSED",
+      "host_alignment_checks": "PASSED",
+      "telemetry_upload_components": "ABSENT",
+      "benchmark_app_and_test_compilation": "PASSED",
+      "benchmark_execution": "NOT_CLAIMED"
+    },
+    "other_non_unit_gates": "ALL_ASSIGNED_PASSED_INCLUDING_TERMINAL_LINT_AND_CODEQL",
+    "api36": {
+      "job": 128591593801,
+      "conclusion": "SUCCESS",
+      "cases": 56,
+      "invocations": 20,
+      "artifact_id": 13599048251,
+      "sha256": "c80e335078daff8dd05a6e4f05fffef98b819a0287591a0281792b0ccb12cf97",
+      "acknowledged_starts": 99,
+      "unacknowledged_starts": 1,
+      "recorded_total": 100,
+      "success": 99,
+      "in_progress": 0,
+      "coverage_gap": true,
+      "p95_ms": {
+        "write": 78.452135,
+        "query": 35.330602,
+        "catalog": 399.407476
+      },
+      "qualification": "measurement_only_nonrepresentative_ranchu",
+      "attempt2_success_carried_forward": true
+    },
+    "api34_initial_attempt": {
+      "run_id": 42434895661,
+      "head": "7b346cc9cc0388af9b647d617f89ab8244a2be97",
+      "failed_job_id": 128591593698,
+      "state": "EXISTING_ATTEMPT2_OBSERVED_BEFORE_ROOT_MUTATION",
+      "attempts_requested_by_root": 0,
+      "initial_failure": "Application readiness barrier timed out at70/71 before the600dp SettingsHome invocation.",
+      "passed_cases_before_failure": 52,
+      "completed_invocations": 19,
+      "missing_class": "SettingsHomeInstrumentedTest",
+      "missing_cases": 4,
+      "test_assertion_failures_observed": 0,
+      "app_crash_or_anr_observed": false,
+      "outstanding_process_identity": "NOT_IDENTIFIED",
+      "display_restore_ready_seconds": 0.394,
+      "artifact_id": 13599506995,
+      "artifact_sha256": "ecc0115d69a1d7c61df51e09cfc54865c8c42b8e2cb27db333c3e15f608e2d99",
+      "performance_coverage": {
+        "acknowledged_starts": 100,
+        "success": 100,
+        "unacknowledged_starts": 0,
+        "in_progress": 0,
+        "coverage_gap": false,
+        "qualification": "measurement_only_nonrepresentative_emulator"
+      },
+      "tests_barriers_timeouts": "UNCHANGED",
+      "recorded_utc": "2026-11-08T01:54:41.063519+00:00",
+      "workflow_attempt": 2,
+      "current_api34_job": 128596150626,
+      "current_api36_job": 128596152094,
+      "api36_job_result": "SUCCESS",
+      "duplicate_rerun_avoided": true,
+      "observed_utc": "2026-11-08T01:58:02.389121+00:00"
+    },
+    "local_validation": {
+      "architecture_index": "PASSED",
+      "source_inventory": {
+        "passed": true,
+        "production_files": 2266,
+        "areas": 26
+      },
+      "native_font_probe": {
+        "passed": true,
+        "tests": 2,
+        "platform": "Pinned Robolectric4.17 Android14/API34, JDK21, public SDK37 compilation",
+        "text_characters": 33,
+        "layout_width_pixels": 200,
+        "native": {
+          "measured_width_pixels": 499,
+          "line_count": 3,
+          "complete_text": true,
+          "ellipsis": false,
+          "overflow": false
+        },
+        "legacy": {
+          "measured_width_pixels": 33,
+          "line_count": 1
+        },
+        "real_draw_property_absent_in_both_modes": true,
+        "boundary": "Actual Android StaticLayout and font measurement; not full Compose/card execution."
+      },
+      "canonical_fast": {
+        "passed": true,
+        "tests": 400,
+        "literal_regex_checks": 1304,
+        "dynamic_regex_patterns_not_evaluated": 77,
+        "resource_xml_files": 30
+      },
+      "changed_kotlin_format": {
+        "passed": true,
+        "files": 1
+      },
+      "release_scope": {
+        "passed": true,
+        "allowed_paths": 1154,
+        "new_allowed_paths": 0,
+        "base_and_qualification_unchanged": true
+      },
+      "exact_source_review": {
+        "all_five_test_bodies_and_assertions_unchanged": true,
+        "only_comment_method_graphics_mode_and_annotation_formatting_changed": true
+      }
+    },
+    "fresh_current_head_full_ci": "REQUIRED_AFTER_PUBLICATION"
   }
 }

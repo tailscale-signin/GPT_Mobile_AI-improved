@@ -371,6 +371,75 @@ unchanged 2,265-file / 26-area production inventory, architecture index and
 1,146-path release scope validate. No production file or validation threshold is
 changed by this follow-up.
 
+## Combined continuity and large-text validation
+
+The concurrent `446f43e396c28cece0f2e6f5d6bfb2cb40bdcf5e` continuity
+hardening and `7b346cc9cc0388af9b647d617f89ab8244a2be97` database-fixture
+correction are preserved. The latter closes the actual Room database in
+`try/finally`, replacing an unsupported database `use` call while retaining all
+six backup assertions and the supported cursor `use` calls. Both independent
+Android workflows now compile every production and test source successfully.
+
+On that exact combined head, canonical run `42434895712` and diagnostic run
+`42434895604` each produce 1,245 XML reports containing 7,902 cases: 7,896 pass,
+one fails and five are skipped. The only failure in both runs is
+`GatewayProfileAvailabilityTest.largeTextWrapsTheFullNameAndKeepsTheOnlineBadgeVisible`,
+at the assertion that the long name occupies more than one line. Neither run
+contains the earlier native worker abort. All 202 expected cases across 23 focused
+classes are present, including all nine composer lifecycle cases, three bitmap
+cases, three Surface/Magnifier cases, three gateway-status cases, two conflated
+render cases, 88 changed MCP cases, 69 transport/negotiation cases, and 20 Room
+persistence/backup cases. Every one of those cases other than the identified
+large-text case passes in both workflows.
+
+The canonical report artifact is `13599668878`, SHA-256
+`2a605fbdfae038cf1f028fa2cf989cd93180c845ba4244734ade4687dfe17f1c`;
+the independent diagnostic artifact is `13599394828`, SHA-256
+`453f9b25e56ae83b093e6beb48f9360a8c07155233d746a02fcd2b5e5d496490`.
+The five skips are the unchanged explicit assumptions for the five dedicated
+heap tests. The failed ordinary unit step prevents those heap gates and the
+canonical review-APK step from running, so neither is claimed as passing. The
+Room schema gate passes and the generated Room 50 export remains byte-identical
+to the committed schema.
+
+Pinned Robolectric 4.17 sources identify the remaining failure as a font-metric
+fixture limitation: legacy `ShadowLineBreaker.nGetLineCount` always returns one,
+and legacy `ShadowPaint.measureText` substitutes character-count pixels. The
+production profile-name `Text` already allows wrapping without a line limit.
+Only the large-text test now selects method-scoped native graphics for actual
+font measurement and line breaking. All five test bodies and assertions remain
+unchanged, as do the class-level legacy default and all composer fixtures. The
+method annotation overrides the class mode only for that test. It does not
+enable the separate API 34 real-draw-traversal option involved in the earlier
+native composer crash.
+
+A bounded probe against the pinned Robolectric 4.17 Android 14 runtime executes
+both modes: native measurement gives the same 33-character name a 499-pixel
+width and three complete lines in a 200-pixel layout; legacy measurement gives
+33 pixels and one line. Both probe assertions pass, including complete final
+text and no ellipsis or overflow, and the real-draw property remains absent.
+This validates the platform font-measurement boundary, not the full Compose
+card. Fresh full Android and dedicated heap execution remain required after the
+method-level correction is published.
+
+The separate review-APK workflow `42434895599` passes all arm64, universal and
+x86_64 package gates. Each APK contains 27 DEX files and 2,941 checked dispatch
+methods; the largest checked method is 15,900 code units, below the unchanged
+16,383 limit, with no checked method over that limit. JNI, packaged runtime,
+host alignment and telemetry-component checks pass. Benchmark app and test
+compilation pass; benchmark execution and physical accelerator qualification
+are not inferred. Lint, CodeQL, repository contracts, reliability, both format
+gates, the gateway matrix, installer, Marketplace and APK catalog gates also
+pass on this head. Required verification remains failed because of the single
+ordinary unit failure.
+
+The scoped correction passes all 400 canonical fast tests, 1,304 literal-regex
+checks and 30 XML checks; 77 dynamic regex patterns remain outside static
+evaluation. The changed Kotlin fixture passes formatting. Architecture and the
+2,266-file / 26-area source inventory validate, as does the unchanged release
+scope of 1,154 exact paths. No production code, assertion, timeout, dependency,
+memory limit or release boundary changes in this follow-up.
+
 ## Measurement boundaries
 
 The gateway reports `completion_buffered` because generated content still passes

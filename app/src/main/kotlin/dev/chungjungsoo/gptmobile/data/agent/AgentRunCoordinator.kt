@@ -56,6 +56,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonPrimitive
 
 data class AgentRunRequest(
     val runId: String,
@@ -831,6 +832,7 @@ class AgentRunCoordinator @Inject constructor(
         var firstAnswerCheckpoint = false
         var committedForHandoff = false
         var completedCombinedPublication = false
+        var gatewayPreflightKnownUnsent = false
         var researchLifecycle: dev.chungjungsoo.gptmobile.data.research.ResearchDispatchLifecycle? = null
         suspend fun traceReducedOutput(message: MessageV2) {
             dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.let { journal ->
@@ -882,7 +884,23 @@ class AgentRunCoordinator @Inject constructor(
                 if (committedForHandoff) assistantMessage = terminalAgentMessage(assistantMessage, eligibilityFailure, completedAt).withCombinedOutcome(AgentRunStatus.FAILED)
             } else {
                 if (!withContext(NonCancellable) { chatRepository.markAgentRunRunning(request.runId, startedAt) }) return@coroutineScope
-                gatewayChatSubmission?.submitIfSupported(request)?.let { handoff ->
+                val gatewayHandoff = try {
+                    gatewayChatSubmission?.submitIfSupported(request)
+                } catch (failure: dev.chungjungsoo.gptmobile.data.github.GatewayAdmissionException) {
+                    if (failure.phase == dev.chungjungsoo.gptmobile.data.github.GatewayAdmissionPhase.PRECHECK &&
+                        failure.dispatchState == dev.chungjungsoo.gptmobile.data.github.GatewayAdmissionDispatchState.NOT_DISPATCHED
+                    ) {
+                        gatewayPreflightKnownUnsent = try {
+                            gatewayChatSubmission?.ownsRequest(request.runId) == false
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) {
+                            false
+                        }
+                    }
+                    throw failure
+                }
+                gatewayHandoff?.let { handoff ->
                     val transferred = withContext(NonCancellable) {
                         chatRepository.commitAgentRun(
                             assistantMessage,
@@ -1120,7 +1138,8 @@ class AgentRunCoordinator @Inject constructor(
                     }
                 }
                 runCatching {
-                    val terminalMessage = terminalAgentMessage(assistantMessage, message, completedAt).withCombinedOutcome(status)
+                    val typedFailure = coordinatorFailureRecord(assistantMessage, terminalFailure, gatewayPreflightKnownUnsent)
+                    val terminalMessage = terminalAgentMessage(assistantMessage, message, completedAt, typedFailure).withCombinedOutcome(status)
                     traceReducedOutput(terminalMessage)
                     val committed = chatRepository.commitAgentRun(terminalMessage, request.runId, status, completedAt, message)
                     committedForHandoff = committed && !revokedWait
@@ -1209,13 +1228,38 @@ internal fun acceptanceFailureStatus(message: String): String = when (ProfileFai
     else -> AgentRunStatus.FAILED
 }
 
-internal fun terminalAgentMessage(message: MessageV2, error: String?, completedAt: Long): MessageV2 {
+internal fun terminalAgentMessage(message: MessageV2, error: String?, completedAt: Long, failure: ProfileFailureRecord? = null): MessageV2 {
     if (error == null) return message.copy(createdAt = completedAt).resetActiveRevision()
 
     return message.copy(
-        timeline = message.timeline + dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE, runError = error),
+        timeline = message.timeline + dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE, runError = error, profileFailure = failure),
         createdAt = completedAt
     ).resetActiveRevision()
+}
+
+/** The initial saved-job precheck can qualify an unsent run only without older execution evidence. */
+internal fun coordinatorFailureRecord(message: MessageV2, error: Throwable, gatewayPreflightKnownUnsent: Boolean): ProfileFailureRecord? {
+    val priorFailures = message.timeline.mapNotNull { it.profileFailure ?: it.runError?.let { error -> ProfileFailureRecord.classify(error) } }
+    priorFailures.lastOrNull { it.category in setOf(GatewayOutcomeRecovery.ERROR_CODE, "TOOL_OUTCOME_UNKNOWN") }?.let { return it.copy(retryAllowed = false) }
+    val detail = (error as? Exception)?.let { dev.chungjungsoo.gptmobile.data.network.providerExceptionDetails(it, message.content.isNotBlank() || message.thoughts.isNotBlank()) } ?: return null
+    val pristine = message.content.isBlank() &&
+        message.thoughts.isBlank() &&
+        message.timeline.all {
+            it.profileFailure?.let { failure -> failure.dispatched == false && failure.remoteAcceptance == RemoteRequestAcceptance.NO } == true &&
+                it.generation == null &&
+                it.toolSequence == null &&
+                it.recovery == null
+        }
+    val details = kotlinx.serialization.json.JsonObject(
+        detail.failureDetails.orEmpty() + if (gatewayPreflightKnownUnsent && pristine) {
+            mapOf("dispatched" to JsonPrimitive(false), "dispatch_state" to JsonPrimitive("PRECHECK_REJECTED"))
+        } else {
+            emptyMap()
+        }
+    )
+    val failure = ProfileFailureRecord.fromProvider(detail.message.orEmpty(), detail.code, details)
+    val priorDispatch = priorFailures.lastOrNull { it.dispatched == true }
+    return if (priorDispatch == null) failure else failure.copy(dispatched = true, remoteAcceptance = priorDispatch.remoteAcceptance)
 }
 
 internal fun ApiStateFlowOutcome.toTerminalUpdate(): AgentRunTerminalUpdate = when (this) {

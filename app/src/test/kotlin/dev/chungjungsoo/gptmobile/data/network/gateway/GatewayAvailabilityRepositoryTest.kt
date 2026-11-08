@@ -35,6 +35,96 @@ class GatewayAvailabilityRepositoryTest {
     private fun TestScope.repository(epoch: () -> Long = { 0L }, process: (ProviderRequestConfig) -> String = { "unobserved" }, route: Flow<Boolean> = flowOf(true), wall: () -> Long = { testScheduler.currentTime }, source: GatewayAvailabilitySource) =
         GatewayAvailabilityRepository(source, backgroundScope, { testScheduler.currentTime }, wall, epoch, process, route)
 
+    @Test fun repeatedConnectionFailureBacksOffAcrossObserversAndScreenReattachmentUntilNetworkRecovery() = runTest {
+        val starts = mutableListOf<Long>()
+        val route = MutableStateFlow(true)
+        var fail = true
+        val repository = repository(route = route) { _, _, _ ->
+            starts += testScheduler.currentTime
+            if (fail) throw ConnectException("unavailable")
+            ready(testScheduler.currentTime)
+        }
+        val first = backgroundScope.launch { repository.observe(listOf(target())).collect() }
+        val second = backgroundScope.launch { repository.observe(listOf(target("second"))).collect() }
+        runCurrent()
+        advanceTimeBy(30_000)
+        runCurrent()
+        assertEquals(listOf(0L, 10_000L, 30_000L), starts)
+        first.cancelAndJoin()
+        second.cancelAndJoin()
+        val reopened = backgroundScope.launch { repository.observe(listOf(target())).collect() }
+        runCurrent()
+        advanceTimeBy(39_999)
+        runCurrent()
+        assertEquals(3, starts.size)
+        advanceTimeBy(1)
+        runCurrent()
+        assertEquals(listOf(0L, 10_000L, 30_000L, 70_000L), starts)
+        fail = false
+        route.value = false
+        runCurrent()
+        route.value = true
+        runCurrent()
+        assertEquals(70_000L, starts.last())
+        assertEquals(5, starts.size)
+        advanceTimeBy(10_000)
+        runCurrent()
+        assertEquals(80_000L, starts.last())
+        reopened.cancelAndJoin()
+    }
+
+    @Test fun deniedReadinessWaitsForOneMinuteAndChangedEpochClearsTheHold() = runTest {
+        var calls = 0
+        var epoch = 0L
+        val repository = repository(epoch = { epoch }) { _, _, _ ->
+            calls++
+            throw GatewayDashboardAccessDenied()
+        }
+        backgroundScope.launch { repository.observe(listOf(target())).collect() }
+        runCurrent()
+        advanceTimeBy(59_000)
+        runCurrent()
+        assertEquals(1, calls)
+        epoch++
+        advanceTimeBy(1_000)
+        runCurrent()
+        assertEquals(2, calls)
+    }
+
+    @Test fun valid503ReadinessBacksOffWhileTheSameBackendFailurePersistsAndResetsForChangedReasonAndRecovery() = runTest {
+        val starts = mutableListOf<Long>()
+        var healthy = false
+        var reason = "BACKEND_GENERATION_UNAVAILABLE"
+        val repository = repository { _, model, _ ->
+            starts += testScheduler.currentTime
+            val document = kotlinx.serialization.json.Json.parseToJsonElement(
+                """{"schemaVersion":1,"instanceId":"${"a".repeat(32)}","ready":$healthy,"capabilities":{"modelAvailable":true,"generationReady":$healthy,"selectedModelDigest":"${dev.chungjungsoo.gptmobile.data.research.researchHash(model)}","reasonCode":"$reason","retryable":true,"observedAtMs":${testScheduler.currentTime},"observationAgeMs":0}}"""
+            ) as kotlinx.serialization.json.JsonObject
+            val readiness = parseGatewayReadiness(document, if (healthy) 200 else 503, model, testScheduler.currentTime, testScheduler.currentTime)
+            ready(testScheduler.currentTime).copy(readiness = readiness)
+        }
+        var current = GatewayAvailability()
+        backgroundScope.launch { repository.observe(listOf(target())).collect { current = it.getValue("a") } }
+        runCurrent()
+        assertEquals(GatewayAvailabilityStatus.NOT_READY, current.status)
+        advanceTimeBy(69_999)
+        runCurrent()
+        assertEquals(listOf(0L, 10_000L, 30_000L), starts)
+        assertFalse(current.isOnline)
+        reason = "BACKEND_CONNECTION_REFUSED"
+        advanceTimeBy(1)
+        runCurrent()
+        assertEquals(70_000L, starts.last())
+        healthy = true
+        advanceTimeBy(10_000)
+        runCurrent()
+        assertEquals(80_000L, starts.last())
+        assertTrue(current.isOnline)
+        advanceTimeBy(10_000)
+        runCurrent()
+        assertEquals(listOf(0L, 10_000L, 30_000L, 70_000L, 80_000L, 90_000L), starts)
+    }
+
     @Test fun generationOnlineAndAdvertisedHistoryDoNotVerifyAnyIndependentActionSurface() = runTest {
         val repository = repository { _, _, _ ->
             val observed = ready(testScheduler.currentTime)

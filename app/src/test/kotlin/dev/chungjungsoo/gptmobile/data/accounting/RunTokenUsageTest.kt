@@ -22,6 +22,23 @@ class RunTokenUsageTest {
         assertEquals(0, RunTokenUsage.from(listOf(measured)).totalTokens)
     }
 
+    @Test fun retainedNoDispatchReceiptsProveZeroWhileAnEmptyOrMixedLedgerDoesNot() {
+        val rejected = ModelInvocation("rejected", "run", "turn", "local", "model", "primary", 0, 0, status = "NOT_DISPATCHED", inputTokenSource = "not_dispatched", outputTokenSource = "not_dispatched")
+        val knownZero = RunTokenUsage.from(listOf(rejected, rejected))
+        assertEquals(0, knownZero.inputTokens)
+        assertEquals(0, knownZero.outputTokens)
+        assertEquals(0, knownZero.totalTokens)
+        assertEquals(0, knownZero.unmeasuredInvocations)
+        assertEquals("NOT_DISPATCHED", knownZero.basis)
+        assertEquals(null, RunTokenUsage.from(emptyList()).totalTokens)
+        val unknown = rejected.copy(id = "unknown", status = "FAILED", inputTokenSource = "estimated", outputTokenSource = "estimated")
+        val mixed = RunTokenUsage.from(listOf(rejected, unknown))
+        assertEquals(null, mixed.totalTokens)
+        assertEquals(1, mixed.unmeasuredInvocations)
+        val conflicting = rejected.copy(inputTokens = 100, observedInputTokens = 100)
+        assertEquals(null, RunTokenUsage.from(listOf(conflicting)).totalTokens)
+    }
+
     @Test fun overflowSaturatesWithoutBecomingMeasuredZero() {
         val first = ModelInvocation(
             "first", "run", "turn", "local", "model", "primary", 100, 100,

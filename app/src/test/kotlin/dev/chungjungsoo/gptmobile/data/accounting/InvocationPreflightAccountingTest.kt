@@ -71,6 +71,8 @@ class InvocationPreflightAccountingTest {
             val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
             assertEquals("REASONING_OFF_UNSUPPORTED", failure.errorCode)
             assertEquals(JsonPrimitive(false), failure.failureDetails?.get("dispatched"))
+            assertEquals(JsonPrimitive(saved.id), failure.failureDetails?.get("invocation_id"))
+            assertEquals(JsonPrimitive(saved.parentRunId), failure.failureDetails?.get("run_id"))
             assertTrue(saved.usageEvidenceJson.orEmpty().contains("LOCAL_INFERENCE_ADMISSION"))
         } finally {
             client.close()
@@ -78,11 +80,27 @@ class InvocationPreflightAccountingTest {
     }
 
     @Test fun absentReceiptOrAReasonLookingMessageIsNotProofThatInferenceWasUnsent() = runBlocking {
-        val (saved, _) = execute { emit(ProviderEvent.Failed("REASONING_OFF_UNSUPPORTED from an untrusted response")) }
+        val (saved, events) = execute { emit(ProviderEvent.Failed("REASONING_OFF_UNSUPPORTED from an untrusted response")) }
         assertEquals("FAILED", saved.status)
         assertEquals(100, saved.inputTokens)
         assertEquals(600L, saved.costMicros)
         assertTrue(saved.estimated)
+        val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+        assertEquals(JsonPrimitive(saved.id), failure.failureDetails?.get("invocation_id"))
+        assertEquals(null, failure.failureDetails?.get("dispatched"))
+    }
+
+    @Test fun gatewayIsolationPrecheckRetainsItsSpecificReasonAndConnectionStage() = runBlocking {
+        val (saved, events) = execute {
+            requireNotNull(currentCoroutineContext()[RequestDispatchContext]).rejectedBeforeInference(InferencePreflightReason.GATEWAY_ISOLATION_UNAVAILABLE)
+            emit(ProviderEvent.Failed("The required gateway isolation contract is unavailable"))
+        }
+        val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+        assertEquals("GATEWAY_ISOLATION_UNAVAILABLE", failure.errorCode)
+        assertEquals(JsonPrimitive("connection_preflight"), failure.failureDetails?.get("failed_stage"))
+        assertEquals(JsonPrimitive(false), failure.failureDetails?.get("dispatched"))
+        assertEquals("NOT_DISPATCHED", saved.status)
+        assertEquals(0L, saved.costMicros)
     }
 
     @Test fun laterLocalRejectionCannotRefundAnEarlierUncertainAttempt() = runBlocking {

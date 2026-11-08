@@ -7,7 +7,7 @@ internal class DiagnosticIncidentTracker {
     data class Association(val id: String, val first: Boolean)
     private val counted = linkedSetOf<String>()
     private val associations = linkedMapOf<String, String>()
-    private val identityField = Regex("(?:^| · |(?<=\\s))(incidentId|causalIncidentId|failureIncidentId|nativeOperationId|physicalAttemptId|runtimeRequestId|operationId|failureId|networkEpisodeId|episode|processId|process|workerGenerationId)=([A-Za-z0-9_.:-]+)")
+    private val identityValue = Regex("[A-Za-z0-9_.:-]{1,128}")
     private data class Trace(val id: String, val at: Instant?, val hasFatalHeader: Boolean)
 
     // Android logcat interleaves framework and application streams. A record from
@@ -28,17 +28,17 @@ internal class DiagnosticIncidentTracker {
         val at = runCatching { Instant.parse(timestamp) }.getOrNull()
         val classification = classifyDiagnostic(level, tag, message)
         val content = diagnosticEventMessage(message).trimStart()
-        val fields = identityField.findAll(message).associate { it.groupValues[1] to it.groupValues[2] }
-        fun identity(key: String) = fields[key]?.takeUnless { it in setOf("none", "unknown", "null", "-1", "0") }
+        val fields = diagnosticFields(message)
+        fun identity(key: String) = fields.diagnosticText(key)?.takeIf(identityValue::matches)?.takeUnless { it in setOf("-1", "0") }
         val network = if (tag in setOf("Network", "FreeProviderFailure")) identity("networkEpisodeId") ?: identity("episode") else null
-        val explicit = identity("incidentId") ?: identity("causalIncidentId") ?: identity("failureIncidentId") ?: network?.let { "network:$it" } ?: identity("failureId")
+        val explicit = identity("causalIncidentId") ?: identity("failureIncidentId") ?: identity("incidentId") ?: network?.let { "network:$it" } ?: identity("failureId")
         // The native history writer and Kotlin runtime use different names for
         // the same operation receipt. Normalize the alias before constructing
         // the process-scoped incident identity.
         val physical = (identity("nativeOperationId") ?: identity("operationId"))?.let { "operationId:$it" }
             ?: listOf("physicalAttemptId", "runtimeRequestId").firstNotNullOfOrNull { key -> identity(key)?.let { "$key:$it" } }
         val operation = physical?.let { "operation:${identity("workerGenerationId") ?: identity("processId") ?: identity("process") ?: "unscoped"}:$it" }
-        val causal = explicit ?: operation
+        val causal = explicit ?: operation ?: diagnosticCorrelation(fields, content, tag).invocationId
         val source = if (tag == "Android") {
             diagnosticAndroidSource(message) ?: "$tag:${identity("processId") ?: "unscoped"}"
         } else {

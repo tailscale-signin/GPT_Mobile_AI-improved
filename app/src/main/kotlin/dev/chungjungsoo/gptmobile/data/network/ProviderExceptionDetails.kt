@@ -7,6 +7,60 @@ import kotlinx.serialization.json.put
 
 /** Retain known response/admission evidence before considering an exception a transport failure. */
 internal fun providerExceptionDetails(error: Exception, partialOutput: Boolean, nowMillis: Long = System.currentTimeMillis()): ErrorDetail? {
+    if (error is dev.chungjungsoo.gptmobile.data.network.gateway.GatewayCapabilityDiscoveryException) {
+        return ErrorDetail(
+            message = requireNotNull(error.message),
+            type = "gateway_capability",
+            code = error.code,
+            retryable = false,
+            failureDetails = buildJsonObject {
+                put("code", error.code)
+                put("failed_stage", "connection_preflight")
+                put("attempt_dispatch_state", "NOT_DISPATCHED")
+                put("repair", "CHECK_CONNECTION")
+                put("retryable", false)
+                put("partial_output_preserved", partialOutput)
+                error.httpStatus?.let { put("http_status", it) }
+            }
+        )
+    }
+    if (error is dev.chungjungsoo.gptmobile.data.github.GatewayAdmissionException) {
+        val unsent = error.dispatchState == dev.chungjungsoo.gptmobile.data.github.GatewayAdmissionDispatchState.NOT_DISPATCHED
+        val code = "GATEWAY_${error.reason.name}"
+        return ErrorDetail(
+            message = requireNotNull(error.message),
+            type = "gateway_admission",
+            code = code,
+            retryable = false,
+            failureDetails = buildJsonObject {
+                put("code", code)
+                put("failed_stage", if (error.phase == dev.chungjungsoo.gptmobile.data.github.GatewayAdmissionPhase.PRECHECK) "connection_preflight" else "gateway_recovery")
+                put("attempt_dispatch_state", if (unsent) "NOT_DISPATCHED" else "UNKNOWN")
+                put("repair", error.repair.name)
+                put("retryable", false)
+                put("partial_output_preserved", partialOutput)
+                error.httpStatus?.let { put("http_status", it) }
+                // Only this preflight is known unsent. Earlier attempts and saved
+                // command outcomes remain the invocation owner's responsibility.
+            }
+        )
+    }
+    if (error is dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityUnavailableException) {
+        return ErrorDetail(
+            message = requireNotNull(error.message),
+            type = "local_admission",
+            code = error.code,
+            retryable = false,
+            failureDetails = buildJsonObject {
+                put("code", error.code)
+                put("failed_stage", "provider_admission")
+                put("attempt_dispatch_state", "NOT_DISPATCHED")
+                put("retryable", false)
+                put("repair", "CHECK_CONNECTION")
+                put("partial_output_preserved", partialOutput)
+            }
+        )
+    }
     if (error is dev.chungjungsoo.gptmobile.data.context.ReasoningAdmissionException) {
         val code = "REASONING_${error.requested}_UNSUPPORTED"
         return ErrorDetail(

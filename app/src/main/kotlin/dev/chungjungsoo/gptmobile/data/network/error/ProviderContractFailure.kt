@@ -10,6 +10,8 @@ internal data class ProviderContractFailure(val code: String, val phase: String,
         )
         private val failures = listOf(
             template,
+            ProviderContractFailure("GATEWAY_CAPABILITY_UNAVAILABLE", "connection_preflight", "The selected gateway's capability check did not complete. Check the connection and explicitly recheck it before sending the saved request."),
+            ProviderContractFailure("GATEWAY_ISOLATION_UNAVAILABLE", "connection_preflight", "The selected gateway did not confirm the required tool isolation controls. Check or update that gateway before sending the saved request."),
             ProviderContractFailure("REASONING_OFF_UNSUPPORTED", "provider_admission", "The selected model and template cannot enforce Reasoning Off. Recheck capabilities or explicitly choose Auto in this profile's settings before another request."),
             ProviderContractFailure("REASONING_ON_UNSUPPORTED", "provider_admission", "The selected model and template cannot enforce Reasoning On. Recheck capabilities or explicitly choose Auto in this profile's settings before another request."),
             ProviderContractFailure("REASONING_CAPABILITY_UNVERIFIED", "provider_admission", "Reasoning controls for this exact model have not been qualified. Check the selected connection's capabilities before another request."),

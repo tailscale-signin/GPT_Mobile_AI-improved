@@ -71,7 +71,7 @@ class GatewayAPIImpl @Inject constructor(
                         when {
                             response.status.value in setOf(404, 501) -> null
                             response.status.isSuccess() -> response.boundedMetadata(256 * 1024)
-                            else -> throw GatewayCapabilityDiscoveryException("GATEWAY_CAPABILITY_UNAVAILABLE: The selected connection could not verify gateway controls (HTTP ${response.status.value}). Check the connection and retry; no model request was sent.")
+                            else -> throw GatewayCapabilityDiscoveryException("GATEWAY_CAPABILITY_UNAVAILABLE: The selected connection could not verify gateway controls (HTTP ${response.status.value}). Check the connection and retry; no model request was sent.", httpStatus = response.status.value)
                         }
                     }
                 }
@@ -273,7 +273,12 @@ class GatewayAPIImpl @Inject constructor(
 
 class GatewayEventReplayException(message: String, cause: Throwable? = null) : IllegalStateException(message, cause)
 
-internal class GatewayCapabilityDiscoveryException(message: String, cause: Throwable? = null, val decodeReason: String? = null, val fieldPath: String? = null) : IllegalStateException(message, cause)
+internal class GatewayCapabilityDiscoveryException(message: String, cause: Throwable? = null, val decodeReason: String? = null, val fieldPath: String? = null, val code: String = "GATEWAY_CAPABILITY_UNAVAILABLE", val httpStatus: Int? = null) : IllegalStateException(message, cause) {
+    init {
+        require(code in setOf("GATEWAY_CAPABILITY_UNAVAILABLE", "GATEWAY_ISOLATION_UNAVAILABLE"))
+        require(httpStatus == null || httpStatus in 100..599)
+    }
+}
 
 private data class GatewayCapabilityDecodeIssue(val reason: String, val fieldPath: String)
 

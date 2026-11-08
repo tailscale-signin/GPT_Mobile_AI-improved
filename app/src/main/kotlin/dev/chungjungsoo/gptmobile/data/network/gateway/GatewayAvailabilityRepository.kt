@@ -60,6 +60,9 @@ class GatewayAvailabilityRepository internal constructor(
         var references = 0
         var generation = 0L
         var polling: Job? = null
+        var consecutiveFailures = 0
+        var unavailableObservationKey: String? = null
+        var retryNotBeforeMillis = 0L
     }
 
     private val lock = Any()
@@ -105,6 +108,9 @@ class GatewayAvailabilityRepository internal constructor(
                 current.epoch = epoch(target)
                 current.generation++
                 current.state.value = GatewayAvailability()
+                current.consecutiveFailures = 0
+                current.unavailableObservationKey = null
+                current.retryNotBeforeMillis = 0
             } else if ((routeAvailable as? StateFlow<Boolean>)?.value == false) {
                 current.state.value = GatewayAvailability(status = GatewayAvailabilityStatus.OFFLINE)
             } else {
@@ -135,14 +141,21 @@ class GatewayAvailabilityRepository internal constructor(
     }
 
     private suspend fun poll(entry: Entry) {
-        var wasUnavailable = entry.state.value.status == GatewayAvailabilityStatus.OFFLINE
+        // A previous failed probe is not a new network recovery. Reattaching a
+        // screen must retain its route's backoff instead of starting another read.
+        var wasUnavailable = false
         routeAvailable.distinctUntilChanged().collectLatest { available ->
             val recovered = available && wasUnavailable
             wasUnavailable = !available
             synchronized(lock) {
                 entry.generation++
                 if (!available) entry.state.value = GatewayAvailability(status = GatewayAvailabilityStatus.OFFLINE)
-                if (recovered) entry.state.value = GatewayAvailability()
+                if (recovered) {
+                    entry.state.value = GatewayAvailability()
+                    entry.consecutiveFailures = 0
+                    entry.unavailableObservationKey = null
+                    entry.retryNotBeforeMillis = 0
+                }
             }
             if (available) pollAvailable(entry, recovered)
         }
@@ -170,6 +183,9 @@ class GatewayAvailabilityRepository internal constructor(
                     entry.epoch = currentEpoch
                     entry.generation++
                     entry.state.value = GatewayAvailability()
+                    entry.consecutiveFailures = 0
+                    entry.unavailableObservationKey = null
+                    entry.retryNotBeforeMillis = 0
                     true
                 } else {
                     entry.state.value = entry.state.value.fresh(now())
@@ -182,7 +198,7 @@ class GatewayAvailabilityRepository internal constructor(
                 forceRefresh = true
                 nextCheck = now()
             }
-            if (now() >= nextCheck && running?.isActive != true) {
+            if (now() >= maxOf(nextCheck, synchronized(lock) { entry.retryNotBeforeMillis }) && running?.isActive != true) {
                 val generation = synchronized(lock) { entry.generation }
                 val requestRefresh = forceRefresh
                 forceRefresh = false
@@ -199,19 +215,43 @@ class GatewayAvailabilityRepository internal constructor(
     private suspend fun refresh(entry: Entry, generation: Long, forceRefresh: Boolean) {
         val network = networkEpoch()
         val config = requireNotNull(entry.target.config)
+        var observationFailed = false
+        var unavailableReason: String? = null
         val state = try {
             val probe = withTimeout(8_000) { source.probe(config, entry.target.model, forceRefresh) }
+            unavailableReason = probe.readiness?.reasonCode
             observedState(probe, entry.state.value)
         } catch (_: TimeoutCancellationException) {
             currentCoroutineContext().ensureActive()
+            observationFailed = true
             GatewayAvailability(status = GatewayAvailabilityStatus.CHECKING)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
+            observationFailed = true
+            unavailableReason = LocalServiceHealth.classify(failure).name
             GatewayAvailability(status = failureStatus(failure))
         }
         synchronized(lock) {
             if (entry.generation != generation || network != networkEpoch() || entry.references == 0) return
+            val unavailable = observationFailed || state.status in setOf(GatewayAvailabilityStatus.NOT_READY, GatewayAvailabilityStatus.MODEL_UNAVAILABLE, GatewayAvailabilityStatus.MODEL_LOADING, GatewayAvailabilityStatus.DRAINING, GatewayAvailabilityStatus.NOT_GATEWAY, GatewayAvailabilityStatus.INCOMPATIBLE)
+            if (unavailable) {
+                val key = "${state.status}|$unavailableReason"
+                if (entry.unavailableObservationKey != key) entry.consecutiveFailures = 0
+                entry.unavailableObservationKey = key
+                entry.consecutiveFailures = (entry.consecutiveFailures + 1).coerceAtMost(4)
+                val delayMillis = if (state.status in setOf(GatewayAvailabilityStatus.ACCESS_DENIED, GatewayAvailabilityStatus.INCOMPATIBLE, GatewayAvailabilityStatus.NOT_GATEWAY)) {
+                    60_000L
+                } else {
+                    val ceiling = if (state.status in setOf(GatewayAvailabilityStatus.MODEL_LOADING, GatewayAvailabilityStatus.DRAINING)) 20_000L else 60_000L
+                    (GATEWAY_AVAILABILITY_POLL_MILLIS * (1L shl (entry.consecutiveFailures - 1))).coerceAtMost(ceiling)
+                }
+                entry.retryNotBeforeMillis = now() + delayMillis
+            } else {
+                entry.consecutiveFailures = 0
+                entry.unavailableObservationKey = null
+                entry.retryNotBeforeMillis = 0
+            }
             val instance = processEpoch(config)
             // A new instance discovered by another reader cannot bless an old cached response.
             entry.state.value = if (state.instanceId != null && instance != "unobserved" && instance != state.instanceId) {

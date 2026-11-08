@@ -12,6 +12,7 @@ import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -32,7 +33,8 @@ class GatewayNetworkRecoveryMonitor @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val agentRunCoordinator: AgentRunCoordinator,
     private val chatRepository: ChatRepository,
-    private val settings: SettingRepository
+    private val settings: SettingRepository,
+    private val researchArchive: dev.chungjungsoo.gptmobile.data.research.feature.ResearchArchiveRepository
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val started = AtomicBoolean(false)
@@ -126,12 +128,11 @@ class GatewayNetworkRecoveryMonitor @Inject constructor(
 
     private fun resumeResearchOutbox() {
         scope.launch {
-            runCatching {
-                val manager = androidx.work.WorkManager.getInstance(context)
-                val running = manager.getWorkInfosForUniqueWork("research-examination-outbox").get()
-                    .any { it.state == androidx.work.WorkInfo.State.RUNNING }
-                if (!running) dev.chungjungsoo.gptmobile.data.research.work.ResearchExaminationWorker.enqueue(context, reconsider = true)
-            }.onFailure { error ->
+            try {
+                dev.chungjungsoo.gptmobile.data.research.work.ResearchExaminationWorker.reconcile(context, researchArchive, reconsider = true)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
                 dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
                     "ResearchExamine",
                     "NETWORK_RECOVERY_ENQUEUE_FAILED · reason=${error.javaClass.simpleName} · action=durable_outbox_retained",

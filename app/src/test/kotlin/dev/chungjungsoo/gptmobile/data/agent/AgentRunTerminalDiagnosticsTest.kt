@@ -27,6 +27,19 @@ class AgentRunTerminalDiagnosticsTest {
         assertEquals("UNKNOWN_OUTCOME", result.executionState)
         assertEquals("tool_dispatch", result.stage)
         assertEquals("NOT_MEASURED", result.taskVerification)
+        assertEquals(null, result.dispatched)
+        assertEquals(RemoteRequestAcceptance.UNKNOWN, result.remoteAcceptance)
+    }
+
+    @Test fun rejectedAttemptKeepsItsPhysicalIdentityAndRemoteAcceptanceEvidence() {
+        val failure = ProfileFailureRecord("REASONING_OFF_UNSUPPORTED", false, dispatched = false, remoteAcceptance = RemoteRequestAcceptance.NO, phase = "provider_admission", invocationId = "invocation-one")
+        val result = AgentRunTerminalDiagnostics.from(AgentRunStatus.FAILED, failure)
+        assertEquals(false, result.dispatched)
+        assertEquals(RemoteRequestAcceptance.NO, result.remoteAcceptance)
+        assertEquals("invocation-one", result.invocationId)
+        val completed = AgentRunTerminalDiagnostics.from(AgentRunStatus.COMPLETED, failure)
+        assertEquals(null, completed.dispatched)
+        assertEquals(null, completed.invocationId)
     }
 
     @Test fun absentStageEvidenceIsNeverPresentedAsAnObservedProviderPhase() {

@@ -5519,7 +5519,11 @@ class ChatRepositoryImpl(
             kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
                 invocationLedger?.measuredRunUsage(turnKey, runId)?.let { usage ->
                     agentRunDao.replaceMeasuredUsage(runId, usage.inputTokens, usage.outputTokens, usage.totalTokens)
-                    AppLogRecorder.record("InvocationLedger", "RUN_USAGE · runId=$runId · unmeasuredInvocations=${usage.unmeasuredInvocations} · measuredSubtotalTokens=${usage.measuredSubtotalTokens ?: "unknown"} · completeTotalKnown=${usage.totalTokens != null} · includesPrivatePasses=true")
+                    AppLogRecorder.recordEvent(
+                        "InvocationLedger",
+                        "RUN_USAGE",
+                        mapOf("runId" to runId, "unmeasuredInvocations" to usage.unmeasuredInvocations, "measuredSubtotalTokens" to usage.measuredSubtotalTokens, "completeTotalKnown" to (usage.totalTokens != null), "totalTokens" to usage.totalTokens, "usageBasis" to usage.basis, "includesPrivatePasses" to true)
+                    )
                 }
             }
         }
@@ -6428,7 +6432,31 @@ class ChatRepositoryImpl(
         val finished = agentPersistenceDao.finishQueuedWithFailure(runId, status, completedAt, terminalError)
         if (finished) {
             val cause = dev.chungjungsoo.gptmobile.data.agent.QueuedRunFailure.evidence(terminalError)
-            AppLogRecorder.record("Agent", "RUN_TERMINAL · runId=$runId · status=$status · reason=${cause.reason} · failedStage=${cause.phase} · localState=SAVED_LOCALLY · gatewayAcceptance=${cause.remoteAcceptance} · retryable=${cause.retryable} · repair=${cause.repair} · terminalErrorRetained=${terminalError != null} · dispatched=${cause.dispatched?.toString() ?: "unknown"} · causalEvidence=run:$runId:terminal_error")
+            AppLogRecorder.recordEvent(
+                "Agent",
+                "RUN_TERMINAL",
+                mapOf(
+                    "runId" to runId,
+                    "incidentId" to "run:$runId",
+                    "status" to status,
+                    "reason" to cause.reason,
+                    "errorCode" to cause.reason,
+                    "failedStage" to cause.phase,
+                    "localState" to "SAVED_LOCALLY",
+                    "gatewayAcceptance" to cause.remoteAcceptance,
+                    "retryable" to cause.retryable,
+                    "repair" to cause.repair,
+                    "terminalErrorRetained" to (terminalError != null),
+                    "dispatched" to cause.dispatched,
+                    "executionState" to when {
+                        cause.reason == "GATEWAY_OUTCOME_UNKNOWN" -> "UNKNOWN_OUTCOME"
+                        cause.dispatched == false && cause.remoteAcceptance == "NOT_ACCEPTED" -> "PRECHECK_REJECTED"
+                        else -> "NOT_RECORDED"
+                    },
+                    "dispatchEvidenceScope" to "GATEWAY_JOB_SUBMISSION",
+                    "causalEvidence" to "run:$runId:terminal_error"
+                )
+            )
             agentPersistenceDao.recoveryRun(runId)?.let { run -> agentPersistenceDao.recoveryMessage(run.assistantMessageId)?.let { settleCombinedStage(runId, it, status, terminalError) } }
             dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(runId, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.RUN_TERMINAL, successful = false)
         }
@@ -6479,7 +6507,34 @@ class ChatRepositoryImpl(
             val failure = message.timeline.asReversed().firstNotNullOfOrNull { it.profileFailure }
                 ?: terminalError?.let { dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.classify(it) }
             val terminal = dev.chungjungsoo.gptmobile.data.agent.AgentRunTerminalDiagnostics.from(status, failure, acceptance)
-            AppLogRecorder.record("Agent", "RUN_TERMINAL · runId=$runId · status=$status · reason=${terminal.reason} · failedStage=${terminal.stage} · retryable=${failure?.retryAllowed ?: false} · dispatched=${failure?.dispatched?.toString() ?: "not_recorded"} · executionState=${terminal.executionState} · taskVerification=${terminal.taskVerification} · acceptanceEvidence=${acceptance?.evidenceId ?: "unavailable"} · verifiedCriteria=${acceptance?.verifiedCriteria ?: "not_recorded"} · requiredCriteria=${acceptance?.requiredCriteria ?: "not_recorded"} · unresolvedRemoteOutcomes=${acceptance?.unresolvedOutcomes ?: "not_recorded"} · causalEvidence=message:${message.id}:run_error · terminalErrorRetained=${terminalError != null} · visibleCharacters=${message.content.length} · reasoningCharacters=${message.thoughts.length} · ownershipFence=${message.ownershipFence}")
+            AppLogRecorder.recordEvent(
+                "Agent",
+                "RUN_TERMINAL",
+                mapOf(
+                    "runId" to runId,
+                    "invocationId" to terminal.invocationId,
+                    "causalIncidentId" to terminal.invocationId,
+                    "status" to status,
+                    "reason" to terminal.reason,
+                    "errorCode" to terminal.reason.takeUnless { status == AgentRunStatus.COMPLETED },
+                    "failedStage" to terminal.stage,
+                    "retryable" to (failure?.retryAllowed ?: false),
+                    "dispatched" to terminal.dispatched,
+                    "executionState" to terminal.executionState,
+                    "remoteAcceptance" to terminal.remoteAcceptance.name,
+                    "dispatchEvidenceScope" to if (terminal.invocationId != null) "MODEL_INVOCATION" else "RUN_FAILURE",
+                    "taskVerification" to terminal.taskVerification,
+                    "acceptanceEvidence" to acceptance?.evidenceId,
+                    "verifiedCriteria" to acceptance?.verifiedCriteria,
+                    "requiredCriteria" to acceptance?.requiredCriteria,
+                    "unresolvedRemoteOutcomes" to acceptance?.unresolvedOutcomes,
+                    "causalEvidence" to "message:${message.id}:run_error",
+                    "terminalErrorRetained" to (terminalError != null),
+                    "visibleCharacters" to message.content.length,
+                    "reasoningCharacters" to message.thoughts.length,
+                    "ownershipFence" to message.ownershipFence
+                )
+            )
             acceptance?.let {
                 dev.chungjungsoo.gptmobile.data.github.GitHubRunAcceptance.diagnosticLines(it).forEach { line ->
                     AppLogRecorder.record("GitHubAcceptance", "ACCEPTANCE_CRITERION · runId=$runId · $line")

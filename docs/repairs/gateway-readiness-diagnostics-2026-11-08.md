@@ -1,0 +1,48 @@
+# Gateway and Android diagnostic repair
+
+Repository: `tailscale-signin/GPT_Mobile_AI-improved`  
+Base: `main` at `293810dbc34ef93ee62521e2fd274681e10482ab`  
+Branch: `fix/gateway-readiness-diagnostics-2026-11-08`
+
+This branch implements the actionable software repairs from the Android build 140 diagnostic audit and the 436-record gateway audit. Raw captures, private host addresses, profile names, prompts, responses and credentials are not committed. The task checkpoint records validation separately from deployment qualification.
+
+## Gateway audit coverage
+
+| Audit finding | Implemented correction | Completion evidence / remaining qualification |
+| --- | --- | --- |
+| Model discovery consistently returns 502 | The current launcher overrides the legacy model route with bounded, closed, nonredirecting metadata reads. Backend roots with a final `/v1` normalize consistently. Typed failures distinguish refused connection, connect/read timeout, DNS, TLS, closed connection, upstream status and invalid metadata. | Fault tests and actual admitted route tests. Repair of the user's backend service/address remains host work; this branch cannot prove that private service recovered. |
+| Readiness never succeeds | Readiness retains each backend condition and reports a precise primary blocker for selected-model, generation, draining or storage failures. An unknown catalogue cannot make the selected-model component ready. | Readiness fault cases retain exact model identity. Real success requires the actual selected model to appear in the catalogue and become generation-ready. |
+| Repeated slow capability checks | Both successful and failed metadata observations have a short cache. Concurrent checks share a per-configuration/model probe; unrelated models have independent gates. Measured transport recovery and configuration changes invalidate failed evidence. Physical admission can still force revalidation. | Concurrent failure, TTL, force, configuration, recovery and independent-model tests. Missing-model checks cannot create false global recovery events. |
+| Intentional metadata 403s | Safe route names and admission codes identify the restriction. Known-gateway Android paths use supported gateway observations and do not fall through to raw health/properties/models probes. | Real admission tests and Android HTTP fixtures. Access controls stay enforced. |
+| Readiness/dashboard bursts | Android readiness remains shared per authenticated route/model, with concurrent reads coalesced and repeated unavailable states backed off. Reattaching a screen retains the hold; configuration, process and network recovery reset it. | Subscription, state, parsed-503, network and screen reattachment regressions. Routine polling alone is not classified as CPU overload. |
+| Failure persists across startup | Startup/stop evidence now carries instance/boot identity, a known startup reason and controlled-shutdown indication. Supervisor crash recovery supplies its known reason. | Lifecycle persistence tests. A missing shutdown record still does not prove a crash. |
+| Request timestamps are misleading | Arrival, header delivery, final body delivery and log emission times are separate. Monotonic duration stops at the actual final body send. V2 causal response events use the same completion instant. | Real delayed HTTP exchanges and interrupted-delivery tests. |
+| Exports omit causes | Bounded allowlisted observations retain primary failures and independent health, model, process and storage conditions, including explicit unknown readiness values. Multiple causes cannot be flattened into a contradictory code/dependency pair. | A combined storage failure + health timeout + models403 test verifies the final ZIP row and byte bound. |
+| Most routes are `other` | Added fixed categories for management dashboard, maintenance, identity, job catalog, conversations/messages, commands, backend metadata, connections and tools. | Route tests; identifiers and query strings remain excluded. |
+| Logical ID reused across HTTP calls | Each physical call receives a unique HTTP ID; logical operation/receipt IDs, trace context and explicit read-retry attempt numbers are retained separately. Android retains the returned physical ID. | Multiple HTTP calls sharing one logical operation stay distinct in tests. |
+| Gateway build/config identity missing | Startup records and manifests retain version, source revision, package-manifest fingerprint, build status, instance/boot/process identity and safe configuration/backend fingerprints. | Bundle provenance and hash tests; packaged build identity still comes from the verified build manifest. |
+| Client attribution incomplete | Android diagnostic metadata is propagated through the gateway clients; a safe client type is recorded. Management requests have explicit attribution, while missing client evidence remains unknown. | Admission/privacy and client-header tests. Unadmitted headers cannot claim a trusted client identity. |
+| Inference/job outcomes absent from transport-only export | Desktop export now defaults to a ZIP with transport events, retained captured execution events and a coverage manifest with losses, source watermarks, availability and truncation. JSONL remains a clearly labelled transport-only option. | Actual retained job-event export, scoped remote access and live local-manager authorization tests. Uncaptured execution is explicitly unqualified. |
+
+## Additional Android audit coverage
+
+| Finding | Implemented correction / disposition |
+| --- | --- |
+| Strict reasoning requests fail after repeated metadata work | Cache failed exact-model qualification, distinguish unverified evidence from measured unsupported control, and reject strict On/Off before optional schema inference when proof is missing. Preserve the selected model and requested reasoning policy. Ordinary Auto keeps its existing optional-metadata policy. |
+| Engineering prerequisites appear as generic connection failures | Typed admission exceptions preserve host GitHub, execution-binding, validation and engineering prerequisites. Capability and control-isolation failures retain the correct connection-preflight stage. |
+| GET metadata occasionally ends with EOF | A dedicated bounded read-recovery path can retry safe metadata GETs with a fresh connection. It cannot replay a job POST, generation POST or SSE execution. |
+| Terminal dispatch evidence is missing | Actual invocation/run IDs and known boundary evidence flow through accounting and terminal diagnostics. Earlier uncertain/dispatched attempts cannot be erased by a later unsent attempt. |
+| Known unsent runs have unknown consumption | Consistent proven pre-dispatch invocations contribute known zero usage. Missing ledgers, transmitted/uncertain attempts and measured output preserve their uncertainty or consumption. |
+| Export error/dispatch columns remain null; readiness values include punctuation | Typed event envelopes feed canonical export fields. The legacy readiness parser normalizes delimiter syntax without stripping unrelated message punctuation. UTF-8 byte bounds preserve valid envelopes in the durable ring. |
+| Repeated events inflate apparent issue counts | Record occurrences, duplicate references, correlated incidents, failed runs and model invocations are reported separately with their counting units and coverage. Independent defect count remains unknown. |
+| Worker startup uses repeated replacement | Wakeups check durable work, serialize enqueue receipts, coalesce pending work and append a successor when needed. Running work is preserved, finishing-window arrivals remain durable, and unexpected worker errors use existing retry/backoff. |
+| Tool discovery remains ambiguously pending/recovering | Each selected connection has an explicit discovery state and revision. Same-turn acquisition can pick up late success without repeating unchanged failed/pending work. Authorized ready tools remain usable. |
+| Debug/Logs rendering and allocation spikes | Fixed-size paging, bounded replacement detail pages, off-main formatting and reused grouped projections reduce rendering work while preserving every retained event and full exports. Actual frame/native-memory improvement requires device measurement. |
+| ASUS framework exceptions and historical exits | Historical exit reasons are explicit; user-requested stops are not inferred crashes. OEM finalizer warnings remain nonfatal evidence. Firmware remediation requires a device/vendor change, not speculative app code. |
+| Optional platform warnings, ordinary cancellation and unsupported GPU claims | Retain evidence without inventing app crashes, GPU/VRAM defects, leaks, context overflow, generation timeout or lost jobs. No unsupported platform-setting change is made. |
+
+## Verification and deployment
+
+Meaningful regressions exercise the actual gateway HTTP/admission boundary and production Android algorithms. Focused JVM harnesses have explicit Android/Room/service boundaries; they do not qualify complete Hilt/Compose/WorkManager integration. The task JSON records final host and CI results without treating omitted, skipped, stale or pending checks as passing.
+
+The operator procedure is in `gateway/DIAGNOSTICS.md`. Install matching complete gateway and Android builds, retain one structured failure, repair the indicated backend condition, then observe exact-model catalogue/readiness success and an explicitly submitted generation. Verify engineering prerequisites and durable job completion separately. Device performance and ASUS qualification are described in `android-diagnostic-performance-2026-11-08.md`.

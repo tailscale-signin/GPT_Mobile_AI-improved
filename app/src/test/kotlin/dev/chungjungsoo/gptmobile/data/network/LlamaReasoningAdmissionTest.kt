@@ -24,6 +24,37 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LlamaReasoningAdmissionTest {
+    @Test fun unavailableGatewayMetadataRejectsStrictOffWithoutRawProbesExtraReadinessOrInference() = runBlocking {
+        val config = ProviderRequestConfig("https://unavailable-strict-off.example/v1", "secret", providerType = "LLAMA", reasoningMode = ReasoningMode.OFF)
+        dev.chungjungsoo.gptmobile.data.network.gateway.GatewayClientDiagnostics.observeInstance(config, "b".repeat(32))
+        val paths = mutableListOf<String>()
+        HttpClient(
+            MockEngine { request ->
+                paths += request.url.encodedPath
+                assertEquals("GET", request.method.value)
+                assertEquals("/v1/gateway/capabilities", request.url.encodedPath)
+                respond("""{"contractVersion":1,"instanceId":"${"b".repeat(32)}","selectedModel":{"schema":"gptmobile.gateway.selected-model.v1","schemaVersion":1,"requestedModel":"selected","limitsVerified":false,"failureCode":"EXECUTION_BACKEND_UNAVAILABLE","reasonCode":"BACKEND_CONNECTION_REFUSED","failureCategory":"connection_refused","reasoningControlState":"UNVERIFIED","retryable":true}}""")
+            }
+        ).use { http ->
+            val network = mockk<NetworkClient>()
+            every { network() } returns http
+            every { network.gatewayReadClient() } returns http
+            val preparation = ModelRequestPreparation(network)
+            val dispatch = dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext(emptySet(), "run", "invocation")
+            kotlinx.coroutines.withContext(dispatch) {
+                repeat(2) {
+                    val failure = runCatching { preparation.prepare("""{"model":"selected","messages":[{"role":"user","content":"request"}],"max_tokens":256}""", config, "selected", 256) }.exceptionOrNull()
+                    assertTrue(failure is dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityUnavailableException)
+                    assertEquals("REASONING_CAPABILITY_UNAVAILABLE", (failure as dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityUnavailableException).code)
+                }
+            }
+            assertEquals(listOf("/v1/gateway/capabilities"), paths)
+            assertTrue(dispatch.provenEntirelyUnsent())
+            assertTrue(dispatch.receipts.isEmpty())
+            assertEquals(ReasoningMode.OFF, config.reasoningMode)
+        }
+    }
+
     @Test fun textOnlyRecoveryPreservesReasoningAdmissionAndHardConstraints() {
         val original = dev.chungjungsoo.gptmobile.data.agent.provider.RequestConstraints(
             maxOutputTokens = 512,

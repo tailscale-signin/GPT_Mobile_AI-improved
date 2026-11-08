@@ -10,7 +10,13 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 /** Shrinks advertised schemas, never the authorized executable set. A new catalog is created per run. */
-class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: String, initialNames: Set<String>? = null, private val acquireCold: (suspend (String, List<String>) -> List<AgentToolDefinition>)? = null) : AgentTool {
+class ProgressiveToolCatalog(
+    definitions: List<AgentToolDefinition>,
+    task: String,
+    initialNames: Set<String>? = null,
+    private val acquireCold: (suspend (String, List<String>) -> List<AgentToolDefinition>)? = null,
+    private val acquisitionState: (() -> ToolCatalogAcquisition)? = null
+) : AgentTool {
     // Local schema selection is not an external evidence operation. Cold acquisitions
     // retain their own wrapped child admission rather than charging this facade too.
     override val coordinatesChildWork = true
@@ -50,7 +56,7 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
     private val advertisedContracts = mutableSetOf<String>()
 
     // A catalog lives for one run: repeated discovery should not refetch the same cold source.
-    private val acquiredQueryKeys = mutableSetOf<String>()
+    private val acquiredQueryKeys = mutableMapOf<String, String>()
     private val unknownNameVersions = linkedMapOf<String, String>()
     private val acquisitionMutex = Mutex()
     private data class Observation(val contract: String, val outcome: String, val at: Long, val errorCode: String?, val succeeded: Int, val failed: Int, val unknown: Int)
@@ -64,7 +70,13 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
 
     @Volatile private var acquisitionCode: String? = if (acquireCold == null) null else "ACQUISITION_PENDING"
 
-    internal fun acquisitionReadinessCode(): String? = acquisitionCode
+    @Volatile private var failedAcquisitionRevision: String? = null
+
+    internal fun acquisitionReadinessCode(): String? {
+        if (acquisitionMutex.isLocked) return acquisitionCode
+        val state = acquisitionState?.invoke() ?: return acquisitionCode
+        return if (failedAcquisitionRevision == state.revision) acquisitionCode else state.readinessCode
+    }
 
     private fun contractFingerprint(tool: AgentToolDefinition): String = fingerprint(tool.contractVersion.toString() + ":" + tool.inputSchema.toString())
 
@@ -226,17 +238,22 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
             val key = query.trim().lowercase(java.util.Locale.ROOT) + "|" + names.sorted().joinToString("|")
             acquisitionMutex.withLock {
                 val version = synchronized(this) { fingerprint(candidates.values.sortedBy { it.name }.joinToString { it.name + contractFingerprint(it) }) }
-                if (key !in acquiredQueryKeys && unknownNameVersions[key] != version) {
+                val acquisitionRevision = acquisitionState?.invoke()?.revision.orEmpty()
+                val lookupVersion = "$version:$acquisitionRevision"
+                if (acquiredQueryKeys[key] != acquisitionRevision && unknownNameVersions[key] != lookupVersion) {
+                    failedAcquisitionRevision = null
                     acquisitionCode = "ACQUISITION_PENDING"
                     val acquired = try {
                         acquireCold.invoke(query, names).filter { it.modelVisible }
                     } catch (timeout: kotlinx.coroutines.TimeoutCancellationException) {
                         acquisitionCode = "ACQUISITION_TIMED_OUT"
+                        failedAcquisitionRevision = acquisitionState?.invoke()?.revision
                         throw timeout
                     } catch (cancelled: kotlinx.coroutines.CancellationException) {
                         throw cancelled
                     } catch (failure: Exception) {
                         acquisitionCode = "ACQUISITION_FAILED"
+                        failedAcquisitionRevision = acquisitionState?.invoke()?.revision
                         throw failure
                     }
                     if (acquired.isNotEmpty()) {
@@ -245,12 +262,18 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
                             if (integrationPreset) active.addAll(acquired.filter(::integrationTool).map { it.name })
                         }
                         if (acquiredQueryKeys.size >= 128) acquiredQueryKeys.clear()
-                        acquiredQueryKeys += key
+                        // Cache the revision whose snapshot we requested. A producer
+                        // can finish between returning that snapshot and this write;
+                        // stamping its newer revision would hide the late result.
+                        acquiredQueryKeys[key] = acquisitionRevision
                     } else if (query.isBlank() && names.isNotEmpty() && names.none { synchronized(this) { it in candidates } }) {
-                        unknownNameVersions[key] = version
+                        unknownNameVersions[key] = lookupVersion
                         while (unknownNameVersions.size > 128) unknownNameVersions.remove(unknownNameVersions.keys.first())
                     }
-                    acquisitionCode = null
+                    // A short interactive wait can return before the application-owned
+                    // producer. Its later result changes the revision and can be picked
+                    // up in this same run without repeating unchanged discovery.
+                    acquisitionCode = acquisitionState?.invoke()?.readinessCode
                 }
             }
         }
@@ -416,6 +439,7 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
                         put("inventory_remaining_after_page", inventory.size - next)
                         put("inventory_entries_not_yet_listed", inventory.size - listedInventory.size)
                         put("coverage", coverage())
+                        acquisitionState?.invoke()?.let { put("connection_discovery", it.receipt()) }
                         put("has_more", next < inventory.size)
                         if (next < inventory.size) {
                             put(
@@ -473,13 +497,15 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
             put("schema_budget_excluded", JsonArray(found.filterNot { it.name in active }.map { JsonPrimitive(it.name) }))
             put("schema_token_allowance", schemaAllowance)
             put("selection_policy", "Explicitly requested capabilities receive priority; other authorized capabilities remain discoverable. Availability still requires the next request's context admission. Executable permissions are unchanged.")
-            put("availability_note", "Unknown names are not in the authorized catalog. Enable/configure the relevant connection or permission before discovery; schema admission alone cannot grant access.")
+            val incompleteDiscovery = acquisitionState?.invoke()?.readinessCode != null
+            put("availability_note", if (incompleteDiscovery) "Some selected connections are pending or unavailable. A name missing from this snapshot is not proof that its server has no such tool. Ready authorized tools remain available; discovery does not grant permissions." else "Unknown names are not in the authorized catalog. Enable/configure the relevant connection or permission before discovery; schema admission alone cannot grant access.")
             put("unknown_names", JsonArray(names.filterNot(candidates::containsKey).map(::JsonPrimitive)))
-            if (names.any { it !in candidates }) put("unknown_name_recovery", "These names are absent from this authorized catalog. Choose exact names from discovery; do not repeat unchanged unknown-name requests. Retry only after the catalog changes.")
+            if (names.any { it !in candidates }) put("unknown_name_recovery", if (incompleteDiscovery) "Inspect connection_discovery. Retry after the relevant connection's state changes; do not repeat discovery while the same acquisition or recovery backoff is pending." else "These names are absent from this authorized catalog. Choose exact names from discovery; do not repeat unchanged unknown-name requests. Retry only after the catalog changes.")
             put("authorized_tool_count", candidates.size)
             put("remaining_tool_count", candidates.size - discovered.count { it in candidates })
             put("advertised_tool_count", active.size)
             put("coverage", coverage())
+            acquisitionState?.invoke()?.let { put("connection_discovery", it.receipt()) }
             put("catalog_unchanged", previousActive == active)
             put("newly_advertised", JsonArray(active.filterNot { it in previousActive }.map(::JsonPrimitive)))
             if (previousActive == active) put("next_step", "No new schemas became available. Use an advertised tool or produce a partial answer; do not repeat this identical discovery.")

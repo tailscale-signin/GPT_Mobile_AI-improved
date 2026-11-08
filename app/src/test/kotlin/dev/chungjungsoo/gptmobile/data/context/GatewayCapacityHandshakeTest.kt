@@ -39,6 +39,73 @@ class GatewayCapacityHandshakeTest {
             "disabledPromptDigest":"${"e".repeat(64)}","observedAtMillis":1793960000000}"""
     ).jsonObject
 
+    @Test fun failedGatewayQualificationIsCachedWithoutAdministrativeFallbackAndInvalidatedByIdentity() = runTest {
+        withContext(Dispatchers.Default) {
+            val selected = config.copy(apiUrl = "http://127.0.0.1:29882/v1")
+            dev.chungjungsoo.gptmobile.data.network.gateway.GatewayClientDiagnostics.observeInstance(selected, "b".repeat(32))
+            var now = 0L
+            var calls = 0
+            val failed = JsonObject(
+                observation + mapOf(
+                    "limitsVerified" to JsonPrimitive(false),
+                    "failureCode" to JsonPrimitive("EXECUTION_BACKEND_UNAVAILABLE"),
+                    "reasonCode" to JsonPrimitive("BACKEND_CONNECTION_REFUSED"),
+                    "dependency" to JsonPrimitive("backend_models"),
+                    "failureCategory" to JsonPrimitive("connection_refused"),
+                    "retryable" to JsonPrimitive(true),
+                    "reasoningControlState" to JsonPrimitive("UNVERIFIED")
+                )
+            )
+            HttpClient(
+                MockEngine { request ->
+                    calls++
+                    assertEquals("/v1/gateway/capabilities", request.url.encodedPath)
+                    assertEquals("GET", request.method.value)
+                    respond(handshake(failed))
+                }
+            ).use { http ->
+                val repository = LlamaCapacityRepository({ http }, now = { now })
+                repeat(3) { assertNull(repository.discover(selected, "selected-model")) }
+                val observation = requireNotNull(repository.gatewayObservation(selected, "selected-model"))
+                assertEquals("b".repeat(32), observation.instanceId)
+                assertEquals("BACKEND_CONNECTION_REFUSED", observation.reasonCode)
+                assertEquals("UNVERIFIED", observation.reasoningControlState)
+                assertEquals(true, observation.retryable)
+                assertEquals(1, calls)
+                now = 15_000
+                assertNull(repository.discover(selected, "selected-model"))
+                assertEquals(2, calls)
+                val changed = selected.copy(token = "different-account")
+                dev.chungjungsoo.gptmobile.data.network.gateway.GatewayClientDiagnostics.observeInstance(changed, "b".repeat(32))
+                assertNull(repository.discover(changed, "selected-model"))
+                assertEquals(3, calls)
+            }
+        }
+    }
+
+    @Test fun reasoningStateRequiresExactProofAndFreshObservationsAndFiltersPrivateFailureText() {
+        fun parse(fields: Map<String, kotlinx.serialization.json.JsonElement>) = parseGatewayModelObservation(handshake(JsonObject(observation + fields)), config, "selected-model", 100)
+        assertEquals("UNVERIFIED", parse(emptyMap()).reasoningControlState)
+        assertEquals("UNSUPPORTED", parse(mapOf("reasoningControlState" to JsonPrimitive("UNSUPPORTED"))).reasoningControlState)
+        assertEquals("VERIFIED", parse(mapOf("reasoningControl" to control())).reasoningControlState)
+        assertEquals("UNVERIFIED", parse(mapOf("limitsVerified" to JsonPrimitive(false), "reasoningControlState" to JsonPrimitive("UNSUPPORTED"))).reasoningControlState)
+        val stale = parse(mapOf("reasoningControl" to control(), "observationAgeMs" to JsonPrimitive(20_000)))
+        assertNull(stale.capacity)
+        assertNull(stale.reasoningControl)
+        assertEquals("UNVERIFIED", stale.reasoningControlState)
+        assertNull(parse(mapOf("reasoningControl" to control(), "observationAgeMs" to JsonPrimitive("0"))).capacity)
+        val almostExpired = parse(mapOf("reasoningControl" to control(), "observationAgeMs" to JsonPrimitive(19_990)))
+        assertEquals("VERIFIED", almostExpired.fresh(109).reasoningControlState)
+        assertNull(almostExpired.fresh(110).capacity)
+        assertEquals("UNVERIFIED", almostExpired.fresh(110).reasoningControlState)
+        assertEquals(20_000L, almostExpired.fresh(110).observationAgeMillis)
+        val private = parse(mapOf("reasonCode" to JsonPrimitive("private-backend-address"), "dependency" to JsonPrimitive("https://private-backend"), "failureCategory" to JsonPrimitive("secret"), "retryable" to JsonPrimitive("true")))
+        assertNull(private.reasonCode)
+        assertNull(private.dependency)
+        assertNull(private.failureCategory)
+        assertNull(private.retryable)
+    }
+
     @Test fun anObservedGatewayDoesNotProbeAdministrativePropsToUseVerifiedReasoningControl() = runTest {
         withContext(Dispatchers.Default) {
             val selected = config.copy(apiUrl = "http://127.0.0.1:29881/v1")

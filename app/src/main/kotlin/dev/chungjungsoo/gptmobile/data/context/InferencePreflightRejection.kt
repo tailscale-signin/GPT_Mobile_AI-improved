@@ -4,12 +4,17 @@ package dev.chungjungsoo.gptmobile.data.context
 internal enum class InferencePreflightReason {
     REASONING_OFF_UNSUPPORTED,
     REASONING_ON_UNSUPPORTED,
-    GATEWAY_CAPABILITY_UNAVAILABLE
+    REASONING_CAPABILITY_UNVERIFIED,
+    REASONING_CAPABILITY_UNAVAILABLE,
+    REASONING_CAPABILITY_TIMEOUT,
+    GATEWAY_CAPABILITY_UNAVAILABLE,
+    GATEWAY_ISOLATION_UNAVAILABLE
 }
 
 internal data class InferencePreflightRejection(val reason: InferencePreflightReason) {
     val phase: String get() = "LOCAL_INFERENCE_ADMISSION"
     val dispatch: String get() = "NOT_DISPATCHED"
+    val failedStage: String get() = if (reason.name.startsWith("GATEWAY_")) "connection_preflight" else "provider_admission"
 }
 
 class ReasoningAdmissionException(val requested: ReasoningMode) :
@@ -23,7 +28,7 @@ class ReasoningAdmissionException(val requested: ReasoningMode) :
 
 class ReasoningCapabilityUnavailableException(val code: String) :
     IllegalStateException(
-        "$code: The selected writer's exact model and reasoning controls are not qualified. Recheck capabilities before collecting contributions."
+        "$code: The selected model's exact route and reasoning controls are not qualified. Recheck its connection and capabilities; the saved reasoning setting is unchanged and no inference was sent."
     ) {
     init {
         require(code in setOf("REASONING_CAPABILITY_UNVERIFIED", "REASONING_CAPABILITY_UNAVAILABLE", "REASONING_CAPABILITY_TIMEOUT"))

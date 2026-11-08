@@ -21,7 +21,9 @@ data class ProfileFailureRecord(
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
     val phase: String = "",
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
-    val resourceKeys: Set<String> = emptySet()
+    val resourceKeys: Set<String> = emptySet(),
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val invocationId: String? = null
 ) {
     val isTaskVerification: Boolean get() = category in setOf("TASK_INCOMPLETE", "EVIDENCE_REQUIRED")
 
@@ -37,17 +39,20 @@ data class ProfileFailureRecord(
 
         /** Preserve typed stage/dispatch facts; arbitrary provider text is never promoted to evidence. */
         fun fromProvider(message: String, errorCode: String? = null, details: JsonObject? = null): ProfileFailureRecord {
+            val invocationId = (details?.get("invocation_id") as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull?.takeIf {
+                it.matches(Regex("[A-Za-z0-9][A-Za-z0-9_-]{0,127}"))
+            }
             val rejectedStatus = (details?.get("http_status") as? JsonPrimitive)?.contentOrNull in setOf("409", "422")
             val code = errorCode?.uppercase(java.util.Locale.ROOT)?.takeIf {
                 it in typedCodes || it in gatewayAdmissionCodes || it in readinessCodes || it in dev.chungjungsoo.gptmobile.data.github.GitHubFailurePolicy.codes || it in dev.chungjungsoo.gptmobile.data.network.error.ProviderContractFailure.codes
             } ?: "REQUEST_REJECTED".takeIf { rejectedStatus }
             val observed = classify(listOfNotNull(code, message).joinToString(": "))
             // A local rejection must not replace an already ambiguous remote operation.
-            if (observed.category == GatewayOutcomeRecovery.ERROR_CODE) return observed
+            if (observed.category == GatewayOutcomeRecovery.ERROR_CODE) return observed.copy(invocationId = invocationId)
             if (observed.category == "TOOL_OUTCOME_UNKNOWN") {
                 // A later local rejection cannot establish that the earlier
                 // uncertain tool operation was never sent.
-                return observed.copy(dispatched = true.takeIf { details?.get("dispatched") == JsonPrimitive(true) })
+                return observed.copy(dispatched = true.takeIf { details?.get("dispatched") == JsonPrimitive(true) }, invocationId = invocationId)
             }
             val authoritative = code?.let { classify(it) }
             val legacy = if (authoritative != null) {
@@ -78,7 +83,8 @@ data class ProfileFailureRecord(
                 retryAllowed = legacy.retryAllowed && details?.get("retryable") != JsonPrimitive(false),
                 dispatched = dispatched,
                 remoteAcceptance = if (localCircuitRejection || authorityPrecheck || catalogPrecheck || dispatchState in setOf("not_dispatched", "precheck_rejected")) RemoteRequestAcceptance.NO else legacy.remoteAcceptance,
-                retryAfterMillis = if (localCircuitRejection && retryAfter != null) System.currentTimeMillis() + retryAfter else legacy.retryAfterMillis
+                retryAfterMillis = if (localCircuitRejection && retryAfter != null) System.currentTimeMillis() + retryAfter else legacy.retryAfterMillis,
+                invocationId = invocationId
             )
         }
 

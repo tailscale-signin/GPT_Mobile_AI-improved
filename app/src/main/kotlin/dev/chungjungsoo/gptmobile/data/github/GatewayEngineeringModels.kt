@@ -25,6 +25,29 @@ data class GatewayEngineeringCapabilities(
 ) {
     val supportsDurableChat: Boolean get() = taskScopeProtocol == 1 && taskScopes.containsAll(listOf("read", "plan", "implement")) && conversationSync && durableDetach
 
+    /** A valid capability HTTP response is not evidence that a dependent job was admitted. */
+    fun requireJobReadiness(savedResultsOnly: Boolean = false) {
+        val reason = if (savedResultsOnly) {
+            GatewayAdmissionReason.ENGINEERING_STORAGE_UNAVAILABLE.takeIf { readiness?.savedResults == false }
+        } else {
+            jobReadinessFailure()
+        }
+        if (reason != null) throw GatewayAdmissionException(reason, 200, null, GatewayAdmissionSurface.CAPABILITIES)
+    }
+
+    internal fun jobReadinessFailure(): GatewayAdmissionReason? {
+        if (enabled && readiness?.ready != false) return null
+        val checks = readiness?.checks
+        return when {
+            checks?.journal == "disabled" -> GatewayAdmissionReason.ENGINEERING_STORAGE_DISABLED
+            checks?.journal in setOf("unavailable", "write_failed") -> GatewayAdmissionReason.ENGINEERING_STORAGE_UNAVAILABLE
+            checks?.hostGithubConnection == "missing" -> GatewayAdmissionReason.ENGINEERING_GITHUB_REQUIRED
+            checks?.draining == true -> GatewayAdmissionReason.ENGINEERING_DRAINING
+            checks?.worker == "unavailable" -> GatewayAdmissionReason.ENGINEERING_WORKER_UNAVAILABLE
+            else -> GatewayAdmissionReason.ENGINEERING_UNAVAILABLE
+        }
+    }
+
     fun unavailableReason(graph: Boolean = false): String? {
         val ready = if (graph) codeGraph?.enabled == true && readiness?.graphReady != false else enabled && readiness?.ready != false
         if (ready) return null

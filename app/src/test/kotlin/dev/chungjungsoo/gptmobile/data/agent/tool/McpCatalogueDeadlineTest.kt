@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.agent.tool
 
+import dev.chungjungsoo.gptmobile.data.agent.ToolCatalogDiscoveryState
 import dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
@@ -57,18 +58,25 @@ class McpCatalogueDeadlineTest {
         val manager = McpClientManager(client, modern = ModernMcpTransport(client))
         val configs = (1..3).map { McpConnectionConfig("c$it", "https://catalogue$it.example/mcp", false, "Bearer same-scope") }
         try {
+            assertTrue(configs.all { manager.catalogueDiscovery(it.connectionUid).state == ToolCatalogDiscoveryState.NOT_DISCOVERED })
             val start = System.nanoTime()
             val jobs = configs.map { async { manager.listTools(it) } }
             withTimeout(1500) { while (calls.size < 3) delay(10) }
             assertTrue(jobs.awaitAll().all { it.isEmpty() })
             assertTrue((System.nanoTime() - start) / 1_000_000 < 3500)
             assertTrue(configs.all { manager.catalogueAvailability(it).refreshing })
+            val pending = configs.associate { it.connectionUid to manager.catalogueDiscovery(it.connectionUid) }
+            assertTrue(pending.values.all { it.state == ToolCatalogDiscoveryState.PENDING && it.knownSchemaCount == null })
             release.complete(Unit)
             withTimeout(2000) { while (configs.any { manager.peekTools(it) == null }) delay(10) }
             configs.forEach { config ->
                 assertEquals(listOf("read"), manager.listTools(config).map { it.name })
                 assertEquals(listOf("read"), manager.peekToolsForConnection(config.connectionUid, config.endpointUrl, config.allowCleartext)?.map { it.name })
                 assertTrue(manager.catalogueAvailability(config).schemaKnown)
+                val completed = manager.catalogueDiscovery(config.connectionUid)
+                assertEquals(ToolCatalogDiscoveryState.READY, completed.state)
+                assertEquals(1, completed.knownSchemaCount)
+                assertFalse(pending.getValue(config.connectionUid).revision == completed.revision)
             }
             assertTrue(calls.values.all { it.get() == 1 })
         } finally {
@@ -111,6 +119,10 @@ class McpCatalogueDeadlineTest {
             assertFalse(manager.catalogueAvailability(config).schemaKnown)
             assertFalse(manager.catalogueAvailability(config).executionAvailable)
             assertTrue(manager.healthSnapshot(config.connectionUid).lastError.orEmpty().contains("8000"))
+            val failed = manager.catalogueDiscovery(config.connectionUid)
+            assertTrue(failed.state in setOf(ToolCatalogDiscoveryState.FAILED, ToolCatalogDiscoveryState.RECOVERY_BACKOFF))
+            assertEquals("MCP_CATALOG_TIMEOUT", failed.errorCode)
+            assertEquals(null, failed.knownSchemaCount)
         } finally {
             manager.closeAll()
             client.close()
@@ -236,6 +248,7 @@ class McpCatalogueDeadlineTest {
             LocalServiceHealth.networkChanged()
             assertFalse(manager.catalogueAvailability(config).executionAvailable)
             assertFalse(manager.catalogueAvailability(config).connectionHealthy)
+            assertEquals(ToolCatalogDiscoveryState.STALE, manager.catalogueDiscovery(config.connectionUid).state)
             manager.listTools(config, awaitCompletion = true)
             assertTrue(manager.catalogueAvailability(config).executionAvailable)
         } finally {

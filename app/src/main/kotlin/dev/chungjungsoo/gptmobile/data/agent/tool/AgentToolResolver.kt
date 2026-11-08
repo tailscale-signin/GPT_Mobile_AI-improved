@@ -292,7 +292,9 @@ class AgentToolResolver @Inject constructor(
                             val health = mcpClientManager.healthSnapshot(connection.connectionUid)
                             val failure = mcpFailurePresentation(error, health)
                             val event = if (failure.waitingForRecovery) "TOOL_RESOLUTION_WAITING_RECOVERY" else "TOOL_RESOLUTION_FAILED"
-                            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ToolCatalog", "$event · connection=${connection.connectionUid} · ${failure.diagnosticSummary} · reason=${error.javaClass.simpleName} · cachedOnly=$cachedCataloguesOnly · health=${health.state}", if (failure.waitingForRecovery) "I" else "W")
+                            if (catalogOmissions.changed(connection.connectionUid, mcpBindings.mapTo(hashSetOf()) { it.binding.toolName }, "${failure.outcome}:${failure.errorCode}")) {
+                                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ToolCatalog", "$event · connection=${connection.connectionUid} · ${failure.diagnosticSummary} · reason=${error.javaClass.simpleName} · cachedOnly=$cachedCataloguesOnly · health=${health.state}", if (failure.waitingForRecovery) "I" else "W")
+                            }
                             emptyList<ResolvedAgentTool>() to "${connection.name}: ${failure.message}"
                         }
                     }
@@ -436,7 +438,11 @@ class AgentToolResolver @Inject constructor(
             return attachCrawlers(finalized, profileUid, platform, featureSettings, userMessage, chatToolConfig, consentPlatform) + ResolvedAgentTool(directory, null, "Authorized tool directory", directory.definition.name, directory.definition.name, progressiveCatalog = directory)
         }
         val discovered = java.util.concurrent.ConcurrentHashMap<String, ResolvedAgentTool>()
-        val attemptedConnections = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+        val attemptedConnections = java.util.concurrent.ConcurrentHashMap<String, String>()
+        val coldConnectionIds = coldBindings.mapNotNull { it.binding.connectionUid }.distinct()
+        val acquisitionState = {
+            dev.chungjungsoo.gptmobile.data.agent.ToolCatalogAcquisition(coldConnectionIds.map(mcpClientManager::catalogueDiscovery))
+        }
         val directory = dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog(finalized.map { it.tool.definition }, catalogTask, acquireCold = { query, names ->
             val live = GitHubChatPolicy.features(settingRepository.getFeatureSettings(), profileUid, chatToolConfig?.github)
             val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }?.let { GitHubChatPolicy.platform(it, live, chatToolConfig?.github) }
@@ -458,7 +464,13 @@ class AgentToolResolver @Inject constructor(
                                 GitHubOperationTool.operationName(item.binding.toolName) != null ||
                                 Regex("(?i)github|gitmcp").containsMatchIn(item.binding.toolName + " " + item.connection?.name)
                         }
-                }.filter { group -> group.first().binding.connectionUid !in attemptedConnections || group.any { it.binding.toolName in names || names.any { name -> name.endsWith("__" + it.binding.toolName) } } }
+                }.filter { group ->
+                    val uid = requireNotNull(group.first().connection).connectionUid
+                    // A background producer may finish after the interactive wait.
+                    // Its new revision makes it eligible in this run; unchanged
+                    // failures and pending producers are not repeatedly queried.
+                    attemptedConnections[uid] != mcpClientManager.catalogueDiscovery(uid).revision
+                }
                 .sortedByDescending { group ->
                     group.count { item -> item.binding.toolName in names || names.any { it.endsWith("__" + item.binding.toolName) } } * 100 +
                         words.count { word -> group.any { word in (it.binding.toolName + " " + it.connection?.name).lowercase(java.util.Locale.ROOT) } }
@@ -467,6 +479,7 @@ class AgentToolResolver @Inject constructor(
                 targets.map { group ->
                     async {
                         val connection = requireNotNull(group.first().connection)
+                        val requestedRevision = mcpClientManager.catalogueDiscovery(connection.connectionUid).revision
                         try {
                             resolveMcpTools(connection, group, live, profileUid, userMessage = userMessage, workspaceContext = chatToolConfig?.github)
                         } catch (cancelled: CancellationException) {
@@ -477,7 +490,7 @@ class AgentToolResolver @Inject constructor(
                             onConnectionError("${connection.name}: discovery unavailable; other authorized tools remain available.")
                             emptyList()
                         } finally {
-                            attemptedConnections.add(connection.connectionUid)
+                            attemptedConnections[connection.connectionUid] = requestedRevision
                         }
                     }
                 }.awaitAll().flatten()
@@ -493,7 +506,7 @@ class AgentToolResolver @Inject constructor(
                 discovered[next.modelToolName] = next
             }
             aggregateWebSearch(finalized + discovered.values).map { it.tool.definition }
-        })
+        }, acquisitionState = acquisitionState)
         return attachCrawlers(finalized, profileUid, platform, featureSettings, userMessage, chatToolConfig, consentPlatform) + ResolvedAgentTool(directory, null, "Authorized tool directory", directory.definition.name, directory.definition.name, dynamicTools = { finalized + discovered.values }, progressiveCatalog = directory)
     }
 
@@ -1530,10 +1543,21 @@ class AgentToolResolver @Inject constructor(
         val selectedNames = bindings.map { it.binding.toolName }.toSet()
         val remoteTools = if (cachedOnly) mcpClientManager.peekToolsForConnection(connection.connectionUid, connection.endpointUrl, connection.allowCleartext).orEmpty() else discoverMcpTools(connection)
         val missing = selectedNames - remoteTools.map { it.name }.toSet()
-        val reason = if (cachedOnly) "CATALOG_DISCOVERY_PENDING_OR_RECOVERING" else "REMOTE_TOOL_NOT_LISTED"
+        val discovery = mcpClientManager.catalogueDiscovery(connection.connectionUid)
+        val reason = when (discovery.state) {
+            dev.chungjungsoo.gptmobile.data.agent.ToolCatalogDiscoveryState.READY -> "REMOTE_TOOL_NOT_LISTED"
+            dev.chungjungsoo.gptmobile.data.agent.ToolCatalogDiscoveryState.PENDING -> "CATALOG_DISCOVERY_PENDING"
+            dev.chungjungsoo.gptmobile.data.agent.ToolCatalogDiscoveryState.FAILED -> "CATALOG_DISCOVERY_FAILED"
+            dev.chungjungsoo.gptmobile.data.agent.ToolCatalogDiscoveryState.RECOVERY_BACKOFF -> "CATALOG_RECOVERY_BACKOFF"
+            dev.chungjungsoo.gptmobile.data.agent.ToolCatalogDiscoveryState.AUTHENTICATION_REQUIRED -> "CATALOG_AUTHENTICATION_REQUIRED"
+            dev.chungjungsoo.gptmobile.data.agent.ToolCatalogDiscoveryState.CONFIGURATION_REQUIRED -> "CATALOG_CONFIGURATION_REQUIRED"
+            dev.chungjungsoo.gptmobile.data.agent.ToolCatalogDiscoveryState.STALE -> "CATALOG_SCHEMA_STALE"
+            dev.chungjungsoo.gptmobile.data.agent.ToolCatalogDiscoveryState.NOT_DISCOVERED -> "CATALOG_NOT_DISCOVERED"
+        }
         if (catalogOmissions.changed(connection.connectionUid, missing, reason)) {
             val names = missing.sorted().take(16).joinToString(",") { it.replace(Regex("[^A-Za-z0-9_.:-]"), "_").take(80) }
-            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ToolCatalog", "TOOLS_OMITTED · stage=resolution · connection=${connection.connectionUid} · count=${missing.size} · names=$names · namesTruncated=${missing.size > 16} · reason=$reason")
+            val event = if (missing.isEmpty()) "TOOLS_RESTORED" else "TOOLS_OMITTED"
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ToolCatalog", "$event · stage=resolution · connection=${connection.connectionUid} · count=${missing.size} · names=$names · namesTruncated=${missing.size > 16} · reason=$reason · discoveryState=${discovery.state} · errorCode=${discovery.errorCode ?: "none"} · cachedOnly=$cachedOnly · executionVerified=false")
         }
         val janNafta = AmazonJanNaftaTool.recognizes(connection, remoteTools.map { it.name }.toSet())
         return remoteTools

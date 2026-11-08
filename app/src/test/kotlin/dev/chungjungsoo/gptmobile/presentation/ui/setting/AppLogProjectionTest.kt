@@ -51,4 +51,19 @@ class AppLogProjectionTest {
         assertEquals(50L, projection.rows.last().group.entry.time)
         assertFalse(projection.rows.first().hasDetails)
     }
+
+    @Test fun olderPagesRetainEveryMatchingRowAndFilterChangesClampThePage() {
+        val entries = (0..248).map { AppLogEntry(it.toLong(), "E", "Worker", "Failure $it", eventId = "event-$it") }
+        val groups = groupAppLogs(entries)
+        val pages = (0..2).map { projectAppLogs(entries, groups, false, "All tags", "", pageIndex = it) }
+        assertEquals(listOf(100, 100, 49), pages.map { it.rows.size })
+        assertEquals(249, pages.flatMap { it.rows }.map { it.key }.distinct().size)
+        assertEquals((248 downTo 0).map { "event-$it" }, pages.flatMap { it.rows }.map { it.key })
+        assertTrue(pages[0].hasOlderRows)
+        assertFalse(pages[2].hasOlderRows)
+        val narrowed = projectAppLogs(entries, groups, false, "Worker", "Failure 248", pageIndex = 2)
+        assertEquals(0, narrowed.pageIndex)
+        assertEquals(1, narrowed.matchingRows)
+        assertEquals("event-248", narrowed.rows.single().key)
+    }
 }

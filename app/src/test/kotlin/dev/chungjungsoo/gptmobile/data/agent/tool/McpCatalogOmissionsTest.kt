@@ -12,6 +12,7 @@ class McpCatalogOmissionsTest {
         assertTrue(tracker.changed("two", setOf("a", "b"), "recovering"))
         assertTrue(tracker.changed("one", setOf("a", "b"), "not_listed"))
         assertTrue(tracker.changed("one", setOf("a"), "not_listed"))
+        assertTrue(tracker.changed("one", emptySet(), "not_listed"))
         assertFalse(tracker.changed("one", emptySet(), "not_listed"))
         assertTrue(tracker.changed("one", setOf("a"), "not_listed"))
     }

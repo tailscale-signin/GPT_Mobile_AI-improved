@@ -9,6 +9,8 @@ import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import dev.chungjungsoo.gptmobile.data.network.boundedMetadata
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayClientDiagnostics
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewaySurfacePolicy
+import dev.chungjungsoo.gptmobile.data.network.gateway.gatewayClientExchange
+import dev.chungjungsoo.gptmobile.data.network.gateway.parseGatewayReadiness
 import dev.chungjungsoo.gptmobile.data.research.researchHash
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.timeout
@@ -65,7 +67,12 @@ internal data class LlamaHealthReport(
     val inferenceLatencyMs: Long? = null,
     val timeToFirstTokenMs: Long? = null,
     val gatewayToolsReady: Boolean? = null,
-    val cachedRestrictedSurfaces: List<String> = emptyList()
+    val cachedRestrictedSurfaces: List<String> = emptyList(),
+    val metadataSource: String = "DIRECT_METADATA",
+    val skippedMetadataSurfaces: List<String> = emptyList(),
+    val gatewayFailure: String? = null,
+    val gatewayReasonCode: String? = null,
+    val gatewayRetryable: Boolean? = null
 ) {
     val phase: LlamaConnectionPhase get() = when {
         activeGenerations > 0 -> LlamaConnectionPhase.GENERATING
@@ -73,26 +80,62 @@ internal data class LlamaHealthReport(
         inferenceTested && inferenceReady == false -> LlamaConnectionPhase.DEGRADED
         selectedModelListed == true && gatewayReady == true -> LlamaConnectionPhase.MODEL_LOADED
         selectedModelListed == true && healthHttpStatus == 200 && serverStatus in setOf("ok", "ready") -> LlamaConnectionPhase.MODEL_LOADED
+        gatewayReady == false -> LlamaConnectionPhase.DEGRADED
         listOfNotNull(healthHttpStatus, modelsHttpStatus, propsHttpStatus, gatewayHttpStatus).isEmpty() -> LlamaConnectionPhase.DISCONNECTED
-        healthFailure != null || propsFailure != null || modelsFailure != null -> LlamaConnectionPhase.DEGRADED
+        healthFailure != null || propsFailure != null || modelsFailure != null || gatewayFailure != null -> LlamaConnectionPhase.DEGRADED
         else -> LlamaConnectionPhase.REACHABLE
     }
 
     fun summary(): String = "healthHttp=${healthHttpStatus ?: "unknown"}; serverStatus=${serverStatus ?: "unknown"}; " +
         "modelsHttp=${modelsHttpStatus ?: "unknown"}; selectedModelListed=${selectedModelListed ?: "unknown"}; " +
         "propsHttp=${propsHttpStatus ?: "unknown"}; servingContext=${contextTokens ?: "unknown"}; templateRevision=${templateRevision ?: "unknown"}; " +
-        "gatewayHttp=${gatewayHttpStatus ?: "unknown"}; gatewayReady=${gatewayReady ?: "Not measured"}; metadataRestricted=$metadataRestricted; cachedRestrictedSurfaces=$cachedRestrictedSurfaces; " +
+        "gatewayHttp=${gatewayHttpStatus ?: "unknown"}; gatewayReady=${gatewayReady ?: "Not measured"}; gatewayReasonCode=${gatewayReasonCode ?: "Not reported"}; gatewayFailure=${gatewayFailure ?: "none"}; metadataSource=$metadataSource; metadataRestricted=$metadataRestricted; cachedRestrictedSurfaces=$cachedRestrictedSurfaces; " +
         "phase=$phase; serverGeneration=${serverGeneration ?: "Not reported"}; modelIdentity=${modelIdentity ?: "Not reported"}; " +
         "healthFailure=${healthFailure ?: "none"}; propsFailure=${propsFailure ?: "none"}; modelsFailure=${modelsFailure ?: "none"}; " +
         "activeGenerations=$activeGenerations; requestId=${activeRequestId ?: "Not reported"}; inferenceTested=$inferenceTested; inferenceReady=${inferenceReady ?: "Not measured"}; inferenceFailure=${inferenceFailure ?: "none"}; inferenceLatencyMs=${inferenceLatencyMs ?: "Not measured"}; timeToFirstTokenMs=${timeToFirstTokenMs ?: "Not measured"}; gatewayToolsReady=${gatewayToolsReady ?: "Not measured"}"
+
+    fun diagnosticFields(): Map<String, Any?> = mapOf(
+        "healthHttp" to healthHttpStatus,
+        "serverStatus" to serverStatus,
+        "modelsHttp" to modelsHttpStatus,
+        "selectedModelListed" to selectedModelListed,
+        "propsHttp" to propsHttpStatus,
+        "servingContext" to contextTokens,
+        "templateRevision" to templateRevision,
+        "gatewayHttp" to gatewayHttpStatus,
+        "gatewayReady" to gatewayReady,
+        "gatewayFailure" to gatewayFailure,
+        "gatewayReasonCode" to gatewayReasonCode,
+        "gatewayRetryable" to gatewayRetryable,
+        "metadataSource" to metadataSource,
+        "metadataRestricted" to metadataRestricted,
+        "cachedRestrictedSurfaces" to cachedRestrictedSurfaces,
+        "skippedMetadataSurfaces" to skippedMetadataSurfaces,
+        "phase" to phase.name,
+        "serverGeneration" to serverGeneration,
+        "modelIdentity" to modelIdentity,
+        "healthFailure" to healthFailure,
+        "propsFailure" to propsFailure,
+        "modelsFailure" to modelsFailure,
+        "activeGenerations" to activeGenerations,
+        "requestId" to activeRequestId,
+        "inferenceTested" to inferenceTested,
+        "inferenceReady" to inferenceReady,
+        "inferenceFailure" to inferenceFailure,
+        "inferenceLatencyMs" to inferenceLatencyMs,
+        "timeToFirstTokenMs" to timeToFirstTokenMs,
+        "gatewayToolsReady" to gatewayToolsReady
+    )
 }
 
 /** Read-only checks stay on the configured authenticated route and never request model autoload. */
 internal class LlamaHealthDiagnostics(
     private val client: () -> HttpClient,
-    now: () -> Long = { System.nanoTime() / 1_000_000 }
+    now: () -> Long = { System.nanoTime() / 1_000_000 },
+    private val readClient: () -> HttpClient = client,
+    private val evictIdleConnections: suspend () -> Unit = {}
 ) {
-    constructor(client: NetworkClient) : this({ client() })
+    constructor(client: NetworkClient) : this({ client() }, readClient = client::gatewayReadClient, evictIdleConnections = client::evictIdleConnections)
     private val nowMs = now
     private val cache = RouteCapabilityCache<LlamaHealthReport>(now, positiveTtl = 30_000)
 
@@ -102,6 +145,7 @@ internal class LlamaHealthDiagnostics(
         if (uri == null || uri.scheme !in setOf("http", "https") || uri.host == null || uri.rawQuery != null || uri.rawFragment != null || uri.userInfo != null) return LlamaHealthReport()
         val key = researchHash("${GatewayClientDiagnostics.routeIdentity(config)}|$model|${LocalServiceHealth.networkEpoch}|${GatewayClientDiagnostics.capabilityEpoch(config)}")
         val report = cache.getOrLoad(key) {
+            if (GatewayClientDiagnostics.runtimeEpoch(config) != "unobserved") return@getOrLoad inspectGateway(config, model)
             coroutineScope {
                 val health = async { readMetadata(route.removeSuffix("/v1") + "/health", config, model, GatewaySurfacePolicy.Surface.HEALTH) }
                 val models = async { read(config.buildEndpoint("models"), config, model) }
@@ -150,7 +194,36 @@ internal class LlamaHealthDiagnostics(
             }
         } ?: LlamaHealthReport()
         val active = LlamaGenerationActivity.snapshot(config, model)
-        return report.copy(contextTokens = capacity?.contextTokens ?: report.contextTokens, templateRevision = capacity?.fingerprint?.templateRevision, activeGenerations = active.count, activeRequestId = active.requestId)
+        val exactCapacity = capacity?.takeIf { it.fingerprint.requestedModel == model && it.fingerprint.resolvedModel == model }
+        return report.copy(contextTokens = exactCapacity?.contextTokens ?: report.contextTokens, templateRevision = exactCapacity?.fingerprint?.templateRevision ?: report.templateRevision, activeGenerations = active.count, activeRequestId = active.requestId)
+    }
+
+    /** Known gateways own model discovery; their intentionally private /props and /health are not probes. */
+    private suspend fun inspectGateway(config: ProviderRequestConfig, model: String): LlamaHealthReport {
+        val gateway = read(config.buildEndpoint("gateway/ready"), config, model, timeoutMillis = 5_500)
+        val readiness = gateway.body?.let { body ->
+            runCatching { parseGatewayReadiness(body, gateway.status ?: 0, model, System.currentTimeMillis(), nowMs()) }.getOrNull()
+        }
+        val capability = gateway.body?.get("capabilities") as? JsonObject
+        val stale = readiness?.observationAgeMillis?.let { it >= 20_000L } == true
+        readiness?.let { GatewayClientDiagnostics.observeInstance(config, it.instanceId) }
+        return LlamaHealthReport(
+            selectedModelListed = readiness?.selectedModelAvailable,
+            gatewayHttpStatus = gateway.status,
+            gatewayReady = readiness?.ready?.takeUnless { stale },
+            serverGeneration = readiness?.instanceId,
+            modelIdentity = researchHash(model).take(16).takeIf { readiness?.selectedModelAvailable == true },
+            gatewayToolsReady = (capability?.get("toolsReady") as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull?.takeIf { readiness != null && !stale },
+            metadataSource = "GATEWAY_CONTRACT",
+            skippedMetadataSurfaces = listOf("health", "props", "models"),
+            gatewayFailure = gateway.failure ?: when {
+                readiness == null -> "GATEWAY_READINESS_UNVERIFIED"
+                stale -> "GATEWAY_READINESS_STALE"
+                else -> null
+            },
+            gatewayReasonCode = readiness?.reasonCode,
+            gatewayRetryable = readiness?.retryable
+        )
     }
 
     /** Explicit diagnostic action only. The fixed prompt contains no user data or tool definitions. */
@@ -256,17 +329,19 @@ internal class LlamaHealthDiagnostics(
 
     private suspend fun read(endpoint: String, config: ProviderRequestConfig, model: String, timeoutMillis: Long = 1_500): Probe = try {
         withTimeoutOrNull(timeoutMillis) {
-            LocalEndpointConnectionPolicy.probe(endpoint) {
-                val response = client().get(endpoint) {
-                    config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
-                    GatewayClientDiagnostics.requestHeaders(config).forEach { (key, value) -> header(key, value) }
-                    parameter("model", model)
-                    parameter("autoload", "false")
-                    if (LocalEndpointConnectionPolicy.freshConnection(endpoint)) header(HttpHeaders.Connection, "close")
+            LocalEndpointConnectionPolicy.probe(endpoint, evictIdleConnections) {
+                gatewayClientExchange(config, if (endpoint.substringBefore('?').endsWith("/gateway/ready")) "readiness" else "capabilities", safeRead = true) { headers ->
+                    val response = readClient().get(endpoint) {
+                        config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
+                        headers.forEach { (key, value) -> header(key, value) }
+                        parameter("model", model)
+                        parameter("autoload", "false")
+                        if (LocalEndpointConnectionPolicy.freshConnection(endpoint)) header(HttpHeaders.Connection, "close")
+                    }
+                    GatewayClientDiagnostics.observe(config, response.status.value) { response.headers[it] }
+                    val body = response.boundedMetadata(64 * 1024)
+                    Probe(response.status.value, runCatching { Json.parseToJsonElement(body) as? JsonObject }.getOrNull())
                 }
-                GatewayClientDiagnostics.observe(config, response.status.value) { response.headers[it] }
-                val body = response.boundedMetadata(64 * 1024)
-                Probe(response.status.value, runCatching { Json.parseToJsonElement(body) as? JsonObject }.getOrNull())
             }
         } ?: Probe(failure = "PROBE_TIMEOUT")
     } catch (cancelled: CancellationException) {

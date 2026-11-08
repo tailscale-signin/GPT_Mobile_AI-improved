@@ -256,12 +256,13 @@ internal object GatewayClientDiagnostics {
         val fields = responseFields(config, status, header)
         GatewayDiagnosticBridge.event(config, fields)
         val attributes = fields["bounded_attributes"] as JsonObject
-        AppLogRecorder.record("Gateway", "CLIENT_EXCHANGE · route=${routeIdentity(config)} · instance=${runtimeEpoch(config)} · http=$status · gatewayDebug=$debugEnabled · clientMetadataAcknowledgment=${attributes.diagnosticText("client_metadata_acknowledgment")} · admissionCode=${attributes.diagnosticText("gateway_admission_code") ?: "not_reported"} · requestDigest=${fields.diagnosticText("request_id") ?: "unavailable"}")
+        AppLogRecorder.record("Gateway", "CLIENT_EXCHANGE · route=${routeIdentity(config)} · instance=${runtimeEpoch(config)} · http=$status · gatewayDebug=$debugEnabled · clientMetadataAcknowledgment=${attributes.diagnosticText("client_metadata_acknowledgment")} · admissionCode=${attributes.diagnosticText("gateway_admission_code") ?: "not_reported"} · requestDigest=${fields.diagnosticText("operation_id") ?: fields.diagnosticText("request_id") ?: "unavailable"} · httpRequestId=${header("X-Gateway-HTTP-Request-ID")?.takeIf(instancePattern::matches) ?: "unavailable"}")
     }
 
     /** A missing acknowledgement is unknown; HTTP rejection alone proves no metadata-processing outcome. */
     internal fun responseFields(config: ProviderRequestConfig, status: Int, header: (String) -> String?): JsonObject {
         val requestDigest = header("X-Gateway-Request-ID")?.takeIf { it.length <= 128 }?.let(::researchHash) ?: "unavailable"
+        val physicalRequestId = header("X-Gateway-HTTP-Request-ID")?.takeIf(instancePattern::matches)
         val trace = tracePattern.matchEntire(header("traceparent").orEmpty())
         val attempt = header("X-Gateway-Client-Span-ID")?.let { span ->
             synchronized(lock) {
@@ -295,7 +296,8 @@ internal object GatewayClientDiagnostics {
                 put("category", "transport")
                 put("dispatch_state", "response_received")
                 put("retry_class", "unknown")
-                put("request_id", requestDigest)
+                put("request_id", physicalRequestId ?: requestDigest)
+                if (physicalRequestId != null) put("operation_id", requestDigest)
                 if (trace != null) {
                     put("trace_id", trace.groupValues[1])
                     put("parent_span_id", trace.groupValues[2])

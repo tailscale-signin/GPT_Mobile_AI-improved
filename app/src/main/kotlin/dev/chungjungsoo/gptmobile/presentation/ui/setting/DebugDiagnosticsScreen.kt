@@ -92,8 +92,12 @@ fun DebugDiagnosticsScreen(
     val live = workspaceTab == 0 && frozen == null && selectedTab == 0
     val now = rememberLiveClock(live)
     val hardware = rememberLiveHardware(runtime.backend?.displayName ?: "Idle", runtime.engineSpec?.accelerator ?: "None", live)
-    val activeRequests = state.invocations.filter { it.status == "RUNNING" }
-    val activeTools = state.recentToolEvents.distinctBy { it.eventId }.filter { it.status == ToolEventStatus.RUNNING || it.status == ToolEventStatus.PENDING }
+    val activeRequests = remember(state.invocations) { state.invocations.filter { it.status == "RUNNING" } }
+    val retainedTools = remember(state.recentToolEvents) { state.recentToolEvents.distinctBy { it.eventId } }
+    val activeTools = remember(retainedTools) { retainedTools.filter { it.status == ToolEventStatus.RUNNING || it.status == ToolEventStatus.PENDING } }
+    val requestsByRun = remember(state.invocations) { state.invocations.groupBy { it.parentRunId } }
+    val toolsByRun = remember(retainedTools) { retainedTools.groupBy { it.runId } }
+    val retainedRuns = remember(state.recentRuns) { state.recentRuns.distinctBy { it.runId } }
     Scaffold(modifier = modifier.fillMaxSize(), topBar = {
         TopAppBar(title = { Text("Debug & Statistics") }, navigationIcon = {
             IconButton(onClick = onNavigationClick) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = MaterialTheme.colorScheme.primary) }
@@ -149,10 +153,10 @@ fun DebugDiagnosticsScreen(
                         }
                         1 -> {
                             item { Text("Recent runs · up to 250", style = MaterialTheme.typography.titleMedium) }
-                            items(state.recentRuns.distinctBy { it.runId }, key = { it.runId }) { run ->
+                            items(retainedRuns, key = { it.runId }) { run ->
                                 var expanded by rememberSaveable(run.runId) { mutableStateOf(false) }
-                                val requests = state.invocations.filter { it.parentRunId == run.runId }
-                                val tools = state.recentToolEvents.filter { it.runId == run.runId }.distinctBy { it.eventId }
+                                val requests = requestsByRun[run.runId].orEmpty()
+                                val tools = toolsByRun[run.runId].orEmpty()
                                 Card(onClick = { expanded = !expanded }, shape = RoundedCornerShape(18.dp)) {
                                     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                         Text(state.profileNames[run.profileUid] ?: run.modelSnapshot, color = modelChartColor(run.profileUid), fontWeight = FontWeight.SemiBold)

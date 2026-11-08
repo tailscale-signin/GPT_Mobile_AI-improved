@@ -57,7 +57,8 @@
     "Add verified Online gateway profile promotion, a server conversation browser between Chats and Favorites, a live Jobs tab, durable pre-dispatch commands and original-conversation reconnection without canceling accepted server work on Android lifecycle exit.",
     "Harden gateway continuity against terminal-cache eviction, uncertain finalization, stale readiness, identity/configuration changes, transcript-retention mistakes and restored reply ownership; preserve cached Jobs controls and honest qualification boundaries.",
     "Preserve durable queued cancellation and failed finalization, bind Stop and offline history to the original account authority, and exclude private cached-account proof from portable backups.",
-    "Complete the November 7 gateway admission, reasoning preflight, GitHub fixture identity/cleanup, bounded acceptance diagnostics, on-device stub qualification, speech recovery and proven-unsent accounting fixes; coalesce checkpoint writes and guard extracted accounting DEX size."
+    "Complete the November 7 gateway admission, reasoning preflight, GitHub fixture identity/cleanup, bounded acceptance diagnostics, on-device stub qualification, speech recovery and proven-unsent accounting fixes; coalesce checkpoint writes and guard extracted accounting DEX size.",
+    "Repair the November 8 Android and gateway audits with exact-model failure observations, bounded metadata recovery, truthful HTTP and execution diagnostics, complete capture bundles, durable wakeup coalescing and bounded log rendering."
   ],
   "limitations": [
     "Android GPU qualification requires compatible-device receipts for actual offload, prefill, decode, repeated requests and cancel/recovery; host tests do not establish those results.",
@@ -1488,6 +1489,35 @@
     "scripts/tests/test_structured_diagnostic_inspection.py",
     "scripts/validate-local.sh",
     "scripts/verify_published_release.py",
-    "scripts/verify_release_identity.py"
+    "scripts/verify_release_identity.py",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolCatalogAcquisition.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/GatewayModelCapabilityObservation.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/RouteCapabilityCache.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/AndroidProcessExitEvidence.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticExecutionEvidence.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticExportSummary.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/StructuredDiagnosticEvent.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayAppDiagnosticProjection.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayReadinessFailure.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/research/work/ExaminationWakeupCoordinator.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/AppLogDetailPage.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/AppLogRawDetails.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GatewayPreflightFailureTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolCatalogAcquisitionTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/AndroidProcessExitEvidenceTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticExportSummaryTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/StructuredDiagnosticEventTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayAppDiagnosticProjectionTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/research/work/ExaminationWakeupCoordinatorTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/AppLogDetailPageTest.kt",
+    "docs/repairs/android-diagnostic-performance-2026-11-08.md",
+    "docs/repairs/gateway-readiness-diagnostics-2026-11-08-task.json",
+    "docs/repairs/gateway-readiness-diagnostics-2026-11-08.md",
+    "gateway/DIAGNOSTICS.md",
+    "gateway/desktop/manager.py",
+    "gateway/tests/test_gateway_backend_diagnostics.py",
+    "gateway/tests/test_gateway_debug_evidence.py",
+    "gateway/v14/backend_observation.py",
+    "gateway/v14/debug_projection.py"
   ]
 }

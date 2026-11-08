@@ -1,5 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.agent.tool
 
+import dev.chungjungsoo.gptmobile.data.agent.ToolCatalogConnectionDiscovery
+import dev.chungjungsoo.gptmobile.data.agent.ToolCatalogDiscoveryState
 import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
 import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import io.ktor.client.HttpClient
@@ -161,6 +163,27 @@ class McpClientManager internal constructor(
     private val validatedCatalogues = ConcurrentHashMap<String, Pair<String, List<Tool>>>()
     private val restoredCatalogues = ConcurrentHashMap.newKeySet<String>()
     private val catalogueProducers = ConcurrentHashMap<String, kotlinx.coroutines.Deferred<List<Tool>>>()
+
+    fun catalogueDiscovery(connectionUid: String): ToolCatalogConnectionDiscovery {
+        val health = healthSnapshot(connectionUid)
+        val policyEpoch = dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.epoch
+        val networkEpoch = dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.networkEpoch
+        val currentKey = transportConfigurationKeys[connectionUid]?.let { "$it:$policyEpoch" }
+        val refreshing = health.toolReadiness == McpToolReadiness.DISCOVERING || currentKey?.let { catalogueProducers[it]?.isActive } == true
+        val validatedNow = currentKey?.endsWith("|$networkEpoch:$policyEpoch") == true && validatedCatalogues[connectionUid]?.first == currentKey
+        val state = when {
+            health.state == McpConnectionHealthState.AUTHENTICATION_REQUIRED -> ToolCatalogDiscoveryState.AUTHENTICATION_REQUIRED
+            refreshing -> ToolCatalogDiscoveryState.PENDING
+            health.nextRetryAtMs == Long.MAX_VALUE -> ToolCatalogDiscoveryState.CONFIGURATION_REQUIRED
+            (health.nextRetryAtMs ?: 0L) > nowMs() -> ToolCatalogDiscoveryState.RECOVERY_BACKOFF
+            health.state in setOf(McpConnectionHealthState.DEGRADED, McpConnectionHealthState.UNREACHABLE) && health.lastFailureAtMs != null -> ToolCatalogDiscoveryState.FAILED
+            validatedNow && health.toolReadiness == McpToolReadiness.READY && health.state == McpConnectionHealthState.CONNECTED -> ToolCatalogDiscoveryState.READY
+            health.availableToolCount != null -> ToolCatalogDiscoveryState.STALE
+            else -> ToolCatalogDiscoveryState.NOT_DISCOVERED
+        }
+        val revision = dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest("$state|${health.lastSuccessAtMs}|${health.lastFailureAtMs}|${health.availableToolCount}|${health.lastErrorCode}|$policyEpoch|$networkEpoch")
+        return ToolCatalogConnectionDiscovery(connectionUid, state, revision, health.availableToolCount, health.lastErrorCode, health.nextRetryAtMs)
+    }
 
     fun peekTools(config: McpConnectionConfig): List<Tool>? = catalogue.peek(config.validatedKey() + ":" + dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.epoch)?.value
 

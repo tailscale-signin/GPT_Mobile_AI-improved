@@ -8,7 +8,10 @@ internal data class AgentRunTerminalDiagnostics(
     val reason: String,
     val stage: String,
     val executionState: String,
-    val taskVerification: String = "NOT_MEASURED"
+    val taskVerification: String = "NOT_MEASURED",
+    val dispatched: Boolean? = null,
+    val remoteAcceptance: RemoteRequestAcceptance = RemoteRequestAcceptance.UNKNOWN,
+    val invocationId: String? = null
 ) {
     companion object {
         fun from(status: String, failure: ProfileFailureRecord?, acceptance: GitHubRunAcceptance.Assessment? = null): AgentRunTerminalDiagnostics {
@@ -29,7 +32,12 @@ internal data class AgentRunTerminalDiagnostics(
                     unknown && acceptance != null -> "UNKNOWN_OUTCOME"
                     acceptance?.verification == "VERIFIED" && !completed -> "PARTIAL"
                     else -> acceptance?.verification ?: "NOT_MEASURED"
-                }
+                },
+                // A rejected recovery attempt does not prove an earlier remote
+                // operation was unsent. Keep that ambiguity in the terminal receipt.
+                dispatched = if (unknown) true.takeIf { failure?.dispatched == true } else failure?.dispatched.takeUnless { completed },
+                remoteAcceptance = if (unknown || completed) RemoteRequestAcceptance.UNKNOWN else failure?.remoteAcceptance ?: RemoteRequestAcceptance.UNKNOWN,
+                invocationId = failure?.invocationId.takeUnless { completed }
             )
         }
     }

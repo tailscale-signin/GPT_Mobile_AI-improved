@@ -44,9 +44,22 @@ internal class ModelRequestPreparation(client: NetworkClient) {
         kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard]?.validate?.invoke()
         dev.chungjungsoo.gptmobile.data.context.ProviderMessageValidator.validate(payload, config.intentionalAssistantPrefill)
         val discovered = if (config.providerType == "LLAMA") llama.discover(config, model) else llama.discoverGateway(config, model)
+        val gatewayObservation = if (config.providerType == "LLAMA") llama.gatewayObservation(config, model) else null
         if (config.providerType == "LLAMA" && discovered == null) {
-            val diagnostics = llamaHealth.inspect(config, model)
-            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("LocalConnection", "LLAMA_READINESS · ${diagnostics.summary()}", "W")
+            val dispatch = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]
+            val diagnosticFields = if (gatewayObservation != null) {
+                // Exact-route metadata already explains this rejection. A second
+                // readiness round trip cannot qualify the missing template proof.
+                mapOf("phase" to "DEGRADED", "metadataSource" to "GATEWAY_CAPABILITIES", "skippedMetadataSurfaces" to listOf("health", "props", "models"), "inferenceTested" to false) + gatewayObservation.diagnosticFields()
+            } else {
+                llamaHealth.inspect(config, model).diagnosticFields()
+            }
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.recordEvent(
+                "LocalConnection",
+                "LLAMA_READINESS",
+                diagnosticFields + mapOf("runId" to dispatch?.diagnosticRunId, "invocationId" to dispatch?.diagnosticInvocationId),
+                "W"
+            )
         }
         val catalog = OpenRouterCatalogLimits.forRequest(config.providerType.orEmpty(), config.apiUrl, model)
         val freeModel = config.freeModelSnapshot?.takeIf { it.id == model }
@@ -72,6 +85,18 @@ internal class ModelRequestPreparation(client: NetworkClient) {
         val reasoning = if (config.providerType == "LLAMA") {
             val needsControl = briefHelper || config.maximizeReasoning || !config.allowReasoning || config.reasoningMode != dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO
             val control = if (needsControl && discovered != null) llama.reasoningControl(config, model, discovered) else null
+            val strict = !config.allowReasoning || config.reasoningMode != dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO
+            val gatewayControlUnverified = discovered?.fingerprint?.templateRevision?.startsWith("gateway:") == true &&
+                gatewayObservation?.reasoningControlState != "UNSUPPORTED"
+            if (strict && control == null && (discovered == null || gatewayControlUnverified)) {
+                val reason = when {
+                    gatewayObservation?.failureCode == "GATEWAY_CAPABILITY_TIMEOUT" || gatewayObservation?.failureCategory in setOf("connect_timeout", "read_timeout", "deadline", "CONNECT_TIMEOUT", "REQUEST_TIMEOUT", "STREAM_IDLE_TIMEOUT") -> dev.chungjungsoo.gptmobile.data.context.InferencePreflightReason.REASONING_CAPABILITY_TIMEOUT
+                    gatewayObservation?.failureCode != null -> dev.chungjungsoo.gptmobile.data.context.InferencePreflightReason.REASONING_CAPABILITY_UNAVAILABLE
+                    else -> dev.chungjungsoo.gptmobile.data.context.InferencePreflightReason.REASONING_CAPABILITY_UNVERIFIED
+                }
+                kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.rejectedBeforeInference(reason)
+                throw dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityUnavailableException(reason.name)
+            }
             try {
                 dev.chungjungsoo.gptmobile.data.context.ReasoningPolicy.forRequest(
                     config.reasoningMode,

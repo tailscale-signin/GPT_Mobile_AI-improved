@@ -14,6 +14,20 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GatewayClientDiagnosticsTest {
+    @Test fun serverPhysicalRequestIdentityIsDistinctFromTheLogicalOperationDigestAndStrictlyValidated() {
+        val config = ProviderRequestConfig("https://physical-request.example/v1", null)
+        val headers = mapOf("X-Gateway-Request-ID" to "logical-original-command", "X-Gateway-HTTP-Request-ID" to "a".repeat(32))
+        val first = GatewayClientDiagnostics.responseFields(config, 503, headers::get)
+        val second = GatewayClientDiagnostics.responseFields(config, 503, (headers + ("X-Gateway-HTTP-Request-ID" to "b".repeat(32)))::get)
+        assertEquals("a".repeat(32), first["request_id"]?.jsonPrimitive?.content)
+        assertEquals("b".repeat(32), second["request_id"]?.jsonPrimitive?.content)
+        assertEquals(researchHash("logical-original-command"), first["operation_id"]?.jsonPrimitive?.content)
+        assertEquals(first["operation_id"], second["operation_id"])
+        val invalid = GatewayClientDiagnostics.responseFields(config, 503, (headers + ("X-Gateway-HTTP-Request-ID" to "private-host-and-secret"))::get)
+        assertEquals(researchHash("logical-original-command"), invalid["request_id"]?.jsonPrimitive?.content)
+        assertFalse(invalid.toString().contains("private-host"))
+    }
+
     @Test fun metadataContainsVersionedDigestsAndPlatformCountersButNoPersonalText() {
         val config = ProviderRequestConfig("https://private-route.example/v1", "private token", profileUid = "private profile", requestRole = "custom sensitive role")
         val encoded = GatewayClientDiagnostics.metadata(config, "private model", 36, 44, 9)

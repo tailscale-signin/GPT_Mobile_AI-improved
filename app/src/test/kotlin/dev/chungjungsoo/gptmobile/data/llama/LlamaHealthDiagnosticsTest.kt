@@ -19,7 +19,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LlamaHealthDiagnosticsTest {
-    @Test fun admissionRestrictedMetadataIsRememberedWithoutDisablingGatewayReadiness() = runTest {
+    @Test fun knownGatewayUsesItsReadinessContractWithoutProbingForbiddenAdministrativeMetadata() = runTest {
         val selected = ProviderRequestConfig("https://restricted-health.example/v1", "restricted-health-test")
         GatewayClientDiagnostics.observeInstance(selected, "a".repeat(32))
         var now = 0L
@@ -45,9 +45,10 @@ class LlamaHealthDiagnosticsTest {
             assertEquals(LlamaConnectionPhase.MODEL_LOADED, diagnostics.inspect(selected, "selected").phase)
             now = 31_000
             val renewed = diagnostics.inspect(selected, "selected")
-            assertEquals(2, restrictedReads)
-            assertEquals(listOf("health", "props"), renewed.cachedRestrictedSurfaces)
-            assertTrue(renewed.metadataRestricted)
+            assertEquals(0, restrictedReads)
+            assertEquals(listOf("health", "props", "models"), renewed.skippedMetadataSurfaces)
+            assertEquals("GATEWAY_CONTRACT", renewed.metadataSource)
+            assertFalse(renewed.metadataRestricted)
             assertEquals(true, renewed.gatewayReady)
             assertEquals(false, renewed.inferenceTested)
         }

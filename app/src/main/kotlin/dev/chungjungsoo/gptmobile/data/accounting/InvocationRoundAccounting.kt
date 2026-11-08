@@ -102,6 +102,7 @@ internal class InvocationRoundAccounting(
     var finishReason: String? = null
     var settingsConfirmed = false
     var status = "INTERRUPTED"
+    private var diagnosticFailure: dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord? = null
     var lastPublished = started
     init {
         liveRequests.update { it + (record.id to record.copy(outputTokens = 0, usageEvidenceJson = usageEvidence(false))) }
@@ -109,18 +110,26 @@ internal class InvocationRoundAccounting(
 
     fun preservePreflightFailure(event: ProviderEvent): ProviderEvent {
         if (event !is ProviderEvent.Failed) return event
-        val rejection = dispatch.preflightRejection ?: return event
-        if (!hasNoExecutionEvidence() || !dispatch.provenEntirelyUnsent()) return event
+        val correlated = event.copy(
+            failureDetails = kotlinx.serialization.json.JsonObject(
+                event.failureDetails.orEmpty() + mapOf(
+                    "invocation_id" to kotlinx.serialization.json.JsonPrimitive(record.id),
+                    "run_id" to kotlinx.serialization.json.JsonPrimitive(parentRunId)
+                )
+            )
+        )
+        val rejection = dispatch.preflightRejection ?: return correlated
+        if (!hasNoExecutionEvidence() || !dispatch.provenEntirelyUnsent()) return correlated
         val details = kotlinx.serialization.json.JsonObject(
-            event.failureDetails.orEmpty() + kotlinx.serialization.json.buildJsonObject {
+            correlated.failureDetails.orEmpty() + kotlinx.serialization.json.buildJsonObject {
                 put("code", kotlinx.serialization.json.JsonPrimitive(rejection.reason.name))
-                put("failed_stage", kotlinx.serialization.json.JsonPrimitive("provider_admission"))
+                put("failed_stage", kotlinx.serialization.json.JsonPrimitive(rejection.failedStage))
                 put("dispatch_state", kotlinx.serialization.json.JsonPrimitive("NOT_DISPATCHED"))
                 put("dispatched", kotlinx.serialization.json.JsonPrimitive(false))
                 put("retryable", kotlinx.serialization.json.JsonPrimitive(false))
             }
         )
-        return event.copy(errorCode = rejection.reason.name, failureDetails = details)
+        return correlated.copy(errorCode = rejection.reason.name, failureDetails = details)
     }
 
     private fun hasNoExecutionEvidence() = generatedBytes == 0L &&
@@ -203,7 +212,24 @@ internal class InvocationRoundAccounting(
                     generatedBytes > 0 && (dev.chungjungsoo.gptmobile.data.agent.tool.isProviderOutputLimitFailure(event.message) || event.errorCode == "STREAM_DEGRADED" || event.transportComplete) -> "PARTIAL"
                     else -> "FAILED"
                 }
-                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Model", "Segment ${record.id} · status=$status · ${event.message}", if (status in setOf("PARTIAL", "WAITING_REMOTE_JOB")) "I" else "E")
+                diagnosticFailure = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.fromProvider(event.message, event.errorCode, event.failureDetails)
+                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.recordEvent(
+                    "Model",
+                    "INVOCATION_FAILED",
+                    mapOf(
+                        "runId" to parentRunId,
+                        "invocationId" to record.id,
+                        "incidentId" to record.id,
+                        "status" to status,
+                        "errorCode" to diagnosticFailure?.category,
+                        "failureMessage" to event.message,
+                        "failedStage" to diagnosticFailure?.phase,
+                        "dispatched" to diagnosticFailure?.dispatched,
+                        "remoteAcceptance" to diagnosticFailure?.remoteAcceptance?.name,
+                        "retryable" to diagnosticFailure?.retryAllowed
+                    ),
+                    if (status in setOf("PARTIAL", "WAITING_REMOTE_JOB")) "I" else "E"
+                )
             }
             else -> Unit
         }
@@ -305,8 +331,40 @@ internal class InvocationRoundAccounting(
                 put("output", outputCounter.evidence())
             }
         ).json()
-        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Model", "PROVIDER_RECEIPT · receipt=$providerReceipt")
-        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Model", "Finished ${record.id} · incidentId=${record.id} · status=$status · completionDisposition=$roundOutcome · toolCallCount=$toolCallCount · durationMs=${(System.nanoTime() - started) / 1_000_000} · output=$recordedOutput · estimated=${estimatedUsage()} · inputSource=$inputSource · outputSource=$outputSource · visibleBytes=$visibleBytes · reasoningBytes=$reasoningBytes · usageBreakdownReliable=false · usageBreakdownUnavailable=visibleOutputTokens,toolCallTokens${if (providerReasoningTokens == null) ",reasoningTokens" else ""} · reportedReasoningTokens=${providerReasoningTokens ?: "unknown"} · toolCallTokens=unknown · visibleOutputTokens=unknown · finishReason=${finishReason ?: "unreported"} · settingsConfirmed=$settingsConfirmed · parentRunId=$parentRunId · turnKey=$turnKey · requestKind=$kind", if (status in setOf("COMPLETED", "CANCELED", "WAITING_REMOTE_JOB")) "I" else "W")
+        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Model", "PROVIDER_RECEIPT · runId=$parentRunId · invocationId=${record.id} · receipt=$providerReceipt")
+        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.recordEvent(
+            "Model",
+            "INVOCATION_FINISHED",
+            mapOf(
+                "runId" to parentRunId,
+                "invocationId" to record.id,
+                "incidentId" to record.id,
+                "status" to status,
+                "completionDisposition" to roundOutcome,
+                "errorCode" to diagnosticFailure?.category,
+                "failedStage" to diagnosticFailure?.phase,
+                "dispatched" to if (entirelyUnsent) false else diagnosticFailure?.dispatched,
+                "toolCallCount" to toolCallCount,
+                "durationMs" to (System.nanoTime() - started) / 1_000_000,
+                "output" to recordedOutput,
+                "estimated" to (!entirelyUnsent && estimatedUsage()),
+                "inputSource" to inputSource,
+                "outputSource" to outputSource,
+                "usageBasis" to if (entirelyUnsent) "NOT_DISPATCHED" else "PROVIDER_OBSERVATIONS",
+                "visibleBytes" to visibleBytes,
+                "reasoningBytes" to reasoningBytes,
+                "usageBreakdownReliable" to entirelyUnsent,
+                "usageBreakdownUnavailable" to if (entirelyUnsent) emptyList() else listOfNotNull("visibleOutputTokens", "toolCallTokens", "reasoningTokens".takeIf { providerReasoningTokens == null }),
+                "reportedReasoningTokens" to providerReasoningTokens,
+                "toolCallTokens" to 0.takeIf { entirelyUnsent },
+                "visibleOutputTokens" to 0.takeIf { entirelyUnsent },
+                "finishReason" to finishReason,
+                "settingsConfirmed" to settingsConfirmed,
+                "turnKey" to turnKey,
+                "requestKind" to kind
+            ),
+            if (status in setOf("COMPLETED", "CANCELED", "WAITING_REMOTE_JOB")) "I" else "W"
+        )
         try {
             if (retainAccounting) {
                 val observation = record.copy(
@@ -347,6 +405,12 @@ internal class InvocationRoundAccounting(
 
     fun failed(error: Exception) {
         status = "FAILED"
-        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Model", "Failed ${record.id}: ${error.javaClass.simpleName}: ${error.message.orEmpty()}", "E")
+        diagnosticFailure = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.classify(error.message.orEmpty())
+        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.recordEvent(
+            "Model",
+            "INVOCATION_FAILED",
+            mapOf("runId" to parentRunId, "invocationId" to record.id, "incidentId" to record.id, "status" to status, "errorCode" to diagnosticFailure?.category, "exceptionType" to error.javaClass.simpleName, "failureMessage" to error.message),
+            "E"
+        )
     }
 }

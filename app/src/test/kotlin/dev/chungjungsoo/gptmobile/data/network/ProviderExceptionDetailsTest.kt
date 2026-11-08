@@ -7,6 +7,27 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class ProviderExceptionDetailsTest {
+    @Test fun gatewayPrerequisitesPreserveTypedCauseWithoutClaimingEarlierAttemptsWereUnsent() {
+        val error = dev.chungjungsoo.gptmobile.data.github.GatewayAdmissionException(dev.chungjungsoo.gptmobile.data.github.GatewayAdmissionReason.ENGINEERING_GITHUB_REQUIRED, 200, null, dev.chungjungsoo.gptmobile.data.github.GatewayAdmissionSurface.CAPABILITIES)
+        val failure = requireNotNull(providerExceptionDetails(error, partialOutput = true))
+        assertEquals("GATEWAY_ENGINEERING_GITHUB_REQUIRED", failure.code)
+        assertEquals(JsonPrimitive("NOT_DISPATCHED"), failure.failureDetails?.get("attempt_dispatch_state"))
+        assertEquals(JsonPrimitive("CONFIGURE_HOST_GITHUB"), failure.failureDetails?.get("repair"))
+        assertNull(failure.failureDetails?.get("dispatched"))
+        assertNull(failure.failureDetails?.get("dispatch_state"))
+        assertEquals(false, failure.retryable)
+    }
+
+    @Test fun failedCapabilityDiscoveryRetainsItsPreflightStageAndHttpEvidence() {
+        val error = dev.chungjungsoo.gptmobile.data.network.gateway.GatewayCapabilityDiscoveryException("Capability check denied", httpStatus = 403)
+        val failure = requireNotNull(providerExceptionDetails(error, partialOutput = false))
+        assertEquals("GATEWAY_CAPABILITY_UNAVAILABLE", failure.code)
+        assertEquals(JsonPrimitive("connection_preflight"), failure.failureDetails?.get("failed_stage"))
+        assertEquals(JsonPrimitive(403), failure.failureDetails?.get("http_status"))
+        assertEquals(JsonPrimitive("NOT_DISPATCHED"), failure.failureDetails?.get("attempt_dispatch_state"))
+        assertNull(failure.failureDetails?.get("dispatched"))
+    }
+
     @Test fun typedReasoningAdmissionRetainsItsPhaseWithoutErasingEarlierUncertainty() {
         val failure = requireNotNull(providerExceptionDetails(dev.chungjungsoo.gptmobile.data.context.ReasoningAdmissionException(dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF), partialOutput = false))
         assertEquals("REASONING_OFF_UNSUPPORTED", failure.code)

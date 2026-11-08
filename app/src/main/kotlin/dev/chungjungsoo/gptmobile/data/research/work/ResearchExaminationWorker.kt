@@ -8,6 +8,7 @@ import androidx.room.withTransaction
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import dagger.assisted.Assisted
@@ -20,7 +21,12 @@ import dev.chungjungsoo.gptmobile.data.research.feature.AutoExamination
 import dev.chungjungsoo.gptmobile.data.research.feature.ExaminationRequest
 import dev.chungjungsoo.gptmobile.data.research.feature.ResearchArchiveRepository
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
@@ -46,7 +52,18 @@ class ResearchExaminationWorker @AssistedInject constructor(
     private val coordinator: ArticleExaminationCoordinator,
     private val sessions: dev.chungjungsoo.gptmobile.data.research.ResearchSessionStore
 ) : CoroutineWorker(context, parameters) {
-    override suspend fun doWork(): Result {
+    override suspend fun doWork(): Result = try {
+        drainOutbox()
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (failure: Exception) {
+        // An unexpected read/configuration failure must not fail an appended
+        // successor: its committed work is still in the same durable outbox.
+        AppLogRecorder.record("ResearchExamine", "WORKER_RETRY · work=$id · attempt=$runAttemptCount · reason=${failure.javaClass.simpleName} · durableOutbox=true · queueObservation=NOT_RECOUNTED · backoff=WORK_MANAGER", "W")
+        Result.retry()
+    }
+
+    private suspend fun drainOutbox(): Result {
         var processedItems = 0
         val queuedAtStart = archive.dao.pendingExaminations("").size
         var policyBlock = "NONE"
@@ -223,37 +240,63 @@ class ResearchExaminationWorker @AssistedInject constructor(
 
     companion object {
         private val lastReconciliation = java.util.concurrent.atomic.AtomicLong(Long.MIN_VALUE)
+        private const val WORK_NAME = "research-examination-outbox"
+        private val schedulingScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        private val wakeups = ExaminationWakeupCoordinator()
 
-        suspend fun reconcile(context: Context, archive: ResearchArchiveRepository) {
+        suspend fun reconcile(context: Context, archive: ResearchArchiveRepository, reconsider: Boolean = false) {
             val recoveryStages = dev.chungjungsoo.gptmobile.data.research.feature.ExaminationLifecycle.active + dev.chungjungsoo.gptmobile.data.research.feature.ExaminationLifecycle.waiting
             if (!archive.dao.hasExaminationRecoveryWork(recoveryStages.map { it.name })) return
             val now = android.os.SystemClock.elapsedRealtime()
-            while (true) {
-                val previous = lastReconciliation.get()
-                if (previous != Long.MIN_VALUE && now - previous in 0..60_000L) return
-                if (lastReconciliation.compareAndSet(previous, now)) break
+            if (!reconsider) {
+                while (true) {
+                    val previous = lastReconciliation.get()
+                    if (previous != Long.MIN_VALUE && now - previous in 0..60_000L) return
+                    if (lastReconciliation.compareAndSet(previous, now)) break
+                }
             }
-            enqueue(context)
+            enqueue(context, reconsider)
         }
 
         fun enqueue(context: Context, reconsider: Boolean = false) {
-            val networkReady = androidx.work.Constraints.Builder()
-                .setRequiredNetworkType(androidx.work.NetworkType.CONNECTED)
-                .build()
-            val request = OneTimeWorkRequestBuilder<ResearchExaminationWorker>()
-                .setConstraints(networkReady)
-                .setBackoffCriteria(androidx.work.BackoffPolicy.EXPONENTIAL, 30, java.util.concurrent.TimeUnit.SECONDS)
-                .build()
-            AppLogRecorder.record("ResearchExamine", "WORKER_ENQUEUE_REQUESTED · candidateWork=${request.id} · policy=${if (reconsider) "REPLACE" else "KEEP"} · durableOutbox=true")
-            val operation = WorkManager.getInstance(context).enqueueUniqueWork(
-                "research-examination-outbox",
-                if (reconsider) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.KEEP,
-                request
-            )
-            operation.result.addListener({
-                val accepted = runCatching { operation.result.get() }.isSuccess
-                AppLogRecorder.record("ResearchExamine", "WORKER_ENQUEUE_RECEIPT · candidateWork=${request.id} · accepted=$accepted · durableOutbox=true", if (accepted) "I" else "W")
-            }, java.util.concurrent.Executor { it.run() })
+            val appContext = context.applicationContext
+            schedulingScope.launch {
+                try {
+                    val manager = WorkManager.getInstance(appContext)
+                    val enqueued = wakeups.enqueue(
+                        hasWaitingWork = {
+                            // A retry also performs a fresh queue read. Preserve its
+                            // bounded backoff rather than cancelling active attempts.
+                            manager.getWorkInfosForUniqueWorkFlow(WORK_NAME).first().any {
+                                it.state == WorkInfo.State.ENQUEUED || it.state == WorkInfo.State.BLOCKED
+                            }
+                        },
+                        append = {
+                            val request = OneTimeWorkRequestBuilder<ResearchExaminationWorker>()
+                                .setConstraints(androidx.work.Constraints.Builder().setRequiredNetworkType(androidx.work.NetworkType.CONNECTED).build())
+                                .setBackoffCriteria(androidx.work.BackoffPolicy.EXPONENTIAL, 30, java.util.concurrent.TimeUnit.SECONDS)
+                                .build()
+                            AppLogRecorder.record("ResearchExamine", "WORKER_ENQUEUE_REQUESTED · candidateWork=${request.id} · policy=APPEND_OR_REPLACE · reconsider=$reconsider · durableOutbox=true")
+                            val operation = manager.enqueueUniqueWork(WORK_NAME, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
+                            suspendCancellableCoroutine<Unit> { continuation ->
+                                operation.result.addListener({
+                                    val outcome = runCatching {
+                                        operation.result.get()
+                                        Unit
+                                    }
+                                    AppLogRecorder.record("ResearchExamine", "WORKER_ENQUEUE_RECEIPT · candidateWork=${request.id} · accepted=${outcome.isSuccess} · durableOutbox=true", if (outcome.isSuccess) "I" else "W")
+                                    continuation.resumeWith(outcome)
+                                }, java.util.concurrent.Executor { it.run() })
+                            }
+                        }
+                    )
+                    if (!enqueued) AppLogRecorder.record("ResearchExamine", "WORKER_ENQUEUE_COALESCED · reason=PENDING_WORK_WILL_READ_OUTBOX · reconsider=$reconsider · activeWorkCancelled=false · durableOutbox=true")
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (failure: Exception) {
+                    AppLogRecorder.record("ResearchExamine", "WORKER_ENQUEUE_FAILED · reason=${failure.javaClass.simpleName} · durableOutbox=true · action=reconcile_on_next_wake", "W")
+                }
+            }
         }
     }
 }

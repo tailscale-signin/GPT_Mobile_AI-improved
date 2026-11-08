@@ -913,7 +913,7 @@ class AgentRunCoordinator @Inject constructor(
                     if (transferred) {
                         _notices.tryEmit(AgentRunNotice(request.chatId, request.runId, handoff.message, true))
                         try {
-                            gatewayChatSubmission.refresh(request.chatId)
+                            gatewayChatSubmission?.refresh(request.chatId)
                         } catch (cancelled: CancellationException) {
                             throw cancelled
                         } catch (_: Exception) {

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "c873ad44029e2d265867aca530ff72ed38a09a786a71d5fcb59c879fd39e077e",
+  "source_digest": "10347e093ea664b66be4be2ac601cfe255c4ba6432a6b038532c66339b216525",
   "file_count": 2319,
   "indexed_line_count": 359095,
   "line_coverage_available": false,
@@ -787,7 +787,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunCoordinator.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "f8bbfde9f884cf6b5bd46685bbc9ed6d79edef14a72f87c016a6b3882f932492",
+      "sha256": "42b516a840a1bf7a0c4d4ab53f5bd8b7a5cd90a66041abade97dadb592786ee6",
       "indexed_lines": 1330
     },
     {

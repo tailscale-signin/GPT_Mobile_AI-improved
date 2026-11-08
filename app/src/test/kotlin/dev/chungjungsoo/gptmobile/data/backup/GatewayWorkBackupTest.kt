@@ -31,7 +31,7 @@ import org.robolectric.annotation.Config
 @Config(application = Application::class, sdk = [34])
 class GatewayWorkBackupTest {
     @Test fun conversationsWithoutExecutionHistoryRetainRemoteIdentityAndReplyOwnership() = runBlocking {
-        open().use { database ->
+        withDatabase { database ->
             seed(database)
             CompleteBackupDatabase.retainSections(database.openHelper.writableDatabase, conversations)
             assertSavedIdentity(database)
@@ -41,8 +41,8 @@ class GatewayWorkBackupTest {
     }
 
     @Test fun restoringConversationsKeepsTheOriginalCommandAndPausesLocalExecution() = runBlocking {
-        open().use { source ->
-            open().use { target ->
+        withDatabase { source ->
+            withDatabase { target ->
                 seed(source)
                 CompleteBackupDatabase.retainSections(source.openHelper.writableDatabase, conversations)
                 CompleteBackupDatabase.restoreSections(source.openHelper.writableDatabase, target.openHelper.writableDatabase, conversations)
@@ -58,7 +58,7 @@ class GatewayWorkBackupTest {
     }
 
     @Test fun settingsOnlyBackupDoesNotRetainConversationCommandsOrTranscript() = runBlocking {
-        open().use { database ->
+        withDatabase { database ->
             seed(database)
             CompleteBackupDatabase.retainSections(database.openHelper.writableDatabase, CompleteBackupSelection(setOf(CompleteBackupSection.SETTINGS)))
             for (table in GatewayWorkDatabaseSchema.tables) {
@@ -71,8 +71,8 @@ class GatewayWorkBackupTest {
     }
 
     @Test fun ordinaryJobWithoutCommandKeepsItsExactReplyOwnerAcrossConversationOnlyRestore() = runBlocking {
-        open().use { source ->
-            open().use { target ->
+        withDatabase { source ->
+            withDatabase { target ->
                 seedOrdinary(source)
                 assertTrue(source.gatewayWorkDao().bindings().isEmpty())
                 assertNull(source.gatewayWorkDao().command("ordinary-run"))
@@ -110,7 +110,7 @@ class GatewayWorkBackupTest {
             { db -> db.gatewayWorkDao().updateChatMessage(requireNotNull(db.gatewayWorkDao().chatMessage(3)).copy(ownershipFence = 8)) }
         )
         for (change in changes) {
-            open().use { database ->
+            withDatabase { database ->
                 seedOrdinary(database)
                 change(database)
                 val message = database.gatewayWorkDao().chatMessage(3)
@@ -122,8 +122,8 @@ class GatewayWorkBackupTest {
     }
 
     @Test fun ordinaryAdmissionBeforeCatalogSyncRetainsOnlyItsCurrentLocalOwner() = runBlocking {
-        open().use { source ->
-            open().use { target ->
+        withDatabase { source ->
+            withDatabase { target ->
                 seedOrdinary(source, includeMirror = false)
                 val original = requireNotNull(source.agentRunDao().getById("ordinary-run"))
                 source.agentPersistenceDao().insertRun(original.copy(runId = "older-owner", ownershipFence = 6))
@@ -183,6 +183,15 @@ class GatewayWorkBackupTest {
         dao.putCursor(GatewayReplayCursor("conversation-key", sequence = 3, hasMore = false))
         dao.putBinding(GatewayEngineeringRecord("original-command", "scope", 1, "remote-job", "{}", 2, 1, 1))
         dao.putUpdates(listOf(GatewayEngineeringUpdateRecord("original-command", 2, "IMPLEMENT", "Saved progress", 3.0)))
+    }
+
+    private inline fun <T> withDatabase(block: (ChatDatabaseV2) -> T): T {
+        val database = open()
+        return try {
+            block(database)
+        } finally {
+            database.close()
+        }
     }
 
     private fun open() = Room.inMemoryDatabaseBuilder(RuntimeEnvironment.getApplication(), ChatDatabaseV2::class.java).allowMainThreadQueries().build()

@@ -20,6 +20,8 @@ import java.io.File
 import java.io.IOException
 import java.security.MessageDigest
 import java.util.UUID
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
@@ -139,6 +141,158 @@ class GatewayWorkPersistenceTest {
             assertNull(db.gatewayWorkDao().message(conversation.id, all.last().sequence))
             assertEquals("", db.gatewayWorkDao().chatMessage(12)?.content)
             assertEquals("WAITING_REMOTE_JOB", db.agentRunDao().getById("request")?.status)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test fun restoredPendingAdmissionBindsAndPublishesOnlyItsOriginalReply() = runBlocking {
+        val db = memory()
+        try {
+            seed(db)
+            val store = GatewayWorkStore(db, Preferences().settings)
+            store.prepare(binding())
+            val original = requireNotNull(db.agentRunDao().getById("request"))
+            db.agentRunDao().upsert(original.copy(status = "INTERRUPTED", terminalError = "BACKUP_RESTORED"))
+            store.accept(accepted())
+            assertEquals(accepted().job?.id, db.agentRunDao().getById("request")?.gatewayJobId)
+            val conversation = db.gatewayWorkDao().conversations(7).single()
+            val scope = requireNotNull(db.gatewayWorkDao().scope(conversation.scopeId))
+            val messages = parts("Recovered original answer")
+            store.replay(scope, conversation.id, page(messages, messages.last().sequence, false))
+            assertEquals("Recovered original answer", db.gatewayWorkDao().chatMessage(12)?.content)
+            assertEquals("COMPLETED", db.agentRunDao().getById("request")?.status)
+            assertEquals("request", db.gatewayWorkDao().chatMessage(12)?.currentRunId)
+            assertEquals(2, db.messageDao().rawLoadMessages(7).size)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test fun retainedFinalIsPublishedAfterObserverUnwindsWithoutNewReplayOrDuplicateMessage() = runBlocking {
+        val db = memory()
+        try {
+            seed(db)
+            val store = GatewayWorkStore(db, Preferences().settings)
+            store.prepare(binding())
+            store.accept(accepted())
+            val original = requireNotNull(db.agentRunDao().getById("request"))
+            db.agentRunDao().upsert(original.copy(status = "RUNNING"))
+            val conversation = db.gatewayWorkDao().conversations(7).single()
+            val scope = requireNotNull(db.gatewayWorkDao().scope(conversation.scopeId))
+            val messages = parts("Saved final result")
+            store.replay(scope, conversation.id, page(messages, messages.last().sequence, false))
+            val cursor = db.gatewayWorkDao().cursor(conversation.id)
+            assertEquals("", db.gatewayWorkDao().chatMessage(12)?.content)
+            assertFalse(db.gatewayWorkDao().messageParts(conversation.id, "logical-answer", 0).single().projectionComplete)
+            db.agentRunDao().upsert(original.copy(status = "WAITING_REMOTE_JOB"))
+            store.projectRetainedMessages(conversation.id)
+            store.projectRetainedMessages(conversation.id)
+            assertEquals(cursor, db.gatewayWorkDao().cursor(conversation.id))
+            assertEquals("Saved final result", db.gatewayWorkDao().chatMessage(12)?.content)
+            assertEquals("COMPLETED", db.agentRunDao().getById("request")?.status)
+            assertEquals(2, db.messageDao().rawLoadMessages(7).size)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test fun restoredResultCannotOverwriteANewerAssistantOwner() = runBlocking {
+        val db = memory()
+        try {
+            seed(db)
+            val store = GatewayWorkStore(db, Preferences().settings)
+            store.prepare(binding())
+            store.accept(accepted())
+            val run = requireNotNull(db.agentRunDao().getById("request")).copy(status = "INTERRUPTED", terminalError = "BACKUP_RESTORED")
+            db.agentRunDao().upsert(run)
+            val newer = requireNotNull(db.gatewayWorkDao().chatMessage(12)).copy(currentRunId = "new-owner", ownershipFence = run.ownershipFence + 1, content = "Newer answer")
+            db.gatewayWorkDao().updateChatMessage(newer)
+            val conversation = db.gatewayWorkDao().conversations(7).single()
+            val scope = requireNotNull(db.gatewayWorkDao().scope(conversation.scopeId))
+            val messages = parts("Old saved result")
+            store.replay(scope, conversation.id, page(messages, messages.last().sequence, false))
+            store.projectRetainedMessages(conversation.id)
+            assertEquals(newer, db.gatewayWorkDao().chatMessage(12))
+            assertEquals(run, db.agentRunDao().getById("request"))
+            assertEquals(2, db.messageDao().rawLoadMessages(7).size)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test fun terminalRemoteFailureSettlesRestoredRunAndKeepsItsPartialAnswer() = runBlocking {
+        for ((remote, local) in listOf("failed" to "FAILED", "cancelled" to "CANCELED", "interrupted" to "INTERRUPTED")) {
+            val db = memory()
+            try {
+                seed(db)
+                val store = GatewayWorkStore(db, Preferences().settings)
+                store.prepare(binding())
+                val accepted = accepted().let { it.copy(job = requireNotNull(it.job).copy(state = remote.uppercase(), schedulingState = remote)) }
+                store.accept(accepted)
+                val run = requireNotNull(db.agentRunDao().getById("request"))
+                db.agentRunDao().upsert(run.copy(status = "INTERRUPTED", terminalError = "SERVICE_STOPPED"))
+                db.gatewayWorkDao().updateChatMessage(requireNotNull(db.gatewayWorkDao().chatMessage(12)).copy(content = "Retained partial text"))
+                val conversation = db.gatewayWorkDao().conversations(7).single()
+                val scope = requireNotNull(db.gatewayWorkDao().scope(conversation.scopeId))
+                store.replay(scope, conversation.id, GatewayMessagePage("gateway", "principal", "conversation", 2, emptyList(), historyComplete = true, serverTimeMs = 2000))
+                assertEquals(local, db.agentRunDao().getById("request")?.status)
+                assertEquals("GATEWAY_${remote.uppercase()}", db.agentRunDao().getById("request")?.terminalError)
+                assertEquals("Retained partial text", db.gatewayWorkDao().chatMessage(12)?.content)
+            } finally {
+                db.close()
+            }
+        }
+    }
+
+    @Test fun needsInputPublishesSavedQuestionWithoutCompletingTheRemoteRun() = runBlocking {
+        val db = memory()
+        try {
+            seed(db)
+            val store = GatewayWorkStore(db, Preferences().settings)
+            store.prepare(binding())
+            store.accept(accepted().let { it.copy(job = requireNotNull(it.job).copy(state = "NEEDS_INPUT", schedulingState = "waiting")) })
+            val conversation = db.gatewayWorkDao().conversations(7).single()
+            val scope = requireNotNull(db.gatewayWorkDao().scope(conversation.scopeId))
+            val messages = parts("Which release target should I use?")
+            store.replay(scope, conversation.id, page(messages, messages.last().sequence, false))
+            assertEquals("Which release target should I use?", db.gatewayWorkDao().chatMessage(12)?.content)
+            assertEquals("WAITING_REMOTE_JOB", db.agentRunDao().getById("request")?.status)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test fun backgroundSnapshotCannotRecreateChatDeletedWhileHttpWasInFlight() = runBlocking {
+        val db = memory()
+        try {
+            seed(db)
+            val preferences = Preferences()
+            val store = GatewayWorkStore(db, preferences.settings)
+            store.prepare(binding())
+            store.accept(accepted())
+            val saved = db.gatewayWorkDao().conversations(7).single()
+            val gateway = PlatformV2(uid = "gateway-profile", name = "Gateway", compatibleType = ClientType.LLAMA, apiUrl = "http://127.0.0.1:8081/v1", model = "exact-model")
+            coEvery { preferences.settings.fetchPlatformV2s() } returns listOf(gateway)
+            val client = mockk<GatewayConversationClient>()
+            coEvery { client.identity(any()) } returns GatewayIdentity(1, "gateway", "instance", "principal", "account", 2000)
+            val entered = CompletableDeferred<Unit>()
+            val resumed = CompletableDeferred<Unit>()
+            coEvery { client.conversation(any(), "conversation") } coAnswers {
+                entered.complete(Unit)
+                resumed.await()
+                GatewayConversationSnapshot("gateway", "principal", "conversation", 2, "Original", profileId = "profile", model = "exact-model", repository = "owner/repo", branch = "feature", serverTimeMs = 2000, sourceSha = "a".repeat(40))
+            }
+            val repository = GatewayConversationRepository(preferences.settings, store, client, mockk(), db)
+            val refresh = async { repository.reconnectSaved(saved) }
+            entered.await()
+            db.chatRoomDao().deleteChatRooms(requireNotNull(db.gatewayWorkDao().chat(7)))
+            resumed.complete(Unit)
+            refresh.await()
+            assertTrue(db.chatRoomDao().getChatRooms().isEmpty())
+            assertNull(db.gatewayWorkDao().conversation(saved.id))
+            assertTrue(db.gatewayWorkDao().storedMessages(saved.id, 0).isEmpty())
+            coVerify(exactly = 0) { client.messages(any(), any(), any()) }
         } finally {
             db.close()
         }

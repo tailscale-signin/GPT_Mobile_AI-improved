@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from v14.engineering import public_job, validate_request
 from v14.engineering_diagnostics import diagnostic_job
 from v14.execution_binding import ExecutionBindingError
+from v14.continuity import verify_mutation_identity
 
 
 def install_engineering_routes(app, service):
@@ -23,6 +24,8 @@ def install_engineering_routes(app, service):
         user = request.state.principal
         if not user.local_admin and 'engineering' not in user.scopes:
             raise PermissionError('Engineering scope is required')
+        if request.method not in {'GET', 'HEAD', 'OPTIONS'}:
+            verify_mutation_identity(request.headers, user.id, service.bindings.installation_id)
         return user.id
 
     async def body(request):

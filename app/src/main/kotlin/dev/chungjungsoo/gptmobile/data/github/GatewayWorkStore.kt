@@ -149,7 +149,10 @@ class GatewayWorkStore @Inject constructor(private val database: ChatDatabaseV2,
         val saved = requireNotNull(dao.binding(binding.request.requestId))
         val conversationKey = (binding.conversationId ?: job.conversationId)?.let { key(saved.scopeId, it) }
         dao.updateCommand(command.copy(scopeId = saved.scopeId, conversationKey = conversationKey, state = "ACCEPTED", jobId = job.id, updatedAt = System.currentTimeMillis(), error = null))
-        if (binding.localRunId != null && binding.assistantMessageId != null) dao.retainRemoteOwnership(binding.localRunId, binding.chatId, binding.assistantMessageId, job.id, binding.endpoint)
+        if (binding.localRunId != null && binding.assistantMessageId != null) {
+            dao.retainRemoteOwnership(binding.localRunId, binding.chatId, binding.assistantMessageId, job.id, binding.endpoint)
+            dao.bindInterruptedRemote(binding.localRunId, binding.chatId, binding.assistantMessageId, job.id, binding.endpoint)
+        }
     }
 
     suspend fun verifiedScope(connectionUid: String, endpoint: String, identity: GatewayIdentity): GatewayScopeRecord {
@@ -222,6 +225,15 @@ class GatewayWorkStore @Inject constructor(private val database: ChatDatabaseV2,
         saved
     }
 
+    /** Background reads cannot recreate a local view that was deleted during HTTP. */
+    suspend fun acceptRetainedSnapshot(scope: GatewayScopeRecord, snapshot: GatewayConversationSnapshot, expected: GatewayConversationRecord): Boolean = database.withTransaction {
+        val current = dao.conversation(expected.id) ?: return@withTransaction false
+        if (current.scopeId != expected.scopeId || current.conversationId != expected.conversationId || current.localChatId != expected.localChatId) return@withTransaction false
+        if (current.localChatId != null && dao.chat(current.localChatId)?.isTemporary != false) return@withTransaction false
+        acceptSnapshot(scope, snapshot)
+        true
+    }
+
     /** Every accepted row, its local projection and the opaque cursor commit atomically. */
     suspend fun replay(scope: GatewayScopeRecord, conversationKey: String, page: GatewayMessagePage) = database.withTransaction {
         val conversation = requireNotNull(dao.conversation(conversationKey))
@@ -259,6 +271,9 @@ class GatewayWorkStore @Inject constructor(private val database: ChatDatabaseV2,
         val message = GatewayConversationMessage(first.logicalMessageId, conversation.conversationId, first.jobId, first.sequence, first.role, first.kind, content, first.createdAt)
         val command = if (dao.job(conversation.scopeId, "engineering", first.jobId)?.conversationKey == conversation.id) dao.commandForJob(conversation.scopeId, first.jobId) else null
         val localId = projectMessage(conversation, message, command)
+        // The stream owner may still be unwinding. Keep verified content pending
+        // so a later interrupted/waiting owner can publish without another replay.
+        if (localId == null && command?.assistantMessageId != null && message.role == "assistant" && message.kind !in setOf("progress", "status", "reasoning", "tool", "tool_request")) return
         dao.markProjected(conversation.id, first.logicalMessageId, localId)
     }
 
@@ -276,7 +291,7 @@ class GatewayWorkStore @Inject constructor(private val database: ChatDatabaseV2,
                 if (ownedCommand.localRunId != null && original.currentRunId != ownedCommand.localRunId) return null
                 if (ownedCommand.localRunId != null) {
                     val run = database.agentPersistenceDao().recoveryRun(ownedCommand.localRunId) ?: return null
-                    if (run.status != "WAITING_REMOTE_JOB" || run.gatewayJobId != message.jobId || run.ownershipFence != original.ownershipFence) return originalId.takeIf { original.content == message.content }
+                    if (!recoverableRemote(run.status, run.terminalError) || run.gatewayJobId != message.jobId || run.ownershipFence != original.ownershipFence || run.chatId != chatId || run.assistantMessageId != originalId || run.profileUid != conversation.profileUid) return originalId.takeIf { original.content == message.content }
                 }
                 check(original.platformType == conversation.profileUid) { "Gateway assistant profile differs from the original reply." }
                 dao.updateChatMessage(original.copy(content = message.content, timeline = original.timeline.filter { it.type != AssistantTimelineItemType.TEXT } + AssistantTimelineItem(AssistantTimelineItemType.TEXT, content = message.content)))
@@ -292,13 +307,18 @@ class GatewayWorkStore @Inject constructor(private val database: ChatDatabaseV2,
         do {
             val rows = dao.storedMessages(conversationKey, sequence)
             database.withTransaction {
-                val conversation = requireNotNull(dao.conversation(conversationKey))
+                val conversation = dao.conversation(conversationKey) ?: return@withTransaction
                 for (row in rows) {
                     if (!row.projectionComplete) projectLogicalMessage(conversation, row)
                     sequence = row.sequence
                 }
             }
         } while (rows.size == 100)
+        database.withTransaction {
+            val conversation = dao.conversation(conversationKey) ?: return@withTransaction
+            val cursor = dao.cursor(conversationKey) ?: return@withTransaction
+            if (!cursor.hasMore) for (job in dao.conversationJobs(conversationKey)) finishProjectedJob(conversation.scopeId, job.kind, job.jobId, cursor.sequence)
+        }
     }
 
     suspend fun updateJob(scope: GatewayScopeRecord, conversation: GatewayConversationRecord, job: GatewayCatalogJob, engineering: GatewayEngineeringJob? = null) = database.withTransaction {
@@ -313,9 +333,9 @@ class GatewayWorkStore @Inject constructor(private val database: ChatDatabaseV2,
         val command = dao.commandForJob(scopeId, jobId) ?: return
         val runId = command.localRunId ?: return
         val run = database.agentPersistenceDao().recoveryRun(runId) ?: return
-        if (run.status != "WAITING_REMOTE_JOB" || run.gatewayJobId != jobId) return
+        if (!recoverableRemote(run.status, run.terminalError) || run.gatewayJobId != jobId) return
         val message = command.assistantMessageId?.let { dao.chatMessage(it) } ?: return
-        if (message.currentRunId != runId || message.ownershipFence != run.ownershipFence) return
+        if (message.currentRunId != runId || message.ownershipFence != run.ownershipFence || message.chatId != run.chatId || message.id != run.assistantMessageId || message.platformType != run.profileUid) return
         val status = when (job.schedulingState) {
             "completed" -> if (message.content.isNotBlank()) "COMPLETED" else "EVIDENCE_MISSING"
             "cancelled" -> "CANCELED"
@@ -324,6 +344,8 @@ class GatewayWorkStore @Inject constructor(private val database: ChatDatabaseV2,
         }
         database.agentPersistenceDao().finishAgentRun(message, runId, status, run.startedAt, (job.finishedAtMs ?: job.serverTimeMs) / 1000, if (status == "COMPLETED") null else "GATEWAY_${job.schedulingState.uppercase()}")
     }
+
+    private fun recoverableRemote(status: String, error: String?): Boolean = status == "WAITING_REMOTE_JOB" || status == "INTERRUPTED" && error != "GATEWAY_INTERRUPTED"
 
     fun jobs(limit: Int = 200): Flow<List<GatewaySavedJob>> = combine(dao.observeJobs(limit), dao.observeConversations(limit), dao.observeScopes()) { jobs, conversations, scopes ->
         val conversationIndex = conversations.associateBy { it.id }

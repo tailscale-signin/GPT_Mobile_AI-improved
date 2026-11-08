@@ -577,6 +577,12 @@ class JournalTests(unittest.TestCase):
             self.assertIsNone(result)
 
     def test_failed_stream_commit_is_shared_with_nonstream_follower(self):
+        self.assert_failed_commit_is_shared(leader_stream=True)
+
+    def test_failed_nonstream_commit_is_shared_without_replacement_execution(self):
+        self.assert_failed_commit_is_shared(leader_stream=False)
+
+    def assert_failed_commit_is_shared(self, *, leader_stream):
         started, release = threading.Event(), threading.Event()
         resolve = self.runtime.resolve_singleflight_job_id
 
@@ -597,7 +603,7 @@ class JournalTests(unittest.TestCase):
             async with httpx.AsyncClient(transport=transport, base_url='http://127.0.0.1:8090') as client:
                 payload = {'model': 'local', 'messages': [{'role': 'user', 'content': 'Hello'}]}
                 with patch.object(self.runtime, 'resolve_singleflight_job_id', side_effect=observe_follower):
-                    leader = asyncio.create_task(client.post('/v1/chat/completions', json=dict(payload, stream=True)))
+                    leader = asyncio.create_task(client.post('/v1/chat/completions', json=dict(payload, stream=leader_stream)))
                     try:
                         self.assertTrue(await asyncio.to_thread(started.wait, 2))
                         follower = asyncio.create_task(client.post('/v1/chat/completions', json=dict(payload, stream=False)))
@@ -606,16 +612,53 @@ class JournalTests(unittest.TestCase):
                         release.set()
                     return await asyncio.gather(leader, follower)
 
-        with self.client(), patch.object(self.runtime, 'process_chat_payload', side_effect=blocked_model) as model:
+        with self.client() as client, patch.object(self.runtime, 'process_chat_payload', side_effect=blocked_model) as model:
             with closing(sqlite3.connect(self.db)) as db, db:
                 db.execute("CREATE TRIGGER reject_completion BEFORE UPDATE ON gateway_jobs WHEN NEW.status='completed' "
                            "BEGIN SELECT RAISE(ABORT,'disk failure'); END")
             leader, follower = asyncio.run(scenario())
             model.assert_called_once()
-            self.assertIn('gateway_stream_error', leader.text)
-            self.assertNotIn('SQLite reply', leader.text)
+            if leader_stream:
+                self.assertIn('gateway_stream_error', leader.text)
+                self.assertNotIn('SQLite reply', leader.text)
+            else:
+                self.assertEqual(503, leader.status_code)
             self.assertEqual(follower.status_code, 503)
             self.assertEqual(follower.json()['error']['code'], 'durable_commit_failed')
+            job_id = follower.headers['x-gateway-job-id']
+            worker = self.runtime.singleflight_workers[job_id]
+            worker['finished_at'] = time.time() - self.runtime.SINGLEFLIGHT_COMPLETED_RESULT_TTL_SECONDS - 1
+            self.runtime.cleanup_singleflight_state()
+            self.assertIs(worker, self.runtime.singleflight_workers.get(job_id))
+            for stream in (False, True):
+                # A later retry sees a completed task, but no committed answer.
+                # Preserve its original identity and failure without execution.
+                retry = self.chat(client, stream=stream)
+                self.assertEqual(503, retry.status_code)
+                self.assertEqual(job_id, retry.headers['x-gateway-job-id'])
+                self.assertEqual('durable_commit_failed', retry.json()['error']['code'])
+                self.assertEqual('unknown', retry.json()['error']['dispatch_state'])
+            model.assert_called_once()
+
+    def test_idempotent_completed_result_rehydrates_after_terminal_cache_eviction(self):
+        with self.client() as client, patch.object(self.runtime, 'process_chat_payload', side_effect=self.completion) as model:
+            for stream in (False, True):
+                body = {'model': 'local', 'stream': stream,
+                        'messages': [{'role': 'user', 'content': 'Retained command ' + str(stream)}]}
+                headers = {'Idempotency-Key': 'evicted-completed-' + str(stream)}
+                first = client.post('/v1/chat/completions', json=body, headers=headers)
+                self.assertEqual(200, first.status_code, first.text)
+                job_id = first.headers['x-gateway-job-id']
+                generation = self.runtime.job_registry[job_id]['generation']
+                self.runtime.job_registry.clear()
+                self.runtime.singleflight_workers.clear()
+                self.runtime.singleflight_request_index.clear()
+                replay = client.post('/v1/chat/completions', json=body, headers=headers)
+                self.assertEqual(200, replay.status_code, replay.text)
+                self.assertEqual(job_id, replay.headers['x-gateway-job-id'])
+                self.assertEqual(generation, self.runtime.job_registry[job_id]['generation'])
+                self.assertIn('SQLite reply', replay.text)
+            self.assertEqual(2, model.call_count)
 
 
 if __name__ == '__main__':

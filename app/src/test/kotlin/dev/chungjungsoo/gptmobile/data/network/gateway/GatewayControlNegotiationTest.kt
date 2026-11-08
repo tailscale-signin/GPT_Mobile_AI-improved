@@ -23,6 +23,36 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GatewayControlNegotiationTest {
+    @Test fun onlyPersistentPrimaryRequestsCanNegotiateFullConversationRetention() = runBlocking {
+        val header = "X-Gateway-Conversation-Retention"
+        val api = Fake(GatewayCapabilities(gatewayVersion = "15.0.0", acceptedRequestHeaders = listOf(header, "X-Gateway-Profile-ID")))
+        val negotiation = GatewayControlNegotiation(api)
+        val config = ProviderRequestConfig("https://retention-negotiation.example/v1", "selected-account", profileUid = "saved-profile", queuePersistent = true, extraHeaders = mapOf("X-Gateway-Cache-Reuse" to "1024"))
+        assertEquals("full", negotiation.prepare(config).extraHeaders[header])
+        for (request in listOf(
+            config.copy(queuePersistent = false),
+            config.copy(requestRole = "delegate"),
+            config.copy(profileUid = null),
+            config.copy(profileUid = "unsafe profile"),
+            config.copy(extraHeaders = config.extraHeaders + ("X-Gateway-Delegated-Worker" to "true")),
+            config.copy(extraHeaders = config.extraHeaders + ("X-Gateway-Request-Role" to "reviewer"))
+        )) {
+            val permitted = api.capability!!.copy(acceptedRequestHeaders = listOf(header, "X-Gateway-Profile-ID", "X-Gateway-Delegated-Worker", "X-Gateway-Request-Role"))
+            assertEquals("none", GatewayControlNegotiation(Fake(permitted)).prepare(request.copy(extraHeaders = request.extraHeaders + (header.lowercase() to "full"))).extraHeaders[header])
+        }
+    }
+
+    @Test fun retentionHeadersCannotTriggerDiscoveryOrReachAnUnnegotiatedRoute() = runBlocking {
+        val header = "X-Gateway-Conversation-Retention"
+        val api = Fake()
+        val direct = ProviderRequestConfig("https://direct-retention.example/v1", null, profileUid = "saved", queuePersistent = true)
+        assertEquals(direct, GatewayControlNegotiation(api).prepare(direct.copy(extraHeaders = mapOf(header to "full"))))
+        assertEquals(0, api.probes)
+        val old = Fake(GatewayCapabilities(gatewayVersion = "15.0.0", acceptedRequestHeaders = listOf("X-Gateway-Profile-ID")))
+        val request = direct.copy(apiUrl = "https://old-retention.example/v1", extraHeaders = mapOf("X-Gateway-Cache-Reuse" to "1024", header to "full"))
+        assertEquals(mapOf("X-Gateway-Profile-ID" to "saved"), GatewayControlNegotiation(old).prepare(request).extraHeaders)
+    }
+
     @Test fun fullServerRouteFixturesNegotiateTheSelectedConnectionWithoutLosingIsolation() = runBlocking {
         for ((index, name) in listOf("gateway-v15-capabilities-legacy-mixed.json", "gateway-v15-capabilities-full.json").withIndex()) {
             val fixture = requireNotNull(javaClass.classLoader?.getResourceAsStream(name)).bufferedReader().use { it.readText() }
@@ -43,7 +73,12 @@ class GatewayControlNegotiationTest {
                 val network = mockk<NetworkClient>()
                 every { network() } returns http
                 val prepared = GatewayControlNegotiation(GatewayAPIImpl(network)).prepare(config)
-                assertEquals(config.copy(extraHeaders = isolation + ("X-Api-Key" to "selected-key")), prepared)
+                val negotiatedMetadata = if (name == "gateway-v15-capabilities-full.json") {
+                    mapOf("X-Gateway-Profile-ID" to "selected-profile", "X-Gateway-Conversation-Retention" to "none")
+                } else {
+                    emptyMap()
+                }
+                assertEquals(config.copy(extraHeaders = isolation + ("X-Api-Key" to "selected-key") + negotiatedMetadata), prepared)
                 assertEquals(1, calls)
             }
         }

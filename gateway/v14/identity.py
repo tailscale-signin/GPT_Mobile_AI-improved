@@ -79,7 +79,8 @@ class Admission:
             await JSONResponse({"error": {"code": code}}, status_code=status, headers={"Cache-Control": "no-store", "X-Gateway-Admission-Error": code})(scope, receive, send)
         pairs = [(k.decode("latin1").lower(), v.decode("latin1")) for k, v in scope.get("headers", [])]
         sensitive = {"host", "origin", "authorization", "tailscale-user-login", "x-gateway-csrf", "x-gateway-management",
-                     "x-gateway-profile-id", "x-gateway-profile-name-base64"}
+                     "x-gateway-profile-id", "x-gateway-profile-name-base64", "x-gateway-conversation-retention",
+                     "x-gateway-installation-id", "x-gateway-principal-id"}
         if any(sum(k == name for k, _ in pairs) > 1 for name in sensitive):
             return await deny("duplicate_admission_header", 400)
         headers = dict(pairs)

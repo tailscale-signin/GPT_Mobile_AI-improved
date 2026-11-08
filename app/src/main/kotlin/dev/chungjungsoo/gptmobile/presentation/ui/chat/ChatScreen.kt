@@ -402,10 +402,12 @@ private fun ChatScreenContent(
     val availableChatTools by chatViewModel.availableChatTools.collectAsStateWithLifecycle()
     val chatToolConfig by chatViewModel.chatToolConfig.collectAsStateWithLifecycle()
     val gatewayConversation by chatViewModel.gatewayConversation.collectAsStateWithLifecycle()
+    val gatewayWriteBlocker by chatViewModel.gatewayWriteBlocker.collectAsStateWithLifecycle()
+    val hasGatewayConversation = gatewayConversation.requestId != null || gatewayConversation.currentJob != null || gatewayConversation.conversationId != null
     val gatewayLifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current
-    LaunchedEffect(chatRoom.id, chatToolConfig.github != null, gatewayLifecycle) {
-        if (chatToolConfig.github != null) {
-            gatewayLifecycle.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+    LaunchedEffect(chatRoom.id, chatToolConfig.github != null, hasGatewayConversation, gatewayLifecycle) {
+        if (chatToolConfig.github != null || hasGatewayConversation) {
+            gatewayLifecycle.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
                 chatViewModel.observeGatewayConversation(chatRoom.id)
             }
         }
@@ -430,7 +432,7 @@ private fun ChatScreenContent(
     LaunchedEffect(chatRoom.id) { chatViewModel.loadResearchHistory(chatRoom.id) }
     val enabledPlatformLookup = remember(appAllPlatforms) { appAllPlatforms.associateBy { it.uid } }
     val enabledProfileUids = remember(appEnabledPlatforms) { appEnabledPlatforms.mapTo(mutableSetOf()) { it.uid } }
-    val canUseChat = activePlatformUids.isNotEmpty() && activePlatformUids.all { it in enabledProfileUids }
+    val canUseChat = gatewayWriteBlocker == null && activePlatformUids.isNotEmpty() && activePlatformUids.all { it in enabledProfileUids }
     val gitHubCompositionTiming = dev.chungjungsoo.gptmobile.presentation.ui.setting.LocalGitHubCompositionTiming.current
     val isIdle = loadingStates.all { it == ChatViewModel.LoadingState.Idle }
     androidx.compose.runtime.DisposableEffect(Unit) {
@@ -1025,13 +1027,16 @@ private fun ChatScreenContent(
                         }
                     }
                 }
+                if (hasGatewayConversation) {
+                    item(key = "gateway-conversation-state") {
+                        GatewayConversationStatusCard(gatewayConversation, chatViewModel::reconnectGatewayConversation, chatViewModel::cancelActiveRuns)
+                    }
+                }
+                gatewayWriteBlocker?.let { reason ->
+                    item(key = "gateway-conversation-read-only") { Text(reason, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium) }
+                }
                 if (chatToolConfig.github != null) {
                     val activeMessage = groupedMessages.assistantMessages.flatten().lastOrNull { it.currentRunId in activeAgentRuns }
-                    if (gatewayConversation.requestId != null || gatewayConversation.currentJob != null) {
-                        item(key = "gateway-conversation-state") {
-                            GatewayConversationStatusCard(gatewayConversation, chatViewModel::reconnectGatewayConversation, chatViewModel::cancelActiveRuns)
-                        }
-                    }
                     chatToolConfig.github?.let { github ->
                         item(key = "gateway-engineering-jobs") { GatewayEngineeringPanel(chatRoom.id, github, appAllPlatforms.firstOrNull { it.uid == github.mainProfileUid }, debugMode = debugMode) }
                     }

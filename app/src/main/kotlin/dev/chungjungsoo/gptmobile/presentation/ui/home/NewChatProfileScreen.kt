@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.home
 
+import android.os.SystemClock
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.horizontalScroll
@@ -44,6 +45,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -110,6 +112,7 @@ internal fun NewChatProfileScreen(
     val gatewayStates by viewModel.gatewayAvailability.collectAsStateWithLifecycle()
     val lifecycleOwner = LocalLifecycleOwner.current
     val screenLifecycle by lifecycleOwner.lifecycle.currentStateFlow.collectAsStateWithLifecycle(minActiveState = Lifecycle.State.CREATED)
+    val windowFocused = LocalWindowInfo.current.isWindowFocused
     val kind = viewModel.type ?: NewChatType.SINGLE
     var query by rememberSaveable { mutableStateOf("") }
     var filterName by rememberSaveable { mutableStateOf(ProfileFilter.ALL.name) }
@@ -164,10 +167,10 @@ internal fun NewChatProfileScreen(
                 (labelKey == null || parseProfileLabels(profile.labels).any { it.key == labelKey })
         }
     }
-    val gatewayAvailability = remember(profiles, features, kind, gatewayStates, screenLifecycle) {
+    val gatewayAvailability = remember(profiles, features, kind, gatewayStates, screenLifecycle, windowFocused) {
         gatewayAvailabilityTargets(profiles, features, kind == NewChatType.GITHUB).associate { target ->
             target.profileUid to (
-                gatewayStates[target.profileUid]?.takeIf { it.identity == target.identity }?.at(System.currentTimeMillis())
+                gatewayStates[target.profileUid]?.takeIf { it.identity == target.identity }?.at(System.currentTimeMillis(), SystemClock.elapsedRealtime())
                     ?: GatewayAvailability(target.identity, if (target.problem == null) GatewayAvailabilityStatus.CHECKING else GatewayAvailabilityStatus.ATTENTION, target.problem ?: "Checking model availability…")
                 )
         }
@@ -178,18 +181,19 @@ internal fun NewChatProfileScreen(
     }
     val listState = rememberLazyListState()
     var touching by remember { mutableStateOf(false) }
+    var focusedProfiles by remember { mutableStateOf(emptySet<String>()) }
     val accessibilityInteracting = rememberProfileAccessibilityInteraction()
     // Explicit user sorting/filtering starts a new order even during accessibility navigation.
     var retainedOrder by remember(sort, filter, query, labelKey) { mutableStateOf(emptyList<String>()) }
-    val displayedOrder = retainProfileOrder(retainedOrder, desiredOrder, touching || listState.isScrollInProgress || accessibilityInteracting)
+    val displayedOrder = retainProfileOrder(retainedOrder, desiredOrder, touching || listState.isScrollInProgress || accessibilityInteracting || filtered.any { it.uid in focusedProfiles })
     SideEffect { if (retainedOrder != displayedOrder) retainedOrder = displayedOrder }
     val visible = remember(filtered, displayedOrder) {
         val byUid = filtered.associateBy { it.uid }
         displayedOrder.mapNotNull(byUid::get)
     }
     val visibleRowUids by remember { derivedStateOf { listState.layoutInfo.visibleItemsInfo.mapNotNull { it.key as? String }.toSet() } }
-    LaunchedEffect(viewModel, lifecycleOwner) {
-        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) { viewModel.observeGateways() }
+    LaunchedEffect(viewModel, lifecycleOwner, windowFocused) {
+        if (windowFocused) lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) { viewModel.observeGateways() }
     }
     val blockers = viewModel.researchBlockers()
     val combined = kind.executionMode(currentSelection.size) == dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode.COMBINED
@@ -311,7 +315,8 @@ internal fun NewChatProfileScreen(
                     onFavorite = { viewModel.toggleFavorite(profile.uid) },
                     onInsights = { detailsUid = profile.uid },
                     gatewayAvailability = gatewayAvailability[profile.uid],
-                    animateGatewayName = profile.uid in visibleRowUids && !optionsOpen && detailsUid == null
+                    animateGatewayName = profile.uid in visibleRowUids && !optionsOpen && detailsUid == null,
+                    onProfileFocusChanged = { focused -> focusedProfiles = if (focused) focusedProfiles + profile.uid else focusedProfiles - profile.uid }
                 )
             }
         }

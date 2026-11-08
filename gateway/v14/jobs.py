@@ -22,6 +22,10 @@ def install_terminal_guard(runtime):
                 raise GatewayContractError('Continue this job using its original admitted model.', 'job_binding_changed', 409,
                     details={'job_id': job_id, 'failed_stage': 'job_admission', 'dispatch_state': 'not_dispatched'})
             admitted_profile = (kwargs.get('admission_snapshot') or {}).get('profile_id')
+            admitted_retention = (kwargs.get('admission_snapshot') or {}).get('conversation_retention', 'none')
+            if previous is not None and previous.get('conversation_retention', 'none') != admitted_retention:
+                raise GatewayContractError('Continue this job with its originally admitted conversation retention policy.', 'job_retention_changed', 409,
+                    details={'job_id': job_id, 'failed_stage': 'job_admission', 'dispatch_state': 'not_dispatched'})
             if previous is not None and previous.get('profile_id') and admitted_profile and previous['profile_id'] != admitted_profile:
                 raise GatewayContractError('Continue this job using its original admitted profile.', 'job_binding_changed', 409,
                     details={'job_id': job_id, 'failed_stage': 'job_admission', 'dispatch_state': 'not_dispatched'})

@@ -12,6 +12,7 @@ class GatewayJobsPresentationTest {
         assertEquals("Running", gatewayJobGroup("waiting", "WAITING_FOR_CI"))
         assertEquals("Needs attention", gatewayJobGroup("waiting", "MERGE_READY"))
         assertEquals("Needs attention", gatewayJobGroup("unknown"))
+        assertEquals("Needs attention", gatewayJobGroup("interrupted"))
         assertEquals("Recent", gatewayJobGroup("completed"))
         assertEquals("Recent", gatewayJobGroup("cancelled"))
         assertEquals("Waiting for CI", gatewayPhaseLabel("CI"))

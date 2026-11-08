@@ -6,7 +6,9 @@ import sys
 import threading
 from types import SimpleNamespace
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
+import weakref
+import gc
 from concurrent.futures import ThreadPoolExecutor
 
 import requests
@@ -76,6 +78,46 @@ class BackendReadinessTests(unittest.TestCase):
             release.set()
             self.assertTrue(all(future.result(timeout=3)['modelAvailable'] for future in pending))
         self.assertEqual(2, transport.call_count)
+
+    def test_cached_model_evidence_keeps_original_time_and_monotonic_age(self):
+        clock = [10.0]
+        transport = Mock(side_effect=lambda url, **kwargs: response(200, {'data': [{'id': 'selected'}]}))
+        probe, backend = BackendReadiness(now=lambda: clock[0]), runtime(transport)
+        with patch('v14.health.time.time', return_value=1000):
+            first = probe.inspect(backend, 'selected')
+        clock[0] = 11.25
+        with patch('v14.health._backend_readiness', probe), patch('v14.health.time.time', return_value=2000):
+            cached = readiness(backend, ServiceState(2), 'selected')
+        self.assertEqual(1000000, first['observedAtMs'])
+        self.assertEqual(0, first['observationAgeMs'])
+        self.assertEqual(1000000, cached['capabilities']['observedAtMs'])
+        self.assertEqual(1250, cached['capabilities']['observationAgeMs'])
+        self.assertEqual(1000000, cached['components']['selectedModel']['observedAtMs'])
+        self.assertEqual(1250, cached['components']['selectedModel']['observationAgeMs'])
+        self.assertEqual(2000000, cached['serverTimeMs'])
+        self.assertEqual(2, transport.call_count)
+        clock[0] = 14.0
+        with patch('v14.health.time.time', return_value=2001):
+            refreshed = probe.inspect(backend, 'selected')
+        self.assertEqual(2001000, refreshed['observedAtMs'])
+        self.assertEqual(0, refreshed['observationAgeMs'])
+        self.assertEqual(4, transport.call_count)
+
+    def test_cache_retains_transport_identity_only_for_its_bounded_lifetime(self):
+        probe = BackendReadiness()
+        def transport(url, **kwargs):
+            return response(200, {'data': [{'id': kwargs['params']['model']} ]})
+        reference = weakref.ref(transport)
+        probe.inspect(runtime(transport), 'original')
+        del transport
+        gc.collect()
+        self.assertIsNotNone(reference())
+        for index in range(64):
+            get = Mock(side_effect=lambda url, **kwargs: response(200, {'data': [{'id': kwargs['params']['model']}]}))
+            probe.inspect(runtime(get), str(index))
+        gc.collect()
+        self.assertEqual(64, len(probe.entries))
+        self.assertIsNone(reference())
 
     def test_disconnected_health_resets_socket_but_only_performs_read_only_checks(self):
         get = Mock(side_effect=[requests.ConnectionError('socket closed'), response(200, {'data': [{'id': 'selected'}]})])

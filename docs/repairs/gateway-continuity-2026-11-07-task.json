@@ -206,5 +206,206 @@
     "restored_head": "54faf9a197e1ee897901e56106802d920a5fd41e",
     "recovery_ref": "refs/recovery/20261108-fixture-incident",
     "canonical_rerun_required": false
+  },
+  "integration_review_2026_11_08": {
+    "state": "LOCAL_GATES_PASSED_READY_FOR_PUBLICATION_AND_EXACT_HEAD_CI",
+    "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+    "branch": "fix/diagnostic-remediation-8597579-2026-11-07",
+    "base_sha": "3ac89ceafd9083f67da30e92f9f93aae27be4600",
+    "integrated_head": "d93b6f3729370517d7c9a2f284d54a4fb166acbf",
+    "preserved_heads": [
+      "54faf9a197e1ee897901e56106802d920a5fd41e",
+      "2ddeff93db245b6571d2fde1bd4fd007faec8e77",
+      "5acf0eaed06ed34d7972752e40c8ffd733eacea3",
+      "ab2845442fd30e317c4266b78e28c3880ecf851b",
+      "d93b6f3729370517d7c9a2f284d54a4fb166acbf"
+    ],
+    "scope": "Review the concurrent continuity implementation against the complete requested audit and durability requirements; retain its architecture and port demonstrated missing corrections.",
+    "implemented": [
+      "Rehydrate original terminal jobs on idempotency replay after registry eviction; no duplicate model execution.",
+      "Retain failed durable-finalization workers and share uncertain failure with concurrent and late followers.",
+      "Preserve original readiness time and monotonic age; include response travel and exact expiry.",
+      "Keep shared probes alive for remaining observers and classify Offline only from route evidence.",
+      "Gate availability polling, animation and row movement on visibility, window and interaction/focus.",
+      "Guard Send/Retry with original conversation, profile, model/provider, repository and gateway identity.",
+      "Bind mutating calls to verified installation and authenticated principal preconditions before server writes.",
+      "Set admission dispatch marker only after the final suspending local configuration check.",
+      "Observe ordinary retained conversations without requiring GitHub context.",
+      "Reconcile restored/deferred replies under their original ownership fence; reject deleted local mirrors.",
+      "Retain original engineering command ownership and exact current ordinary gateway reply ownership in conversation-only backups, including admission before catalog sync.",
+      "Fence Jobs actions/navigation against changed selections or hidden screens and coalesce duplicate Open.",
+      "Place interrupted jobs under Needs attention and observe only while resumed.",
+      "Suppress completed-work notifications for platform timeout and explicit Stop.",
+      "Negotiate ordinary transcript retention explicitly; default none, persistent primary opt-in only."
+    ],
+    "focused_validation": {
+      "jobs_controller_and_presentation": {
+        "tests": 8,
+        "passed": 8,
+        "source_drift": [],
+        "boundaries": [
+          "Lifecycle/Hilt host boundaries",
+          "Mocked repository/Room",
+          "Compiled continuity-domain dependency from5acf"
+        ],
+        "does_not_qualify": [
+          "Room transactions",
+          "Android rendering",
+          "Full app compilation"
+        ],
+        "captured_files": 6,
+        "receipt_sha256": "c0e99f0b614aae7403600a1faf4f4013b790a69c3435b94cbcae8035027ffd4c"
+      },
+      "client_retention_negotiation": {
+        "tests": 22,
+        "passed": 22,
+        "real_source": "GatewayControlNegotiation, GatewayAPIImpl and capability decoder with Ktor MockEngine",
+        "does_not_qualify": [
+          "Live gateway",
+          "Android runtime"
+        ],
+        "captured_files": 71,
+        "receipt_sha256": "dd1b393ae29deb4999e3740603a291a2e068854b70f36502ad9b0ec488051e99",
+        "source_drift": []
+      },
+      "android_data": {
+        "five_suite_pre_marker_fix": {
+          "tests": 60,
+          "passed": 60
+        },
+        "final_affected_repository_rerun": {
+          "tests": 25,
+          "passed": 25
+        },
+        "note": "Final narrow fix moves the dispatch marker after local checks and adds a no-POST regression. Counts overlap and must not be summed.",
+        "boundaries": [
+          "Room/Android host boundaries",
+          "Actual repository/store/client source"
+        ],
+        "does_not_qualify": [
+          "Real Room transactions",
+          "Hilt injection"
+        ],
+        "captured_files": 41,
+        "receipt_sha256": "5b5e45f9b1b74f1952cc70fb942b0117c465740a9b44905f662e7da63b9139f3",
+        "source_drift": []
+      },
+      "server_focused": {
+        "tests": 121,
+        "passed": 121,
+        "failures": 0,
+        "source_copy_sha256": "a7d80f10b76071e99d159cf8765d2d39160bd06885289ba169cbc3b654faeafe",
+        "manifest_sha256": "7685375743277a65e18e16d84a47fcdaf982d31b701ca3c8ed344e2849b39e04",
+        "scope": "Actual gateway HTTP, SQLite/journal, queue/lifecycle, continuity, identity, retention, readiness and capability contracts with external model/GitHub boundaries."
+      },
+      "authentication": {
+        "tests": 25,
+        "passed": 25
+      },
+      "root_kotlin_format": {
+        "files": 14,
+        "passed": true,
+        "version": "1.3.1"
+      },
+      "availability": {
+        "tests": 72,
+        "passed": 72,
+        "boundaries": [
+          "Actual availability repository/parser/ordering/color sources",
+          "Explicit Android and identity model boundaries"
+        ],
+        "does_not_qualify": [
+          "Compose runtime",
+          "Live gateway",
+          "Device accessibility"
+        ],
+        "captured_files": 27,
+        "receipt_sha256": "bc83808126dbf9ee4d4fd18138fcae29ada59a85d82c51c16b3cf4c7024e6d0c",
+        "source_drift": []
+      },
+      "availability_compose_compile": {
+        "passed": true,
+        "runtime_execution": false,
+        "compose": "1.12.1",
+        "lifecycle": "2.11",
+        "ui_runtime_cases_pending": 5,
+        "captured_files": 8,
+        "receipt_sha256": "9fca8e97458ffe1adb75ec658c234ecced8b34245f4039a7c807025cade6f086",
+        "source_drift": []
+      },
+      "generated_metadata": {
+        "passed": true,
+        "inventory_files": 2266,
+        "source_areas": 26,
+        "executed_line_coverage_available": false,
+        "room_schema_matches": true,
+        "exact_release_allowed_paths": 1154
+      },
+      "canonical_fast": {
+        "tests": 400,
+        "passed": 400,
+        "failures": 0,
+        "errors": 0,
+        "literal_regex_patterns": 1304,
+        "dynamic_regex_patterns_not_evaluated": 77,
+        "resource_xml_files": 30,
+        "log_sha256": "88b2ff0d45f3b93d15db07b4c6cf6b7afb17319345f79fdba23dc0abf4144d16",
+        "after_final_backup_fix": true
+      },
+      "combined_kotlin_format": {
+        "files": 38,
+        "passed": true,
+        "version": "1.3.1",
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "server_canonical": {
+        "python_suites": 50,
+        "tests": 599,
+        "passed": 598,
+        "skipped": 1,
+        "failures": 0,
+        "errors": 0,
+        "skip_reason": "No bindable non-loopback LAN IPv4 interface",
+        "browser_tests": 7,
+        "browser_passed": 7,
+        "exit_code": 0,
+        "source_files_verified_unchanged": 206,
+        "runtime": {
+          "os": "Linux",
+          "python": "3.12.14",
+          "node": "24.22.1"
+        },
+        "remaining_platform_gate": "Exact published head in Windows/Python 3.13/Node 22 CI"
+      },
+      "ordinary_backup_sqlite": {
+        "scenarios": 17,
+        "passed": 17,
+        "source_sha256": "16a5d304f4db76af401f42067b7b27883c328a36be038bbb7161ecb9d1404561",
+        "schema_sha256": "07aa423477019550ad9c2f42c5a9c9aa0e31250ff66ecd9fc646c02e48710f50",
+        "sqlite_version": "3.53.1",
+        "room_runtime_execution": false,
+        "new_real_room_regressions": 3
+      }
+    },
+    "remaining": [
+      "Publish combined source with fresh expected-head lease",
+      "Qualify exact published head through full Android/unit/Room/UI/heap/lint/APK/emulator/security and platform gateway checks",
+      "Fresh private MCP discovery plus representative execution on the affected installation",
+      "Physical-device and live-service acceptance for historical external qualification gaps"
+    ],
+    "physical_device_and_private_mcp_connections": "NOT_QUALIFIED_BY_SOURCE_TESTS",
+    "current_task_authority": {
+      "publish_requested_branch": true,
+      "merge_or_release_requested_in_this_session": false,
+      "note": "Earlier merge-related fields describe the preserved concurrent task record; this integration does not authorize a merge or release."
+    },
+    "room_schema": {
+      "version": 50,
+      "identity": "1396b336d370193e752a182123c96b35",
+      "sha256": "07aa423477019550ad9c2f42c5a9c9aa0e31250ff66ecd9fc646c02e48710f50",
+      "entities": 56,
+      "new_schema_changes": false,
+      "origin": "Actual CI-generated schema committed by ab284544"
+    }
   }
 }

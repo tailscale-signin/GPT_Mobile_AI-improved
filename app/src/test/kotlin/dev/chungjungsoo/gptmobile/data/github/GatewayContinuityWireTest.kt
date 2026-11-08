@@ -1,5 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.github
 
+import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
@@ -174,6 +176,39 @@ class GatewayContinuityWireTest {
             val end = GatewayReplayPolicy.plan(plan.cursor, tail, emptyMap())
             assertTrue(end.messages.isEmpty())
             assertEquals(plan.cursor, end.cursor)
+        }
+    }
+
+    @Test fun mutationPreconditionsReachBothClientsAndIdentityConflictIsNeverRetried() = runTest {
+        val identity = json.decodeFromString<GatewayIdentity>(fixture("identity"))
+        val methods = mutableListOf<String>()
+        val http = HttpClient(
+            MockEngine { request ->
+                methods += request.url.encodedPath
+                assertEquals(HttpMethod.Post, request.method)
+                assertEquals(identity.gatewayId, request.headers["X-Gateway-Installation-ID"])
+                assertEquals(identity.principalId, request.headers["X-Gateway-Principal-ID"])
+                assertEquals(listOf(identity.gatewayId), request.headers.getAll("X-Gateway-Installation-ID"))
+                respond("""{"detail":{"code":"CONTINUITY_IDENTITY_MISMATCH","message":"The original identity changed."}}""", HttpStatusCode.Conflict, headersOf("Content-Type", "application/json"))
+            }
+        ) { install(HttpTimeout) }
+        try {
+            val config = ProviderRequestConfig("http://127.0.0.1:8081/v1", "scope", extraHeaders = mapOf("x-gateway-installation-id" to "stale")).withGatewayIdentity(identity)
+            val engineering = GatewayEngineeringClient(http)
+            val continuity = GatewayConversationClient(http)
+            val selection = executionSelection(PlatformV2(uid = "profile", name = "Original", compatibleType = ClientType.LLAMA, apiUrl = config.apiUrl, model = "model"), null, "private")
+            val job = json.decodeFromString<GatewayCommandReceipt>(fixture("command")).job
+            val failures = listOf(
+                runCatching { engineering.prepareBinding(config, selection) }.exceptionOrNull(),
+                runCatching { engineering.create(config, GatewayEngineeringRequest("owner/repo", "branch", "base", "Read", "model", chatId = 7, requestId = "original-command")) }.exceptionOrNull(),
+                runCatching { engineering.control(config, job, "cancel") }.exceptionOrNull(),
+                runCatching { continuity.followUp(config, "conversation", "command", 3, "Read", "read") }.exceptionOrNull(),
+                runCatching { continuity.cancelOrdinary(config, "ordinary-job") }.exceptionOrNull()
+            )
+            assertTrue(failures.all { it?.message?.startsWith("CONTINUITY_IDENTITY_MISMATCH:") == true })
+            assertEquals(5, methods.size)
+        } finally {
+            http.close()
         }
     }
 }

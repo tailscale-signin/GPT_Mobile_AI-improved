@@ -18,6 +18,16 @@ from v14.identity import Admission
 from v14.service import ServiceState
 
 
+def export_policies(destination):
+    """Capture the deterministic additive negotiation blocks from production."""
+    from gateway_v14 import capabilities
+    destination.mkdir(parents=True, exist_ok=True)
+    continuity = capabilities()['continuity']
+    for name, field in (('ordinary-retention-policy', 'ordinaryConversationRetention'),
+                        ('mutation-identity-preconditions', 'mutationIdentityPreconditions')):
+        (destination / (name + '.json')).write_text(json.dumps(continuity[field], ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+
+
 def export(destination):
     destination.mkdir(parents=True, exist_ok=True)
     fixture = DurableEngineeringTests()
@@ -30,6 +40,7 @@ def export(destination):
         continuity = fixture.store.continuity
         conversation_id = job['conversation_id']
         ordinary = {'job_id': 'gwjob_fixture_ordinary', 'principal_id': 'owner', 'model': 'original-chat-model',
+                    'conversation_retention': 'full',
                     'profile_id': 'chat_profile', 'profile_name': 'Chat profile 🌍', 'task_text': 'Continue the conversation',
                     'status': 'completed', 'phase': 'complete', 'scheduling_state': 'completed',
                     'created_at': fixture.time - 20, 'updated_at': fixture.time, 'finished_at': fixture.time,
@@ -140,7 +151,9 @@ def export_custom_base(destination):
 
 if __name__ == '__main__':
     destination = Path(__file__).resolve().parents[1] / 'contracts' / 'continuity-v1-fixtures'
-    if '--gaps-only' not in sys.argv:
-        export(destination)
-    export_gaps(destination)
-    export_custom_base(destination)
+    export_policies(destination)
+    if '--policies-only' not in sys.argv:
+        if '--gaps-only' not in sys.argv:
+            export(destination)
+        export_gaps(destination)
+        export_custom_base(destination)

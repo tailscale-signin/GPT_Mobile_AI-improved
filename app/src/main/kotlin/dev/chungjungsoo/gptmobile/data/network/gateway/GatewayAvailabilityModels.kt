@@ -19,7 +19,9 @@ internal data class GatewayAvailabilityTarget(
     val config: ProviderRequestConfig?,
     val problem: String? = null
 ) {
-    val identity: String = researchHash("${config?.let(::gatewayDashboardIdentity) ?: gatewayProfileUid}|$model")
+    val identity: String = researchHash("${config?.let(::gatewayDashboardIdentity) ?: gatewayProfileUid}|${config?.profileRevision.orEmpty()}|$model")
+
+    override fun toString(): String = "GatewayAvailabilityTarget(identity=$identity, configured=${config != null}, needsAttention=${problem != null})"
 }
 
 internal data class GatewayAvailability(
@@ -27,14 +29,27 @@ internal data class GatewayAvailability(
     val status: GatewayAvailabilityStatus,
     val message: String,
     val checkedAtMillis: Long? = null,
-    val gatewayInstanceId: String? = null
+    val gatewayInstanceId: String? = null,
+    val receivedAtMonotonicMillis: Long? = null,
+    val observationAgeAtReceiptMillis: Long = 0,
+    val observedAtMillis: Long? = null
 ) {
-    fun isFresh(now: Long): Boolean = checkedAtMillis?.let { now - it in 0 until GATEWAY_AVAILABILITY_FRESH_MILLIS } == true
+    internal fun freshnessRemainingMillis(now: Long, elapsedMillis: Long? = null): Long {
+        val elapsed = if (receivedAtMonotonicMillis != null && elapsedMillis != null) {
+            elapsedMillis - receivedAtMonotonicMillis
+        } else {
+            checkedAtMillis?.let { now - it } ?: return 0
+        }
+        if (elapsed < 0 || observationAgeAtReceiptMillis !in 0 until GATEWAY_AVAILABILITY_FRESH_MILLIS) return 0
+        return (GATEWAY_AVAILABILITY_FRESH_MILLIS - observationAgeAtReceiptMillis - elapsed).coerceAtLeast(0)
+    }
 
-    fun isAvailable(now: Long): Boolean = status in setOf(GatewayAvailabilityStatus.ONLINE, GatewayAvailabilityStatus.BUSY_QUEUE) && isFresh(now)
+    fun isFresh(now: Long, elapsedMillis: Long? = null): Boolean = freshnessRemainingMillis(now, elapsedMillis) > 0
 
-    fun at(now: Long): GatewayAvailability =
-        if (checkedAtMillis != null && !isFresh(now)) {
+    fun isAvailable(now: Long, elapsedMillis: Long? = null): Boolean = status in setOf(GatewayAvailabilityStatus.ONLINE, GatewayAvailabilityStatus.BUSY_QUEUE) && isFresh(now, elapsedMillis)
+
+    fun at(now: Long, elapsedMillis: Long? = null): GatewayAvailability =
+        if (checkedAtMillis != null && !isFresh(now, elapsedMillis)) {
             copy(status = GatewayAvailabilityStatus.CHECKING, message = "Checking model availability…")
         } else {
             this
@@ -55,12 +70,31 @@ internal fun gatewayAvailabilityTargets(profiles: List<PlatformV2>, features: Ap
             gatewayUid,
             profile.model,
             target.config,
-            target.problem ?: "Choose a model for this connection.".takeIf { profile.model.isBlank() }
+            target.problem ?: "Choose a valid model for this connection.".takeIf { !validGatewayAvailabilityModel(profile.model) }
         )
     }
 
-internal fun gatewayAvailability(target: GatewayAvailabilityTarget, observation: GatewayReadinessObservation?, now: Long): GatewayAvailability {
-    fun state(status: GatewayAvailabilityStatus, message: String) = GatewayAvailability(target.identity, status, message, observation?.receivedAtMillis ?: now, observation?.instanceId)
+internal fun validGatewayAvailabilityModel(model: String): Boolean = model.isNotBlank() && model == model.trim() && model.length <= 512 && model.none(Char::isISOControl)
+
+internal fun gatewayAvailability(target: GatewayAvailabilityTarget, observation: GatewayReadinessObservation?, now: Long, elapsedMillis: Long? = null): GatewayAvailability {
+    // Both caches retain the original evidence age. Wall-clock corrections cannot
+    // renew a cached client response when its monotonic receipt is available.
+    val clientAge = observation?.let {
+        val age = if (elapsedMillis != null && it.receivedAtMonotonicMillis != null) elapsedMillis - it.receivedAtMonotonicMillis else now - it.receivedAtMillis
+        age.takeIf { delta -> delta >= 0 } ?: Long.MAX_VALUE
+    } ?: 0
+    val serverAge = observation?.observationAgeMillis ?: 0
+    val age = if (serverAge < 0 || serverAge > Long.MAX_VALUE - clientAge) Long.MAX_VALUE else serverAge + clientAge
+    fun state(status: GatewayAvailabilityStatus, message: String) = GatewayAvailability(
+        target.identity,
+        status,
+        message,
+        now,
+        observation?.instanceId,
+        elapsedMillis,
+        age,
+        observation?.observedAtMillis ?: observation?.receivedAtMillis
+    ).at(now, elapsedMillis)
     if (observation == null) return state(GatewayAvailabilityStatus.ATTENTION, "This connection does not report model availability.")
     if (observation.modelLoading == true) return state(GatewayAvailabilityStatus.ATTENTION, "Connected · selected model is loading")
     if (observation.selectedModelAvailable == false) return state(GatewayAvailabilityStatus.MODEL_UNAVAILABLE, "Connected · selected model unavailable")

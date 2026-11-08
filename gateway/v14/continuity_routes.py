@@ -6,7 +6,7 @@ import sqlite3
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
-from v14.continuity import page_limit
+from v14.continuity import page_limit, verify_mutation_identity
 from v14.execution_binding import ExecutionBindingError
 from v14.jobs import DurableCommitError
 
@@ -83,6 +83,7 @@ def install_continuity_routes(app, engineering, service, config):
             principal = request.state.principal
             if 'engineering' not in kinds(principal):
                 raise ExecutionBindingError('CONTINUITY_SCOPE_REQUIRED', 'Engineering permission is required for a follow-up.', 403)
+            verify_mutation_identity(request.headers, principal.id, engineering.bindings.installation_id)
             raw = await request.body()
             if len(raw) > 98304:
                 raise ValueError('Follow-up is too large')

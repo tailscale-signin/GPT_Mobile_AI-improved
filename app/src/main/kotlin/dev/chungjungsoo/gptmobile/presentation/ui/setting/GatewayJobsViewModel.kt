@@ -44,6 +44,8 @@ class GatewayJobsViewModel @Inject constructor(
     private val busy = MutableStateFlow(false)
     private val notice = MutableStateFlow<String?>(null)
     private val refreshLock = Mutex()
+    private var visibleGeneration = 0L
+    private val pendingActions = mutableSetOf<String>()
 
     @OptIn(ExperimentalCoroutinesApi::class)
     private val cached = combine(selected, limit) { selection, count -> selection.gatewayUid.orEmpty() to count }.flatMapLatest { (gateway, count) -> repository.jobs(gateway, count) }
@@ -58,18 +60,33 @@ class GatewayJobsViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), GatewayJobsState())
 
     suspend fun visible(profileUid: String?) {
-        bind(profileUid)
-        store.importLegacy()
-        while (true) {
-            refreshNow()
-            delay(10_000)
+        val generation = ++visibleGeneration
+        try {
+            bind(profileUid, generation)
+            store.importLegacy()
+            while (generation == visibleGeneration) {
+                bind(profileUid, generation)
+                refreshNow()
+                delay(10_000)
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            if (generation == visibleGeneration) notice.value = failure.message ?: "Saved gateway work is temporarily unavailable."
+        } finally {
+            if (generation == visibleGeneration) visibleGeneration++
         }
     }
 
-    private suspend fun bind(profileUid: String?) {
+    private suspend fun bind(profileUid: String?, generation: Long) {
         val profiles = settings.fetchPlatformV2s()
         val gatewayUid = settings.getFeatureSettings().githubProfileOverrides[profileUid]?.engineeringGatewayProfileUid
         val gateway = profiles.firstOrNull { it.uid == gatewayUid }
+        if (generation != visibleGeneration) return
+        if (selected.value.profileUid != profileUid || selected.value.gatewayUid != gatewayUid) {
+            notice.value = null
+            limit.value = 200
+        }
         selected.value = GatewayJobsSelection(profileUid, gatewayUid, gateway?.name ?: "Original engineering gateway unavailable", if (gatewayUid == null) "Choose an explicit engineering gateway in this GitHub profile's settings. Saved work is never moved to another gateway." else null)
     }
 
@@ -77,14 +94,16 @@ class GatewayJobsViewModel @Inject constructor(
 
     private suspend fun refreshNow() {
         if (!refreshLock.tryLock()) return
+        val selection = selected.value
+        val generation = visibleGeneration
         try {
             busy.value = true
-            val uid = selected.value.gatewayUid ?: return
+            val uid = selection.gatewayUid ?: return
             repository.refreshCatalog(uid)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
-            notice.value = failure.message ?: "Gateway unavailable. Retained jobs remain readable."
+            if (isCurrent(generation, selection)) notice.value = failure.message ?: "Gateway unavailable. Retained jobs remain readable."
         } finally {
             busy.value = false
             refreshLock.unlock()
@@ -96,38 +115,56 @@ class GatewayJobsViewModel @Inject constructor(
         refresh()
     }
 
-    fun reconnect(job: GatewaySavedJob) = action {
+    fun reconnect(job: GatewaySavedJob) = action("reconnect:${job.row.id}", job.connection.connectionUid) { current ->
         repository.reconnectSaved(job.conversation)
-        notice.value = "Reconnected to the original conversation."
+        if (current()) notice.value = "Reconnected to the original conversation."
     }
 
-    fun reconcile(command: GatewayCommandRecord) = action {
+    fun reconcile(command: GatewayCommandRecord) = action("command:${command.id}", command = command) { current ->
         repository.observeRequest(command.id)
-        notice.value = "Read the original command receipt. No new work was submitted."
+        if (current()) notice.value = "Read the original command receipt. No new work was submitted."
     }
 
-    fun retry(command: GatewayCommandRecord) = action {
+    fun retry(command: GatewayCommandRecord) = action("command:${command.id}", command = command) { current ->
         val observed = repository.retrySavedSubmission(command.id)
-        notice.value = if (observed.job != null) "The gateway confirmed the original saved command." else "The original command was retained. Read its submission status before any further action."
+        if (current()) notice.value = if (observed.job != null) "The gateway confirmed the original saved command." else "The original command was retained. Read its submission status before any further action."
     }
 
-    fun open(job: GatewaySavedJob, connectionUid: String, onOpen: (Int) -> Unit) = action {
-        onOpen(repository.openConversation(job.conversation.id, connectionUid))
+    fun open(job: GatewaySavedJob, connectionUid: String, onOpen: (Int) -> Unit) = action("open:${job.row.id}", job.connection.connectionUid) { current ->
+        val chatId = repository.openConversation(job.conversation.id, connectionUid)
+        if (current()) onOpen(chatId)
     }
 
-    fun stop(job: GatewaySavedJob) = action { notice.value = repository.stopJob(job).message }
+    fun stop(job: GatewaySavedJob) = action("stop:${job.row.id}", job.connection.connectionUid) { current ->
+        val outcome = repository.stopJob(job)
+        if (current()) notice.value = outcome.message
+    }
 
-    private fun action(block: suspend () -> Unit) = viewModelScope.launch {
-        refreshLock.withLock {
-            busy.value = true
+    private fun isCurrent(generation: Long, selection: GatewayJobsSelection): Boolean = generation == visibleGeneration && selection == selected.value
+
+    private fun action(key: String, gatewayUid: String? = null, command: GatewayCommandRecord? = null, block: suspend (() -> Boolean) -> Unit) {
+        val selection = selected.value
+        val generation = visibleGeneration
+        if (gatewayUid != null && gatewayUid != selection.gatewayUid) return
+        if (command != null && state.value.pending.none { it.id == command.id && it.scopeId == command.scopeId }) return
+        if (!pendingActions.add(key)) return
+        viewModelScope.launch {
             try {
-                block()
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (failure: Exception) {
-                notice.value = failure.message ?: "The original gateway is unavailable. Saved work remains retained."
+                refreshLock.withLock {
+                    if (!isCurrent(generation, selection)) return@withLock
+                    busy.value = true
+                    try {
+                        block { isCurrent(generation, selection) }
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (failure: Exception) {
+                        if (isCurrent(generation, selection)) notice.value = failure.message ?: "The original gateway is unavailable. Saved work remains retained."
+                    } finally {
+                        busy.value = false
+                    }
+                }
             } finally {
-                busy.value = false
+                pendingActions.remove(key)
             }
         }
     }

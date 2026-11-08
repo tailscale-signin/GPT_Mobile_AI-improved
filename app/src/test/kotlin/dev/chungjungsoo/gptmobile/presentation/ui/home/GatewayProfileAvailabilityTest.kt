@@ -2,19 +2,27 @@ package dev.chungjungsoo.gptmobile.presentation.ui.home
 
 import android.app.Application
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.width
+import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.MotionDurationScale
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.compositeOver
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.platform.WindowInfo
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -41,9 +49,14 @@ import org.robolectric.annotation.GraphicsMode
 
 @RunWith(RobolectricTestRunner::class)
 @Config(application = Application::class, sdk = [34])
-@GraphicsMode(GraphicsMode.Mode.NATIVE)
+@GraphicsMode(GraphicsMode.Mode.LEGACY)
+@OptIn(ExperimentalTestApi::class)
 class GatewayProfileAvailabilityTest {
-    @get:Rule val compose = createComposeRule()
+    private val durationScale = object : MotionDurationScale {
+        override var scaleFactor by mutableFloatStateOf(0f)
+    }
+
+    @get:Rule val compose = createComposeRule(effectContext = durationScale)
     private val profile = PlatformV2(uid = "saved", name = "A long saved gateway profile name", compatibleType = ClientType.LLAMA, model = "selected-model", apiUrl = "http://127.0.0.1/v1")
 
     @Test fun largeTextWrapsTheFullNameAndKeepsTheOnlineBadgeVisible() {
@@ -89,12 +102,82 @@ class GatewayProfileAvailabilityTest {
         }
     }
 
-    @Test fun nameColorRetainsNormalTextContrastAtTheDimmestAnimationPoint() {
-        for ((background, fallback) in listOf(Color.White to Color.Black, Color.Black to Color.White)) {
-            val color = gatewayProfileNameColor(Color(0xFF999999), background, fallback)
-            val foreground = color.copy(alpha = .86f).compositeOver(background).luminance()
-            val surface = background.luminance()
-            assertTrue((maxOf(foreground, surface) + .05f) / (minOf(foreground, surface) + .05f) >= 4.5f)
+    @Test fun theOnlineNameKeepsTheExactThemePrimaryEvenWhenItNeedsABacking() {
+        val primary = Color(0xFF999999)
+        compose.setContent {
+            MaterialTheme(colorScheme = lightColorScheme(primary = primary, surfaceContainerLow = Color.White)) {
+                SelectPlatformProfileCard(profile, false, null, {}, {}, {}, GatewayAvailability("route", GatewayAvailabilityStatus.ONLINE, "Selected model is ready", 0))
+            }
         }
+        val layout = mutableListOf<TextLayoutResult>()
+        compose.onNodeWithText(profile.name, useUnmergedTree = true).performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layout) }
+        assertEquals(primary, layout.single().layoutInput.style.color)
     }
+
+    @Test fun onlyTheNameFadesAndHiddenUnfocusedOrReducedMotionRowsRemainStatic() {
+        compose.mainClock.autoAdvance = false
+        var active by mutableStateOf(true)
+        var focused by mutableStateOf(true)
+        compose.setContent {
+            val window = LocalWindowInfo.current
+            CompositionLocalProvider(
+                LocalWindowInfo provides object : WindowInfo by window {
+                    override val isWindowFocused: Boolean get() = focused
+                }
+            ) {
+                MaterialTheme(colorScheme = lightColorScheme(primary = Color(0xFF43116B), surfaceContainerLow = Color.White)) {
+                    SelectPlatformProfileCard(profile, false, null, {}, {}, {}, GatewayAvailability("route", GatewayAvailabilityStatus.ONLINE, "Selected model is ready", 0), animateGatewayName = active)
+                }
+            }
+        }
+        compose.mainClock.advanceTimeBy(32)
+        assertEquals(1f, nameOpacity(), 0f)
+        compose.mainClock.advanceTimeBy(6_000)
+        assertEquals(1f, nameOpacity(), 0f)
+        compose.runOnIdle { durationScale.scaleFactor = 1f }
+        compose.waitForIdle()
+        compose.mainClock.advanceTimeBy(3_000)
+        assertTrue(nameOpacity() in .85f..0.90f)
+        val badge = compose.onNodeWithTag("gateway_availability_saved", useUnmergedTree = true).fetchSemanticsNode()
+        assertFalse(badge.config.contains(GatewayNameOpacityKey))
+        assertFalse(compose.onNodeWithTag("gateway_online_dot_saved", useUnmergedTree = true).fetchSemanticsNode().config.contains(GatewayNameOpacityKey))
+        compose.mainClock.advanceTimeBy(3_000)
+        assertTrue(nameOpacity() >= .98f)
+        compose.runOnIdle { focused = false }
+        compose.waitForIdle()
+        compose.mainClock.advanceTimeBy(32)
+        assertEquals(1f, nameOpacity(), 0f)
+        compose.runOnIdle {
+            focused = true
+            active = false
+        }
+        compose.waitForIdle()
+        compose.mainClock.advanceTimeBy(6_000)
+        assertEquals(1f, nameOpacity(), 0f)
+        compose.runOnIdle {
+            active = true
+            durationScale.scaleFactor = 0f
+        }
+        compose.waitForIdle()
+        compose.mainClock.advanceTimeBy(6_000)
+        assertEquals(1f, nameOpacity(), 0f)
+    }
+
+    @Test fun keyboardFocusReportsOwnershipUntilFocusLeavesTheProfileCard() {
+        var focused = false
+        compose.setContent {
+            MaterialTheme {
+                Column {
+                    SelectPlatformProfileCard(profile, false, null, {}, {}, {}, onProfileFocusChanged = { focused = it })
+                    Button(onClick = {}, modifier = Modifier.testTag("next")) { Text("Next") }
+                }
+            }
+        }
+        compose.onNodeWithTag("profile_select_saved").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+        compose.runOnIdle { assertTrue(focused) }
+        compose.onNodeWithTag("next").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+        compose.runOnIdle { assertFalse(focused) }
+    }
+
+    private fun nameOpacity() = compose.onNodeWithTag("gateway_name_saved", useUnmergedTree = true).fetchSemanticsNode().config[GatewayNameOpacityKey]
 }

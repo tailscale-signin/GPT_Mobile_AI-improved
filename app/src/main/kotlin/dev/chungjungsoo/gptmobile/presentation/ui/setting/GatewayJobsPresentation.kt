@@ -5,7 +5,7 @@ internal fun gatewayJobGroup(state: String, phase: String = ""): String = when {
     else -> when (state) {
         "queued" -> "Queued"
         "running" -> "Running"
-        "completed", "failed", "cancelled", "interrupted" -> "Recent"
+        "completed", "failed", "cancelled" -> "Recent"
         else -> "Needs attention"
     }
 }

@@ -383,6 +383,37 @@ class ConversationTests(unittest.TestCase):
             self.assertEqual(403, client.get('/v1/gateway/conversations/' + job['conversation_id'], headers=owner).status_code)
         self.assertEqual([], self.backend.calls)
 
+    def test_followup_checks_gateway_and_principal_before_creating_a_command(self):
+        engineering_fixture.DurableEngineeringTests.admit(self, 'local:single-user')
+        job = self.store.create('local:single-user', dict(self.request, scope='read'))
+        self.store.control(job['id'], 'local:single-user', 'cancel', 0)
+        snapshot = self.store.continuity.conversation('local:single-user', job['conversation_id'])
+        command = {'command_id': 'identity-fenced-followup', 'expected_revision': snapshot['revision'],
+                   'content': 'Explain the saved result', 'scope': 'read'}
+        app = FastAPI()
+        config = Config(mode='loopback')
+        app.add_middleware(Admission, config=config, store=DeviceStore(self.temp.name + '/auth.db'))
+        install_continuity_routes(app, self.service, ServiceState(), config)
+        headers = {'X-Gateway-Installation-ID': snapshot['gateway_id'], 'X-Gateway-Principal-ID': 'local:single-user'}
+        path = '/v1/gateway/conversations/' + job['conversation_id'] + '/messages'
+        with TestClient(app, base_url='http://127.0.0.1:8090', client=('127.0.0.1', 1234)) as client:
+            with patch.object(self.store, 'create') as create, patch.object(self.service, 'validate_submission') as validate:
+                for changed in (dict(headers, **{'X-Gateway-Installation-ID': 'gw_different'}),
+                                dict(headers, **{'X-Gateway-Principal-ID': 'another-account'})):
+                    rejected = client.post(path, json=command, headers=changed)
+                    self.assertEqual(409, rejected.status_code, rejected.text)
+                    self.assertEqual('CONTINUITY_IDENTITY_MISMATCH', rejected.json()['error']['code'])
+                create.assert_not_called()
+                validate.assert_not_called()
+            self.assertEqual(1, self.store.tx(lambda db: db.execute('SELECT COUNT(*) FROM engineering_jobs').fetchone()[0]))
+            self.assertEqual(snapshot['revision'], self.store.continuity.conversation('local:single-user', job['conversation_id'])['revision'])
+            with patch.object(self.service, 'validate_submission'):
+                accepted = client.post(path, json=command, headers=headers)
+            self.assertEqual(202, accepted.status_code, accepted.text)
+            self.assertEqual(command['command_id'], accepted.json()['command_id'])
+        self.assertEqual(2, self.store.tx(lambda db: db.execute('SELECT COUNT(*) FROM engineering_jobs').fetchone()[0]))
+        self.assertEqual([], self.backend.calls)
+
 
 class OrdinaryLifecycleTests(unittest.TestCase):
     setUpClass = classmethod(journal_fixture.JournalTests.setUpClass.__func__)
@@ -392,6 +423,7 @@ class OrdinaryLifecycleTests(unittest.TestCase):
     def test_captured_unicode_profile_and_full_visible_input_transcript_survive_recovery(self):
         name = '  原始 profile 🌍  '
         metadata = {'X-Gateway-Profile-ID': 'profile_original-1',
+                    'X-Gateway-Conversation-Retention': 'full',
                     'X-Gateway-Profile-Name-Base64': base64.urlsafe_b64encode(name.encode()).decode().rstrip('=')}
         transcript = [{'role': 'system', 'content': 'Internal prompt is not visible conversation history'},
                       {'role': 'user', 'content': 'Original question'},
@@ -423,6 +455,121 @@ class OrdinaryLifecycleTests(unittest.TestCase):
             self.assertEqual('original-model', restored['model'])
             self.assertTrue(restored['history_complete'])
             forbidden.assert_not_called()
+
+    def test_absent_and_none_retention_do_not_create_an_additional_transcript(self):
+        jobs = []
+        def complete(payload, cancel, progress, hard_cancel):
+            progress({'phase': 'working', 'message': 'PRIVATE_PROGRESS'})
+            return 200, {'choices': [{'message': {'role': 'assistant', 'content': 'PRIVATE_ANSWER'}, 'finish_reason': 'stop'}]}
+        with self.client() as client, patch.object(self.runtime, 'process_chat_payload', side_effect=complete) as model:
+            for index, (retention, stream) in enumerate(((None, False), (None, True), ('none', False), ('none', True))):
+                headers = {'Idempotency-Key': 'private-retention-' + str(index), 'X-Gateway-Profile-ID': 'private_profile'}
+                if retention is not None:
+                    headers['X-Gateway-Conversation-Retention'] = retention
+                body = {'model': 'original-model', 'stream': stream, 'messages': [
+                    {'role': 'user', 'content': 'PRIVATE_QUESTION_' + str(index)},
+                    {'role': 'assistant', 'content': 'PRIVATE_PREVIOUS_ANSWER'},
+                    {'role': 'user', 'content': 'PRIVATE_FOLLOWUP_' + str(index)}]}
+                response = client.post('/v1/chat/completions', headers=headers, json=body)
+                self.assertEqual(200, response.status_code, response.text)
+                job_id = response.headers['x-gateway-job-id']
+                replay = client.post('/v1/chat/completions', headers=headers, json=body)
+                self.assertEqual(200, replay.status_code, replay.text)
+                self.assertEqual(job_id, replay.headers['x-gateway-job-id'])
+                item = next(item for item in client.get('/v1/gateway/job-catalog').json()['items'] if item['job_id'] == job_id)
+                self.assertEqual('Gateway conversation', item['title'])
+                self.assertIsNone(item['message'])
+                self.assertFalse(item['history_complete'])
+                self.assertEqual('conversation_retention_disabled', item['history_limitation'])
+                messages = client.get('/v1/gateway/conversations/' + item['conversation_id'] + '/messages').json()
+                self.assertEqual([], messages['items'])
+                jobs.append((job_id, item['conversation_id']))
+            self.assertEqual(4, model.call_count)
+        self.runtime.job_registry.clear()
+        self.runtime.durable_job_initialized = False
+        with self.client() as client, patch.object(self.runtime, 'process_chat_payload') as no_dispatch:
+            for job_id, conversation_id in jobs:
+                snapshot = client.get('/v1/gateway/conversations/' + conversation_id).json()
+                self.assertFalse(snapshot['history_complete'])
+                self.assertEqual('conversation_retention_disabled', snapshot['history_limitation'])
+                self.assertEqual([], client.get('/v1/gateway/conversations/' + conversation_id + '/messages').json()['items'])
+                saved = client.get('/gateway/jobs/' + job_id + '/result')
+                self.assertEqual(200, saved.status_code)
+                self.assertIn('PRIVATE_ANSWER', saved.text)
+            no_dispatch.assert_not_called()
+        with closing(sqlite3.connect(self.db)) as db:
+            self.assertEqual(0, db.execute('SELECT COUNT(*) FROM gateway_conversation_messages').fetchone()[0])
+            self.assertEqual(0, db.execute('SELECT COUNT(*) FROM gateway_logical_messages').fetchone()[0])
+            self.assertNotIn('PRIVATE_', repr(db.execute('SELECT title FROM gateway_conversations').fetchall()))
+            self.assertNotIn('PRIVATE_', repr(db.execute('SELECT public_json FROM gateway_continuity_jobs').fetchall()))
+
+    def test_retention_validation_and_same_job_policy_changes_do_not_dispatch(self):
+        body = {'model': 'local', 'stream': False, 'messages': [{'role': 'user', 'content': 'Private task'}]}
+        result = {'choices': [{'message': {'role': 'assistant', 'content': 'Private answer'}, 'finish_reason': 'stop'}]}
+        with self.client() as client, patch.object(self.runtime, 'process_chat_payload', return_value=(200, result)) as model:
+            invalid_headers = [
+                {'X-Gateway-Conversation-Retention': 'full'},
+                {'X-Gateway-Profile-ID': 'profile', 'X-Gateway-Conversation-Retention': 'FULL'},
+                [('X-Gateway-Conversation-Retention', 'full'), ('X-Gateway-Conversation-Retention', 'none')],
+            ]
+            for headers in invalid_headers:
+                rejected = client.post('/v1/chat/completions', headers=headers, json=body)
+                self.assertEqual(400, rejected.status_code, rejected.text)
+            model.assert_not_called()
+            headers = {'X-Gateway-Profile-ID': 'profile', 'Idempotency-Key': 'private-task'}
+            accepted = client.post('/v1/chat/completions', headers=headers, json=body)
+            self.assertEqual(200, accepted.status_code, accepted.text)
+            job_id = accepted.headers['x-gateway-job-id']
+            changed = client.post('/v1/chat/completions', headers=dict(headers, **{'X-Gateway-Conversation-Retention': 'full'}), json=body)
+            self.assertEqual(409, changed.status_code, changed.text)
+            self.assertEqual('idempotency_conflict', changed.json()['error']['code'])
+            self.runtime.job_registry.clear()
+            self.runtime.singleflight_workers.clear()
+            self.runtime.singleflight_request_index.clear()
+            self.runtime.durable_job_initialized = False
+            self.assertTrue(self.runtime.init_durable_job_store())
+            changed = client.post('/v1/chat/completions', headers={'X-Gateway-Profile-ID': 'profile',
+                'X-Gateway-Job-ID': job_id, 'X-Gateway-Conversation-Retention': 'full'}, json=body)
+            self.assertEqual(409, changed.status_code, changed.text)
+            self.assertEqual('job_retention_changed', changed.json()['error']['code'])
+            self.assertEqual('not_dispatched', changed.json()['error']['dispatch_state'])
+            model.assert_called_once()
+
+    def test_retention_capability_matches_the_wire_fixture(self):
+        fixtures = Path(__file__).resolve().parents[1] / 'contracts/continuity-v1-fixtures'
+        with self.client() as client:
+            capabilities = client.get('/v1/gateway/capabilities').json()
+            for filename, field in (('ordinary-retention-policy.json', 'ordinaryConversationRetention'),
+                                    ('mutation-identity-preconditions.json', 'mutationIdentityPreconditions')):
+                wire = json.dumps(capabilities['continuity'][field], ensure_ascii=False, indent=2) + '\n'
+                self.assertEqual((fixtures / filename).read_bytes(), wire.encode())
+            for header in capabilities['continuity']['mutationIdentityPreconditions'] + [
+                    capabilities['continuity']['ordinaryConversationRetention']['header']]:
+                self.assertIn(header, capabilities['accepted_request_headers'])
+
+    def test_ordinary_mutations_reject_changed_installation_before_dispatch_or_cancel(self):
+        with self.client() as client:
+            identity = client.get('/v1/gateway/identity').json()
+            changed = {'X-Gateway-Installation-ID': 'gw_other', 'X-Gateway-Principal-ID': identity['principal_id']}
+            with patch.object(self.runtime, 'process_chat_payload') as model:
+                rejected = client.post('/v1/chat/completions', headers=changed,
+                    json={'model': 'local', 'stream': False, 'messages': [{'role': 'user', 'content': 'Original account task'}]})
+                self.assertEqual(409, rejected.status_code, rejected.text)
+                self.assertEqual('CONTINUITY_IDENTITY_MISMATCH', rejected.json()['error']['code'])
+                self.assertEqual('not_dispatched', rejected.json()['error']['dispatch_state'])
+                model.assert_not_called()
+            self.assertFalse(self.runtime.job_registry)
+            marker = current_device.set(identity['principal_id'])
+            try:
+                self.runtime.register_gateway_job('cancel-original', 'local', 'interactive', threading.Event(), threading.Event())
+                self.store.claim('cancel-original', identity['principal_id'])
+            finally:
+                current_device.reset(marker)
+            with patch.object(self.runtime, 'cancel_gateway_job') as cancel:
+                rejected = client.post('/v1/gateway/jobs/cancel-original/cancel', headers=changed)
+                self.assertEqual(409, rejected.status_code, rejected.text)
+                self.assertEqual('CONTINUITY_IDENTITY_MISMATCH', rejected.json()['error']['code'])
+                cancel.assert_not_called()
 
     def test_profile_headers_validate_alphabet_bounds_encoding_and_controls_without_granting_authority(self):
         self.assertEqual({'profile_id': '', 'profile_name': ''}, profile_metadata({}))
@@ -498,7 +645,10 @@ class OrdinaryLifecycleTests(unittest.TestCase):
             payload = json.dumps({'model': 'local', 'stream': False, 'messages': [{'role': 'user', 'content': 'Continue this owned task'}]}).encode()
             async def receive():
                 return {'type': 'http.request', 'body': payload, 'more_body': False}
-            request = Request({'type': 'http', 'method': 'POST', 'path': '/v1/chat/completions', 'headers': []}, receive)
+            request = Request({'type': 'http', 'method': 'POST', 'path': '/v1/chat/completions',
+                               'headers': [(b'x-gateway-conversation-retention', b'full')]}, receive)
+            request.state.gateway_admission_snapshot = {'profile_id': 'original', 'profile_name': '', 'conversation_retention': 'full',
+                                                        'messages': json.loads(payload)['messages']}
             marker = current_device.set('local:single-user')
             try:
                 caller = asyncio.create_task(self.runtime.chat_completions(request))

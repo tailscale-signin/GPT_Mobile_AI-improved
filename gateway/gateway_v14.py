@@ -45,7 +45,8 @@ from gateway_security import device_store
 from v14.engineering_backend import GitHubEngineeringBackend
 from v14.engineering_routes import install_engineering_routes
 from v14.continuity_routes import install_continuity_routes
-from v14.continuity import profile_metadata
+from v14.continuity import profile_metadata, conversation_retention, verify_mutation_identity
+from v14.execution_binding import ExecutionBindingError
 from v14.usage import install_usage
 
 runtime.GATEWAY_VERSION = VERSION
@@ -134,9 +135,14 @@ async def chat(request: Request):
     try:
         payload = await request.json()
         runtime.validate_chat_request(payload)
-        request.state.gateway_admission_snapshot = dict(profile_metadata(request.headers), messages=[
+        verify_mutation_identity(request.headers, request.state.principal.id, engineering.bindings.installation_id)
+        metadata = profile_metadata(request.headers)
+        retention = conversation_retention(request.headers)
+        if retention == 'full' and not metadata['profile_id']:
+            return rejected('conversation_profile_required', 'Full conversation retention requires an original profile identity.')
+        request.state.gateway_admission_snapshot = dict(metadata, conversation_retention=retention, messages=[
             json.loads(json.dumps(message)) for message in payload.get('messages', [])
-            if isinstance(message, dict) and message.get('role') in {'user', 'assistant', 'tool'}])
+            if isinstance(message, dict) and message.get('role') in {'user', 'assistant', 'tool'}] if retention == 'full' else None)
         stage = "run_control_validation"
         try:
             request_deadline(payload)
@@ -161,6 +167,8 @@ async def chat(request: Request):
                     await iterator.aclose()
             response.body_iterator = admitted_stream()
         return response
+    except ExecutionBindingError as error:
+        return rejected(error.code, str(error), error.status)
     except DurableCommitError:
         return JSONResponse({"error": {"code": "durable_commit_failed", "failureCode": "persistence_failed",
                                          "message": "The gateway could not durably commit this run.", "retryable": True}}, status_code=503)
@@ -193,7 +201,11 @@ async def chat(request: Request):
 
 @app.post("/gateway/jobs/{job_id}/cancel")
 @app.post("/v1/gateway/jobs/{job_id}/cancel")
-def cancel(job_id: str):
+def cancel(job_id: str, request: Request):
+    try:
+        verify_mutation_identity(request.headers, request.state.principal.id, engineering.bindings.installation_id)
+    except ExecutionBindingError as error:
+        return JSONResponse({'error': {'code': error.code, 'message': str(error), 'retryable': False}}, status_code=error.status)
     runtime.ensure_gateway_job_loaded(job_id)
     with runtime.job_registry_lock:
         job = runtime.job_registry.get(job_id)
@@ -236,6 +248,8 @@ def capabilities(model=""):
                    "continuity": {"protocolVersion": 1, "available": installation_id is not None,
                                   "jobCatalog": installation_id is not None, "conversationMessages": installation_id is not None,
                                   "commandReconciliation": installation_id is not None, "messageParts": True,
+                                  "ordinaryConversationRetention": {"header": "X-Gateway-Conversation-Retention", "values": ["full", "none"], "default": "none"},
+                                  "mutationIdentityPreconditions": ["X-Gateway-Installation-ID", "X-Gateway-Principal-ID"],
                                   "ordinaryRestartPolicy": "interrupt_without_replay",
                                   "engineeringRestartPolicy": "reconcile_and_resume"},
                    "memory": {"authority": "client", "protocolVersion": 1, "workspaceAdapterEnabled": False},
@@ -258,7 +272,8 @@ def capabilities(model=""):
                                     selectedModelLimits=True)})
     if model:
         result['selectedModel'] = engineering.capabilities.selected_model(model)
-    result['accepted_request_headers'].extend(['X-Gateway-Profile-ID', 'X-Gateway-Profile-Name-Base64'])
+    result['accepted_request_headers'].extend(['X-Gateway-Profile-ID', 'X-Gateway-Profile-Name-Base64', 'X-Gateway-Conversation-Retention',
+                                               'X-Gateway-Installation-ID', 'X-Gateway-Principal-ID'])
     return result
 
 

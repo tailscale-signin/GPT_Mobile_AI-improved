@@ -46,7 +46,44 @@ internal object CombinedDocumentDatabase {
                 while (blocks.moveToNext()) retain(blocks.getString(0), blocks.getString(1))
             }
             database.execSQL("DELETE FROM combined_durable_blocks WHERE NOT EXISTS (SELECT 1 FROM combined_keep_payloads p WHERE p.runId=combined_durable_blocks.runId AND p.payloadId=combined_durable_blocks.payloadId)")
-            database.execSQL("DELETE FROM agent_runs WHERE run_id NOT IN (SELECT runId FROM combined_final_manifests)")
+            // A gateway command owns its original assistant-message fence even when
+            // execution history is omitted. Losing that run would orphan a restored reply.
+            val hasGatewayCommands = database.query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='gateway_commands'").use { it.moveToFirst() }
+            val retainedGatewayRuns = if (hasGatewayCommands) " AND run_id NOT IN (SELECT localRunId FROM gateway_commands WHERE localRunId IS NOT NULL)" else ""
+            val hasGatewayMirrors = database.query("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('gateway_jobs','gateway_conversations','gateway_scopes')").use { it.moveToFirst() && it.getInt(0) == 3 }
+            // Ordinary admission precedes catalog sync and has no command row.
+            // A current reply fence plus its recorded job/route is required; known
+            // catalog records must also match the original scoped mirror.
+            val retainedOrdinaryRuns = if (hasGatewayMirrors) {
+                """
+                AND NOT EXISTS (
+                    SELECT 1 FROM messages_v2 m
+                    JOIN messages_v2 u ON u.message_id=agent_runs.user_message_id
+                    WHERE m.message_id=agent_runs.assistant_message_id
+                        AND m.chat_id=agent_runs.chat_id AND u.chat_id=agent_runs.chat_id AND u.platform_type IS NULL
+                        AND m.platform_type=agent_runs.profile_uid
+                        AND m.current_run_id=agent_runs.run_id AND m.ownership_fence=agent_runs.ownership_fence
+                        AND LENGTH(TRIM(agent_runs.gateway_job_id))>0 AND LENGTH(TRIM(agent_runs.gateway_base_url))>0
+                        AND LENGTH(TRIM(agent_runs.profile_uid))>0 AND LENGTH(TRIM(agent_runs.model_snapshot))>0
+                        AND agent_runs.synthesis_key IS NULL
+                        AND (
+                            NOT EXISTS (SELECT 1 FROM gateway_jobs known WHERE known.jobId=agent_runs.gateway_job_id)
+                            OR EXISTS (
+                                SELECT 1 FROM gateway_jobs j
+                                JOIN gateway_conversations c ON c.id=j.conversationKey AND c.scopeId=j.scopeId
+                                JOIN gateway_scopes s ON s.id=j.scopeId
+                                WHERE j.kind='chat' AND j.jobId=agent_runs.gateway_job_id
+                                    AND c.projectionOwner='ANDROID_RUN' AND c.localChatId=agent_runs.chat_id
+                                    AND c.profileUid=agent_runs.profile_uid AND c.model=agent_runs.model_snapshot
+                                    AND RTRIM(agent_runs.gateway_base_url,'/')=s.endpoint
+                            )
+                        )
+                )
+                """.trimIndent()
+            } else {
+                ""
+            }
+            database.execSQL("DELETE FROM agent_runs WHERE run_id NOT IN (SELECT runId FROM combined_final_manifests)$retainedGatewayRuns $retainedOrdinaryRuns")
             // The owning IDs/fences are part of the document. Provider request snapshots,
             // tool events and active resumptions remain an Agent history selection.
             database.execSQL("UPDATE agent_runs SET synthesis_snapshot=NULL, synthesis_key=NULL")

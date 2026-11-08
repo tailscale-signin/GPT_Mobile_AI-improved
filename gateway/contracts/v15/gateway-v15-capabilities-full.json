@@ -22,7 +22,10 @@
     "X-Gateway-Diagnostic-Started",
     "traceparent",
     "X-Gateway-Profile-ID",
-    "X-Gateway-Profile-Name-Base64"
+    "X-Gateway-Profile-Name-Base64",
+    "X-Gateway-Conversation-Retention",
+    "X-Gateway-Installation-ID",
+    "X-Gateway-Principal-ID"
   ],
   "auth": {
     "apiKeyRequired": false,
@@ -41,6 +44,18 @@
     "engineeringRestartPolicy": "reconcile_and_resume",
     "jobCatalog": true,
     "messageParts": true,
+    "mutationIdentityPreconditions": [
+      "X-Gateway-Installation-ID",
+      "X-Gateway-Principal-ID"
+    ],
+    "ordinaryConversationRetention": {
+      "default": "none",
+      "header": "X-Gateway-Conversation-Retention",
+      "values": [
+        "full",
+        "none"
+      ]
+    },
     "ordinaryRestartPolicy": "interrupt_without_replay",
     "protocolVersion": 1
   },

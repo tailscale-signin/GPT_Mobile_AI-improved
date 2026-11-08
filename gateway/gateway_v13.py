@@ -300,6 +300,7 @@ def _singleflight_metric(
 def canonical_chat_request_fingerprint(
     incoming_payload,
     attempt_id=None,
+    conversation_retention='none',
 ):
     """
     Fingerprint transport-equivalent chat requests.
@@ -326,6 +327,7 @@ def canonical_chat_request_fingerprint(
         "device": current_device.get(),
         # Same transport attempt may reconnect; a model retry must run fresh inference.
         "attempt_id": attempt_id,
+        "conversation_retention": conversation_retention,
         "generation": {key: value for key, value in payload.items()
                        if not key.startswith("_gateway_")},
         "worker_policy": {key: value for key, value in payload.get("_gateway_performance", {}).items()
@@ -529,6 +531,7 @@ def cleanup_singleflight_state():
             if (
                 task is not None
                 and task.done()
+                and entry.get('persistence_error') is None
                 and (
                     now
                     - float(
@@ -551,6 +554,7 @@ def resolve_singleflight_job_id(
     incoming_payload,
     proposed_job_id,
     attempt_id=None,
+    conversation_retention='none',
 ):
     if not SINGLEFLIGHT_ENABLED:
         return (
@@ -563,7 +567,7 @@ def resolve_singleflight_job_id(
 
     fingerprint = (
         canonical_chat_request_fingerprint(
-            incoming_payload, attempt_id
+            incoming_payload, attempt_id, conversation_retention
         )
     )
 
@@ -1021,6 +1025,7 @@ def register_gateway_job(
             "principal_id": current_device.get(),
             "profile_id": (admission_snapshot or {}).get('profile_id', ''),
             "profile_name": (admission_snapshot or {}).get('profile_name', ''),
+            "conversation_retention": (admission_snapshot or {}).get('conversation_retention', 'none'),
             "_conversation_messages": admission_snapshot.get('messages', []) if admission_snapshot is not None else None,
             "model": model,
             "mode": mode,
@@ -2096,6 +2101,7 @@ def resolve_root_job_id(incoming_payload, request_headers=None):
                 for job_id, job in job_registry.items()
                 if (
                     job.get("task_key") == task_key
+                    and job.get('conversation_retention', 'none') == headers.get('x-gateway-conversation-retention', 'none')
                     and device_store.owns(job_id)
                     and job.get("status")
                     in {"running", "waiting_for_client_tool"}
@@ -19357,9 +19363,8 @@ async def chat_completions(
     incoming_payload.pop("_gateway_performance", None)
     admission_snapshot = getattr(request.state, 'gateway_admission_snapshot', None)
     if admission_snapshot is None:
-        admission_snapshot = {'profile_id': '', 'profile_name': '', 'messages': [
-            json.loads(json.dumps(message)) for message in incoming_payload.get('messages', [])
-            if isinstance(message, dict) and message.get('role') in {'user', 'assistant', 'tool'}]}
+        admission_snapshot = {'profile_id': '', 'profile_name': '', 'conversation_retention': 'none', 'messages': None}
+    retention = admission_snapshot.get('conversation_retention', 'none')
 
     wants_stream = bool(
         incoming_payload.get(
@@ -19391,6 +19396,7 @@ async def chat_completions(
         incoming_payload,
         proposed_gateway_job_id,
         attempt_id=request.headers.get("x-gateway-attempt-id"),
+        conversation_retention=retention,
     )
 
     idempotency_key = request.headers.get("idempotency-key")
@@ -19402,6 +19408,8 @@ async def chat_completions(
             raise HTTPException(status_code=503, detail="Durable request admission is unavailable")
         canonical_payload = dict(incoming_payload)
         canonical_payload.pop("gateway_job_id", None)
+        if retention == 'full':
+            canonical_payload['_gateway_conversation_retention'] = retention
         admitted_job_id, idempotency_replay = ledger.admit_request(
             current_device.get(), "POST /v1/chat/completions", idempotency_key,
             canonical_payload, gateway_job_id,
@@ -19409,8 +19417,20 @@ async def chat_completions(
         if idempotency_replay:
             gateway_job_id = admitted_job_id
             singleflight_follower = True
+            if ensure_gateway_job_loaded(gateway_job_id) is not None:
+                # A terminal result can outlive its in-memory cache. Recover
+                # its exact admitted identity before any possible registration;
+                # revalidate client-tool waits instead of dispatching them again.
+                resolve_root_job_id(incoming_payload, dict(request.headers, **{'x-gateway-job-id': gateway_job_id}))
 
     device_store.claim(gateway_job_id)
+
+    with job_registry_lock:
+        retained_job = job_registry.get(gateway_job_id)
+        if retained_job and retained_job.get('conversation_retention', 'none') != retention:
+            raise GatewayContractError('Continue this job with its originally admitted conversation retention policy.',
+                                       'job_retention_changed', 409,
+                                       details={'job_id': gateway_job_id, 'failed_stage': 'job_admission', 'dispatch_state': 'not_dispatched'})
 
     incoming_payload.pop(
         "gateway_job_id",
@@ -19456,6 +19476,17 @@ async def chat_completions(
     }
 
     response_headers["X-Gateway-Performance-Profile"] = (incoming_payload.get("_gateway_performance") or {}).get("profile", GATEWAY_PERFORMANCE_PROFILE_DEFAULT)
+
+    retained_worker = get_singleflight_worker(gateway_job_id)
+    if retained_worker and retained_worker.get("persistence_error") is not None:
+        # The accepted worker already ran. A failed result commit leaves an
+        # uncertain outcome; neither a late stream nor a nonstream retry may
+        # replace it with another execution under the same job identity.
+        return JSONResponse(
+            status_code=503,
+            content={"error": {"code": "durable_commit_failed", "dispatch_state": "unknown"}},
+            headers=response_headers,
+        )
 
     # IMPORTANT:
     # For streaming clients we return StreamingResponse before
@@ -19528,7 +19559,13 @@ async def chat_completions(
                 )
 
             except Exception:
-                pass
+                # A shared worker exception is an outcome of the original
+                # admission, never permission to dispatch a replacement.
+                return JSONResponse(
+                    status_code=503,
+                    content={"error": {"code": "durable_commit_failed", "dispatch_state": "unknown"}},
+                    headers=response_headers,
+                )
 
         with job_registry_lock:
             completed_job = (

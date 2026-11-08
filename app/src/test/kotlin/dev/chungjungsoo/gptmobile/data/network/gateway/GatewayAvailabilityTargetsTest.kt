@@ -54,4 +54,23 @@ class GatewayAvailabilityTargetsTest {
         assertEquals(first.profileUid, model.profileUid)
         assertEquals(first.profileUid, token.profileUid)
     }
+
+    @Test fun changingTheExplicitBindingOrConfigurationRevisionCannotReuseReadiness() {
+        val first = gatewayAvailabilityTargets(listOf(inference, engineering), features, engineering = true).single()
+        val replacement = engineering.copy(uid = "replacement")
+        val changed = AppFeatureSettings(githubProfileOverrides = mapOf(inference.uid to GitHubChatProfileOverride(engineeringGatewayProfileUid = replacement.uid)))
+        val next = gatewayAvailabilityTargets(listOf(inference, replacement), changed, engineering = true).single()
+        assertNotEquals(first.identity, next.identity)
+        val revision = first.copy(config = first.config?.copy(profileRevision = "new-revision"))
+        assertNotEquals(first.identity, revision.identity)
+        assertEquals(first.profileUid, next.profileUid)
+    }
+
+    @Test fun aMalformedSelectedModelKeepsTheSavedProfileVisibleWithRepairGuidance() {
+        for (model in listOf("", " selected ", "bad\nmodel", "x".repeat(513))) {
+            val target = gatewayAvailabilityTargets(listOf(inference.copy(model = model)), features, engineering = false).single()
+            assertEquals(inference.uid, target.profileUid)
+            assertTrue(!target.problem.isNullOrBlank())
+        }
+    }
 }

@@ -31,11 +31,12 @@ class BackendReadiness:
 
     def inspect(self, runtime, model=''):
         # Include the read function identity so injected transports/tests cannot reuse old evidence.
-        key = (runtime.LLAMA_BASE, model, id(runtime.http_get))
+        transport = runtime.http_get
+        key = (runtime.LLAMA_BASE, model, id(transport))
         with self.lock:
             entry = self.entries.get(key)
             if entry and entry[0] > self.now():
-                return dict(entry[1])
+                return self._observation(entry)
             gate, subscribers = self.refreshes.get(key, (threading.Lock(), 0))
             self.refreshes[key] = gate, subscribers + 1
         try:
@@ -43,14 +44,20 @@ class BackendReadiness:
                 with self.lock:
                     entry = self.entries.get(key)
                     if entry and entry[0] > self.now():
-                        return dict(entry[1])
+                        return self._observation(entry)
+                observed = self.now()
+                observed_at = int(time.time() * 1000)
                 result = self._probe(runtime, model)
+                result['observedAtMs'] = observed_at
                 with self.lock:
-                    self.entries[key] = self.now() + 3, result
+                    # Keep the transport alive for this bounded entry. Otherwise
+                    # Python can reuse its id and lend a new transport old evidence.
+                    entry = self.now() + 3, result, observed, transport
+                    self.entries[key] = entry
                     self.entries.move_to_end(key)
                     while len(self.entries) > 64:
                         self.entries.popitem(last=False)
-                return dict(result)
+                return self._observation(entry)
         finally:
             with self.lock:
                 current, count = self.refreshes[key]
@@ -58,6 +65,11 @@ class BackendReadiness:
                     self.refreshes.pop(key)
                 else:
                     self.refreshes[key] = current, count - 1
+
+    def _observation(self, entry):
+        result = dict(entry[1])
+        result['observationAgeMs'] = max(0, int((self.now() - entry[2]) * 1000))
+        return result
 
     def _probe(self, runtime, model):
         result = {'networkReachable': False, 'modelAvailable': None, 'generationReady': None,
@@ -141,6 +153,7 @@ def readiness(runtime, state, model=''):
     backend.update(canQueue=can_queue, canAccept=bool(ready and (
         service.get('activeWorkers', 0) < service.get('maxWorkers', 0) or can_queue)))
     return {'schemaVersion': 1, 'ready': ready, 'version': runtime.GATEWAY_VERSION,
+            'serverTimeMs': int(time.time() * 1000),
             'instanceId': state.instance_id, 'checks': {'journal': journal, 'backend': backend['backend']},
             'capabilities': backend, 'service': service, 'durableJobs': runtime.GATEWAY_DURABLE_JOBS,
             'components': observations(runtime, service, backend, journal)}

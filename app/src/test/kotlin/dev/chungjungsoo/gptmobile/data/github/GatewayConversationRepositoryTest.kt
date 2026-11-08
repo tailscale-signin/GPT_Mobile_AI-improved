@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.github
 
 import dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2
+import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.ClientType
@@ -69,6 +70,7 @@ class GatewayConversationRepositoryTest {
             coEvery { store.bindings(any()) } answers { listOfNotNull(binding) }
             coEvery { dao.command(any()) } answers { command?.takeIf { it.id == firstArg<String>() } }
             coEvery { dao.conversations(any()) } returns emptyList()
+            coEvery { dao.chatModel(any(), any()) } returns null
             coEvery { store.prepare(any(), any(), any()) } coAnswers {
                 binding = firstArg()
                 val saved = requireNotNull(binding)
@@ -94,6 +96,16 @@ class GatewayConversationRepositoryTest {
 
         suspend fun submit(selected: PlatformV2 = profile) = repository.submitNormalTurn(7, context, selected, "request", "Read the repository", "read", 11, 12, localRunId = "run")
         fun receipt() = GatewayCommandReceipt("request", "accepted", "installation", "principal", "conversation", job.id, 2, 1000, 2000, job)
+
+        fun retainConversation(owner: String = "CONTINUITY", repositoryName: String? = "owner/repo"): GatewayConversationRecord {
+            val scope = GatewayScopeRecord("scope", gateway.uid, selectedEndpoint(gateway.apiUrl), "installation", "principal", "account", "OFFLINE", 1000)
+            val saved = GatewayConversationRecord("local", scope.id, "conversation", 7, profile.uid, profile.name, profile.model, repositoryName, "feature", "Original", 3, admission.binding.toString(), Json.encodeToString(context), true, null, 2000, "a".repeat(40), projectionOwner = owner)
+            coEvery { dao.conversations(7) } returns listOf(saved)
+            coEvery { dao.scope(scope.id) } returns scope
+            coEvery { dao.chat(7) } returns ChatRoomV2(id = 7, title = "Original", enabledPlatform = listOf(profile.uid))
+            features = features.copy(conversationGitHub = mapOf(7 to context))
+            return saved
+        }
     }
 
     @Test fun lostAdmissionResponseIsReconciledWithoutSecondCreate() = runTest {
@@ -223,6 +235,8 @@ class GatewayConversationRepositoryTest {
     @Test fun explicitChatModelOverlayIsAdmittedWhileRawProfileRemainsUnchanged() = runTest {
         val f = Fixture()
         val overlay = f.profile.copy(model = "chat-selected-model", reasoning = !f.profile.reasoning)
+        coEvery { f.dao.chatModel(7, f.profile.uid) } returns overlay.model
+        f.features = f.features.copy(conversationReasoning = mapOf(7 to overlay.reasoning))
         val selected = executionSelection(overlay, null, f.selection.privacyScope)
         val admitted = GatewayExecutionAdmission(
             buildJsonObject {
@@ -294,6 +308,137 @@ class GatewayConversationRepositoryTest {
         }
         assertTrue(runCatching { f.submit() }.isFailure)
         coVerify(exactly = 0) { f.store.prepare(any(), any(), any()) }
+        coVerify(exactly = 0) { f.engineering.create(any(), any()) }
+    }
+
+    @Test fun unboundChatHasNoGatewayWriteBlocker() = runTest {
+        val f = Fixture()
+        assertEquals(null, f.repository.conversationWriteBlocker(7))
+        assertFalse(f.repository.ownsConversation(7))
+        coVerify(exactly = 0) { f.client.identity(any()) }
+    }
+
+    @Test fun retainedForeignEngineeringConversationValidatesOriginalSelectionOffline() = runTest {
+        val f = Fixture()
+        f.retainConversation()
+        assertTrue(f.repository.ownsConversation(7))
+        assertEquals(null, f.repository.conversationWriteBlocker(7))
+        coEvery { f.settings.fetchPlatformV2s() } returns listOf(f.profile.copy(compatibleType = ClientType.OPENAI, apiUrl = "https://other.example/v1"), f.gateway)
+        assertTrue(f.repository.conversationWriteBlocker(7).orEmpty().contains("provider changed"))
+        coEvery { f.settings.fetchPlatformV2s() } returns listOf(f.gateway)
+        assertTrue(f.repository.conversationWriteBlocker(7).orEmpty().contains("profile is unavailable"))
+        coVerify(exactly = 0) { f.client.identity(any()) }
+        coVerify(exactly = 0) { f.engineering.create(any(), any()) }
+    }
+
+    @Test fun retainedConversationRejectsToolGatewayWorkspaceAndParameterEdits() = runTest {
+        val f = Fixture()
+        f.retainConversation()
+        coEvery { f.settings.fetchPlatformV2s() } returns listOf(f.profile.copy(disableRemoteTools = true), f.gateway)
+        assertTrue(f.repository.conversationWriteBlocker(7).orEmpty().contains("tool consent"))
+        coEvery { f.settings.fetchPlatformV2s() } returns listOf(f.profile, f.gateway.copy(apiUrl = "http://127.0.0.1:9000/v1"))
+        assertTrue(f.repository.conversationWriteBlocker(7).orEmpty().contains("endpoint changed"))
+        coEvery { f.settings.fetchPlatformV2s() } returns listOf(f.profile.copy(temperature = 0.25f), f.gateway)
+        assertTrue(f.repository.conversationWriteBlocker(7).orEmpty().contains("settings"))
+        coEvery { f.settings.fetchPlatformV2s() } returns listOf(f.profile, f.gateway)
+        f.features = f.features.copy(conversationGitHub = mapOf(7 to f.context.copy(connectionUid = "another-account")))
+        assertTrue(f.repository.conversationWriteBlocker(7).orEmpty().contains("GitHub connection changed"))
+        coVerify(exactly = 0) { f.client.identity(any()) }
+    }
+
+    @Test fun savedModelOverlayAndRefreshedHeadDoNotReplaceOriginalSelection() = runTest {
+        val f = Fixture()
+        f.retainConversation()
+        coEvery { f.settings.fetchPlatformV2s() } returns listOf(f.profile.copy(model = "new-default", reasoning = true), f.gateway)
+        coEvery { f.dao.chatModel(7, f.profile.uid) } returns f.profile.model
+        f.features = f.features.copy(conversationReasoning = mapOf(7 to false), conversationGitHub = mapOf(7 to f.context.copy(commitSha = "d".repeat(40))))
+        assertEquals(null, f.repository.conversationWriteBlocker(7))
+        coEvery { f.dao.chatModel(7, f.profile.uid) } returns "another-model"
+        assertTrue(f.repository.conversationWriteBlocker(7).orEmpty().contains("model or provider changed"))
+    }
+
+    @Test fun foreignOrdinaryTranscriptCannotFallThroughToFreshLocalGeneration() = runTest {
+        val f = Fixture()
+        f.retainConversation(repositoryName = null)
+        assertTrue(f.repository.ownsConversation(7))
+        assertTrue(f.repository.conversationWriteBlocker(7).orEmpty().contains("saved gateway transcript"))
+        coVerify(exactly = 0) { f.client.identity(any()) }
+    }
+
+    @Test fun savedRetryRechecksOriginalProfileBeforeAnySecondPost() = runTest {
+        val f = Fixture()
+        coEvery { f.engineering.create(any(), any()) } throws IOException("lost response")
+        f.submit()
+        val payload = f.command?.payload
+        coEvery { f.settings.fetchPlatformV2s() } returns listOf(f.profile.copy(model = "changed"), f.gateway)
+        f.repository.retrySavedSubmission("request")
+        assertEquals(payload, f.command?.payload)
+        assertEquals("UNKNOWN", f.command?.state)
+        coVerify(exactly = 1) { f.engineering.create(any(), any()) }
+        coVerify(exactly = 0) { f.client.followUp(any(), any(), any(), any(), any(), any()) }
+    }
+
+    @Test fun profileEditWhileFinalCapabilityReadIsInFlightPreventsAdmissionPost() = runTest {
+        val f = Fixture()
+        coEvery { f.engineering.bindingCapabilities(any(), any(), any()) } coAnswers {
+            coEvery { f.settings.fetchPlatformV2s() } returns listOf(f.profile.copy(model = "changed-during-read"), f.gateway)
+            f.admission
+        }
+        assertEquals(null, f.submit().job)
+        assertEquals("UNKNOWN", f.command?.state)
+        assertTrue(f.repository.ownsRequest("request"))
+        coVerify(exactly = 0) { f.engineering.create(any(), any()) }
+        coVerify(exactly = 0) { f.client.followUp(any(), any(), any(), any(), any(), any()) }
+    }
+
+    @Test fun normalSubmissionPinsBothMutationsToItsVerifiedIdentity() = runTest {
+        val f = Fixture()
+        coEvery { f.engineering.create(any(), any()) } returns f.job
+        f.submit()
+        coVerify(exactly = 1) { f.engineering.prepareBinding(match { it.extraHeaders["X-Gateway-Installation-ID"] == "installation" && it.extraHeaders["X-Gateway-Principal-ID"] == "principal" }, any()) }
+        coVerify(exactly = 1) { f.engineering.create(match { it.extraHeaders["X-Gateway-Installation-ID"] == "installation" && it.extraHeaders["X-Gateway-Principal-ID"] == "principal" }, any()) }
+    }
+
+    @Test fun changedGatewayCredentialAfterCapabilityReadRetainsCommandWithoutDispatch() = runTest {
+        val f = Fixture()
+        coEvery { f.engineering.bindingCapabilities(any(), any(), any()) } coAnswers {
+            coEvery { f.settings.fetchPlatformV2s() } returns listOf(f.profile, f.gateway.copy(token = "replacement-account-token"))
+            f.admission
+        }
+        assertEquals(null, f.submit().job)
+        assertEquals("UNKNOWN", f.command?.state)
+        assertEquals("request", f.command?.id)
+        assertEquals("Read the repository", f.binding?.request?.objective)
+        assertTrue(f.command?.error.orEmpty().contains("gateway configuration changed before submission"))
+        coVerify(exactly = 0) { f.engineering.create(any(), any()) }
+        coVerify(exactly = 0) { f.client.followUp(any(), any(), any(), any(), any(), any()) }
+    }
+
+    @Test fun foreignMirrorReconnectsWithoutAnOutboxAndRevisitsRetainedPublication() = runTest {
+        val f = Fixture()
+        val saved = f.retainConversation()
+        val scope = requireNotNull(f.dao.scope(saved.scopeId))
+        coEvery { f.store.verifiedScope(any(), any(), any()) } returns scope
+        coEvery { f.client.conversation(any(), saved.conversationId) } returns GatewayConversationSnapshot("installation", "principal", saved.conversationId, 3, "Original", profileId = f.profile.uid, model = f.profile.model, serverTimeMs = 2000)
+        coEvery { f.store.acceptRetainedSnapshot(any(), any(), saved) } returns true
+        coEvery { f.dao.cursor(saved.id) } returns null
+        coEvery { f.client.messages(any(), saved.conversationId, null) } returns GatewayMessagePage("installation", "principal", saved.conversationId, 3, emptyList(), serverTimeMs = 2000)
+        f.repository.reconnectConversation(7)
+        coVerify(exactly = 1) { f.client.messages(any(), saved.conversationId, null) }
+        coVerify(exactly = 2) { f.store.projectRetainedMessages(saved.id) }
+        coVerify(exactly = 0) { f.engineering.create(any(), any()) }
+        coVerify(exactly = 0) { f.client.followUp(any(), any(), any(), any(), any(), any()) }
+    }
+
+    @Test fun deletedMirrorRejectedAtSnapshotBoundaryCannotFetchMoreTranscript() = runTest {
+        val f = Fixture()
+        val saved = f.retainConversation()
+        val scope = requireNotNull(f.dao.scope(saved.scopeId))
+        coEvery { f.store.verifiedScope(any(), any(), any()) } returns scope
+        coEvery { f.client.conversation(any(), saved.conversationId) } returns GatewayConversationSnapshot("installation", "principal", saved.conversationId, 3, "Original", profileId = f.profile.uid, model = f.profile.model, serverTimeMs = 2000)
+        coEvery { f.store.acceptRetainedSnapshot(any(), any(), saved) } returns false
+        f.repository.reconnectConversation(7)
+        coVerify(exactly = 0) { f.client.messages(any(), any(), any()) }
         coVerify(exactly = 0) { f.engineering.create(any(), any()) }
     }
 }

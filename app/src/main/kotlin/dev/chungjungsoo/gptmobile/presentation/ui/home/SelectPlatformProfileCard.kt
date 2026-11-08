@@ -2,7 +2,9 @@ package dev.chungjungsoo.gptmobile.presentation.ui.home
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -21,11 +23,16 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.platform.testTag
@@ -58,7 +65,8 @@ internal fun SelectPlatformProfileCard(
     onFavorite: () -> Unit,
     onInsights: () -> Unit,
     gatewayAvailability: GatewayAvailability? = null,
-    animateGatewayName: Boolean = false
+    animateGatewayName: Boolean = false,
+    onProfileFocusChanged: (Boolean) -> Unit = {}
 ) {
     val health by dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.status.collectAsState()
     val now by dev.chungjungsoo.gptmobile.presentation.common.freeProviderClock()
@@ -66,11 +74,15 @@ internal fun SelectPlatformProfileCard(
     val favoriteLabel = stringResource(if (profile.isFavorite) R.string.picker_remove_favorite else R.string.picker_add_favorite)
     val lines = if (LocalDensity.current.fontScale >= 1.3f) 3 else 1
     val online = gatewayAvailability?.status in setOf(GatewayAvailabilityStatus.ONLINE, GatewayAvailabilityStatus.BUSY_QUEUE)
-    val nameOpacity by rememberGatewayNameOpacity(online && animateGatewayName)
     val cardColor = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow
-    val nameColor = if (online) gatewayProfileNameColor(MaterialTheme.colorScheme.primary, cardColor, MaterialTheme.colorScheme.onSurface) else MaterialTheme.colorScheme.onSurface
+    val nameColor = if (online) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+    val treatment = remember(online, nameColor, cardColor) {
+        if (online) gatewayNameTreatment(nameColor.toArgb(), cardColor.toArgb()) else GatewayNameTreatment(cardColor.toArgb(), 1f)
+    }
+    val nameOpacity by rememberGatewayNameOpacity(online && animateGatewayName, treatment.minimumOpacity)
+    DisposableEffect(profile.uid) { onDispose { onProfileFocusChanged(false) } }
     Surface(
-        Modifier.fillMaxWidth().testTag("profile_card_${profile.uid}"),
+        Modifier.fillMaxWidth().testTag("profile_card_${profile.uid}").onFocusChanged { onProfileFocusChanged(it.hasFocus) }.focusGroup(),
         shape = RoundedCornerShape(16.dp),
         color = cardColor,
         border = BorderStroke(1.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant)
@@ -96,7 +108,14 @@ internal fun SelectPlatformProfileCard(
                     Checkbox(checked = selected, onCheckedChange = null, enabled = selected || unavailable == null)
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(profile.name, Modifier.weight(1f).alpha(nameOpacity), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = nameColor)
+                            Text(
+                                profile.name,
+                                Modifier.weight(1f).background(Color(treatment.backgroundArgb), MaterialTheme.shapes.extraSmall).alpha(nameOpacity)
+                                    .testTag("gateway_name_${profile.uid}").semantics { gatewayNameOpacity = nameOpacity },
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = nameColor
+                            )
                             if (profile.isFavorite) Icon(Icons.Rounded.Star, stringResource(R.string.picker_favorite), Modifier.size(16.dp), tint = MaterialTheme.colorScheme.tertiary)
                         }
                         unavailable?.let { blocked ->

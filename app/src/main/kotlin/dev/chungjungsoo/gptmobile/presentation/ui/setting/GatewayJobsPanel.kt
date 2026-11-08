@@ -44,10 +44,10 @@ fun GatewayJobsPanel(profileUid: String?, connectionUid: String, onOpenConversat
     var transcript by remember { mutableStateOf<String?>(null) }
     transcript?.let { GatewayTranscriptDialog(it, onDismiss = { transcript = null }) }
     LaunchedEffect(owner, profileUid) {
-        owner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) { model.visible(profileUid) }
+        owner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) { model.visible(profileUid) }
     }
     LaunchedEffect(owner) {
-        owner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+        owner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             while (true) {
                 monotonic = SystemClock.elapsedRealtime()
                 wallTime = System.currentTimeMillis()

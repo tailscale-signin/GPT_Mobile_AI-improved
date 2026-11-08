@@ -25,6 +25,12 @@ class AgentRunForegroundServiceTest {
         assertFalse(shouldNotifyAgentRunsCompleted(wasActive = true, isActive = true, isAppBackground = true))
     }
 
+    @Test fun `platform interruption and explicit Stop never announce completed work`() {
+        assertFalse(shouldNotifyAgentRunsCompleted(true, false, true, "PLATFORM_TIMEOUT"))
+        assertFalse(shouldNotifyAgentRunsCompleted(true, false, true, "USER_CANCEL_ALL"))
+        assertTrue(shouldNotifyAgentRunsCompleted(true, false, true, "ACTIVE_RUNS_SETTLED"))
+    }
+
     @Test
     fun `destroy interrupts only while service still owns active runs`() {
         assertTrue(shouldInterruptAgentRunsOnDestroy(stoppedBecauseInactive = false, hasActiveRuns = true))
@@ -73,6 +79,7 @@ class AgentRunForegroundServiceTest {
         val text = resolveNotificationContentText(mockContext, runs)
         assertEquals("2 agent runs active", text)
     }
+
     @Test
     fun `resolveNotificationContentText prefers gateway progress message`() {
         val mockContext = mock(Context::class.java)
@@ -116,5 +123,4 @@ class AgentRunForegroundServiceTest {
             )
         )
     }
-
 }

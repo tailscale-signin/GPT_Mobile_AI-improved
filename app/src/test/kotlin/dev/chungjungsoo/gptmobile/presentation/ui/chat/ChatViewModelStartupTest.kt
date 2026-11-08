@@ -166,6 +166,85 @@ class ChatViewModelStartupTest {
         verifyGatewayHandoff(backgroundScope, pendingSubmission = true)
     }
 
+    @Test fun retryCannotReplaceAnUnacknowledgedGatewayCommandWithANewRun() = runTest(dispatcher) {
+        StartupRecoveryGate.start(backgroundScope) {}
+        val gateway = mockk<GatewayEngineeringRepository>(relaxed = true)
+        every { gateway.observeConversation(any()) } returns flowOf(GatewayConversationObservation())
+        coEvery { gateway.conversationWriteBlocker(any()) } returns null
+        coEvery { gateway.ownsConversation(any()) } returns false
+        val user = MessageV2(id = 1, chatId = 7, content = "Original saved request", platformType = null)
+        val answer = MessageV2(id = 2, chatId = 7, content = "", platformType = profiles.first().uid, currentRunId = "saved-run")
+        messages.value = listOf(user, answer)
+        runs.value = listOf(AgentRun("saved-run", 7, 1, 2, profiles.first().uid, profiles.first().compatibleType.name, profiles.first().model, AgentRunStatus.WAITING_REMOTE_JOB))
+        val checked = CompletableDeferred<Unit>()
+        coEvery { gateway.ownsRequest("saved-run") } coAnswers {
+            checked.complete(Unit)
+            true
+        }
+        coEvery { coordinator.withChatGate<Unit>(7, any()) } coAnswers { secondArg<suspend () -> Unit>().invoke() }
+        val model = createViewModel(combined = false, gateway = gateway)
+        model.retryChat(0, 0)
+        withTimeout(10_000) {
+            checked.await()
+            model.attachmentNotice.first { it.orEmpty().contains("Use Jobs to confirm") }
+        }
+        coVerify(exactly = 1) { gateway.ownsRequest("saved-run") }
+        coVerify(exactly = 0) { repository.persistAgentRetry(any()) }
+        verify(exactly = 0) { coordinator.start(any()) }
+        assertTrue(model.attachmentNotice.value.orEmpty().contains("Use Jobs to confirm"))
+    }
+
+    @Test fun aChangedGatewayBindingCannotFallBackToLocalSendAndKeepsTheDraft() = runTest(dispatcher) {
+        StartupRecoveryGate.start(backgroundScope) {}
+        val gateway = mockk<GatewayEngineeringRepository>(relaxed = true)
+        every { gateway.observeConversation(any()) } returns flowOf(GatewayConversationObservation())
+        val reason = "Restore the original gateway profile before sending."
+        coEvery { gateway.conversationWriteBlocker(7) } returns reason
+        val model = createViewModel(combined = false, gateway = gateway)
+        model.question.edit { replace(0, length, "Continue the original task") }
+        model.askQuestion()
+        withTimeout(10_000) { model.attachmentNotice.first { it == reason } }
+        assertEquals("Continue the original task", model.question.text.toString())
+        assertEquals(reason, model.gatewayWriteBlocker.value)
+        coVerify(exactly = 0) { repository.persistAgentTurn(any()) }
+        coVerify(exactly = 0) { gateway.submitNormalTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+        verify(exactly = 0) { coordinator.start(any()) }
+    }
+
+    @Test fun aForeignGatewayConversationCannotRegenerateThroughLocalRetry() = runTest(dispatcher) {
+        StartupRecoveryGate.start(backgroundScope) {}
+        val gateway = mockk<GatewayEngineeringRepository>(relaxed = true)
+        every { gateway.observeConversation(any()) } returns flowOf(GatewayConversationObservation())
+        coEvery { gateway.conversationWriteBlocker(7) } returns null
+        coEvery { gateway.ownsConversation(7) } returns true
+        messages.value = listOf(
+            MessageV2(id = 1, chatId = 7, content = "Saved remote request", platformType = null),
+            MessageV2(id = 2, chatId = 7, content = "Saved answer", platformType = profiles.first().uid)
+        )
+        coEvery { coordinator.withChatGate<Unit>(7, any()) } coAnswers { secondArg<suspend () -> Unit>().invoke() }
+        val model = createViewModel(combined = false, gateway = gateway)
+        model.retryChat(0, 0)
+        withTimeout(10_000) { model.attachmentNotice.first { it.orEmpty().contains("Use Jobs to confirm") } }
+        coVerify(exactly = 0) { repository.persistAgentRetry(any()) }
+        verify(exactly = 0) { coordinator.start(any()) }
+    }
+
+    @Test fun ordinarySavedConversationObservationDoesNotNeedAGitHubWorkspaceOrSubmitWork() = runTest(dispatcher) {
+        StartupRecoveryGate.start(backgroundScope) {}
+        val gateway = mockk<GatewayEngineeringRepository>(relaxed = true)
+        every { gateway.observeConversation(any()) } returns flowOf(GatewayConversationObservation(conversationId = "ordinary-conversation"))
+        coEvery { gateway.conversationWriteBlocker(7) } returns "This retained ordinary transcript is read-only."
+        val model = createViewModel(combined = false, gateway = gateway)
+        val observing = backgroundScope.launch(dispatcher) { model.observeGatewayConversation(7) }
+        withTimeout(10_000) { model.gatewayWriteBlocker.first { it != null } }
+        observing.cancel()
+        observing.join()
+        coVerify(exactly = 1) { gateway.reconnectConversation(7) }
+        coVerify(exactly = 0) { gateway.stopConversation(any()) }
+        coVerify(exactly = 0) { gateway.submitNormalTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+        verify(exactly = 0) { coordinator.start(any()) }
+    }
+
     private suspend fun verifyGatewayHandoff(scope: CoroutineScope, lostResponse: Boolean = false, busy: Boolean = false, disabledTools: Boolean = false, pendingSubmission: Boolean = false) {
         StartupRecoveryGate.start(scope) {}
         profiles = listOf(profiles.first().copy(compatibleType = dev.chungjungsoo.gptmobile.data.model.ClientType.LLAMA, apiUrl = "http://127.0.0.1:8090"))
@@ -173,6 +252,7 @@ class ChatViewModelStartupTest {
         val workspace = GitHubConversationContext("github", "owner", "repository", "feature/original", "a".repeat(40), profile.uid)
         val gateway = mockk<GatewayEngineeringRepository>(relaxed = true)
         every { gateway.observeConversation(any()) } returns flowOf(if (pendingSubmission) GatewayConversationObservation(requestId = "older-command", submissionState = "UNKNOWN") else GatewayConversationObservation())
+        coEvery { gateway.conversationWriteBlocker(any()) } returns null
         coEvery { gateway.ownsRequest(any()) } returns true
         val persisted = CompletableDeferred<PersistAgentTurnResult>()
         coEvery { repository.persistAgentTurn(any()) } answers {

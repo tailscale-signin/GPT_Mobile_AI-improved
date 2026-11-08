@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.network.gateway
 
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import java.io.IOException
+import java.net.ConnectException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -9,6 +10,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceTimeBy
@@ -250,12 +252,12 @@ class GatewayAvailabilityRepositoryTest {
         assertEquals(GatewayAvailabilityStatus.ATTENTION, repository.refresh(target(model = "")).status)
         assertEquals(0, reads)
         val unavailable = repository.refresh(target())
-        assertEquals(GatewayAvailabilityStatus.OFFLINE, unavailable.status)
+        assertEquals(GatewayAvailabilityStatus.CHECKING, unavailable.status)
         assertFalse(unavailable.toString().contains("private-token"))
         assertFalse(unavailable.toString().contains("private-host"))
     }
 
-    @Test fun aProbeDeadlineCancelsTransportAndReportsOfflineWithoutRetryFanout() = runTest {
+    @Test fun aProbeDeadlineCancelsTransportWithoutInventingOfflineOrRetryFanout() = runTest {
         var cancelled = false
         var reads = 0
         val repository = GatewayAvailabilityRepository(
@@ -275,7 +277,7 @@ class GatewayAvailabilityRepositoryTest {
         advanceTimeBy(6_001)
         runCurrent()
         assertTrue(cancelled)
-        assertEquals(GatewayAvailabilityStatus.OFFLINE, attempt.await().status)
+        assertEquals(GatewayAvailabilityStatus.CHECKING, attempt.await().status)
         repository.refresh(target())
         assertEquals(1, reads)
     }
@@ -288,5 +290,157 @@ class GatewayAvailabilityRepositoryTest {
         runCurrent()
         assertTrue(attempt.await().exceptionOrNull() is CancellationException)
         assertEquals(GatewayAvailabilityStatus.CHECKING, repository.snapshot(target()).status)
+    }
+
+    @Test fun oneConsumerLeavingDoesNotCancelAnotherConsumersSharedRequest() = runTest {
+        val response = CompletableDeferred<GatewayReadinessObservation>()
+        var cancelled = 0
+        var reads = 0
+        val repository = GatewayAvailabilityRepository(
+            GatewayAvailabilityProbe { _, _ ->
+                reads++
+                try {
+                    response.await()
+                } catch (failure: CancellationException) {
+                    cancelled++
+                    throw failure
+                }
+            },
+            { testScheduler.currentTime },
+            networkEpoch = { 0 }
+        )
+        val first = async { repository.refresh(target()) }
+        val second = async { repository.refresh(target(profileUid = "another-profile")) }
+        runCurrent()
+        first.cancelAndJoin()
+        runCurrent()
+        assertEquals(1, reads)
+        assertEquals(0, cancelled)
+        response.complete(ready())
+        assertEquals(GatewayAvailabilityStatus.ONLINE, second.await().status)
+        assertEquals(1, reads)
+    }
+
+    @Test fun originalServerAndClientCacheAgeCannotBeRenewedByWallClockRollback() = runTest {
+        var wall = 50_000L
+        val observation = ready(wall).copy(observedAtMillis = 123_000, observationAgeMillis = 15_000, receivedAtMonotonicMillis = 0)
+        val repository = GatewayAvailabilityRepository(
+            GatewayAvailabilityProbe { _, _ -> observation },
+            { wall },
+            networkEpoch = { 0 },
+            elapsedMillis = { testScheduler.currentTime }
+        )
+        val initial = repository.refresh(target())
+        assertEquals(GatewayAvailabilityStatus.ONLINE, initial.status)
+        assertEquals(123_000L, initial.observedAtMillis)
+        advanceTimeBy(4_999)
+        wall -= 40_000
+        assertEquals(GatewayAvailabilityStatus.ONLINE, repository.snapshot(target()).status)
+        advanceTimeBy(1)
+        assertEquals(GatewayAvailabilityStatus.CHECKING, repository.snapshot(target()).status)
+        advanceTimeBy(5_000)
+        assertEquals(GatewayAvailabilityStatus.CHECKING, repository.refresh(target()).status)
+        assertEquals(123_000L, repository.snapshot(target()).observedAtMillis)
+    }
+
+    @Test fun nearExpiredBackendEvidenceExpiresAtItsExactDeadline() = runTest {
+        var state: GatewayAvailability? = null
+        val repository = GatewayAvailabilityRepository(
+            GatewayAvailabilityProbe { _, _ -> ready(testScheduler.currentTime).copy(observationAgeMillis = 19_985) },
+            { testScheduler.currentTime },
+            networkEpoch = { 0 }
+        )
+        val observer = backgroundScope.launch { repository.observe(listOf(target())).collect { state = it.getValue("profile") } }
+        runCurrent()
+        assertEquals(GatewayAvailabilityStatus.ONLINE, state?.status)
+        advanceTimeBy(14)
+        runCurrent()
+        assertEquals(GatewayAvailabilityStatus.ONLINE, state?.status)
+        advanceTimeBy(1)
+        runCurrent()
+        assertEquals(GatewayAvailabilityStatus.CHECKING, state?.status)
+        observer.cancelAndJoin()
+    }
+
+    @Test fun pollingCadenceIncludesTheTimeSpentWaitingForTheResponse() = runTest {
+        val starts = mutableListOf<Long>()
+        val repository = GatewayAvailabilityRepository(
+            GatewayAvailabilityProbe { _, _ ->
+                starts += testScheduler.currentTime
+                delay(2_500)
+                ready(testScheduler.currentTime)
+            },
+            { testScheduler.currentTime },
+            networkEpoch = { 0 }
+        )
+        val observer = backgroundScope.launch { repository.observe(listOf(target())).collect {} }
+        runCurrent()
+        advanceTimeBy(20_001)
+        runCurrent()
+        assertEquals(listOf(0L, 10_000L, 20_000L), starts)
+        observer.cancelAndJoin()
+    }
+
+    @Test fun aRouteChangedDuringAProbeCannotPublishTheOldOnlineResult() = runTest {
+        val response = CompletableDeferred<GatewayReadinessObservation>()
+        var epoch = 0L
+        val repository = GatewayAvailabilityRepository(GatewayAvailabilityProbe { _, _ -> response.await() }, { testScheduler.currentTime }, networkEpoch = { epoch })
+        val request = async { repository.refresh(target()) }
+        runCurrent()
+        epoch++
+        response.complete(ready())
+        assertEquals(GatewayAvailabilityStatus.CHECKING, request.await().status)
+        assertEquals(GatewayAvailabilityStatus.CHECKING, repository.snapshot(target()).status)
+    }
+
+    @Test fun aPreviousModelsCompletionCannotMakeTheChangedTargetOnline() = runTest {
+        val response = CompletableDeferred<GatewayReadinessObservation>()
+        val repository = GatewayAvailabilityRepository(GatewayAvailabilityProbe { _, _ -> response.await() }, { testScheduler.currentTime }, networkEpoch = { 0 })
+        val old = async { repository.refresh(target()) }
+        runCurrent()
+        val replacement = target(model = "replacement")
+        assertEquals(GatewayAvailabilityStatus.CHECKING, repository.snapshot(replacement).status)
+        response.complete(ready())
+        assertEquals(GatewayAvailabilityStatus.ONLINE, old.await().status)
+        assertEquals(GatewayAvailabilityStatus.CHECKING, repository.snapshot(replacement).status)
+    }
+
+    @Test fun onlyAConfirmedConnectionFailureReportsOffline() = runTest {
+        val repository = GatewayAvailabilityRepository(
+            GatewayAvailabilityProbe { _, _ -> throw IOException("private wrapper", ConnectException("private route")) },
+            { testScheduler.currentTime },
+            networkEpoch = { 0 }
+        )
+        val observed = repository.refresh(target())
+        assertEquals(GatewayAvailabilityStatus.OFFLINE, observed.status)
+        assertFalse(observed.toString().contains("private"))
+    }
+
+    @Test fun invalidExactModelIdentifiersNeverDispatchAndConfigurationIsNotInDiagnosticText() = runTest {
+        var reads = 0
+        val repository = GatewayAvailabilityRepository(
+            GatewayAvailabilityProbe { _, _ ->
+                reads++
+                ready()
+            },
+            { testScheduler.currentTime },
+            networkEpoch = { 0 }
+        )
+        for (model in listOf("", " selected ", "bad\nmodel", "x".repeat(513))) {
+            assertEquals(GatewayAvailabilityStatus.ATTENTION, repository.refresh(target(model)).status)
+        }
+        assertEquals(0, reads)
+        val privateTarget = target(token = "private-token")
+        assertFalse(privateTarget.toString().contains("private-token"))
+        assertFalse(privateTarget.toString().contains("192.168.1.2"))
+    }
+
+    @Test fun invalidConfigurationStillNeedsRepairWhileTheNetworkIsOffline() = runTest {
+        val repository = GatewayAvailabilityRepository(GatewayAvailabilityProbe { _, _ -> error("No request authorized") }, { testScheduler.currentTime }, MutableStateFlow(false), { 0 })
+        var state: GatewayAvailability? = null
+        val observer = backgroundScope.launch { repository.observe(listOf(target().copy(config = null, problem = "Choose a gateway."))).collect { state = it.getValue("profile") } }
+        runCurrent()
+        assertEquals(GatewayAvailabilityStatus.ATTENTION, state?.status)
+        observer.cancelAndJoin()
     }
 }

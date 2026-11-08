@@ -481,6 +481,9 @@ class ChatViewModel @Inject constructor(
                 dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings()
             )
 
+    private val _gatewayWriteBlocker = MutableStateFlow<String?>(null)
+    val gatewayWriteBlocker = _gatewayWriteBlocker.asStateFlow()
+
     @OptIn(ExperimentalCoroutinesApi::class)
     val gatewayConversation: StateFlow<GatewayConversationObservation> = _chatRoom
         .map { it.id }.distinctUntilChanged()
@@ -654,6 +657,11 @@ class ChatViewModel @Inject constructor(
     }
 
     private fun submitOrQueueQuestion(questionText: String, attachments: List<ChatAttachmentDraft>, attempt: dev.chungjungsoo.gptmobile.data.diagnostics.SendAttemptTrace = dev.chungjungsoo.gptmobile.data.diagnostics.SendAttemptTrace()) {
+        _gatewayWriteBlocker.value?.let {
+            _attachmentNotice.value = it
+            attempt.finish("GATEWAY_CONVERSATION_READ_ONLY")
+            return
+        }
         if (_combinedSettingsSaveState.value.isCommitting) {
             _attachmentNotice.value = "Saving the Combined setup. Your message draft is kept."
             attempt.finish("VALIDATION_REJECTED")
@@ -1022,8 +1030,21 @@ class ChatViewModel @Inject constructor(
             } catch (_: Exception) {
                 // The repository retains the identity and marks its cached observation stale.
             }
+            try {
+                refreshGatewayWriteBlocker(chatId)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                if (_chatRoom.value.id == chatId) _gatewayWriteBlocker.value = "The original gateway binding could not be verified. Reconnect before sending; the saved conversation remains readable."
+            }
             delay(5_000)
         }
+    }
+
+    private suspend fun refreshGatewayWriteBlocker(chatId: Int): String? {
+        val blocker = if (chatId > 0) gatewayEngineering?.conversationWriteBlocker(chatId) else null
+        if (_chatRoom.value.id == chatId) _gatewayWriteBlocker.value = blocker
+        return blocker
     }
 
     fun reconnectGatewayConversation() {
@@ -1031,6 +1052,7 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 gatewayEngineering?.reconnectConversation(chatId)
+                refreshGatewayWriteBlocker(chatId)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
@@ -2032,6 +2054,10 @@ class ChatViewModel @Inject constructor(
             agentRunCoordinator.withChatGate(userMessage.chatId) {
                 persistBeforeProvider(
                     persist = {
+                        refreshGatewayWriteBlocker(userMessage.chatId)?.let { error(it) }
+                        check(gatewayEngineering?.ownsConversation(userMessage.chatId) != true && (previousRun == null || gatewayEngineering?.ownsRequest(previousRun.runId) != true)) {
+                            "Use Jobs to confirm the original gateway request, or send a follow-up in its saved conversation. Retry cannot replace that accepted command."
+                        }
                         researchSessionStore?.execution(recovery.rootWorkId, !_chatRoom.value.isTemporary)?.takeIf { it.accepted.targetSources > 0 && it.attempt.state.terminal }?.let {
                             researchSessionStore.resumeExecution(recovery.rootWorkId, "profile-retry:${it.attempt.attemptId}", !_chatRoom.value.isTemporary)
                         }
@@ -2647,6 +2673,7 @@ class ChatViewModel @Inject constructor(
                 }
             }
             try {
+                refreshGatewayWriteBlocker(_chatRoom.value.id)?.let { error(it) }
                 val disabled = _disabledPlatformUids.value
                 val activeUids = acceptedTools.combined?.requested?.participantUids?.toSet()
                     ?: _activePlatformUids.value.filterNot { it in disabled }.toSet()
@@ -2720,6 +2747,7 @@ class ChatViewModel @Inject constructor(
                 )
                 persistBeforeProvider(
                     persist = {
+                        refreshGatewayWriteBlocker(chatRoom.id)?.let { error(it) }
                         if (persistSnapshotFirst && _chatRoom.value.id > 0) {
                             chatRepository.saveChat(
                                 chatRoom = _chatRoom.value,
@@ -2859,6 +2887,10 @@ class ChatViewModel @Inject constructor(
                     },
                     onFailure = { error ->
                         attempt.finish("PERSISTENCE_FAILED")
+                        _gatewayWriteBlocker.value?.let { reason ->
+                            if (question.text.isEmpty()) question.edit { append(userMessage.content) }
+                            _attachmentNotice.value = reason
+                        }
                         showPersistenceFailure(turnIndex, platforms.map { it.index }, error)
                     }
                 )

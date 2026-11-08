@@ -43,6 +43,91 @@ class GatewayConversationRepository @Inject constructor(
     fun observeConversation(chatId: Int) = store.observeConversation(chatId)
     suspend fun ownsRequest(requestId: String): Boolean = withContext(NonCancellable + Dispatchers.IO) { store.dao.command(requestId) != null }
 
+    internal suspend fun verifiedIdentity(config: ProviderRequestConfig): GatewayIdentity = client.identity(config)
+
+    internal suspend fun mutationConfig(binding: GatewayEngineeringBinding): ProviderRequestConfig {
+        val config = config(binding)
+        val identity = client.identity(config)
+        verifyBindingIdentity(binding, identity)
+        check(config(binding) == config) { "The original gateway configuration changed before submission." }
+        return config.withGatewayIdentity(identity)
+    }
+
+    suspend fun ownsConversation(chatId: Int): Boolean {
+        store.importLegacy()
+        return store.dao.conversations(chatId).isNotEmpty() || store.bindings(chatId).isNotEmpty()
+    }
+
+    /** A changed local selection must not turn retained gateway work into a new local run. */
+    suspend fun conversationWriteBlocker(chatId: Int): String? {
+        store.importLegacy()
+        val conversations = store.dao.conversations(chatId)
+        val bindings = store.bindings(chatId)
+        if (conversations.isEmpty() && bindings.isEmpty()) return null
+        val chat = store.dao.chat(chatId) ?: return "The original conversation is unavailable. Its gateway work remains retained."
+        if (chat.isTemporary) return "Saved gateway work cannot continue in a temporary conversation."
+        val profiles = settings.fetchPlatformV2s()
+        val features = settings.getFeatureSettings()
+        for (conversation in conversations) {
+            val scope = store.dao.scope(conversation.scopeId) ?: return "The original gateway identity is unavailable. Saved history remains read-only."
+            if (scope.connectionState == "IDENTITY_CHANGED" || listOf(scope.gatewayId, scope.principalId, scope.identityScope).any { it.isBlank() || it == "legacy-unverified" }) return "The original gateway or account identity is unverified. Restore its original connection before continuing."
+            val gateway = engineeringGatewayProfile(profiles, scope.connectionUid) ?: return "The original gateway connection is unavailable. Saved history remains read-only."
+            if (runCatching { selectedEndpoint(gateway.apiUrl) }.getOrNull() != scope.endpoint) return "The original gateway endpoint changed. Restore it or start a new conversation."
+            val profile = profiles.singleOrNull { it.uid == conversation.profileUid && it.enabled }
+                ?: return "The original model profile is unavailable. Saved history remains read-only."
+            if (chat.activePlatform != listOf(profile.uid)) return "This gateway conversation requires its original model profile as the only active participant."
+            val selected = profile.copy(model = store.dao.chatModel(chatId, profile.uid) ?: profile.model, reasoning = features.conversationReasoning[chatId] ?: profile.reasoning)
+            if (selected.model != conversation.model || !GitHubAutonomousEngineeringPolicy.supportsSavedJobs(selected)) return "The original model or provider changed. Restore its saved selection or start a new conversation."
+            if (conversation.repository.isNullOrBlank()) {
+                // Ordinary jobs remain owned by the original Android coordinator.
+                // A foreign transcript has no server follow-up contract or local owner.
+                if (conversation.projectionOwner != "ANDROID_RUN") return "This saved gateway transcript supports reading and Stop. Start a new chat for a new request."
+                if (runCatching { selectedEndpoint(selected.apiUrl) }.getOrNull() != scope.endpoint) return "The original model endpoint changed. Restore it before continuing this conversation."
+                continue
+            }
+            val previous = bindings.lastOrNull { it.conversationId == conversation.conversationId || conversation.conversationId == "legacy_${GatewayWorkStore.digest(it.request.requestId).take(32)}" }
+            val originalContext = conversation.originalContext?.let { runCatching { json.decodeFromString<GitHubConversationContext>(it) }.getOrNull() } ?: previous?.originalContext
+                ?: return "The original repository context is unavailable. Saved history remains read-only."
+            val currentContext = features.conversationGitHub[chatId]
+            if (currentContext == null || !sameWorkspace(originalContext, currentContext)) return "The original repository, branch, or GitHub connection changed. Restore the original workspace before continuing."
+            if (!GatewayOwnedTurnPolicy.configured(selected, currentContext, features) || features.githubProfileOverrides[selected.uid]?.engineeringGatewayProfileUid != scope.connectionUid) return "The original gateway selection or remote tool consent changed. Restore it before continuing."
+            val blocker = selectionBlocker(selected, previous?.executionSelection, conversation.executionBinding)
+            if (blocker != null) return blocker
+        }
+        // A durable outbox can predate its canonical conversation identity.
+        if (conversations.isEmpty()) {
+            for (binding in bindings) {
+                val profile = profiles.singleOrNull { it.uid == binding.request.profileId && it.enabled }
+                    ?: return "The original model profile is unavailable. The saved submission remains retained."
+                val current = profile.copy(model = store.dao.chatModel(chatId, profile.uid) ?: profile.model, reasoning = features.conversationReasoning[chatId] ?: profile.reasoning)
+                val gateway = engineeringGatewayProfile(profiles, features.githubProfileOverrides[profile.uid]?.engineeringGatewayProfileUid)
+                if (gateway?.uid != binding.profileUid || runCatching { selectedEndpoint(requireNotNull(gateway).apiUrl) }.getOrNull() != binding.endpoint) return "The original gateway selection changed. Restore it before retrying the saved submission."
+                if (!GatewayOwnedTurnPolicy.configured(current, binding.originalContext, features)) return "Remote GitHub tools are disabled for the original saved submission."
+                selectionBlocker(current, binding.executionSelection, null)?.let { return it }
+            }
+        }
+        return null
+    }
+
+    private suspend fun selectionBlocker(profile: PlatformV2, saved: GatewayExecutionSelection?, bindingJson: String?): String? {
+        return try {
+            val binding = bindingJson?.let { json.parseToJsonElement(it) as? JsonObject }
+            val privacy = saved?.privacyScope ?: (binding?.get("privacy_scope") as? JsonPrimitive)?.content
+                ?: return "The original execution identity is incomplete. Saved history remains read-only."
+            val current = executionSelection(profile, profile.providerConnectionUid?.let { settings.getProviderConnection(it) }, privacy)
+            if (saved != null) check(current == saved)
+            if (binding != null) GatewayExecutionAdmission(binding, JsonObject(emptyMap())).verifySelection(current)
+            null
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            "The original model profile or provider connection changed. Restore its saved settings or start a new conversation."
+        }
+    }
+
+    private fun sameWorkspace(original: GitHubConversationContext, current: GitHubConversationContext): Boolean =
+        original.connectionUid == current.connectionUid && original.owner == current.owner && original.repo == current.repo && original.ref == current.ref && original.mainProfileUid == current.mainProfileUid
+
     suspend fun submitNormalTurn(chatId: Int, context: GitHubConversationContext, profile: PlatformV2, requestId: String, content: String, scope: String, userMessageId: Int, assistantMessageId: Int, base: String = context.ref, localRunId: String? = null, admissionAllowed: () -> Boolean = { true }): GatewayEngineeringBinding = mutation.withLock {
         require(scope in setOf("read", "plan", "implement") && content.isNotBlank() && content.length <= 16000 && requestId.matches(Regex("[A-Za-z0-9_-]{1,160}")))
         require(context.mainProfileUid == profile.uid && userMessageId > 0 && assistantMessageId > 0)
@@ -96,7 +181,8 @@ class GatewayConversationRepository @Inject constructor(
         val targetBranch = if (existing == null) originalContext.ref else requireNotNull(verifiedSnapshot?.latestJob?.workingBranch ?: verifiedSnapshot?.workingBranch ?: previous?.job?.branch ?: previous?.request?.branch) { "The original working branch is unavailable. Reconnect before submitting a follow-up." }
         val targetBase = if (existing == null) base else requireNotNull(verifiedSnapshot?.latestJob?.base ?: verifiedSnapshot?.base ?: previous?.job?.base ?: previous?.request?.base) { "The original base branch is unavailable. Reconnect before submitting a follow-up." }
         check(admissionAllowed()) { "Tool consent changed before gateway binding admission." }
-        val admission = engineering.prepareBinding(config, selected)
+        check(settings.engineeringGateway(profile.uid).engineeringConfig() == config) { "The gateway configuration changed before binding admission." }
+        val admission = engineering.prepareBinding(config.withGatewayIdentity(identity), selected)
         existing?.executionBinding?.let { GatewayExecutionAdmission(json.parseToJsonElement(it) as JsonObject, admission.capabilities).verify(selected) }
         val current = settings.fetchPlatformV2s().singleOrNull { it.uid == profile.uid && it.enabled } ?: error("The selected profile was disabled during admission.")
         check(GatewayOwnedTurnPolicy.configured(current, context, settings.getFeatureSettings())) { "Remote GitHub tool consent changed during admission." }
@@ -158,20 +244,26 @@ class GatewayConversationRepository @Inject constructor(
             val features = settings.getFeatureSettings()
             check(currentProfile != null && !currentProfile.disableAllTools && !currentProfile.disableRemoteTools && features.githubProfileOverrides[currentProfile.uid]?.githubTools == true) { "Remote GitHub tools are disabled; the saved request was not submitted." }
             check(settings.engineeringGateway(currentProfile.uid).let { it.uid == binding.profileUid && selectedEndpoint(it.apiUrl) == selectedEndpoint(binding.endpoint) }) { "The original gateway selection changed; the saved request was not submitted." }
+            val selectedProfile = currentProfile.copy(model = store.dao.chatModel(binding.chatId, currentProfile.uid) ?: currentProfile.model, reasoning = features.conversationReasoning[binding.chatId] ?: currentProfile.reasoning)
+            check(selectionBlocker(selectedProfile, binding.executionSelection, null) == null) { "The original execution selection changed; the saved request was not submitted." }
             store.commandState(requestId, "SUBMITTING")
             if (command.action == "follow_up") {
                 val value = json.parseToJsonElement(command.payload) as JsonObject
                 val expected = (value["expected_revision"] as JsonPrimitive).content.toLong()
+                requireSavedSelection(binding)
                 check(admissionAllowed()) { "Tool consent changed before gateway submission. The original command remains saved." }
+                check(config(binding) == config) { "The original gateway configuration changed before submission." }
                 admissionPostDispatched = true
-                return acceptReceipt(binding, identity, client.followUp(config, requireNotNull(binding.conversationId), requestId, expected, binding.request.objective, binding.request.scope))
+                return acceptReceipt(binding, identity, client.followUp(config.withGatewayIdentity(identity), requireNotNull(binding.conversationId), requestId, expected, binding.request.objective, binding.request.scope))
             }
             val selection = requireNotNull(binding.executionSelection)
             requireNotNull(binding.executionAdmission).verify(selection)
             engineering.bindingCapabilities(config, selection, requireNotNull(binding.request.executionBindingId))
+            requireSavedSelection(binding)
             check(admissionAllowed()) { "Tool consent changed before gateway submission. The original command remains saved." }
+            check(config(binding) == config) { "The original gateway configuration changed before submission." }
             admissionPostDispatched = true
-            val job = engineering.create(config, binding.request)
+            val job = engineering.create(config.withGatewayIdentity(identity), binding.request)
             validateJob(binding, job)
             check(job.gatewayId == identity.gatewayId && job.principalId == identity.principalId && !job.conversationId.isNullOrBlank()) { "The gateway did not return a durable conversation admission identity." }
             val accepted = binding.copy(job = job, gatewayId = identity.gatewayId, identityScope = identity.identityScope, conversationId = job.conversationId)
@@ -193,6 +285,16 @@ class GatewayConversationRepository @Inject constructor(
             store.commandState(requestId, if (admissionPostDispatched && binding.job == null && status in setOf(400, 401, 403, 409, 422)) "REJECTED" else "UNKNOWN", failure.message)
             return store.binding(requestId) ?: binding
         }
+    }
+
+    private suspend fun requireSavedSelection(binding: GatewayEngineeringBinding) {
+        val profile = settings.fetchPlatformV2s().singleOrNull { it.uid == binding.request.profileId && it.enabled }
+            ?: error("The original model profile is unavailable. The saved request was not submitted.")
+        val features = settings.getFeatureSettings()
+        check(!profile.disableAllTools && !profile.disableRemoteTools && features.githubProfileOverrides[profile.uid]?.githubTools == true) { "Remote GitHub tool consent changed before submission." }
+        val selected = profile.copy(model = store.dao.chatModel(binding.chatId, profile.uid) ?: profile.model, reasoning = features.conversationReasoning[binding.chatId] ?: profile.reasoning)
+        check(selectionBlocker(selected, binding.executionSelection, null) == null) { "The original execution selection changed before submission." }
+        check(settings.engineeringGateway(profile.uid).let { it.uid == binding.profileUid && selectedEndpoint(it.apiUrl) == selectedEndpoint(binding.endpoint) }) { "The original gateway changed before submission." }
     }
 
     private suspend fun acceptReceipt(binding: GatewayEngineeringBinding, identity: GatewayIdentity, receipt: GatewayCommandReceipt): GatewayEngineeringBinding {
@@ -277,6 +379,7 @@ class GatewayConversationRepository @Inject constructor(
 
     private suspend fun reconnectSavedLocked(conversation: GatewayConversationRecord) {
         val scope = requireNotNull(store.dao.scope(conversation.scopeId))
+        store.projectRetainedMessages(conversation.id)
         try {
             val profile = settings.fetchPlatformV2s().singleOrNull { it.uid == scope.connectionUid && it.enabled } ?: error("The original gateway connection is unavailable. Cached messages remain readable.")
             check(selectedEndpoint(profile.apiUrl) == scope.endpoint) { "The original gateway endpoint changed. Cached work cannot move to another endpoint." }
@@ -284,7 +387,8 @@ class GatewayConversationRepository @Inject constructor(
             val identity = client.identity(config)
             verifyConnection(scope, profile, identity)
             val currentScope = store.verifiedScope(profile.uid, profile.apiUrl, identity)
-            store.acceptSnapshot(currentScope, client.conversation(config, conversation.conversationId))
+            val snapshot = client.conversation(config, conversation.conversationId)
+            if (!store.acceptRetainedSnapshot(currentScope, snapshot, conversation)) return
             var pages = 0
             do {
                 val cursor = store.dao.cursor(conversation.id)
@@ -292,6 +396,7 @@ class GatewayConversationRepository @Inject constructor(
                 store.replay(currentScope, conversation.id, page)
                 pages++
             } while (page.hasMore && pages < 4)
+            store.projectRetainedMessages(conversation.id)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
@@ -367,11 +472,13 @@ class GatewayConversationRepository @Inject constructor(
         require("cancel" in saved.job.permittedActions || saved.job.kind == "engineering" && saved.row.engineeringPayload != null) { "The gateway has not advertised permission to stop this job." }
         val profile = settings.fetchPlatformV2s().singleOrNull { it.uid == saved.connection.connectionUid && it.enabled } ?: error("The original gateway connection is unavailable.")
         val config = profile.engineeringConfig()
-        verifyConnection(saved.connection, profile, client.identity(config))
+        val identity = client.identity(config)
+        verifyConnection(saved.connection, profile, identity)
         if (saved.job.kind == "engineering") {
             val observed = engineering.get(config, saved.job.jobId, -1)
             check(observed.revision.toLong() == saved.job.revision) { "The job changed. Reconnect before confirming Stop." }
-            val result = engineering.control(config, observed, "cancel")
+            requireUnchangedGateway(profile)
+            val result = engineering.control(config.withGatewayIdentity(identity), observed, "cancel")
             check(result.id == saved.job.jobId)
             val state = result.schedulingState ?: if (result.state == "CANCELLED") "cancelled" else saved.job.schedulingState
             store.updateJob(saved.connection, saved.conversation, saved.job.copy(revision = result.revision.toLong(), phase = result.state, schedulingState = state, finishedAtMs = result.finishedAt?.let { (it * 1000).toLong() }, serverTimeMs = result.serverTimeMs ?: saved.job.serverTimeMs), result)
@@ -379,7 +486,8 @@ class GatewayConversationRepository @Inject constructor(
             if (binding != null) store.saveBinding(binding.copy(job = result))
             if (state == "cancelled") GatewayStopOutcome("CONFIRMED", "The gateway confirmed that this job stopped.") else GatewayStopOutcome("REQUESTED", "Stop requested. The gateway has not yet confirmed termination.")
         } else {
-            val result = client.cancelOrdinary(config, saved.job.jobId)
+            requireUnchangedGateway(profile)
+            val result = client.cancelOrdinary(config.withGatewayIdentity(identity), saved.job.jobId)
             check(result["job_id"] == JsonPrimitive(saved.job.jobId)) { "The cancellation receipt belongs to another job." }
             val confirmed = result["canceled"] == JsonPrimitive(true) || result["cancellationOutcome"] == JsonPrimitive("confirmed")
             val requested = result["cancellationRequested"] == JsonPrimitive(true)
@@ -398,6 +506,11 @@ class GatewayConversationRepository @Inject constructor(
         val profile = settings.fetchPlatformV2s().singleOrNull { it.uid == binding.profileUid && it.enabled } ?: error("The original gateway profile is unavailable. Saved work remains retained.")
         check(selectedEndpoint(profile.apiUrl) == selectedEndpoint(binding.endpoint)) { "The original gateway endpoint changed; reconnect cannot substitute another server." }
         return profile.engineeringConfig()
+    }
+
+    private suspend fun requireUnchangedGateway(profile: PlatformV2) {
+        val current = settings.fetchPlatformV2s().singleOrNull { it.uid == profile.uid && it.enabled }
+        check(current != null && GitHubAutonomousEngineeringPolicy.supportsSavedJobs(current) && current.compatibleType == profile.compatibleType && current.engineeringConfig() == profile.engineeringConfig()) { "The original gateway configuration changed. Refresh before confirming this action." }
     }
 
     private fun verifyBindingIdentity(binding: GatewayEngineeringBinding, identity: GatewayIdentity) {

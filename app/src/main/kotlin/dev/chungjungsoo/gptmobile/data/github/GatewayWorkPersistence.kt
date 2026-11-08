@@ -324,9 +324,12 @@ interface GatewayWorkDao {
 
     @Update suspend fun updateChatMessage(value: MessageV2)
 
-    @Query("UPDATE agent_runs SET status='WAITING_REMOTE_JOB', gateway_job_id=:jobId, gateway_base_url=:endpoint WHERE run_id=:runId AND chat_id=:chatId AND assistant_message_id=:assistantId AND status IN ('QUEUED','WAITING_REMOTE_JOB')")
+    @Query("UPDATE agent_runs SET status='WAITING_REMOTE_JOB', gateway_job_id=:jobId, gateway_base_url=:endpoint WHERE run_id=:runId AND chat_id=:chatId AND assistant_message_id=:assistantId AND status IN ('QUEUED','WAITING_REMOTE_JOB') AND (gateway_job_id IS NULL OR gateway_job_id=:jobId) AND EXISTS (SELECT 1 FROM messages_v2 m WHERE m.message_id=:assistantId AND m.current_run_id=:runId AND m.ownership_fence=agent_runs.ownership_fence)")
     suspend fun retainRemoteOwnership(runId: String, chatId: Int, assistantId: Int, jobId: String?, endpoint: String): Int
 
-    @Query("UPDATE agent_runs SET status=:status, completed_at=:completedAt, terminal_error=:error, gateway_last_sequence=:sequence WHERE run_id=:runId AND assistant_message_id=:assistantId AND gateway_job_id=:jobId AND status='WAITING_REMOTE_JOB'")
+    @Query("UPDATE agent_runs SET gateway_job_id=:jobId, gateway_base_url=:endpoint WHERE run_id=:runId AND chat_id=:chatId AND assistant_message_id=:assistantId AND status='INTERRUPTED' AND (gateway_job_id IS NULL OR gateway_job_id=:jobId) AND EXISTS (SELECT 1 FROM messages_v2 m WHERE m.message_id=:assistantId AND m.current_run_id=:runId AND m.ownership_fence=agent_runs.ownership_fence)")
+    suspend fun bindInterruptedRemote(runId: String, chatId: Int, assistantId: Int, jobId: String, endpoint: String): Int
+
+    @Query("UPDATE agent_runs SET status=:status, completed_at=:completedAt, terminal_error=:error, gateway_last_sequence=:sequence WHERE run_id=:runId AND assistant_message_id=:assistantId AND gateway_job_id=:jobId AND status IN ('WAITING_REMOTE_JOB','INTERRUPTED') AND EXISTS (SELECT 1 FROM messages_v2 m WHERE m.message_id=:assistantId AND m.current_run_id=:runId AND m.ownership_fence=agent_runs.ownership_fence)")
     suspend fun finishRemote(runId: String, assistantId: Int, jobId: String, status: String, completedAt: Long, error: String?, sequence: Int): Int
 }

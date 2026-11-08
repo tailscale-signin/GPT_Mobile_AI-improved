@@ -65,6 +65,28 @@ def profile_metadata(headers):
     return {'profile_id': profile_id, 'profile_name': name}
 
 
+def conversation_retention(headers):
+    value = headers.get('x-gateway-conversation-retention', 'none')
+    if value not in {'full', 'none'}:
+        raise ValueError('Unsupported conversation retention policy')
+    return value
+
+
+def verify_mutation_identity(headers, principal, installation):
+    """Optional client preconditions, checked against server-owned authority."""
+    expected_gateway = headers.get('x-gateway-installation-id')
+    expected_principal = headers.get('x-gateway-principal-id')
+    if expected_gateway is None and expected_principal is None:
+        return
+    if any(not isinstance(value, str) or not 1 <= len(value) <= 512 or
+           any(ord(character) < 33 for character in value)
+           for value in (expected_gateway, expected_principal)):
+        raise ExecutionBindingError('CONTINUITY_IDENTITY_INVALID', 'Supply both bounded gateway and account preconditions.', 400)
+    if expected_principal != principal or expected_gateway != installation():
+        raise ExecutionBindingError('CONTINUITY_IDENTITY_MISMATCH',
+            'The gateway installation or account changed. Refresh its identity before submitting this command.', 409)
+
+
 class ContinuityStore:
     def __init__(self, store):
         self.store = store
@@ -280,14 +302,19 @@ class ContinuityStore:
         conversation_id = existing[1] if existing else 'conv_' + fingerprint([principal, 'chat', job_id])[:32]
         now = public.get('updated_at') or self.store.now()
         created = public.get('created_at') or now
+        retain_text = public.get('conversation_retention') == 'full'
+        complete = retain_text and transcript is not None and not legacy
+        title = str(public.get('task_text') or 'Gateway conversation')[:200] if retain_text else 'Gateway conversation'
+        limitation = 'legacy_snapshot_only' if legacy else None if complete else (
+            'ordinary_request_history_not_retained' if retain_text else 'conversation_retention_disabled')
         binding = {'profile_id': public.get('profile_id') or '', 'profile_name': public.get('profile_name') or '',
                    'model': public.get('model') or '', 'repository': public.get('repository') or '', 'branch': public.get('branch') or '',
                    'source_branch': public.get('branch') or '', 'source_sha': public.get('source_sha'),
                    'execution_binding': None}
         db.execute('INSERT OR IGNORE INTO gateway_conversations(id,principal,binding,title,created_at,updated_at,latest_job_id,history_complete,history_limitation) VALUES(?,?,?,?,?,?,?,?,?)',
-                   (conversation_id, principal, canonical(binding), str(public.get('task_text') or 'Gateway conversation')[:200],
-                    created, now, job_id, int(transcript is not None and not legacy), 'legacy_snapshot_only' if legacy else None if transcript is not None else 'ordinary_request_history_not_retained'))
-        if transcript is not None:
+                   (conversation_id, principal, canonical(binding), title,
+                    created, now, job_id, int(complete), limitation))
+        if retain_text and transcript is not None:
             for index, message in enumerate(transcript):
                 if not isinstance(message, dict) or message.get('role') not in {'user', 'assistant', 'tool'}:
                     continue
@@ -300,19 +327,24 @@ class ContinuityStore:
                 if not isinstance(content, str) or message.get('tool_calls'):
                     content = canonical(message)
                 self.append(db, conversation_id, job_id, key, role, kind, content, now, input_message=True)
-        elif public.get('task_text') and not existing:
+        elif retain_text and public.get('task_text') and not existing:
             self.append(db, conversation_id, job_id, 'user:' + job_id, 'user', 'user', public['task_text'], created)
         status = str(public.get('status') or 'unknown')
         scheduling = public.get('scheduling_state') or ('waiting' if status == 'waiting_for_client_tool' else status)
         item = dict(binding, job_id=job_id, kind='chat', conversation_id=conversation_id,
                     revision=int(public.get('last_sequence') or 0), state=status, phase=public.get('phase') or public.get('stage') or status,
-                    scheduling_state=scheduling, scope='chat', title=str(public.get('task_text') or 'Gateway conversation')[:200],
-                    message=public.get('message'), accepted_at_ms=millis(created), started_at_ms=millis(public.get('started_at')),
+                    scheduling_state=scheduling, scope='chat', title=title,
+                    message=public.get('message') if retain_text else None, accepted_at_ms=millis(created), started_at_ms=millis(public.get('started_at')),
                     updated_at_ms=millis(now), finished_at_ms=millis(public.get('finished_at')), queue_position=None,
                     permitted_actions=['open'] + ([] if status in ORDINARY_TERMINAL else ['cancel']),
                     working_branch=public.get('branch') or '', original_profile_known=bool(binding['profile_id']),
                     original_profile_limitation=None if binding['profile_id'] else 'unknown_original_profile')
         self._save_item(db, principal, item)
+        if not retain_text:
+            # Keep the existing ordinary result journal policy. Do not create a
+            # second transcript (including task titles, progress or tool text)
+            # when the caller did not explicitly opt in to conversation history.
+            return
         if isinstance(event, dict) and type(event.get('sequence')) is int and event.get('message'):
             self.append(db, conversation_id, job_id, 'chat:' + job_id + ':' + str(event['sequence']),
                         'assistant', 'status', event['message'], now)

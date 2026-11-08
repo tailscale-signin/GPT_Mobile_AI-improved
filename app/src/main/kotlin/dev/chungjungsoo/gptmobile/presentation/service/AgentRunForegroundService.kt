@@ -142,7 +142,7 @@ class AgentRunForegroundService : Service() {
             // Let a queued restart publish its active run before deciding to stop.
             delay(500)
             if (startId != latestStartId || agentRunCoordinator.activeRuns.value.isNotEmpty()) return@launch
-            if (shouldNotifyAgentRunsCompleted(wasActive, false, AppForegroundTracker.isBackgrounded)) {
+            if (shouldNotifyAgentRunsCompleted(wasActive, false, AppForegroundTracker.isBackgrounded, stopReason)) {
                 kotlinx.coroutines.withTimeoutOrNull(3000) { showCompletionNotification() }
             }
             if (startId != latestStartId || agentRunCoordinator.activeRuns.value.isNotEmpty()) return@launch
@@ -151,7 +151,7 @@ class AgentRunForegroundService : Service() {
                 ServiceCompat.stopForeground(this@AgentRunForegroundService, ServiceCompat.STOP_FOREGROUND_REMOVE)
                 isForeground = false
                 promoted.set(false)
-                if (stopReason != "USER_CANCEL_ALL") stopReason = if (wasActive) "ACTIVE_RUNS_SETTLED" else "NO_ACTIVE_RUN_OBSERVED"
+                if (stopReason !in setOf("USER_CANCEL_ALL", "PLATFORM_TIMEOUT")) stopReason = if (wasActive) "ACTIVE_RUNS_SETTLED" else "NO_ACTIVE_RUN_OBSERVED"
                 AppLogRecorder.record("AgentService", "STOPPED · serviceId=$serviceInstanceId · startId=$startId · reason=$stopReason · lifetimeMs=${SystemClock.elapsedRealtime() - createdAtMs} · activeRunCount=0 · providerOutcome=SEE_RUN_RECEIPTS")
             }
         }
@@ -485,7 +485,8 @@ internal fun resolveGatewayProgressPercent(run: ActiveAgentRun): Int? {
 internal fun shouldNotifyAgentRunsCompleted(
     wasActive: Boolean,
     isActive: Boolean,
-    isAppBackground: Boolean
-): Boolean = wasActive && !isActive && isAppBackground
+    isAppBackground: Boolean,
+    stopReason: String? = null
+): Boolean = wasActive && !isActive && isAppBackground && stopReason !in setOf("USER_CANCEL_ALL", "PLATFORM_TIMEOUT")
 
 internal fun shouldInterruptAgentRunsOnDestroy(stoppedBecauseInactive: Boolean, hasActiveRuns: Boolean): Boolean = !stoppedBecauseInactive && hasActiveRuns

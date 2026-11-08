@@ -245,5 +245,31 @@
     "X-Gateway-Profile-Name-Base64": "Negotiated presentation metadata only; unpadded base64url UTF-8, 1..1024 decoded bytes, no control characters",
     "unknown_original": "Missing original metadata stays empty with original_profile_known=false; a reader profile never rebinds history"
   },
-  "ordinary_admission": "The existing chat-completions admission commits visible input messages, original profile metadata and queued state before worker dispatch. Worker-owned completion survives HTTP waiter disconnect and cache miss under an exact persisted generation fence. Ordinary catalog actions remain open/cancel/full replay. A subsequent ordinary Send uses its restored history and original profile/model through the established ordinary route; it never receives implicit repository-engineering authority. Unknown legacy profile/model bindings are read-only until the user explicitly selects a new task context."
+  "ordinary_admission": "The existing chat-completions admission commits original profile metadata, retention policy and queued state before worker dispatch. Explicit full retention also commits visible input messages; omitted or none retention creates only metadata with an explicit limited-history reason. Worker-owned completion survives HTTP waiter disconnect and cache miss under an exact persisted generation fence. Ordinary catalog actions remain open/cancel/replay of retained history. A subsequent ordinary Send uses its restored history and original profile/model through the established ordinary route; it never receives implicit repository-engineering authority. Unknown legacy profile/model bindings are read-only until the user explicitly selects a new task context.",
+  "ordinary_conversation_retention": {
+    "header": "X-Gateway-Conversation-Retention",
+    "values": [
+      "full",
+      "none"
+    ],
+    "default": "none",
+    "full": "Explicit durable visible conversation history; requires original profile ID. The policy is immutable for an admitted ordinary job and is bound to its retry identity.",
+    "none": "No additional prompt, reply, tool, status, or task-title text is appended to continuity tables. The metadata-only conversation reports history_complete=false and conversation_retention_disabled. Existing ordinary job/result retention remains unchanged."
+  },
+  "mutation_identity_preconditions": {
+    "headers": [
+      "X-Gateway-Installation-ID",
+      "X-Gateway-Principal-ID"
+    ],
+    "required": "Both or neither; omitted pair preserves legacy clients.",
+    "authority": "Compare with the persisted engineering_identity.installation and the principal resolved by Admission. These headers never grant scopes or ownership.",
+    "mismatch": "HTTP 409 CONTINUITY_IDENTITY_MISMATCH, before admission or mutation. Partial or malformed pairs are HTTP 400 CONTINUITY_IDENTITY_INVALID.",
+    "routes": [
+      "POST /v1/gateway/engineering/*",
+      "POST /v1/gateway/conversations/{conversation_id}/messages",
+      "POST /v1/gateway/jobs/{job_id}/cancel",
+      "POST /v1/chat/completions"
+    ],
+    "aliases": "The corresponding non-/v1 aliases apply the same preconditions."
+  }
 }

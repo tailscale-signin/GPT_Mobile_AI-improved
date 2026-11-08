@@ -38,6 +38,12 @@ data class GatewayExecutionAdmission(val binding: JsonObject, val capabilities: 
     val bindingId: String get() = binding["binding_id"]?.jsonPrimitive?.content.orEmpty()
 
     fun verify(selection: GatewayExecutionSelection) {
+        verifySelection(selection)
+        check(capabilities["requested_model_id"]?.jsonPrimitive?.content == selection.requestedModelId && capabilities["reported_model_id"]?.jsonPrimitive?.content == selection.requestedModelId) { "The configured backend did not prove the exact selected model identity." }
+    }
+
+    /** Local identity comparison does not claim fresh backend capability evidence. */
+    fun verifySelection(selection: GatewayExecutionSelection) {
         check(bindingId.matches(Regex("bind_[a-f0-9]{32}"))) { "The gateway execution binding is invalid." }
         val expected = mapOf(
             "routing_policy" to "SELECTED_ONLY", "profile_uid" to selection.profileUid,
@@ -49,7 +55,6 @@ data class GatewayExecutionAdmission(val binding: JsonObject, val capabilities: 
         )
         check(expected.all { (key, value) -> binding[key]?.jsonPrimitive?.content == value }) { "The gateway substituted part of the selected execution identity." }
         check(binding["generation_parameters"] == selection.generationParameters) { "The gateway changed the selected generation parameters." }
-        check(capabilities["requested_model_id"]?.jsonPrimitive?.content == selection.requestedModelId && capabilities["reported_model_id"]?.jsonPrimitive?.content == selection.requestedModelId) { "The configured backend did not prove the exact selected model identity." }
     }
 }
 

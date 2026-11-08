@@ -65,10 +65,13 @@ internal data class GatewayReadinessObservation(
     val availableWorkers: Long? = null,
     val canAccept: Boolean? = null,
     val canQueue: Boolean? = null,
-    val modelLoading: Boolean? = null
+    val modelLoading: Boolean? = null,
+    val observedAtMillis: Long? = null,
+    val observationAgeMillis: Long? = null,
+    val receivedAtMonotonicMillis: Long? = null
 )
 
-internal fun parseGatewayReadiness(value: JsonObject, status: Int, model: String?, receivedAtMillis: Long): GatewayReadinessObservation {
+internal fun parseGatewayReadiness(value: JsonObject, status: Int, model: String?, receivedAtMillis: Long, receivedAtMonotonicMillis: Long? = null): GatewayReadinessObservation {
     require((value["schemaVersion"] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull == 1) { "Unsupported gateway readiness." }
     val instance = (value["instanceId"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
     require(instance != null && instance.matches(Regex("[a-f0-9]{32}"))) { "Gateway readiness identity is unavailable." }
@@ -83,6 +86,14 @@ internal fun parseGatewayReadiness(value: JsonObject, status: Int, model: String
     val available = (capabilities["modelAvailable"] as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull
     require(!ready || generation == true && (model.isNullOrBlank() || available == true)) { "Gateway readiness lacks model evidence." }
     val capacity = ((value["components"] as? JsonObject)?.get("workerCapacity") as? JsonObject)
+    fun JsonObject.optionalCount(key: String): Long? = if (key !in this) null else count(key) ?: error("Invalid gateway readiness measurement.")
+    fun JsonObject.optionalFlag(key: String): Boolean? = if (key !in this) null else (this[key] as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull ?: error("Invalid gateway readiness measurement.")
+    val observedAt = capabilities.optionalCount("observedAtMs")
+    val reportedAge = capabilities.optionalCount("observationAgeMs")
+    value.optionalCount("serverTimeMs")
+    require((observedAt == null) == (reportedAge == null)) { "Gateway readiness freshness evidence is incomplete." }
+    // Original probe age is monotonic on the server; its wall clock is metadata.
+    // Validate the optional server timestamp without comparing clocks across hosts.
     return GatewayReadinessObservation(
         instance,
         ready,
@@ -90,10 +101,13 @@ internal fun parseGatewayReadiness(value: JsonObject, status: Int, model: String
         available,
         (value["service"] as? JsonObject)?.flag("draining") == true,
         receivedAtMillis,
-        capacity?.count("availableWorkers"),
-        (capabilities["canAccept"] as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull,
-        (capabilities["canQueue"] as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull,
-        (capabilities["modelLoading"] as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull
+        capacity?.optionalCount("availableWorkers"),
+        capabilities.optionalFlag("canAccept"),
+        capabilities.optionalFlag("canQueue"),
+        capabilities.optionalFlag("modelLoading"),
+        observedAt,
+        reportedAge,
+        receivedAtMonotonicMillis
     )
 }
 

@@ -38,6 +38,10 @@ class GatewayEngineeringRepository @Inject constructor(
 
     suspend fun ownsRequest(requestId: String): Boolean = conversations.ownsRequest(requestId)
 
+    suspend fun ownsConversation(chatId: Int): Boolean = conversations.ownsConversation(chatId)
+
+    suspend fun conversationWriteBlocker(chatId: Int): String? = conversations.conversationWriteBlocker(chatId)
+
     suspend fun reconnectConversation(chatId: Int) {
         conversations.reconnectConversation(chatId)
         for (binding in bindings(chatId).filter { it.job != null && it.conversationId == null }) observe(binding.request.requestId)
@@ -89,9 +93,12 @@ class GatewayEngineeringRepository @Inject constructor(
         val preferences = settings.getFeatureSettings().githubProfileOverrides[profile.uid] ?: GitHubChatProfileOverride()
         val gateway = settings.engineeringGateway(profile.uid)
         val principal = client.principal(gateway.engineeringConfig())
+        val identity = conversations.verifiedIdentity(gateway.engineeringConfig())
+        check(identity.principalId == principal) { "The gateway account changed before binding admission." }
         val connection = profile.providerConnectionUid?.let { settings.getProviderConnection(it) }
         val selection = executionSelection(profile, connection, "$principal/chat/$chatId/repository/${context.owner}/${context.repo}")
-        val admission = client.prepareBinding(gateway.engineeringConfig(), selection)
+        check(settings.engineeringGateway(profile.uid).engineeringConfig() == gateway.engineeringConfig()) { "The gateway configuration changed before binding admission." }
+        val admission = client.prepareBinding(gateway.engineeringConfig().withGatewayIdentity(identity), selection)
         // Profile edits racing a network preflight apply to a new explicit
         // selection, never silently to the snapshot we are about to persist.
         val current = settings.fetchPlatformV2s().singleOrNull { it.uid == profile.uid && it.enabled }
@@ -109,6 +116,8 @@ class GatewayEngineeringRepository @Inject constructor(
             principalId = principal,
             executionSelection = selection,
             executionAdmission = admission,
+            gatewayId = identity.gatewayId,
+            identityScope = identity.identityScope,
             originalContext = context
         )
         settings.mutateFeatureSettings { it.copy(githubEngineeringSettings = options.copy(acceptance = emptyList())) }
@@ -208,7 +217,9 @@ class GatewayEngineeringRepository @Inject constructor(
         check(binding.job?.id == expected.id && binding.job?.revision == expected.revision) { "Refresh the job before confirming." }
         val config = config(binding)
         check(binding.principalId == client.principal(config, requireReady = action == "approve")) { "The gateway account changed; the control request was not sent." }
-        val result = client.control(config, expected, action)
+        val verified = conversations.mutationConfig(binding)
+        check(verified.copy(extraHeaders = config.extraHeaders) == config) { "The original gateway configuration changed before the control request." }
+        val result = client.control(verified, expected, action)
         check(result.id == expected.id)
         save(binding.copy(job = result))
         lastPoll.remove(requestId)

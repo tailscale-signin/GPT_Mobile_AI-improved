@@ -11,7 +11,7 @@ import kotlinx.serialization.json.contentOrNull
 internal class GatewayControlNegotiation(private val api: GatewayAPI) {
     private val cache = RouteCapabilityCache<GatewayCapabilities>({ System.nanoTime() / 1_000_000 }, negativeTtl = 15_000)
     suspend fun prepare(config: ProviderRequestConfig): ProviderRequestConfig {
-        // Captured labels never trigger discovery or bypass negotiation through extraHeaders.
+        // Captured labels and transcript policy cannot bypass negotiation through extraHeaders.
         val permittedHeaders = GatewayClientDiagnostics.requestHeaders(config).filterKeys { it.lowercase() !in profileHeaders }
         val permitted = config.copy(extraHeaders = permittedHeaders)
         val requested = permittedHeaders.filterKeys { it.startsWith("X-Gateway-", true) }
@@ -53,6 +53,17 @@ internal class GatewayControlNegotiation(private val api: GatewayAPI) {
     }
 
     private fun profileDisplayHeaders(config: ProviderRequestConfig, accepted: Set<String>): Map<String, String> = buildMap {
+        if (CONVERSATION_RETENTION.lowercase() in accepted) {
+            val callerRole = config.extraHeaders.entries.firstOrNull { it.key.equals("X-Gateway-Request-Role", true) }?.value
+            val delegated = config.extraHeaders.entries.any { it.key.equals("X-Gateway-Delegated-Worker", true) && it.value.equals("true", true) }
+            val retain = config.queuePersistent &&
+                config.requestRole == "primary" &&
+                (callerRole == null || callerRole == "primary") &&
+                !delegated &&
+                config.profileUid?.matches(profileUidPattern) == true &&
+                PROFILE_ID.lowercase() in accepted
+            put(CONVERSATION_RETENTION, if (retain) "full" else "none")
+        }
         if (PROFILE_ID.lowercase() in accepted) {
             config.profileUid?.takeIf { it.matches(profileUidPattern) }?.let { put(PROFILE_ID, it) }
         }
@@ -69,7 +80,8 @@ internal class GatewayControlNegotiation(private val api: GatewayAPI) {
     private companion object {
         const val PROFILE_ID = "X-Gateway-Profile-ID"
         const val PROFILE_NAME = "X-Gateway-Profile-Name-Base64"
-        val profileHeaders = setOf(PROFILE_ID.lowercase(), PROFILE_NAME.lowercase())
+        const val CONVERSATION_RETENTION = "X-Gateway-Conversation-Retention"
+        val profileHeaders = setOf(PROFILE_ID.lowercase(), PROFILE_NAME.lowercase(), CONVERSATION_RETENTION.lowercase())
         val profileUidPattern = Regex("[A-Za-z0-9_-]{1,160}")
     }
 }

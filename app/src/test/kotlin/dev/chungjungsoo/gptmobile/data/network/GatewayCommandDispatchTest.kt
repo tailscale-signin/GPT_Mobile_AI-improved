@@ -241,6 +241,7 @@ class GatewayCommandDispatchTest {
         HttpClient(engine) { install(HttpTimeout) }.use { client ->
             val wrapper = mockk<NetworkClient>()
             every { wrapper() } returns client
+            every { wrapper.gatewayReadClient() } returns client
             block(OpenAIAPIImpl(wrapper))
         }
     }

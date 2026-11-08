@@ -587,6 +587,183 @@ classes, now including the complete-backup regressions explicitly; the inferred
 Full Android, constrained heaps, device, APK and aggregate checks remain required
 on the published combined source, rather than inherited from a superseded run.
 
+## Polling lifecycle and integration follow-up
+
+The `bcb72647703b8840ef4ae869804f90399bd0c97f` backup repair remains in the
+combined branch. Before that head was superseded, the audit log records all 21
+complete-backup cases, all six gateway-backup cases and the new exact-account
+cached-conversation DAO case passing against freshly generated Room code. The
+canonical exported Room 51 schema still matches the committed schema. Both full
+unit jobs were subsequently cancelled and their artifacts contain zero JUnit XML;
+these individual observations do not establish complete unit or heap qualification.
+
+The canonical log also exposes one genuine failing lifecycle regression:
+`GatewayJobsViewModelTest.leavingTheVisibleScreenStopsPollingWithoutStoppingTheJob`
+observes two refreshes instead of one. Its first refresh resumes inline from a
+real I/O-thread state emission, while the second is resumed by the test scheduler
+advancing virtual time. The unconfined test coroutine therefore races the test's
+cancellation observer. That test now runs its complete scope with
+`StandardTestDispatcher(dispatcher.scheduler)` and lets the polling coroutine
+inherit it. Both polling and the cancellation observer therefore return to the
+same scheduler after I/O-triggered emissions. Scheduling only the polling coroutine
+was insufficient: an initial 11-case pass was followed by the same assertion
+failing on the tenth targeted repeat, so that partial correction was rejected.
+The production ViewModel is unchanged. Every existing
+method and assertion remains, including exactly one refresh, zero Stop calls,
+and 30 seconds of virtual time after cancelling and joining the visible scope.
+
+The same superseded head's API 36 run completes 58 cases in 21 invocations, with
+both gateway-card packets and a locally verified artifact digest. Its diagnostic
+sample contains 100 acknowledged and 100 successful operations with no coverage
+gap. The separate review APK workflow passes all three packaged variants, runtime,
+JNI, privacy and native-alignment gates. Each variant checks 2,946 dispatch methods;
+the maximum is 15,834 DEX code units against the unchanged 16,383 limit. Benchmark
+compilation succeeds; no benchmark execution is claimed.
+
+API 34 stops before instrumentation at Android's application-readiness barrier
+(70 of 71 participants). Retained process, window and ANR evidence shows no app
+crash or ANR, and zero cases execute. One failed-job retry preserves the same
+source identity, assertions and timeouts, then is cancelled during compilation
+when the branch advances. It also executes zero cases. The successful API 36 job
+is reused by that retry, not counted as a second execution.
+
+The incoming `c64ffef97f02eee19f7fe968f28ac2599774f5ff` integration and
+`b18ddc95c223e4703c07af44334bb8db547669bb` manifest provenance update are
+preserved. The source review covers the following additions and retained guards:
+
+- Exact-model reasoning preflight and explicit recovery controls retain the draft,
+  settings snapshot, generation and attempt identity. Rechecking does not send
+  automatically or change the model. Brief helper/rewrite roles preserve accepted
+  ON/AUTO/OFF instead of manufacturing OFF; explicit OFF still rejects an exact
+  route without verified control support. Maximum preference alone is removed.
+  Trusted pre-inference rejection cannot erase an earlier uncertain receipt or
+  measured output.
+- Saved-work admission causes, bounded invocation accounting and checkpoint writes
+  retain original failure/receipt identity. Safe-read connection retry remains
+  GET-only; mutation and stream paths are not replayed. Exported diagnostic fields
+  remain allowlisted and unmeasured settings remain unknown.
+- Canonical action identity includes task, authority, selected tool suffix,
+  repository and exact lease/content/cursor/live-intent fields. Owned-fixture
+  recovery requires durable cleanup intent, original-account access to the
+  original immutable commit and fresh exact-ref absence. Pagination and catalog
+  coverage retain issued selectors and explicit omissions.
+- Composer ownership and all existing focus/bitmap/surface assertions remain
+  unchanged. Voice callbacks verify recognizer identity and generation; repair
+  survives pause and requires deliberate action before recognition resumes.
+- The acceptance script retains all previous 21 invocations and adds two bound
+  GitHub transport cases in one invocation: 60 expected cases across 22 invocations
+  per API. Both new cases require exact successful packets and retained receipts
+  tied to the installed app revision. They execute production binding/client code
+  against Ktor MockEngine and explicitly do not claim live-account side effects.
+
+The actual-source comparison compiles the current ViewModel, test and six required
+collaborator/type files against 13 byte-matching cached direct supporting sources,
+using the pinned Android/Robolectric runtime. The original 11-case class reproduces
+exactly the observed lifecycle failure. The final complete-scope correction passes
+all 11 cases and 20 consecutive executions of the same lifecycle method, retaining
+its original setup, teardown and assertions. Those repeats are overlapping
+stability checks, not 20 additional unique tests. Production sources and the final
+snapshot have no drift. The original repository, conversation and control mocks
+remain; this focused result does not qualify actual network or generated Room
+execution. The first polling-only correction and its failed repeat are retained
+separately instead of being counted as a complete pass.
+
+All 404 canonical fast tests pass, with 1,328 literal-regex checks and 33 resource
+XML checks. The 77 dynamic regex patterns remain outside static evaluation.
+Architecture and the unchanged 2,306-file / 26-area source inventory validate.
+The exact current priority set contains 962 cases across 99 classes, retaining
+all previous 610 identities in 61 classes. The source-inferred ordinary count is
+8,095 and requires confirmation from complete fresh XML. Four incoming reasoning
+case renames are recorded explicitly; none removes an earlier priority identity.
+
+The incoming `b18ddc95` head also completes all 60 API 36 cases in 22
+invocations before this follow-up is published. Both new bound-client receipts
+and the journal sample identify merge producer
+`9f86828405c4bfef0133a9b944ffbf562447fd3b`; its independently inspected parents
+are the exact base and incoming head, and its tree matches that head. The retained
+artifact digest verifies. Both new receipts explicitly report stub execution with
+zero live-account effects; the journal reports 100 acknowledged / 100 successful
+operations with no coverage gap. This is complete device evidence for the incoming
+parent, not a full-suite qualification of the subsequent test correction.
+
+All 178 advertised gateway package files match their hashes. The existing scope
+contains 1,374 allowed paths; release identity, base, required workflows and limits
+remain unchanged. The incoming integration retains all earlier disclosed limits
+and adds an explicit live/device qualification boundary. Fresh complete Android,
+Room 51, constrained-heap, 60-case device, packaged APK and aggregate evidence is
+required for the published combined tree.
+
+The incoming parent also completes its three review APK variants with all runtime,
+JNI, privacy and native-alignment gates passing. Each checks 3,088 dispatch methods;
+the maximum remains 15,834 code units below the unchanged 16,383 limit. Its
+benchmark app and regressions compile; benchmark execution is not claimed.
+
+Its API 34 run executes all 60 device cases: 59 pass and one conversation-glass
+case times out before pixel comparison. The retained sharp image shows an
+unobstructed fixture, the activity remains resumed, and no crash or ANR is recorded.
+The capture fence coincides with a 2.657-second HWUI frame, including 2.258 seconds
+between issuing draw commands and swapping buffers, exceeding Compose's existing
+two-second frame-commit wait. API 36 on the same tree passes all four blur ratios.
+This does not establish a failed blur threshold, a separate capture synchronization
+defect or a proven external cause for the late frame. The renderer, visual
+assertions and frame-commit fence stay unchanged and require fresh device
+qualification after the combined fixture correction. Both new bound-transport
+receipts in the failed API 34 artifact independently verify, while the CI final
+verifier correctly remains failed at the earlier glass packet.
+
+### Gateway metadata read-client fixture follow-up
+
+A final caller/fixture review catches two shared helpers that still stub only
+`NetworkClient.invoke()`: `OpenAIRecoveryTransportTest` and
+`GatewayCommandDispatchTest`. The incoming production code correctly routes
+capability discovery and saved-result GETs through `gatewayReadClient()`. The
+non-relaxed mocks therefore throw before their HTTP engine sees those reads,
+preventing the existing tests from exercising discovery, retained-result recovery
+and command-reservation behavior.
+
+The complete incoming-parent preview run reports 8,095 cases, with 12 failures
+confined to these two classes and five dedicated-heap assumptions skipped in the
+ordinary run. A focused actual-source negative comparison reproduces both missing
+boundaries: no capability request reaches the engine and no reservation callback
+is reached. Those checks execute their original assertions.
+
+Both helpers now return their existing closed HTTP fixture from
+`gatewayReadClient()` as well. This is one added stub per helper. All 16 transport
+and seven command-dispatch method identities and assertions remain unchanged,
+including exact paths and methods, one-time mutation, original command/payload,
+reservation-before-POST, cancellation and uncertain-work no-replay checks.
+Production pool separation, GET-only retry, mutation/stream behavior and timeouts
+are unchanged. The separate pool-isolation regressions remain in the suite.
+
+The final focused comparison compiles the same 18 current production files and
+two original test files against 94 byte-matching cached direct supporting sources
+on the pinned full Android runtime. The two selected original negative cases
+reproduce the missing capability request and missing reservation callback. With
+only the two fixture stubs added, both full original classes pass: 23 of 23 cases,
+zero failures or skips, normal process exit and no source/support drift. This
+executes actual Ktor HTTP fixtures and the real transport/discovery/admission code;
+it does not establish live socket, generated Room or unrelated UI behavior.
+
+The incoming canonical unit job independently finishes with the same 12 failures
+as preview, confined to these two classes. The preview artifact has 1,273 complete
+XML suites: 8,095 cases, 8,078 passes, 12 failures, zero errors and five expected
+ordinary-run heap assumptions. All 99 priority classes and 962 identities are
+present; 950 pass and the same 12 fixture cases fail. Those parent failures remain
+recorded separately from the corrected local 23-case pass. The audit's completed
+XML independently reports the same 8,095 cases and exactly the same 12 failures,
+with no additional failing identity; its trailing APK build is still active at
+this publication snapshot. Fresh complete unit,
+constrained-heap, device and aggregate checks are required after publication.
+
+The final combined checkout passes all 404 canonical fast checks again, plus
+1,328 literal-regex and 33 resource-XML checks. All three changed Kotlin test files
+pass formatting with stable hashes. Architecture, the 2,306-file / 26-area
+inventory and the existing 1,374 exact allowed release paths validate. No
+production file, test identity, assertion, timeout, heap or DEX threshold,
+dependency verification or release qualification is changed by these fixture
+corrections. The five changed files are the three existing test fixtures and
+these two existing repair ledgers.
+
 ## Measurement boundaries
 
 The gateway reports `completion_buffered` because generated content still passes

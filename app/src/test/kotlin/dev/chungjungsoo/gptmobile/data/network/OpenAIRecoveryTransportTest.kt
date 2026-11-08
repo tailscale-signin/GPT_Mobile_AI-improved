@@ -450,6 +450,7 @@ class OpenAIRecoveryTransportTest {
         val client = HttpClient(engine) { install(HttpTimeout) }
         val wrapper = mockk<NetworkClient>()
         every { wrapper() } returns client
+        every { wrapper.gatewayReadClient() } returns client
         try {
             block(OpenAIAPIImpl(wrapper))
         } finally {

@@ -7,7 +7,7 @@
   "working_branch": "fix/diagnostic-remediation-8597579-2026-11-07",
   "pull_request": 813,
   "intent": "Implement all F01-F23 findings in the supplied diagnostic review, preserve existing branch changes, validate actual behavior, and publish to the requested branch.",
-  "state": "BACKUP_MIGRATION_SOURCE_FIXED_FRESH_COMBINED_CI_REQUIRED",
+  "state": "FIXTURE_FOLLOWUP_VALIDATED_FRESH_COMBINED_CI_REQUIRED",
   "task_store": "engineering_agent_checkpoints",
   "task_store_key": "diagnostic-task-trust-2026-11-07",
   "accepted_scope": [
@@ -18,7 +18,7 @@
     "F22-F23: input lifecycle and compact diagnostic changes"
   ],
   "pending": [
-    "verify fresh full Android units, Room 51, five dedicated heap cases, 58 device cases per API, APK, lint, security and Required verification on the published combined follow-up; repair any demonstrated remaining failure"
+    "Verify fresh complete canonical, audit and preview Android units; Room 51; all five dedicated heap cases; both 60-case device runs; packaged APK and native smoke; lint, security and Required verification on the published combined source. Repair any demonstrated remaining failure."
   ],
   "validation": {
     "device": "NOT_RUN_NO_CONNECTED_DEVICE",
@@ -148,8 +148,8 @@
       "packaged_variants": 3
     }
   },
-  "reconciled_remote_head": "ba6c275291fd0c4721866aec1f7d1cc741d58705",
-  "reconciled_remote_change": "Preserved the concurrent durable gateway recovery, account-authority and offline-history follow-up and its manifest provenance correction. Corrected backup migration path selection and historical backup fixtures after two real failures appeared before superseded full-unit cancellation; all prior F01-F23 work, shared commit restrictions and the acceptance runner with 58 device cases remain present.",
+  "reconciled_remote_head": "b18ddc95c223e4703c07af44334bb8db547669bb",
+  "reconciled_remote_change": "Preserved c64 exact-model reasoning, typed gateway admission, bounded accounting/checkpoint/evidence, owned-fixture recovery, Android bound-transport, UI and voice integration and b18 manifest provenance. Corrected one lifecycle test scheduling race exposed before bcb full-unit cancellation; original production behavior and all assertions remain unchanged. Final caller review found two non-relaxed transport fixtures missing the new gatewayReadClient stub; both are wired to their existing closed HTTP engine without changing assertions or production behavior.",
   "verification_boundaries": [
     "Focused JVM suites compile current production implementations with explicit Android/service boundaries; full Android CI remains required.",
     "Diagnostic suite counts overlap and must not be summed into a unique-test count.",
@@ -1388,5 +1388,1570 @@
       "dedicated_heap_cases": 5,
       "room_version": 51
     }
+  },
+  "polling_lifecycle_followup": {
+    "parent_head": "b18ddc95c223e4703c07af44334bb8db547669bb",
+    "parent_tree": "b8b289cbd13fc4bff2a03b14f964345a33c7db25",
+    "feature_parent": "c64ffef97f02eee19f7fe968f28ac2599774f5ff",
+    "prior_head": "bcb72647703b8840ef4ae869804f90399bd0c97f",
+    "prior_head_producer": "4a62843af2b9dd9cb7b00b76deaa41b3c2fb0afa",
+    "prior_full_units": [
+      {
+        "label": "unit",
+        "head": "bcb72647703b8840ef4ae869804f90399bd0c97f",
+        "runId": 42445836467,
+        "jobId": 128624514802,
+        "status": "cancelled",
+        "log": "ci-bcb726-unit-128624514802.log",
+        "logSha256": "36f8f025c036e523649d3ca67910f93c589b47dbf20ab9ddd0533517bcb3e147",
+        "producerSha": "4a62843af2b9dd9cb7b00b76deaa41b3c2fb0afa",
+        "producerObservedInCheckout": true,
+        "observedFailureLines": [
+          "2026-11-08T04:43:26.9459155Z GatewayJobsViewModelTest > leavingTheVisibleScreenStopsPollingWithoutStoppingTheJob FAILED"
+        ],
+        "nativeCrashLines": [],
+        "selectedIndividualCaseEvidence": {
+          "CompleteBackupManagerTest": [],
+          "GatewayWorkBackupTest": [],
+          "GatewayJobPersistenceTest": []
+        },
+        "artifact": {
+          "id": 13604731065,
+          "path": "canonical-bcb726-partial.zip",
+          "sha256": "c2e425e6719219fecdbe4de6297b3d56dd2b9d5748a5929bcdc38f364a6da10b",
+          "junitXmlCount": 0,
+          "room51": [
+            {
+              "entry": "schemas/dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2/51.json",
+              "sha256": "20761194ba2e9f96b8fb6769458fd05a089153baf08bbd46d5a6210769a0e708"
+            }
+          ]
+        },
+        "qualification": "Cancelled during ordinary unit execution after incoming branch advance; individual terminal-log observations only. Zero JUnit XML. No complete suite/heap/canonical APK qualification."
+      },
+      {
+        "label": "audit",
+        "head": "bcb72647703b8840ef4ae869804f90399bd0c97f",
+        "runId": 42445836500,
+        "jobId": 128624521551,
+        "status": "cancelled",
+        "log": "ci-bcb726-audit-128624521551.log",
+        "logSha256": "f8ed8b7a1a4e3ec178e1106071ddf2a9852cc9b541029af6e4d94333a9827b44",
+        "producerSha": "4a62843af2b9dd9cb7b00b76deaa41b3c2fb0afa",
+        "producerObservedInCheckout": true,
+        "observedFailureLines": [],
+        "nativeCrashLines": [],
+        "selectedIndividualCaseEvidence": {
+          "CompleteBackupManagerTest": [
+            {
+              "case": "recoveryCorporaFollowBothHistoryAndResearchBackupSelections",
+              "status": "PASSED"
+            },
+            {
+              "case": "toolsRoundTripPreservesInstalledPackagesAndGlobalAndProfileToggles",
+              "status": "PASSED"
+            },
+            {
+              "case": "wrongLegacyPasswordLeavesLiveDataAndPreferencesUnchanged",
+              "status": "PASSED"
+            },
+            {
+              "case": "encryptedGitHubOAuthRefreshSessionRestoresWithAccountRevalidation",
+              "status": "PASSED"
+            },
+            {
+              "case": "olderModernBackupMigratesNewTablesAndColumnsBeforeRestore",
+              "status": "PASSED"
+            },
+            {
+              "case": "conversationRestoreDoesNotReplaceProtectionAndExportsNeverContainSavedPassword",
+              "status": "PASSED"
+            },
+            {
+              "case": "encryptedLegacyUserBackupIsConvertedAndRespectsSelectedSections",
+              "status": "PASSED"
+            },
+            {
+              "case": "restoreReportsActualPhasesAndExtractionProgress",
+              "status": "PASSED"
+            },
+            {
+              "case": "statisticsBackupPreservesBenchmarkRunsAndRebuildsScoreTable",
+              "status": "PASSED"
+            },
+            {
+              "case": "modernBackupWithDifferentColumnOrderAndOldRoomIdentityRestoresIntoFreshSchema",
+              "status": "PASSED"
+            },
+            {
+              "case": "version30BackupAddsProfileAttributionWithoutLosingRequests",
+              "status": "PASSED"
+            },
+            {
+              "case": "statisticsRoundTripRestoresModelInvocationsAndDependentRuns",
+              "status": "PASSED"
+            },
+            {
+              "case": "fiveYearHealthImportSurvivesPasswordlessEncryptedBackupAndRestore",
+              "status": "PASSED"
+            },
+            {
+              "case": "gatewayAccountProofNeverExportsImportsOrReplacesLocalAuthority",
+              "status": "PASSED"
+            },
+            {
+              "case": "encryptedGitHubApiAndDraftsRoundTripWithoutRestoringPendingAuthorization",
+              "status": "PASSED"
+            },
+            {
+              "case": "corruptBackupAndCredentialWriteFailureLeaveExistingStateIntact",
+              "status": "PASSED"
+            },
+            {
+              "case": "memoryShardsFollowMemorySelectionAndNeverCredentialSelection",
+              "status": "PASSED"
+            },
+            {
+              "case": "defaultsNeverExportCredentialsOrMemoryAndEncryptionRequiresRecoveryMaterial",
+              "status": "PASSED"
+            },
+            {
+              "case": "passwordlessBackupsAreAlwaysPortableAndNeverCreateInstallationBoundKeys",
+              "status": "PASSED"
+            },
+            {
+              "case": "legacyGitHubCredentialsCannotReconnectWithoutPortableEncryptedMetadata",
+              "status": "PASSED"
+            },
+            {
+              "case": "completeRoundTripRestoresEveryTablePreferencesCredentialsAndPortableFiles",
+              "status": "PASSED"
+            }
+          ],
+          "GatewayWorkBackupTest": [
+            {
+              "case": "ordinaryAdmissionBeforeCatalogSyncRetainsOnlyItsCurrentLocalOwner",
+              "status": "PASSED"
+            },
+            {
+              "case": "settingsOnlyBackupDoesNotRetainConversationCommandsOrTranscript",
+              "status": "PASSED"
+            },
+            {
+              "case": "ordinaryMirrorDoesNotRetainMismatchedJobsScopesProfilesOrSupersededOwners",
+              "status": "PASSED"
+            },
+            {
+              "case": "conversationsWithoutExecutionHistoryRetainRemoteIdentityAndReplyOwnership",
+              "status": "PASSED"
+            },
+            {
+              "case": "ordinaryJobWithoutCommandKeepsItsExactReplyOwnerAcrossConversationOnlyRestore",
+              "status": "PASSED"
+            },
+            {
+              "case": "restoringConversationsKeepsTheOriginalCommandAndPausesLocalExecution",
+              "status": "PASSED"
+            }
+          ],
+          "GatewayJobPersistenceTest": [
+            {
+              "case": "cachedConversationsFilterTheExactProfileEndpointGatewayAndPrincipal",
+              "status": "PASSED"
+            }
+          ]
+        },
+        "artifact": {
+          "id": 13604850773,
+          "path": "audit-bcb726-partial.zip",
+          "sha256": "e411494f8ca06dc8512ed461e89840f50b13ff5d163da4701afac68225963ffc",
+          "junitXmlCount": 0,
+          "room51": []
+        },
+        "qualification": "Cancelled during ordinary unit execution after incoming branch advance; individual terminal-log observations only. Zero JUnit XML. No complete suite/heap/canonical APK qualification."
+      }
+    ],
+    "prior_required_verification": {
+      "job": 128630877919,
+      "conclusion": "failure",
+      "cause": "Unit dependency cancelled; other aggregate dependencies succeeded. The separately observed lifecycle failure remains recorded."
+    },
+    "test_repair": {
+      "case": "GatewayJobsViewModelTest.leavingTheVisibleScreenStopsPollingWithoutStoppingTheJob",
+      "cause": "Unconfined polling resumes inline on a real IO emitter while the test scheduler can advance virtual delay before cancellation observer resumes. The second observed call stack comes from TestCoroutineScheduler auto advancement.",
+      "change": "Run the entire one lifecycle test scope with StandardTestDispatcher(dispatcher.scheduler); the background polling coroutine inherits it, keeping polling and the cancellation observer on the same test scheduler.",
+      "production_changed": false,
+      "existing_methods": 11,
+      "removed_or_weakened_assertions": 0,
+      "retained": [
+        "Exactly one repository refresh",
+        "Exactly zero server Stop calls",
+        "Cancellation and join before 30-second virtual advance"
+      ]
+    },
+    "source_sha256": {
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GatewayJobsViewModel.kt": "92a27d7bb74eea9e77933d8cb685a5af4759266ebc498d83bc241e5e924fe458",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GatewayJobsViewModelTest.kt": "b629efc0509c54b54f73c5121297966d118fb023c6bc31b40ec47055ac905a6b"
+    },
+    "preservation_review": {
+      "incoming_task_catalog_fixture_pagination": "NO_CONCRETE_BLOCKER_SOURCE_REVIEW_ONLY",
+      "incoming_accounting_reasoning_gateway_admission": "NO_CONCRETE_BLOCKER_SOURCE_REVIEW_ONLY",
+      "incoming_ui_voice_composer": "NO_CONCRETE_BLOCKER_SOURCE_REVIEW_ONLY",
+      "gateway_manifest_matching_files": 178,
+      "release_allowed_paths": 1374,
+      "prior_limitations_removed": 0,
+      "qualification_or_limit_changes": 0,
+      "prior_root_changes_preserved_by_ancestry": true,
+      "renamed_reasoning_tests": {
+        "renames": 4,
+        "previous_priority_case_identities_removed": 0,
+        "behavior": "Helpers and rewrite roles retain explicit allowReasoning and reasoningModeOverride while dropping maximizeReasoning. Explicit OFF is strict and rejects unverified control support on the exact route. Route locks, tool prohibitions, permission/context/output constraints and primary-policy assertions remain.",
+        "qualification": "SOURCE_REVIEW_ONLY"
+      }
+    },
+    "device_expectation": {
+      "cases_each": 60,
+      "invocations_each": 22,
+      "prior_invocations_preserved": 21,
+      "new_cases": 2,
+      "new_case_boundary": "Actual Android production bound repository/client/receipt code over Ktor MockEngine; installed-revision receipts required; no live-account side effects."
+    },
+    "local_validation": {
+      "state": "PASSED_FOCUSED_CLASS20_TARGET_REPEATS_CANONICAL_FAST_FORMAT_ARCHITECTURE_INVENTORY_SCOPE",
+      "lightweight": {
+        "architecture": "PASS",
+        "app_audit_inventory": "PASS",
+        "production_files": 2306,
+        "areas": 26,
+        "release_scope": "PASS",
+        "allowed_paths": 1374,
+        "changed_test_ktlint": "PASS_RECHECKED_ON_FINAL_COMPLETE_SCOPE_CORRECTION"
+      },
+      "initial_incomplete_correction": {
+        "baseline": {
+          "cases": 11,
+          "passed": 10,
+          "failed": 1,
+          "failure": "leavingTheVisibleScreenStopsPollingWithoutStoppingTheJob; expected one refresh, observed two"
+        },
+        "fixed": {
+          "cases": 11,
+          "passed": 11,
+          "failed": 0,
+          "skipped": 0
+        },
+        "compiled_actual_files": 8,
+        "matching_cached_direct_support_files": 13,
+        "production_substitutes": false,
+        "runtime": "Pinned JDK21, Kotlin/Compose/serialization2.4.20, Robolectric4.17 SDK34, actual Android lifecycle/coroutine scheduler and original MockK mocks on the cached Android classpath",
+        "boundary": "Repository, conversation and control mocks remain original; validates real ViewModel scheduling, not actual network or generated Room execution",
+        "fixed_snapshot_and_live_drift": [],
+        "classpath_sha256": "1ece3ac9344e65118dd1efce278520eaafa4e3435e2367dd742de3b12f64ac96",
+        "evidence_sha256": {
+          "baseline/validation.json": "883a8fa85d87d10a52aba35385eaf4a952ae9a68ac8e12461de6f3c093c7d5c9",
+          "baseline/tests.log": "3ab11bb349e449aea4b4a1f177a10356f64c2f8ca1e05356316ebc8726d06109",
+          "fixed/validation.json": "70f4ab84faf134e2d9ad6a12383c6ed6c98533cfc6416ee748efffbfbeeabd30",
+          "fixed/tests.log": "ea34d9c194df8364d88b727aacbc24193527b23eaf6258585affd4471966d025"
+        },
+        "rejected_after_stability_check": {
+          "planned": 20,
+          "executed": 10,
+          "passed": 9,
+          "failed": 1,
+          "observed_refreshes": 5,
+          "expected_refreshes": 1,
+          "cause": "The polling coroutine used StandardTestDispatcher but the foreground StateFlow cancellation observer still used UnconfinedTestDispatcher.",
+          "decision": "Rejected; correct entire one test scope and revalidate from fresh snapshots."
+        }
+      },
+      "canonical_fast": {
+        "tests": 404,
+        "passed": 404,
+        "seconds": 23.764,
+        "literal_regex_patterns": 1328,
+        "dynamic_regex_not_evaluated": 77,
+        "resource_xml_files": 33,
+        "mock_http_failure_output": "EXPECTED_FIXTURES_NOT_REAL_DEPENDENCY_FAILURES",
+        "log_sha256": "0796646453e20b5c7d14f1a20cf155927c04b1047198cad46bae9dd87daf42f4"
+      },
+      "release_scope_worktree": {
+        "mode": "scoped",
+        "allowed_paths": 1374,
+        "changed_paths_including_worktree": 1233,
+        "new_allowed_paths": 0
+      },
+      "actual_source_comparison": {
+        "baseline": {
+          "source": "baseline/snapshot.json",
+          "classRun": {
+            "tests": 11,
+            "passed": 10,
+            "failures": 1
+          },
+          "failure": "leavingTheVisibleScreenStopsPollingWithoutStoppingTheJob: expected exactly 1 refresh, observed 2"
+        },
+        "initialPartialCorrection": {
+          "source": "fixed/snapshot.json",
+          "classRun": {
+            "tests": 11,
+            "passed": 11,
+            "failures": 0
+          },
+          "boundedRepetition": {
+            "executed": 10,
+            "passed": 9,
+            "failures": 1,
+            "stoppedOnFirstFailure": true
+          },
+          "failure": "Same lifecycle assertion: expected exactly 1 refresh, observed 5; foreground test scope remained Unconfined"
+        },
+        "correctedScope": {
+          "source": "fixed-scope/snapshot.json",
+          "classRun": {
+            "tests": 11,
+            "passed": 11,
+            "failures": 0,
+            "processExit": 0
+          },
+          "boundedRepetition": {
+            "executed": 20,
+            "passed": 20,
+            "failures": 0,
+            "ignored": 0,
+            "completeSuccessMarker": true
+          },
+          "launcherShutdown": {
+            "allRequestedJunitExecutionsFinished": true,
+            "successfulIterations": 20,
+            "launcherSourceSha256": "98f41da42d9583eb7437eae7fa5b433fc4e914b77a00c4368c52d776968c19bb",
+            "action": "After all 20 JUnit Results completed successfully and the success marker was flushed, the owning tool session was interrupted with Ctrl-C to close Robolectric non-daemon launcher threads.",
+            "pid": 274181,
+            "shutdownConfirmed": true,
+            "toolSessionExit": 130
+          }
+        },
+        "unchangedProductionSourceHashes": {
+          "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GatewayJobsViewModel.kt": "92a27d7bb74eea9e77933d8cb685a5af4759266ebc498d83bc241e5e924fe458",
+          "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayJobRepository.kt": "613f55b33eec5078c3aab1b56911160b56432873bf12927db116559dd4827b16",
+          "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayConversationRepository.kt": "f8a43f6ccb8393f6282a4ae4299f1ad279431eb7d1fef7bce02f87266acf1337",
+          "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayJobModels.kt": "7080819668cb0f0fff6bc45e69fd982188a3e2c15fbe2108fa4313edf6574778",
+          "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayVerifiedScopeStore.kt": "168925895fd530889a3a11efb32651c4add793a6e97c43663ff8bb977dc70bd2",
+          "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayAdmissionException.kt": "53b138d774818c15c7e94eba52a78dc745225868bf554bceb23c76398cfc944a",
+          "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/database/dao/GatewayJobDao.kt": "429b0d08fb8d4ab64591fb3200eb1018958ffc04ea50b0ae6c28104f22a38ea6"
+        },
+        "exactTestIdentities": {
+          "GatewayJobsViewModelTest": [
+            "offlineRefreshKeepsTheCachedOriginalJobAndDoesNotSubmitWork",
+            "repeatedOpenUsesOneReadAndNavigatesToTheSavedConversationOnce",
+            "anOpenFinishingAfterSelectionChangesCannotNavigateTheNewScreen",
+            "staleRowsCannotStopOrSendInstructionsThroughAnotherSelectedGateway",
+            "explicitStopUsesTheOriginalScopedJobAndKeepsRequestedDistinct",
+            "leavingTheVisibleScreenStopsPollingWithoutStoppingTheJob",
+            "anUnverifiedConfigurationCannotDisplayCachedAccountsOrUseTheirActions",
+            "offlineRowsAreFilteredToThePreviouslyVerifiedGatewayAndPrincipal",
+            "credentialRevisionChangeClearsCachedRowsAndPendingActionsBeforeTheNextPoll",
+            "aNewlyConfirmedPrincipalCannotKeepThePreviousAccountsRowsOrControls",
+            "unknownLegacyEvidenceRequiresAnExplicitReadOnlyViewAndNeverBecomesCurrentAccountRows"
+          ]
+        },
+        "fixedTestSha256": "b629efc0509c54b54f73c5121297966d118fb023c6bc31b40ec47055ac905a6b",
+        "compiledActualKotlinSources": 8,
+        "matchingCachedDirectSupportSourceCount": 13,
+        "runtimeBoundary": "Actual current GatewayJobsViewModel, its original 11-case test and six required current collaborator/type files recompiled first on the cached full Android classpath. Robolectric 4.17 SDK34, Android lifecycle, real coroutine dispatchers/test scheduler and original MockK mocks execute. No replacement production implementation. The original tests mock repository/conversation/control boundaries; this does not qualify actual network or generated Room DAO behavior. Generated resource config uses absolute paths to the same cached manifest/resources.",
+        "sourceDriftAfterAllJUnitResults": [],
+        "commands": [
+          "python run.py baseline",
+          "python run.py fixed",
+          "python run.py fixed-scope"
+        ],
+        "evidenceSha256": {
+          "baseline/tests.log": "3ab11bb349e449aea4b4a1f177a10356f64c2f8ca1e05356316ebc8726d06109",
+          "fixed/tests.log": "ea34d9c194df8364d88b727aacbc24193527b23eaf6258585affd4471966d025",
+          "fixed/stability.log": "dc132892869fbdf246ff160f70cb197645b8678b3db18ee23ac29164ea9b6f08",
+          "fixed-scope/tests.log": "e6d25de1b7966bb32c915fc56aea8ccd708f6c14427f55b627ad28a46a2ae9ed",
+          "fixed-scope/stability.log": "ea1b6ead18d195fd8420005598148ccdfa309626e03d4248db89106972d095b7",
+          "fixed-scope/executed-RepeatMethodRunner.java": "98f41da42d9583eb7437eae7fa5b433fc4e914b77a00c4368c52d776968c19bb"
+        }
+      },
+      "final_test_format": {
+        "status": "PASS",
+        "version": "ktlint1.3.1",
+        "source_sha256": "b629efc0509c54b54f73c5121297966d118fb023c6bc31b40ec47055ac905a6b",
+        "source_drift": [],
+        "receipt_sha256": "e7d189ab03da9da9d5e5ea94f7dab525f225624f9542c94fef2ad406fb3559c1"
+      }
+    },
+    "fresh_current_head_ci": "REQUIRED_AFTER_PUBLICATION; no superseded-run completeness claim",
+    "prior_head_api36": {
+      "head": "bcb72647703b8840ef4ae869804f90399bd0c97f",
+      "producer": "4a62843af2b9dd9cb7b00b76deaa41b3c2fb0afa",
+      "run_id": 42445836466,
+      "job_id": 128624514770,
+      "artifact_id": 13604281658,
+      "sha256_verified": "810c7a97b301fe94dda99e28c099199c8f9d22058af72987d48d57a5bc8039d5",
+      "cases_passed": 58,
+      "completed_invocations": 21,
+      "instrumentation_codes": [
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1
+      ],
+      "new_card_cases": "both source identities independently verified from retained raw packets",
+      "performance": {
+        "schema": 1,
+        "appCommit": "4a62843af2b9dd9cb7b00b76deaa41b3c2fb0afa",
+        "deviceFingerprint": "google/sdk_gphone64_x86_64/emu64xa:16/BE2A.250530.026.F3/13894323:userdebug/dev-keys",
+        "hardware": "ranchu",
+        "screenWidthDp": 320,
+        "densityDpi": 320,
+        "fontScale": 2,
+        "representativeDevice": false,
+        "samples": 100,
+        "qualification": "measurement_only",
+        "acknowledgedStarts": 100,
+        "unacknowledgedStarts": 0,
+        "recordedTotal": 100,
+        "recordedSuccess": 100,
+        "recordedInProgress": 0,
+        "coverageGap": false,
+        "acceptedStarts": {
+          "sample_count": 100
+        },
+        "writeAttemptP95Ms": 21.170586,
+        "summaryP95Ms": 8.916641,
+        "catalogParseP95Ms": 128.699945,
+        "writeAttemptNanos": {
+          "sample_count": 100
+        },
+        "queryNanos": {
+          "sample_count": 100
+        },
+        "catalogParseNanos": {
+          "sample_count": 20
+        }
+      }
+    },
+    "prior_head_api34_initial": {
+      "head": "bcb72647703b8840ef4ae869804f90399bd0c97f",
+      "run_id": 42445836466,
+      "job_id": 128624514537,
+      "artifact_id": 13603509030,
+      "sha256_verified": "c6a550b218a02c259bdd4fc6e91c0336b9b3f0fa9929222d0ec6fb605b5205e4",
+      "conclusion": "failure",
+      "failure_scope": "pre-instrumentation display application readiness barrier70of71",
+      "instrumentation_invocations": 0,
+      "completed_cases": 0,
+      "performance_json_present": false,
+      "crash_anr_log_matches": {
+        "^.*FATAL EXCEPTION.*$": [],
+        "^.*Fatal signal.*$": [],
+        "^.*ANR in.*$": [],
+        "^.*am_anr.*$": [],
+        "^.*am_crash.*$": [],
+        "^.*Start proc [^\\n]*:dev\\.melo\\.gptmobile\\.improved/(?!test)[^\\n]*$": [],
+        "^.*ProcessRecord\\{[^\\n]*:dev\\.melo\\.gptmobile\\.improved/[^\\n]*$": []
+      },
+      "process_error_flags": [],
+      "last_anr": "ACTIVITY MANAGER LAST ANR (dumpsys activity lastanr)\n  <no ANR has occurred since boot>",
+      "display": {
+        "schema_version": 3,
+        "status": "BLOCKED",
+        "phase": "display",
+        "reason": "Android did not confirm Finished application barriers! Last output: t 70 of 71...\nWaiting for application barriers, at 70 of 71...\nWaiting for application barriers, at 70 of 71...\nWaiting for application barriers, at 70 of 71...\nWaiting for application barriers, at 70 of 71...\nWaiting for application barriers, at 70 of 71...\nGave up waiting for application barriers!",
+        "app_under_test_changed": false,
+        "system_error_dialogs_suppressed": false
+      },
+      "home": {
+        "schema_version": 3,
+        "status": "PREPARED",
+        "home_component": "com.google.android.apps.nexuslauncher/.NexusLauncherActivity",
+        "resolver_home_candidates": null,
+        "readiness_attempts": 2,
+        "readiness_seconds": 21.534,
+        "boot_barrier_seconds": 19.577,
+        "home_selection_seconds": 0.022,
+        "selected_test_home": "dev.melo.gptmobile.improved.test/dev.chungjungsoo.gptmobile.test.EmulatorHomeActivity",
+        "stopped_system_launcher": null,
+        "system_launcher_disabled_by_setup": false,
+        "app_under_test_changed": false,
+        "system_error_dialogs_suppressed": false
+      }
+    },
+    "prior_head_api34_retry": {
+      "run": 42445836466,
+      "attempt": 2,
+      "job": 128629933136,
+      "state": "CANCELLED_DURING_COMPILATION_BY_NEW_HEAD",
+      "cases": 0,
+      "invocations": 0,
+      "source_changes": 0,
+      "timeout_or_assertion_changes": 0,
+      "successful_api36_reused_not_reexecuted": true
+    },
+    "prior_head_ui_review": {
+      "head": "bcb72647703b8840ef4ae869804f90399bd0c97f",
+      "producer": "4a62843af2b9dd9cb7b00b76deaa41b3c2fb0afa",
+      "tree": "8bfd8fe871823320c6fcbc414a4b2cc370f40733",
+      "run_id": 42445836555,
+      "job_id": 128624511350,
+      "conclusion": "success",
+      "dex": [
+        {
+          "apk": "app/build/outputs/apk/debug/app-arm64-v8a-debug.apk",
+          "dispatch_methods": 2946,
+          "maximum": 15834,
+          "max_method": {
+            "dex": "classes11.dex",
+            "class": "Ldev/chungjungsoo/gptmobile/data/repository/ChatRepositoryImpl;",
+            "method": "delegateToProfile",
+            "code_units": 15834,
+            "dex_instruction_bytes": 31668
+          },
+          "limit": 16383,
+          "over_limit": 0
+        },
+        {
+          "apk": "app/build/outputs/apk/debug/app-universal-debug.apk",
+          "dispatch_methods": 2946,
+          "maximum": 15834,
+          "max_method": {
+            "dex": "classes11.dex",
+            "class": "Ldev/chungjungsoo/gptmobile/data/repository/ChatRepositoryImpl;",
+            "method": "delegateToProfile",
+            "code_units": 15834,
+            "dex_instruction_bytes": 31668
+          },
+          "limit": 16383,
+          "over_limit": 0
+        },
+        {
+          "apk": "app/build/outputs/apk/debug/app-x86_64-debug.apk",
+          "dispatch_methods": 2946,
+          "maximum": 15834,
+          "max_method": {
+            "dex": "classes11.dex",
+            "class": "Ldev/chungjungsoo/gptmobile/data/repository/ChatRepositoryImpl;",
+            "method": "delegateToProfile",
+            "code_units": 15834,
+            "dex_instruction_bytes": 31668
+          },
+          "limit": 16383,
+          "over_limit": 0
+        }
+      ],
+      "packaged_checks": [
+        "app-arm64-v8a-debug.apk: MediaPipe Java/JNI definitions verified across 27 DEX files",
+        "app-arm64-v8a-debug.apk: ObjectBox scored-query JNI definitions verified across 27 DEX files",
+        "app-arm64-v8a-debug.apk: 17 pinned runtime libraries verified; 18 Android host libraries passed 16KB LOAD alignment",
+        "app-universal-debug.apk: MediaPipe Java/JNI definitions verified across 27 DEX files",
+        "app-universal-debug.apk: ObjectBox scored-query JNI definitions verified across 27 DEX files",
+        "app-universal-debug.apk: 18 pinned runtime libraries verified; 26 Android host libraries passed 16KB LOAD alignment",
+        "app-x86_64-debug.apk: MediaPipe Java/JNI definitions verified across 27 DEX files",
+        "app-x86_64-debug.apk: ObjectBox scored-query JNI definitions verified across 27 DEX files",
+        "app-x86_64-debug.apk: 1 pinned runtime libraries verified; 8 Android host libraries passed 16KB LOAD alignment",
+        "app-arm64-v8a-debug.apk: telemetry upload components absent",
+        "app-universal-debug.apk: telemetry upload components absent",
+        "app-x86_64-debug.apk: telemetry upload components absent"
+      ],
+      "artifact": {
+        "id": 13604430454,
+        "name": "draft-review-apk-813-4a62843af2b9dd9cb7b00b76deaa41b3c2fb0afa",
+        "size_in_bytes": 653800451,
+        "sha256_reported": "sha256:1546f204bc1b59e4d11c37e7cfda328f8a0afda72ac83313871af10f473eaeab",
+        "locally_downloaded": false
+      },
+      "benchmark_scope": "Compilation only; no benchmark execution",
+      "device_scope": "Packaged APK gates do not establish physical-device installation or hardware inference"
+    },
+    "fresh_current_head_expectation": {
+      "priority_classes": 99,
+      "priority_cases": 962,
+      "ordinary_cases_source_inferred": 8095,
+      "actual_complete_xml_required": true,
+      "prior_priority_classes_preserved": 61,
+      "prior_priority_identities_preserved": 610,
+      "device_cases_each": 60,
+      "device_invocations_each": 22,
+      "dedicated_heap_cases": 5,
+      "room_version": 51,
+      "committed_room51_sha256": "20761194ba2e9f96b8fb6769458fd05a089153baf08bbd46d5a6210769a0e708",
+      "identity_manifest_sha256": "52641c4c0b2b92e822109b3df9882943eeb742f9c8f39f70938edf724ae37418",
+      "parent_ordinary_case_count_confirmed_by_two_complete_xml_runs": true
+    },
+    "incoming_parent_api36": {
+      "head": "b18ddc95c223e4703c07af44334bb8db547669bb",
+      "producer": "9f86828405c4bfef0133a9b944ffbf562447fd3b",
+      "run_id": 42447961532,
+      "job_id": 128630868568,
+      "artifact_id": 13604638390,
+      "zip": "/workspace/scratch/1f19eeb932ce/ci-b18-api36.zip",
+      "sha256_verified": "aad4c6371bcd1aaa738ffa6bd700a1b0974901a4b8685017946d95b7050479ad",
+      "bytes": 10943097,
+      "cases_passed": 60,
+      "completed_invocations": 22,
+      "performance": {
+        "schema": 1,
+        "appCommit": "9f86828405c4bfef0133a9b944ffbf562447fd3b",
+        "deviceFingerprint": "google/sdk_gphone64_x86_64/emu64xa:16/BE2A.250530.026.F3/13894323:userdebug/dev-keys",
+        "hardware": "ranchu",
+        "screenWidthDp": 320,
+        "densityDpi": 320,
+        "fontScale": 2,
+        "representativeDevice": false,
+        "samples": 100,
+        "qualification": "measurement_only",
+        "acknowledgedStarts": 100,
+        "unacknowledgedStarts": 0,
+        "recordedTotal": 100,
+        "recordedSuccess": 100,
+        "recordedInProgress": 0,
+        "coverageGap": false,
+        "acceptedStarts": {
+          "sample_count": 100
+        },
+        "writeAttemptP95Ms": 40.916821,
+        "summaryP95Ms": 17.017563,
+        "catalogParseP95Ms": 101.2871,
+        "writeAttemptNanos": {
+          "sample_count": 100
+        },
+        "queryNanos": {
+          "sample_count": 100
+        },
+        "catalogParseNanos": {
+          "sample_count": 20
+        }
+      },
+      "bound_transport_receipts": {
+        "bound-read": {
+          "schema": "github.android-stub-acceptance.v1",
+          "test": "bound-read",
+          "result": "PASS",
+          "runtime": {
+            "application_id": "dev.melo.gptmobile.improved",
+            "version_name": "0.9.66.6",
+            "version_code": 140,
+            "build_type": "debug",
+            "app_source_sha": "9f86828405c4bfef0133a9b944ffbf562447fd3b",
+            "identity_source": "RUNNING_PROCESS_BUILD_CONFIG",
+            "device_environment": {
+              "manufacturer": "Google",
+              "model": "sdk_gphone64_x86_64",
+              "device": "emu64xa",
+              "sdk_int": 36,
+              "scope": "Runtime environment metadata; no device test execution implied"
+            },
+            "device_test_status": "NOT_TESTED"
+          },
+          "repository_commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "transport": "KTOR_MOCK_ENGINE",
+          "evidence_class": "CURRENT_DEVICE_STUB_EXECUTION",
+          "live_account_execution": false,
+          "live_side_effects": 0,
+          "stub_http_requests": 3,
+          "elapsed_realtime_ms": 323,
+          "assertions": {
+            "repository_bound": true,
+            "foreign_target_dispatched": false
+          }
+        },
+        "owned-deletion": {
+          "schema": "github.android-stub-acceptance.v1",
+          "test": "owned-deletion",
+          "result": "PASS",
+          "runtime": {
+            "application_id": "dev.melo.gptmobile.improved",
+            "version_name": "0.9.66.6",
+            "version_code": 140,
+            "build_type": "debug",
+            "app_source_sha": "9f86828405c4bfef0133a9b944ffbf562447fd3b",
+            "identity_source": "RUNNING_PROCESS_BUILD_CONFIG",
+            "device_environment": {
+              "manufacturer": "Google",
+              "model": "sdk_gphone64_x86_64",
+              "device": "emu64xa",
+              "sdk_int": 36,
+              "scope": "Runtime environment metadata; no device test execution implied"
+            },
+            "device_test_status": "NOT_TESTED"
+          },
+          "repository_commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "transport": "KTOR_MOCK_ENGINE",
+          "evidence_class": "CURRENT_DEVICE_STUB_EXECUTION",
+          "live_account_execution": false,
+          "live_side_effects": 0,
+          "stub_http_requests": 17,
+          "elapsed_realtime_ms": 101,
+          "assertions": {
+            "delete_requests": 1,
+            "exact_ref_absence_observed": true,
+            "restored_reconciliation_read_only": true,
+            "generic_missing_ref_rejected": true
+          }
+        }
+      }
+    },
+    "incoming_parent_producer_verification": {
+      "sha": "9f86828405c4bfef0133a9b944ffbf562447fd3b",
+      "parents": [
+        "3ac89ceafd9083f67da30e92f9f93aae27be4600",
+        "b18ddc95c223e4703c07af44334bb8db547669bb"
+      ],
+      "tree": "b8b289cbd13fc4bff2a03b14f964345a33c7db25",
+      "immutable_git_metadata_independently_verified": true,
+      "tree_equals_parent_head_tree": true
+    },
+    "incoming_parent_api34": {
+      "head": "b18ddc95c223e4703c07af44334bb8db547669bb",
+      "producer": "9f86828405c4bfef0133a9b944ffbf562447fd3b",
+      "run_id": 42447961532,
+      "job_id": 128630868715,
+      "artifact_id": 13604838811,
+      "sha256_verified": "09d945caa54b64ea355178538a694e61c3cd6ca5cd679ab13dbc5e54da689cc9",
+      "conclusion": "failure",
+      "cases_run": 60,
+      "individual_passes": 59,
+      "failed_cases": 1,
+      "returned_invocations": 22,
+      "failed_method": "ConversationGlassInstrumentedTest.conversationGlassFiltersDetailInBothControls",
+      "failure": "ComposeTimeoutException at WindowCapture.forceRedraw/captureToImage before pixel assertions",
+      "crash_anr_lines": [],
+      "last_anr": "ACTIVITY MANAGER LAST ANR (dumpsys activity lastanr)\n  <no ANR has occurred since boot>\n",
+      "performance": {
+        "schema": 1,
+        "appCommit": "9f86828405c4bfef0133a9b944ffbf562447fd3b",
+        "deviceFingerprint": "google/sdk_gphone64_x86_64/emu64xa:14/UE1A.230829.050/12077443:userdebug/dev-keys",
+        "hardware": "ranchu",
+        "screenWidthDp": 320,
+        "densityDpi": 320,
+        "fontScale": 2,
+        "representativeDevice": false,
+        "samples": 100,
+        "qualification": "measurement_only",
+        "acknowledgedStarts": 100,
+        "unacknowledgedStarts": 0,
+        "recordedTotal": 100,
+        "recordedSuccess": 100,
+        "recordedInProgress": 0,
+        "coverageGap": false,
+        "acceptedStarts": {
+          "sample_count": 100
+        },
+        "writeAttemptP95Ms": 104.263363,
+        "summaryP95Ms": 43.910236,
+        "catalogParseP95Ms": 930.411382,
+        "writeAttemptNanos": {
+          "sample_count": 100
+        },
+        "queryNanos": {
+          "sample_count": 100
+        },
+        "catalogParseNanos": {
+          "sample_count": 20
+        }
+      },
+      "bound_transport_receipts": {
+        "bound-read": {
+          "schema": "github.android-stub-acceptance.v1",
+          "test": "bound-read",
+          "result": "PASS",
+          "runtime": {
+            "application_id": "dev.melo.gptmobile.improved",
+            "version_name": "0.9.66.6",
+            "version_code": 140,
+            "build_type": "debug",
+            "app_source_sha": "9f86828405c4bfef0133a9b944ffbf562447fd3b",
+            "identity_source": "RUNNING_PROCESS_BUILD_CONFIG",
+            "device_environment": {
+              "manufacturer": "Google",
+              "model": "sdk_gphone64_x86_64",
+              "device": "emu64xa",
+              "sdk_int": 34,
+              "scope": "Runtime environment metadata; no device test execution implied"
+            },
+            "device_test_status": "NOT_TESTED"
+          },
+          "repository_commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "transport": "KTOR_MOCK_ENGINE",
+          "evidence_class": "CURRENT_DEVICE_STUB_EXECUTION",
+          "live_account_execution": false,
+          "live_side_effects": 0,
+          "stub_http_requests": 3,
+          "elapsed_realtime_ms": 980,
+          "assertions": {
+            "repository_bound": true,
+            "foreign_target_dispatched": false
+          }
+        },
+        "owned-deletion": {
+          "schema": "github.android-stub-acceptance.v1",
+          "test": "owned-deletion",
+          "result": "PASS",
+          "runtime": {
+            "application_id": "dev.melo.gptmobile.improved",
+            "version_name": "0.9.66.6",
+            "version_code": 140,
+            "build_type": "debug",
+            "app_source_sha": "9f86828405c4bfef0133a9b944ffbf562447fd3b",
+            "identity_source": "RUNNING_PROCESS_BUILD_CONFIG",
+            "device_environment": {
+              "manufacturer": "Google",
+              "model": "sdk_gphone64_x86_64",
+              "device": "emu64xa",
+              "sdk_int": 34,
+              "scope": "Runtime environment metadata; no device test execution implied"
+            },
+            "device_test_status": "NOT_TESTED"
+          },
+          "repository_commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "transport": "KTOR_MOCK_ENGINE",
+          "evidence_class": "CURRENT_DEVICE_STUB_EXECUTION",
+          "live_account_execution": false,
+          "live_side_effects": 0,
+          "stub_http_requests": 17,
+          "elapsed_realtime_ms": 721,
+          "assertions": {
+            "delete_requests": 1,
+            "exact_ref_absence_observed": true,
+            "restored_reconciliation_read_only": true,
+            "generic_missing_ref_rejected": true
+          }
+        }
+      },
+      "receipt_validation_scope": "independent retained-artifact checks; CI final verifier exited earlier at failed glass packet",
+      "glass_investigation": {
+        "app_pid": 7156,
+        "failed_stage": "first light-theme filtered sample after valid sharp baseline",
+        "valid_sharp_light_png": true,
+        "missing_png_entries_are_adb_error_text": [
+          "conversation-glass-blur-light.png",
+          "conversation-glass-blur-dark.png",
+          "conversation-glass-sharp-dark.png"
+        ],
+        "frame_duration_ms": 2657,
+        "issue_draw_commands_to_swap_ms": 2257.930228,
+        "frame_complete_after_draw_commands_ms": 2390.915266,
+        "active_window_evidence": "Activity remains RESUMED until teardown; retained sharp baseline unobstructed",
+        "same_producer_api36": "All four blur assertions passed; sharp and filtered images retained",
+        "boundary": "Measured late emulator RenderThread commit; no demonstrated callback race or blur visual regression",
+        "source_decision": "Keep existing 2s frame-commit fence and every visual assertion; no source change justified by this sample alone"
+      }
+    },
+    "incoming_parent_ui_review": {
+      "head": "b18ddc95c223e4703c07af44334bb8db547669bb",
+      "producer": "9f86828405c4bfef0133a9b944ffbf562447fd3b",
+      "tree": "b8b289cbd13fc4bff2a03b14f964345a33c7db25",
+      "run_id": 42447961598,
+      "job_id": 128630818274,
+      "conclusion": "success",
+      "dex": [
+        {
+          "apk": "app/build/outputs/apk/debug/app-arm64-v8a-debug.apk",
+          "dispatch_methods": 3088,
+          "maximum": 15834,
+          "max_method": {
+            "dex": "classes11.dex",
+            "class": "Ldev/chungjungsoo/gptmobile/data/repository/ChatRepositoryImpl;",
+            "method": "delegateToProfile",
+            "code_units": 15834,
+            "dex_instruction_bytes": 31668
+          },
+          "limit": 16383,
+          "over_limit": 0
+        },
+        {
+          "apk": "app/build/outputs/apk/debug/app-universal-debug.apk",
+          "dispatch_methods": 3088,
+          "maximum": 15834,
+          "max_method": {
+            "dex": "classes11.dex",
+            "class": "Ldev/chungjungsoo/gptmobile/data/repository/ChatRepositoryImpl;",
+            "method": "delegateToProfile",
+            "code_units": 15834,
+            "dex_instruction_bytes": 31668
+          },
+          "limit": 16383,
+          "over_limit": 0
+        },
+        {
+          "apk": "app/build/outputs/apk/debug/app-x86_64-debug.apk",
+          "dispatch_methods": 3088,
+          "maximum": 15834,
+          "max_method": {
+            "dex": "classes11.dex",
+            "class": "Ldev/chungjungsoo/gptmobile/data/repository/ChatRepositoryImpl;",
+            "method": "delegateToProfile",
+            "code_units": 15834,
+            "dex_instruction_bytes": 31668
+          },
+          "limit": 16383,
+          "over_limit": 0
+        }
+      ],
+      "packaged_checks": [
+        "app-arm64-v8a-debug.apk: MediaPipe Java/JNI definitions verified across 27 DEX files",
+        "app-arm64-v8a-debug.apk: ObjectBox scored-query JNI definitions verified across 27 DEX files",
+        "app-arm64-v8a-debug.apk: 17 pinned runtime libraries verified; 18 Android host libraries passed 16KB LOAD alignment",
+        "app-universal-debug.apk: MediaPipe Java/JNI definitions verified across 27 DEX files",
+        "app-universal-debug.apk: ObjectBox scored-query JNI definitions verified across 27 DEX files",
+        "app-universal-debug.apk: 18 pinned runtime libraries verified; 26 Android host libraries passed 16KB LOAD alignment",
+        "app-x86_64-debug.apk: MediaPipe Java/JNI definitions verified across 27 DEX files",
+        "app-x86_64-debug.apk: ObjectBox scored-query JNI definitions verified across 27 DEX files",
+        "app-x86_64-debug.apk: 1 pinned runtime libraries verified; 8 Android host libraries passed 16KB LOAD alignment",
+        "app-arm64-v8a-debug.apk: telemetry upload components absent",
+        "app-universal-debug.apk: telemetry upload components absent",
+        "app-x86_64-debug.apk: telemetry upload components absent"
+      ],
+      "artifact": {
+        "id": 13604714344,
+        "name": "draft-review-apk-813-9f86828405c4bfef0133a9b944ffbf562447fd3b",
+        "size_in_bytes": 654243559,
+        "sha256_reported": "sha256:25cbcdcfe608d5bd81ccb6a3290d6349728c50a50cb0a7c48d583b78093c5c47",
+        "locally_downloaded": false
+      },
+      "benchmark_scope": "Compilation only; no benchmark execution",
+      "device_scope": "Packaged APK gates do not establish physical-device installation or hardware inference"
+    },
+    "incoming_parent_glass_decision": {
+      "source_changed": false,
+      "assertions_or_timeouts_changed": false,
+      "rerun_superseded_parent": false,
+      "observed": "Capture failed before pixel comparison during a 2.657 s HWUI frame with 2.258 s IssueDrawCommands-to-SwapBuffers. Fixture was RESUMED and unobstructed; no crash/ANR observed.",
+      "interpretation": "No independent capture synchronization defect or failed visual threshold is demonstrated. The cause of the late frame is not proven external. Preserve original frame-commit fence and requalify the unchanged renderer on the forthcoming combined source."
+    }
+  },
+  "metadata_read_fixture_followup": {
+    "parent_head": "b18ddc95c223e4703c07af44334bb8db547669bb",
+    "cause": "GatewayAPIImpl and LlamaCapacityRepository metadata GETs now use NetworkClient.gatewayReadClient, while two non-relaxed shared test helpers stubbed only invoke. They fail before the fixture engine can observe intended capability/result calls.",
+    "change": "One explicit gatewayReadClient stub in each helper returning the same existing closed HTTP fixture client.",
+    "production_changed": false,
+    "assertions_removed_or_relaxed": 0,
+    "test_identities_unchanged": {
+      "OpenAIRecoveryTransportTest": 16,
+      "GatewayCommandDispatchTest": 7
+    },
+    "guards_preserved": [
+      "Exact discovery and saved-result paths and GET methods",
+      "Reservation before model POST",
+      "Original command identity and payload across allowed retry",
+      "No replay after possible server-side mutation",
+      "Cancellation prevents provider dispatch",
+      "Separate production metadata connection pool and bounded GET-only retry"
+    ],
+    "source_sha256": {
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/OpenAIRecoveryTransportTest.kt": "818eb24c5c2b116f14390d571e2b7d0ecff58dd929ed4903843ec0b50983e9cb",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/GatewayCommandDispatchTest.kt": "a0963f560563dae780833cd10a64191c61b6918ffb0d8ec2532b2f8766a070cf"
+    },
+    "validation": {
+      "head": "b18ddc95c223e4703c07af44334bb8db547669bb",
+      "cause": "NetworkClient now has a dedicated gatewayReadClient for bounded metadata and result GETs. Both original non-relaxed mocks stubbed only invoke(), so those reads failed before reaching the test MockEngine.",
+      "correction": "Exactly one gatewayReadClient() return stub added in each existing helper; all 23 original test identities and assertions retained.",
+      "productionChangedByCorrection": false,
+      "identicalCurrentProductionSnapshots": 18,
+      "matchingCachedDirectSupportSources": 94,
+      "runtimeClasspathEntries": 448,
+      "baseline": {
+        "selectors": [
+          "dev.chungjungsoo.gptmobile.data.network.OpenAIRecoveryTransportTest#initialGatewayDiscoveryFailureNeverDispatchesAnUnisolatedModelRequest",
+          "dev.chungjungsoo.gptmobile.data.network.GatewayCommandDispatchTest#failedLocalReservationNeverPostsAModelRequestOrClaimsAdmission"
+        ],
+        "run": 2,
+        "failed": 2,
+        "exit": 1,
+        "observedAssertions": [
+          "capabilities path expected [/v1/gateway/capabilities], observed []",
+          "reservation callback expected 1, observed 0"
+        ],
+        "receipt": "baseline/validation.json"
+      },
+      "fixed": {
+        "run": 23,
+        "passed": 23,
+        "failed": 0,
+        "skipped": 0,
+        "exit": 0,
+        "originalCaseIdentities": [
+          {
+            "status": "PASS",
+            "identity": "dev.chungjungsoo.gptmobile.data.network.OpenAIRecoveryTransportTest#responses capability rejection removes only unsupported sampling and retries"
+          },
+          {
+            "status": "PASS",
+            "identity": "dev.chungjungsoo.gptmobile.data.network.OpenAIRecoveryTransportTest#initialGatewayDiscoveryFailureNeverDispatchesAnUnisolatedModelRequest"
+          },
+          {
+            "status": "PASS",
+            "identity": "dev.chungjungsoo.gptmobile.data.network.OpenAIRecoveryTransportTest#gatewayObservationsRequireHeaderProofAndRequestSnapshotSurvivesBothResponseFormats"
+          },
+          {
+            "status": "PASS",
+            "identity": "dev.chungjungsoo.gptmobile.data.network.OpenAIRecoveryTransportTest#samplingRejectionAfterPossibleGatewayMutationDoesNotReplayEitherPhysicalTransport"
+          },
+          {
+            "status": "PASS",
+            "identity": "dev.chungjungsoo.gptmobile.data.network.OpenAIRecoveryTransportTest#permanent DNS outage stops after three attempts"
+          },
+          {
+            "status": "PASS",
+            "identity": "dev.chungjungsoo.gptmobile.data.network.OpenAIRecoveryTransportTest#boundedHttpRetriesRetainKnownProviderFailureInBothTransports"
+          },
+          {
+            "status": "PASS",
+            "identity": "dev.chungjungsoo.gptmobile.data.network.OpenAIRecoveryTransportTest#gateway transient error retries before output but never after gateway tool execution"
+          },
+          {
+            "status": "PASS",
+            "identity": "dev.chungjungsoo.gptmobile.data.network.OpenAIRecoveryTransportTest#incompleteFailedMismatchedOrToolOnlyTerminalReceiptsNeverReplayWork"
+          },
+          {
+            "status": "PASS",
+            "identity": "dev.chungjungsoo.gptmobile.data.network.OpenAIRecoveryTransportTest#malformedChunkAfterUsableTextDegradesTheStreamAndDoesNotCommitTools"
+          },
+          {
+            "status": "PASS",
+            "identity": "dev.chungjungsoo.gptmobile.data.network.OpenAIRecoveryTransportTest#knownDeviceOutageRetainsTypedPrecheckEvidenceWithoutProviderDispatch"
+          },
+          {
+            "status": "PASS",
+            "identity": "dev.chungjungsoo.gptmobile.data.network.OpenAIRecoveryTransportTest#terminalJobConflictReadsItsSavedResultOnceWithoutRepeatingInferenceOrTools"
+          },
+          {
+            "status": "PASS",
+            "identity": "dev.chungjungsoo.gptmobile.data.network.OpenAIRecoveryTransportTest#unclassifiedProviderExceptionDoesNotInventATransportStage"
+          },
+          {
+            "status": "PASS",
+            "identity": "dev.chungjungsoo.gptmobile.data.network.OpenAIRecoveryTransportTest#partial stream ends as transport error and is never replayed"
+          },
+          {
+            "status": "PASS",
+            "identity": "dev.chungjungsoo.gptmobile.data.network.OpenAIRecoveryTransportTest#transient DNS failure gets bounded retries before primary handoff fails"
+          },
+          {
+            "status": "PASS",
+            "identity": "dev.chungjungsoo.gptmobile.data.network.OpenAIRecoveryTransportTest#knownHttpFailureDoesNotOverrideAnAmbiguousGatewayMutation"
+          },
+          {
+            "status": "PASS",
+            "identity": "dev.chungjungsoo.gptmobile.data.network.OpenAIRecoveryTransportTest#gatewayToolRequestIsNotReplayedWhenConnectionClosesBeforeAnyProgress"
+          },
+          {
+            "status": "PASS",
+            "identity": "dev.chungjungsoo.gptmobile.data.network.GatewayCommandDispatchTest#lostTransportReplyRetriesTheSameReservedCommandAndPayload"
+          },
+          {
+            "status": "PASS",
+            "identity": "dev.chungjungsoo.gptmobile.data.network.GatewayCommandDispatchTest#privateAndInternalRequestsDisableStorageAndNeverReserve"
+          },
+          {
+            "status": "PASS",
+            "identity": "dev.chungjungsoo.gptmobile.data.network.GatewayCommandDispatchTest#directAndExplicitlyUnsupportedProvidersNeverReserveOrReceiveGatewayMetadata"
+          },
+          {
+            "status": "PASS",
+            "identity": "dev.chungjungsoo.gptmobile.data.network.GatewayCommandDispatchTest#reservationMustFinishBeforeFirstModelPostAndUsesTheWireCommand"
+          },
+          {
+            "status": "PASS",
+            "identity": "dev.chungjungsoo.gptmobile.data.network.GatewayCommandDispatchTest#failedLocalReservationNeverPostsAModelRequestOrClaimsAdmission"
+          },
+          {
+            "status": "PASS",
+            "identity": "dev.chungjungsoo.gptmobile.data.network.GatewayCommandDispatchTest#missingReservationWiringCannotCreateAnUntrackedPersistentJob"
+          },
+          {
+            "status": "PASS",
+            "identity": "dev.chungjungsoo.gptmobile.data.network.GatewayCommandDispatchTest#cancellationAfterLocalCommitStillPreventsModelDispatch"
+          }
+        ],
+        "receipt": "fixed/validation.json",
+        "testSeconds": 47.21
+      },
+      "sourceDrift": {
+        "snapshot": [],
+        "live": [],
+        "support": []
+      },
+      "runtimeBoundary": "18 actual current production transport, gateway negotiation, read-client, discovery, admission, provenance and error-classification sources plus both original test files recompiled first on the pinned full Android classpath. 94 direct supporting source files are byte-identical to their cached originals. Actual Ktor MockEngine/HttpClient and original non-relaxed MockK NetworkClient fixtures execute; no replacement production implementation. Baseline selects two original immediate failures so an unfulfilled callback cannot stall the whole class. Fixed executes both full original classes. This focused test does not qualify actual sockets, generated Room DAOs, or unrelated Android/Compose lifecycle behavior.",
+      "testSourceHashes": {
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/OpenAIRecoveryTransportTest.kt": "818eb24c5c2b116f14390d571e2b7d0ecff58dd929ed4903843ec0b50983e9cb",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/GatewayCommandDispatchTest.kt": "a0963f560563dae780833cd10a64191c61b6918ffb0d8ec2532b2f8766a070cf"
+      },
+      "runnerSourceSha256": "3ba007bb73eb7cc6c45a3c22b0059bcf9e5ae0bea176af0cffa598d4346badc1",
+      "commands": [
+        "python run.py baseline",
+        "python run.py fixed"
+      ],
+      "shutdown": "Both Java processes exited themselves with the expected code; no manual termination or repeated optional tests."
+    },
+    "unpublished_prior_candidate": "The polling-only candidate was never attached to the branch and never replaced the PR description; this fixture correction is included before publication.",
+    "bounded_mock_review": {
+      "ordinary_test_files": 16,
+      "nonrelaxed_network_mocks": 59,
+      "actual_gateway_discovery_recovery_mocks": 30,
+      "all_gateway_mocks_now_stub_read_client": true,
+      "unaffected_free_provider_mocks": 29,
+      "unaffected_free_provider_files": 5,
+      "additional_concrete_missing_stubs": 0,
+      "qualification": "Read-only source/call-path review, not runtime execution."
+    },
+    "baseline_negative_control": {
+      "actual_production_sources": 18,
+      "actual_test_files": 2,
+      "matching_cached_direct_support_files": 94,
+      "selected_original_cases": 2,
+      "expected_failures": 2,
+      "observed": [
+        "Capability discovery expected its exact path; actual request path list was empty",
+        "Reservation callback expected1 invocation; actual0"
+      ],
+      "assertions_reached": true,
+      "qualification": "Confirmed by the final fixed23/23case comparison with identical actual production snapshots."
+    },
+    "complete_parent_preview": {
+      "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+      "workflow": "GenieX preview validation",
+      "run_id": 42447961558,
+      "job_id": 128630817785,
+      "attempt": 1,
+      "job_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/42447961558/job/128630817785",
+      "head_sha": "b18ddc95c223e4703c07af44334bb8db547669bb",
+      "base_sha": "3ac89ceafd9083f67da30e92f9f93aae27be4600",
+      "checkout_producer": {
+        "sha": "9f86828405c4bfef0133a9b944ffbf562447fd3b",
+        "tree": "b8b289cbd13fc4bff2a03b14f964345a33c7db25",
+        "parents": [
+          "3ac89ceafd9083f67da30e92f9f93aae27be4600",
+          "b18ddc95c223e4703c07af44334bb8db547669bb"
+        ],
+        "verified_from": "Terminal checkout log plus immutable GitHub commit metadata; merge tree equals the exact head tree."
+      },
+      "outcome": "FAILURE",
+      "failed_step": "Run isolated preview unit tests",
+      "generation_and_compilation": "PASSED",
+      "execution_complete": true,
+      "total_tests": 8095,
+      "passed": 8078,
+      "failed": 12,
+      "errors": 0,
+      "skipped": 5,
+      "xml_suites": 1273,
+      "failing_methods": [
+        {
+          "class": "dev.chungjungsoo.gptmobile.data.network.GatewayCommandDispatchTest",
+          "case": "lostTransportReplyRetriesTheSameReservedCommandAndPayload",
+          "kind": "failure",
+          "message": "java.lang.AssertionError"
+        },
+        {
+          "class": "dev.chungjungsoo.gptmobile.data.network.GatewayCommandDispatchTest",
+          "case": "privateAndInternalRequestsDisableStorageAndNeverReserve",
+          "kind": "failure",
+          "message": "java.lang.AssertionError"
+        },
+        {
+          "class": "dev.chungjungsoo.gptmobile.data.network.GatewayCommandDispatchTest",
+          "case": "directAndExplicitlyUnsupportedProvidersNeverReserveOrReceiveGatewayMetadata",
+          "kind": "failure",
+          "message": "java.lang.AssertionError"
+        },
+        {
+          "class": "dev.chungjungsoo.gptmobile.data.network.GatewayCommandDispatchTest",
+          "case": "reservationMustFinishBeforeFirstModelPostAndUsesTheWireCommand",
+          "kind": "failure",
+          "message": "kotlinx.coroutines.test.UncompletedCoroutinesError: After waiting for 1m, the test body did not run to completion"
+        },
+        {
+          "class": "dev.chungjungsoo.gptmobile.data.network.GatewayCommandDispatchTest",
+          "case": "failedLocalReservationNeverPostsAModelRequestOrClaimsAdmission",
+          "kind": "failure",
+          "message": "java.lang.AssertionError: expected:<1> but was:<0>"
+        },
+        {
+          "class": "dev.chungjungsoo.gptmobile.data.network.GatewayCommandDispatchTest",
+          "case": "cancellationAfterLocalCommitStillPreventsModelDispatch",
+          "kind": "failure",
+          "message": "kotlinx.coroutines.test.UncompletedCoroutinesError: After waiting for 1m, the test body did not run to completion"
+        },
+        {
+          "class": "dev.chungjungsoo.gptmobile.data.network.OpenAIRecoveryTransportTest",
+          "case": "initialGatewayDiscoveryFailureNeverDispatchesAnUnisolatedModelRequest",
+          "kind": "failure",
+          "message": "java.lang.AssertionError: expected:<[/v1/gateway/capabilities]> but was:<[]>"
+        },
+        {
+          "class": "dev.chungjungsoo.gptmobile.data.network.OpenAIRecoveryTransportTest",
+          "case": "samplingRejectionAfterPossibleGatewayMutationDoesNotReplayEitherPhysicalTransport",
+          "kind": "failure",
+          "message": "java.lang.AssertionError: expected:<false> but was:<true>"
+        },
+        {
+          "class": "dev.chungjungsoo.gptmobile.data.network.OpenAIRecoveryTransportTest",
+          "case": "incompleteFailedMismatchedOrToolOnlyTerminalReceiptsNeverReplayWork",
+          "kind": "failure",
+          "message": "java.lang.AssertionError: partial expected:<1> but was:<0>"
+        },
+        {
+          "class": "dev.chungjungsoo.gptmobile.data.network.OpenAIRecoveryTransportTest",
+          "case": "terminalJobConflictReadsItsSavedResultOnceWithoutRepeatingInferenceOrTools",
+          "kind": "failure",
+          "message": "java.util.NoSuchElementException: Collection contains no element matching the predicate."
+        },
+        {
+          "class": "dev.chungjungsoo.gptmobile.data.network.OpenAIRecoveryTransportTest",
+          "case": "knownHttpFailureDoesNotOverrideAnAmbiguousGatewayMutation",
+          "kind": "failure",
+          "message": "org.junit.ComparisonFailure: expected:<[GATEWAY_OUTCOME_UNKNOWN]> but was:<[PROVIDER_INVOCATION_FAILED]>"
+        },
+        {
+          "class": "dev.chungjungsoo.gptmobile.data.network.OpenAIRecoveryTransportTest",
+          "case": "gatewayToolRequestIsNotReplayedWhenConnectionClosesBeforeAnyProgress",
+          "kind": "failure",
+          "message": "org.junit.ComparisonFailure: expected:<[GATEWAY_OUTCOME_UNKNOWN]> but was:<[PROVIDER_INVOCATION_FAILED]>"
+        }
+      ],
+      "failure_class_counts": {
+        "dev.chungjungsoo.gptmobile.data.network.GatewayCommandDispatchTest": 6,
+        "dev.chungjungsoo.gptmobile.data.network.OpenAIRecoveryTransportTest": 6
+      },
+      "priority_identity_check": {
+        "expected_classes": 99,
+        "expected_cases": 962,
+        "missing_classes": [],
+        "case_mismatches": [],
+        "qualification": "All expected source identities are present; this is not a pass claim for the 12 failed cases."
+      },
+      "retained_terminal_log": {
+        "path": "ci-b18-preview-128630817785.log",
+        "bytes": 1787182,
+        "sha256": "8841641c18815a276b56d6e9ed0148ea315b683965b1d6f5100792665300ad2c"
+      },
+      "junit_artifact": {
+        "id": 13605280909,
+        "path": "preview-b18-unit.zip",
+        "bytes": 980937,
+        "sha256": "8ce1ec1879c878237362977c839343b24a8f825345a3c56a808437b98259446e",
+        "digest_verified_by": "gateway_telemetry against GitHub artifact digest; independently re-hashed locally here",
+        "summary_path": "preview-b18-unit-summary.json",
+        "summary_sha256": "9bca4d65e3fc539e4f372dad2106c2876d377bb0e28381792e6713fa6cf4f86c"
+      },
+      "qualification": "Complete actual CI result for exact b18 producer before pending fixture fixes. No rerun, repaired-source or release/device qualification is inferred. Local fix validation remains separate."
+    },
+    "complete_parent_preview_xml": {
+      "head": "b18ddc95c223e4703c07af44334bb8db547669bb",
+      "artifactId": 13605280909,
+      "zip": "preview-b18-unit.zip",
+      "zipSha256": "8ce1ec1879c878237362977c839343b24a8f825345a3c56a808437b98259446e",
+      "counts": {
+        "tests": 8095,
+        "failures": 12,
+        "errors": 0,
+        "skipped": 5,
+        "passed": 8078
+      },
+      "xmlReports": 1273,
+      "priorityManifest": "b18-expected-focused-tests.json",
+      "priorityManifestSha256": "52641c4c0b2b92e822109b3df9882943eeb742f9c8f39f70938edf724ae37418",
+      "priorityClasses": 99,
+      "priorityExpectedIdentities": 962,
+      "missingPriorityClasses": [],
+      "priorityIdentityMismatches": [],
+      "skipIdentities": [
+        "dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkColdStreamingExportHeapTest.fortyEightMiBOfColdCanonicalRoomHistoryStreamsWithoutHydrationOrMirrorParsing",
+        "dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkStreamingExportHeapTest.moreThanFortyMiBOfRawHistoryAndAttemptCopiesStreamsWithin256MiBHeap",
+        "dev.chungjungsoo.gptmobile.data.diagnostics.StagedDiagnosticCaptureHeapTest.streamsAndResumesHistoryLargerThanHeapWithIndependentFailure",
+        "dev.chungjungsoo.gptmobile.data.research.ResearchSessionStoreHeapTest.moreThanFortyMiBOfRetainedEvidenceStreamsWithoutLoadingAllSessionsInto256MiBHeap",
+        "dev.chungjungsoo.gptmobile.presentation.ui.chat.StreamingDebugBundleTest.fortyMiBTwoThousandMessageExportCompletesUnder256MiBHeapWithoutConversationTree"
+      ],
+      "failureIdentities": [
+        {
+          "class": "dev.chungjungsoo.gptmobile.data.network.GatewayCommandDispatchTest",
+          "name": "lostTransportReplyRetriesTheSameReservedCommandAndPayload",
+          "failure": "java.lang.AssertionError"
+        },
+        {
+          "class": "dev.chungjungsoo.gptmobile.data.network.GatewayCommandDispatchTest",
+          "name": "privateAndInternalRequestsDisableStorageAndNeverReserve",
+          "failure": "java.lang.AssertionError"
+        },
+        {
+          "class": "dev.chungjungsoo.gptmobile.data.network.GatewayCommandDispatchTest",
+          "name": "directAndExplicitlyUnsupportedProvidersNeverReserveOrReceiveGatewayMetadata",
+          "failure": "java.lang.AssertionError"
+        },
+        {
+          "class": "dev.chungjungsoo.gptmobile.data.network.GatewayCommandDispatchTest",
+          "name": "reservationMustFinishBeforeFirstModelPostAndUsesTheWireCommand",
+          "failure": "kotlinx.coroutines.test.UncompletedCoroutinesError: After waiting for 1m, the test body did not run to completion"
+        },
+        {
+          "class": "dev.chungjungsoo.gptmobile.data.network.GatewayCommandDispatchTest",
+          "name": "failedLocalReservationNeverPostsAModelRequestOrClaimsAdmission",
+          "failure": "java.lang.AssertionError: expected:<1> but was:<0>"
+        },
+        {
+          "class": "dev.chungjungsoo.gptmobile.data.network.GatewayCommandDispatchTest",
+          "name": "cancellationAfterLocalCommitStillPreventsModelDispatch",
+          "failure": "kotlinx.coroutines.test.UncompletedCoroutinesError: After waiting for 1m, the test body did not run to completion"
+        },
+        {
+          "class": "dev.chungjungsoo.gptmobile.data.network.OpenAIRecoveryTransportTest",
+          "name": "initialGatewayDiscoveryFailureNeverDispatchesAnUnisolatedModelRequest",
+          "failure": "java.lang.AssertionError: expected:<[/v1/gateway/capabilities]> but was:<[]>"
+        },
+        {
+          "class": "dev.chungjungsoo.gptmobile.data.network.OpenAIRecoveryTransportTest",
+          "name": "samplingRejectionAfterPossibleGatewayMutationDoesNotReplayEitherPhysicalTransport",
+          "failure": "java.lang.AssertionError: expected:<false> but was:<true>"
+        },
+        {
+          "class": "dev.chungjungsoo.gptmobile.data.network.OpenAIRecoveryTransportTest",
+          "name": "incompleteFailedMismatchedOrToolOnlyTerminalReceiptsNeverReplayWork",
+          "failure": "java.lang.AssertionError: partial expected:<1> but was:<0>"
+        },
+        {
+          "class": "dev.chungjungsoo.gptmobile.data.network.OpenAIRecoveryTransportTest",
+          "name": "terminalJobConflictReadsItsSavedResultOnceWithoutRepeatingInferenceOrTools",
+          "failure": "java.util.NoSuchElementException: Collection contains no element matching the predicate."
+        },
+        {
+          "class": "dev.chungjungsoo.gptmobile.data.network.OpenAIRecoveryTransportTest",
+          "name": "knownHttpFailureDoesNotOverrideAnAmbiguousGatewayMutation",
+          "failure": "org.junit.ComparisonFailure: expected:<[GATEWAY_OUTCOME_UNKNOWN]> but was:<[PROVIDER_INVOCATION_FAILED]>"
+        },
+        {
+          "class": "dev.chungjungsoo.gptmobile.data.network.OpenAIRecoveryTransportTest",
+          "name": "gatewayToolRequestIsNotReplayedWhenConnectionClosesBeforeAnyProgress",
+          "failure": "org.junit.ComparisonFailure: expected:<[GATEWAY_OUTCOME_UNKNOWN]> but was:<[PROVIDER_INVOCATION_FAILED]>"
+        }
+      ],
+      "fullParsedSummary": "preview-b18-unit-summary.json",
+      "qualification": "Complete ordinary JVM unit execution from b18 GenieX preview. Does not qualify canonical constrained heaps, canonical APK, or a future fixture follow-up head. Producer/log provenance is maintained separately by catalog agent.",
+      "priorityActualClasses": 99,
+      "priorityActualIdentities": 962,
+      "priorityPassed": 950
+    },
+    "parent_canonical_terminal": {
+      "run": 42447961517,
+      "job": 128630912120,
+      "state": "FAILURE",
+      "reported_cases": 8095,
+      "reported_failures": 12,
+      "reported_skips": 5,
+      "failed_classes": {
+        "OpenAIRecoveryTransportTest": 6,
+        "GatewayCommandDispatchTest": 6
+      },
+      "additional_failing_classes": 0,
+      "full_xml_accounting": "COMPLETE1273_SUITES8095_CASES_MATCH_PREVIEW_EXACTLY",
+      "fixed_fixture_cases_passed_locally": 23,
+      "room51_sha256": "20761194ba2e9f96b8fb6769458fd05a089153baf08bbd46d5a6210769a0e708",
+      "dedicated_heap_and_canonical_apk": "NOT_EXECUTED_AFTER_UNIT_FAILURE"
+    },
+    "parent_required_verification": {
+      "job": 128636601930,
+      "state": "FAILURE",
+      "cause": "validate:failure; other aggregate dependencies succeeded"
+    },
+    "complete_parent_canonical_xml": {
+      "head": "b18ddc95c223e4703c07af44334bb8db547669bb",
+      "runId": 42447961517,
+      "jobId": 128630912120,
+      "conclusion": "failure",
+      "artifactId": 13605266825,
+      "zip": "canonical-b18-unit.zip",
+      "zipSha256": "df8c29baf2567892b71e97872e3d39a888b262518a8bcd581a901688acf7db5c",
+      "counts": {
+        "tests": 8095,
+        "failures": 12,
+        "errors": 0,
+        "skipped": 5,
+        "passed": 8078
+      },
+      "xmlReports": 1273,
+      "priorityManifest": "b18-expected-focused-tests.json",
+      "priorityActualClasses": 99,
+      "priorityActualIdentities": 962,
+      "missingPriorityClasses": [],
+      "priorityIdentityMismatches": [],
+      "skipIdentities": [
+        "dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkColdStreamingExportHeapTest.fortyEightMiBOfColdCanonicalRoomHistoryStreamsWithoutHydrationOrMirrorParsing",
+        "dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkStreamingExportHeapTest.moreThanFortyMiBOfRawHistoryAndAttemptCopiesStreamsWithin256MiBHeap",
+        "dev.chungjungsoo.gptmobile.data.diagnostics.StagedDiagnosticCaptureHeapTest.streamsAndResumesHistoryLargerThanHeapWithIndependentFailure",
+        "dev.chungjungsoo.gptmobile.data.research.ResearchSessionStoreHeapTest.moreThanFortyMiBOfRetainedEvidenceStreamsWithoutLoadingAllSessionsInto256MiBHeap",
+        "dev.chungjungsoo.gptmobile.presentation.ui.chat.StreamingDebugBundleTest.fortyMiBTwoThousandMessageExportCompletesUnder256MiBHeapWithoutConversationTree"
+      ],
+      "failureIdentities": [
+        {
+          "class": "dev.chungjungsoo.gptmobile.data.network.GatewayCommandDispatchTest",
+          "name": "lostTransportReplyRetriesTheSameReservedCommandAndPayload",
+          "failure": "java.lang.AssertionError"
+        },
+        {
+          "class": "dev.chungjungsoo.gptmobile.data.network.GatewayCommandDispatchTest",
+          "name": "privateAndInternalRequestsDisableStorageAndNeverReserve",
+          "failure": "java.lang.AssertionError"
+        },
+        {
+          "class": "dev.chungjungsoo.gptmobile.data.network.GatewayCommandDispatchTest",
+          "name": "directAndExplicitlyUnsupportedProvidersNeverReserveOrReceiveGatewayMetadata",
+          "failure": "java.lang.AssertionError"
+        },
+        {
+          "class": "dev.chungjungsoo.gptmobile.data.network.GatewayCommandDispatchTest",
+          "name": "reservationMustFinishBeforeFirstModelPostAndUsesTheWireCommand",
+          "failure": "kotlinx.coroutines.test.UncompletedCoroutinesError: After waiting for 1m, the test body did not run to completion"
+        },
+        {
+          "class": "dev.chungjungsoo.gptmobile.data.network.GatewayCommandDispatchTest",
+          "name": "failedLocalReservationNeverPostsAModelRequestOrClaimsAdmission",
+          "failure": "java.lang.AssertionError: expected:<1> but was:<0>"
+        },
+        {
+          "class": "dev.chungjungsoo.gptmobile.data.network.GatewayCommandDispatchTest",
+          "name": "cancellationAfterLocalCommitStillPreventsModelDispatch",
+          "failure": "kotlinx.coroutines.test.UncompletedCoroutinesError: After waiting for 1m, the test body did not run to completion"
+        },
+        {
+          "class": "dev.chungjungsoo.gptmobile.data.network.OpenAIRecoveryTransportTest",
+          "name": "initialGatewayDiscoveryFailureNeverDispatchesAnUnisolatedModelRequest",
+          "failure": "java.lang.AssertionError: expected:<[/v1/gateway/capabilities]> but was:<[]>"
+        },
+        {
+          "class": "dev.chungjungsoo.gptmobile.data.network.OpenAIRecoveryTransportTest",
+          "name": "samplingRejectionAfterPossibleGatewayMutationDoesNotReplayEitherPhysicalTransport",
+          "failure": "java.lang.AssertionError: expected:<false> but was:<true>"
+        },
+        {
+          "class": "dev.chungjungsoo.gptmobile.data.network.OpenAIRecoveryTransportTest",
+          "name": "incompleteFailedMismatchedOrToolOnlyTerminalReceiptsNeverReplayWork",
+          "failure": "java.lang.AssertionError: partial expected:<1> but was:<0>"
+        },
+        {
+          "class": "dev.chungjungsoo.gptmobile.data.network.OpenAIRecoveryTransportTest",
+          "name": "terminalJobConflictReadsItsSavedResultOnceWithoutRepeatingInferenceOrTools",
+          "failure": "java.util.NoSuchElementException: Collection contains no element matching the predicate."
+        },
+        {
+          "class": "dev.chungjungsoo.gptmobile.data.network.OpenAIRecoveryTransportTest",
+          "name": "knownHttpFailureDoesNotOverrideAnAmbiguousGatewayMutation",
+          "failure": "org.junit.ComparisonFailure: expected:<[GATEWAY_OUTCOME_UNKNOWN]> but was:<[PROVIDER_INVOCATION_FAILED]>"
+        },
+        {
+          "class": "dev.chungjungsoo.gptmobile.data.network.OpenAIRecoveryTransportTest",
+          "name": "gatewayToolRequestIsNotReplayedWhenConnectionClosesBeforeAnyProgress",
+          "failure": "org.junit.ComparisonFailure: expected:<[GATEWAY_OUTCOME_UNKNOWN]> but was:<[PROVIDER_INVOCATION_FAILED]>"
+        }
+      ],
+      "sameFailuresAsIndependentPreview": true,
+      "schema51": [
+        {
+          "artifactPath": "schemas/dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2/51.json",
+          "sha256": "20761194ba2e9f96b8fb6769458fd05a089153baf08bbd46d5a6210769a0e708",
+          "expectedSha256": "20761194ba2e9f96b8fb6769458fd05a089153baf08bbd46d5a6210769a0e708"
+        }
+      ],
+      "checkoutProducer": "9f86828405c4bfef0133a9b944ffbf562447fd3b",
+      "terminalLog": "ci-b18-unit-128630912120.log",
+      "terminalLogSha256": "db8bef033e9351f8ad2cea7cfbb6067b2e5366cd50a2e0070939c5fd59659bae",
+      "nativeAbortMarkers": [],
+      "dedicatedHeaps": "Not executed after ordinary unit failure. Five ordinary skips remain intentional dedicated heap cases.",
+      "canonicalAPK": "Not executed after ordinary unit failure.",
+      "fullParsedSummary": "canonical-b18-unit-summary.json",
+      "immutableProducerVerification": {
+        "sha": "9f86828405c4bfef0133a9b944ffbf562447fd3b",
+        "tree": "b8b289cbd13fc4bff2a03b14f964345a33c7db25",
+        "parents": [
+          "3ac89ceafd9083f67da30e92f9f93aae27be4600",
+          "b18ddc95c223e4703c07af44334bb8db547669bb"
+        ],
+        "source": "GitHub immutable git commit API",
+        "matchesPublishedTree": true
+      }
+    },
+    "parent_audit_complete_xml": {
+      "head": "b18ddc95c223e4703c07af44334bb8db547669bb",
+      "run": 42447961535,
+      "job": 128630885930,
+      "ordinary_unit_step": "COMPLETED_FAILURE",
+      "xml_suites": 1273,
+      "cases": 8095,
+      "passed": 8078,
+      "failures": 12,
+      "errors": 0,
+      "skipped": 5,
+      "failure_classes_and_identities_match_canonical_and_preview": true,
+      "priority_classes": 99,
+      "priority_identities": 962,
+      "artifact_id": 13605003936,
+      "verified_zip_sha256": "748bffee373930ff9ec0166d5264ca14b7633dc3899b4df14d8c487dcdb1ee73",
+      "remaining_audit_job": "APK_BUILD_ACTIVE_AT_PREPUBLICATION_SNAPSHOT"
+    }
+  },
+  "combined_fixture_validation": {
+    "focused_lifecycle_class": {
+      "cases": 11,
+      "passed": 11
+    },
+    "lifecycle_targeted_repetitions": {
+      "executions": 20,
+      "passed": 20,
+      "unique_case": 1
+    },
+    "focused_transport_classes": {
+      "cases": 23,
+      "passed": 23
+    },
+    "final_changed_test_format": {
+      "files": 3,
+      "status": "PASS",
+      "source_drift": [],
+      "receipt_sha256": "fea1bd1430c83d06be34b4e15c5309d070eb9f4f335347d14d917330bc2bde58"
+    },
+    "canonical_fast": {
+      "tests": 404,
+      "passed": 404,
+      "seconds": 26.205,
+      "literal_regex_checks": 1328,
+      "dynamic_regex_not_evaluated": 77,
+      "resource_xml_files": 33,
+      "log_sha256": "b507e6633f6d524d089014f3537dd423079f99520820642fd2623603c2edd41b"
+    },
+    "production_files_changed": 0,
+    "assertions_timeouts_heap_dex_dependency_limits_relaxed": 0,
+    "architecture": "PASS",
+    "inventory": {
+      "status": "PASS",
+      "files": 2306,
+      "areas": 26,
+      "regeneration_required": false
+    },
+    "release_scope": {
+      "status": "PASS",
+      "mode": "scoped",
+      "allowed_paths": 1374,
+      "changed_paths_including_worktree": 1233,
+      "added_allowed_paths": 0,
+      "qualification_or_limit_changes": 0
+    },
+    "diff_check": "PASS"
   }
 }

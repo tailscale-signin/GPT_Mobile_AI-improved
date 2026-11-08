@@ -32,6 +32,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.resetMain
@@ -176,8 +177,9 @@ class GatewayJobsViewModelTest {
         assertEquals("running", model.state.value.rows.single().summary.state)
     }
 
-    @Test fun leavingTheVisibleScreenStopsPollingWithoutStoppingTheJob() = runTest(dispatcher) {
-        val observing = backgroundScope.launch(dispatcher) { model.visible("profile-a") }
+    @Test fun leavingTheVisibleScreenStopsPollingWithoutStoppingTheJob() = runTest(StandardTestDispatcher(dispatcher.scheduler)) {
+        // Keep polling and cancellation on one scheduler; binding emits from real IO threads.
+        val observing = backgroundScope.launch { model.visible("profile-a") }
         model.state.first { it.loaded && !it.loading }
         observing.cancelAndJoin()
         advanceTimeBy(30_000)

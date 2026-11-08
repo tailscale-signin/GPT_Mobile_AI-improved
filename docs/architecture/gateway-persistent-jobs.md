@@ -168,7 +168,13 @@ complete experience. Older gateways keep their existing inference behavior and
 retained evidence; the app does not claim complete remote history or autonomous
 execution when the corresponding capability is missing.
 
-## Delivery evidence
+## Implementation checkpoint evidence
+
+This section records the integrated implementation published in `66ac834e0980`
+with package provenance in `6058217056ce`. The later recovery, account-authority
+and offline-history corrections and their separate validation are recorded in
+[the follow-up disposition](../repairs/gateway-recovery-authority-2026-11-08.md).
+These checkpoint results do not qualify later changed source.
 
 The final canonical gateway gate passed all 51 isolated suites: 619 Python test
 cases (618 passed and one existing no-LAN-interface skip), plus seven passing

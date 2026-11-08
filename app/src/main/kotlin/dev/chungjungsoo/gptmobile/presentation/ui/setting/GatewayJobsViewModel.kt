@@ -27,6 +27,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -45,6 +46,7 @@ class GatewayJobsViewModel @Inject constructor(
     private var observer: Job? = null
     private val refreshLock = Mutex()
     private var epoch = 0
+    private var bindingGeneration = 0L
     private var cachedRows = emptyList<GatewayJobRecord>()
     private var stopAction: Job? = null
     private var boundRoute: GatewayJobRoute? = null
@@ -52,7 +54,8 @@ class GatewayJobsViewModel @Inject constructor(
 
     fun bind(profileUid: String?, force: Boolean = false) {
         if (!force && mutable.value.profileUid == profileUid && observer?.isActive == true) return
-        val generation = ++epoch
+        val binding = ++bindingGeneration
+        epoch++
         observer?.cancel()
         stopAction?.cancel()
         cachedRows = emptyList()
@@ -61,20 +64,33 @@ class GatewayJobsViewModel @Inject constructor(
         if (profileUid == null) return
         observer = viewModelScope.launch(Dispatchers.IO) {
             try {
-                val configured = repository.configured(profileUid)
-                val route = if (configured) repository.route(profileUid, requireEnabled = false) else null
-                val profiles = settings.fetchPlatformV2s().associate { it.uid to it.name }
-                if (generation != epoch) return@launch
-                boundRoute = route
-                mutable.update { it.copy(configured = configured, profileNames = profiles, connectionName = route?.let { saved -> profiles[saved.profileUid] ?: "Gateway" }.orEmpty()) }
-                if (configured) {
-                    repository.observe(profileUid).collect { rows ->
+                repository.observeConfiguration(profileUid).collectLatest { route ->
+                    if (binding != bindingGeneration) return@collectLatest
+                    val generation = ++epoch
+                    stopAction?.cancel()
+                    cachedRows = emptyList()
+                    boundRoute = route
+                    mutable.value = GatewayJobsState(profileUid = profileUid)
+                    if (route == null) return@collectLatest
+                    val trusted = repository.cachedScope(route)
+                    val profiles = settings.fetchPlatformV2s().associate { it.uid to it.name }
+                    if (generation != epoch || binding != bindingGeneration) return@collectLatest
+                    mutable.value = GatewayJobsState(
+                        profileUid = profileUid,
+                        configured = true,
+                        profileNames = profiles,
+                        connectionName = profiles[route.profileUid] ?: "Gateway",
+                        gatewayId = trusted?.gatewayId,
+                        principalId = trusted?.principalId
+                    )
+                    repository.observe(route).collect { rows ->
                         if (generation == epoch) cachedRows = rows
                         if (generation == epoch) {
                             mutable.update { current ->
                                 val previous = current.rows.associateBy { it.record.key }
                                 current.copy(
-                                    rows = rows.filter { row -> (current.gatewayId == null || row.gatewayId == current.gatewayId && row.principalId == current.principalId) && (!current.inventoryComplete || row.key in current.catalogKeys) }.map { row ->
+                                    syncedAtMillis = current.syncedAtMillis.takeIf { it > 0 } ?: rows.filter { it.gatewayId == current.gatewayId && it.principalId == current.principalId }.maxOfOrNull { it.observedAtMillis } ?: 0,
+                                    rows = rows.filter { row -> row.gatewayId == current.gatewayId && row.principalId == current.principalId && (!current.inventoryComplete || row.key in current.catalogKeys) }.map { row ->
                                         val prior = previous[row.key]
                                         val observed = if (prior?.record?.observedAtMillis == row.observedAtMillis) {
                                             prior.observedAtElapsed
@@ -93,7 +109,7 @@ class GatewayJobsViewModel @Inject constructor(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
-                if (generation == epoch) mutable.update { it.copy(error = failure.message) }
+                if (binding == bindingGeneration) mutable.update { it.copy(error = failure.message) }
             }
         }
     }
@@ -112,6 +128,7 @@ class GatewayJobsViewModel @Inject constructor(
         } finally {
             if (visibility == visibleEpoch) {
                 visibleEpoch++
+                bindingGeneration++
                 epoch++
                 observer?.cancel()
                 observer = null
@@ -122,18 +139,20 @@ class GatewayJobsViewModel @Inject constructor(
 
     private fun currentRow(candidate: GatewayJobRow): GatewayJobRow? {
         val current = mutable.value
+        if (current.legacy) return null
         val route = boundRoute ?: return null
         return current.rows.singleOrNull { row ->
             row.record.key == candidate.record.key &&
                 row.record.connectionProfileUid == route.profileUid &&
                 row.record.endpoint == route.endpoint &&
-                (current.gatewayId == null || row.record.gatewayId == current.gatewayId && row.record.principalId == current.principalId)
+                row.record.gatewayId == current.gatewayId &&
+                row.record.principalId == current.principalId
         }
     }
 
     suspend fun refresh(loadMore: Boolean = false, restart: Boolean = false) = refreshLock.withLock {
         val profileUid = mutable.value.profileUid ?: return@withLock
-        if (!mutable.value.configured) return@withLock
+        if (!mutable.value.configured || mutable.value.legacy) return@withLock
         val generation = epoch
         val cursor = if (loadMore) mutable.value.nextCursor ?: return@withLock else null
         mutable.update { it.copy(loading = true, refreshStartedAtMillis = System.currentTimeMillis()) }
@@ -178,7 +197,7 @@ class GatewayJobsViewModel @Inject constructor(
             throw cancelled
         } catch (unsupported: GatewayHistoryUnsupported) {
             val legacy = repository.legacyJobs(profileUid)
-            if (generation == epoch) mutable.update { it.copy(loading = false, legacy = true, loaded = true, error = unsupported.message, rows = legacy.map { row -> GatewayJobRow(row, repository.summary(row)) }) }
+            if (generation == epoch) mutable.update { it.copy(loading = false, loaded = true, error = unsupported.message, legacyRows = legacy.map { row -> GatewayJobRow(row, repository.summary(row)) }) }
         } catch (failure: Exception) {
             if (generation == epoch) mutable.update { it.copy(loading = false, error = failure.message ?: "Gateway history unavailable") }
         }
@@ -189,6 +208,10 @@ class GatewayJobsViewModel @Inject constructor(
     }
 
     fun open(candidate: GatewayJobRow, onOpen: (Int) -> Unit) {
+        if (mutable.value.legacy) {
+            openLegacyEvidence(candidate)
+            return
+        }
         val row = currentRow(candidate) ?: return
         if (mutable.value.opening != null) return
         mutable.update { it.copy(opening = row.record.key, error = null) }
@@ -204,13 +227,39 @@ class GatewayJobsViewModel @Inject constructor(
                 val attached = conversations.attach(row.record.key)
                 if (generation == epoch) {
                     mutable.update { it.copy(opening = null, partialHistoryKeys = if (attached.historyComplete) it.partialHistoryKeys - row.record.key else it.partialHistoryKeys + row.record.key) }
-                    kotlinx.coroutines.withContext(Dispatchers.Main) { if (generation == epoch) onOpen(attached.chatId) }
+                    kotlinx.coroutines.withContext(Dispatchers.Main) { if (generation == epoch && currentRow(row) != null) onOpen(attached.chatId) }
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
                 val cached = conversations.cachedAttachment(row.record.key)
                 if (generation == epoch) mutable.update { it.copy(opening = null, error = failure.message, cachedChatId = cached?.chatId) }
+            }
+        }
+    }
+
+    fun showLegacyEvidence() {
+        if (mutable.value.legacyRows.isEmpty() || mutable.value.opening != null || mutable.value.stop?.busy == true || mutable.value.instruction?.sending == true) return
+        mutable.update { it.copy(legacy = true, stop = null, instruction = null, cachedChatId = null, transcriptKey = null) }
+    }
+
+    fun closeLegacyEvidence() {
+        mutable.update { it.copy(legacy = false, legacyDetail = null, opening = null) }
+    }
+
+    private fun openLegacyEvidence(candidate: GatewayJobRow) {
+        val row = mutable.value.legacyRows.singleOrNull { it.record.key == candidate.record.key } ?: return
+        if (mutable.value.opening != null) return
+        val generation = epoch
+        mutable.update { it.copy(opening = row.record.key) }
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val binding = repository.legacyBinding(row.record.remoteJobId)
+                if (generation == epoch && mutable.value.legacy) mutable.update { it.copy(legacyDetail = binding, opening = null) }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                if (generation == epoch && mutable.value.legacy) mutable.update { it.copy(opening = null) }
             }
         }
     }
@@ -345,6 +394,7 @@ data class GatewayJobsState(
     val loading: Boolean = false,
     val loaded: Boolean = false,
     val legacy: Boolean = false,
+    val legacyRows: List<GatewayJobRow> = emptyList(),
     val error: String? = null,
     val counts: GatewayJobCounts? = null,
     val hasMore: Boolean = false,

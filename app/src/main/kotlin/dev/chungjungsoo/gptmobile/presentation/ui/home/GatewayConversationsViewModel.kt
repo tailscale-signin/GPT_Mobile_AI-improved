@@ -10,6 +10,7 @@ import dev.chungjungsoo.gptmobile.data.github.GatewayConversationRepository
 import dev.chungjungsoo.gptmobile.data.github.GatewayConversationSnapshot
 import dev.chungjungsoo.gptmobile.data.github.GatewayHistoryUnsupported
 import dev.chungjungsoo.gptmobile.data.github.GatewayJobRepository
+import dev.chungjungsoo.gptmobile.data.github.GatewayVerifiedScopeStore
 import dev.chungjungsoo.gptmobile.data.github.gatewayIdentityKey
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAvailabilityRepository
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
@@ -34,7 +35,8 @@ internal data class GatewayConversationsState(
     val openingId: String? = null,
     val lastSyncedAt: Long? = null,
     val error: GatewayBrowserError? = null,
-    val transcriptKey: String? = null
+    val transcriptKey: String? = null,
+    val cachedInventory: Boolean = false
 )
 
 @HiltViewModel
@@ -43,9 +45,10 @@ internal class GatewayConversationsViewModel @Inject constructor(
     settings: SettingRepository,
     availability: GatewayAvailabilityRepository,
     private val jobs: GatewayJobRepository,
-    private val conversations: GatewayConversationRepository
+    private val conversations: GatewayConversationRepository,
+    scopes: GatewayVerifiedScopeStore
 ) : ViewModel() {
-    val connections = gatewayMenuConnections(settings, availability)
+    val connections = gatewayMenuConnections(settings, availability, scopes)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(stopTimeoutMillis = 0, replayExpirationMillis = 0), emptyList())
     private val _state = MutableStateFlow(GatewayConversationsState(connectionUid = savedState["gateway_browser_profile"]))
     val state = _state.asStateFlow()
@@ -54,13 +57,26 @@ internal class GatewayConversationsViewModel @Inject constructor(
     private var generation = 0L
 
     fun select(connection: GatewayMenuConnection) {
-        if (_state.value.connectionUid == connection.profileUid && _state.value.routeIdentity == connection.routeIdentity) return
+        if (_state.value.connectionUid == connection.profileUid && _state.value.routeIdentity == connection.navigationIdentity) return
         generation++
         refreshJob?.cancel()
         openJob?.cancel()
         savedState["gateway_browser_profile"] = connection.profileUid
-        _state.value = GatewayConversationsState(connectionUid = connection.profileUid, routeIdentity = connection.routeIdentity)
+        _state.value = GatewayConversationsState(connectionUid = connection.profileUid, routeIdentity = connection.navigationIdentity)
         refresh()
+    }
+
+    fun updateConnections(connections: List<GatewayMenuConnection>) {
+        val selected = connections.firstOrNull { it.profileUid == _state.value.connectionUid }
+            ?: connections.firstOrNull { it.canBrowseHistory } ?: connections.firstOrNull()
+        if (selected != null) {
+            select(selected)
+        } else if (_state.value.routeIdentity != null || _state.value.page != null) {
+            generation++
+            refreshJob?.cancel()
+            openJob?.cancel()
+            _state.value = GatewayConversationsState(connectionUid = _state.value.connectionUid)
+        }
     }
 
     fun refresh(loadMore: Boolean = false) {
@@ -72,6 +88,17 @@ internal class GatewayConversationsViewModel @Inject constructor(
         _state.value = previous.copy(loading = true, error = null)
         refreshJob = viewModelScope.launch {
             try {
+                if (previous.page == null && cursor == null) {
+                    val cached = try {
+                        withContext(Dispatchers.IO) { jobs.cachedConversations(uid) }
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        null
+                    }
+                    if (requestGeneration != generation) return@launch
+                    if (cached != null) _state.value = _state.value.copy(page = cached.page, lastSyncedAt = cached.lastSyncedAtMillis, cachedInventory = true)
+                }
                 val page = withContext(Dispatchers.IO) { jobs.listConversations(uid, cursor) }
                 if (requestGeneration != generation) return@launch
                 val merged = if (cursor != null && previous.page != null) {
@@ -83,7 +110,7 @@ internal class GatewayConversationsViewModel @Inject constructor(
                 } else {
                     page
                 }
-                _state.value = _state.value.copy(page = merged, lastSyncedAt = System.currentTimeMillis(), loading = false, error = null)
+                _state.value = _state.value.copy(page = merged, lastSyncedAt = System.currentTimeMillis(), loading = false, error = null, cachedInventory = false)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: GatewayHistoryUnsupported) {
@@ -147,8 +174,11 @@ internal class GatewayConversationsViewModel @Inject constructor(
     }
 
     fun pause() {
+        generation++
         refreshJob?.cancel()
         refreshJob = null
-        _state.value = _state.value.copy(loading = false)
+        openJob?.cancel()
+        openJob = null
+        _state.value = _state.value.copy(loading = false, openingId = null)
     }
 }

@@ -376,6 +376,113 @@ class ConversationHTTPTests(unittest.TestCase):
         assistant = self.runtime.gateway_conversations.messages('local:single-user', receipt['conversation_id'])['messages'][-1]
         self.assertEqual('failed', assistant['status'])
 
+    def register_pending_generation(self, job_id):
+        self.runtime.init_durable_job_store()
+        payload = self.payload(job_id, job_id)
+        marker = admission_context.set({'principal': 'local:single-user', 'command_id': job_id,
+                                        'payload': payload, 'retention': 'full'})
+        try:
+            self.runtime.register_gateway_job(job_id, 'local', 'interactive', threading.Event(), threading.Event(), task_text='Inspect')
+            self.store.claim(job_id, 'local:single-user')
+        finally:
+            admission_context.reset(marker)
+        return payload
+
+    def test_queued_stop_commits_before_acknowledgment_and_never_runs_after_restart(self):
+        job_id = 'queued-stop-before-restart'
+        self.register_pending_generation(job_id)
+        generation = self.runtime.job_registry[job_id]['generation']
+        async def run():
+            transport = httpx.ASGITransport(app=self.gateway.app, client=('127.0.0.1', 2222))
+            async with httpx.AsyncClient(transport=transport, base_url='http://127.0.0.1:8090') as client:
+                stopped = await client.post('/gateway/jobs/' + job_id + '/cancel')
+                self.assertEqual(200, stopped.status_code, stopped.text)
+                self.assertTrue(stopped.json()['canceled'])
+                self.assertFalse(stopped.json()['cancellationRequested'])
+                self.assertEqual('confirmed', stopped.json()['cancellationOutcome'])
+                admission = self.runtime.gateway_conversations.pending_generation(job_id)
+                self.assertEqual('finished', admission['dispatch_state'])
+                self.assertIsNone(admission['payload_json'])
+                self.runtime.job_registry.clear()
+                self.runtime.singleflight_workers.clear()
+                self.runtime.durable_job_initialized = False
+                self.runtime.init_durable_job_store()
+                capacity = ServiceState(1)
+                capacity.install(self.runtime)
+                await capacity.recover_queued(self.runtime)
+                self.assertFalse(capacity.recovery_tasks)
+                self.assertEqual('cancelled', self.runtime.job_registry[job_id]['status'])
+                self.assertEqual(generation, self.runtime.job_registry[job_id]['generation'])
+                receipt = (await client.get('/gateway/commands/' + job_id)).json()
+                self.assertEqual(job_id, receipt['job_id'])
+                page = (await client.get('/gateway/conversations/' + receipt['conversation_id'] + '/messages')).json()
+                assistant = next(item for item in page['messages'] if item['role'] == 'assistant')
+                self.assertEqual('cancelled', assistant['status'])
+                repeated = await client.post('/gateway/jobs/' + job_id + '/cancel')
+                self.assertEqual('confirmed', repeated.json()['cancellationOutcome'])
+        with patch.object(self.runtime, 'process_chat_payload') as model:
+            asyncio.run(run())
+            model.assert_not_called()
+
+    def test_queued_stop_fences_worker_between_capacity_reservation_and_dispatch(self):
+        job_id = 'queued-stop-at-dispatch'
+        payload = self.register_pending_generation(job_id)
+        payload['_gateway_job_id'] = job_id
+        job = self.runtime.job_registry[job_id]
+        receipts = []
+        with patch.object(self.runtime, 'process_chat_payload') as model:
+            capacity = ServiceState(1)
+            def stop_before_claim(principal):
+                receipts.append(self.runtime.cancel_gateway_job(job_id))
+                return True
+            capacity.authorized = stop_before_claim
+            capacity.install(self.runtime)
+            code, result = self.runtime.process_chat_payload(payload, job['_cancel_event'], lambda event: None, job['_hard_cancel_event'])
+            self.assertEqual(499, code, result)
+            model.assert_not_called()
+        self.assertEqual('confirmed', receipts[0]['cancellationOutcome'])
+        self.assertEqual('cancelled', self.runtime.job_registry[job_id]['status'])
+        self.assertEqual('finished', self.runtime.gateway_conversations.pending_generation(job_id)['dispatch_state'])
+        self.assertEqual({}, capacity.workers)
+
+    def test_stop_after_durable_dispatch_retains_intent_without_claiming_confirmation(self):
+        started, release = threading.Event(), threading.Event()
+        calls = []
+        def model(*args):
+            calls.append(args[0]['_gateway_job_id'])
+            started.set()
+            self.assertTrue(release.wait(5))
+            return self.completion(*args)
+        async def run():
+            transport = httpx.ASGITransport(app=self.gateway.app, client=('127.0.0.1', 2222))
+            async with httpx.AsyncClient(transport=transport, base_url='http://127.0.0.1:8090') as client:
+                request = asyncio.create_task(client.post('/v1/chat/completions', json=self.payload('dispatched-stop', 'dispatched-stop')))
+                try:
+                    self.assertTrue(await asyncio.to_thread(started.wait, 5))
+                    receipt = (await client.get('/gateway/commands/dispatched-stop')).json()
+                    job_id = receipt['job_id']
+                    self.assertEqual('dispatched', self.runtime.gateway_conversations.pending_generation(job_id)['dispatch_state'])
+                    stopped = await client.post('/gateway/jobs/' + job_id + '/cancel')
+                    self.assertEqual(200, stopped.status_code, stopped.text)
+                    self.assertFalse(stopped.json()['canceled'])
+                    self.assertTrue(stopped.json()['cancellationRequested'])
+                    self.assertEqual('requested', stopped.json()['cancellationOutcome'])
+                    with closing(sqlite3.connect(self.db)) as db:
+                        saved = json.loads(db.execute('SELECT public_json FROM gateway_jobs WHERE job_id=?', (job_id,)).fetchone()[0])
+                    self.assertTrue(saved['cancellation_requested'])
+                    self.assertEqual('running', saved['status'])
+                finally:
+                    release.set()
+                    response = await request
+                self.assertEqual(200, response.status_code, response.text)
+                self.assertEqual([job_id], calls)
+        try:
+            with patch.object(self.runtime, 'process_chat_payload', side_effect=model):
+                ServiceState(1).install(self.runtime)
+                asyncio.run(run())
+        finally:
+            release.set()
+
     def test_queued_generation_rechecks_revoked_authority_before_first_dispatch(self):
         self.runtime.init_durable_job_store()
         payload = self.payload()
@@ -397,6 +504,71 @@ class ConversationHTTPTests(unittest.TestCase):
             self.assertEqual('principal_revoked', result['error']['code'])
             self.assertEqual([], calls)
             self.assertEqual('queued', self.runtime.gateway_conversations.pending_generation('revoked-queue')['dispatch_state'])
+        finally:
+            self.runtime.process_chat_payload = original
+
+    def test_recovered_final_commit_failure_blocks_late_nonstream_reexecution(self):
+        self.recovered_final_commit_failure(False)
+
+    def test_recovered_final_commit_failure_blocks_late_stream_reexecution(self):
+        self.recovered_final_commit_failure(True)
+
+    def recovered_final_commit_failure(self, stream):
+        from v14.jobs import DurableCommitError
+        self.runtime.init_durable_job_store()
+        job_id = 'retained-before-restart'
+        payload = dict(self.payload('retained-command', 'retained-conversation'), stream=stream)
+        marker = admission_context.set({'principal': 'local:single-user', 'command_id': 'retained-command',
+                                        'payload': payload, 'retention': 'full'})
+        try:
+            admitted = self.runtime.register_gateway_job(job_id, 'local', 'interactive', threading.Event(), threading.Event(), task_text='Inspect')
+            generation = admitted['generation']
+            self.store.claim(job_id, 'local:single-user')
+        finally:
+            admission_context.reset(marker)
+        self.runtime.job_registry.clear()
+        self.runtime.singleflight_workers.clear()
+        self.runtime.durable_job_initialized = False
+        self.runtime.init_durable_job_store()
+        self.assertEqual('queued', self.runtime.job_registry[job_id]['status'])
+        with closing(sqlite3.connect(self.db)) as db, db:
+            db.execute("CREATE TRIGGER reject_recovered_final BEFORE UPDATE ON gateway_jobs WHEN NEW.status='completed' BEGIN SELECT RAISE(ABORT,'disk failure'); END")
+        original, calls = self.runtime.process_chat_payload, []
+        def model(*args):
+            calls.append(args[0]['_gateway_job_id'])
+            return self.completion(*args)
+        async def run():
+            capacity = ServiceState(1)
+            capacity.install(self.runtime)
+            await capacity.recover_queued(self.runtime)
+            outcomes = await asyncio.gather(*list(capacity.recovery_tasks), return_exceptions=True)
+            self.assertEqual(1, len(outcomes))
+            self.assertIsInstance(outcomes[0], DurableCommitError)
+            worker = self.runtime.singleflight_workers[job_id]
+            self.assertIsInstance(worker.get('persistence_error'), DurableCommitError)
+            worker['finished_at'] = time.time() - self.runtime.SINGLEFLIGHT_COMPLETED_RESULT_TTL_SECONDS - 1
+            self.runtime.cleanup_singleflight_state()
+            self.assertIs(worker, self.runtime.singleflight_workers[job_id])
+            with closing(sqlite3.connect(self.db)) as db, db:
+                db.execute('DROP TRIGGER reject_recovered_final')
+            transport = httpx.ASGITransport(app=self.gateway.app, client=('127.0.0.1', 2222))
+            async with httpx.AsyncClient(transport=transport, base_url='http://127.0.0.1:8090') as client:
+                response = await client.post('/v1/chat/completions', json=payload, headers={'X-Gateway-Job-ID': job_id})
+                self.assertEqual(503, response.status_code, response.text)
+                self.assertEqual('durable_commit_failed', response.json()['error']['code'])
+                self.assertEqual('unknown', response.json()['error']['dispatch_state'])
+                self.assertEqual(job_id, response.headers['x-gateway-job-id'])
+                receipt = (await client.get('/gateway/commands/retained-command')).json()
+                self.assertEqual(job_id, receipt['job_id'])
+                page = (await client.get('/gateway/conversations/' + receipt['conversation_id'] + '/messages')).json()
+                assistant = next(message for message in page['messages'] if message['role'] == 'assistant')
+                self.assertNotEqual('completed', assistant['status'])
+                self.assertNotIn('SQLite reply', assistant['content'])
+            self.assertEqual(generation, self.runtime.job_registry[job_id]['generation'])
+            self.assertEqual([job_id], calls)
+        try:
+            self.runtime.process_chat_payload = model
+            asyncio.run(run())
         finally:
             self.runtime.process_chat_payload = original
 

@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.github
 
 import android.app.Application
 import androidx.room.Room
+import dev.chungjungsoo.gptmobile.data.agent.stopSavedGatewayRun
 import dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunDraft
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatPlatformModelV2
@@ -14,6 +15,8 @@ import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAPI
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayCancelResult
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -365,6 +368,86 @@ class GatewayConversationRepositoryTest {
         db.agentPersistenceDao().updateRunStatus(run.runId, "CANCELED", 1, 2, "Stopped")
         assertTrue(runCatching { repository.reserveOrdinaryTurn(turn.chatRoom.id, "profile", route.endpoint, "command", turn.userMessage.id, run.assistantMessageId, run.runId, "model") }.isFailure)
         assertNull(db.gatewayJobDao().submission("command"))
+    }
+
+    @Test fun originalOrdinaryStopRejectsAReplacedAccountOrInstallationBeforeCancelPost() = runBlocking {
+        val turn = turn()
+        val original = turn.runs.single()
+        repository.reserveOrdinaryTurn(turn.chatRoom.id, "profile", route.endpoint, original.runId, turn.userMessage.id, turn.assistantMessages.single().id, original.runId, "model")
+        val run = original.copy(status = "CANCELED", gatewayJobId = "saved-job", gatewayBaseUrl = route.endpoint)
+        db.agentRunDao().upsert(run)
+        val profile = settings.fetchPlatformV2s().single()
+        val gateway = mockk<GatewayAPI>()
+
+        for (identity in listOf(GatewayScopeIdentity("replacement", "owner"), GatewayScopeIdentity("gateway", "another-account"))) {
+            coEvery { client.identity(config) } returns identity
+            val receipt = stopSavedGatewayRun(run, profile, gateway) { repository.ordinaryCancellationConfig(run) }
+            assertEquals("GATEWAY_CANCELLATION_UNCONFIRMED", receipt.code)
+        }
+
+        coVerify(exactly = 0) { gateway.cancelJob(any(), any()) }
+    }
+
+    @Test fun originalOrdinaryStopUsesPairedIdentityBeforeAndAfterConversationAssociation() = runBlocking {
+        val turn = turn()
+        val original = turn.runs.single()
+        repository.reserveOrdinaryTurn(turn.chatRoom.id, "profile", route.endpoint, original.runId, turn.userMessage.id, turn.assistantMessages.single().id, original.runId, "model")
+        val run = original.copy(status = "CANCELED", gatewayJobId = "saved-job", gatewayBaseUrl = route.endpoint)
+        db.agentRunDao().upsert(run)
+        val profile = settings.fetchPlatformV2s().single()
+        val gateway = mockk<GatewayAPI>()
+        coEvery { gateway.cancelJob("saved-job", any()) } returns GatewayCancelResult("saved-job", false, cancellationOutcome = "requested")
+
+        assertEquals("GATEWAY_CANCELLATION_REQUESTED", stopSavedGatewayRun(run, profile, gateway) { repository.ordinaryCancellationConfig(run) }.code)
+        associate(turn)
+        coEvery { gateway.cancelJob("saved-job", any()) } returns GatewayCancelResult("saved-job", true, cancellationOutcome = "confirmed")
+        assertEquals("GATEWAY_CANCELLATION_CONFIRMED", stopSavedGatewayRun(run, profile, gateway) { repository.ordinaryCancellationConfig(run) }.code)
+
+        coVerify(exactly = 2) {
+            gateway.cancelJob(
+                "saved-job",
+                match {
+                    it.apiUrl == route.config.apiUrl &&
+                        it.profileUid == "profile" &&
+                        it.extraHeaders["X-Gateway-Installation-ID"] == "gateway" &&
+                        it.extraHeaders["X-Gateway-Principal-ID"] == "owner"
+                }
+            )
+        }
+    }
+
+    @Test fun malformedOrMissingCanonicalStopAuthorityNeverFallsBackToTheLegacyRoute() = runBlocking {
+        val turn = turn()
+        val original = turn.runs.single()
+        repository.reserveOrdinaryTurn(turn.chatRoom.id, "profile", route.endpoint, original.runId, turn.userMessage.id, turn.assistantMessages.single().id, original.runId, "model")
+        val run = original.copy(status = "CANCELED", gatewayJobId = "saved-job", gatewayBaseUrl = route.endpoint)
+        db.agentRunDao().upsert(run)
+        associate(turn)
+        val profile = settings.fetchPlatformV2s().single()
+        val gateway = mockk<GatewayAPI>()
+        val saved = requireNotNull(db.gatewayJobDao().submission(run.runId))
+        db.gatewayJobDao().saveSubmission(saved.copy(payload = "{broken"))
+        assertEquals("GATEWAY_CANCELLATION_UNCONFIRMED", stopSavedGatewayRun(run, profile, gateway) { repository.ordinaryCancellationConfig(run) }.code)
+        db.openHelper.writableDatabase.execSQL("DELETE FROM gateway_submissions WHERE commandId=?", arrayOf(run.runId))
+        assertEquals("GATEWAY_CANCELLATION_UNCONFIRMED", stopSavedGatewayRun(run, profile, gateway) { repository.ordinaryCancellationConfig(run) }.code)
+        coVerify(exactly = 0) { gateway.cancelJob(any(), any()) }
+    }
+
+    @Test fun ordinaryStopRechecksCredentialsAfterItsIdentityRead() = runBlocking {
+        val turn = turn()
+        val original = turn.runs.single()
+        repository.reserveOrdinaryTurn(turn.chatRoom.id, "profile", route.endpoint, original.runId, turn.userMessage.id, turn.assistantMessages.single().id, original.runId, "model")
+        val run = original.copy(status = "CANCELED", gatewayJobId = "saved-job", gatewayBaseUrl = route.endpoint)
+        db.agentRunDao().upsert(run)
+        val profile = settings.fetchPlatformV2s().single()
+        val gateway = mockk<GatewayAPI>()
+        coEvery { client.identity(config) } coAnswers {
+            coEvery { jobs.originalRoute("profile", route.endpoint) } returns route.copy(config = config.copy(token = "replacement"))
+            GatewayScopeIdentity("gateway", "owner")
+        }
+
+        assertEquals("GATEWAY_CANCELLATION_UNCONFIRMED", stopSavedGatewayRun(run, profile, gateway) { repository.ordinaryCancellationConfig(run) }.code)
+        coVerify(exactly = 0) { gateway.cancelJob(any(), any()) }
     }
 
     @Test fun boundedTranscriptPagesRetainIncompleteStateUntilTheFinalPageIsSaved() = runBlocking {

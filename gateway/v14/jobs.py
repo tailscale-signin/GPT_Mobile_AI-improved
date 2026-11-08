@@ -16,6 +16,7 @@ def install_terminal_guard(runtime):
     finish = runtime.finish_gateway_job
     update = runtime.update_gateway_job
     register = runtime.register_gateway_job
+    cancel = runtime.cancel_gateway_job
     def guarded_register(job_id, *args, **kwargs):
         with runtime.job_registry_lock:
             previous = runtime.job_registry.get(job_id)
@@ -107,6 +108,26 @@ def install_terminal_guard(runtime):
     runtime.update_gateway_job = guarded_update
     runtime.register_gateway_job = guarded_register
 
+    def guarded_cancel(job_id):
+        runtime.ensure_gateway_job_loaded(job_id)
+        with runtime.job_registry_lock:
+            if cancel_undispatched_job(runtime, job_id):
+                return {'job_id': job_id, 'canceled': True, 'cancellationRequested': False,
+                        'cancellationOutcome': 'confirmed', 'status': 'cancelled',
+                        'message': 'Job cancelled before dispatch'}
+            job = runtime.job_registry.get(job_id)
+            snapshot = dict(job) if job is not None else None
+            if job is not None:
+                job['cancellation_requested'] = True
+            try:
+                return cancel(job_id)
+            except Exception:
+                if job is not None and snapshot is not None:
+                    job.clear()
+                    job.update(snapshot)
+                raise
+    runtime.cancel_gateway_job = guarded_cancel
+
     def continue_disconnected(job_id):
         if job_id is None:
             from v14.actions import current_gateway_job_id
@@ -118,6 +139,37 @@ def install_terminal_guard(runtime):
                         and job.get('status') not in TERMINAL
                         and not (job.get('_hard_cancel_event') and job['_hard_cancel_event'].is_set()))
     runtime.gateway_continue_disconnected = continue_disconnected
+
+
+def cancel_undispatched_job(runtime, job_id):
+    """Confirm Stop only while the same durable generation proves no dispatch."""
+    if not runtime.GATEWAY_DURABLE_JOBS:
+        return False
+    with runtime.job_registry_lock, runtime.durable_job_lock:
+        job = runtime.job_registry.get(job_id)
+        if not job or job.get('status') != 'queued' or not job.get('generation'):
+            return False
+        row = runtime.gateway_conversations.read(lambda db: db.execute(
+            'SELECT a.dispatch_state,a.payload_json,j.public_json FROM gateway_generation_admissions a '
+            'JOIN gateway_jobs j ON j.job_id=a.job_id WHERE a.job_id=?', (job_id,)).fetchone())
+        if not row or row[0] != 'queued' or row[1] is None:
+            return False
+        saved = json.loads(row[2])
+        if saved.get('status') != 'queued' or saved.get('generation') != job['generation']:
+            return False
+        snapshot = dict(job)
+        job['cancellation_requested'] = False
+        try:
+            runtime.finish_gateway_job(job_id, 499, None, error='Cancelled before worker dispatch',
+                                       expected_generation=job['generation'])
+        except Exception:
+            job.clear()
+            job.update(snapshot)
+            raise
+        signal = job.get('_hard_cancel_event')
+        if signal is not None:
+            signal.set()
+        return True
 
 
 def record_execution_isolation(runtime, job_id, client_owned):

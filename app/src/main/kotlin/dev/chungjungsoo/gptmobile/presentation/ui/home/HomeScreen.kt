@@ -193,7 +193,7 @@ fun HomeScreen(
 ) {
     val gatewayMenuViewModel: GatewayMenuViewModel = hiltViewModel()
     val gatewayConnections by gatewayMenuViewModel.connections.collectAsStateWithLifecycle(minActiveState = Lifecycle.State.RESUMED)
-    val gatewayConnected = gatewayConnections.any { it.availability.isConnected }
+    val gatewayConnected = gatewayConnections.any { it.canBrowseHistory }
     val listState = rememberLazyListState()
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     val homeFeatures by homeViewModel.featureSettings.collectAsStateWithLifecycle()

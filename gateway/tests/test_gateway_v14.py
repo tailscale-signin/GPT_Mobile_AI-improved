@@ -315,6 +315,7 @@ class DurableFailureTests(unittest.TestCase):
             runtime.durable_persist_job(job_id)
         runtime=SimpleNamespace(job_registry={'j':job},job_registry_lock=threading.RLock(),
             finish_gateway_job=finish,update_gateway_job=lambda *a,**k: None,register_gateway_job=lambda *a,**k: None,
+            cancel_gateway_job=lambda *a,**k: self.fail('Finalization must not invoke cancellation'),
             durable_job_lock=threading.RLock(),_durable_connect=lambda:None,_durable_metric=lambda *a:None,
             GATEWAY_DURABLE_JOBS=True,durable_job_initialized=False,init_durable_job_store=lambda:False)
         install_terminal_guard(runtime)

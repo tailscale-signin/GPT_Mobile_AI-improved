@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.github
 import androidx.room.withTransaction
 import dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery
 import dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2
+import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatPlatformModelV2
@@ -13,6 +14,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.GatewayMessageRecord
 import dev.chungjungsoo.gptmobile.data.database.entity.GatewaySubmissionRecord
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -299,6 +301,47 @@ class GatewayConversationRepository @Inject constructor(
             val ordinary = runCatching { json.decodeFromString<GatewayOrdinaryReservation>(submission.payload) }.getOrNull()
             if (ordinary?.reservationKind == "ordinary" && submission.chatId == run.chatId) put(runId, run.chatId)
         }
+    }
+
+    /** Null is legacy-only. A saved canonical command with missing authority must fail closed. */
+    suspend fun ordinaryCancellationConfig(run: AgentRun): ProviderRequestConfig? {
+        val submission = dao.latestSubmissionForRun(run.runId)
+        if (submission == null) {
+            check(
+                dao.conversationsForChat(run.chatId).none { it.executionProfileUid == run.profileUid } &&
+                    dao.bindings(run.chatId).none {
+                        json.decodeFromString<GatewayEngineeringBinding>(it.binding).localRunId == run.runId
+                    }
+            ) { "The saved gateway command authority is unavailable. Check its original job before confirming Stop." }
+            return null
+        }
+        check(submission.chatId == run.chatId && submission.userMessageId == run.userMessageId && submission.assistantMessageId == run.assistantMessageId && submission.executionProfileUid == run.profileUid && submission.connectionProfileUid == run.profileUid && submission.endpoint == run.gatewayBaseUrl?.trimEnd('/')) { "The saved gateway command belongs to another execution destination." }
+        check(dao.binding(submission.commandId) == null) { "Engineering jobs require their original engineering control." }
+        val reservation = runCatching { json.decodeFromString<GatewayOrdinaryReservation>(submission.payload) }.getOrNull()
+        check(reservation != null || submission.payload.isBlank() && submission.state == "ACCEPTED") { "The saved ordinary command authority is malformed. No Stop request was sent." }
+        val conversation = submission.conversationKey?.let { requireNotNull(dao.conversation(it)) { "The original gateway conversation authority is unavailable." } }
+        if (reservation != null) check(reservation.reservationKind == "ordinary" && reservation.model == run.modelSnapshot) { "The saved ordinary command identity changed." }
+        if (conversation != null) {
+            check(conversation.localChatId == run.chatId && conversation.executionProfileUid == run.profileUid && conversation.connectionProfileUid == submission.connectionProfileUid && conversation.endpoint == submission.endpoint) { "The original gateway conversation destination changed." }
+            val snapshot = json.decodeFromString<GatewayConversationSnapshot>(conversation.snapshot)
+            check(snapshot.model.isBlank() || snapshot.model == run.modelSnapshot) { "The saved gateway model changed." }
+            check(reservation == null || reservation.gatewayId == conversation.gatewayId && reservation.principalId == conversation.principalId) { "The saved command and conversation accounts disagree." }
+        }
+        val expected = reservation?.let { GatewayScopeIdentity(it.gatewayId, it.principalId) }
+            ?: conversation?.let { GatewayScopeIdentity(it.gatewayId, it.principalId) }
+            ?: error("The saved gateway installation and account are unverified. No Stop request was sent.")
+        requireGatewayIdentity(expected.gatewayId, expected.principalId)
+        val route = jobs.originalRoute(submission.connectionProfileUid, submission.endpoint)
+        val identity = client.identity(route.config)
+        check(identity == expected) { "The original gateway installation or account changed. No Stop request was sent." }
+        val profile = settings.fetchPlatformV2s().singleOrNull { it.uid == run.profileUid && it.enabled }
+        check(profile != null && profile.compatibleType.name == run.providerSnapshot && GitHubAutonomousEngineeringPolicy.supportsSavedJobs(profile)) { "Restore the original gateway provider before confirming Stop." }
+        check(dao.latestSubmissionForRun(run.runId) == submission) { "The active saved gateway command changed while Stop was being verified." }
+        val current = database.agentRunDao().getById(run.runId)
+        val message = dao.localMessage(run.assistantMessageId)
+        check(current != null && current.gatewayJobId == run.gatewayJobId && current.gatewayBaseUrl == run.gatewayBaseUrl && current.ownershipFence == run.ownershipFence && message != null && message.chatId == run.chatId && message.currentRunId == run.runId && message.ownershipFence == run.ownershipFence) { "The original reply owner changed while Stop was being verified." }
+        check(jobs.originalRoute(submission.connectionProfileUid, submission.endpoint).config == route.config) { "The original gateway credentials changed before Stop." }
+        return route.config.withGatewayIdentity(identity)
     }
 
     /** Resolve an ambiguous ordinary admission without dispatching a replacement generation. */

@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
+import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.github.GatewayConversationRepository
 import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringRepository
 import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringRequestRejected
@@ -10,6 +11,7 @@ import dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride
 import dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext
 import dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator
 import dev.chungjungsoo.gptmobile.data.github.GitHubWorkspaceClient
+import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import dev.chungjungsoo.gptmobile.data.repository.ChatRepository
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository
@@ -116,6 +118,8 @@ class GatewayChatSubmission @Inject constructor(
     suspend fun ownsConversation(chatId: Int): Boolean = engineering.ownsConversation(chatId)
 
     suspend fun conversationWriteBlocker(chatId: Int): String? = engineering.conversationWriteBlocker(chatId)
+
+    suspend fun ordinaryCancellationConfig(run: AgentRun): ProviderRequestConfig? = conversations.ordinaryCancellationConfig(run)
 
     /** Only explicit Stop reaches this path; activity/service teardown never invokes it. */
     suspend fun cancel(runIds: Set<String>): List<AgentRunNotice> = engineering.bindings().filter { it.localRunId in runIds }.map { retained ->

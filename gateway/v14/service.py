@@ -59,6 +59,9 @@ class ServiceState:
             job_id = payload.get('_gateway_job_id') if isinstance(payload, dict) else None
             journal = getattr(runtime, 'gateway_conversations', None)
             durable = journal.pending_generation(job_id) if journal and job_id and getattr(runtime, "GATEWAY_DURABLE_JOBS", False) else None
+            if durable:
+                with runtime.job_registry_lock:
+                    admitted_generation = (runtime.job_registry.get(job_id) or {}).get('generation')
             try:
                 deadline = request_deadline(payload)
                 if durable:
@@ -116,6 +119,12 @@ class ServiceState:
                         job = runtime.job_registry.get(job_id)
                         if job is None:
                             raise ValueError('The admitted worker lost its durable job')
+                        if job.get('generation') != admitted_generation:
+                            return 409, {'error': {'code': 'job_generation_changed', 'message': 'The queued worker no longer owns this job generation'}}
+                        if job.get('cancellation_requested') or job.get('status') in {'cancelled', 'canceled'} or hard_cancel_event is not None and hard_cancel_event.is_set():
+                            return 499, {'error': {'code': 'cancelled', 'message': 'Cancelled before dispatch'}}
+                        if job.get('status') in {'completed', 'failed', 'interrupted'}:
+                            return 409, {'error': {'code': 'terminal_job_not_resumable', 'message': 'The admitted job is already terminal'}}
                         prior = dict(job)
                         job.update(status='running', stage='starting', queue_reason=None,
                                    started_at=job.get('started_at') or time.time(),
@@ -156,6 +165,8 @@ class ServiceState:
                 job = runtime.job_registry.get(job_id)
                 if job is None or job.get('status') != 'queued':
                     continue
+                if job.get('cancellation_requested'):
+                    hard.set()
                 job.update(_cancel_event=cancel, _hard_cancel_event=hard, _durable_background_admitted=True)
             def run(job_id=job_id, payload=payload, cancel=cancel, hard=hard, principal=row['principal'], generation=job['generation']):
                 token = current_device.set(principal)
@@ -173,15 +184,21 @@ class ServiceState:
                     current_device.reset(token)
             task = asyncio.create_task(asyncio.to_thread(run))
             self.recovery_tasks.add(task)
-            def completed(task, job_id=job_id):
+            worker_entry = {'task': task, 'cancel_event': cancel, 'hard_cancel_event': hard,
+                'clients': 0, 'created_at': row['accepted_at'], 'finished_at': None, 'job_mode': 'interactive'}
+            with runtime.singleflight_lock:
+                runtime.singleflight_workers[job_id] = worker_entry
+            def completed(task, job_id=job_id, worker_entry=worker_entry):
                 self.recovery_tasks.discard(task)
+                if not task.cancelled():
+                    # A recovered worker owns its outcome just like an HTTP-
+                    # admitted worker. Retain a failed final commit so a later
+                    # observer cannot replace this execution after cache expiry.
+                    worker_entry['persistence_error'] = task.exception()
                 runtime.mark_singleflight_worker_finished(job_id, task)
-                if not task.cancelled() and task.exception() is not None:
+                if worker_entry.get('persistence_error') is not None:
                     runtime.logger.error('Retained queued job finalization failed: %s', job_id)
             task.add_done_callback(completed)
-            with runtime.singleflight_lock:
-                runtime.singleflight_workers[job_id] = {'task': task, 'cancel_event': cancel, 'hard_cancel_event': hard,
-                    'clients': 0, 'created_at': row['accepted_at'], 'finished_at': None, 'job_mode': 'interactive'}
 
     def begin_drain(self):
         with self.lock:

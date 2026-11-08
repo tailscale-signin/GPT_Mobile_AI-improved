@@ -56,13 +56,8 @@ internal fun GatewayConversationsScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val selected = connections.firstOrNull { it.profileUid == state.connectionUid }
-    LaunchedEffect(connections.map { it.profileUid to it.routeIdentity }) {
-        val current = connections.firstOrNull { it.profileUid == state.connectionUid }
-        if (current != null) {
-            viewModel.select(current)
-        } else if (state.connectionUid == null) {
-            (connections.firstOrNull { it.availability.isConnected } ?: connections.firstOrNull())?.let(viewModel::select)
-        }
+    LaunchedEffect(connections.map { it.profileUid to it.navigationIdentity }) {
+        viewModel.updateConnections(connections)
     }
     LaunchedEffect(lifecycle, state.connectionUid) {
         lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
@@ -121,6 +116,7 @@ internal fun GatewayConversationsScreen(
                     state.lastSyncedAt?.let {
                         Text(stringResource(R.string.gateway_browser_last_synced, DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(it))), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
+                    if (state.cachedInventory) Text(stringResource(R.string.gateway_browser_cached), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     if (state.page?.principalId == "network:shared") {
                         Text(stringResource(R.string.gateway_browser_shared), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
@@ -144,7 +140,7 @@ internal fun GatewayConversationsScreen(
                 }
             }
             if (state.page != null && state.page?.items.isNullOrEmpty() && !state.loading) {
-                item(key = "empty") { Text(stringResource(R.string.gateway_browser_empty)) }
+                item(key = "empty") { Text(stringResource(if (state.cachedInventory) R.string.gateway_browser_cached_empty else R.string.gateway_browser_empty)) }
             }
             items(state.page?.items.orEmpty(), key = { it.conversationId }) { conversation ->
                 Surface(

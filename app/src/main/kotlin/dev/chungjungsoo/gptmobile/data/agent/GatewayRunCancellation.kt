@@ -23,15 +23,20 @@ internal data class GatewayStopReceipt(val code: String, val message: String) {
 }
 
 /** Uses the retained destination only; an edited profile cannot redirect Stop. */
-internal suspend fun stopSavedGatewayRun(run: AgentRun, profile: PlatformV2?, gateway: GatewayAPI): GatewayStopReceipt {
+internal suspend fun stopSavedGatewayRun(run: AgentRun, profile: PlatformV2?, gateway: GatewayAPI, canonicalConfig: suspend () -> ProviderRequestConfig? = { null }): GatewayStopReceipt {
     val jobId = run.gatewayJobId
     val endpoint = run.gatewayBaseUrl
     if (jobId.isNullOrBlank() || endpoint.isNullOrBlank() || profile == null || !sameGatewayEndpoint(profile.apiUrl, endpoint)) {
         return GatewayStopReceipt("GATEWAY_CANCELLATION_UNCONFIRMED", "Stopped observing locally. Restore the original gateway connection to confirm whether the saved job stopped.")
     }
     val response = try {
-        val token = ApiCredentialRotator.keysForNewRequest(profile.providerConnectionUid ?: profile.uid, profile.token).firstOrNull()
-        gateway.cancelJob(jobId, ProviderRequestConfig(endpoint, token, profileUid = profile.uid))
+        // A failed canonical authority lookup must never fall back to the legacy URL-only path.
+        val config = canonicalConfig() ?: run {
+            val token = ApiCredentialRotator.keysForNewRequest(profile.providerConnectionUid ?: profile.uid, profile.token).firstOrNull()
+            ProviderRequestConfig(endpoint, token, profileUid = profile.uid)
+        }
+        check(sameGatewayEndpoint(config.apiUrl, endpoint) && config.profileUid == run.profileUid)
+        gateway.cancelJob(jobId, config)
     } catch (cancelled: CancellationException) {
         throw cancelled
     } catch (_: Exception) {

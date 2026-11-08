@@ -34,4 +34,6 @@
     <string name="gateway_browser_unsupported">This gateway does not provide complete saved conversations. Update the gateway to use this browser.</string>
     <string name="gateway_browser_identity_changed">The gateway identity changed. Refresh to read its current conversations.</string>
     <string name="gateway_browser_active_job">Active job at last sync</string>
+    <string name="gateway_browser_cached">Saved on this device · incomplete server inventory</string>
+    <string name="gateway_browser_cached_empty">No conversations for this verified account have been saved on this device. Reconnect to read the server inventory.</string>
 </resources>

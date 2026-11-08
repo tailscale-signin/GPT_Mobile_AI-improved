@@ -24,6 +24,9 @@
     <string name="gateway_jobs_last_synced">Cached · last synced %1$s</string>
     <string name="gateway_jobs_loading">Checking saved jobs…</string>
     <string name="gateway_jobs_legacy">Retained job evidence · full catalog unavailable</string>
+    <string name="gateway_jobs_local_evidence">Read older local evidence</string>
+    <string name="gateway_jobs_current_account">Return to current account jobs</string>
+    <string name="gateway_jobs_legacy_account">Read only · saved account %1$s on gateway %2$s · current access unverified</string>
     <string name="gateway_jobs_empty">No saved jobs on this gateway.</string>
     <string name="gateway_jobs_running">Running</string>
     <string name="gateway_jobs_queued">Queued</string>

@@ -587,6 +587,31 @@ class CompleteBackupManagerTest {
         assertEquals("first-token", vault.read("provider")!!.decodeToString())
     }
 
+    @Test fun gatewayAccountProofNeverExportsImportsOrReplacesLocalAuthority() = runBlocking {
+        val localProof = "gateway_scope_" + "a".repeat(64)
+        val forgedProof = "gateway_scope_" + "b".repeat(64)
+        vault.put(localProof, "verified-only-on-this-installation".toByteArray())
+        vault.put("provider", "saved-provider-credential".toByteArray())
+        val selected = CompleteBackupSelection(setOf(CompleteBackupSection.CREDENTIALS))
+        val archive = File(context.cacheDir, "gateway-scope-exclusion.gptbackup")
+        val saved = backupFixture(archive, selected)
+        assertTrue(saved.message, saved.success)
+        val stage = File(context.cacheDir, "gateway-scope-inspection").apply { mkdirs() }
+        val manifest = CompleteBackupArchive.read(archive, stage, Long.MAX_VALUE)
+        assertTrue("provider" in manifest.secrets)
+        assertFalse(manifest.secrets.keys.any { it.startsWith("gateway_scope_") })
+
+        val encoded = java.util.Base64.getEncoder().encodeToString("incoming-account-proof".toByteArray())
+        CompleteBackupArchive.write(archive, manifest.copy(secrets = manifest.secrets + mapOf(localProof to encoded, forgedProof to encoded)), manifest.files.mapValues { (path, _) -> File(stage, path) })
+        vault.put("provider", "current-provider-credential".toByteArray())
+        val restored = manager.restore(Uri.fromFile(archive), selection = selected)
+
+        assertTrue(restored.message, restored.success)
+        assertEquals("saved-provider-credential", vault.read("provider")!!.decodeToString())
+        assertEquals("verified-only-on-this-installation", vault.read(localProof)!!.decodeToString())
+        assertEquals(null, vault.read(forgedProof))
+    }
+
     @Test fun legacyGitHubCredentialsCannotReconnectWithoutPortableEncryptedMetadata() = runBlocking {
         database.toolConnectionDao().upsertConnection(dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection("github-account", "GitHub", "github", "GITHUB", null, "OAUTH", "connection_github-account", null))
         vault.put("connection_github-account", "ghu_private_access".toByteArray())

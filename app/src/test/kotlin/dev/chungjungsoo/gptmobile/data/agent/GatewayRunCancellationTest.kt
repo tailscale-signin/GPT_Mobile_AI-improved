@@ -65,4 +65,14 @@ class GatewayRunCancellationTest {
         coEvery { gateway.cancelJob(any(), any()) } returns GatewayCancelResult("saved-job", false, status = "completed")
         assertEquals("GATEWAY_ALREADY_TERMINAL", stopSavedGatewayRun(run, profile, gateway).code)
     }
+
+    @Test
+    fun rejectedCanonicalAuthorityCannotFallBackToTheLegacyCancellationPath() = runTest {
+        val gateway = mockk<GatewayAPI>()
+
+        val receipt = stopSavedGatewayRun(run, profile, gateway) { error("The original account changed.") }
+
+        assertEquals("GATEWAY_CANCELLATION_UNCONFIRMED", receipt.code)
+        coVerify(exactly = 0) { gateway.cancelJob(any(), any()) }
+    }
 }

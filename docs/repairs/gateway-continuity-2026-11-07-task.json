@@ -407,5 +407,115 @@
       "new_schema_changes": false,
       "origin": "Actual CI-generated schema committed by ab284544"
     }
+  },
+  "concurrent_reconciliation_605_2026_11_08": {
+    "state": "LOCAL_REGRESSIONS_PASSED_PUBLICATION_CHECKPOINT",
+    "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+    "base_branch": "main",
+    "base_sha": "3ac89ceafd9083f67da30e92f9f93aae27be4600",
+    "branch": "fix/diagnostic-remediation-8597579-2026-11-07",
+    "reviewed_head": "6058217056cec0fecc5bdea0733ae33a10baf45e",
+    "preserved_implementation": "66ac834e09806c187e6fa92fad8d82c837be1ed5",
+    "intent": "Finish the requested app-audit and persistent gateway work, preserve concurrent Room51/catalog integration, and repair reproduced recovery and account-authority defects.",
+    "publication_authorized": true,
+    "merge_or_release_authorized_in_this_session": false,
+    "disposition": "docs/repairs/gateway-recovery-authority-2026-11-08.md",
+    "historical_evidence": {
+      "head": "0582f3428736261ee0399e52fc9be4ce4c7db10c",
+      "canonical_required_verification": "SUCCESS",
+      "full_unit_distinct_cases": 7902,
+      "ordinary_passed": 7897,
+      "ordinary_heap_assumption_skips": 5,
+      "all_five_skips_passed_in_dedicated_heap_gate": true,
+      "emulator_cases_per_api": 56,
+      "emulator_apis": [
+        34,
+        36
+      ],
+      "qualification": "ANCESTOR_ONLY_SUPERSEDED_BY_605_ARCHITECTURE"
+    },
+    "local_validation": {
+      "server_focused": {
+        "tests": 79,
+        "passed": 79,
+        "new_regressions": 5
+      },
+      "authentication": {
+        "tests": 25,
+        "passed": 25
+      },
+      "canonical_stop_authority": {
+        "tests": 36,
+        "passed": 36,
+        "actual_room_tests": 30,
+        "helper_tests": 6,
+        "boundaries": [
+          "Actual605 Room51 schema/generatedDAO; does not exercise the newly added cachedConversations query",
+          "External HTTP/provider boundaries mocked"
+        ]
+      },
+      "bound_conversation_commit_permission": {
+        "tests": 8,
+        "passed": 8,
+        "baseline_tests": 8,
+        "baseline_failures": 2,
+        "boundaries": [
+          "Actual605 Android/runtime dependencies with changed production models; repository HTTP/storage collaborators mocked"
+        ],
+        "preserved_incoming_test_source": "0b5661fbe9652841f2f1f6968bcf5c697db4ba99",
+        "incoming_tests": 8,
+        "incoming_passed": 8
+      },
+      "server_aggregate": {
+        "python_suites": 51,
+        "tests": 624,
+        "passed": 623,
+        "skipped": 1,
+        "skip_reason": "No bindable LAN IPv4 interface",
+        "browser_passed": 7,
+        "source_files_verified_unchanged": 177
+      },
+      "offline_scope_and_history": {
+        "tests": 40,
+        "passed": 40,
+        "new_room_query": "COMPILED_REQUIRES_CURRENT_KSP_EXECUTION",
+        "boundaries": [
+          "Actual605 runtime and dependencies; selected DAO/cache collaborators mocked; no device-rendering claim"
+        ]
+      },
+      "canonical_fast_format_metadata": {
+        "host_cases": 400,
+        "passed": 400,
+        "ktlint_changed_files": 24,
+        "audit_inventory_files": 2292,
+        "generated_metadata": "REGENERATED",
+        "diff_check": "PASSED"
+      },
+      "published_605_android_partial": {
+        "production_compilation": "PASSED",
+        "unit_test_compilation": "PASSED",
+        "full_unit": "INCOMPLETE_CANCELLED_AFTER_BRANCH_ADVANCE",
+        "heap": "NOT_EXECUTED",
+        "room_version": 51,
+        "room_schema_sha256": "20761194ba2e9f96b8fb6769458fd05a089153baf08bbd46d5a6210769a0e708"
+      },
+      "backup_account_authority": {
+        "tests": 1,
+        "passed": 1,
+        "baseline_failed_at_export_assertion": true,
+        "actual_encrypted_backup_and_restore": true
+      }
+    },
+    "remaining": [
+      "Publish with an exact expected-head lease preserving concurrent work",
+      "Require full Android/KSP/Hilt/Compose/unit/heap/emulator/APK and platform checks on the resulting published head",
+      "Obtain fresh private MCP discovery and representative tool receipts on the affected installation",
+      "Qualify physical-device, live-service and historical external execution gaps with their own receipts"
+    ],
+    "reconciled_publication_base": "0b5661fbe9652841f2f1f6968bcf5c697db4ba99",
+    "preserved_concurrent_followup": [
+      "Shared no-commit admission fix and actual bound-conversation regression",
+      "Both gateway profile-card device cases added to strict acceptance runner;58cases perAPI"
+    ]
   }
 }

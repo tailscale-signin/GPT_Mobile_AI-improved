@@ -63,12 +63,13 @@ internal fun GatewayJobsScreen(model: GatewayJobsViewModel, onOpenConversation: 
         }
     }
     val fresh = state.error == null && state.observedAtElapsed > 0 && elapsedNow - state.observedAtElapsed <= 30_000
+    val displayedRows = if (state.legacy) state.legacyRows else state.rows
     LazyColumn(modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item("header") {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text(stringResource(R.string.gateway_jobs_title), style = MaterialTheme.typography.titleLarge)
-                    TextButton(onClick = { model.requestRefresh() }, enabled = !state.loading) { Text(stringResource(R.string.gateway_jobs_refresh)) }
+                    TextButton(onClick = { model.requestRefresh() }, enabled = !state.loading && !state.legacy) { Text(stringResource(R.string.gateway_jobs_refresh)) }
                 }
                 Text(state.connectionName, style = MaterialTheme.typography.labelLarge)
                 if (state.principalId == "network:shared") Text(stringResource(R.string.gateway_jobs_shared_scope), style = MaterialTheme.typography.bodySmall)
@@ -83,6 +84,11 @@ internal fun GatewayJobsScreen(model: GatewayJobsViewModel, onOpenConversation: 
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 if (state.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
+                if (state.legacyRows.isNotEmpty()) {
+                    TextButton(onClick = { if (state.legacy) model.closeLegacyEvidence() else model.showLegacyEvidence() }) {
+                        Text(stringResource(if (state.legacy) R.string.gateway_jobs_current_account else R.string.gateway_jobs_local_evidence))
+                    }
+                }
                 if (state.instructionQueued) Text(stringResource(R.string.gateway_jobs_instruction_queued), style = MaterialTheme.typography.bodySmall)
                 state.error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
                 state.cachedChatId?.let { chatId ->
@@ -93,11 +99,11 @@ internal fun GatewayJobsScreen(model: GatewayJobsViewModel, onOpenConversation: 
                 }
             }
         }
-        if (state.rows.isEmpty() && state.loaded && state.inventoryComplete && state.error == null) {
+        if (!state.legacy && state.rows.isEmpty() && state.loaded && state.inventoryComplete && state.error == null) {
             item("empty") { Text(stringResource(R.string.gateway_jobs_empty), style = MaterialTheme.typography.bodyLarge) }
         }
         for (group in GatewayJobGroup.entries) {
-            val grouped = state.rows.filter { gatewayJobDisplayGroup(it.summary.schedulingState ?: it.summary.state, it.summary.phase) == group }
+            val grouped = displayedRows.filter { gatewayJobDisplayGroup(it.summary.schedulingState ?: it.summary.state, it.summary.phase) == group }
             val rows = if (group == GatewayJobGroup.QUEUED) grouped.sortedBy { it.summary.acceptedAt } else grouped.sortedByDescending { it.summary.acceptedAt }
             if (rows.isEmpty()) continue
             item("section:$group") {
@@ -125,6 +131,7 @@ internal fun GatewayJobsScreen(model: GatewayJobsViewModel, onOpenConversation: 
                             if (job.revision > row.record.seenRevision) Text(stringResource(R.string.gateway_jobs_new_updates), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                         }
                         Text(state.profileNames[job.profileId] ?: job.model.ifBlank { job.profileId ?: stringResource(R.string.gateway_jobs_saved_profile) }, style = MaterialTheme.typography.labelMedium)
+                        if (state.legacy) Text(stringResource(R.string.gateway_jobs_legacy_account, row.record.principalId, row.record.gatewayId), style = MaterialTheme.typography.bodySmall)
                         Text(job.phase?.takeIf(String::isNotBlank)?.let(::gatewayPhaseLabel) ?: gatewaySchedulingLabel(job.state.lowercase(java.util.Locale.ROOT)), style = MaterialTheme.typography.bodySmall)
                         if (job.repository != null) {
                             val source = job.sourceBranch ?: job.branch ?: job.sourceSha?.take(12)
@@ -154,7 +161,7 @@ internal fun GatewayJobsScreen(model: GatewayJobsViewModel, onOpenConversation: 
                 }
             }
         }
-        if (state.hasMore) {
+        if (!state.legacy && state.hasMore) {
             item("more") {
                 OutlinedButton(onClick = { model.requestRefresh(loadMore = true) }, enabled = !state.loading, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.gateway_jobs_load_more)) }
             }

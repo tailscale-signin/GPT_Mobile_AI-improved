@@ -537,7 +537,10 @@ class AgentRunCoordinator @Inject constructor(
                     if (remoteRuns.isNotEmpty()) {
                         val profiles = settingRepository.fetchPlatformV2s().associateBy { it.uid }
                         remoteRuns.forEach { run ->
-                            val receipt = stopSavedGatewayRun(run, profiles[run.profileUid], gatewayAPI)
+                            val receipt = stopSavedGatewayRun(run, profiles[run.profileUid], gatewayAPI) {
+                                requireNotNull(gatewayChatSubmission) { "The saved gateway authority verifier is unavailable." }
+                                    .ordinaryCancellationConfig(run)
+                            }
                             chatRepository.recordGatewayCancellation(run.runId, requireNotNull(run.gatewayJobId), receipt.retainedError)
                             _notices.tryEmit(AgentRunNotice(run.chatId, run.runId, receipt.message, persistent = true))
                         }

@@ -1047,7 +1047,7 @@ class CompleteBackupManager @Inject constructor(
                 database.toolConnectionDao().getAllConnections().mapNotNull { it.secretRef }
             ).filter { reference ->
             val rollbackCredential = includeGitHubForRollback && selection.includes(CompleteBackupSection.CREDENTIALS) && (reference in githubReferences || reference.startsWith("github-oauth-session-"))
-            rollbackCredential || secretBelongsTo(reference, selection)
+            !reference.startsWith("gateway_scope_") && (rollbackCredential || secretBelongsTo(reference, selection))
         }
         val portableMemory = if (selection.includes(CompleteBackupSection.MEMORY)) memoryStore?.exportPortable().orEmpty() else emptyMap()
         return buildMap {
@@ -1086,6 +1086,7 @@ class CompleteBackupManager @Inject constructor(
     }
 
     private fun secretBelongsTo(reference: String, selection: CompleteBackupSelection): Boolean = when {
+        reference.startsWith("gateway_scope_") -> false
         reference.startsWith("github-oauth-session-") || reference.startsWith("github-account-binding-") -> selection.includes(CompleteBackupSection.CREDENTIALS)
         reference.startsWith("github-") || reference.startsWith("mcp_oauth_pending_") -> false
         dev.chungjungsoo.gptmobile.data.github.GitHubWorkspaceDraftStore.isDraftKey(reference) -> selection.includes(CompleteBackupSection.GITHUB_WORKSPACE)
@@ -1111,7 +1112,7 @@ class CompleteBackupManager @Inject constructor(
     }
 
     private suspend fun replaceSecrets(values: Map<String, String>, selection: CompleteBackupSelection) {
-        values.filterKeys { !it.startsWith("memory-portable-") }.forEach { (reference, encoded) ->
+        values.filterKeys { !it.startsWith("memory-portable-") && !it.startsWith("gateway_scope_") }.forEach { (reference, encoded) ->
             val bytes = Base64.getDecoder().decode(encoded)
             try {
                 secretVault.put(reference, bytes)

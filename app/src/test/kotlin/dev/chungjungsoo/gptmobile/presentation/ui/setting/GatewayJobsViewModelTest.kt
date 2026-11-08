@@ -6,6 +6,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.GatewayJobRecord
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.github.GatewayConversationAttachment
 import dev.chungjungsoo.gptmobile.data.github.GatewayConversationRepository
+import dev.chungjungsoo.gptmobile.data.github.GatewayHistoryUnsupported
 import dev.chungjungsoo.gptmobile.data.github.GatewayJobCatalog
 import dev.chungjungsoo.gptmobile.data.github.GatewayJobControl
 import dev.chungjungsoo.gptmobile.data.github.GatewayJobRepository
@@ -14,6 +15,7 @@ import dev.chungjungsoo.gptmobile.data.github.GatewayJobStopOutcome
 import dev.chungjungsoo.gptmobile.data.github.GatewayJobStopResult
 import dev.chungjungsoo.gptmobile.data.github.GatewayJobStopReview
 import dev.chungjungsoo.gptmobile.data.github.GatewayJobSummary
+import dev.chungjungsoo.gptmobile.data.github.GatewayVerifiedScope
 import dev.chungjungsoo.gptmobile.data.github.gatewayIdentityKey
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
@@ -26,6 +28,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
@@ -57,6 +60,8 @@ class GatewayJobsViewModelTest {
     private val control = mockk<GatewayJobControl>(relaxed = true)
     private val config = ProviderRequestConfig("https://gateway.invalid/v1", token = null, profileUid = "gateway-a")
     private val route = GatewayJobRoute("gateway-a", config.apiUrl, config)
+    private val secondRoute = GatewayJobRoute("gateway-b", "https://other.invalid/v1", config.copy(apiUrl = "https://other.invalid/v1", profileUid = "gateway-b"))
+    private val configuration = MutableStateFlow<GatewayJobRoute?>(route)
     private val summary = GatewayJobSummary("job-id", "engineering", "conversation-id", title = "Saved work", profileId = "original-profile", model = "exact-model", repository = "owner/repo", branch = "original-branch", state = "running", phase = "CI", revision = 9, acceptedAt = 0.5, serverNow = 1.0, allowedActions = listOf("cancel"))
     private val record = GatewayJobRecord(gatewayIdentityKey("installation", "principal", "engineering", summary.jobId), "installation", "principal", "engineering", summary.jobId, gatewayIdentityKey("installation", "principal", "conversation-id"), "gateway-a", config.apiUrl, "original-profile", "snapshot", 1000)
     private val row = GatewayJobRow(record, summary)
@@ -67,8 +72,11 @@ class GatewayJobsViewModelTest {
         Dispatchers.setMain(dispatcher)
         coEvery { repository.configured(any()) } returns true
         coEvery { repository.route("profile-a", requireEnabled = false) } returns route
-        coEvery { repository.route("profile-b", requireEnabled = false) } returns GatewayJobRoute("gateway-b", "https://other.invalid/v1", config.copy(apiUrl = "https://other.invalid/v1", profileUid = "gateway-b"))
-        every { repository.observe(any()) } answers { flowOf(if (firstArg<String>() == "profile-a") listOf(record) else emptyList()) }
+        coEvery { repository.route("profile-b", requireEnabled = false) } returns secondRoute
+        every { repository.observeConfiguration("profile-a") } returns configuration
+        every { repository.observeConfiguration("profile-b") } returns flowOf(secondRoute)
+        coEvery { repository.cachedScope(any()) } returns GatewayVerifiedScope("a".repeat(64), "installation", "principal", 1)
+        every { repository.observe(any<GatewayJobRoute>()) } answers { flowOf(if (firstArg<GatewayJobRoute>().profileUid == "gateway-a") listOf(record) else emptyList()) }
         every { repository.summary(record) } returns summary
         coEvery { repository.refresh("profile-a", any()) } returns page
         coEvery { repository.refresh("profile-b", any()) } returns page.copy(gatewayId = "other-installation", items = emptyList())
@@ -176,5 +184,93 @@ class GatewayJobsViewModelTest {
         runCurrent()
         coVerify(exactly = 1) { repository.refresh("profile-a", null) }
         coVerify(exactly = 0) { control.stop(any()) }
+    }
+
+    @Test fun anUnverifiedConfigurationCannotDisplayCachedAccountsOrUseTheirActions() = runTest(dispatcher) {
+        coEvery { repository.cachedScope(route) } returns null
+        model.bind("profile-a")
+        val ready = model.state.first { it.configured }
+        assertTrue(ready.rows.isEmpty())
+        assertNull(ready.gatewayId)
+        model.open(row) { error("An unverified cached account cannot navigate") }
+        model.showStop(row)
+        model.showInstruction(row)
+        assertNull(model.state.value.stop)
+        assertNull(model.state.value.instruction)
+        coVerify(exactly = 0) { conversations.attach(any()) }
+        coVerify(exactly = 0) { control.inspect(any()) }
+    }
+
+    @Test fun offlineRowsAreFilteredToThePreviouslyVerifiedGatewayAndPrincipal() = runTest(dispatcher) {
+        val other = record.copy(key = "other-account-job", principalId = "other-account")
+        every { repository.observe(route) } returns flowOf(listOf(record, other))
+        bindOriginal()
+        assertEquals(listOf(record), model.state.value.rows.map { it.record })
+        assertEquals("principal", model.state.value.principalId)
+        model.showStop(GatewayJobRow(other, summary))
+        assertNull(model.state.value.stop)
+        coVerify(exactly = 0) { control.inspect(any()) }
+    }
+
+    @Test fun credentialRevisionChangeClearsCachedRowsAndPendingActionsBeforeTheNextPoll() = runTest(dispatcher) {
+        bindOriginal()
+        val changed = route.copy(configurationRevision = "b".repeat(64))
+        coEvery { repository.cachedScope(changed) } returns null
+        val review = GatewayJobStopReview(record, summary)
+        coEvery { control.inspect(record) } returns review
+        model.showStop(row)
+        model.state.first { it.stop?.review != null }
+        configuration.value = changed
+        model.state.first { it.configured && it.gatewayId == null }
+        assertTrue(model.state.value.rows.isEmpty())
+        assertNull(model.state.value.stop)
+        model.confirmStop()
+        model.showInstruction(row)
+        assertNull(model.state.value.instruction)
+        coVerify(exactly = 0) { control.stop(any()) }
+        coVerify(exactly = 0) { repository.refresh(any(), any()) }
+    }
+
+    @Test fun aNewlyConfirmedPrincipalCannotKeepThePreviousAccountsRowsOrControls() = runTest(dispatcher) {
+        bindOriginal()
+        coEvery { repository.refresh("profile-a", null) } returns page.copy(principalId = "new-account", items = emptyList())
+        model.refresh()
+        assertEquals("new-account", model.state.value.principalId)
+        assertTrue(model.state.value.rows.isEmpty())
+        model.showStop(row)
+        model.showInstruction(row)
+        assertNull(model.state.value.stop)
+        assertNull(model.state.value.instruction)
+        coVerify(exactly = 0) { control.inspect(any()) }
+    }
+
+    @Test fun unknownLegacyEvidenceRequiresAnExplicitReadOnlyViewAndNeverBecomesCurrentAccountRows() = runTest(dispatcher) {
+        coEvery { repository.cachedScope(route) } returns null
+        val retained = record.copy(key = "legacy-key", principalId = "unknown")
+        coEvery { repository.refresh("profile-a", null) } throws GatewayHistoryUnsupported()
+        coEvery { repository.legacyJobs("profile-a") } returns listOf(retained)
+        every { repository.summary(retained) } returns summary
+        model.bind("profile-a")
+        model.state.first { it.configured }
+        model.refresh()
+        assertTrue(model.state.value.rows.isEmpty())
+        assertTrue(!model.state.value.legacy)
+        assertEquals(listOf(retained), model.state.value.legacyRows.map { it.record })
+        model.showLegacyEvidence()
+        assertTrue(model.state.value.legacy)
+        assertTrue(model.state.value.rows.isEmpty())
+        val legacyRow = GatewayJobRow(retained, summary)
+        model.showStop(legacyRow)
+        model.showInstruction(legacyRow)
+        model.showTranscript(legacyRow)
+        assertNull(model.state.value.stop)
+        assertNull(model.state.value.instruction)
+        assertNull(model.state.value.transcriptKey)
+        model.closeLegacyEvidence()
+        assertTrue(!model.state.value.legacy)
+        assertTrue(model.state.value.rows.isEmpty())
+        coVerify(exactly = 0) { control.inspect(any()) }
+        coVerify(exactly = 0) { conversations.queueInstruction(any(), any(), any()) }
+        coVerify(exactly = 0) { conversations.prepareTranscript(any(), any(), any(), any()) }
     }
 }

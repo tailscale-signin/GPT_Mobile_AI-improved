@@ -37,6 +37,9 @@ interface GatewayJobDao {
     @Query("SELECT * FROM gateway_conversations WHERE localChatId=:chatId")
     suspend fun conversationsForChat(chatId: Int): List<GatewayConversationRecord>
 
+    @Query("SELECT * FROM gateway_conversations WHERE connectionProfileUid=:profileUid AND endpoint=:endpoint AND gatewayId=:gatewayId AND principalId=:principalId ORDER BY syncedAtMillis DESC, `key` LIMIT 100")
+    suspend fun cachedConversations(profileUid: String, endpoint: String, gatewayId: String, principalId: String): List<GatewayConversationRecord>
+
     @Query("SELECT model FROM chat_platform_model_v2 WHERE chat_id=:chatId AND platform_uid=:profileUid")
     suspend fun selectedModel(chatId: Int, profileUid: String): String?
 

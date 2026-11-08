@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "deee9af8df0de81be0fe5485374a102556ad55c2e23854c24856af361cae4e4f",
+  "source_digest": "c8b692e1edb29d9a3eb17f03d9e881856259351d7b3633de2d1064c6e1cabc16",
   "file_count": 2291,
   "indexed_line_count": 354208,
   "line_coverage_available": false,
@@ -5645,7 +5645,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayEngineeringModels.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "2b0db9545af796f22518b27d28036c50cb1d367d18b9d290b7fc310d3b312751",
+      "sha256": "5c1b42604130b86b98d87ba0fa7fccf0226811df57abc9ddc1ea0d034fac4ab2",
       "indexed_lines": 209
     },
     {

@@ -440,6 +440,85 @@ evaluation. The changed Kotlin fixture passes formatting. Architecture and the
 scope of 1,154 exact paths. No production code, assertion, timeout, dependency,
 memory limit or release boundary changes in this follow-up.
 
+## Verified predecessor and Room 51 integration
+
+Commit `0582f3428736261ee0399e52fc9be4ce4c7db10c` completes both independent
+ordinary Android suites: 1,245 reports and 7,902 cases per run, with 7,897 passes,
+zero failures or errors, and five dedicated-heap assumptions. All 202 expected
+case identities across the 23 priority classes are present and pass, including
+the large-text Compose regression. The five heap cases then pass separately:
+four verify a maximum JVM heap of 256 MiB and staged diagnostic capture/resume
+verifies 64 MiB. All 11 dedicated executions, including six repeated supporting
+cases, pass without skips. Canonical schema, APK/runtime/DEX checks and Required
+verification pass. API 34 and API 36 each complete 56 cases in 20 invocations,
+with 100 acknowledged and successful diagnostic operations and no coverage gap
+in either measurement-only emulator sample. The separate three-APK review job,
+canonical lint, CodeQL, gateway matrix and contract gates also pass.
+
+The canonical and audit unit artifacts are `13600936144` and `13601037373`,
+with SHA-256 `9232c74dbd3ac69f5efb19ba76c02d15a35adbc2f98398c6543b401696e53ea3`
+and `b1ab9cf9e38f994abe75a02fea5042fb6797e98f1afe775959a866950cc855bb`.
+Canonical final logs, including the individual heap XML files, are artifact
+`13600739363`, SHA-256
+`21bac3ecab11dc71184e11163970459f294bd1fe55598da3e3c795b6869c0273`.
+Both Android logs identify PR merge
+`6f9b6abcd6ba0c3b0162fe184f65682c98a09234`; its tree equals the validated
+branch tree. The audit also finishes its debug APK build, then its final lint
+step is cancelled when the branch advances. That unfinished audit lint is not
+reported as a failure or a completed pass.
+
+The subsequent `66ac834e09806c187e6fa92fad8d82c837be1ed5` gateway integration
+and `6058217056cec0fecc5bdea0733ae33a10baf45e` provenance correction are
+preserved. They add the server-backed conversation browser, persistent job and
+transcript handling, and Room 49/50-to-51 migration. The second commit only
+corrects the package source reference; all 177 gateway file hashes remain equal
+and match the checkout. The original core task/catalog/evidence, MCP and
+diagnostic-export implementations are unchanged. The nine composer, three bitmap
+and three Surface/Magnifier cases remain byte-identical; the five availability
+case identities and scoped native-font correction are retained with the new UI
+API. Changed coordinator admission and recovery preserve the original gateway
+binding, uncertain-command reconciliation and explicit cancellation boundary.
+These are source-review findings; predecessor CI does not qualify the later
+Room 51 integration.
+
+Two demonstrated integration gaps are corrected in this follow-up:
+
+- The new `GatewayProfileCardInstrumentedTest` was compiled but omitted from the
+  acceptance runner. The runner now executes both large-text/light and dark/RTL
+  cases, captures their own raw log and process status, propagates failure, and
+  requires both exact successful test packets. Every earlier invocation and
+  test remains selected: 21 invocations and 58 cases replace 20 and 56. The
+  explicit packet list grows from 54 to 56; two additional pre-existing cases
+  still execute as members of their selected classes. Twelve existing shell,
+  readiness and strict packet-parser tests pass, as do shell syntax and diff
+  checks. Existing limits and assertions remain unchanged.
+- A retained gateway conversation reaches the shared submission guard before the
+  ordinary chat guard. The shared guard rejected "without commits" but missed
+  "without committing". It now recognizes both forms before capability admission,
+  storing a command or sending an operation. The regression exercises the actual
+  bound repository path and proves no admission, store mutation, create or
+  control call occurs. Read and planning scopes remain allowed.
+
+The current repository, model and original submission test sources are compiled
+against matching cached Android collaborators with the pinned Kotlin, Compose
+and serialization 2.4.20 compilers, using the existing Byte Buddy 1.18.2 startup
+agent. The unfixed helper reproduces exactly two failures in eight cases; the
+fixed helper passes the identical eight cases with no skips or source drift.
+An initial probe omitted the Compose compiler plugin and failed at the cached
+ABI boundary before tests; that setup attempt is not product-failure evidence.
+No substitute production implementation is used. Fresh complete Android, Room
+51, heap, 58-case emulator and package verification remain required after the
+combined follow-up is published.
+
+The combined follow-up passes all 400 canonical fast tests, 1,305 literal-regex
+checks and 33 XML checks; 77 dynamic regex patterns remain outside static
+evaluation. Changed handwritten Kotlin files pass formatting. Architecture and
+the regenerated 2,291-file / 26-area source inventory validate. The existing
+release scope validates 1,320 exact allowed paths, with no added path or change
+to the release identity, base, qualification or limits. Both incoming-parent
+Android workflows also pass production and unit-test compilation; their active
+full suites are not treated as completed validation of this follow-up.
+
 ## Measurement boundaries
 
 The gateway reports `completion_buffered` because generated content still passes

@@ -96,12 +96,35 @@ class GatewayEngineeringSubmissionTest {
     }
 
     @Test fun explicitCommitProhibitionBlocksCommittingScopeWithoutPreventingReadOrPlan() {
-        for (request in listOf("Fix it but do not commit", "Implement without commits", "Change it; never push", "Update this, don't commit or push")) {
+        for (request in listOf("Fix it but do not commit", "Implement without commits", "Fix the parser without committing", "Change it; never push", "Update this, don't commit or push")) {
             assertTrue(runCatching { requireGatewayCommitPermission(request, "implement") }.isFailure)
             requireGatewayCommitPermission(request, "read")
             requireGatewayCommitPermission(request, "plan")
         }
         requireGatewayCommitPermission("Implement and verify the feature", "implement")
+    }
+
+    @Test fun boundConversationCommitProhibitionRejectsBeforeAdmissionOrSubmission() = runTest {
+        val snapshot = GatewayConversationSnapshot(gatewayId = "gateway", principalId = "owner", conversationId = "canonical", profileId = selected.uid, model = selected.model, repository = "owner/repo", branch = "work", base = "main", revision = 42)
+        val local = GatewayConversationRecord("key", "gateway", "owner", "canonical", originalGateway.uid, originalGateway.apiUrl, selected.uid, 8, Json.encodeToString(snapshot))
+        coEvery { conversations.boundSnapshot(8, selected.uid, selected.model) } returns (local to snapshot)
+        coEvery { store.bindings(null) } returns emptyList()
+        coEvery { settings.fetchPlatformV2s() } returns listOf(selected, originalGateway)
+        coEvery { client.capabilities(any()) } returns capability
+        val failure = runCatching {
+            repository().submitBoundTurn(8, selected.uid, selected.model, "Fix the parser without committing", "command", 11, 12, "run", "implement")
+        }.exceptionOrNull()
+        assertTrue(failure is IllegalStateException)
+        assertTrue(failure?.message?.contains("explicitly forbids") == true)
+        coVerify(exactly = 1) { conversations.boundSnapshot(8, selected.uid, selected.model) }
+        coVerify(exactly = 0) {
+            client.capabilities(any())
+            client.prepareBinding(any(), any())
+            store.add(any())
+            store.markAdmission(any(), any())
+            client.create(any(), any())
+            client.control(any(), any(), any())
+        }
     }
 
     @Test fun rejectedFirstAdmissionIsNotObservedAsUnconfirmedRunningWork() = runTest {

@@ -190,7 +190,7 @@ data class GatewayEngineeringBinding(
 
 /** The implement workflow commits changes; an explicit prohibition cannot be silently discarded. */
 internal fun requireGatewayCommitPermission(objective: String, taskScope: String) {
-    val denied = Regex("\\b(?:(?:do not|don't|never)\\s+(?:commit|push)|without\\s+(?:commits?|push(?:es|ing)?))\\b", RegexOption.IGNORE_CASE)
+    val denied = Regex("\\b(?:(?:do not|don't|never)\\s+(?:commit|push)|without\\s+(?:commit(?:s|ting)?|push(?:es|ing)?))\\b", RegexOption.IGNORE_CASE)
     check(taskScope != "implement" || !denied.containsMatchIn(objective)) { "Gateway implementation jobs include commits. This request explicitly forbids them; revise the task or use a read/planning request." }
 }
 

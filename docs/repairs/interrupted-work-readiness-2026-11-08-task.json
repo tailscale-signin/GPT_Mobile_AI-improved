@@ -6,7 +6,7 @@
   "working_branch": "fix/gateway-readiness-diagnostics-2026-11-08",
   "pull_request": 814,
   "intent": "Implement both diagnostic reviews and the Gateway chat home/offline serial queue request on the existing repair branch, preserving selected-model identity, native approvals, original workflow modes, durable evidence and unknown-mutation reconciliation.",
-  "state": "READY_FOR_BRANCH_CI",
+  "state": "SOURCE_PUBLISHED",
   "task_store": "engineering_agent_checkpoints",
   "task_store_key": "interrupted-work-readiness-2026-11-08",
   "scope": {
@@ -57,7 +57,11 @@
       "room_runtime": "NOT_RUN_LOCALLY: full Android CI required",
       "native_approval_gateway_continuation": "Regression added for Android CI"
     },
-    "head_ci": "PENDING_PUBLICATION: changes prepared for the requested branch"
+    "head_ci": {
+      "status": "EXTERNAL_WORKFLOW",
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/814/checks",
+      "note": "Exact current-head results are reported by GitHub. Local host evidence is separate from Android workflow and physical-device qualification."
+    }
   },
   "qualification": "Requested source changes are implemented. Canonical host, focused behavioral, SQL and compile checks are recorded separately. Complete Android compilation/generated Room/Hilt/Compose checks await exact-head CI. Physical device lifecycle/performance and incident-PC model/service/fixture qualification remain unverified.",
   "issue_inventory": {
@@ -67,5 +71,6 @@
     "automated_build_failure_reports": 248,
     "pull_requests_excluded": true,
     "complete": true
-  }
+  },
+  "production_commit": "64a69ecb553d065d486af5d8db25b3af771690a7"
 }

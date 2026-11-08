@@ -75,11 +75,13 @@ object ErrorClassification {
         val dnsFailure = causes.any { it is java.net.UnknownHostException } || "unable to resolve host" in msg || "dns_recovery" in msg
         val githubCode = dev.chungjungsoo.gptmobile.data.github.GitHubFailurePolicy.recordedCode(msg)
         val contract = ProviderContractFailure.find(msg)
+        val gatewayAdmission = causes.filterIsInstance<dev.chungjungsoo.gptmobile.data.github.GatewayAdmissionException>().firstOrNull()
 
         return when {
             throwable is kotlinx.coroutines.CancellationException -> ClassifiedError(ErrorCategory.CLIENT_CANCELLED, ErrorSeverity.LOW, false, 0, "Request was cancelled.", throwable)
             "gateway_outcome_unknown" in msg -> ClassifiedError(ErrorCategory.REMOTE_OUTCOME_UNKNOWN, ErrorSeverity.HIGH, false, 0, "The gateway may already have performed actions. Reconcile the saved job and remote results before resuming; do not repeat this request.", throwable, errorCode = "GATEWAY_OUTCOME_UNKNOWN")
             dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.unknownOutcomeCodes.any { msg.contains(it.lowercase(java.util.Locale.ROOT)) } -> ClassifiedError(ErrorCategory.REMOTE_OUTCOME_UNKNOWN, ErrorSeverity.HIGH, false, 0, "A dispatched operation has an unknown outcome. Reconcile the exact saved result before another write; do not repeat the request.", throwable, errorCode = "RECONCILIATION_REQUIRED")
+            gatewayAdmission != null -> ClassifiedError(ErrorCategory.REQUEST_REJECTED, ErrorSeverity.HIGH, false, 0, requireNotNull(gatewayAdmission.message), throwable, errorCode = "GATEWAY_${gatewayAdmission.reason.name}")
             contract != null -> ClassifiedError(ErrorCategory.REQUEST_REJECTED, ErrorSeverity.HIGH, false, 0, contract.message, throwable, errorCode = contract.code)
             githubCode != null -> ClassifiedError(
                 category = when {

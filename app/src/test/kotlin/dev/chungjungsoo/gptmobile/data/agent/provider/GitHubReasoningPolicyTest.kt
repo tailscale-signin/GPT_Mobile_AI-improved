@@ -14,7 +14,7 @@ class GitHubReasoningPolicyTest {
         val primary = RequestConstraints(maxOutputTokens = 8192, allowReasoning = true, maximizeReasoning = true)
         val preflight = primary.forRole("github-review-preflight")
         assertEquals(512, preflight.maxOutputTokens)
-        assertFalse(preflight.allowReasoning)
+        assertTrue(preflight.allowReasoning)
         assertFalse(preflight.maximizeReasoning)
         assertEquals(128, primary.copy(maxOutputTokens = 128).forRole("github-review-preflight").maxOutputTokens)
         assertEquals(8192, primary.forRole("primary").maxOutputTokens)
@@ -40,34 +40,34 @@ class GitHubReasoningPolicyTest {
         assertTrue(runCatching { ReasoningPolicy.resolve(ReasoningMode.OFF, true, null) }.isFailure)
     }
 
-    @org.junit.Test fun extractionDisablesSavedAndMaximumReasoningWithoutChangingPrimaryEngineering() {
+    @org.junit.Test fun extractionPreservesSavedReasoningWithoutMaximumPreference() {
         val original = RequestConstraints(maxOutputTokens = 8192, maximizeReasoning = true, allowReasoning = true)
         val extraction = original.withoutTools().forRole("github-claim-extraction")
-        org.junit.Assert.assertFalse(extraction.allowReasoning)
+        org.junit.Assert.assertTrue(extraction.allowReasoning)
         org.junit.Assert.assertFalse(extraction.maximizeReasoning)
         org.junit.Assert.assertFalse(extraction.allowTools)
         org.junit.Assert.assertEquals(8192, extraction.maxOutputTokens)
         org.junit.Assert.assertEquals("github-claim-extraction", extraction.requestRole)
         org.junit.Assert.assertTrue(original.forRole("primary").maximizeReasoning)
         org.junit.Assert.assertFalse(original.forRole("github-review-verdict").maximizeReasoning)
-        org.junit.Assert.assertFalse(original.forRole("github-review-verdict").allowReasoning)
+        org.junit.Assert.assertTrue(original.forRole("github-review-verdict").allowReasoning)
         org.junit.Assert.assertTrue(original.forRole("github-review-repair").allowReasoning)
     }
 
-    @Test fun helperRoleChangesAndTextContinuationsRetainAnExplicitOffContract() {
+    @Test fun helperRolesAndTextContinuationsRetainEachExplicitUserContract() {
         for (originalMode in ReasoningMode.entries) {
             val original = RequestConstraints(reasoningModeOverride = originalMode, maximizeReasoning = true, lockSelectedRoute = true, permissionRevision = "accepted", contextCeiling = 8192)
             for (role in listOf("answer_contract_rewrite", "github-claim-extraction", "github-progress-summary", "github-review-preflight", "github-review-verdict")) {
                 val helper = original.forRole(role).withoutTools()
-                assertFalse(helper.allowReasoning)
-                assertEquals(ReasoningMode.OFF, helper.reasoningModeOverride)
+                assertTrue(helper.allowReasoning)
+                assertEquals(originalMode, helper.reasoningModeOverride)
                 assertFalse(helper.maximizeReasoning)
-                assertEquals(ReasoningMode.OFF, helper.forRole("primary").reasoningModeOverride)
-                assertFalse(helper.forRole("primary").allowReasoning)
+                assertEquals(originalMode, helper.forRole("primary").reasoningModeOverride)
+                assertTrue(helper.forRole("primary").allowReasoning)
                 assertEquals(original.permissionRevision, helper.permissionRevision)
                 assertEquals(original.contextCeiling, helper.contextCeiling)
                 assertTrue(helper.lockSelectedRoute)
-                assertTrue(runCatching { ReasoningPolicy.forRequest(requireNotNull(helper.reasoningModeOverride), helper.allowReasoning, helper.maximizeReasoning, true, null) }.isFailure)
+                assertEquals(originalMode != ReasoningMode.AUTO, runCatching { ReasoningPolicy.forRequest(requireNotNull(helper.reasoningModeOverride), helper.allowReasoning, helper.maximizeReasoning, true, null) }.isFailure)
             }
             assertEquals(originalMode, original.forRole("primary").reasoningModeOverride)
         }

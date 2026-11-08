@@ -7,6 +7,15 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class ProviderExceptionDetailsTest {
+    @Test fun typedReasoningAdmissionRetainsItsPhaseWithoutErasingEarlierUncertainty() {
+        val failure = requireNotNull(providerExceptionDetails(dev.chungjungsoo.gptmobile.data.context.ReasoningAdmissionException(dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF), partialOutput = false))
+        assertEquals("REASONING_OFF_UNSUPPORTED", failure.code)
+        assertEquals(false, failure.retryable)
+        assertEquals(JsonPrimitive("provider_admission"), failure.failureDetails?.get("failed_stage"))
+        assertEquals(JsonPrimitive("NOT_DISPATCHED"), failure.failureDetails?.get("attempt_dispatch_state"))
+        assertNull(failure.failureDetails?.get("dispatched"))
+    }
+
     @Test fun actualCircuitRejectionRemainsTypedBeforeTransportFallback() {
         val failure = requireNotNull(providerExceptionDetails(dev.chungjungsoo.gptmobile.data.network.error.CircuitBreakerOpenException(5000L), partialOutput = false))
         assertEquals("CIRCUIT_BREAKER_OPEN", failure.code)

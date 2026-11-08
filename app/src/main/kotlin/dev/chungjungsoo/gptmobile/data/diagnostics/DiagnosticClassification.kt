@@ -11,6 +11,7 @@ internal data class DiagnosticClassification(
 internal fun classifyDiagnostic(level: String?, tag: String?, message: String): DiagnosticClassification {
     val text = diagnosticEventMessage(message).lowercase()
     val capturedTag = capturedAndroidPrefix.find(diagnosticRecorderPayload(message))?.groupValues?.get(1)?.trim()?.lowercase()
+    val gatewayAdmission = classifyGatewayAdmission(tag, text)
     return when {
         // An attributed fatal event must never be downgraded by a vendor setting,
         // optional model feature, or benign platform phrase elsewhere in its stack.
@@ -23,13 +24,14 @@ internal fun classifyDiagnostic(level: String?, tag: String?, message: String): 
             DiagnosticClassification("speech_rate_limit", "warning", true, "respect_shared_recognition_cooldown")
         tag == "VoiceRecognition" && Regex("^recognition_error=9(?: · |$)").containsMatchIn(text) ->
             DiagnosticClassification("speech_permission", "warning", true, "restore_microphone_permission")
-        tag == "Android" && "stop failed: not bound to tts engine" in text ->
+        tag == "Android" && Regex("(?:stop|getvoices|shutdown) failed: not bound to tts engine").containsMatchIn(text) ->
             DiagnosticClassification("speech_engine_lifecycle", "warning", true, "retire_unbound_engine_before_retry")
         tag == "Android" && "didn't find workspec for id" in text ->
             DiagnosticClassification("work_scheduler_reconciliation", "warning", true, "reconcile_work_id_and_generation_with_durable_task")
         tag == "Android" && "callback not found for callback_available message" in text ->
             DiagnosticClassification("network_callback_lifecycle", "warning", true, "inspect_callback_registration_and_cleanup")
         "oom_recovery" in text || "out_of_memory_recovered" in text -> DiagnosticClassification("memory_recovery", "warning", true, "retained_state_after_oom")
+        gatewayAdmission != null -> gatewayAdmission
         text.startsWith("run_terminal") && Regex("(?:^| · )status=(?:partial|blocked|evidence_missing)(?: · |$)").containsMatchIn(text) ->
             DiagnosticClassification("task_incomplete", "warning", true, "resume_pending_work_or_resolve_blocker")
         "outofmemoryerror" in text || "failed to allocate" in text && "bytes" in text -> DiagnosticClassification("fatal", "critical", true, "reduce_peak_memory")
@@ -38,6 +40,7 @@ internal fun classifyDiagnostic(level: String?, tag: String?, message: String): 
         "outcome=invalid_response" in text || "status=invalid_response" in text || "schema_validation_failed" in text -> DiagnosticClassification("research_schema", "error", true, "repair_structured_output")
         ("delivery" in text && "accepted=false" in text) || "correction_required" in text -> DiagnosticClassification("delivery_contract", "warning", true, "retain_evidence_and_repair_report")
         tag == "MCP" && (text.startsWith("connect start") || text.startsWith("connected")) -> DiagnosticClassification("connectivity_progress", "info", false)
+        ("strictmode" in text || capturedTag == "strictmode") && "networkviolation" in text -> DiagnosticClassification("main_thread_network_io", "warning", true, "move_network_and_socket_cleanup_to_io")
         "strictmode" in text && ("diskreadviolation" in text || "diskwriteviolation" in text) -> DiagnosticClassification("main_thread_disk_io", "warning", true, "move_work_to_io")
         "method exceeds compiler instruction limit" in text || "method exceeds compiler" in text -> DiagnosticClassification("compiler_method_size", "warning", true, "split_coroutine_stages")
         text.startsWith("synthesis_quality") && ("missing_contribution_link" in text || "word_target_undershot" in text || "word_limit_exceeded" in text || "exact_word_count_unmet" in text) -> DiagnosticClassification("combined_contract", "warning", true, "retain_answer_and_review_quality")
@@ -116,6 +119,28 @@ internal fun classifyDiagnostic(level: String?, tag: String?, message: String): 
             DiagnosticClassification("performance", "warning", true)
         else -> DiagnosticClassification("informational", "info", false)
     }
+}
+
+/** Only structured gateway/header evidence selects admission guidance; a status never identifies a credential fault. */
+private fun classifyGatewayAdmission(tag: String?, text: String): DiagnosticClassification? {
+    if (tag !in setOf("Gateway", "Network")) return null
+    val headerCode = Regex("(?:^|\\s)x-gateway-admission-error\\s*:\\s*([a-z_]+)(?=$|\\s|[·,])").find(text)?.groupValues?.get(1)
+    val structured = text.startsWith("admission_read") || text.startsWith("client_exchange")
+    val code = headerCode ?: if (structured) Regex("(?:^| · )(?:admissioncode|code)=([a-z_]+)(?: · |$)").find(text)?.groupValues?.get(1) else null
+    val recovery = when (code) {
+        "remote_surface_not_admitted" -> "verify_gateway_source_and_saved_work_contract"
+        "scope_not_granted", "engineering_scope_required", "tool_scope_required_for_runtime", "local_admin_required" -> "check_original_gateway_scope"
+        "transport_identity_required" -> "check_configured_gateway_transport_identity"
+        "continuity_identity_mismatch", "continuity_identity_invalid" -> "restore_original_gateway_identity"
+        "invalid_host", "invalid_origin", "duplicate_admission_header", "browser_csrf_required" -> "check_gateway_destination_and_access_mode"
+        "conversation_storage_disabled", "conversation_storage_unavailable" -> "restore_gateway_durable_storage"
+        else -> null
+    }
+    if (recovery != null) return DiagnosticClassification("gateway_admission", "warning", true, recovery)
+    if (structured && Regex("(?:^| · )surface=identity(?: · |$)").containsMatchIn(text) && Regex("(?:^| · )http(?:status)?=403(?: · |$)").containsMatchIn(text)) {
+        return DiagnosticClassification("gateway_admission", "warning", true, "inspect_gateway_admission_code_and_source_contract")
+    }
+    return null
 }
 
 /** Keep isolated missed deadlines visible without reporting every high-refresh sample as a fault. */

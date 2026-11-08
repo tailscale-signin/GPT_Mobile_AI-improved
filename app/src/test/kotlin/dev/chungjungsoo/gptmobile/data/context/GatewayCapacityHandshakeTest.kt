@@ -53,6 +53,7 @@ class GatewayCapacityHandshakeTest {
             ).use { http ->
                 val repository = LlamaCapacityRepository({ http })
                 val capacity = requireNotNull(repository.discover(selected, "selected-model"))
+                assertTrue(repository.hasExactModelProof(selected, "selected-model", capacity))
                 assertEquals(ReasoningTemplateControl.ENABLE_THINKING, repository.reasoningControl(selected, "selected-model", capacity))
                 assertEquals(1, calls)
                 assertEquals(ReasoningMode.OFF, ReasoningPolicy.resolve(ReasoningMode.OFF, true, repository.reasoningControl(selected, "selected-model", capacity)).effective)

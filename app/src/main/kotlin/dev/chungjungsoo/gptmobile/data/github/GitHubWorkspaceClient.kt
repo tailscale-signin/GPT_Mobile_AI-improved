@@ -257,6 +257,14 @@ class GitHubWorkspaceClient(
             return GitHubHeaderQuery.normalize(response, pullRequest, args)
         }
         val ref = field("commit_sha").ifBlank { field("ref").ifBlank { field("branch") } }
+        if (action == "recovery_context" && args["fixture_plan"] != null) {
+            return ownedFixtures.reconcileDeletion(
+                root,
+                args,
+                read = { requestUntracked(it, HttpMethod.Get, null, false, forceLiveRead = true) },
+                expectedAbsence = { requestUntracked(it, HttpMethod.Get, null, false, forceLiveRead = true, expectedOwnedRefAbsence = true) == JsonNull }
+            )
+        }
         if (action in setOf("resolve_context", "task_context", "index_status", "build_index", "workflow_catalog", "search_repository", "read_ranges", "stage_patch", "commit_staged_patch", "changed_since", "recovery_context")) {
             return repositorySession.execute(action, owner, repo, args)
         }
@@ -404,6 +412,9 @@ class GitHubWorkspaceClient(
                 delete = {
                     request(it, HttpMethod.Delete)
                     responseCache.invalidateMutable(root)
+                },
+                expectedAbsence = {
+                    requestUntracked(it, HttpMethod.Get, null, false, forceLiveRead = true, expectedOwnedRefAbsence = true) == JsonNull
                 },
                 reconcile = { reconcileCommit(root, it, forceLiveRead = true) }
             )
@@ -2347,12 +2358,14 @@ class GitHubWorkspaceClient(
         method: HttpMethod,
         body: JsonObject?,
         authenticated: Boolean,
-        forceLiveRead: Boolean = false
+        forceLiveRead: Boolean = false,
+        expectedOwnedRefAbsence: Boolean = false
     ): JsonElement {
         refreshCredential()
         if (authenticated || method != HttpMethod.Get) require(token.isNotBlank()) { "A GitHub credential is required." }
         check(!authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
-        if (method == HttpMethod.Get) refAvailability.requireAvailable(path)
+        check(!expectedOwnedRefAbsence || method == HttpMethod.Get && forceLiveRead && Regex("/repos/[^/]+/[^/]+/git/ref/heads/[^?]+").matches(path))
+        if (method == HttpMethod.Get && !expectedOwnedRefAbsence) refAvailability.requireAvailable(path)
         val cacheKey = "${apiOrigins.rest}:$durableIdentity:${GitHubRepositoryStateStore.digest(token)}:${method.value}:$path"
         val cacheable = conditionalReads && method == HttpMethod.Get && path != "/rate_limit"
         val forceLive = forceLiveRead || kotlinx.coroutines.currentCoroutineContext()[GitHubDispatchAccounting]?.forceLiveReads == true
@@ -2392,7 +2405,7 @@ class GitHubWorkspaceClient(
                         setBody(body.toString())
                     }
                 }
-                GitHubDispatchAccounting.responded(method != HttpMethod.Get, response.status.value, observationId, response.headers["X-GitHub-Request-Id"])
+                GitHubDispatchAccounting.responded(method != HttpMethod.Get, response.status.value, observationId, response.headers["X-GitHub-Request-Id"], expectedAbsence = expectedOwnedRefAbsence)
                 rateLimits.record(response.headers, response.status.value)
                 if (response.status.value == 304 && cached == null && method == HttpMethod.Get) {
                     // A validator without its body is unusable. One unconditional
@@ -2418,6 +2431,7 @@ class GitHubWorkspaceClient(
 
                 val text = response.bodyAsText()
                 scheduler.recordBytes(text.encodeToByteArray().size.toLong())
+                if (expectedOwnedRefAbsence && response.status.value == 404) return@execute JsonNull
                 if (GitHubReadRetry.transientStatus(response.status.value)) {
                     throw GitHubReadRetry.HttpFailure(response.status.value, response.headers["Retry-After"])
                 }

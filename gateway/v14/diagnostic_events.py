@@ -53,7 +53,13 @@ DIGEST_ATTRIBUTES = {'profile_digest', 'model_digest', 'endpoint_digest', 'repos
 BOOL_ATTRIBUTES = {'vendor_log_available', 'source_available', 'client_metadata_accepted', 'truncation_applied',
                    'response_headers_received', 'response_headers_sent', 'response_body_completed'}
 ENUM_ATTRIBUTES = {'route': {'chat', 'models', 'readiness', 'liveness', 'capabilities', 'dashboard', 'job', 'engineering', 'other'},
-                   'method': {'GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'}}
+                   'method': {'GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'},
+                   'client_metadata_acknowledgment': {'ACCEPTED', 'NOT_REQUESTED', 'REJECTED_BEFORE_PROCESSING', 'NOT_CONFIRMED'},
+                   'gateway_admission_code': {'remote_surface_not_admitted', 'scope_not_granted', 'engineering_scope_required',
+                                              'tool_scope_required_for_runtime', 'local_admin_required', 'transport_identity_required',
+                                              'invalid_host', 'invalid_origin', 'duplicate_admission_header', 'browser_csrf_required',
+                                              'unknown_job', 'CONTINUITY_IDENTITY_MISMATCH', 'CONTINUITY_IDENTITY_INVALID',
+                                              'conversation_storage_disabled', 'conversation_storage_unavailable', 'cursor_expired'}}
 LOSS_REASONS = {'OFFLINE_EVICTED', 'QUEUE_FULL', 'RECORD_REJECTED', 'STORAGE_UNAVAILABLE', 'CAPTURE_INTERRUPTED'}
 
 

@@ -96,7 +96,8 @@ object ChatRepositoryModule {
         privacyPreflight: dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterPrivacyPreflight,
         gatewayAPI: dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAPI,
         gatewayConversations: dev.chungjungsoo.gptmobile.data.github.GatewayConversationRepository,
-        gatewayEngineering: dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringRepository
+        gatewayEngineering: dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringRepository,
+        reasoningCapabilities: dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityRepository
     ): ChatRepository = ChatRepositoryImpl(
         context = context,
         chatRoomV2Dao = chatRoomV2Dao,
@@ -145,6 +146,7 @@ object ChatRepositoryModule {
         privacyPreflight = privacyPreflight,
         gatewayAPI = gatewayAPI,
         gatewayConversations = gatewayConversations,
-        gatewayEngineering = gatewayEngineering
+        gatewayEngineering = gatewayEngineering,
+        reasoningCapabilities = reasoningCapabilities
     )
 }

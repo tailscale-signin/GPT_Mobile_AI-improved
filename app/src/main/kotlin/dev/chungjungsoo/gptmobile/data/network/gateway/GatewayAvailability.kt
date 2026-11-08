@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.network.gateway
 
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.github.GatewayActionReadinessEvidence
 import dev.chungjungsoo.gptmobile.data.github.engineeringConfig
 import dev.chungjungsoo.gptmobile.data.github.engineeringGatewayProfile
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
@@ -33,8 +34,11 @@ internal data class GatewayAvailability(
     val observedAtMillis: Long? = null,
     val observedAtElapsedMillis: Long? = null,
     val instanceId: String? = null,
-    val conversationSyncAvailable: Boolean = false
+    /** Server advertisement only. Saved-work actions verify their own route and identity. */
+    val conversationSyncSupported: Boolean = false,
+    val actionReadiness: GatewayActionReadinessEvidence = GatewayActionReadinessEvidence()
 ) {
+    /** Online describes generation for the selected model; it does not grant Jobs, engineering or graph access. */
     val isOnline: Boolean get() = status in setOf(GatewayAvailabilityStatus.ONLINE, GatewayAvailabilityStatus.BUSY_QUEUE)
     val isConnected: Boolean get() = status in setOf(GatewayAvailabilityStatus.ONLINE, GatewayAvailabilityStatus.BUSY_QUEUE, GatewayAvailabilityStatus.MODEL_LOADING, GatewayAvailabilityStatus.MODEL_UNAVAILABLE, GatewayAvailabilityStatus.NOT_READY, GatewayAvailabilityStatus.DRAINING)
 

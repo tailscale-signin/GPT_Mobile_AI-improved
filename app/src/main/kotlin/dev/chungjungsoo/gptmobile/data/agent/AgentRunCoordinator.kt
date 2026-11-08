@@ -121,6 +121,7 @@ class AgentRunCoordinator @Inject constructor(
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val jobs = ConcurrentHashMap<String, Job>()
+    private val checkpointWriteGate = CheckpointWriteGate()
     private val cancellationContexts = ConcurrentHashMap<String, dev.chungjungsoo.gptmobile.data.delegation.DelegationCancellationContext>()
     private val combinedRoots = ConcurrentHashMap<String, String>()
     private val researchLifecycles = ConcurrentHashMap<String, dev.chungjungsoo.gptmobile.data.research.ResearchDispatchLifecycle>()
@@ -836,7 +837,7 @@ class AgentRunCoordinator @Inject constructor(
                 withContext(Dispatchers.Default) { journal.traceOutput(request.runId, dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceBoundary.REDUCER, message.content, fence = message.ownershipFence) }
             }
         }
-        fun newCheckpoints() = ConflatedCheckpointWriter<MessageV2>(this, minimumIntervalMillis = 500) { snapshot ->
+        fun newCheckpoints() = ConflatedCheckpointWriter<MessageV2>(this, minimumIntervalMillis = 500, writeGate = checkpointWriteGate) { snapshot ->
             traceReducedOutput(snapshot)
             chatRepository.updateAgentMessage(snapshot)
         }

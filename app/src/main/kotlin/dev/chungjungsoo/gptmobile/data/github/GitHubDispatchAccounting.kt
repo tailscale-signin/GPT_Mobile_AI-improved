@@ -19,7 +19,9 @@ internal class GitHubDispatchAccounting(
     companion object Key : CoroutineContext.Key<GitHubDispatchAccounting> {
         suspend fun started(mutation: Boolean): String? = currentCoroutineContext()[Key]?.start(mutation)
         suspend fun responded(mutation: Boolean, status: Int, requestId: String? = null, serverRequestId: String? = null) =
-            currentCoroutineContext()[Key]?.response(mutation, status, requestId, serverRequestId)
+            currentCoroutineContext()[Key]?.response(mutation, status, requestId, serverRequestId, false)
+        suspend fun responded(mutation: Boolean, status: Int, requestId: String?, serverRequestId: String?, expectedAbsence: Boolean) =
+            currentCoroutineContext()[Key]?.response(mutation, status, requestId, serverRequestId, expectedAbsence)
         suspend fun cached(observedAt: Long?, immutable: Boolean = false) = currentCoroutineContext()[Key]?.cache(observedAt, immutable)
     }
 
@@ -30,6 +32,7 @@ internal class GitHubDispatchAccounting(
     private var reads = 0
     private var readResponses = 0
     private var readHttpFailures = 0
+    private var expectedAbsenceResponses = 0
     private var observationMismatches = 0
     private var mutations = 0
     private var accepted = 0
@@ -69,7 +72,7 @@ internal class GitHubDispatchAccounting(
         return requestId
     }
 
-    @Synchronized private fun response(mutation: Boolean, status: Int, requestId: String?, serverRequestId: String?) {
+    @Synchronized private fun response(mutation: Boolean, status: Int, requestId: String?, serverRequestId: String?, expectedAbsence: Boolean) {
         // The optional legacy path matches only an outstanding request. Explicit IDs make
         // concurrent, reordered and duplicated callbacks safe without decrementing twice.
         val id = requestId ?: pending.entries.firstOrNull { it.value.mutation == mutation }?.key
@@ -99,8 +102,12 @@ internal class GitHubDispatchAccounting(
             }
         } else {
             readResponses++
-            if (status >= 400) readHttpFailures++
-            "READ_RESPONSE"
+            if (expectedAbsence && status == 404) {
+                expectedAbsenceResponses++
+            } else if (status >= 400) {
+                readHttpFailures++
+            }
+            if (expectedAbsence && status == 404) "EXPECTED_OWNED_REF_ABSENCE" else "READ_RESPONSE"
         }
         val server = serverRequestId?.takeIf { it.matches(Regex("[a-zA-Z0-9:._-]{1,160}")) } ?: "not_recorded"
         emit("REQUEST_EXECUTION_STATE · state=HTTP_RESPONSE_OBSERVED · invocationId=$invocationId · requestId=$id · mutation=$mutation · httpStatus=$status · requestOutcome=$outcome · elapsedMs=${(now() - request.startedAt).coerceAtLeast(0)} · serverRequestId=$server · taskCompletion=NOT_MEASURED")
@@ -152,6 +159,7 @@ internal class GitHubDispatchAccounting(
                 put("read_requests", reads)
                 put("read_response_observations", readResponses)
                 put("read_http_failures", readHttpFailures)
+                put("expected_absence_responses", expectedAbsenceResponses)
                 put("unobserved_read_requests", pending.values.count { !it.mutation })
                 put("observation_mismatches", observationMismatches)
                 put("cached_read_observations", cachedReads)

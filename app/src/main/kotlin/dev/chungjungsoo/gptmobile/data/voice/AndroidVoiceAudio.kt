@@ -94,6 +94,9 @@ class AndroidVoiceAudio internal constructor(
     }
     private val mutableVoices = kotlinx.coroutines.flow.MutableStateFlow<List<Pair<String, String>>>(emptyList())
     val voiceChoices: kotlinx.coroutines.flow.StateFlow<List<Pair<String, String>>> = mutableVoices
+    private val mutableVoiceCatalog = kotlinx.coroutines.flow.MutableStateFlow(SpeechVoiceCatalogState.UNINITIALIZED)
+    internal val voiceCatalogState: kotlinx.coroutines.flow.StateFlow<SpeechVoiceCatalogState> = mutableVoiceCatalog
+    private var voiceQueryInFlight: Long? = null
     private fun eligibleVoices(voices: Collection<android.speech.tts.Voice>, language: String = languageTag, online: Boolean = allowOnlineSpeech) = voices
         .filter { (online || !it.isNetworkConnectionRequired) && it.locale.language == Locale.forLanguageTag(language).language && "notInstalled" !in it.features.orEmpty() }
         .sortedWith(compareByDescending<android.speech.tts.Voice> { it.quality }.thenByDescending { it.locale.toLanguageTag() == language }.thenBy { it.latency }.thenBy { it.name })
@@ -106,15 +109,37 @@ class AndroidVoiceAudio internal constructor(
         if (tts == null) initializeSpeech()
         val engine = tts?.takeIf { speechReady } ?: return
         val version = speechGeneration
+        if (voiceQueryInFlight == version) return
+        voiceQueryInFlight = version
+        mutableVoiceCatalog.value = SpeechVoiceCatalogState.CHECKING
         speechWork.execute {
             if (closed || version != speechGeneration || tts !== engine || !speechReady) return@execute
-            val catalog = runCatching { engine.voices.orEmpty().toSet() }.getOrDefault(emptySet())
+            val catalog = runCatching { engine.voices?.toSet() }.getOrNull()
             main.post {
-                if (!closed && version == speechGeneration) {
+                if (!closed && version == speechGeneration && tts === engine) {
+                    voiceQueryInFlight = null
+                    if (catalog == null) {
+                        unavailableSpeechCatalog(engine, version)
+                        return@post
+                    }
                     installedVoices = catalog
                     mutableVoices.value = voices()
+                    mutableVoiceCatalog.value = if (catalog.isEmpty()) SpeechVoiceCatalogState.EMPTY else SpeechVoiceCatalogState.AVAILABLE
                 }
             }
+        }
+    }
+
+    private fun unavailableSpeechCatalog(engine: TextToSpeech, version: Long) {
+        if (closed || version != speechGeneration || tts !== engine) return
+        val failed = playbackError
+        val wasPlaying = operation?.first == "tts"
+        event("tts_catalog_unavailable")
+        releaseSpeech(SpeechVoiceCatalogState.UNAVAILABLE)
+        if (wasPlaying) {
+            terminal("catalog_unavailable")
+            stop()
+            failed?.invoke("The speech engine disconnected. Review Android speech settings, then recheck spoken replies. Captions remain available.")
         }
     }
     private fun event(name: String, ticket: Long = generation) = dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("VoiceTiming", "$name · incidentId=voice:$sessionId:$ticket · session=$sessionId · attempt=$ticket · elapsedMs=${android.os.SystemClock.elapsedRealtime()}")
@@ -161,24 +186,33 @@ class AndroidVoiceAudio internal constructor(
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             recognitionGate.release(sessionId)
             recognitionFailure("SPEECH_PERMISSION_REQUIRED", "permission_precheck", false, error = SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS)
-            listener.error("Microphone permission is needed for voice chat.")
+            listener.repairRequired("Microphone permission is needed for voice chat.", 0, VoiceRecoveryAction.MICROPHONE_PERMISSION)
             return
         }
         val ticket = generation
         var failedStage = "service_availability"
         var dispatched = false
+        fun failedStart(failure: Exception) {
+            event("recognition_start_failed_${failure.javaClass.simpleName}", ticket)
+            terminal("start_failed")
+            recognitionGate.bindingFailed(sessionId)
+            recognitionFailure("SPEECH_SERVICE_START_FAILED", failedStage, dispatched, ticket)
+            stop()
+            listener.repairRequired("The Android speech service could not start. Review its settings or continue typing in chat.", recognitionGate.remainingMillis(), VoiceRecoveryAction.SPEECH_SERVICE)
+        }
         try {
             val onDevice = !allowOnlineSpeech
             if (!recognitionService.available(onDevice)) {
                 recognitionGate.bindingFailed(sessionId)
                 recognitionFailure("SPEECH_SERVICE_UNAVAILABLE", failedStage, false, ticket)
-                listener.failure(
+                listener.repairRequired(
                     if (onDevice) {
                         "On device speech is unavailable. Choose a compatible speech service, or explicitly allow online speech in Voice settings. You can continue typing in chat."
                     } else {
                         "Speech recognition is unavailable. Install or enable a speech service in Android settings, or continue typing in chat."
                     },
-                    recognitionGate.remainingMillis()
+                    recognitionGate.remainingMillis(),
+                    VoiceRecoveryAction.SPEECH_SERVICE
                 )
                 return
             }
@@ -187,7 +221,7 @@ class AndroidVoiceAudio internal constructor(
             recognizer = engine
             failedStage = "listener_configuration"
             var becameReady = false
-            fun active() = !closed && ticket == generation
+            fun active() = !closed && ticket == generation && recognizer === engine
             engine.setRecognitionListener(object : RecognitionListener {
                 override fun onReadyForSpeech(params: Bundle?) {
                     if (active()) {
@@ -232,8 +266,8 @@ class AndroidVoiceAudio internal constructor(
                     if (!active()) return
                     event("recognition_error_$error", ticket)
                     terminal("error_$error")
-                    // Android reports error 10 for a rejected system-service bind as well as
-                    // rate limiting. Before onReady, it is not a transient listening error.
+                    // Error 10 is a request limit, not microphone-permission evidence.
+                    // A rejection before onReady requires deliberate service recovery.
                     val bindingFailure = !becameReady && error in setOf(SpeechRecognizer.ERROR_TOO_MANY_REQUESTS, SpeechRecognizer.ERROR_CLIENT, SpeechRecognizer.ERROR_SERVER_DISCONNECTED)
                     if (bindingFailure) {
                         recognitionGate.bindingFailed(sessionId)
@@ -257,7 +291,17 @@ class AndroidVoiceAudio internal constructor(
                         listener.final("")
                         return
                     }
-                    val failure: (String, Long) -> Unit = if (!bindingFailure && error in setOf(SpeechRecognizer.ERROR_TOO_MANY_REQUESTS, SpeechRecognizer.ERROR_RECOGNIZER_BUSY, SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT)) listener::retryableFailure else listener::failure
+                    val repair = when {
+                        bindingFailure -> VoiceRecoveryAction.SPEECH_SERVICE
+                        error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> VoiceRecoveryAction.MICROPHONE_PERMISSION
+                        error == SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED || error == SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE -> VoiceRecoveryAction.SPEECH_LANGUAGE
+                        else -> null
+                    }
+                    val failure: (String, Long) -> Unit = when {
+                        repair != null -> { message, retry -> listener.repairRequired(message, retry, repair) }
+                        error in setOf(SpeechRecognizer.ERROR_TOO_MANY_REQUESTS, SpeechRecognizer.ERROR_RECOGNIZER_BUSY, SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT) -> listener::retryableFailure
+                        else -> listener::failure
+                    }
                     failure(
                         if (bindingFailure) {
                             "The Android speech service could not start. Check your speech service in Android settings, or continue typing in chat."
@@ -276,33 +320,69 @@ class AndroidVoiceAudio internal constructor(
                     )
                 }
             })
-            armWatchdog(15_000) {
-                if (active()) {
-                    terminal("timeout_ready")
-                    recognitionGate.bindingFailed(sessionId)
-                    recognitionFailure("SPEECH_SERVICE_START_TIMEOUT", "service_start", true, ticket)
-                    stop()
-                    listener.failure("Microphone did not become ready. Check the Android speech service, or continue typing in chat.", recognitionGate.remainingMillis())
-                }
+            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, languageTag)
+                putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+                putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, onDevice)
             }
             started("recognition", ticket)
-            failedStage = "service_start"
-            dispatched = true
-            engine.startListening(
-                Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                    putExtra(RecognizerIntent.EXTRA_LANGUAGE, languageTag)
-                    putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-                    putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+            failedStage = "support_check"
+            var qualified = false
+            armWatchdog(10_000) {
+                if (active()) {
+                    terminal("timeout_support")
+                    recognitionGate.bindingFailed(sessionId)
+                    recognitionFailure("SPEECH_SUPPORT_TIMEOUT", "support_check", false, ticket)
+                    stop()
+                    listener.repairRequired("The speech service did not confirm support for this language. Review Android speech settings or continue typing.", recognitionGate.remainingMillis(), VoiceRecoveryAction.SPEECH_SERVICE)
                 }
-            )
+            }
+            recognitionService.checkSupport(engine, intent, onDevice) { support ->
+                if (!active() || qualified) return@checkSupport
+                qualified = true
+                event("recognition_support_${support.status.name.lowercase()}", ticket)
+                if (support.status !in setOf(RecognitionSupportStatus.SUPPORTED, RecognitionSupportStatus.UNVERIFIED)) {
+                    terminal("support_unavailable")
+                    recognitionGate.bindingFailed(sessionId)
+                    recognitionFailure("SPEECH_SUPPORT_${support.status.name}", "support_check", false, ticket, support.errorCode)
+                    stop()
+                    val repair = when {
+                        support.errorCode == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> VoiceRecoveryAction.MICROPHONE_PERMISSION
+                        support.status in setOf(RecognitionSupportStatus.LANGUAGE_UNAVAILABLE, RecognitionSupportStatus.UNSUPPORTED) || support.errorCode in setOf(SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED, SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE) -> VoiceRecoveryAction.SPEECH_LANGUAGE
+                        else -> VoiceRecoveryAction.SPEECH_SERVICE
+                    }
+                    listener.repairRequired(
+                        when (repair) {
+                            VoiceRecoveryAction.MICROPHONE_PERMISSION -> "Microphone permission is needed for voice chat."
+                            VoiceRecoveryAction.SPEECH_LANGUAGE -> "The selected speech language is not ready for this service. Install or select a supported language in Android speech settings."
+                            VoiceRecoveryAction.SPEECH_SERVICE -> "The Android speech service could not confirm this recognition configuration. Review its settings or continue typing."
+                        },
+                        recognitionGate.remainingMillis(),
+                        repair
+                    )
+                    return@checkSupport
+                }
+                try {
+                    armWatchdog(15_000) {
+                        if (active()) {
+                            terminal("timeout_ready")
+                            recognitionGate.bindingFailed(sessionId)
+                            recognitionFailure("SPEECH_SERVICE_START_TIMEOUT", "service_start", true, ticket)
+                            stop()
+                            listener.repairRequired("Microphone did not become ready. Check the Android speech service, or continue typing in chat.", recognitionGate.remainingMillis(), VoiceRecoveryAction.SPEECH_SERVICE)
+                        }
+                    }
+                    failedStage = "service_start"
+                    dispatched = true
+                    engine.startListening(intent)
+                } catch (failure: Exception) {
+                    failedStart(failure)
+                }
+            }
         } catch (failure: Exception) {
-            event("recognition_start_failed_${failure.javaClass.simpleName}", ticket)
-            terminal("start_failed")
-            recognitionGate.bindingFailed(sessionId)
-            recognitionFailure("SPEECH_SERVICE_START_FAILED", failedStage, dispatched, ticket)
-            stop()
-            listener.failure("Could not open the microphone. Check Android permissions and your speech service, or continue typing in chat.", recognitionGate.remainingMillis())
+            failedStart(failure)
         }
     }
 
@@ -332,7 +412,7 @@ class AndroidVoiceAudio internal constructor(
                     // A rejected Binder operation means the old engine cannot be
                     // assumed bound. Retire it before stop() so another reply can
                     // initialize a fresh engine without repeated stop warnings.
-                    if (retireEngine) releaseSpeech()
+                    if (retireEngine) releaseSpeech(SpeechVoiceCatalogState.UNAVAILABLE)
                     stop()
                     error(message)
                 }
@@ -363,13 +443,23 @@ class AndroidVoiceAudio internal constructor(
                             fail("The speech engine is unavailable. Captions remain available.", retireEngine = true)
                             return@work
                         }
+                        val voices = engine.voices
+                        if (voices == null) {
+                            fail("The speech engine disconnected. Review Android speech settings, then recheck spoken replies. Captions remain available.", retireEngine = true)
+                            return@work
+                        }
+                        main.post {
+                            if (!closed && engineVersion == speechGeneration && tts === engine) {
+                                installedVoices = voices.toSet()
+                                mutableVoices.value = this@AndroidVoiceAudio.voices()
+                                mutableVoiceCatalog.value = if (voices.isEmpty()) SpeechVoiceCatalogState.EMPTY else SpeechVoiceCatalogState.AVAILABLE
+                            }
+                        }
                         val locale = Locale.forLanguageTag(config.language)
                         if (engine.setLanguage(locale) < 0) {
                             fail("A voice for this language is not installed. Captions are still available.")
                             return@work
                         }
-                        val voices = engine.voices.orEmpty()
-                        installedVoices = voices.toSet()
                         val eligible = eligibleVoices(voices, config.language, config.online)
                         val voice = eligible.firstOrNull { it.name == config.voice } ?: eligible.firstOrNull()
                         if (!config.online && voice == null) {
@@ -465,7 +555,7 @@ class AndroidVoiceAudio internal constructor(
             if (!closed && ticket == generation && !speechReady) {
                 terminal("timeout_initialization")
                 stop()
-                releaseSpeech()
+                releaseSpeech(SpeechVoiceCatalogState.UNAVAILABLE)
                 error("The speech engine did not initialize. Your answer remains in chat.")
             }
         }
@@ -475,6 +565,7 @@ class AndroidVoiceAudio internal constructor(
     private fun initializeSpeech() {
         if (tts != null || closed || speechState == SpeechEngineState.INITIALIZING) return
         speechState = SpeechEngineState.INITIALIZING
+        mutableVoiceCatalog.value = SpeechVoiceCatalogState.CHECKING
         val initialization = ++speechGeneration
         try {
             tts = speechFactory(context) { status ->
@@ -488,12 +579,13 @@ class AndroidVoiceAudio internal constructor(
                             watchdog?.let(main::removeCallbacks)
                             watchdog = null
                             pending.invoke()
+                        } else {
+                            prepareVoices()
                         }
-                        prepareVoices()
                     } else {
                         val failed = playbackError
                         playbackError = null
-                        releaseSpeech()
+                        releaseSpeech(SpeechVoiceCatalogState.UNAVAILABLE)
                         if (pending != null) {
                             terminal("initialization_failed")
                             stop()
@@ -507,7 +599,7 @@ class AndroidVoiceAudio internal constructor(
             val pending = pendingSpeech
             pendingSpeech = null
             playbackError = null
-            releaseSpeech()
+            releaseSpeech(SpeechVoiceCatalogState.UNAVAILABLE)
             if (pending != null) {
                 // Constructor failure must retire the same watchdog and audio
                 // focus as an asynchronous initialization failure before notifying.
@@ -518,7 +610,7 @@ class AndroidVoiceAudio internal constructor(
         }
     }
 
-    private fun releaseSpeech() {
+    private fun releaseSpeech(catalogState: SpeechVoiceCatalogState = SpeechVoiceCatalogState.UNINITIALIZED) {
         val previous = synchronized(speechStateLock) {
             speechGeneration++
             speechState = if (closed) SpeechEngineState.CLOSED else SpeechEngineState.UNINITIALIZED
@@ -526,6 +618,8 @@ class AndroidVoiceAudio internal constructor(
         }
         installedVoices = emptySet()
         mutableVoices.value = emptyList()
+        voiceQueryInFlight = null
+        mutableVoiceCatalog.value = catalogState
         if (previous != null) {
             speechWork.execute {
                 if (configuredEngine === previous) {
@@ -572,7 +666,7 @@ class AndroidVoiceAudio internal constructor(
                     val stopped = runCatching { speech.stop() }.getOrDefault(TextToSpeech.ERROR)
                     if (stopped == TextToSpeech.ERROR) {
                         main.post {
-                            if (tts === speech && engineVersion == speechGeneration) releaseSpeech()
+                            if (tts === speech && engineVersion == speechGeneration) releaseSpeech(SpeechVoiceCatalogState.UNAVAILABLE)
                         }
                     }
                 }

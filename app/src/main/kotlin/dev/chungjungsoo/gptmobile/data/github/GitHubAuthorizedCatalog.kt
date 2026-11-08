@@ -31,7 +31,7 @@ internal object GitHubAuthorizedCatalog {
         var next: JsonObject? = null
         var complete = false
         var invalid: String? = null
-        if (first != null && version.isNotBlank() && expected != null && expected >= 0) {
+        if (first != null && first.text("binding").isNotBlank() && first.text("repository").isNotBlank() && version.isNotBlank() && expected != null && expected >= 0) {
             var page: JsonObject? = first
             while (page != null) {
                 val value = data(page) ?: break
@@ -42,6 +42,8 @@ internal object GitHubAuthorizedCatalog {
                     definition != null && entry.text("schema_fingerprint") != GitHubEvidenceBook.digest(definition.inputSchema.toString())
                 }
                 if (value.text("inventory_version") != version ||
+                    page["binding"] != first["binding"] ||
+                    page["repository"] != first["repository"] ||
                     value.number("authorized_tool_count") != expected ||
                     value.number("inventory_offset") != offset ||
                     value.number("returned") != entries.size ||
@@ -51,7 +53,13 @@ internal object GitHubAuthorizedCatalog {
                     offset + entries.size > expected ||
                     changedContract
                 ) {
-                    invalid = if (changedContract) "CATALOG_CONTRACT_CHANGED" else "CATALOG_PAGE_INCONSISTENT"
+                    invalid = if (changedContract) {
+                        "CATALOG_CONTRACT_CHANGED"
+                    } else if (page["binding"] != first["binding"] || page["repository"] != first["repository"]) {
+                        "CATALOG_AUTHORIZATION_CHANGED"
+                    } else {
+                        "CATALOG_PAGE_INCONSISTENT"
+                    }
                     break
                 }
                 names += pageNames
@@ -89,6 +97,7 @@ internal object GitHubAuthorizedCatalog {
         if (complete && authorizedNames.isNotEmpty() && names.filter(::github).toSet() != authorizedNames) {
             invalid = "CATALOG_AUTHORIZATION_CHANGED"
         }
+        if (failedNext != null) complete = false
         val known = tools.filter { it.modelVisible && github(it.name) }.map { it.name }.distinct()
         return buildJsonObject {
             put("schema", "github.authorized-catalog.v1")

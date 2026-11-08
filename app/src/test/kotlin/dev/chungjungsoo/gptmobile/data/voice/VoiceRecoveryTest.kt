@@ -41,6 +41,25 @@ class VoiceRecoveryTest {
         assertEquals(1, audio.attempts.size)
     }
 
+    @Test fun serviceRepairKeepsItsSpecificActionAcrossPauseAndNeverAutomaticallyRetries() {
+        var now = 0L
+        val audio = Audio()
+        val session = VoiceSession(audio, { true }, {}, { now }).apply { autoContinue = true }
+        session.access(true, true, true)
+        session.resume()
+        audio.attempts.single().repairRequired("Review the speech service", 5000, VoiceRecoveryAction.SPEECH_SERVICE)
+        assertEquals(VoiceRecoveryAction.SPEECH_SERVICE, session.state.recoveryAction)
+        session.access(true, true, false)
+        session.access(true, true, true)
+        assertEquals(VoiceRecoveryAction.SPEECH_SERVICE, session.state.recoveryAction)
+        now = 5000
+        session.tick()
+        assertEquals(1, audio.attempts.size)
+        session.resume()
+        assertEquals(2, audio.attempts.size)
+        assertEquals(null, session.state.recoveryAction)
+    }
+
     @Test fun cooldownCannotBeBypassedByUnmuteResumeOrForeground() {
         var now = 0L
         val audio = Audio()

@@ -120,6 +120,19 @@ class GitHubIntegrationAcceptanceTest {
         assertNull(GitHubAuthorizedCatalog.next(tools, records))
     }
 
+    @Test fun catalogPagesFromAnotherAccountOrRepositoryCannotFinalizeTheDenominator() {
+        for (field in listOf("binding", "repository")) {
+            val records = linkedMapOf("catalog-0" to catalog(0, 2), "catalog-2" to JsonObject(catalog(2, 1) + (field to JsonPrimitive("another-scope"))))
+            val state = GitHubAuthorizedCatalog.snapshot(records, tools)
+            assertEquals(JsonPrimitive(false), state["denominator_final"])
+            assertEquals(JsonPrimitive("CATALOG_AUTHORIZATION_CHANGED"), state["blocker"])
+            assertNull(GitHubAuthorizedCatalog.next(tools, records))
+        }
+        val unidentified = mapOf("catalog-0" to JsonObject(catalog(0, tools.size) - "binding"))
+        assertEquals(JsonPrimitive("CATALOG_IDENTITY_MISSING"), GitHubAuthorizedCatalog.snapshot(unidentified, tools)["blocker"])
+        assertEquals(JsonPrimitive(false), GitHubAuthorizedCatalog.snapshot(unidentified, tools)["denominator_final"])
+    }
+
     @Test fun changedSchemaAndDuplicateCatalogPagesCannotEstablishAllToolsCoverage() {
         val records = receipts()
         val changed = tools.map { if (it.name == "github_context") tool(it.name, "status", "branches") else it }

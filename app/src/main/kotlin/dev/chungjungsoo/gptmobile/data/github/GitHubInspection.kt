@@ -42,20 +42,24 @@ internal class GitHubInspection(private val get: suspend (String) -> JsonElement
             "list_issues" -> {
                 val state = args.s("state").ifBlank { "open" }
                 require(state in setOf("open", "closed", "all")) { "Issue state must be open, closed or all." }
-                val raw = get("$root/issues?state=$state&sort=created&direction=asc&per_page=30&page=$page").jsonArray
+                val perPage = args.s("per_page").ifBlank { "30" }.toInt().also { require(it in 1..100) }
+                val sort = args.s("sort").ifBlank { "created" }.also { require(it in setOf("created", "updated", "comments")) }
+                val direction = args.s("direction").ifBlank { "asc" }.also { require(it in setOf("asc", "desc")) }
+                val raw = get("$root/issues?state=$state&sort=$sort&direction=$direction&per_page=$perPage&page=$page").jsonArray
                 val issues = raw.filter { "pull_request" !in it.jsonObject }
                 buildJsonObject {
                     put("items", JsonArray(issues))
                     put("page", page)
+                    put("per_page", perPage)
                     put("returned", issues.size)
                     put("upstream_returned", raw.size)
                     put("upstream_record_ids", JsonArray(raw.mapNotNull { (it as? JsonObject)?.get("id") }))
                     put("resource_type", "issue")
                     put("pull_requests_excluded", raw.size - issues.size)
-                    put("has_more", raw.size == 30)
-                    put("traversal_state", if (raw.size == 30) "MORE" else "COMPLETE")
+                    put("has_more", raw.size == perPage)
+                    put("traversal_state", if (raw.size == perPage) "MORE" else "COMPLETE")
                     put("empty", issues.isEmpty())
-                    if (raw.size == 30) put("continuation", JsonObject(args + mapOf("action" to JsonPrimitive(action), "page" to JsonPrimitive(page + 1))))
+                    if (raw.size == perPage) put("continuation", JsonObject(args + mapOf("action" to JsonPrimitive(action), "page" to JsonPrimitive(page + 1), "per_page" to JsonPrimitive(perPage), "sort" to JsonPrimitive(sort), "direction" to JsonPrimitive(direction))))
                 }
             }
             "repository_details" -> buildJsonObject {

@@ -28,6 +28,7 @@ class NetworkClientTest {
         assertTrue(NetworkClient.isSensitiveHeader("Proxy-Authorization"))
         assertTrue(NetworkClient.isSensitiveHeader("Cookie"))
         assertTrue(NetworkClient.isSensitiveHeader("Set-Cookie"))
+        assertTrue(NetworkClient.isSensitiveHeader("X-Gateway-Admission-Error"))
         assertFalse(NetworkClient.isSensitiveHeader("Content-Type"))
     }
 

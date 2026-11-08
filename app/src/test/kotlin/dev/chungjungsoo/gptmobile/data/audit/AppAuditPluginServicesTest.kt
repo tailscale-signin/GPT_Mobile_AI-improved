@@ -105,6 +105,7 @@ class AppAuditPluginServicesTest {
             ).use { client ->
                 val network = mockk<NetworkClient>()
                 every { network() } returns client
+                every { network.gatewayReadClient() } returns client
                 val setup = Setup(GatewayAPIImpl(network))
                 coEvery { setup.settings.fetchPlatformV2s() } returns listOf(profile().copy(token = token, secretRef = null))
                 val entry = setup.source.plan(AppAuditOptions(true, listOf("selected"))).single { it.probeId == AppAuditPluginProbeSource.GATEWAY_CAPABILITIES }
@@ -420,6 +421,7 @@ class AppAuditPluginServicesTest {
             ).use { client ->
                 val network = mockk<NetworkClient>()
                 every { network() } returns client
+                every { network.gatewayReadClient() } returns client
                 val setup = Setup(GatewayAPIImpl(network))
                 val profile = profile()
                 coEvery { setup.settings.fetchPlatformV2s() } returns listOf(profile, profile.copy(uid = "other", apiUrl = "http://127.0.0.1:9999/v1"))
@@ -472,6 +474,7 @@ class AppAuditPluginServicesTest {
                 ).use { client ->
                     val network = mockk<NetworkClient>()
                     every { network() } returns client
+                    every { network.gatewayReadClient() } returns client
                     val gateway = GatewayAPIImpl(network)
                     repeat(2) { assertNull(gateway.getCapabilities(config)) }
                     assertEquals("Ordinary calls reuse the unsupported route observation", 1, calls)
@@ -515,6 +518,7 @@ class AppAuditPluginServicesTest {
         ).use { client ->
             val network = mockk<NetworkClient>()
             every { network() } returns client
+            every { network.gatewayReadClient() } returns client
             val gateway = GatewayAPIImpl(network)
             assertNull(gateway.getCapabilities(config))
             val setup = Setup(gateway)

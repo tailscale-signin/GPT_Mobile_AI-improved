@@ -13,6 +13,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 internal class ConflatedCheckpointWriter<T>(
     scope: CoroutineScope,
     private val minimumIntervalMillis: Long = 0,
+    private val writeGate: CheckpointWriteGate? = null,
     private val write: suspend (T) -> Unit
 ) {
     init {
@@ -44,19 +45,24 @@ internal class ConflatedCheckpointWriter<T>(
                 // Keep at most the newest snapshot while waiting; drain still flushes it.
                 if (!first && minimumIntervalMillis > 0) withTimeoutOrNull(minimumIntervalMillis) { draining.await() }
                 first = false
-                var pending = queued
-                while (true) pending = queue.tryReceive().getOrNull() ?: break
-                if (hasWritten && pending.value == lastWritten) {
-                    skippedUnchangedWrites++
-                    continue
+                val commit: suspend () -> Unit = {
+                    // Select after the shared database gate opens: a blocked contributor
+                    // may have received a newer snapshot while another was committing.
+                    var pending = queued
+                    while (true) pending = queue.tryReceive().getOrNull() ?: break
+                    if (hasWritten && pending.value == lastWritten) {
+                        skippedUnchangedWrites++
+                    } else {
+                        val start = System.nanoTime()
+                        lastQueueAgeMillis = (start - pending.queuedAt) / 1_000_000L
+                        write(pending.value)
+                        lastWritten = pending.value
+                        hasWritten = true
+                        completedWrites++
+                        lastWriteMillis = (System.nanoTime() - start) / 1_000_000L
+                    }
                 }
-                val start = System.nanoTime()
-                lastQueueAgeMillis = (start - pending.queuedAt) / 1_000_000L
-                write(pending.value)
-                lastWritten = pending.value
-                hasWritten = true
-                completedWrites++
-                lastWriteMillis = (System.nanoTime() - start) / 1_000_000L
+                if (writeGate == null) commit() else writeGate.withPermit({ draining.isCompleted }, commit)
             }
         } catch (cancelled: CancellationException) {
             throw cancelled

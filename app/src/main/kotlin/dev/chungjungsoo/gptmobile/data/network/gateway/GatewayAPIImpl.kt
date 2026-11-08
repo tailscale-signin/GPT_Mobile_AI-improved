@@ -55,7 +55,7 @@ class GatewayAPIImpl @Inject constructor(
         return try {
             val responseBody = LocalEndpointConnectionPolicy.probe(endpoint, networkClient::evictIdleConnections) {
                 gatewayClientExchange(config, "capabilities", safeRead = true) { requestHeaders ->
-                    networkClient().prepareGet(endpoint) {
+                    networkClient.gatewayReadClient().prepareGet(endpoint) {
                         config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
                         requestHeaders.forEach { (key, value) -> header(key, value) }
                         if (LocalEndpointConnectionPolicy.freshConnection(endpoint)) header(HttpHeaders.Connection, "close")
@@ -189,7 +189,7 @@ class GatewayAPIImpl @Inject constructor(
         return try {
             LocalEndpointConnectionPolicy.probe(endpoint, networkClient::evictIdleConnections) {
                 gatewayClientExchange(config, "job", safeRead = true) { requestHeaders ->
-                    networkClient().prepareGet(endpoint) {
+                    networkClient.gatewayReadClient().prepareGet(endpoint) {
                         config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
                         requestHeaders.forEach { (key, value) -> header(key, value) }
                         if (LocalEndpointConnectionPolicy.freshConnection(endpoint)) header(HttpHeaders.Connection, "close")

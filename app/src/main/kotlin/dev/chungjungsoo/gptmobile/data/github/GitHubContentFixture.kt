@@ -145,7 +145,10 @@ internal object GitHubContentFixture {
     fun available(tools: List<AgentToolDefinition>, branch: String, source: String, sha: String): Boolean =
         (listOf(creation(branch, source, sha), write(branch, sha), stage(branch, sha), commit(branch, sha, "fixture-stage"), cleanup(branch, sha, sha)) + evidence(branch, sha, sha, false)).all { tool(it, tools) != null }
 
-    private fun prior(recipe: Recipe, observations: List<JsonObject>) = observations.lastOrNull { it.text("tool").substringBefore("__") == recipe.tool && arguments(it) == recipe.arguments }
+    private fun prior(recipe: Recipe, observations: List<JsonObject>): JsonObject? {
+        val matching = observations.filter { GitHubActionIdentity.matches(recipe.tool, recipe.arguments, it) }
+        return matching.lastOrNull(::successful) ?: matching.lastOrNull()
+    }
     private fun call(recipe: Recipe, tools: List<AgentToolDefinition>, observations: List<JsonObject>): ProviderEvent.ToolCall? {
         if (prior(recipe, observations) != null) return null
         val tool = tool(recipe, tools) ?: return null
@@ -192,9 +195,32 @@ internal object GitHubContentFixture {
         val origin = status.text("commit_sha")
         val branch = "codex-self-test/" + GitHubEvidenceBook.digest(source.text("binding") + source.text("receipt_id")).take(20)
         val sourceBranch = status.text("branch")
-        val observations = receipts.values.filter { eligible(it) && it["binding"] == source["binding"] && it["repository"] == source["repository"] }
+        val observations = (if (creationReceipt == null) receipts.values else listOf(creationReceipt) + GitHubSelfTestFixtures.lifecycle(creationReceipt, receipts))
+            .filter { eligible(it) && it["binding"] == source["binding"] && it["repository"] == source["repository"] }
         if (creationReceipt == null) return if (allowCreate && !cleanupOnly && available(tools, branch, sourceBranch, origin)) call(creation(branch, sourceBranch, origin), tools, observations) else null
         if (!owned(source, creationReceipt)) return null
+        if (checkpoint(creationReceipt, receipts)["final_state_verified"] == JsonPrimitive(true)) return null
+        val deletion = observations.lastOrNull {
+            it.text("tool").substringBefore("__") == "github_commit" &&
+                arguments(it)?.text("action") == "delete_fixture_branch" &&
+                arguments(it)?.text("branch") == branch &&
+                arguments(it)?.text("origin_head_sha") == origin &&
+                arguments(it)?.text("expected_head_sha")?.sha() == true
+        }
+        if (deletion != null) {
+            val recovery = Recipe(
+                "github_context",
+                buildJsonObject {
+                    put("action", "recovery")
+                    put("fixture_plan", GitHubOwnedFixtures.PLAN)
+                    put("branch", branch)
+                    put("base_sha", origin)
+                    put("commit_sha", requireNotNull(arguments(deletion)).getValue("expected_head_sha"))
+                    put("verify_live", true)
+                }
+            )
+            return call(recovery, tools, observations)
+        }
         var head = origin
         val write = write(branch, origin)
         val written = prior(write, observations)
@@ -290,7 +316,7 @@ internal object GitHubContentFixture {
         val args = arguments(creation).orEmpty()
         val branch = (args["branch"] as? JsonPrimitive)?.content.orEmpty()
         val origin = (args["expected_head_sha"] as? JsonPrimitive)?.content.orEmpty()
-        val observations = receipts.values.dropWhile { it !== creation && it != creation }.filter { eligible(it) && it["binding"] == creation["binding"] && it["repository"] == creation["repository"] }
+        val observations = GitHubSelfTestFixtures.lifecycle(creation, receipts).filter(::eligible)
         val source = receipts.values.firstOrNull { it.text("tool").substringBefore("__") == "github_context" && arguments(it)?.text("action") == "status" && owned(it, creation) }
         val ownership = owned(source, creation)
         val written = prior(write(branch, origin), observations)
@@ -302,8 +328,31 @@ internal object GitHubContentFixture {
         val proved = listOfNotNull(creation, written, staged, committed).mapNotNull { it["receipt_id"] }
         val stageVerified = staged != null && successful(staged) && root(staged)?.text("expected_head_sha") == first && root(staged)?.text("branch") == branch
         val complete = ownership && stageVerified && final != null && listOf(requireNotNull(first) to false, final to true).all { (head, revised) -> evidence(branch, origin, head, revised).all { recipe -> evidenceVerified(recipe, prior(recipe, observations), branch, origin, head, revised) } }
-        val cleanup = observations.lastOrNull { it.text("tool").substringBefore("__") == "github_commit" && arguments(it)?.text("action") == "delete_fixture_branch" && arguments(it)?.text("branch") == branch }
-        val cleaned = ownership && cleanup != null && successful(cleanup) && (!complete || arguments(cleanup)?.text("expected_head_sha") == final) && arguments(cleanup)?.text("origin_head_sha") == origin && root(cleanup)?.text("origin_head_sha") == origin && root(cleanup)?.text("branch") == branch && root(cleanup)?.text("observed_head_sha") == arguments(cleanup)?.text("expected_head_sha") && root(cleanup)?.get("ownership_verified") == JsonPrimitive(true) && root(cleanup)?.get("deleted") == JsonPrimitive(true) && root(cleanup)?.get("absence_verified") == JsonPrimitive(true)
+        val cleanups = observations.filter {
+            val arguments = arguments(it) ?: return@filter false
+            arguments.text("branch") == branch &&
+                (
+                    it.text("tool").substringBefore("__") == "github_commit" &&
+                        arguments.text("action") == "delete_fixture_branch" ||
+                        it.text("tool").substringBefore("__") == "github_context" &&
+                        arguments.text("action") == "recovery" &&
+                        arguments.text("fixture_plan") == GitHubOwnedFixtures.PLAN
+                    )
+        }
+        fun cleanupHead(cleanup: JsonObject) = arguments(cleanup)?.text(if (cleanup.text("tool").substringBefore("__") == "github_context") "commit_sha" else "expected_head_sha")
+        fun cleanupOrigin(cleanup: JsonObject) = arguments(cleanup)?.text(if (cleanup.text("tool").substringBefore("__") == "github_context") "base_sha" else "origin_head_sha")
+        fun verified(cleanup: JsonObject) = ownership && successful(cleanup) && (!complete || cleanupHead(cleanup) == final) && cleanupOrigin(cleanup) == origin && root(cleanup)?.text("origin_head_sha") == origin && root(cleanup)?.text("branch") == branch && root(cleanup)?.text("observed_head_sha") == cleanupHead(cleanup) && root(cleanup)?.get("ownership_verified") == JsonPrimitive(true) && root(cleanup)?.get("deleted") == JsonPrimitive(true) && root(cleanup)?.get("absence_verified") == JsonPrimitive(true)
+        val verifiedCleanup = cleanups.lastOrNull(::verified)
+        val cleaned = verifiedCleanup != null
+        val reconciledDeletions = if (verifiedCleanup?.text("tool")?.substringBefore("__") == "github_context") {
+            val expected = requireNotNull(cleanupHead(verifiedCleanup))
+            cleanups.takeWhile { it != verifiedCleanup }.filter {
+                GitHubActionIdentity.matches("github_commit", cleanup(branch, origin, expected).arguments, it)
+            }.mapNotNull { it["receipt_id"] }
+        } else {
+            emptyList()
+        }
+        val cleanup = verifiedCleanup ?: cleanups.lastOrNull()
         return buildJsonObject {
             put("branch", branch)
             put("fixture_plan", GitHubOwnedFixtures.PLAN)
@@ -322,6 +371,8 @@ internal object GitHubContentFixture {
             )
             put("creation_receipt", creation["receipt_id"] ?: JsonPrimitive("unknown"))
             cleanup?.get("receipt_id")?.let { put("cleanup_receipt", it) }
+            put("cleanup_attempt_receipts", JsonArray(cleanups.takeLast(8).mapNotNull { it["receipt_id"] }))
+            put("reconciled_deletion_receipts", JsonArray(reconciledDeletions))
             put("mutation_receipts", JsonArray(proved))
             put("mutation_scope", "Owned branch, exact nonempty synthetic content, staged revision, pinned content reads/searches and nonempty diff; absence verified after cleanup.")
         }

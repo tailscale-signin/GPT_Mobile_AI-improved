@@ -108,6 +108,7 @@ class GatewayControlNegotiationTest {
             ).use { http ->
                 val network = mockk<NetworkClient>()
                 every { network() } returns http
+                every { network.gatewayReadClient() } returns http
                 val prepared = GatewayControlNegotiation(GatewayAPIImpl(network)).prepare(config)
                 assertEquals(
                     config.copy(
@@ -137,6 +138,7 @@ class GatewayControlNegotiationTest {
         ).use { http ->
             val network = mockk<NetworkClient>()
             every { network() } returns http
+            every { network.gatewayReadClient() } returns http
             val failure = runCatching { GatewayControlNegotiation(GatewayAPIImpl(network)).prepare(config) }.exceptionOrNull()
             assertTrue(failure is GatewayCapabilityDiscoveryException)
             assertEquals("EXPECTED_INTEGER", (failure as GatewayCapabilityDiscoveryException).decodeReason)
@@ -226,6 +228,7 @@ class GatewayControlNegotiationTest {
         ).use { http ->
             val network = mockk<NetworkClient>()
             every { network() } returns http
+            every { network.gatewayReadClient() } returns http
             val prepared = GatewayControlNegotiation(GatewayAPIImpl(network)).prepare(config)
             assertEquals("selected-profile_2", prepared.extraHeaders["X-Gateway-Profile-ID"])
             val encoded = requireNotNull(prepared.extraHeaders["X-Gateway-Profile-Name-Base64"])

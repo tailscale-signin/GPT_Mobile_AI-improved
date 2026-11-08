@@ -63,6 +63,11 @@ class GatewayEngineeringClient internal constructor(private val http: HttpClient
                     val error = runCatching { json.parseToJsonElement(payload) as? JsonObject }.getOrNull()
                     val detail = error?.get("error") as? JsonObject ?: error?.get("detail") as? JsonObject ?: error
                     val code = detail?.get("code")?.jsonPrimitive?.content
+                    if (path == "graph" && code == "graph_connection_required" && response.status.value in setOf(412, 503)) {
+                        val readiness = runCatching { error?.get("readiness")?.let { json.decodeFromJsonElement(GatewayEngineeringReadiness.serializer(), it) } }.getOrNull()
+                        val missing = GatewayGraphPrerequisite.missing(GatewayEngineeringCapabilities("engineering-gateway", 1, readiness = readiness))
+                        throw GatewayGraphUnavailableException("The selected gateway graph prerequisites changed before this request.", missing)
+                    }
                     if (body != null && response.status.value in 400..499 && response.status.value !in setOf(408, 499)) {
                         val message = when (response.status.value) {
                             401, 403 -> "Gateway engineering access was rejected. Restore the original account and engineering permission before submitting a new command."
@@ -135,8 +140,8 @@ class GatewayEngineeringClient internal constructor(private val http: HttpClient
 
     suspend fun requireGraphReady(config: ProviderRequestConfig): String {
         val capability = capabilities(config)
-        capability.unavailableReason(graph = true)?.let { throw GatewayGraphUnavailableException(it) }
-        check(capability.codeGraph?.schemaVersion == 1) { "The selected gateway repository graph protocol is unsupported. Update the desktop gateway." }
+        capability.unavailableReason(graph = true)?.let { throw GatewayGraphUnavailableException(it, GatewayGraphPrerequisite.missing(capability)) }
+        if (capability.codeGraph?.schemaVersion != 1) throw GatewayGraphUnavailableException("The selected gateway repository graph protocol is unsupported. Update the desktop gateway.", listOf(GatewayGraphPrerequisite.GRAPH_PROTOCOL_UNSUPPORTED))
         return requireNotNull(capability.principalId)
     }
 
@@ -222,10 +227,7 @@ class GatewayEngineeringClient internal constructor(private val http: HttpClient
     }
 }
 
-/** Availability only: policy, identity, TLS and authorization failures must not use this type. */
-internal open class GatewayGraphUnavailableException(message: String) : IllegalStateException(message)
-
-internal class UnsupportedEngineeringGateway : GatewayGraphUnavailableException("This inference endpoint does not expose engineering jobs. Select an engineering gateway endpoint; ordinary chat remains available.")
+internal class UnsupportedEngineeringGateway : GatewayGraphUnavailableException("This inference endpoint does not expose engineering jobs. Select an engineering gateway endpoint; ordinary chat remains available.", listOf(GatewayGraphPrerequisite.ENGINEERING_SURFACE_UNSUPPORTED))
 
 class GatewayExecutionRejected(val code: String, val httpStatus: Int) :
     IllegalStateException(

@@ -4,6 +4,8 @@ import java.io.EOFException
 import java.net.ConnectException
 import java.net.SocketTimeoutException
 import javax.net.ssl.SSLException
+import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -12,6 +14,25 @@ import org.junit.Test
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class LocalEndpointConnectionPolicyTest {
+    @Test fun callerThreadNeverClosesStaleSocketsAndRetryReturnsToItsOriginalContext() {
+        val executor = java.util.concurrent.Executors.newSingleThreadExecutor { task -> Thread(task, "fixture-ui-main") }
+        executor.asCoroutineDispatcher().use { main ->
+            runBlocking(main) {
+                val caller = Thread.currentThread()
+                var cleanup: Thread? = null
+                var attempts = 0
+                val result = LocalEndpointConnectionPolicy.probe("http://127.0.0.1:29819/metadata", { cleanup = Thread.currentThread() }) {
+                    assertEquals(caller, Thread.currentThread())
+                    if (++attempts == 1) throw EOFException()
+                    "observed"
+                }
+                assertEquals("observed", result)
+                assertEquals(2, attempts)
+                assertTrue(cleanup != null && cleanup !== caller)
+            }
+        }
+    }
+
     @Test fun connectionFailuresRetryOnceWithBoundedJitterWithoutEvictingHealthySockets() = runTest {
         for (failure in listOf(ConnectException("refused"), SocketTimeoutException("Connect timed out"))) {
             var attempts = 0

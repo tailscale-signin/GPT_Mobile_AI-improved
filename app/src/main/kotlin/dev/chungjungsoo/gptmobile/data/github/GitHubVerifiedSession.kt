@@ -488,7 +488,7 @@ internal class GitHubVerifiedSession(
                     }
                 }
             )
-            val execution = GitHubExecutionLedger.attach(GitHubAcceptanceLedger.attach(retained), receipts)
+            val execution = GitHubExecutionLedger.attach(GitHubAcceptanceLedger.attach(retained, receipts), receipts)
             val executionLedger = execution["execution_ledger"] as? JsonObject
             val unresolved = executionLedger?.get("unresolved_remote_outcomes") as? kotlinx.serialization.json.JsonPrimitive
             val reconciliationRequired = unresolved?.content?.toIntOrNull()?.let { it > 0 } == true

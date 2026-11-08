@@ -66,6 +66,21 @@ internal class RepositoryGraphTool(
                 ToolResultContent.Json(
                     buildJsonObject {
                         put("code", code)
+                        val prerequisite = failure as? GatewayGraphUnavailableException
+                        prerequisite?.diagnostic()?.forEach { (key, value) -> put(key, value) }
+                        if (prerequisite == null) {
+                            put(
+                                "failure_category",
+                                if (admission != null) {
+                                    "LOCAL_POLICY_OR_CONFIGURATION"
+                                } else if (failure is java.io.IOException && failure !is javax.net.ssl.SSLException) {
+                                    "TRANSPORT_UNAVAILABLE"
+                                } else {
+                                    "GRAPH_REQUEST_REJECTED"
+                                }
+                            )
+                            put("selected_revision_qualification", "NOT_QUALIFIED")
+                        }
                         put("graph_available", false)
                         put(
                             "state",

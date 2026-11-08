@@ -67,7 +67,8 @@ class PlatformSettingViewModel @Inject constructor(
     private val ollamaServerRepository: OllamaServerRepository = OllamaServerRepository(),
     savedStateHandle: SavedStateHandle,
     private val freeToolConsent: dev.chungjungsoo.gptmobile.data.permissions.FreeModelToolConsentStore? = null,
-    private val nativeMarketplaceRegistry: dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceRegistry? = null
+    private val nativeMarketplaceRegistry: dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceRegistry? = null,
+    private val reasoningCapabilities: dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityRepository? = null
 ) : ViewModel() {
     private val toolConnectionRepository = ToolConnectionRepository(toolConnectionDao, secretVault)
 
@@ -356,6 +357,44 @@ class PlatformSettingViewModel @Inject constructor(
                 val previous = current.engineeringProfiles[platform.uid] ?: dev.chungjungsoo.gptmobile.data.context.EngineeringProfileSettings()
                 val modes = dev.chungjungsoo.gptmobile.data.context.EngineeringMode.entries
                 current.copy(engineeringProfiles = current.engineeringProfiles + (platform.uid to previous.copy(mode = modes[(previous.mode.ordinal + 1) % modes.size])))
+            }
+        }
+    }
+
+    private val _reasoningCapability = MutableStateFlow(ReasoningCapabilityUiState())
+    val reasoningCapability = _reasoningCapability.asStateFlow()
+    private var reasoningCheckJob: Job? = null
+    private var reasoningCheckGeneration = 0L
+
+    fun checkReasoningCapability(forceRefresh: Boolean = false) {
+        val generation = ++reasoningCheckGeneration
+        reasoningCheckJob?.cancel()
+        val profile = platformState.value
+        if (profile == null || profile.compatibleType != ClientType.LLAMA || !profile.enabled) {
+            _reasoningCapability.value = ReasoningCapabilityUiState()
+            return
+        }
+        val mode = dev.chungjungsoo.gptmobile.data.context.ReasoningPolicy.preference(profile.reasoning, featureSettings.value.llamaReasoningModes[profile.uid])
+        _reasoningCapability.value = ReasoningCapabilityUiState(checking = true)
+        reasoningCheckJob = viewModelScope.launch {
+            try {
+                val observation = reasoningCapabilities?.check(profile, mode, forceRefresh)
+                if (generation == reasoningCheckGeneration && platformState.value == profile && mode == dev.chungjungsoo.gptmobile.data.context.ReasoningPolicy.preference(profile.reasoning, featureSettings.value.llamaReasoningModes[profile.uid])) {
+                    _reasoningCapability.value = ReasoningCapabilityUiState(observation = observation)
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                if (generation == reasoningCheckGeneration) _reasoningCapability.value = ReasoningCapabilityUiState()
+            }
+        }
+    }
+
+    fun switchLlamaReasoningToAuto() {
+        val profile = platformState.value?.takeIf { it.compatibleType == ClientType.LLAMA } ?: return
+        viewModelScope.launch {
+            settingRepository.mutateFeatureSettings { current ->
+                current.copy(llamaReasoningModes = current.llamaReasoningModes + (profile.uid to dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO))
             }
         }
     }

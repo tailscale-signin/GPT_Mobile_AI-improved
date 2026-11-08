@@ -40,7 +40,7 @@ internal class GitHubOwnedFixtures(private val store: GitHubRepositoryStateStore
             "FIXTURE_OWNERSHIP_UNAVAILABLE: Only an acknowledged creation and fresh matching ref establish ownership; a collision or uncertain creation does not."
         }
         store.update(scope, key(root, branch)) { previous ->
-            if (previous != null) {
+            if (previous != null && previous.text("status") != "COMPLETED") {
                 require(previous.text("repository") == root.lowercase() && previous.text("branch") == branch && previous.text("origin_head_sha") == origin && previous.text("source_branch") == source) {
                     "Fixture ownership changed; inspect the existing durable record."
                 }
@@ -104,6 +104,42 @@ internal class GitHubOwnedFixtures(private val store: GitHubRepositoryStateStore
         }
     }
 
+    /** A separate read-only entry point cannot repeat the original deletion. */
+    suspend fun reconcileDeletion(
+        root: String,
+        arguments: JsonObject,
+        read: suspend (String) -> JsonElement,
+        expectedAbsence: suspend (String) -> Boolean
+    ): JsonObject {
+        val branch = arguments.text("branch")
+        val origin = arguments.text("base_sha")
+        val expected = arguments.text("commit_sha")
+        require(arguments.text("fixture_plan") == PLAN && branchPattern.matches(branch) && origin.sha() && expected.sha()) { "Fixture recovery requires its exact plan, branch, origin and recorded deletion head." }
+        val retained = requireNotNull(saved(root, branch)) { "FIXTURE_OWNERSHIP_UNAVAILABLE: No fixture was created by this task/account." }
+        require(retained["ownership_verified"] == JsonPrimitive(true) && retained.text("origin_head_sha") == origin && retained.text("head_sha") == expected && retained["cleanup_started"] == JsonPrimitive(true)) {
+            "FIXTURE_RECONCILE_REQUIRED: No matching durable deletion intent exists. Read-only recovery cannot authorize deletion."
+        }
+        return verifyDeletion(root, branch, origin, retained, read) {
+            expectedAbsence("$root/git/ref/heads/${GitHubWorkspaceClient.segment(branch)}")
+        }
+    }
+
+    private suspend fun verifyDeletion(
+        root: String,
+        branch: String,
+        origin: String,
+        retained: JsonObject,
+        read: suspend (String) -> JsonElement,
+        absent: suspend () -> Boolean
+    ): JsonObject {
+        // Private refs can return404 after access is revoked. Prove current
+        // content access in the original account/repository before using404.
+        val accessibleOrigin = read("$root/git/commits/$origin") as? JsonObject
+        require(accessibleOrigin?.text("sha") == origin) { "FIXTURE_RECONCILE_REQUIRED: The original immutable commit is not currently accessible; ref absence cannot establish cleanup." }
+        require(absent()) { "FIXTURE_RECONCILE_REQUIRED: A deletion was already attempted and the ref is present. No deletion will be repeated, including after restart." }
+        return finishCleanup(root, branch, retained, reconciled = true)
+    }
+
     /** Every remote read here must bypass caches; the caller supplies that transport boundary. */
     suspend fun cleanup(
         root: String,
@@ -111,6 +147,7 @@ internal class GitHubOwnedFixtures(private val store: GitHubRepositoryStateStore
         selectedBranch: String?,
         read: suspend (String) -> JsonElement,
         delete: suspend (String) -> Unit,
+        expectedAbsence: (suspend (String) -> Boolean)? = null,
         reconcile: suspend (JsonObject) -> JsonObject?
     ): JsonObject {
         val branch = arguments.text("branch")
@@ -119,13 +156,18 @@ internal class GitHubOwnedFixtures(private val store: GitHubRepositoryStateStore
         require(branchPattern.matches(branch) && origin.sha() && expected.sha()) { "Owned fixture cleanup requires its branch, origin_head_sha and current expected_head_sha." }
         var retained = requireNotNull(saved(root, branch)) { "FIXTURE_OWNERSHIP_UNAVAILABLE: No fixture was created by this task/account." }
         require(retained["ownership_verified"] == JsonPrimitive(true) && retained.text("origin_head_sha") == origin) { "Fixture ownership or origin lease does not match." }
-        val matchingPath = "$root/git/matching-refs/heads/${GitHubWorkspaceClient.segment(branch)}"
-        suspend fun absent(): Boolean = (read(matchingPath) as? JsonArray)?.none { (it as? JsonObject)?.text("ref") == "refs/heads/$branch" }
-            ?: error("GitHub did not return an authoritative matching-ref list.")
+        val refPath = "$root/git/ref/heads/${GitHubWorkspaceClient.segment(branch)}"
+
+        // The production transport accepts a fresh exact-ref 404 only inside this
+        // task-owned teardown. Generic missing refs retain their normal failure policy.
+        suspend fun absent(): Boolean = expectedAbsence?.invoke(refPath) ?: run {
+            val matchingPath = "$root/git/matching-refs/heads/${GitHubWorkspaceClient.segment(branch)}"
+            (read(matchingPath) as? JsonArray)?.none { (it as? JsonObject)?.text("ref") == "refs/heads/$branch" }
+                ?: error("GitHub did not return an authoritative matching-ref list.")
+        }
         if (retained["cleanup_started"] == JsonPrimitive(true)) {
             require(retained.text("head_sha") == expected) { "The cleanup head lease differs from the durable deletion intent." }
-            require(absent()) { "FIXTURE_RECONCILE_REQUIRED: A deletion was already attempted and the ref is present. No deletion will be repeated, including after restart." }
-            return finishCleanup(root, branch, retained, reconciled = true)
+            return verifyDeletion(root, branch, origin, retained, read, ::absent)
         }
         (retained["pending_commit"] as? JsonObject)?.let { pending ->
             val proof = requireNotNull(reconcile(pending)) { "FIXTURE_RECONCILE_REQUIRED: An interrupted content publication has not been proved; no branch will be deleted." }
@@ -146,7 +188,6 @@ internal class GitHubOwnedFixtures(private val store: GitHubRepositoryStateStore
         for (status in listOf("queued", "in_progress", "waiting", "pending", "requested")) {
             require(read("$root/actions/runs?branch=$encoded&status=$status&per_page=1").jsonObject["total_count"] == JsonPrimitive(0)) { "Active workflow runs prevent fixture cleanup." }
         }
-        val refPath = "$root/git/ref/heads/$encoded"
         suspend fun currentHead(): String {
             val ref = read(refPath).jsonObject
             require(ref.text("ref") == "refs/heads/$branch") { "GitHub returned another ref." }
@@ -170,7 +211,7 @@ internal class GitHubOwnedFixtures(private val store: GitHubRepositoryStateStore
         require(parent == expected && currentHead() == expected) { "Fixture head changed or contains an unowned commit." }
         store.update(scope, key(root, branch)) { current ->
             require(current == retained) { "Fixture state changed before cleanup; inspect the durable receipt." }
-            JsonObject(current + ("cleanup_started" to JsonPrimitive(true)))
+            JsonObject(current + mapOf("cleanup_started" to JsonPrimitive(true), "status" to JsonPrimitive("DELETE_PENDING")))
         }
         // GitHub REST deletion has no atomic SHA lease. Recheck above, retain
         // the intent before dispatch, and never retry an uncertain deletion.
@@ -200,6 +241,7 @@ internal class GitHubOwnedFixtures(private val store: GitHubRepositoryStateStore
         put("absence_verified", absent)
         put("reconciled", reconciled)
         put("verification_status", if (absent) "VERIFIED_ABSENT" else "REF_STILL_PRESENT")
+        put("deletion_state", if (absent) "COMPLETED" else "PENDING_VERIFICATION")
         put("atomic_head_precondition", false)
         put("mutation_scope", "Only the recorded synthetic file and its owned disposable branch; no merge, force push or unrelated deletion.")
     }

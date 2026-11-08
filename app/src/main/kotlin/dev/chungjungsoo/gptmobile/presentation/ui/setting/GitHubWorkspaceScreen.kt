@@ -94,7 +94,8 @@ fun GitHubWorkspaceScreen(
     newConversation: Boolean = false,
     onReviewEvidenceAccess: () -> Unit = {},
     onNavigateToLocalModels: () -> Unit = {},
-    onManageProfiles: () -> Unit = {}
+    onManageProfiles: () -> Unit = {},
+    onProfileSettings: (String) -> Unit = { onManageProfiles() }
 ) {
     androidx.compose.runtime.DisposableEffect(Unit) {
         val release = dev.chungjungsoo.gptmobile.data.diagnostics.FrameTimingRecorder.screen("GitHubWorkspace")
@@ -413,6 +414,7 @@ fun GitHubWorkspaceScreen(
                                                 onBack = { closeWorkspace() },
                                                 onOpenConversation = onOpenConversation,
                                                 onReviewEvidenceAccess = onReviewEvidenceAccess,
+                                                onProfileSettings = onProfileSettings,
                                                 onNavigateToLocalModels = onNavigateToLocalModels,
                                                 registerExit = { leaveChat = it },
                                                 recoveryRequest = recoveryRequest,

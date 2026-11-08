@@ -4,6 +4,8 @@ import dev.chungjungsoo.gptmobile.data.model.EndpointLocality
 import dev.chungjungsoo.gptmobile.data.model.endpointLocality
 import java.net.URI
 import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /** A local server observed closing reused sockets gets fresh HTTP/1 connections for 10 minutes. */
 internal object LocalEndpointConnectionPolicy {
@@ -20,7 +22,7 @@ internal object LocalEndpointConnectionPolicy {
     }
 
     /** Only read-only metadata/template probes belong here. Mutations and inference never do. */
-    suspend fun <T> probe(endpoint: String, onStaleConnection: () -> Unit = {}, action: suspend () -> T): T {
+    suspend fun <T> probe(endpoint: String, onStaleConnection: suspend () -> Unit = {}, action: suspend () -> T): T {
         try {
             return action()
         } catch (failure: Exception) {
@@ -52,7 +54,9 @@ internal object LocalEndpointConnectionPolicy {
             if (!closed && !connect) throw failure
             if (closed) {
                 peerClosed(endpoint)
-                onStaleConnection()
+                // Closing an idle TLS socket can perform blocking I/O. A caller
+                // resuming on Main must never do that cleanup on its own thread.
+                withContext(Dispatchers.IO) { onStaleConnection() }
             }
             // One retry owner, two attempts total. Stagger simultaneous dashboard,
             // readiness and recovery reads without extending an outer request budget.

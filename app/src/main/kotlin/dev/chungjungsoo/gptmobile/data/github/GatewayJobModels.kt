@@ -170,7 +170,7 @@ data class GatewayConversationAttachment(
     val historyComplete: Boolean = true
 )
 
-class GatewayHistoryUnsupported : IllegalStateException("This gateway supports saved job evidence but not the conversation catalog. Update the gateway to browse full saved conversations.")
+class GatewayHistoryUnsupported internal constructor(surface: GatewayAdmissionSurface = GatewayAdmissionSurface.CONVERSATIONS, httpStatus: Int? = null) : GatewayAdmissionException(GatewayAdmissionReason.UNSUPPORTED_CONTRACT, httpStatus, null, surface)
 
 @Serializable
 data class GatewayCommandReceipt(
@@ -194,12 +194,13 @@ data class GatewayCommandReceipt(
 @Serializable
 internal data class GatewayScopeIdentity(
     @SerialName("gateway_id") val gatewayId: String,
-    @SerialName("principal_id") val principalId: String
+    @SerialName("principal_id") val principalId: String,
+    @SerialName("instance_id") val instanceId: String? = null
 )
 
 @Serializable
 internal data class GatewayOrdinaryReservation(val reservationKind: String, val model: String, val gatewayId: String, val principalId: String)
 
-internal class GatewayCursorExpired : IllegalStateException("The saved history cursor expired; refreshing the retained snapshot.")
+internal class GatewayCursorExpired(surface: GatewayAdmissionSurface = GatewayAdmissionSurface.TRANSCRIPT, httpStatus: Int? = null, wireCode: String? = null) : GatewayAdmissionException(GatewayAdmissionReason.CURSOR_EXPIRED, httpStatus, wireCode, surface)
 
 internal class GatewayTranscriptTooLarge : IllegalStateException("The saved transcript is too large to load on this device (65 MiB page limit). Its server copy is retained.")

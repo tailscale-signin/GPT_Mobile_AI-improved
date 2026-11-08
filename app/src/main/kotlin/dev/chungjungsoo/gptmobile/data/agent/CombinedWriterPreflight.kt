@@ -8,6 +8,21 @@ import dev.chungjungsoo.gptmobile.data.model.ClientType
 
 /** Local readiness before contributors spend resources; wire admission still rechecks the real corpus. */
 internal object CombinedWriterPreflight {
+    suspend fun qualifyControls(
+        profile: PlatformV2,
+        requestedMode: dev.chungjungsoo.gptmobile.data.context.ReasoningMode,
+        capabilities: dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityRepository?
+    ): dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityObservation? {
+        if (profile.compatibleType != ClientType.LLAMA) return null
+        val observation = checkNotNull(capabilities) { "COMBINED_WRITER_PREFLIGHT: Reasoning capability checks are unavailable; no contributions were started." }
+            .check(profile, requestedMode)
+        if (!observation.permitsRequest && observation.status == dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityStatus.UNSUPPORTED) {
+            throw dev.chungjungsoo.gptmobile.data.context.ReasoningAdmissionException(requestedMode)
+        }
+        if (!observation.permitsRequest || !observation.routeVerified) throw dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityUnavailableException(observation.safeReasonCode?.takeIf { it.startsWith("REASONING_CAPABILITY_") } ?: "REASONING_CAPABILITY_UNVERIFIED")
+        return observation
+    }
+
     fun validate(profile: PlatformV2, requested: CombinedRequestedPolicy, limits: TokenBudgetSettings) {
         require(profile.enabled && profile.uid in requested.participantUids) { "COMBINED_WRITER_PREFLIGHT: Primary is disabled or no longer a participant." }
         CombinedProviderEligibility.unavailableReason(profile, requested.userPrompt, writer = true, appendContinuations = requested.appendContinuations)?.let { error("COMBINED_WRITER_PREFLIGHT: $it") }

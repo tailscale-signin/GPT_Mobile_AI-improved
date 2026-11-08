@@ -651,6 +651,7 @@ internal class GitHubOperationTool(
                     properties["query"] = field("string")
                     properties["base_sha"] = field("string")
                     properties["stage_id"] = field("string")
+                    properties["fixture_plan"] = buildJsonObject { put("enum", JsonArray(listOf(JsonPrimitive(dev.chungjungsoo.gptmobile.data.github.GitHubOwnedFixtures.PLAN)))) }
                     properties["refresh"] = field("boolean")
                     properties["page"] = field("integer")
                     properties["per_page"] = integer(1, 100, default = 30)
@@ -923,14 +924,17 @@ internal class GitHubOperationTool(
                     }
                     properties["page"] = field("integer")
                     listOf("title", "body", "expected_updated_at").forEach { properties[it] = field("string") }
+                    properties["per_page"] = integer(1, 100, default = 30)
+                    properties["sort"] = choice("created", "updated", "comments")
+                    properties["direction"] = choice("asc", "desc")
                     properties["state"] = choice("open", "closed", "all")
                 }
             }
             if (operation in setOf("github_context", "github_ci", "github_pr", "github_read")) properties["response_detail"] = choice("compact", "full")
             val description = when (operation) {
-                "github_context" -> "Repo context; changes needs base_sha."
-                "github_search" -> "Search pinned code/paths; paths/patterns are globs. Check coverage."
-                "github_read" -> "Pinned evidence_id/ranges: 1-based, <=2000 lines; end_line (-1=bounded EOF) or max_lines. Find paths first; saved pages use view_cursor only."
+                "github_context" -> "Changes:base_sha. Fixture recovery: base_sha=origin, commit_sha=head."
+                "github_search" -> "Pinned search; globs; check coverage."
+                "github_read" -> "Pinned ranges/evidence_id; 1-based <=2000; end_line=-1 bounded EOF or max_lines; pages:view_cursor."
                 "github_stage_patch" -> "Stage an exact replacement with target_file, search_snippet and replacement_snippet, or SHA-checked edits. Reads the pinned blob and rejects ambiguous anchors. Returns immutable version/stage_id and preserves publication receipts. Supply restore_stage_id alone to select a saved local patch at the same branch/base. Commit on a permitted working branch using its current expected_head_sha."
                 "github_commit" -> "Create a working branch, commit a validated stage_id, or delete_branch with expected_head_sha after dependency inspection. Ordinary deletion blocks selected/default/protected branches, unmerged commits, open PRs and active runs. delete_fixture_branch additionally requires durable same-task ownership from fixture_plan=content_v1, origin_head_sha and a verified chain containing only its exact synthetic file; it never grants generic unmerged-branch deletion. GitHub deletion is not an atomic SHA lease."
                 "github_write" -> "Every files item requires a repository-relative path (for example app/src/main/kotlin/.../MainActivity.kt), never an absolute path or directory. Stage up to 20 UTF-8 file creations, replacements or deletions for exact user approval and one atomic commit on a working branch. Supply expected_head_sha and expected_blob_sha for existing files. Replacements require content; deletions require delete=true and no content. Never write to the default branch."

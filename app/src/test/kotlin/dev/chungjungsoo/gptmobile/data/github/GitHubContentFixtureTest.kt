@@ -1,7 +1,13 @@
 package dev.chungjungsoo.gptmobile.data.github
 
+import dev.chungjungsoo.gptmobile.data.agent.AgentTool
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
+import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
+import dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator
+import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
+import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -31,7 +37,7 @@ class GitHubContentFixtureTest {
         }
     )
     private val tools = listOf(
-        tool("github_context", "status", "changes", "branch"),
+        tool("github_context", "status", "changes", "branch", "branch_dependencies"),
         tool("github_commit", "branch", "commit_staged_patch", "delete_fixture_branch", "delete_branch"),
         tool("github_write", "commit"),
         tool("github_stage_patch"),
@@ -60,7 +66,8 @@ class GitHubContentFixtureTest {
             }
         )
     )
-    private fun result(call: ProviderEvent.ToolCall): JsonObject {
+    private fun result(call: ProviderEvent.ToolCall, fixtureBranch: String = branch): JsonObject {
+        val branch = fixtureBranch
         val args = call.arguments
         val action = args["action"]?.jsonPrimitive?.content.orEmpty()
         val head = args["commit_sha"]?.jsonPrimitive?.content.orEmpty()
@@ -194,6 +201,149 @@ class GitHubContentFixtureTest {
         val writes = records.values.filter { it["tool"] == JsonPrimitive("github_write") || it["tool"] == JsonPrimitive("github_stage_patch") }
         assertTrue(writes.all { it["arguments"]?.jsonObject?.get("branch") == JsonPrimitive(branch) })
         assertTrue(records.values.none { it["arguments"]?.jsonObject?.get("action") in listOf(JsonPrimitive("resolve"), JsonPrimitive("merge")) })
+    }
+
+    @Test fun productionSchemasAdmitOwnedCleanupOnlyWithItsExactOriginLease() {
+        val actual = tools.map { GitHubOperationTool.definition(it.name) }
+        assertEquals(11, GitHubSelfTestFixtures.minimumCalls(actual))
+        val definition = actual.single { it.name == "github_commit" }
+        val cleanup = buildJsonObject {
+            put("action", "delete_fixture_branch")
+            put("branch", branch)
+            put("origin_head_sha", origin)
+            put("expected_head_sha", second)
+        }
+        assertTrue(ToolArgumentValidator.errors(cleanup, definition.inputSchema).isEmpty())
+        assertTrue(ToolArgumentValidator.errors(JsonObject(cleanup - "origin_head_sha"), definition.inputSchema).isNotEmpty())
+    }
+
+    @Test fun actualBoundToolReceiptsResumeTheFixtureWithoutReplayingAnyCompletedMutation() = runBlocking {
+        val binding = GitHubEvidenceBook.digest("account:connection:conversation:task")
+        val saved = linkedMapOf<String, JsonObject>()
+        fun book() = GitHubEvidenceBook(binding, "owner/repo", "main", tools.mapTo(mutableSetOf()) { it.name }, load = saved::get, save = { id, row -> saved[id] = row }, retainedIds = { saved.keys.filter { it.startsWith("ev_") } })
+        var ledger = book()
+        var ownedBranch = ""
+        val dispatched = mutableListOf<ProviderEvent.ToolCall>()
+        val boundTools = tools.associate { definition ->
+            definition.name to GitHubBoundRepositoryTool(
+                object : AgentTool {
+                    override val definition = definition
+                    override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                        assertEquals(JsonPrimitive("owner"), arguments["owner"])
+                        assertEquals(JsonPrimitive("repo"), arguments["repo"])
+                        val call = ProviderEvent.ToolCall(callId, definition.name, arguments)
+                        dispatched += call
+                        val response = if (arguments["action"] == JsonPrimitive("status")) {
+                            buildJsonObject {
+                                put("branch", "main")
+                                put("commit_sha", origin)
+                                put("repository", buildJsonObject { put("default_branch", "main") })
+                            }
+                        } else {
+                            result(call, ownedBranch)
+                        }
+                        return AgentToolResult(callId, ToolResultContent.Json(response), false)
+                    }
+                },
+                GitHubRepositoryContext("owner", "repo", "main")
+            )
+        }
+        val source = ProviderEvent.ToolCall("bound-source", "github_context", buildJsonObject { put("action", "status") })
+        ledger.observe(source, boundTools.getValue(source.name).execute(source.callId, source.arguments))
+        ownedBranch = "codex-self-test/" + GitHubEvidenceBook.digest(binding + ledger.snapshot().first.values.single().getValue("receipt_id").jsonPrimitive.content).take(20)
+        repeat(11) { step ->
+            val call = requireNotNull(GitHubSelfTestFixtures.next("Test all GitHub tools with writes", tools, ledger.snapshot().first)) { "Bound fixture stopped at $step" }
+            ledger.observe(call, boundTools.getValue(call.name).execute(call.callId, call.arguments))
+            if (step == 5) ledger = book().also { it.restore() }
+        }
+        val receipts = ledger.snapshot().first
+        repeat(2) { assertNull(GitHubSelfTestFixtures.next("Test all GitHub tools with writes", tools, receipts)) }
+        assertTrue(GitHubSelfTestFixtures.complete(receipts))
+        assertEquals(1, dispatched.count { it.arguments["action"] == JsonPrimitive("delete_fixture_branch") })
+        assertEquals(12, dispatched.size)
+        assertTrue(receipts.values.all { it.getValue("arguments").jsonObject["owner"] == JsonPrimitive("owner") && it["action_identity_sha256"] != null })
+    }
+
+    @Test fun verifiedCleanupSurvivesLaterDuplicatePreflightRejectionsUntilANewCreation() {
+        val records = completed()
+        val originalCleanup = records.values.last()
+        repeat(2) { attempt ->
+            records["duplicate-$attempt"] = JsonObject(
+                originalCleanup + mapOf(
+                    "receipt_id" to JsonPrimitive("duplicate-$attempt"),
+                    "success" to JsonPrimitive(false),
+                    "dispatched" to JsonPrimitive(false),
+                    "error_code" to JsonPrimitive("DUPLICATE_MUTATION_REJECTED"),
+                    "result" to buildJsonObject { put("deleted", false) }
+                )
+            )
+        }
+        val checkpoint = GitHubSelfTestFixtures.checkpoint(records).single().jsonObject
+        assertEquals(JsonPrimitive("CLEANED"), checkpoint["cleanup_status"])
+        assertEquals(originalCleanup["receipt_id"], checkpoint["cleanup_receipt"])
+        assertTrue(GitHubSelfTestFixtures.complete(records))
+        assertNull(GitHubSelfTestFixtures.next("Test all tools with writes", tools, records))
+
+        val oldCreation = records.values.first { it.getValue("arguments").jsonObject["action"] == JsonPrimitive("branch") }
+        records["new-creation"] = JsonObject(oldCreation + ("receipt_id" to JsonPrimitive("new-creation")))
+        val fixtures = GitHubSelfTestFixtures.checkpoint(records).map { it.jsonObject }
+        assertEquals(JsonPrimitive("CLEANED"), fixtures.first()["cleanup_status"])
+        assertEquals(JsonPrimitive("PENDING_OR_BLOCKED"), fixtures.last()["cleanup_status"])
+        assertFalse(GitHubSelfTestFixtures.complete(records))
+    }
+
+    @Test fun uncertainDeletionResumesOnlyExactReadOnlyRecoveryAndPublishesItsProof() {
+        val records = completed()
+        val deletion = records.values.last()
+        val deletionId = deletion.getValue("receipt_id").jsonPrimitive.content
+        records[deletionId] = JsonObject(deletion + mapOf("success" to JsonPrimitive(false), "result" to buildJsonObject { put("deletion_state", "PENDING_VERIFICATION") }))
+        val definitions = tools.map { GitHubOperationTool.definition(it.name) }
+        val recovery = requireNotNull(GitHubSelfTestFixtures.next("Test all tools with writes", definitions, records))
+        assertEquals("github_context", recovery.name)
+        assertEquals(JsonPrimitive("recovery"), recovery.arguments["action"])
+        assertEquals(JsonPrimitive(GitHubOwnedFixtures.PLAN), recovery.arguments["fixture_plan"])
+        assertEquals(JsonPrimitive(branch), recovery.arguments["branch"])
+        assertEquals(JsonPrimitive(origin), recovery.arguments["base_sha"])
+        assertEquals(JsonPrimitive(second), recovery.arguments["commit_sha"])
+        assertTrue(dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary.isReplayableRead(recovery.name, recovery.arguments))
+        assertTrue(ToolArgumentValidator.errors(recovery.arguments, definitions.first { it.name == recovery.name }.inputSchema).isEmpty())
+        assertEquals(recovery, GitHubTestChecklist.nextCall("Test all GitHub tools with writes", definitions, records, 5))
+        records[recovery.callId] = receipt(recovery, deletion.getValue("result").jsonObject)
+        assertEquals(JsonPrimitive("CLEANED"), GitHubSelfTestFixtures.checkpoint(records).single().jsonObject["cleanup_status"])
+        assertTrue(GitHubSelfTestFixtures.complete(records))
+        assertNull(GitHubSelfTestFixtures.next("Test all tools with writes", definitions, records))
+        assertEquals(1, records.values.count { it["arguments"]?.jsonObject?.get("action") == JsonPrimitive("delete_fixture_branch") })
+    }
+
+    @Test fun requiredLiveExistenceReadRunsBeforeCleanupAndIsRetiredAfterVerifiedAbsence() {
+        val records = completed().also { it.remove(it.keys.last()) }
+        val cachedCall = ProviderEvent.ToolCall(
+            "fixture-dependencies",
+            "github_context",
+            buildJsonObject {
+                put("action", "branch_dependencies")
+                put("branch", branch)
+                put("owner", "owner")
+                put("repo", "repo")
+            }
+        )
+        records[cachedCall.callId] = JsonObject(receipt(cachedCall, buildJsonObject { put("branch", branch) }) + ("evidence_origin" to JsonPrimitive("CACHED")))
+        val definitions = tools.map { definition ->
+            if (definition.name != "github_context") definition else definition.copy(inputSchema = JsonObject(definition.inputSchema + ("properties" to JsonObject(definition.inputSchema.getValue("properties").jsonObject + ("verify_live" to buildJsonObject { put("type", "boolean") })))))
+        }
+        val live = requireNotNull(GitHubTestChecklist.nextCall("Test all GitHub tools with writes", definitions, records, 100))
+        assertEquals(JsonPrimitive("branch_dependencies"), live.arguments["action"])
+        assertEquals(JsonPrimitive(true), live.arguments["verify_live"])
+        records[live.callId] = receipt(live, buildJsonObject { put("branch", branch) })
+        val cleanup = requireNotNull(GitHubTestChecklist.nextCall("Test all GitHub tools with writes", definitions, records, 99))
+        assertEquals(JsonPrimitive("delete_fixture_branch"), cleanup.arguments["action"])
+        records[cleanup.callId] = receipt(cleanup, result(cleanup))
+        val retired = GitHubSelfTestFixtures.retiredReadPredicate(records)
+        assertTrue(retired(records.getValue(cachedCall.callId)))
+        assertFalse(retired(records.values.first { it["tool"] == JsonPrimitive("github_read") }))
+        val next = GitHubTestChecklist.nextCall("Test all GitHub tools with writes", definitions, records, 98)
+        assertFalse(next?.arguments?.get("action") == JsonPrimitive("branch_dependencies") && next.arguments["branch"] == JsonPrimitive(branch))
+        assertEquals(JsonPrimitive(true), GitHubSelfTestFixtures.checkpoint(records).single().jsonObject["final_state_verified"])
     }
 
     @Test fun selectedFeatureBranchCanFinishOwnedContentFixtureWithoutSwitchingOrTouchingItsSource() {

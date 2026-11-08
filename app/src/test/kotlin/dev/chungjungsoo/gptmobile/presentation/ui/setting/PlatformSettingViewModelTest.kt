@@ -181,6 +181,21 @@ class PlatformSettingViewModelTest {
         assertFalse(viewModel.acceleratorOptions.value.any { it.accelerator == LocalAccelerators.NPU })
     }
 
+    @Test fun explicitOffRemainsSavedWhenTheExactCapabilityCheckIsUnsupported() = runTest {
+        val profile = PlatformV2(uid = "llama-profile", name = "Llama", compatibleType = ClientType.LLAMA, model = "exact-model", apiUrl = "https://gateway.example")
+        val settings = FakeSettingRepository(profile)
+        settings.features.value = dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings(llamaReasoningModes = mapOf(profile.uid to dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF))
+        val capabilities = mockk<dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityRepository>()
+        io.mockk.coEvery { capabilities.check(profile, dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF, true) } returns dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityObservation(profile.uid, profile.model, dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF, dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityStatus.UNSUPPORTED, "opaque", "runtime", System.currentTimeMillis(), "REASONING_OFF_UNSUPPORTED", true, false)
+        val model = testViewModel(settings = settings, platformUid = profile.uid, reasoningCapabilities = capabilities)
+        model.checkReasoningCapability(forceRefresh = true)
+        assertEquals(dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityStatus.UNSUPPORTED, model.reasoningCapability.value.observation?.status)
+        assertEquals(dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF, settings.features.value.llamaReasoningModes[profile.uid])
+        model.switchLlamaReasoningToAuto()
+        assertEquals(dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO, settings.features.value.llamaReasoningModes[profile.uid])
+        io.mockk.coVerify(exactly = 1) { capabilities.check(profile, dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF, true) }
+    }
+
     private fun testViewModel(
         dao: ToolConnectionDao = FakeToolConnectionDao(),
         vault: SecretVault = FakeSecretVault(),
@@ -191,7 +206,8 @@ class PlatformSettingViewModelTest {
         deviceRamGb: Long = 8L,
         openRouterCreditsRepository: OpenRouterCreditsRepository = OpenRouterCreditsRepository(),
         ollamaServerRepository: OllamaServerRepository = OllamaServerRepository(),
-        platformUid: String = "local-1"
+        platformUid: String = "local-1",
+        reasoningCapabilities: dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityRepository? = null
     ): PlatformSettingViewModel {
         val networkClient = NetworkClient(CIO)
         val connectionRepository = ToolConnectionRepository(dao, vault)
@@ -219,7 +235,8 @@ class PlatformSettingViewModelTest {
             deviceRamGb = deviceRamGb,
             openRouterCreditsRepository = openRouterCreditsRepository,
             ollamaServerRepository = ollamaServerRepository,
-            savedStateHandle = SavedStateHandle(mapOf("platformUid" to platformUid))
+            savedStateHandle = SavedStateHandle(mapOf("platformUid" to platformUid)),
+            reasoningCapabilities = reasoningCapabilities
         )
     }
 
@@ -328,6 +345,13 @@ private class FakeSettingRepository(
     )
 ) : SettingRepository {
     private var platform = initialPlatform
+    val features = kotlinx.coroutines.flow.MutableStateFlow(dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings())
+    override suspend fun getFeatureSettings() = features.value
+    override suspend fun updateFeatureSettings(settings: dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings) {
+        features.value = settings
+    }
+    override fun observeFeatureSettings(): Flow<dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings> = features
+
     val updatedPlatforms = mutableListOf<PlatformV2>()
     var localRuntimeBackend: LocalRuntimeBackend = LocalRuntimeBackend.QUALCOMM_QNN
     var debugMode: Boolean = false

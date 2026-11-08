@@ -40,7 +40,7 @@ object ReasoningPolicy {
     fun resolve(requested: ReasoningMode, allowed: Boolean, control: ReasoningTemplateControl?): ReasoningDecision {
         val effective = if (allowed) requested else ReasoningMode.OFF
         if (effective == ReasoningMode.AUTO) return ReasoningDecision(requested, effective)
-        check(control != null) { "REASONING_${effective}_UNSUPPORTED: this route has no verified template control. Choose Auto or a qualified model; no inference was sent." }
+        if (control == null) throw ReasoningAdmissionException(effective)
         return ReasoningDecision(requested, effective, control.parameter, templateProbeVerified = true)
     }
 

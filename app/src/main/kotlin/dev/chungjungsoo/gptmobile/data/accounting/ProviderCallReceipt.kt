@@ -30,7 +30,10 @@ internal data class ProviderCallReceipt(
     val visibleBytes: Long = 0,
     val reasoningBytes: Long = 0,
     val reasoningTokens: Int? = null,
-    val usageObservations: JsonObject? = null
+    val usageObservations: JsonObject? = null,
+    val dispatchEvidence: String = "UNKNOWN",
+    val failurePhase: String? = null,
+    val reasonCode: String? = null
 ) {
     fun json(): JsonObject {
         val serverId = serverRequestId?.takeIf { it.matches(Regex("[A-Za-z0-9_.:-]{1,160}")) }
@@ -52,6 +55,9 @@ internal data class ProviderCallReceipt(
             put("serverRequestId", serverId?.let(::JsonPrimitive) ?: JsonNull)
             put("finishReason", finishReason?.let(::JsonPrimitive) ?: JsonNull)
             put("roundOutcome", roundOutcome)
+            put("dispatchEvidence", dispatchEvidence)
+            put("failurePhase", failurePhase?.let(::JsonPrimitive) ?: JsonNull)
+            put("reasonCode", reasonCode?.let(::JsonPrimitive) ?: JsonNull)
             put("toolCallCount", toolCallCount)
             put("visibleBytes", visibleBytes)
             put("reasoningBytes", reasoningBytes)

@@ -7,7 +7,7 @@ import io.ktor.client.engine.mock.respond
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
-import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
@@ -17,13 +17,13 @@ import org.junit.Test
 class GatewayJobClientTest {
     private val config = ProviderRequestConfig("http://192.168.1.9:8090/v1", null)
 
-    @Test fun canonicalIdentityReadBindsBothMutationHeadersAndReplacesStaleCaseVariants() = runTest {
+    @Test fun canonicalIdentityReadBindsBothMutationHeadersAndReplacesStaleCaseVariants() = runBlocking {
         val stale = config.copy(extraHeaders = mapOf("x-gateway-installation-id" to "stale", "X-GATEWAY-PRINCIPAL-ID" to "other", "X-Custom" to "retained"))
         HttpClient(
             MockEngine { request ->
                 assertEquals(HttpMethod.Get, request.method)
                 assertEquals("/v1/gateway/identity", request.url.encodedPath)
-                respond("""{"gateway_id":"canonical-journal","principal_id":"authenticated-owner"}""")
+                respond("""{"schema_version":1,"protocol_version":1,"gateway_id":"canonical-journal","principal_id":"authenticated-owner"}""")
             }
         ) { install(HttpTimeout) }.use { http ->
             val bound = stale.withGatewayIdentity(GatewayJobClient(http).identity(config))
@@ -31,7 +31,7 @@ class GatewayJobClientTest {
         }
     }
 
-    @Test fun catalogAndTranscriptAttachAreReadOnlyAndKeepIndependentOpaqueCursors() = runTest {
+    @Test fun catalogAndTranscriptAttachAreReadOnlyAndKeepIndependentOpaqueCursors() = runBlocking {
         val requests = mutableListOf<String>()
         HttpClient(
             MockEngine { request ->
@@ -59,7 +59,7 @@ class GatewayJobClientTest {
         assertTrue(requests.all { it.contains("/v1/gateway/") })
     }
 
-    @Test fun legacyMissingRoutesDoNotTryToCreateOrResumeAJob() = runTest {
+    @Test fun legacyMissingRoutesDoNotTryToCreateOrResumeAJob() = runBlocking {
         var calls = 0
         HttpClient(
             MockEngine {
@@ -73,13 +73,13 @@ class GatewayJobClientTest {
         assertEquals(1, calls)
     }
 
-    @Test fun nonAdvancingTranscriptPageIsRejected() = runTest {
+    @Test fun nonAdvancingTranscriptPageIsRejected() = runBlocking {
         HttpClient(MockEngine { respond("""{"schema_version":1,"gateway_id":"gw_a","principal_id":"owner","conversation_id":"conv_a","revision":7,"messages":[],"has_more":true,"next_cursor":"same"}""") }) { install(HttpTimeout) }.use { http ->
             assertTrue(runCatching { GatewayJobClient(http).messages(config, "conv_a", "same") }.isFailure)
         }
     }
 
-    @Test fun pendingAdmissionReceiptLookupIsReadOnlyAndMissingReceiptRemainsUnknown() = runTest {
+    @Test fun pendingAdmissionReceiptLookupIsReadOnlyAndMissingReceiptRemainsUnknown() = runBlocking {
         var calls = 0
         HttpClient(
             MockEngine { request ->
@@ -94,7 +94,7 @@ class GatewayJobClientTest {
         assertEquals(1, calls)
     }
 
-    @Test fun fullLargeTranscriptMessageUsesItsOwnBoundWithoutRelaxingCatalogLimits() = runTest {
+    @Test fun fullLargeTranscriptMessageUsesItsOwnBoundWithoutRelaxingCatalogLimits() = runBlocking {
         val content = "x".repeat(2_001_000)
         val transcript = GatewayTranscriptPage(gatewayId = "gateway", principalId = "owner", conversationId = "conversation", revision = 1, messages = listOf(GatewayTranscriptMessage("message", "turn", "assistant", content, "completed", 1)), nextCursor = "end")
         val payload = Json.encodeToString(transcript)

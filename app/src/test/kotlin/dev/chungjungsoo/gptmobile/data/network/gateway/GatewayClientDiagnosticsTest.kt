@@ -118,4 +118,48 @@ class GatewayClientDiagnosticsTest {
         GatewayClientDiagnostics.observeInstance(first, "4".repeat(32))
         assertTrue(GatewayClientDiagnostics.profileCapabilityEpoch("bound-first", first.apiUrl) > changed)
     }
+
+    @Test fun missingAcknowledgmentStaysUnknownEvenForAnHttpRejection() {
+        val config = ProviderRequestConfig("https://ack.example/v1", null, extraHeaders = mapOf(GatewayClientDiagnostics.CLIENT_HEADER to "{}"))
+        for (status in listOf(200, 401, 403, 500)) {
+            val fields = GatewayClientDiagnostics.responseFields(config, status) { null }
+            val attributes = fields["bounded_attributes"] as JsonObject
+            assertEquals("NOT_CONFIRMED", attributes.diagnosticText("client_metadata_acknowledgment"))
+            assertFalse(attributes.containsKey("client_metadata_accepted"))
+            assertEquals("response_received", fields.diagnosticText("dispatch_state"))
+            assertEquals("true", attributes["response_headers_received"].toString())
+        }
+    }
+
+    @Test fun explicitAcceptanceAndNoRequestStayDistinctFromAdmissionRejection() {
+        val plain = ProviderRequestConfig("https://ack.example/v1", null)
+        val requested = plain.copy(extraHeaders = mapOf(GatewayClientDiagnostics.CLIENT_HEADER to "{}"))
+        fun acknowledgment(config: ProviderRequestConfig, status: Int, headers: Map<String, String>): String? =
+            (GatewayClientDiagnostics.responseFields(config, status) { headers[it] }["bounded_attributes"] as JsonObject).diagnosticText("client_metadata_acknowledgment")
+        assertEquals("NOT_REQUESTED", acknowledgment(plain, 200, emptyMap()))
+        assertEquals("ACCEPTED", acknowledgment(requested, 500, mapOf("X-Gateway-Client-Diagnostics-Accepted" to "1")))
+        assertEquals("NOT_CONFIRMED", acknowledgment(requested, 200, mapOf("X-Gateway-Client-Diagnostics-Accepted" to "0")))
+        for ((code, status) in mapOf("remote_surface_not_admitted" to 403, "scope_not_granted" to 403, "transport_identity_required" to 401, "duplicate_admission_header" to 400, "unknown_job" to 404)) {
+            val headers = mapOf("X-Gateway-Admission-Error" to code)
+            assertEquals("REJECTED_BEFORE_PROCESSING", acknowledgment(requested, status, headers))
+            assertEquals("NOT_CONFIRMED", acknowledgment(requested, 500, headers))
+        }
+        assertEquals("NOT_CONFIRMED", acknowledgment(requested, 403, mapOf("X-Gateway-Admission-Error" to "conversation_storage_unavailable")))
+        assertEquals("NOT_CONFIRMED", acknowledgment(requested, 403, mapOf("X-Gateway-Admission-Error" to "CONTINUITY_IDENTITY_MISMATCH")))
+    }
+
+    @Test fun admissionResponseProjectionRetainsOnlyBoundedContractValues() {
+        val config = ProviderRequestConfig("https://private.example/v1", "private token", extraHeaders = mapOf(GatewayClientDiagnostics.CLIENT_HEADER to "{}"))
+        val response = GatewayClientDiagnostics.responseFields(config, 403) { if (it == "X-Gateway-Admission-Error") "remote_surface_not_admitted" else null }
+        val attributes = response["bounded_attributes"] as JsonObject
+        assertEquals("remote_surface_not_admitted", attributes.diagnosticText("gateway_admission_code"))
+        assertEquals("HTTP_ERROR", response.diagnosticText("error_code"))
+        assertEquals("response_received", response.diagnosticText("dispatch_state"))
+        assertFalse(response.toString().contains("private"))
+        val unsafe = GatewayClientDiagnostics.responseFields(config, 403) { "https://private.example/token" }
+        assertFalse(unsafe.toString().contains("private"))
+        assertFalse((unsafe["bounded_attributes"] as JsonObject).containsKey("gateway_admission_code"))
+        val unknown = GatewayDiagnosticEvent.fields(Json.parseToJsonElement("""{"bounded_attributes":{"client_metadata_acknowledgment":"private token","gateway_admission_code":"private token"}}""") as JsonObject)
+        assertTrue((unknown["bounded_attributes"] as JsonObject).isEmpty())
+    }
 }

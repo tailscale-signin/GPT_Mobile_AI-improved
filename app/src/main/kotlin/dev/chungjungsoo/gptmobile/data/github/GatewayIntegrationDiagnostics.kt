@@ -13,12 +13,17 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
 /** A harmless durable transport probe, independent of GitHub inventories and repository writes. */
-class GatewayIntegrationDiagnostics @Inject constructor(private val settings: SettingRepository, private val client: GatewayEngineeringClient) {
+class GatewayIntegrationDiagnostics @Inject constructor(private val settings: SettingRepository, private val client: GatewayEngineeringClient, private val jobs: GatewayJobClient) {
     suspend fun run(profileUid: String, requestKey: String, progress: suspend (String) -> Unit): String {
         val checks = mutableListOf<String>()
         try {
             val profile = settings.engineeringGateway(profileUid)
             val config = profile.engineeringConfig()
+            progress("Checking the selected gateway source and saved-work routes")
+            val savedWork = jobs.verifySavedWorkContract(config)
+            checks += "Installed gateway source: ${savedWork.source.sourceCommit ?: "not reported"}; version: ${savedWork.source.gatewayVersion ?: "not reported"}."
+            checks += "Read-only identity, conversation and Jobs catalog contracts: passed on the same installation and account."
+            checks += "Source equality with a selected release package: not checked. Compare the reported commit with that package's build information."
             progress("Checking the selected engineering gateway identity and protocol")
             val principal = client.principal(config, requireReady = false)
             checks += "Capability handshake and authenticated identity: passed."
@@ -50,6 +55,9 @@ class GatewayIntegrationDiagnostics @Inject constructor(private val settings: Se
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
+            (failure as? GatewayAdmissionException)?.source?.let { source ->
+                checks += "Installed gateway source: ${source.sourceCommit ?: "not reported"}; version: ${source.gatewayVersion ?: "not reported"}."
+            }
             return "Gateway integration: incomplete.\n\n" + checks.joinToString("\n") { "• $it" } +
                 "\n\nBlocker: ${failure.message.orEmpty().take(1000)}\nNo GitHub inventory or repository mutation was substituted for the gateway test."
         }

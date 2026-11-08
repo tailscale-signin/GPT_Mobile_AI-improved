@@ -23,6 +23,7 @@ class GatewayRecoveryContractTest {
         HttpClient(MockEngine { respond(body, HttpStatusCode.Accepted) }).use { client ->
             val network = mockk<NetworkClient>()
             every { network() } returns client
+            every { network.gatewayReadClient() } returns client
             val saved = requireNotNull(GatewayAPIImpl(network).getJobResult("job-1", ProviderRequestConfig("https://waiting-job.example/v1", "selected-token")))
             assertEquals("waiting_for_client_tool", saved.status)
             assertEquals(GatewayResultDisposition.WAITING, saved.recoveryDisposition)
@@ -40,6 +41,7 @@ class GatewayRecoveryContractTest {
             HttpClient(MockEngine { respond(body, HttpStatusCode.Accepted) }).use { client ->
                 val network = mockk<NetworkClient>()
                 every { network() } returns client
+                every { network.gatewayReadClient() } returns client
                 val saved = GatewayAPIImpl(network).getJobResult("job-1", ProviderRequestConfig("https://waiting-job.example/v1", "selected-token"))
                 if (index < 2) {
                     assertEquals(null, saved)
@@ -62,6 +64,7 @@ class GatewayRecoveryContractTest {
             val client = HttpClient(MockEngine { respond(body, HttpStatusCode.OK) })
             val network = mockk<NetworkClient>()
             every { network() } returns client
+            every { network.gatewayReadClient() } returns client
             try {
                 val result = runCatching { GatewayAPIImpl(network).resumeEvents("job-1", 100, 10, ProviderRequestConfig("http://192.168.1.2", null), "old").toList() }
                 if (index == 0) assertEquals(listOf(1, 2), result.getOrThrow().map { it.sequence }) else assertTrue(result.exceptionOrNull() is GatewayEventReplayException)
@@ -86,6 +89,7 @@ class GatewayRecoveryContractTest {
         )
         val network = mockk<NetworkClient>()
         every { network() } returns client
+        every { network.gatewayReadClient() } returns client
         val events = GatewayAPIImpl(network).resumeEvents(
             "job-1",
             2,
@@ -108,6 +112,7 @@ class GatewayRecoveryContractTest {
         )
         val network = mockk<NetworkClient>()
         every { network() } returns client
+        every { network.gatewayReadClient() } returns client
         val api = GatewayAPIImpl(network)
         assertEquals("RUNNING", api.getJobResult("job-1", ProviderRequestConfig("http://192.168.1.2", "rotated-token"))?.status)
         assertTrue(runCatching { api.getJobResult("../other", ProviderRequestConfig("https://example.com", null)) }.isFailure)
@@ -118,6 +123,7 @@ class GatewayRecoveryContractTest {
         val client = HttpClient(MockEngine { throw CancellationException("canceled") })
         val network = mockk<NetworkClient>()
         every { network() } returns client
+        every { network.gatewayReadClient() } returns client
         try {
             GatewayAPIImpl(network).getJobResult("job-1", ProviderRequestConfig("http://192.168.1.2", null))
             fail("Cancellation must propagate")

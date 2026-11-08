@@ -13,7 +13,11 @@ internal object GitHubOperationArguments {
     /** Advertise the same conditional prerequisites enforced before dispatch. */
     fun schemaAlternatives(operation: String): JsonArray? {
         val alternatives: List<Pair<List<String>, List<String>>> = when (operation) {
-            "github_commit" -> listOf(listOf("branch", "delete_branch") to listOf("branch", "expected_head_sha"), listOf("commit", "commit_staged_patch") to listOf("stage_id", "branch", "message", "expected_head_sha"))
+            "github_commit" -> listOf(
+                listOf("branch", "delete_branch") to listOf("branch", "expected_head_sha"),
+                listOf("delete_fixture_branch") to listOf("branch", "expected_head_sha", "origin_head_sha"),
+                listOf("commit", "commit_staged_patch") to listOf("stage_id", "branch", "message", "expected_head_sha")
+            )
             "github_pr" -> listOf(listOf("list") to emptyList(), listOf("headers", "context", "comments", "reviews") to listOf("pull_number"), listOf("create") to listOf("title", "head", "base"), listOf("update", "merge", "review") to listOf("pull_number", "expected_head_sha"), listOf("comment") to listOf("pull_number", "body", "expected_head_sha"), listOf("reply") to listOf("pull_number", "comment_id", "body", "expected_head_sha"))
             "github_issue" -> listOf(listOf("list") to emptyList(), listOf("headers", "context", "comments", "history") to listOf("issue_number"), listOf("create") to listOf("title"), listOf("update") to listOf("issue_number", "expected_updated_at"))
             "github_ci" -> listOf(listOf("failure", "workflows", "definitions", "runs", "status") to emptyList(), listOf("run", "artifacts", "rerun", "rerun_failed_jobs", "rerun_all", "cancel", "jobs") to listOf("run_id"), listOf("job", "logs", "jobs") to listOf("job_id"), listOf("dispatch") to listOf("workflow_id", "ref", "expected_head_sha"))
@@ -57,6 +61,13 @@ internal object GitHubOperationArguments {
             }
         }
         when (operation) {
+            "github_context" -> {
+                if ("fixture_plan" in args) {
+                    if (text("action") != "recovery") errors += "fixture_plan is only used by read-only fixture recovery"
+                    required("branch", "base_sha", "commit_sha")
+                    unused("ref", "stage_id")
+                }
+            }
             "github_watch_checks" -> {
                 positive("pr_number")
                 positive("run_id")

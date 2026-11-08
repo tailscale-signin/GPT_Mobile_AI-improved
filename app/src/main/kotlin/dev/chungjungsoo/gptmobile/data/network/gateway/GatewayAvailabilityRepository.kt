@@ -255,7 +255,7 @@ class GatewayAvailabilityRepository internal constructor(
             observedAtMillis = observedAt,
             observedAtElapsedMillis = observed,
             instanceId = readiness.instanceId,
-            conversationSyncAvailable = capability.supportsFeature("conversation_sync_v1")
+            conversationSyncSupported = capability.supportsFeature("conversation_sync_v1")
         ).fresh(now())
     }
 }

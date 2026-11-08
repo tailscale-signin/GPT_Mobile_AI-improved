@@ -6,6 +6,7 @@ interface VoiceAudio {
         fun ending() = Unit
         fun failure(message: String, retryMillis: Long) = error(message)
         fun retryableFailure(message: String, retryMillis: Long) = failure(message, retryMillis)
+        fun repairRequired(message: String, retryMillis: Long, action: VoiceRecoveryAction) = failure(message, retryMillis)
         fun ready()
         fun level(value: Float)
         fun partial(text: String)
@@ -20,6 +21,7 @@ interface VoiceAudio {
 }
 
 enum class VoicePhase { PAUSED, STARTING, LISTENING, FINALIZING, REVIEWING, THINKING, SPEAKING, ERROR, CLOSED }
+enum class VoiceRecoveryAction { MICROPHONE_PERMISSION, SPEECH_SERVICE, SPEECH_LANGUAGE }
 
 data class VoiceState(
     val phase: VoicePhase = VoicePhase.PAUSED,
@@ -32,7 +34,8 @@ data class VoiceState(
     val retryAtMillis: Long = 0,
     val hasAudioLevel: Boolean = false,
     val awaitingReply: Boolean = false,
-    val hasDraft: Boolean = false
+    val hasDraft: Boolean = false,
+    val recoveryAction: VoiceRecoveryAction? = null
 )
 
 /** Main-thread, half-duplex session. Generation fencing rejects callbacks from cancelled capture/playback. */
@@ -172,7 +175,7 @@ class VoiceSession(
             return
         }
         val ticket = generation
-        update(state.copy(phase = VoicePhase.STARTING, transcript = "", level = 0f, hasAudioLevel = false, notice = null, retryAtMillis = 0))
+        update(state.copy(phase = VoicePhase.STARTING, transcript = "", level = 0f, hasAudioLevel = false, notice = null, retryAtMillis = 0, recoveryAction = null))
         fun valid() = ticket == generation && captureAllowed() && state.phase in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING)
         audio.listen(object : VoiceAudio.Listener {
             override fun ready() {
@@ -186,6 +189,11 @@ class VoiceSession(
                     fail(message)
                     update(state.copy(retryAtMillis = now() + retryMillis))
                 }
+            }
+            override fun repairRequired(message: String, retryMillis: Long, action: VoiceRecoveryAction) {
+                if (!valid()) return
+                fail(message)
+                update(state.copy(retryAtMillis = now() + retryMillis, recoveryAction = action))
             }
             override fun retryableFailure(message: String, retryMillis: Long) {
                 if (!valid()) return
@@ -352,7 +360,7 @@ class VoiceSession(
         automaticRetry = false
         stopAudio()
         waiting = false
-        update(state.copy(phase = VoicePhase.ERROR, level = 0f, notice = message))
+        update(state.copy(phase = VoicePhase.ERROR, level = 0f, notice = message, recoveryAction = null))
     }
     fun close() {
         if (state.phase == VoicePhase.CLOSED) return

@@ -8,6 +8,19 @@ SPEC.loader.exec_module(SIZE)
 
 
 class CombinedDispatchSizeTest(unittest.TestCase):
+    def test_real_invocation_accounting_stages_are_included_and_required(self):
+        ledger = 'Ldev/chungjungsoo/gptmobile/data/accounting/InvocationLedger$wrap$2$streamRound$1;'
+        accounting = 'Ldev/chungjungsoo/gptmobile/data/accounting/InvocationRoundAccounting;'
+        rows = [{'class': ledger, 'method': 'invokeSuspend'},
+                {'class': accounting, 'method': 'observe'},
+                {'class': accounting, 'method': 'finish'}]
+        for row in rows:
+            self.assertTrue(SIZE.is_dispatch_method(row['class'], row['method']))
+        SIZE.require_invocation_accounting(rows)
+        for missing in range(len(rows)):
+            with self.assertRaisesRegex(ValueError, 'actual invocation accounting'):
+                SIZE.require_invocation_accounting(rows[:missing] + rows[missing + 1:])
+
     def test_all_real_suspend_stages_are_guarded(self):
         for method in ('prepare', 'freezeAndPersist', 'persistFrozenHandoff', 'access$freezeAndPersist', 'access$persistFrozenHandoff'):
             self.assertTrue(SIZE.is_dispatch_method(SIZE.COMBINED_PLANNER + ';', method))

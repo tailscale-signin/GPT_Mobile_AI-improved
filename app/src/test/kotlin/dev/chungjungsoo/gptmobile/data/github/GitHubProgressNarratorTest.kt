@@ -250,13 +250,13 @@ class GitHubProgressNarratorTest {
         assertEquals(null, GitHubProgressNarrator.validSummary("2 authorized tools remain. $prose", evidence))
     }
 
-    @Test fun roleConstraintsKeepTheSelectedRouteAndDisableToolsAndReasoning() {
+    @Test fun roleConstraintsKeepSelectedRouteAndAcceptedReasoningWithoutTools() {
         val constraints = dev.chungjungsoo.gptmobile.data.agent.provider.RequestConstraints(lockSelectedRoute = true, allowReasoning = true, maximizeReasoning = true)
             .withoutTools().forRole("github-progress-summary")
         assertTrue(constraints.lockSelectedRoute)
         assertFalse(constraints.allowTools)
         assertFalse(constraints.allowGatewayLocalTools)
-        assertFalse(constraints.allowReasoning)
+        assertTrue(constraints.allowReasoning)
         assertFalse(constraints.maximizeReasoning)
     }
 }

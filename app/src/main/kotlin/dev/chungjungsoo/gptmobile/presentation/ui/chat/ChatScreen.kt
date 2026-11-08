@@ -175,6 +175,7 @@ fun ChatScreen(
     onBackAction: () -> Unit,
     onNavigateToLocalModels: () -> Unit = {},
     onReviewEvidenceAccess: () -> Unit = {},
+    onProfileSettings: (String) -> Unit = {},
     onOpenConversation: (Int, Boolean) -> Unit = { _, _ -> },
     onInspectContext: ((Int, String) -> Unit)? = null,
     showTopBar: Boolean = true,
@@ -188,6 +189,7 @@ fun ChatScreen(
             onBackAction = onBackAction,
             onNavigateToLocalModels = onNavigateToLocalModels,
             onReviewEvidenceAccess = onReviewEvidenceAccess,
+            onProfileSettings = onProfileSettings,
             onOpenConversation = onOpenConversation,
             onInspectContext = onInspectContext,
             showTopBar = showTopBar,
@@ -207,6 +209,7 @@ private fun ChatScreenContent(
     onBackAction: () -> Unit,
     onNavigateToLocalModels: () -> Unit = {},
     onReviewEvidenceAccess: () -> Unit = {},
+    onProfileSettings: (String) -> Unit = {},
     onOpenConversation: (Int, Boolean) -> Unit = { _, _ -> },
     onInspectContext: ((Int, String) -> Unit)? = null,
     showTopBar: Boolean = true,
@@ -252,7 +255,24 @@ private fun ChatScreenContent(
             onCancelDelegation = { chatViewModel.respondDelegationRecovery(request.id, null) }
         )
     }
+    val reasoningAdmission by chatViewModel.reasoningAdmissionNotice.collectAsStateWithLifecycle()
+    reasoningAdmission?.let { notice ->
+        dev.chungjungsoo.gptmobile.presentation.ui.setting.ReasoningAdmissionDialog(
+            notice,
+            onRecheck = chatViewModel::recheckReasoningAdmission,
+            onSwitchToAuto = { chatViewModel.switchProfileReasoningToAuto(notice.profileUid) },
+            onSettings = {
+                chatViewModel.dismissReasoningAdmission()
+                onProfileSettings(notice.profileUid)
+            },
+            onDismiss = chatViewModel::dismissReasoningAdmission
+        )
+    }
     val combinedFailures by chatViewModel.combinedFailures.collectAsStateWithLifecycle()
+    val reasoningRecoveries by chatViewModel.reasoningRecoveries.collectAsStateWithLifecycle()
+    val billingUriHandler = androidx.compose.ui.platform.LocalUriHandler.current
+    val openProfileBilling: (String) -> Unit = { uid -> chatViewModel.billingUrlForProfile(uid)?.let { url -> runCatching { billingUriHandler.openUri(url) } } }
+
     val failureTurn = combinedFailures.firstOrNull()?.userMessageId
     if (failureTurn != null) {
         CombinedFailuresDialog(
@@ -264,7 +284,13 @@ private fun ChatScreenContent(
             onDismiss = { chatViewModel.dismissCombinedFailures(failureTurn) },
             canContinue = chatViewModel.canCombineAvailable(failureTurn),
             onExclude = chatViewModel::excludeCombinedFailureForTurn,
-            onCheckQueuedJob = chatViewModel::checkQueuedJob
+            onCheckQueuedJob = chatViewModel::checkQueuedJob,
+            recoveryStates = reasoningRecoveries,
+            billingProfiles = combinedFailures.mapNotNull { it.profileUid.takeIf { uid -> chatViewModel.billingUrlForProfile(uid) != null } }.toSet(),
+            onChangeSettings = onProfileSettings,
+            onManageBilling = openProfileBilling,
+            onRecheckReasoning = chatViewModel::recheckReasoningFailure,
+            onSwitchToAuto = chatViewModel::switchProfileReasoningToAuto
         )
     }
     val inputRequests by chatViewModel.pendingMcpInput.collectAsStateWithLifecycle()
@@ -940,6 +966,11 @@ private fun ChatScreenContent(
                         onPlatformLongPress = chatViewModel::togglePlatformDisabled,
                         onSelectText = chatViewModel::openSelectTextSheet,
                         onRetry = chatViewModel::retryChat,
+                        reasoningRecoveries = reasoningRecoveries,
+                        onRecheckReasoning = chatViewModel::recheckReasoningResponse,
+                        onProfileSettings = onProfileSettings,
+                        onManageBilling = openProfileBilling,
+                        onSwitchToAuto = chatViewModel::switchProfileReasoningToAuto,
                         onRetryCombinedMerge = chatViewModel::retryCombinedMerge,
                         onReviseCombinedAnswer = chatViewModel::reviseCombinedAnswer,
                         onTryAnotherCombinedWriter = chatViewModel::tryAnotherCombinedWriter,
@@ -1442,6 +1473,11 @@ internal fun ChatMessagePair(
     onPlatformLongPress: (String) -> Unit,
     onSelectText: (String) -> Unit,
     onRetry: (Int, Int) -> Unit,
+    reasoningRecoveries: Map<String, ReasoningRecoveryUiState> = emptyMap(),
+    onRecheckReasoning: (Int, Int) -> Unit = { _, _ -> },
+    onProfileSettings: (String) -> Unit = {},
+    onManageBilling: (String) -> Unit = {},
+    onSwitchToAuto: (String) -> Unit = {},
     onRetryCombinedMerge: (Int) -> Unit = {},
     onReviseCombinedAnswer: (Int, dev.chungjungsoo.gptmobile.data.agent.CombinedAnswerRevisionTarget) -> Unit = { _, _ -> },
     onTryAnotherCombinedWriter: (Int) -> Unit = {},
@@ -1607,6 +1643,7 @@ internal fun ChatMessagePair(
     val isResponseLoading = if (hasCombinedTabs) isCurrentPlatformLoading else shouldShowAssistantResponseProgress(isCurrentPlatformLoading, activeAgentRun != null, agentRun?.status)
     val responseFailure = visibleResponseFailure(assistantTimeline.lastOrNull { it.runError != null }?.runError, agentRun?.terminalError, agentRun?.status)
     val reviewRetryBlock = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.reviewRetryBlock(responseFailure)
+    val responseRecoveryKind = responseFailure?.let { profileRecoveryKind(dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.classify(it).category, it) } ?: ProfileRecoveryKind.NONE
     StableChatResponseViewport(contentKey = if (isCombinedConversation) "combined" else selectedPlatformUid, reservedHeight = reservedTurnHeight) {
         Column(
             modifier = Modifier
@@ -1729,23 +1766,24 @@ internal fun ChatMessagePair(
                         .padding(horizontal = 2.dp)
                         .widthIn(max = maximumOpponentChatBubbleWidth),
                     canEdit = canUseChat && isIdle && !isSourceResponse,
-                    canRetry = if (isCombinedConversation) {
-                        canUseChat &&
-                            isIdle &&
-                            !isCurrentPlatformLoading &&
-                            activeAgentRun == null &&
-                            selectedAssistantMessage != null &&
-                            (!needsAnswerCorrection || revisionTarget != null) &&
-                            selectedPlatformUid in participatingUids &&
-                            enabledPlatformLookup[selectedPlatformUid]?.enabled == true
-                    } else {
-                        reviewRetryBlock == null &&
-                            !isSourceResponse &&
+                    canRetry = responseRecoveryKind == ProfileRecoveryKind.NONE &&
+                        if (isCombinedConversation) {
                             canUseChat &&
-                            (isActiveMessage || agentRun?.status in setOf(AgentRunStatus.FAILED, AgentRunStatus.INTERRUPTED, AgentRunStatus.CANCELED, AgentRunStatus.PARTIAL, AgentRunStatus.EVIDENCE_MISSING, AgentRunStatus.BLOCKED)) &&
-                            !isCurrentPlatformLoading &&
-                            selectedPlatformUid in participatingUids
-                    },
+                                isIdle &&
+                                !isCurrentPlatformLoading &&
+                                activeAgentRun == null &&
+                                selectedAssistantMessage != null &&
+                                (!needsAnswerCorrection || revisionTarget != null) &&
+                                selectedPlatformUid in participatingUids &&
+                                enabledPlatformLookup[selectedPlatformUid]?.enabled == true
+                        } else {
+                            reviewRetryBlock == null &&
+                                !isSourceResponse &&
+                                canUseChat &&
+                                (isActiveMessage || agentRun?.status in setOf(AgentRunStatus.FAILED, AgentRunStatus.INTERRUPTED, AgentRunStatus.CANCELED, AgentRunStatus.PARTIAL, AgentRunStatus.EVIDENCE_MISSING, AgentRunStatus.BLOCKED)) &&
+                                !isCurrentPlatformLoading &&
+                                selectedPlatformUid in participatingUids
+                        },
                     retryLabel = if (needsAnswerCorrection) {
                         "Create revised answer"
                     } else if (isCombinedConversation) {
@@ -1868,7 +1906,22 @@ internal fun ChatMessagePair(
                         if (error.contains("QUEUE_") && selectedRunId != null) TextButton(onClick = { onCheckQueuedRun(selectedRunId) }) { Text(stringResource(R.string.audit_check_status)) }
                         if (!hasCombinedTabs) {
                             reviewRetryBlock?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-                            TextButton(onClick = { onRetry(messageIndex, displayPlatformIndex) }, enabled = isIdle && canUseChat && reviewRetryBlock == null) { Text(stringResource(R.string.audit_generate_again)) }
+                            if (responseRecoveryKind == ProfileRecoveryKind.NONE) {
+                                TextButton(onClick = { onRetry(messageIndex, displayPlatformIndex) }, enabled = isIdle && canUseChat && reviewRetryBlock == null) { Text(stringResource(R.string.audit_generate_again)) }
+                            } else {
+                                ProfileRecoveryActions(
+                                    kind = responseRecoveryKind,
+                                    profileName = enabledPlatformLookup[selectedPlatformUid]?.name ?: "Saved profile",
+                                    state = reasoningRecoveries[selectedRunId],
+                                    canManageBilling = profileBillingUrl(enabledPlatformLookup[selectedPlatformUid]) != null,
+                                    onSettings = { onProfileSettings(selectedPlatformUid) },
+                                    onBilling = { onManageBilling(selectedPlatformUid) },
+                                    onRecheck = { onRecheckReasoning(messageIndex, displayPlatformIndex) },
+                                    onSwitchToAuto = { onSwitchToAuto(selectedPlatformUid) },
+                                    onRetry = { onRetry(messageIndex, displayPlatformIndex) },
+                                    enabled = isIdle && canUseChat
+                                )
+                            }
                         }
                     }
                 }

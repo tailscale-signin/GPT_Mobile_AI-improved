@@ -37,7 +37,7 @@ internal class GitHubEvidenceBook(
         require(retentionLimitRecords in 1..4096)
         require(retentionLimitBytes in 1..16 * 1024 * 1024)
     }
-    private data class AttemptKey(val tool: String, val arguments: JsonObject)
+    private data class AttemptKey(val tool: String, val arguments: JsonObject, val identity: String? = null)
     private data class AttemptHistory(val count: Int, val latest: kotlinx.serialization.json.JsonElement?, val allExcluded: Boolean)
     private val attempts = mutableMapOf<AttemptKey, AttemptHistory>()
     private val mutex = Mutex()
@@ -46,6 +46,10 @@ internal class GitHubEvidenceBook(
     private var epoch = 0L
     private var observedHead: String? = null
     private var overflow = false
+
+    private fun attemptKey(tool: String, arguments: JsonObject): AttemptKey =
+        GitHubActionIdentity.digest(binding, repository, tool, arguments)?.let { AttemptKey(tool, JsonObject(emptyMap()), it) }
+            ?: AttemptKey(tool, arguments)
 
     @Volatile private var taskContract: JsonObject? = null
 
@@ -163,7 +167,8 @@ internal class GitHubEvidenceBook(
             resourceBranch?.let { put("resource_branch", it) }
             head?.let { put("resource_sha", it) }
             put("arguments", effectiveArguments)
-            val priorAttempts = attempts[AttemptKey(call.name, effectiveArguments)]
+            GitHubActionIdentity.digest(binding, repository, call.name, effectiveArguments)?.let { put("action_identity_sha256", it) }
+            val priorAttempts = attempts[attemptKey(call.name, effectiveArguments)]
             if (priorAttempts != null) {
                 put(
                     "repeat_reason",
@@ -244,7 +249,7 @@ internal class GitHubEvidenceBook(
         val tool = (value["tool"] as? JsonPrimitive)?.contentOrNull
         val arguments = value["arguments"] as? JsonObject
         if (tool != null && arguments != null) {
-            val key = AttemptKey(tool, arguments)
+            val key = attemptKey(tool, arguments)
             val previous = attempts[key]
             attempts[key] = AttemptHistory((previous?.count ?: 0) + 1, value["receipt_id"], (previous?.allExcluded != false) && value["verification_eligible"] == JsonPrimitive(false))
         }
@@ -567,7 +572,8 @@ internal class GitHubEvidenceBook(
                 put("remaining_requirements", JsonArray(requirements.filter { (it as JsonObject)["acceptance_state"] != JsonPrimitive("PASS") }))
                 put("test_checklist", checkpoint)
                 put("evidence_count", receipts.size)
-            }
+            },
+            receipts
         )
         // The existing latest-verification query can recover this status even if
         // the process dies before a final response or a final verifier exists.
@@ -576,7 +582,7 @@ internal class GitHubEvidenceBook(
     }
 
     suspend fun retainChecklist(value: JsonObject) {
-        val checkpoint = GitHubExecutionLedger.attach(GitHubAcceptanceLedger.attach(JsonObject(value + retentionStatus())), snapshot().first)
+        val checkpoint = GitHubExecutionLedger.attach(GitHubAcceptanceLedger.attach(JsonObject(value + retentionStatus()), snapshot().first), snapshot().first)
         saveCurrent("checklist", JsonObject(checkpoint + ("binding" to JsonPrimitive(binding))))
     }
 
@@ -592,7 +598,7 @@ internal class GitHubEvidenceBook(
         } else {
             JsonObject(emptyMap())
         }
-        val retained = GitHubAcceptanceLedger.attach(JsonObject(value + retention + limitation))
+        val retained = GitHubAcceptanceLedger.attach(JsonObject(value + retention + limitation), snapshot().first)
         val checklistComplete = (retained["acceptance_ledger"] as? JsonObject)?.get("completion_verified") == JsonPrimitive(true)
         val checked = if (retained["task_outcome"] == JsonPrimitive("COMPLETED") && !checklistComplete) {
             JsonObject(
@@ -625,7 +631,20 @@ internal class GitHubEvidenceBook(
             listOf("phase", "task_state", "task_outcome", "failure_code", "verification_failure", "completion_verified", "response_prepared", "response_delivered", "evidence_count", "progress_state").forEach { field -> snapshot[field]?.let { put(field, it) } }
             (snapshot["stop_reason"] as? JsonObject)?.get("code")?.let { put("stop_code", it) }
             val requirements = (snapshot["requirements"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
-            put("requirements", JsonArray(requirements.map { row -> JsonObject(row.filterKeys { it in setOf("id", "status", "acceptance_state") }) }))
+            put("requirements", JsonArray(requirements.take(64).map { row -> JsonObject(row.filterKeys { it in setOf("id", "status", "acceptance_state") }) }))
+            ((snapshot["acceptance_ledger"] as? JsonObject)?.get("diagnostic_projection") as? JsonObject)?.takeIf(GitHubAcceptanceDiagnostics::valid)?.let { projection ->
+                put("acceptance_diagnostics_sha256", digest(projection.toString()))
+                put("criterion_count", projection.getValue("criterion_count"))
+                put("criteria_omitted", projection.getValue("omitted_count"))
+                put(
+                    "acceptance_criteria",
+                    JsonArray(
+                        (projection["criteria"] as JsonArray).filterIsInstance<JsonObject>().filter { it["kind"] == JsonPrimitive("REQUIREMENT") }.map { row ->
+                            JsonObject(row.filterKeys { it in setOf("ordinal", "id_sha256", "category", "label", "operation", "state", "blocker", "next_action", "evidence_receipt_count", "evidence_class_counts") })
+                        }
+                    )
+                )
+            }
             val checklist = (snapshot["test_checklist"] as? JsonObject) ?: snapshot
             val capabilities = (checklist["capabilities"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
             put("capability_states", buildJsonObject { capabilities.groupingBy { (it["status"] as? JsonPrimitive)?.content.orEmpty() }.eachCount().toSortedMap().forEach { (state, count) -> put(state, count) } })

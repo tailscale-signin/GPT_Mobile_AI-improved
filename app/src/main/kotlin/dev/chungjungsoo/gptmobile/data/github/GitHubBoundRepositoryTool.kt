@@ -86,7 +86,7 @@ internal class GitHubBoundRepositoryTool(
         }
         // Explicitly pin both fields so a restored or discovered context cannot silently retarget omissions.
         // Branches, refs, paths and operation aliases retain their original meaning.
-        return JsonObject(arguments + mapOf("owner" to JsonPrimitive(repository.owner), "repo" to JsonPrimitive(repository.repo)))
+        return GitHubActionIdentity.bind(arguments, repository)
     }
 
     private fun stringField(arguments: JsonObject, key: String): String? {

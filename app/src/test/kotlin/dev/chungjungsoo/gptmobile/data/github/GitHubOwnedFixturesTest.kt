@@ -231,6 +231,47 @@ class GitHubOwnedFixturesTest {
         }
     }
 
+    @Test fun restoredDeletionRequiresOriginalAccountAndFreshContentAccessBeforeAnExpected404() = runBlocking {
+        val store = GitHubRepositoryStateStore()
+        val remote = Remote().apply { failAfterDelete = true }
+        val owned = GitHubOwnedFixtures(store, "account:task")
+        owned.register(root, creation(), created())
+        assertTrue(runCatching { remote.clean(owned, origin) }.isFailure)
+        var absenceProbes = 0
+        var replayedDeletes = 0
+        for (problem in listOf("account", "access", "wrong-sha", "read-budget")) {
+            val restored = GitHubOwnedFixtures(store, if (problem == "account") "replacement-account:task" else "account:task")
+            val result = runCatching {
+                restored.cleanup(root, cleanup(origin), "main", read = { path ->
+                    assertEquals("$root/git/commits/$origin", path)
+                    when (problem) {
+                        "access" -> throw GitHubRequestRejected(404, "Original content is inaccessible")
+                        "wrong-sha" -> buildJsonObject { put("sha", "e".repeat(40)) }
+                        "read-budget" -> throw IllegalStateException("Synthetic read admission budget exhausted")
+                        else -> remote.read(path)
+                    }
+                }, delete = { replayedDeletes++ }, expectedAbsence = {
+                    absenceProbes++
+                    true
+                }, reconcile = { null })
+            }
+            assertTrue(problem, result.isFailure)
+            assertEquals(0, absenceProbes)
+            assertEquals(0, replayedDeletes)
+        }
+        val restored = GitHubOwnedFixtures(store, "account:task")
+        val result = restored.cleanup(root, cleanup(origin), "main", read = remote::read, delete = { replayedDeletes++ }, expectedAbsence = { path ->
+            assertEquals("$root/git/ref/heads/${GitHubWorkspaceClient.segment(branch)}", path)
+            absenceProbes++
+            true
+        }, reconcile = { null })
+        assertEquals(JsonPrimitive(true), result["absence_verified"])
+        assertEquals(JsonPrimitive("COMPLETED"), result["deletion_state"])
+        assertEquals(1, absenceProbes)
+        assertEquals(0, replayedDeletes)
+        assertEquals(1, remote.deletes)
+    }
+
     @Test fun unrelatedChangesForeignScopeAndEveryDependentBlockBeforeDeletion() = runBlocking {
         for (blocker in listOf("foreign-task", "protected", "rules", "pr", "run", "selected", "changed-head", "unrelated-tree")) {
             val store = GitHubRepositoryStateStore()

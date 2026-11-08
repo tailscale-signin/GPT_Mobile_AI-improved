@@ -715,6 +715,148 @@ class ChatViewModelStartupTest {
     private val exitWork = mockk<dev.chungjungsoo.gptmobile.data.chat.ConversationExitWork>(relaxed = true)
     private var exitAction: (suspend () -> Unit)? = null
 
+    @Test fun strictOffSendPreservesDraftAndExplicitRecheckNeverAutomaticallyDispatches() = runTest(dispatcher) {
+        StartupRecoveryGate.start(backgroundScope) {}
+        profiles = profiles.take(1).map { it.copy(compatibleType = dev.chungjungsoo.gptmobile.data.model.ClientType.LLAMA) }
+        val profile = profiles.single()
+        val capabilities = mockk<dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityRepository>()
+        val unsupported = dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityObservation(profile.uid, profile.model, dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF, dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityStatus.UNSUPPORTED, "opaque", "runtime", System.currentTimeMillis(), "REASONING_OFF_UNSUPPORTED", true, false)
+        coEvery { capabilities.check(any(), any(), false) } returns unsupported
+        coEvery { capabilities.check(any(), any(), true) } returns unsupported.copy(status = dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityStatus.SUPPORTED, supportVerified = true)
+        val model = createViewModel(combined = false, reasoningCapabilities = capabilities)
+        model.question.edit { replace(0, length, "Keep this draft") }
+        model.askQuestion()
+        model.askQuestion()
+        assertEquals("Keep this draft", model.question.text.toString())
+        assertEquals(dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF, model.reasoningAdmissionNotice.value?.requested)
+        model.recheckReasoningAdmission()
+        assertEquals(dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityStatus.SUPPORTED, model.reasoningAdmissionNotice.value?.state?.observation?.status)
+        assertEquals("Keep this draft", model.question.text.toString())
+        coVerify(exactly = 2) { capabilities.check(match { it.uid == profile.uid && it.model == profile.model }, dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF, false) }
+        coVerify(exactly = 1) { capabilities.check(match { it.uid == profile.uid }, dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF, true) }
+        verify(exactly = 0) { coordinator.start(any()) }
+        coVerify(exactly = 0) { repository.persistAgentTurn(any()) }
+    }
+
+    @Test fun draftChangedDuringReasoningCheckCannotSendTheOldRequest() = runTest(dispatcher) {
+        StartupRecoveryGate.start(backgroundScope) {}
+        profiles = profiles.take(1).map { it.copy(compatibleType = dev.chungjungsoo.gptmobile.data.model.ClientType.LLAMA) }
+        val profile = profiles.single()
+        val result = CompletableDeferred<dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityObservation>()
+        val capabilities = mockk<dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityRepository>()
+        coEvery { capabilities.check(any(), any(), any()) } coAnswers { result.await() }
+        val model = createViewModel(combined = false, reasoningCapabilities = capabilities)
+        model.question.edit { replace(0, length, "Original draft") }
+        model.askQuestion()
+        model.question.edit { replace(0, length, "Newer draft") }
+        result.complete(dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityObservation(profile.uid, profile.model, dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF, dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityStatus.SUPPORTED, "opaque", "runtime", System.currentTimeMillis(), null, true, true))
+        assertEquals("Newer draft", model.question.text.toString())
+        verify(exactly = 0) { coordinator.start(any()) }
+        coVerify(exactly = 0) { repository.persistAgentTurn(any()) }
+    }
+
+    @Test fun unverifiedStrictModeIsExplainedWithoutClaimingTheModelIsUnsupported() = runTest(dispatcher) {
+        StartupRecoveryGate.start(backgroundScope) {}
+        profiles = profiles.take(1).map { it.copy(compatibleType = dev.chungjungsoo.gptmobile.data.model.ClientType.LLAMA) }
+        val profile = profiles.single()
+        val capabilities = mockk<dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityRepository>()
+        coEvery { capabilities.check(any(), any(), any()) } returns dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityObservation(profile.uid, profile.model, dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF, dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityStatus.UNVERIFIED, "opaque", null, System.currentTimeMillis(), "REASONING_CAPABILITY_UNVERIFIED", false, false)
+        val model = createViewModel(combined = false, reasoningCapabilities = capabilities)
+        model.question.edit { replace(0, length, "Retain me") }
+        model.askQuestion()
+        assertEquals(dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityStatus.UNVERIFIED, model.reasoningAdmissionNotice.value?.state?.observation?.status)
+        assertEquals("Retain me", model.question.text.toString())
+        verify(exactly = 0) { coordinator.start(any()) }
+        coVerify(exactly = 0) { repository.persistAgentTurn(any()) }
+    }
+
+    @Test fun reasoningRecoveryChecksFrozenOffWithoutDispatchOrChangingSavedReplies() = runTest(dispatcher) {
+        StartupRecoveryGate.start(backgroundScope) {}
+        profiles = profiles.map { if (it.uid == "profile-2") it.copy(compatibleType = dev.chungjungsoo.gptmobile.data.model.ClientType.LLAMA) else it }
+        seedTurn(listOf(AgentRunStatus.COMPLETED, AgentRunStatus.FAILED, AgentRunStatus.COMPLETED))
+        runs.value = runs.value.map { if (it.profileUid == "profile-2") it.copy(terminalError = "REASONING_OFF_UNSUPPORTED") else it }
+        val capabilities = mockk<dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityRepository>()
+        coEvery { capabilities.check(any(), any(), any()) } answers {
+            val profile = firstArg<PlatformV2>()
+            dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityObservation(profile.uid, profile.model, secondArg(), dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityStatus.UNSUPPORTED, "checked-config", "runtime", System.currentTimeMillis(), "REASONING_OFF_UNSUPPORTED", true, false)
+        }
+        val model = createViewModel(testFeatures = features.copy(llamaReasoningModes = mapOf("profile-2" to dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF)), reasoningCapabilities = capabilities)
+        model.retryChat(0, 1)
+        model.recheckReasoningFailure(1, "profile-2")
+        coVerify(exactly = 1) { capabilities.check(match { it.uid == "profile-2" && it.model == "model-2" }, dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF, true) }
+        assertFalse(model.reasoningRecoveries.value.getValue("run-2").qualified)
+        assertFalse(model.combinedFailures.value.single().retryAllowed)
+        model.retryCombinedProfile(1, "profile-2")
+        assertEquals("A complete useful response.", model.groupedMessages.value.assistantMessages.single().first().content)
+        verify(exactly = 0) { coordinator.start(any()) }
+        coVerify(exactly = 0) { repository.persistAgentTurn(any()) }
+    }
+
+    @Test fun changedAutoPreferenceCannotReplaceTheFrozenOffRequest() = runTest(dispatcher) {
+        StartupRecoveryGate.start(backgroundScope) {}
+        profiles = profiles.map { if (it.uid == "profile-2") it.copy(compatibleType = dev.chungjungsoo.gptmobile.data.model.ClientType.LLAMA) else it }
+        seedTurn(listOf(AgentRunStatus.COMPLETED, AgentRunStatus.FAILED, AgentRunStatus.COMPLETED))
+        runs.value = runs.value.map { if (it.profileUid == "profile-2") it.copy(terminalError = "REASONING_OFF_UNSUPPORTED") else it }
+        val capabilities = mockk<dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityRepository>()
+        val model = createViewModel(testFeatures = features.copy(llamaReasoningModes = mapOf("profile-2" to dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO)), reasoningCapabilities = capabilities)
+        model.recheckReasoningFailure(1, "profile-2")
+        model.retryCombinedProfile(1, "profile-2")
+        coVerify(exactly = 0) { capabilities.check(any(), any(), any()) }
+        verify(exactly = 0) { coordinator.start(any()) }
+        assertFalse(model.combinedFailures.value.single().retryAllowed)
+        assertTrue(model.attachmentNotice.value.orEmpty().contains("start a new request"))
+    }
+
+    @Test fun onlyVerifiedExactReasoningQualificationUnlocksTheFailedContributor() = runTest(dispatcher) {
+        StartupRecoveryGate.start(backgroundScope) {}
+        profiles = profiles.map { if (it.uid == "profile-2") it.copy(compatibleType = dev.chungjungsoo.gptmobile.data.model.ClientType.LLAMA) else it }
+        seedTurn(listOf(AgentRunStatus.COMPLETED, AgentRunStatus.FAILED, AgentRunStatus.COMPLETED))
+        runs.value = runs.value.map { if (it.profileUid == "profile-2") it.copy(terminalError = "REASONING_OFF_UNSUPPORTED") else it }
+        val capabilities = mockk<dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityRepository>()
+        coEvery { capabilities.check(any(), any(), any()) } answers {
+            val profile = firstArg<PlatformV2>()
+            dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityObservation(profile.uid, profile.model, secondArg(), dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityStatus.SUPPORTED, "checked-config", "runtime", System.currentTimeMillis(), null, true, true)
+        }
+        val model = createViewModel(reasoningCapabilities = capabilities)
+        assertFalse(model.combinedFailures.value.single().retryAllowed)
+        model.recheckReasoningFailure(1, "profile-2")
+        assertTrue(model.reasoningRecoveries.value.getValue("run-2").qualified)
+        assertTrue(model.combinedFailures.value.single().retryAllowed)
+        assertEquals(listOf("profile-2"), model.combinedFailures.value.map { it.profileUid })
+        verify(exactly = 0) { coordinator.start(any()) }
+    }
+
+    @Test fun billingUnavailableCannotBeReplayedByTheGenericRetryControl() = runTest(dispatcher) {
+        StartupRecoveryGate.start(backgroundScope) {}
+        seedTurn(listOf(AgentRunStatus.FAILED, AgentRunStatus.COMPLETED, AgentRunStatus.COMPLETED))
+        runs.value = runs.value.map { if (it.profileUid == "profile-1") it.copy(terminalError = "BILLING_UNAVAILABLE: credit balance too low") else it }
+        val model = createViewModel(combined = false)
+        model.retryChat(0, 0)
+        verify(exactly = 0) { coordinator.start(any()) }
+        coVerify(exactly = 0) { repository.persistAgentTurn(any()) }
+        assertTrue(model.attachmentNotice.value.orEmpty().contains("provider credits"))
+        assertEquals("A complete useful response.", model.groupedMessages.value.assistantMessages.single()[1].content)
+    }
+
+    @Test fun aRequalificationForAReplacedAttemptCannotUnlockTheNewAttempt() = runTest(dispatcher) {
+        StartupRecoveryGate.start(backgroundScope) {}
+        profiles = profiles.map { if (it.uid == "profile-2") it.copy(compatibleType = dev.chungjungsoo.gptmobile.data.model.ClientType.LLAMA) else it }
+        seedTurn(listOf(AgentRunStatus.COMPLETED, AgentRunStatus.FAILED, AgentRunStatus.COMPLETED))
+        runs.value = runs.value.map { if (it.profileUid == "profile-2") it.copy(terminalError = "REASONING_OFF_UNSUPPORTED") else it }
+        val result = CompletableDeferred<dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityObservation>()
+        val capabilities = mockk<dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityRepository>()
+        coEvery { capabilities.check(any(), any(), any()) } coAnswers { result.await() }
+        val model = createViewModel(reasoningCapabilities = capabilities)
+        model.recheckReasoningFailure(1, "profile-2")
+        assertTrue(model.reasoningRecoveries.value.getValue("run-2").checking)
+        runs.value = runs.value.map { if (it.profileUid == "profile-2") it.copy(runId = "replacement") else it }
+        messages.value = messages.value.map { if (it.platformType == "profile-2") it.copy(currentRunId = "replacement") else it }
+        result.complete(dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityObservation("profile-2", "model-2", dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF, dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityStatus.SUPPORTED, "checked-config", "runtime", System.currentTimeMillis(), null, true, true))
+        assertFalse(model.reasoningRecoveries.value.values.any { it.qualified })
+        assertFalse(model.combinedFailures.value.single().retryAllowed)
+        verify(exactly = 0) { coordinator.start(any()) }
+    }
+
     private fun seedTurn(statuses: List<String>, combinedSettings: ConversationCombinedSettings = ConversationCombinedSettings()) {
         val requested = CombinedPolicyResolver.accept(
             combinedSettings,
@@ -733,7 +875,7 @@ class ChatViewModelStartupTest {
         activeRuns.value = runs.value.filter { it.status == AgentRunStatus.RUNNING }.associate { it.runId to ActiveAgentRun(it.runId, 7, it.profileUid, it.assistantMessageId) }
     }
 
-    private fun createViewModel(chatId: Int = 7, combined: Boolean = true, research: ResearchSessionStore? = null, combinedSettings: ConversationCombinedSettings? = null, toolConnections: ToolConnectionRepository = mockk(relaxed = true), testFeatures: AppFeatureSettings? = null): ChatViewModel {
+    private fun createViewModel(chatId: Int = 7, combined: Boolean = true, research: ResearchSessionStore? = null, combinedSettings: ConversationCombinedSettings? = null, toolConnections: ToolConnectionRepository = mockk(relaxed = true), testFeatures: AppFeatureSettings? = null, reasoningCapabilities: dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityRepository? = null): ChatViewModel {
         val room = ChatRoomV2(id = chatId, title = "Saved chat", enabledPlatform = profiles.map { it.uid }, activePlatform = profiles.map { it.uid }, conversationMode = if (combined) ConversationMode.COMBINED else ConversationMode.STANDARD, draftText = "Saved draft")
         every { repository.observeMessageWindow(chatId, any()) } returns messages
         every { repository.observeTurnCount(chatId) } returns flowOf(messages.value.count { it.platformType == null })
@@ -777,7 +919,8 @@ class ChatViewModelStartupTest {
             generationCompletionStore = completions,
             researchSessionStore = research,
             conversationExitWork = exitWork,
-            messageGroupingDispatcher = dispatcher
+            messageGroupingDispatcher = dispatcher,
+            reasoningCapabilities = reasoningCapabilities
         ).also {
             viewModelJobs += requireNotNull(it.viewModelScope.coroutineContext[Job])
             store.put("chat", it)

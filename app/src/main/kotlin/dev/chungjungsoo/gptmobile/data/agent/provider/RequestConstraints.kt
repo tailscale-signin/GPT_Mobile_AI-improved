@@ -47,7 +47,7 @@ data class RequestConstraints(
 
     /** Extraction is bounded formatting; engineering reasoning must leave room for visible JSON. */
     fun forRole(role: String): RequestConstraints {
-        val roleAllowsReasoning = allowReasoning && role != "answer_contract_rewrite" && role !in setOf("github-claim-extraction", "github-progress-summary") && (!role.startsWith("github-review") || role.endsWith("repair"))
+        val briefHelper = role in setOf("answer_contract_rewrite", "github-claim-extraction", "github-progress-summary") || role.startsWith("github-review") && !role.endsWith("repair")
         return copy(
             requestRole = role,
             restoredGatewayJob = restoredGatewayJob.takeIf { role == "primary" },
@@ -56,9 +56,11 @@ data class RequestConstraints(
             gatewayConversationId = gatewayConversationId.takeIf { role == "primary" || role == "synthesis" },
             onGatewayCommandPrepared = onGatewayCommandPrepared.takeIf { role == "primary" || role == "synthesis" },
             maxOutputTokens = if (role == "github-review-preflight") minOf(maxOutputTokens ?: 512, 512) else maxOutputTokens,
-            allowReasoning = roleAllowsReasoning,
-            reasoningModeOverride = if (roleAllowsReasoning) reasoningModeOverride else dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF,
-            maximizeReasoning = maximizeReasoning && roleAllowsReasoning && !role.startsWith("github-review")
+            // A short helper is a preference, not a new strict Off requirement. Preserve the
+            // user's explicit policy; the serializer chooses verified Off only for Auto helpers.
+            allowReasoning = allowReasoning,
+            reasoningModeOverride = reasoningModeOverride,
+            maximizeReasoning = maximizeReasoning && allowReasoning && !briefHelper && !role.startsWith("github-review")
         )
     }
 

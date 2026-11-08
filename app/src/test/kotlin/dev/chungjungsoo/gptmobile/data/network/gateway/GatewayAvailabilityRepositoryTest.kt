@@ -35,6 +35,19 @@ class GatewayAvailabilityRepositoryTest {
     private fun TestScope.repository(epoch: () -> Long = { 0L }, process: (ProviderRequestConfig) -> String = { "unobserved" }, route: Flow<Boolean> = flowOf(true), wall: () -> Long = { testScheduler.currentTime }, source: GatewayAvailabilitySource) =
         GatewayAvailabilityRepository(source, backgroundScope, { testScheduler.currentTime }, wall, epoch, process, route)
 
+    @Test fun generationOnlineAndAdvertisedHistoryDoNotVerifyAnyIndependentActionSurface() = runTest {
+        val repository = repository { _, _, _ ->
+            val observed = ready(testScheduler.currentTime)
+            observed.copy(capabilities = observed.capabilities!!.copy(features = mapOf("conversation_sync_v1" to kotlinx.serialization.json.JsonPrimitive(true))))
+        }
+        var current = GatewayAvailability()
+        backgroundScope.launch { repository.observe(listOf(target())).collect { current = it.getValue("a") } }
+        runCurrent()
+        assertTrue(current.isOnline)
+        assertTrue(current.conversationSyncSupported)
+        assertEquals(dev.chungjungsoo.gptmobile.data.github.GatewayActionReadinessEvidence(), current.actionReadiness)
+    }
+
     @Test fun observersOfSameAuthenticatedRouteAndModelShareChecksAndLastDetachCancelsReads() = runTest {
         var calls = 0
         var cancelled = 0

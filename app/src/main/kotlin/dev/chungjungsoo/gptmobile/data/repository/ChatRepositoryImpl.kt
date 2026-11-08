@@ -267,7 +267,8 @@ class ChatRepositoryImpl(
     private val privacyPreflight: dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterPrivacyPreflight? = null,
     private val gatewayAPI: dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAPI? = null,
     private val gatewayConversations: dev.chungjungsoo.gptmobile.data.github.GatewayConversationRepository? = null,
-    private val gatewayEngineering: dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringRepository? = null
+    private val gatewayEngineering: dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringRepository? = null,
+    private val reasoningCapabilities: dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityRepository? = null
 ) : ChatRepository {
     override suspend fun prepareCombinedTurn(
         execution: dev.chungjungsoo.gptmobile.data.agent.CombinedExecutionContext,
@@ -276,6 +277,12 @@ class ChatRepositoryImpl(
         profiles: List<PlatformV2>,
         tools: ChatMcpToolConfig
     ): dev.chungjungsoo.gptmobile.data.agent.CombinedExecutionContext {
+        val writerUid = execution.requested.preferredOwnerUid ?: execution.requested.participantUids.first()
+        val writer = requireNotNull(profiles.singleOrNull { it.uid == writerUid && it.enabled }) { "COMBINED_WRITER_PREFLIGHT: Select an enabled primary before collecting contributions." }
+        // Capture authority before reading any policy used for the accepted work plan.
+        // A setting changed during an awaited read must not qualify an older mode.
+        val writerAuthority = dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.capture(settingRepository, writer, execution.chatId)
+        writerAuthority.validate()
         val features = settingRepository.getFeatureSettings()
         val operation = features.combinedSettingsJournal[execution.chatId]
         check(operation == null || operation.roomSettled || operation.phase == dev.chungjungsoo.gptmobile.data.model.CombinedSettingsSavePhase.COMMITTED) {
@@ -284,14 +291,18 @@ class ChatRepositoryImpl(
         val available = settingRepository.fetchPlatformV2s().filter { it.enabled }.associateBy { it.uid }
         check(execution.requested.participantUids.all { it in available }) { "An accepted Combined profile is no longer enabled." }
         val limits = features.tokenBudget.normalized()
-        val writerUid = execution.requested.preferredOwnerUid ?: execution.requested.participantUids.first()
-        val writer = requireNotNull(profiles.singleOrNull { it.uid == writerUid && it.enabled }) { "COMBINED_WRITER_PREFLIGHT: Select an enabled primary before collecting contributions." }
         dev.chungjungsoo.gptmobile.data.agent.CombinedWriterPreflight.validate(writer, execution.requested, limits)
-        dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.capture(settingRepository, writer, execution.chatId).validate()
+        val writerControls = dev.chungjungsoo.gptmobile.data.agent.CombinedWriterPreflight.qualifyControls(
+            writer,
+            dev.chungjungsoo.gptmobile.data.context.ReasoningPolicy.preference(writer.reasoning, features.llamaReasoningModes[writer.uid], tools.reasoning),
+            reasoningCapabilities
+        )
         if (writer.compatibleType == ClientType.LITERT_LM) {
             val selection = localModelRepository.resolveLocalModelSelection(writer.model, writer.accelerator)
             localRuntime.preflightModel(selection.path, writer.accelerator)
         }
+        // Capability checks can suspend while the user edits a profile or its accepted scope.
+        writerAuthority.validate()
         if (execution.plan != null) {
             combinedBudgets.open(execution)
             return execution
@@ -331,6 +342,15 @@ class ChatRepositoryImpl(
                 )
             }
             profiles.forEach { profile ->
+                val reasoningExpected = if (profile.compatibleType == ClientType.LLAMA) {
+                    dev.chungjungsoo.gptmobile.data.context.ReasoningPolicy.preference(profile.reasoning, features.llamaReasoningModes[profile.uid], tools.reasoning) != dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF
+                } else {
+                    tools.reasoning != false && profile.reasoning
+                }
+                add(dev.chungjungsoo.gptmobile.data.agent.CombinedCapRecord("profileReasoningExpected", if (reasoningExpected) 1 else 0, dev.chungjungsoo.gptmobile.data.agent.CombinedCapOrigin.PROFILE_CONFIGURED, dev.chungjungsoo.gptmobile.data.agent.CombinedCapScope.INVOCATION, "Accepted reasoning policy contributes to the initial output allowance", profile.uid))
+                listOfNotNull(profile.maxTokens?.takeIf { it > 0 }, limits.outputTokens.takeIf { it > 0 && it < Int.MAX_VALUE }).minOrNull()?.let { ceiling ->
+                    add(dev.chungjungsoo.gptmobile.data.agent.CombinedCapRecord("profileOutputTokens", ceiling.toLong(), dev.chungjungsoo.gptmobile.data.agent.CombinedCapOrigin.PROFILE_CONFIGURED, dev.chungjungsoo.gptmobile.data.agent.CombinedCapScope.INVOCATION, "Accepted configured output ceiling", profile.uid))
+                }
                 FreeAiProvider.fromApiUrl(profile.apiUrl)?.takeIf { profile.compatibleType == ClientType.FREE }?.fixedOutputTokens?.let { fixed ->
                     add(
                         dev.chungjungsoo.gptmobile.data.agent.CombinedCapRecord(
@@ -391,7 +411,7 @@ class ChatRepositoryImpl(
         )
         val writerMinimum = dev.chungjungsoo.gptmobile.data.agent.CombinedWriterPolicy.requiredOutput(execution.requested.userPrompt, writer, execution.requested.appendContinuations)
         require(resolved.finalizationReserve.generatedTokens >= writerMinimum) { "COMBINED_WRITER_PREFLIGHT: The accepted turn budget cannot reserve $writerMinimum writer tokens. Raise the budget before collecting contributions." }
-        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Combined", "WRITER_PREFLIGHT_PASSED · profileUid=$writerUid · credentials=present_or_not_required · context=estimated_wire_recheck_required · reservedOutput=${resolved.finalizationReserve.generatedTokens} · providerVerified=false")
+        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Combined", "WRITER_PREFLIGHT_PASSED · profileUid=$writerUid · credentials=present_or_not_required · context=estimated_wire_recheck_required · reservedOutput=${resolved.finalizationReserve.generatedTokens} · routeVerified=${writerControls?.routeVerified ?: false} · controlsVerified=${writerControls?.supportVerified ?: false} · controlsMode=${writerControls?.requested ?: "provider_policy"} · configurationRevision=${writerControls?.configurationRevision ?: "unverified"} · runtimeRevision=${writerControls?.runtimeRevision ?: "unverified"} · generationVerified=false")
         return execution.copy(plan = resolved).also {
             combinedBudgets.open(it).recordDeliveryPhase(dev.chungjungsoo.gptmobile.data.agent.CombinedDeliveryPhase.COLLECTING)
             if (resolved.unfundedRequiredWorkIds.isNotEmpty()) AppLogRecorder.record("Combined", "REQUIRED_WORK_LIMITED · root=${execution.rootBudgetId} · workItems=${resolved.unfundedRequiredWorkIds.size} · reason=ACTUAL_CAPACITY_OR_PERMISSION", "W")
@@ -4484,7 +4504,7 @@ class ChatRepositoryImpl(
             reasoningModeOverride = chatToolConfig?.reasoning?.let {
                 if (it) dev.chungjungsoo.gptmobile.data.context.ReasoningMode.ON else dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF
             },
-            allowReasoning = !editorialPass && chatToolConfig?.reasoning != false && (chatToolConfig?.github == null || platform.reasoning || platform.compatibleType == ClientType.LLAMA),
+            allowReasoning = (!editorialPass || platform.compatibleType == ClientType.LLAMA) && chatToolConfig?.reasoning != false && (chatToolConfig?.github == null || platform.reasoning || platform.compatibleType == ClientType.LLAMA),
             maximizeReasoning = chatToolConfig?.github != null && platform.reasoning,
             allowGatewayLocalTools = false,
             lockSelectedRoute = chatToolConfig?.github != null || requiresNativeAcceptance || restoredGatewayJob != null,
@@ -6407,7 +6427,8 @@ class ChatRepositoryImpl(
     ): Boolean {
         val finished = agentPersistenceDao.finishQueuedWithFailure(runId, status, completedAt, terminalError)
         if (finished) {
-            AppLogRecorder.record("Agent", "RUN_TERMINAL · runId=$runId · status=$status · reason=QUEUED_RUN_CLOSED · terminalErrorRetained=${terminalError != null} · dispatched=false")
+            val cause = dev.chungjungsoo.gptmobile.data.agent.QueuedRunFailure.evidence(terminalError)
+            AppLogRecorder.record("Agent", "RUN_TERMINAL · runId=$runId · status=$status · reason=${cause.reason} · failedStage=${cause.phase} · localState=SAVED_LOCALLY · gatewayAcceptance=${cause.remoteAcceptance} · retryable=${cause.retryable} · repair=${cause.repair} · terminalErrorRetained=${terminalError != null} · dispatched=${cause.dispatched?.toString() ?: "unknown"} · causalEvidence=run:$runId:terminal_error")
             agentPersistenceDao.recoveryRun(runId)?.let { run -> agentPersistenceDao.recoveryMessage(run.assistantMessageId)?.let { settleCombinedStage(runId, it, status, terminalError) } }
             dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(runId, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.RUN_TERMINAL, successful = false)
         }
@@ -6459,6 +6480,11 @@ class ChatRepositoryImpl(
                 ?: terminalError?.let { dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.classify(it) }
             val terminal = dev.chungjungsoo.gptmobile.data.agent.AgentRunTerminalDiagnostics.from(status, failure, acceptance)
             AppLogRecorder.record("Agent", "RUN_TERMINAL · runId=$runId · status=$status · reason=${terminal.reason} · failedStage=${terminal.stage} · retryable=${failure?.retryAllowed ?: false} · dispatched=${failure?.dispatched?.toString() ?: "not_recorded"} · executionState=${terminal.executionState} · taskVerification=${terminal.taskVerification} · acceptanceEvidence=${acceptance?.evidenceId ?: "unavailable"} · verifiedCriteria=${acceptance?.verifiedCriteria ?: "not_recorded"} · requiredCriteria=${acceptance?.requiredCriteria ?: "not_recorded"} · unresolvedRemoteOutcomes=${acceptance?.unresolvedOutcomes ?: "not_recorded"} · causalEvidence=message:${message.id}:run_error · terminalErrorRetained=${terminalError != null} · visibleCharacters=${message.content.length} · reasoningCharacters=${message.thoughts.length} · ownershipFence=${message.ownershipFence}")
+            acceptance?.let {
+                dev.chungjungsoo.gptmobile.data.github.GitHubRunAcceptance.diagnosticLines(it).forEach { line ->
+                    AppLogRecorder.record("GitHubAcceptance", "ACCEPTANCE_CRITERION · runId=$runId · $line")
+                }
+            }
             settleCombinedStage(runId, message, status, terminalError)
             expectedGitHubRunAcceptance.remove(runId)
             synchronized(temporaryGitHubRunAcceptance) { temporaryGitHubRunAcceptance.remove(dev.chungjungsoo.gptmobile.data.github.GitHubRunAcceptance.key(runId, message.ownershipFence)) }

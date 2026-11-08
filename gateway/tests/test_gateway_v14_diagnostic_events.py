@@ -64,6 +64,25 @@ class DiagnosticJournalTests(unittest.TestCase):
         for start in range(first, last + 1, 64):
             self.store.ingest('paired-owner', batch(event(n) for n in range(start, min(last + 1, start + 64))))
 
+    def test_metadata_acknowledgment_states_survive_durable_export_without_boolean_coercion(self):
+        states = ('ACCEPTED', 'NOT_REQUESTED', 'REJECTED_BEFORE_PROCESSING', 'NOT_CONFIRMED')
+        values = [event(index, bounded_attributes={'client_metadata_acknowledgment': state,
+                                                  'gateway_admission_code': 'remote_surface_not_admitted'})
+                  for index, state in enumerate(states, 1)]
+        self.store.ingest('paired-owner', batch(values))
+        self.store.close()
+        self.store = DiagnosticSessionJournal(self.path, now=lambda: NOW)
+        _, rows, raw = unpack(self.store.export('paired-owner', SESSION))
+        self.assertEqual(list(states), [row['bounded_attributes']['client_metadata_acknowledgment'] for row in rows])
+        self.assertTrue(all(row['bounded_attributes']['gateway_admission_code'] == 'remote_surface_not_admitted' for row in rows))
+        self.assertNotIn(b'client_metadata_accepted', raw)
+
+    def test_metadata_projection_discards_unknown_acknowledgment_and_admission_text(self):
+        result = sanitize_event(event(1, bounded_attributes={'client_metadata_acknowledgment': 'private credential',
+                                                           'gateway_admission_code': 'https://private.example/token'}))
+        self.assertEqual({}, result.get('bounded_attributes', {}))
+        self.assertNotIn('private', json.dumps(result))
+
     def test_5001_unique_combined_events_evict_exactly_one_with_truthful_integrity(self):
         self.append(1, 5000)
         self.store.ingest('paired-owner', batch([event(1, origin='d' * 32, boot='e' * 32)]), local=True)

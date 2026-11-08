@@ -68,23 +68,34 @@ internal class ModelRequestPreparation(client: NetworkClient) {
         var original = Json.parseToJsonElement(payload) as JsonObject
         config.requireSelectedRoute((original["model"] as? JsonPrimitive)?.content ?: model)
         val review = config.requestRole.startsWith("github-review") && !config.requestRole.endsWith("repair")
-        // Protected administrative metadata does not disable an independently observed
-        // inference capability. Probe only the selected route and never change its model.
-        if (review && config.providerType == "LLAMA" && llama.supportsReviewSchema(config, model, discovered)) {
-            original = JsonObject(original + ("response_format" to dev.chungjungsoo.gptmobile.data.github.GitHubReviewSchema.format))
-        }
+        val briefHelper = review || config.requestRole in setOf("github-claim-extraction", "github-progress-summary", "answer_contract_rewrite", "synthesis")
         val reasoning = if (config.providerType == "LLAMA") {
-            val needsControl = review || config.maximizeReasoning || !config.allowReasoning || config.reasoningMode != dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO
+            val needsControl = briefHelper || config.maximizeReasoning || !config.allowReasoning || config.reasoningMode != dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO
             val control = if (needsControl && discovered != null) llama.reasoningControl(config, model, discovered) else null
-            dev.chungjungsoo.gptmobile.data.context.ReasoningPolicy.forRequest(
-                config.reasoningMode,
-                config.allowReasoning,
-                config.maximizeReasoning,
-                review || config.requestRole == "github-claim-extraction",
-                control
-            )
+            try {
+                dev.chungjungsoo.gptmobile.data.context.ReasoningPolicy.forRequest(
+                    config.reasoningMode,
+                    config.allowReasoning,
+                    config.maximizeReasoning,
+                    briefHelper,
+                    control
+                )
+            } catch (rejected: dev.chungjungsoo.gptmobile.data.context.ReasoningAdmissionException) {
+                // This precedes both the optional schema inference probe and physical request
+                // admission. Metadata/template HTTP exchanges are not inference dispatches.
+                val reason = when (rejected.requested) {
+                    dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF -> dev.chungjungsoo.gptmobile.data.context.InferencePreflightReason.REASONING_OFF_UNSUPPORTED
+                    else -> dev.chungjungsoo.gptmobile.data.context.InferencePreflightReason.REASONING_ON_UNSUPPORTED
+                }
+                kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.rejectedBeforeInference(reason)
+                throw rejected
+            }
         } else {
             null
+        }
+        // Qualify strict controls before an optional schema probe can execute inference.
+        if (review && config.providerType == "LLAMA" && llama.supportsReviewSchema(config, model, discovered)) {
+            original = JsonObject(original + ("response_format" to dev.chungjungsoo.gptmobile.data.github.GitHubReviewSchema.format))
         }
         val root = if (reasoning != null) dev.chungjungsoo.gptmobile.data.context.ReasoningPolicy.apply(original, reasoning) else original
         val controlledPayload = if (reasoning != null) root.toString() else payload

@@ -49,7 +49,7 @@ internal object GitHubSelfTestFixtures {
         val default = (status["repository"] as? JsonObject)?.text("default_branch")
         if (branch.isBlank() || !sha.matches(Regex("[a-fA-F0-9]{40}"))) return null
         val fixture = "codex-self-test/" + GitHubEvidenceBook.digest(source.text("binding") + source.text("receipt_id")).take(20)
-        val creation = observed.firstOrNull { it.text("tool").substringBefore("__") == "github_commit" && args(it)?.text("action") == "branch" && args(it)?.text("branch") == fixture }
+        val creation = observed.lastOrNull { it.text("tool").substringBefore("__") == "github_commit" && args(it)?.text("action") == "branch" && args(it)?.text("branch") == fixture }
         if (creation?.let(GitHubContentFixture::isCreation) == true || creation == null && GitHubContentFixture.available(tools, fixture, branch, sha)) {
             return GitHubContentFixture.next(source, creation, tools, receipts, allowCreate, cleanupOnly, abortIncomplete)
         }
@@ -108,7 +108,8 @@ internal object GitHubSelfTestFixtures {
         for ((name, arguments) in recipes) {
             val tool = tools.firstOrNull { it.name.substringBefore("__") == name && it.modelVisible } ?: return null
             // A rejected or ambiguous mutation is a blocker, never permission to retry it.
-            val prior = observed.lastOrNull { it.text("tool") == tool.name && args(it) == arguments }
+            val matching = observed.filter { GitHubActionIdentity.matches(tool.name, arguments, it) }
+            val prior = matching.lastOrNull { it["success"] == JsonPrimitive(true) } ?: matching.lastOrNull()
             if (prior != null) {
                 if (prior["success"] != JsonPrimitive(true)) return null
                 continue
@@ -122,6 +123,36 @@ internal object GitHubSelfTestFixtures {
     private fun eligible(receipt: JsonObject): Boolean = receipt["trusted"] == JsonPrimitive(true) &&
         receipt["verification_eligible"] != JsonPrimitive(false) &&
         receipt["success"] == JsonPrimitive(true)
+
+    /** A later proven creation starts a new lifecycle; a rejected duplicate never does. */
+    fun lifecycle(creation: JsonObject, receipts: Map<String, JsonObject>): List<JsonObject> {
+        val branch = args(creation)?.text("branch")
+        return receipts.values.dropWhile { it !== creation && it != creation }.drop(1).takeWhile { receipt ->
+            !(eligible(receipt) && receipt.text("tool").substringBefore("__") == "github_commit" && args(receipt)?.text("action") == "branch" && args(receipt)?.text("branch") == branch && receipt["binding"] == creation["binding"] && receipt["repository"] == creation["repository"] && root(receipt)?.get("created") == JsonPrimitive(true) && root(receipt)?.get("receipt_verified") == JsonPrimitive(true))
+        }.filter { it["binding"] == creation["binding"] && it["repository"] == creation["repository"] }
+    }
+
+    /** Only live branch-existence reads expire. Pinned immutable content and saved views remain useful. */
+    fun retiredReadPredicate(receipts: Map<String, JsonObject>): (JsonObject) -> Boolean {
+        val byId = receipts.values.associateBy { it.text("receipt_id") }
+        val latestCreations = receipts.values.filter { eligible(it) && it.text("tool").substringBefore("__") == "github_commit" && args(it)?.text("action") == "branch" && root(it)?.get("created") == JsonPrimitive(true) && root(it)?.get("receipt_verified") == JsonPrimitive(true) }
+            .associateBy { Triple(it["binding"], it["repository"], args(it)?.text("branch")) }
+        val deleted = checkpoint(receipts).filterIsInstance<JsonObject>().filter { it["final_state_verified"] == JsonPrimitive(true) }.mapNotNull { fixture ->
+            val creation = byId[fixture.text("creation_receipt")] ?: return@mapNotNull null
+            if (latestCreations[Triple(creation["binding"], creation["repository"], fixture.text("branch"))] != creation) return@mapNotNull null
+            Triple(creation["binding"], creation["repository"], fixture.text("branch"))
+        }.toSet()
+        return { receipt ->
+            val arguments = args(receipt)
+            val branch = arguments?.text("branch").orEmpty().ifBlank { arguments?.text("ref").orEmpty() }
+                .ifBlank { root(receipt)?.text("branch").orEmpty() }
+            receipt.text("tool").substringBefore("__") == "github_context" &&
+                arguments?.text("action") in setOf("branch", "branch_dependencies", "resolve", "status") &&
+                arguments?.text("commit_sha").isNullOrBlank() &&
+                arguments?.containsKey("view_cursor") != true &&
+                Triple(receipt["binding"], receipt["repository"], branch) in deleted
+        }
+    }
 
     /** Both receipts must prove the same owned, unchanged branch in the same task/repository. */
     fun checkpoint(receipts: Map<String, JsonObject>): JsonArray = JsonArray(
@@ -149,8 +180,7 @@ internal object GitHubSelfTestFixtures {
                 root(creation)?.get("receipt_verified") == JsonPrimitive(true) &&
                 root(creation)?.text("head_sha") == sha &&
                 root(creation)?.text("branch") == branch
-            val observations = receipts.values.toList()
-            val cleanup = observations.drop(observations.indexOf(creation) + 1).lastOrNull {
+            val cleanups = lifecycle(creation, receipts).filter {
                 it["trusted"] == JsonPrimitive(true) &&
                     it.text("tool").substringBefore("__") == "github_commit" &&
                     args(it)?.text("action") == "delete_branch" &&
@@ -158,14 +188,16 @@ internal object GitHubSelfTestFixtures {
                     it["binding"] == creation["binding"] &&
                     it["repository"] == creation["repository"]
             }
-            val cleaned = owned &&
-                cleanup != null &&
+            fun verified(cleanup: JsonObject) = owned &&
                 eligible(cleanup) &&
                 args(cleanup)?.text("expected_head_sha") == sha &&
                 root(cleanup)?.get("deleted") == JsonPrimitive(true) &&
                 root(cleanup)?.get("absence_verified") == JsonPrimitive(true) &&
                 root(cleanup)?.text("branch") == branch &&
                 root(cleanup)?.text("observed_head_sha") == sha
+            val verifiedCleanup = cleanups.lastOrNull(::verified)
+            val cleanup = verifiedCleanup ?: cleanups.lastOrNull()
+            val cleaned = verifiedCleanup != null
             buildJsonObject {
                 put("branch", branch)
                 put("ownership_verified", owned)
@@ -183,6 +215,7 @@ internal object GitHubSelfTestFixtures {
                     }
                 )
                 cleanup?.get("receipt_id")?.let { put("cleanup_receipt", it) }
+                put("cleanup_attempt_receipts", JsonArray(cleanups.takeLast(8).mapNotNull { it["receipt_id"] }))
                 put("mutation_scope", "Unchanged disposable branch only. Content commits, releases, merges and workflow mutations require a separately authorized fixture plan.")
             }
         }
@@ -192,13 +225,14 @@ internal object GitHubSelfTestFixtures {
         val fixtures = checkpoint(receipts).filterIsInstance<JsonObject>()
         if (fixtures.isEmpty() || fixtures.any { it.text("cleanup_status") != "CLEANED" }) return false
         if (fixtures.any { it.text("fixture_plan") == GitHubOwnedFixtures.PLAN && it["content_verified"] != JsonPrimitive(true) }) return false
-        val proved = fixtures.flatMap { listOfNotNull(it["creation_receipt"], it["cleanup_receipt"]) + (it["mutation_receipts"] as? JsonArray).orEmpty() }.toSet()
+        val reconciledDeletions = fixtures.flatMap { (it["reconciled_deletion_receipts"] as? JsonArray).orEmpty() }.toSet()
+        val proved = fixtures.flatMap { listOfNotNull(it["creation_receipt"], it["cleanup_receipt"]) + (it["mutation_receipts"] as? JsonArray).orEmpty() }.toSet() + reconciledDeletions
         return receipts.values.filter {
             it["trusted"] == JsonPrimitive(true) &&
                 it["verification_eligible"] != JsonPrimitive(false) &&
                 (it.text("tool").startsWith("github") || it.text("tool").substringBefore("__") == "repository_graph") &&
                 requiresFixtureProof(it)
-        }.all { supports(it.text("tool"), args(it)?.text("action").orEmpty()) && eligible(it) && it["receipt_id"] in proved }
+        }.all { supports(it.text("tool"), args(it)?.text("action").orEmpty()) && (eligible(it) || it["receipt_id"] in reconciledDeletions) && it["receipt_id"] in proved }
     }
 
     private fun requiresFixtureProof(receipt: JsonObject): Boolean {

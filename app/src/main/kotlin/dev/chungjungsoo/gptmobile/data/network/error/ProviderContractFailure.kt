@@ -10,6 +10,11 @@ internal data class ProviderContractFailure(val code: String, val phase: String,
         )
         private val failures = listOf(
             template,
+            ProviderContractFailure("REASONING_OFF_UNSUPPORTED", "provider_admission", "The selected model and template cannot enforce Reasoning Off. Recheck capabilities or explicitly choose Auto in this profile's settings before another request."),
+            ProviderContractFailure("REASONING_ON_UNSUPPORTED", "provider_admission", "The selected model and template cannot enforce Reasoning On. Recheck capabilities or explicitly choose Auto in this profile's settings before another request."),
+            ProviderContractFailure("REASONING_CAPABILITY_UNVERIFIED", "provider_admission", "Reasoning controls for this exact model have not been qualified. Check the selected connection's capabilities before another request."),
+            ProviderContractFailure("REASONING_CAPABILITY_UNAVAILABLE", "provider_admission", "The selected model's capability check is unavailable. Reconnect and explicitly recheck capabilities before another request."),
+            ProviderContractFailure("REASONING_CAPABILITY_TIMEOUT", "provider_admission", "The selected model's capability check did not finish. Explicitly recheck the connection before another request."),
             ProviderContractFailure("INVALID_TOOL_HISTORY", "tool_continuation", "The gateway rejected the tool conversation history. Preserve each original call ID and its terminal result before resuming."),
             ProviderContractFailure("UNSUPPORTED_INSTRUCTION_CONTENT", "provider_admission", "The gateway cannot represent the instruction content for this model. Correct the request format before resuming."),
             ProviderContractFailure("INVALID_TOOL_OWNERSHIP", "tool_precheck", "The gateway could not verify the executor for this tool batch. Review tool ownership before resuming; no tools may be replayed."),

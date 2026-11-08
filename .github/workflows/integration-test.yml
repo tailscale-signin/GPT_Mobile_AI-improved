@@ -1,0 +1,80 @@
+name: Disposable GitHub API integration fixture
+run-name: Disposable API fixture ${{ inputs.fixture_id }} attempt ${{ github.run_attempt }}
+on:
+  workflow_dispatch:
+    inputs:
+      fixture_id:
+        description: 'Owned test correlation: gptmobile-ci- followed by 24 lowercase hex characters'
+        required: true
+        type: string
+      expected_sha:
+        description: Exact 40-character commit SHA of the owned disposable ref
+        required: true
+        type: string
+      confirmation:
+        description: This workflow exercises only disposable CI fixtures
+        required: true
+        type: choice
+        options: [disposable-test-only]
+      mode:
+        description: Controlled fixture behavior for read, rerun and cancellation tests
+        required: true
+        type: choice
+        options: [success, fail-first-attempt, cancellation-window]
+permissions:
+  contents: read
+concurrency:
+  group: disposable-github-fixture-${{ inputs.fixture_id }}
+  cancel-in-progress: false
+jobs:
+  fixture:
+    # No checkout, user source, secrets, environment or write-scoped token is used.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Validate ownership marker and emit bounded synthetic evidence
+        id: fixture
+        env:
+          FIXTURE_ID: ${{ inputs.fixture_id }}
+          FIXTURE_SHA: ${{ inputs.expected_sha }}
+          FIXTURE_CONFIRMATION: ${{ inputs.confirmation }}
+          FIXTURE_MODE: ${{ inputs.mode }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib, re, time
+          fixture_id = os.environ['FIXTURE_ID']
+          expected = os.environ['FIXTURE_SHA']
+          ref = os.environ['GITHUB_REF']
+          mode = os.environ['FIXTURE_MODE']
+          assert os.environ['GITHUB_EVENT_NAME'] == 'workflow_dispatch', 'Manual fixture admission only'
+          assert os.environ['FIXTURE_CONFIRMATION'] == 'disposable-test-only', 'Explicit fixture confirmation required'
+          assert re.fullmatch(r'gptmobile-ci-[a-f0-9]{24}', fixture_id), 'Invalid fixture correlation'
+          assert re.fullmatch(r'refs/heads/codex-self-test/[a-f0-9]{20}', ref), 'An owned disposable ref is required'
+          assert re.fullmatch(r'[a-f0-9]{40}', expected) and expected == os.environ['GITHUB_SHA'], 'Exact dispatched revision changed'
+          assert mode in {'success', 'fail-first-attempt', 'cancellation-window'}, 'Unsupported fixture mode'
+          attempt = int(os.environ['GITHUB_RUN_ATTEMPT'])
+          evidence = {'schema': 'github.disposable-ci-fixture.v1', 'fixture_id': fixture_id,
+                      'repository': os.environ['GITHUB_REPOSITORY'], 'ref': ref, 'commit_sha': expected,
+                      'run_id': int(os.environ['GITHUB_RUN_ID']), 'run_attempt': attempt,
+                      'mode': mode, 'evidence_scope': 'SYNTHETIC_CI_API_FIXTURE',
+                      'application_acceptance': 'NOT_TESTED', 'device_execution': 'NOT_TESTED'}
+          pathlib.Path(os.environ['RUNNER_TEMP'], 'github-integration-fixture.json').write_text(json.dumps(evidence, sort_keys=True) + '\n')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('accepted=true\n')
+          print(json.dumps(evidence, sort_keys=True), flush=True)
+          if mode == 'cancellation-window':
+              for tick in range(12):
+                  print(f'Disposable cancellation window {tick + 1}/12', flush=True)
+                  time.sleep(10)
+          if mode == 'fail-first-attempt' and attempt == 1:
+              raise SystemExit('Intentional synthetic first-attempt failure; rerun may verify recovery')
+          PY
+      - name: Retain synthetic receipt for artifact and log inspection
+        if: ${{ always() && steps.fixture.outputs.accepted == 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: disposable-github-fixture-${{ inputs.fixture_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/github-integration-fixture.json
+          retention-days: 1
+          if-no-files-found: error

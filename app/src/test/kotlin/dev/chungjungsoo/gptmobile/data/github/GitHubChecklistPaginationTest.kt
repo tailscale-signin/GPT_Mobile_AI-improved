@@ -95,6 +95,43 @@ class GitHubChecklistPaginationTest {
         assertTrue(GitHubTestChecklist.pendingPages(mapOf("source" to source(), "read" to success)).isEmpty())
     }
 
+    @Test fun repositoryBindingEnrichmentClosesExactPagesAndSpendsLogSamplingBudget() {
+        fun bound(row: JsonObject, binding: String = "task"): JsonObject {
+            val arguments = row["arguments"] as JsonObject
+            return JsonObject(row + mapOf("binding" to JsonPrimitive(binding), "repository" to JsonPrimitive("owner/repo"), "arguments" to JsonObject(arguments + mapOf("owner" to JsonPrimitive("owner"), "repo" to JsonPrimitive("repo")))))
+        }
+        fun log(offset: Int, next: Int) = bound(json("""{"trusted":true,"success":true,"tool":"github_ci","arguments":{"action":"logs","job_id":7,"start_offset":$offset},"result":{"continuation_call":{"tool":"github_ci","arguments":{"action":"logs","job_id":7,"start_offset":$next}}}}"""))
+        val records = linkedMapOf("first" to log(0, 40), "second" to log(40, 80), "third" to log(80, 120))
+        val pending = GitHubTestChecklist.pendingPages(records)
+        assertEquals(1, pending.size)
+        assertEquals(JsonPrimitive(120), (pending.single()["arguments"] as JsonObject)["start_offset"])
+        val definition = AgentToolDefinition("github_ci", "Logs", json("""{"properties":{"action":{"const":"logs"}}}"""))
+        assertEquals(null, GitHubTestChecklist.nextCall("test all tools", listOf(definition), records))
+        assertEquals(JsonPrimitive(2), GitHubTestChecklist.paginationResume("test all tools", records, listOf(definition))["remote_samples_spent"])
+        val foreign = JsonObject(records.getValue("second") + ("binding" to JsonPrimitive("another-account")))
+        assertEquals(2, GitHubTestChecklist.pendingPages(linkedMapOf("first" to records.getValue("first"), "foreign" to foreign)).size)
+    }
+
+    @Test fun targetedDependencyPagesPrecedeBroadHistoryWithoutChangingIssuedSelectors() {
+        val head = "a".repeat(40)
+        val broad = json("""{"tool":"github_context","arguments":{"action":"commits","page":2}}""")
+        val targeted = json("""{"tool":"github_ci","arguments":{"action":"runs","page":2,"commit_sha":"$head","per_page":30}}""")
+        val definitions = listOf(
+            AgentToolDefinition("github_context", "Commits", json("""{"properties":{"action":{"const":"commits"}}}""")),
+            AgentToolDefinition("github_ci", "Runs", json("""{"properties":{"action":{"const":"runs"}}}"""))
+        )
+        val records = linkedMapOf(
+            "status" to json("""{"trusted":true,"success":true,"tool":"github_context","arguments":{"action":"status"},"result":{"commit_sha":"$head"}}"""),
+            "history" to json("""{"trusted":true,"success":true,"tool":"github_context","arguments":{"action":"commits"},"result":{"continuation_call":$broad}}"""),
+            "runs" to json("""{"trusted":true,"success":true,"tool":"github_ci","arguments":{"action":"runs","commit_sha":"$head"},"result":{"continuation_call":$targeted}}""")
+        )
+        val next = requireNotNull(GitHubTestChecklist.nextCall("test all tools", definitions, records))
+        assertEquals("github_ci", next.name)
+        assertEquals(targeted["arguments"], next.arguments)
+        assertEquals(2, GitHubTestChecklist.pendingPages(records).size)
+        assertEquals(JsonPrimitive(false), GitHubTestChecklist.paginationResume("test all tools", records, definitions)["complete"])
+    }
+
     @Test fun defaultRunInventoryIsPinnedAndWorkflowInventoryUsesFullPage() {
         val sha = "a".repeat(40)
         val records = mapOf("status" to json("""{"trusted":true,"success":true,"tool":"github_context","arguments":{"action":"status"},"result":{"commit_sha":"$sha"}}"""))

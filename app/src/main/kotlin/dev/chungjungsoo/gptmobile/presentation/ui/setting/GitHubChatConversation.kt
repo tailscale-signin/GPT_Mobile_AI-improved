@@ -39,7 +39,8 @@ internal fun GitHubChatConversation(
     recoveryRequest: dev.chungjungsoo.gptmobile.presentation.ui.workspace.GitHubRecoveryRequest? = null,
     onRecoveryHandled: () -> Unit = {},
     exportRequested: Boolean = false,
-    onExportHandled: () -> Unit = {}
+    onExportHandled: () -> Unit = {},
+    onProfileSettings: (String) -> Unit = {}
 ) {
     key(chatId) {
         val controller = rememberNavController()
@@ -94,6 +95,7 @@ internal fun GitHubChatConversation(
                             onBackAction = onBack,
                             onOpenConversation = { id, _ -> onOpenConversation(id) },
                             onReviewEvidenceAccess = onReviewEvidenceAccess,
+                            onProfileSettings = onProfileSettings,
                             onNavigateToLocalModels = onNavigateToLocalModels,
                             showTopBar = false,
                             allowResearchPanels = false,

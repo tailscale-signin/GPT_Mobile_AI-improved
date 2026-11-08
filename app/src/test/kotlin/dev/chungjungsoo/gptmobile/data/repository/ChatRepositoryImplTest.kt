@@ -54,6 +54,7 @@ import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntime
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntimeEvent
 import dev.chungjungsoo.gptmobile.data.localruntime.ScriptedToolInvocation
 import dev.chungjungsoo.gptmobile.data.model.ChatAttachment
+import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.FreeAiProvider
 import dev.chungjungsoo.gptmobile.data.model.GeminiSafetySettings
@@ -99,6 +100,82 @@ import org.junit.Test
 
 class ChatRepositoryImplTest {
     @get:org.junit.Rule val testFiles = org.junit.rules.TemporaryFolder()
+
+    @Test fun combinedWriterControlsRejectBeforeBudgetAdmissionAndExplicitAutoUsesTheSameProfile() = runBlocking {
+        val writer = customPlatform().copy(uid = "combined-controls", compatibleType = ClientType.LLAMA, model = "selected", enabled = true, maxTokens = 16384)
+        var features = dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings(
+            tokenBudget = dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings(contextTokens = 32768),
+            llamaReasoningModes = mapOf(writer.uid to dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF)
+        )
+        val settings = mockk<SettingRepository>(relaxed = true)
+        coEvery { settings.getFeatureSettings() } answers { features }
+        coEvery { settings.fetchPlatformV2s() } returns listOf(writer)
+        var probes = 0
+        val capabilities = dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityRepository({ _, _ ->
+            probes++
+            dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityProbe(true)
+        }, { 100L })
+        val budgets = dev.chungjungsoo.gptmobile.data.agent.CombinedTurnBudgetStore.inMemory()
+        val api = RecordingOpenAIAPI()
+        val repository = createRepository(settingsOverride = settings, openAIAPI = api, combinedBudgetsOverride = budgets, reasoningCapabilitiesOverride = capabilities)
+        val request = dev.chungjungsoo.gptmobile.data.agent.CombinedPolicyResolver.accept(dev.chungjungsoo.gptmobile.data.model.ConversationCombinedSettings(), listOf(writer.uid), mapOf(writer.uid to writer.model), "Explain in 200 words", preferredOwnerUid = writer.uid)
+        val execution = dev.chungjungsoo.gptmobile.data.agent.CombinedExecutionContext(request, rootBudgetId = "combined-control-fixture", chatId = 7)
+        repeat(2) {
+            val result = runCatching { repository.prepareCombinedTurn(execution, emptyList(), emptyList(), listOf(writer), ChatMcpToolConfig()) }
+            assertTrue(result.exceptionOrNull() is dev.chungjungsoo.gptmobile.data.context.ReasoningAdmissionException)
+            assertNull(budgets.snapshot(execution.rootBudgetId))
+        }
+        assertEquals(1, probes)
+        assertEquals(0, api.streamChatCompletionCalls)
+        features = features.copy(llamaReasoningModes = mapOf(writer.uid to dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO))
+        val accepted = repository.prepareCombinedTurn(execution, emptyList(), emptyList(), listOf(writer), ChatMcpToolConfig())
+        assertEquals(writer.uid, accepted.requested.preferredOwnerUid)
+        assertEquals(writer.model, accepted.requested.requestedModels[writer.uid])
+        assertTrue(accepted.plan != null)
+        assertTrue(budgets.snapshot(execution.rootBudgetId) != null)
+        assertEquals(0, api.streamChatCompletionCalls)
+    }
+
+    @Test fun changedWriterDuringCapabilityCheckCannotOpenTheCombinedBudget() = runBlocking {
+        val writer = customPlatform().copy(uid = "changing-controls", compatibleType = ClientType.LLAMA, model = "selected", enabled = true, maxTokens = 16384)
+        var registered = writer
+        val settings = mockk<SettingRepository>(relaxed = true)
+        coEvery { settings.getFeatureSettings() } returns dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings(tokenBudget = dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings(contextTokens = 32768))
+        coEvery { settings.fetchPlatformV2s() } answers { listOf(registered) }
+        val capabilities = dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityRepository({ _, _ ->
+            registered = writer.copy(model = "replacement")
+            dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityProbe(true, dev.chungjungsoo.gptmobile.data.context.ReasoningTemplateControl.THINKING)
+        }, { 100L })
+        val budgets = dev.chungjungsoo.gptmobile.data.agent.CombinedTurnBudgetStore.inMemory()
+        val repository = createRepository(settingsOverride = settings, combinedBudgetsOverride = budgets, reasoningCapabilitiesOverride = capabilities)
+        val request = dev.chungjungsoo.gptmobile.data.agent.CombinedPolicyResolver.accept(dev.chungjungsoo.gptmobile.data.model.ConversationCombinedSettings(), listOf(writer.uid), mapOf(writer.uid to writer.model), "Explain in 200 words", preferredOwnerUid = writer.uid)
+        val execution = dev.chungjungsoo.gptmobile.data.agent.CombinedExecutionContext(request, rootBudgetId = "changed-control-fixture", chatId = 7)
+        val result = runCatching { repository.prepareCombinedTurn(execution, emptyList(), emptyList(), listOf(writer), ChatMcpToolConfig()) }
+        assertTrue(result.exceptionOrNull() is dev.chungjungsoo.gptmobile.data.context.DispatchPolicyChangedException)
+        assertNull(budgets.snapshot(execution.rootBudgetId))
+    }
+
+    @Test fun writerPolicyChangedBeforeAuthorityCaptureCannotQualifyAnOlderAutoSnapshot() = runBlocking {
+        val writer = customPlatform().copy(uid = "changing-mode", compatibleType = ClientType.LLAMA, model = "selected", enabled = true, maxTokens = 16384)
+        var features = dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings(
+            tokenBudget = dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings(contextTokens = 32768),
+            llamaReasoningModes = mapOf(writer.uid to dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO)
+        )
+        val settings = mockk<SettingRepository>(relaxed = true)
+        coEvery { settings.getFeatureSettings() } answers { features }
+        coEvery { settings.fetchPlatformV2s() } answers {
+            features = features.copy(llamaReasoningModes = mapOf(writer.uid to dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF))
+            listOf(writer)
+        }
+        val capabilities = dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityRepository({ _, _ -> dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityProbe(true) }, { 100L })
+        val budgets = dev.chungjungsoo.gptmobile.data.agent.CombinedTurnBudgetStore.inMemory()
+        val repository = createRepository(settingsOverride = settings, combinedBudgetsOverride = budgets, reasoningCapabilitiesOverride = capabilities)
+        val request = dev.chungjungsoo.gptmobile.data.agent.CombinedPolicyResolver.accept(dev.chungjungsoo.gptmobile.data.model.ConversationCombinedSettings(), listOf(writer.uid), mapOf(writer.uid to writer.model), "Explain in 200 words", preferredOwnerUid = writer.uid)
+        val execution = dev.chungjungsoo.gptmobile.data.agent.CombinedExecutionContext(request, rootBudgetId = "changed-mode-fixture", chatId = 7)
+        val result = runCatching { repository.prepareCombinedTurn(execution, emptyList(), emptyList(), listOf(writer), ChatMcpToolConfig()) }
+        assertTrue(result.exceptionOrNull() is dev.chungjungsoo.gptmobile.data.context.ReasoningAdmissionException)
+        assertNull(budgets.snapshot(execution.rootBudgetId))
+    }
 
     @Test fun delegatedInputReservesTheFullOutputWithinGlobalAndProfileContextCaps() = runBlocking {
         val profile = customPlatform()
@@ -2124,7 +2201,8 @@ class ChatRepositoryImplTest {
         combinedBudgetsOverride: dev.chungjungsoo.gptmobile.data.agent.CombinedTurnBudgetStore = dev.chungjungsoo.gptmobile.data.agent.CombinedTurnBudgetStore.inMemory(),
         contextOverride: android.content.Context? = null,
         runsOverride: dev.chungjungsoo.gptmobile.data.database.dao.AgentRunDao? = null,
-        privacyOverride: dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterPrivacyPreflight? = null
+        privacyOverride: dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterPrivacyPreflight? = null,
+        reasoningCapabilitiesOverride: dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityRepository? = null
     ): ChatRepositoryImpl = ChatRepositoryImpl(
         context = contextOverride ?: object : ContextWrapper(null) {
             override fun getFilesDir(): File = testFiles.root
@@ -2168,7 +2246,8 @@ class ChatRepositoryImplTest {
         pendingPromptDao = pendingOverride,
         invocationLedger = invocationLedgerOverride,
         combinedBudgets = combinedBudgetsOverride,
-        privacyPreflight = privacyOverride
+        privacyPreflight = privacyOverride,
+        reasoningCapabilities = reasoningCapabilitiesOverride
     )
 
     private fun emptyToolResolver(): AgentToolResolver {

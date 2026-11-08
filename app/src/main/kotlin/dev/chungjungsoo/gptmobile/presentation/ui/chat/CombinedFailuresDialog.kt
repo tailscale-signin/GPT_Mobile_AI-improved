@@ -53,7 +53,13 @@ internal fun CombinedFailuresDialog(
     onDismiss: () -> Unit,
     canContinue: Boolean,
     onExclude: (Int, String) -> Unit = { _, _ -> },
-    onCheckQueuedJob: (String) -> Unit = {}
+    onCheckQueuedJob: (String) -> Unit = {},
+    recoveryStates: Map<String, ReasoningRecoveryUiState> = emptyMap(),
+    billingProfiles: Set<String> = emptySet(),
+    onChangeSettings: (String) -> Unit = {},
+    onManageBilling: (String) -> Unit = {},
+    onRecheckReasoning: (Int, String) -> Unit = { _, _ -> },
+    onSwitchToAuto: (String) -> Unit = {}
 ) {
     val now by freeProviderClock()
     val density = LocalDensity.current
@@ -84,6 +90,7 @@ internal fun CombinedFailuresDialog(
                 )
                 Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
                     failures.forEach { failure ->
+                        val recoveryKind = profileRecoveryKind(failure.category, failure.details)
                         Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                             identities[failure.profileUid]?.let { identity ->
                                 Text(
@@ -98,15 +105,17 @@ internal fun CombinedFailuresDialog(
                                 Text(failure.shortStatus(now), style = MaterialTheme.typography.bodySmall)
                                 if (failure.category in setOf("QUEUED_JOB", "CACHED_UNUSABLE_RESPONSE", "STREAM_DEGRADED", "INCOMPATIBLE_CONFIGURATION")) Text(failure.reason, style = MaterialTheme.typography.bodySmall)
                             }
-                            IconButton(
-                                onClick = { if (failure.category == "QUEUED_JOB") failure.attemptId?.let(onCheckQueuedJob) else onRetry(failure.userMessageId, failure.profileUid) },
-                                enabled = (failure.category == "QUEUED_JOB" && failure.attemptId != null || failure.retryAllowed) && !failure.retrying && (failure.retryAfterMillis ?: 0) <= now,
-                                modifier = Modifier.size(48.dp)
-                            ) {
-                                if (failure.retrying) {
-                                    CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                                } else {
-                                    Icon(Icons.Rounded.Refresh, if (failure.category == "QUEUED_JOB") "Check queued job for ${failure.profileName}" else "Retry ${failure.profileName}")
+                            if (recoveryKind == ProfileRecoveryKind.NONE) {
+                                IconButton(
+                                    onClick = { if (failure.category == "QUEUED_JOB") failure.attemptId?.let(onCheckQueuedJob) else onRetry(failure.userMessageId, failure.profileUid) },
+                                    enabled = (failure.category == "QUEUED_JOB" && failure.attemptId != null || failure.retryAllowed) && !failure.retrying && (failure.retryAfterMillis ?: 0) <= now,
+                                    modifier = Modifier.size(48.dp)
+                                ) {
+                                    if (failure.retrying) {
+                                        CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                                    } else {
+                                        Icon(Icons.Rounded.Refresh, if (failure.category == "QUEUED_JOB") "Check queued job for ${failure.profileName}" else "Retry ${failure.profileName}")
+                                    }
                                 }
                             }
                             IconButton(
@@ -114,6 +123,20 @@ internal fun CombinedFailuresDialog(
                                 enabled = !failure.retrying && !failure.applicationFailure,
                                 modifier = Modifier.size(48.dp)
                             ) { Icon(Icons.Rounded.RemoveCircleOutline, "Remove ${failure.profileName} from this chat") }
+                        }
+                        if (recoveryKind != ProfileRecoveryKind.NONE) {
+                            ProfileRecoveryActions(
+                                kind = recoveryKind,
+                                profileName = failure.profileName,
+                                state = recoveryStates[failure.attemptId] ?: ReasoningRecoveryUiState(frozenRequest = true),
+                                canManageBilling = failure.profileUid in billingProfiles,
+                                onSettings = { onChangeSettings(failure.profileUid) },
+                                onBilling = { onManageBilling(failure.profileUid) },
+                                onRecheck = { onRecheckReasoning(failure.userMessageId, failure.profileUid) },
+                                onSwitchToAuto = { onSwitchToAuto(failure.profileUid) },
+                                onRetry = { onRetry(failure.userMessageId, failure.profileUid) },
+                                enabled = !failure.retrying
+                            )
                         }
                         TextButton(
                             onClick = { onExclude(failure.userMessageId, failure.profileUid) },

@@ -29,6 +29,7 @@ internal object GitHubAcceptanceLedger {
                 put("id", row.text("id"))
                 put("kind", kind)
                 put("criterion", row.text(if (kind == "REQUIREMENT") "requirement" else "scope"))
+                if (kind == "REQUIREMENT") put("category", GitHubAcceptanceDiagnostics.category(row.text("requirement")))
                 put("required", !excluded)
                 put("state", state(row.text("acceptance_state").ifBlank { row.text("status") }).name)
                 put("reason", row.text("acceptance").ifBlank { row.text("blocker").ifBlank { row.text("reason").ifBlank { row.text("next_action") } } })
@@ -56,10 +57,14 @@ internal object GitHubAcceptanceLedger {
         }
     }
 
-    fun attach(value: JsonObject): JsonObject {
+    fun attach(value: JsonObject): JsonObject = attach(value, emptyMap())
+
+    fun attach(value: JsonObject, receipts: Map<String, JsonObject>): JsonObject {
         val requirements = value["requirements"] as? JsonArray ?: JsonArray(emptyList())
         val capabilities = value["capabilities"] as? JsonArray ?: (value["test_checklist"] as? JsonObject)?.get("capabilities") as? JsonArray ?: JsonArray(emptyList())
-        return JsonObject(value + ("acceptance_ledger" to snapshot(requirements, capabilities, value.text("request_digest").takeIf(String::isNotBlank))))
+        val ledger = snapshot(requirements, capabilities, value.text("request_digest").takeIf(String::isNotBlank))
+        val diagnostics = GitHubAcceptanceDiagnostics.snapshot(ledger, receipts)
+        return JsonObject(value + ("acceptance_ledger" to JsonObject(ledger + ("diagnostic_projection" to diagnostics))))
     }
 
     private fun JsonObject.text(key: String) = (get(key) as? JsonPrimitive)?.contentOrNull.orEmpty()

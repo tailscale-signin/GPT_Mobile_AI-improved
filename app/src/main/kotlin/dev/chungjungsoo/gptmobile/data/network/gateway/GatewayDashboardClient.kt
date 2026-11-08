@@ -33,10 +33,10 @@ internal interface GatewayDashboardSource {
 
 /** A bounded read of the selected gateway; never uses the desktop management endpoint. */
 @Singleton
-internal class GatewayDashboardClient internal constructor(private val http: HttpClient, private val evictIdleConnections: () -> Unit, private val elapsedMillis: () -> Long) : GatewayDashboardSource {
-    internal constructor(http: HttpClient, evictIdleConnections: () -> Unit = {}) : this(http, evictIdleConnections, { System.nanoTime() / 1_000_000 })
+internal class GatewayDashboardClient internal constructor(private val http: HttpClient, private val evictIdleConnections: suspend () -> Unit, private val elapsedMillis: () -> Long) : GatewayDashboardSource {
+    internal constructor(http: HttpClient, evictIdleConnections: suspend () -> Unit = {}) : this(http, evictIdleConnections, { System.nanoTime() / 1_000_000 })
 
-    @Inject constructor(network: NetworkClient) : this(network(), network::evictIdleConnections, SystemClock::elapsedRealtime)
+    @Inject constructor(network: NetworkClient) : this(network.gatewayReadClient(), network::evictIdleConnections, SystemClock::elapsedRealtime)
     private data class Attempt(val observation: GatewayDashboardObservation? = null, val failure: Exception? = null)
     private data class ReadinessAttempt(val observation: GatewayReadinessObservation? = null, val failure: Exception? = null)
     private val cache = RouteCapabilityCache<Attempt>({ System.nanoTime() / 1_000_000 }, positiveTtl = 4_000, negativeTtl = 60_000)

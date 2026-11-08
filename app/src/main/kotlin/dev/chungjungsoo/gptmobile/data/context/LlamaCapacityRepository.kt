@@ -39,10 +39,11 @@ import kotlinx.serialization.json.put
 internal class LlamaCapacityRepository(
     private val client: () -> io.ktor.client.HttpClient,
     private val now: () -> Long = { System.nanoTime() / 1_000_000 },
-    private val evictIdleConnections: () -> Unit = {}
+    private val evictIdleConnections: suspend () -> Unit = {},
+    private val readClient: () -> io.ktor.client.HttpClient = client
 ) {
-    constructor(client: NetworkClient, now: () -> Long = { System.nanoTime() / 1_000_000 }) : this({ client() }, now, client::evictIdleConnections)
-    private data class Metadata(val capacity: CapacitySnapshot, val template: String, val buildKnown: Boolean)
+    constructor(client: NetworkClient, now: () -> Long = { System.nanoTime() / 1_000_000 }) : this({ client() }, now, client::evictIdleConnections, client::gatewayReadClient)
+    private data class Metadata(val capacity: CapacitySnapshot, val template: String, val buildKnown: Boolean, val reportedModel: String?)
     private data class GatewayMetadata(val capacity: CapacitySnapshot, val reasoningControl: ReasoningTemplateControl?)
     private val cache = RouteCapabilityCache<Metadata>(now)
     private val reasoningCache = RouteCapabilityCache<ReasoningTemplateControl>(now)
@@ -71,7 +72,7 @@ internal class LlamaCapacityRepository(
                     val endpoint = config.buildEndpoint("gateway/capabilities")
                     LocalEndpointConnectionPolicy.probe(endpoint, evictIdleConnections) {
                         gatewayClientExchange(config, "capabilities", safeRead = true) { requestHeaders ->
-                            client().prepareGet(endpoint) {
+                            readClient().prepareGet(endpoint) {
                                 config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
                                 requestHeaders.forEach { (name, value) -> header(name, value) }
                                 if (LocalEndpointConnectionPolicy.freshConnection(endpoint)) header(HttpHeaders.Connection, "close")
@@ -118,7 +119,7 @@ internal class LlamaCapacityRepository(
                     require(uri.scheme in setOf("http", "https") && uri.host != null && uri.rawQuery == null && uri.rawFragment == null && uri.userInfo == null)
                     val endpoint = route.removeSuffix("/v1") + "/props"
                     val (response, body) = LocalEndpointConnectionPolicy.probe(config.apiUrl, evictIdleConnections) {
-                        val response = client().get(endpoint) {
+                        val response = readClient().get(endpoint) {
                             config.token?.takeIf { it.isNotBlank() }?.let { bearerAuth(it) }
                             GatewayClientDiagnostics.requestHeaders(config).forEach { (name, value) -> header(name, value) }
                             parameter("model", model)
@@ -133,13 +134,25 @@ internal class LlamaCapacityRepository(
                     if (response.status.value != 200) return@withTimeoutOrNull null
                     val capacity = parseLlamaCapacity(body, config, model, now()) ?: return@withTimeoutOrNull null
                     val root = Json.parseToJsonElement(body) as JsonObject
-                    Metadata(capacity, (root["chat_template"] as? JsonPrimitive)?.contentOrNull.orEmpty(), (root["build_info"] as? JsonPrimitive)?.contentOrNull?.isNotBlank() == true)
+                    val reportedModel = (root["model_alias"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
+                        ?: (root["model"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
+                    Metadata(capacity, (root["chat_template"] as? JsonPrimitive)?.contentOrNull.orEmpty(), (root["build_info"] as? JsonPrimitive)?.contentOrNull?.isNotBlank() == true, reportedModel)
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
                 null
             }
+        }
+    }
+
+    /** Route allocation may omit model identity; a capability action requires the explicit serving-model proof. */
+    suspend fun hasExactModelProof(config: ProviderRequestConfig, model: String, capacity: CapacitySnapshot): Boolean {
+        if (capacity.provenance != CapacityProvenance.VERIFIED_ROUTE) return false
+        return if (capacity.fingerprint.templateRevision.startsWith("gateway:")) {
+            gatewayMetadata(config, model)?.capacity?.let { it.fingerprint == capacity.fingerprint && it.fingerprint.resolvedModel == model } == true
+        } else {
+            metadata(config, model)?.let { it.capacity.fingerprint == capacity.fingerprint && it.reportedModel == model } == true
         }
     }
 

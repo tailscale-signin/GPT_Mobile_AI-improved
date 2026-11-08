@@ -62,6 +62,7 @@ class LlamaReasoningAdmissionTest {
         val client = HttpClient(engine)
         val wrapper = mockk<NetworkClient>()
         every { wrapper() } returns client
+        every { wrapper.gatewayReadClient() } returns client
         try {
             val preparation = ModelRequestPreparation(wrapper)
             val config = ProviderRequestConfig("https://fixture.invalid/prefix/v1", "synthetic-secret", providerType = "LLAMA", reasoningMode = ReasoningMode.OFF)
@@ -97,6 +98,7 @@ class LlamaReasoningAdmissionTest {
         val client = HttpClient(engine)
         val wrapper = mockk<NetworkClient>()
         every { wrapper() } returns client
+        every { wrapper.gatewayReadClient() } returns client
         try {
             val preparation = ModelRequestPreparation(wrapper)
             val accepted = dev.chungjungsoo.gptmobile.data.agent.provider.RequestConstraints(reasoningModeOverride = ReasoningMode.OFF, lockSelectedRoute = true)
@@ -113,6 +115,41 @@ class LlamaReasoningAdmissionTest {
                 assertEquals("UNVERIFIED", receipt.providerSupport)
             }
             assertEquals(listOf("/props", "/apply-template", "/apply-template"), paths)
+        } finally {
+            client.close()
+        }
+    }
+
+    @Test fun helperAutoKeepsTheSelectedRouteAndStrictOffRejectsBeforeAnySchemaInference() = runBlocking {
+        val paths = mutableListOf<String>()
+        val client = HttpClient(
+            MockEngine { request ->
+                paths += request.url.encodedPath
+                check(request.url.encodedPath == "/props") { "No inference is authorized by this admission fixture" }
+                respond("""{"model_alias":"selected","build_info":"helper-auto-fixture","default_generation_settings":{"n_ctx":8192},"chat_template":"no-toggle"}""", headers = headersOf(HttpHeaders.ContentType, "application/json"))
+            }
+        )
+        val network = mockk<NetworkClient>()
+        every { network() } returns client
+        every { network.gatewayReadClient() } returns client
+        val preparation = ModelRequestPreparation(network)
+        val config = ProviderRequestConfig("https://helper-auto.invalid/v1", null, providerType = "LLAMA", reasoningMode = ReasoningMode.AUTO)
+        val payload = """{"model":"selected","messages":[{"role":"user","content":"Summarize these factual receipts."}],"max_tokens":256}"""
+        try {
+            for (role in listOf("github-progress-summary", "answer_contract_rewrite", "synthesis")) {
+                val wire = preparation.prepare(payload, config.copy(requestRole = role), "selected", 256)
+                val body = Json.parseToJsonElement(wire).jsonObject
+                assertEquals(JsonPrimitive("selected"), body["model"])
+                assertFalse(body.containsKey("chat_template_kwargs"))
+                assertFalse(body.containsKey("reasoning_effort"))
+            }
+            try {
+                preparation.prepare(payload, config.copy(requestRole = "github-review", reasoningMode = ReasoningMode.OFF), "selected", 256)
+                error("Strict Off must be rejected")
+            } catch (expected: dev.chungjungsoo.gptmobile.data.context.ReasoningAdmissionException) {
+                assertEquals(ReasoningMode.OFF, expected.requested)
+            }
+            assertEquals(listOf("/props"), paths)
         } finally {
             client.close()
         }

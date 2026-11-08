@@ -65,9 +65,7 @@ object CombinedPolicyResolver {
         )[stop]
         // A provider's fixed output allowance is part of the plan, not an excuse
         // to exceed a user hard limit. Funding below still checks every hard bound.
-        val fixedOutputFloor = caps.filter { it.name == "providerFixedOutputTokens" && it.origin == CombinedCapOrigin.PROVIDER && it.profileUid in requested.participantUids }
-            .maxOfOrNull { it.value.coerceIn(1, Int.MAX_VALUE.toLong()).toInt() } ?: 0
-        val draftOutput = maxOf(listOf(512, 1024, 2048, 4096, 8192)[stop], if (requested.acceptedResearch != null) 4096 else 0, fixedOutputFloor)
+        val draftOutput = CombinedContributorAllowance.preferred(requested, caps)
         val detail = CombinedSynthesisPreferences.from(requested.settings).verbosity
         val defaultFinal = (listOf(700, 1400, 2500, 5000, 12_000)[stop].toLong() * (50L + detail) / 100L).coerceIn(256, Int.MAX_VALUE.toLong()).toInt()
         val explicitWords = Regex("(?i)\\b(?:exactly\\s+|about\\s+|approximately\\s+)?(\\d{1,7})[ -]+words?\\b")
@@ -116,7 +114,7 @@ object CombinedPolicyResolver {
             // contributor work. They never consume the protected final editor allocation.
             val reportPasses = if (requested.acceptedResearch != null) 3L else 1L
             val reportInput = if (requested.acceptedResearch != null) Math.addExact(input, 8000L) else input
-            val quota = CombinedResourceQuota(reportInput, draftOutput.toLong()).scale(reportPasses)
+            val quota = CombinedResourceQuota(reportInput, CombinedContributorAllowance.boundedForProfile(draftOutput, uid, caps).toLong()).scale(reportPasses)
             val cost = prices[uid]?.cost(quota.inputTokens, quota.generatedTokens)
             val funded = hardLimits.costMicros?.let { cost != null && cost <= it - usedCost } ?: true
             if (admissible(quota) && funded) {

@@ -95,4 +95,53 @@ class GatewayGraphTest {
             assertEquals(JsonPrimitive(false), (result["graph"] as JsonObject)["complete"])
         }
     }
+
+    @Test fun readinessDiagnosticsPreserveEveryExactPrerequisiteAndSelectedCommitWithoutRawGatewayText() = runTest {
+        for ((checks, expected) in listOf(
+            "\"journal\":\"disabled\"" to "JOURNAL_DISABLED",
+            "\"journal\":\"write_failed\"" to "JOURNAL_UNAVAILABLE",
+            "\"journal\":\"ready\",\"host_github_connection\":\"missing\"" to "HOST_GITHUB_CONNECTION_MISSING",
+            "\"journal\":\"ready\",\"draining\":true" to "GATEWAY_DRAINING",
+            "\"journal\":\"ready\"" to "GRAPH_SERVICE_UNAVAILABLE"
+        )) {
+            val http = HttpClient(
+                MockEngine {
+                    respond("""{"service":"engineering-gateway","protocol_version":1,"principal_id":"owner","code_graph":{"schema_version":1,"enabled":false},"readiness":{"schema_version":1,"graph_ready":false,"checks":{$checks}},"private_detail":"secret-token"}""", HttpStatusCode.OK, headersOf("Content-Type", "application/json"))
+                }
+            ) { install(HttpTimeout) }
+            http.use {
+                val client = GatewayEngineeringClient(it)
+                val tool = RepositoryGraphTool("repository_graph") {
+                    try {
+                        client.requireGraphReady(ProviderRequestConfig("http://127.0.0.1:8090/$expected", null))
+                        error("Unexpected ready graph")
+                    } catch (failure: GatewayGraphUnavailableException) {
+                        throw failure.atRevision(context)
+                    }
+                }
+                val result = tool.execute("status", buildJsonObject { put("action", "status") })
+                val diagnostic = (result.content as ToolResultContent.Json).value as JsonObject
+                assertTrue(result.isError)
+                assertEquals(JsonPrimitive(expected), diagnostic["failure_category"])
+                val revision = diagnostic["selected_revision"] as JsonObject
+                assertEquals(JsonPrimitive("owner/repo"), revision["repository"])
+                assertEquals(JsonPrimitive(context.commitSha), revision["commit_sha"])
+                assertEquals(JsonPrimitive("NOT_QUALIFIED"), revision["qualification"])
+                assertEquals(JsonPrimitive(false), diagnostic["graph_complete"])
+                assertFalse(diagnostic.toString().contains("secret-token"))
+            }
+        }
+    }
+
+    @Test fun readinessChangingBetweenHandshakeAndGraphPostKeepsTypedPrerequisite() = runTest {
+        HttpClient(
+            MockEngine {
+                respond("""{"error":{"code":"graph_connection_required","reason":"HOST_GITHUB_CONNECTION_REQUIRED"},"readiness":{"schema_version":1,"graph_ready":false,"checks":{"journal":"ready","host_github_connection":"missing"}}}""", HttpStatusCode.PreconditionFailed, headersOf("Content-Type", "application/json"))
+            }
+        ) { install(HttpTimeout) }.use { http ->
+            val failure = runCatching { GatewayEngineeringClient(http).graph(ProviderRequestConfig("http://127.0.0.1:8090/v1", null), GatewayGraphRepository.boundRequest(context, buildJsonObject { put("action", "status") })) }.exceptionOrNull()
+            assertTrue(failure is GatewayGraphUnavailableException)
+            assertEquals(listOf(GatewayGraphPrerequisite.HOST_GITHUB_CONNECTION_MISSING), (failure as GatewayGraphUnavailableException).prerequisites)
+        }
+    }
 }

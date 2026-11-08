@@ -33,6 +33,23 @@ internal class RequestDispatchContext(private val candidates: Set<JsonObject>, p
     private val httpTrace = java.util.concurrent.atomic.AtomicReference<dev.chungjungsoo.gptmobile.data.network.HttpAttemptTrace?>()
     private val attemptTraces = java.util.concurrent.ConcurrentHashMap<String, dev.chungjungsoo.gptmobile.data.network.HttpAttemptTrace>()
     private val pollTraces = java.util.concurrent.ConcurrentHashMap<String, dev.chungjungsoo.gptmobile.data.network.HttpAttemptTrace>()
+
+    @Volatile var preflightRejection: InferencePreflightRejection? = null
+        private set
+
+    /** Call only from the local preflight that owns the no-inference boundary, never an error string. */
+    fun rejectedBeforeInference(reason: InferencePreflightReason) {
+        preflightRejection = InferencePreflightRejection(reason)
+        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
+            "Admission",
+            "INFERENCE_PRECHECK_REJECTED · runId=${runId ?: "unavailable"} · invocationId=${invocationId ?: "unavailable"} · reason=${reason.name} · phase=LOCAL_INFERENCE_ADMISSION · dispatched=NOT_DISPATCHED · retryable=false"
+        )
+    }
+
+    /** A later rejected retry never erases a previous transmitted or uncertain attempt. */
+    fun provenEntirelyUnsent(unsent: Set<String> = provenUnsentAttemptIds()): Boolean =
+        if (receipts.isEmpty()) preflightRejection != null else receipts.all { it.physicalAttemptId in unsent }
+
     fun provenUnsentAttemptIds(): Set<String> {
         val unsent = attemptTraces.filterValues { it.provenUnsent }.keys
         (unsent + pollTraces.filterValues { it.provenUnsent }.keys).forEach { researchTrace?.notDispatched(it) }

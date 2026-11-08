@@ -28,7 +28,9 @@ class PrincipalResolver:
             local_peer = ipaddress.ip_address(scope.get("client", ("", 0))[0]).is_loopback
         except ValueError:
             local_peer = False
-        if scope.get("path", "").removeprefix("/v1") in {"/gateway/admin/maintenance", "/gateway/admin/dashboard"}:
+        path = scope.get('path', '').removeprefix('/v1')
+        if path in {"/gateway/admin/maintenance", "/gateway/admin/dashboard"} or (
+                path == '/gateway/admin/debug/export' and 'x-gateway-management' in headers):
             # A specific-interface listener is reached through that interface on
             # the same PC. The independent supervisor secret is still mandatory.
             server = scope.get("server") or ("", 0)

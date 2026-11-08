@@ -128,7 +128,9 @@ class DebugLogTests(unittest.TestCase):
             store.record('gateway_response', status=200)
             store.stop()
             self.assertFalse(store.thread.is_alive())
-            self.assertEqual(['gateway_started', 'gateway_response'], [json.loads(line)['event'] for line in path.read_text().splitlines()])
+            records = [json.loads(line) for line in path.read_text().splitlines()]
+            self.assertEqual(['gateway_started', 'gateway_response', 'gateway_stopped'], [row['event'] for row in records])
+            self.assertTrue(records[-1]['cleanShutdown'])
 
 
 class DebugHTTPTests(unittest.TestCase):

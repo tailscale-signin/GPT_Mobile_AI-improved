@@ -21,12 +21,14 @@ def observations(runtime, service, backend, journal):
     model_ready = backend.get('generationReady')
     if backend.get('modelAvailable') is False:
         model_ready = False
+    elif backend.get('selectedModelDigest') and backend.get('modelAvailable') is not True:
+        model_ready = None
     result = {
         'process': component('DRAINING' if service['draining'] else 'HEALTHY', configured=True,
                              ready=not service['draining'], evidence='process_liveness'),
         'selectedModel': component('LOADING' if backend.get('modelLoading') else 'READY' if model_ready is True else 'UNAVAILABLE' if model_ready is False else 'UNKNOWN',
                                    configured=bool(getattr(runtime, 'LLAMA_BASE', None)), ready=model_ready,
-                                   reason='SELECTED_MODEL_LOADING' if backend.get('modelLoading') else 'SELECTED_MODEL_NOT_AVAILABLE' if backend.get('modelAvailable') is False else None,
+                                   reason=backend.get('reasonCode'),
                                    evidence='health_and_model_catalog', inferenceVerified=backend.get('inferenceVerified'),
                                    metadataAccess=backend.get('metadataAccess'), automaticSubstitution=False),
         'githubAuthorization': component('NOT_MEASURED' if github_configured else 'NOT_CONFIGURED',

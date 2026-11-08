@@ -454,10 +454,10 @@ class DiagnosticExecutionContextTests(unittest.TestCase):
         entered, release = threading.Event(), threading.Event()
         original = self.store.journal.export
 
-        def blocked(*args):
+        def blocked(*args, **kwargs):
             entered.set()
             self.assertTrue(release.wait(5))
-            return original(*args)
+            return original(*args, **kwargs)
 
         with patch.object(self.store.journal, 'export', side_effect=blocked), ThreadPoolExecutor(max_workers=1) as pool:
             first = pool.submit(self.store.export_session, 'paired-owner', SESSION)

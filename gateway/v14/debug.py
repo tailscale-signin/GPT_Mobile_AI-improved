@@ -1,6 +1,7 @@
 """Opt-in transport diagnostics: bounded, metadata-only and written off the request path."""
 import asyncio
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -8,6 +9,7 @@ import re
 import threading
 import time
 import uuid
+import zipfile
 from collections import deque
 from concurrent.futures import Future
 from contextlib import asynccontextmanager, contextmanager
@@ -18,13 +20,13 @@ from fastapi import Request
 from fastapi.responses import JSONResponse, Response
 from .diagnostic_events import (DiagnosticSessionJournal, DiagnosticProtocolError, MAX_BATCH_BYTES, MAX_CAPTURE_SECONDS,
                                 event_identity, sanitize_event, trace_context, HEX32)
+from .debug_projection import (ROUTES, ADMISSION_CODES, route_kind, provenance, failure_fields, response_summary, choice)
 
 MAX_LINES = 5000
 MAX_LINE_BYTES = 2048
 CLIENT_HEADER = 'X-Gateway-Client-Diagnostics'
 _DIGEST = re.compile(r'[a-f0-9]{64}')
-_EVENTS = {'client_request', 'gateway_response', 'transport_failure', 'debug_enabled', 'debug_disabled', 'gateway_started'}
-_ROUTES = {'chat', 'models', 'readiness', 'liveness', 'capabilities', 'dashboard', 'job', 'engineering', 'other'}
+_EVENTS = {'client_request', 'gateway_response', 'transport_failure', 'debug_enabled', 'debug_disabled', 'gateway_started', 'gateway_stopped'}
 current_diagnostic_trace = ContextVar('gateway_diagnostic_trace', default=None)
 current_diagnostic_capture = ContextVar('gateway_diagnostic_capture', default=None)
 
@@ -152,16 +154,9 @@ def client_metadata(raw):
     role = value.get('requestRole')
     if isinstance(role, str) and role in {'primary', 'github', 'review', 'synthesis', 'diagnostic', 'other'}:
         result['requestRole'] = role
+    if choice(value.get('clientType'), {'android', 'desktop', 'other'}):
+        result['clientType'] = value['clientType']
     return result
-
-
-def route_kind(path):
-    path = str(path).removeprefix('/v1')
-    return ('chat' if path == '/chat/completions' else 'models' if path == '/models' else
-            'readiness' if path == '/gateway/ready' else 'liveness' if path == '/gateway/live' else
-            'capabilities' if path in {'/gateway/capabilities', '/gateway/v14', '/gateway/v15'} else
-            'dashboard' if path == '/gateway/dashboard' else
-            'job' if path.startswith('/gateway/jobs') else 'engineering' if path.startswith('/gateway/engineering/') else 'other')
 
 
 def sanitized_record(value):
@@ -169,15 +164,29 @@ def sanitized_record(value):
     if not isinstance(value, dict) or not isinstance(value.get('event'), str) or value['event'] not in _EVENTS:
         return None
     result = {'schemaVersion': 1, 'event': value['event']}
-    for key in ('sequence', 'timestampMs', 'status', 'receivedBytes', 'sentBytes', 'durationMs'):
+    for key in ('sequence', 'timestampMs', 'recordedAtMs', 'arrivalAtMs', 'responseStartedAtMs', 'completedAtMs',
+                'status', 'receivedBytes', 'sentBytes', 'durationMs', 'retryAttempt'):
         item = value.get(key)
         if type(item) is int and 0 <= item <= 2 ** 53:
             result[key] = item
-    for key in ('requestDigest', 'principalDigest', 'jobDigest'):
+    for key in ('requestDigest', 'operationDigest', 'principalDigest', 'jobDigest'):
         item = value.get(key)
         if isinstance(item, str) and _DIGEST.fullmatch(item):
             result[key] = item
-    if isinstance(value.get('route'), str) and value['route'] in _ROUTES:
+    for key in ('httpRequestId', 'traceId', 'bootId', 'instanceId'):
+        item = value.get(key)
+        if isinstance(item, str) and HEX32.fullmatch(item):
+            result[key] = item
+    for key in ('spanId', 'parentSpanId'):
+        item = value.get(key)
+        if isinstance(item, str) and re.fullmatch('[a-f0-9]{16}', item):
+            result[key] = item
+    for key in ('responseHeadersSent', 'responseBodyCompleted', 'cleanShutdown', 'diagnosticTruncated'):
+        if type(value.get(key)) is bool:
+            result[key] = value[key]
+    if choice(value.get('clientType'), {'android', 'desktop', 'desktop_manager', 'other', 'unknown'}):
+        result['clientType'] = value['clientType']
+    if isinstance(value.get('route'), str) and value['route'] in ROUTES:
         result['route'] = value['route']
     if isinstance(value.get('method'), str) and value['method'] in {'GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'}:
         result['method'] = value['method']
@@ -189,6 +198,21 @@ def sanitized_record(value):
         client = {}
     if client:
         result['client'] = client
+    safe_identity = provenance(value.get('provenance'))
+    if safe_identity:
+        result['provenance'] = safe_identity
+    summary = failure_fields(value.get('observation'))
+    if summary:
+        result['observation'] = summary
+    if choice(value.get('admissionCode'), ADMISSION_CODES):
+        result['admissionCode'] = value['admissionCode']
+    # Leave room for sequence and write time assigned by the store. Optional
+    # repeated context is shed first; never emit an oversized record silently.
+    for key in ('client', 'provenance', 'parentSpanId', 'spanId', 'traceId', 'jobDigest', 'observation'):
+        if len(json.dumps(result, separators=(',', ':'), ensure_ascii=True).encode()) <= MAX_LINE_BYTES - 128:
+            break
+        result.pop(key, None)
+        result['diagnosticTruncated'] = True
     return result
 
 
@@ -215,6 +239,7 @@ class DebugLogStore:
         self.event_queue = Queue(maxsize=256)
         self.queue_dropped = 0
         self.boot_id = uuid.uuid4().hex
+        self.provenance = {}
         self.origin_id = digest('gateway:' + str(self.path.absolute()))[:32]
         self.origin_sequences = {}
         self.local_gaps = {}
@@ -247,7 +272,11 @@ class DebugLogStore:
 
     def start(self):
         if self._ensure_writer():
-            self.record('gateway_started')
+            self.record('gateway_started', provenance=dict(self.provenance, bootId=self.boot_id, processId=os.getpid()))
+
+    def configure_identity(self, **fields):
+        with self.lock:
+            self.provenance = provenance(dict(fields, bootId=self.boot_id, processId=os.getpid(), diagnosticProtocolVersion=2))
 
     def _ensure_writer(self):
         with self.lock:
@@ -258,7 +287,9 @@ class DebugLogStore:
             self.thread.start()
             return True
 
-    def stop(self):
+    def stop(self, clean=True):
+        if self.thread is not None and self.thread.is_alive() and not self.stopped.is_set():
+            self.record('gateway_stopped', cleanShutdown=clean, provenance=self.provenance)
         self.stopped.set()
         if self.thread is not None:
             self.thread.join(timeout=3)
@@ -275,17 +306,20 @@ class DebugLogStore:
                 self.record('debug_disabled')
             self.enabled = enabled
             if enabled:
-                self.record('debug_enabled')
+                self.record('debug_enabled', provenance=self.provenance)
 
     def record(self, event, **fields):
         with self.lock:
             if not self.enabled:
                 return
-            item = sanitized_record(dict(fields, event=event))
+            item = sanitized_record(dict(fields, event=event, bootId=self.boot_id,
+                                         instanceId=self.provenance.get('instanceId')))
             if item is None:
                 return
             self.sequence += 1
-            item.update(sequence=self.sequence, timestampMs=int(self.now() * 1000))
+            written = int(self.now() * 1000)
+            item.update(sequence=self.sequence, recordedAtMs=written)
+            item.setdefault('timestampMs', written)
             self.records.append(item)
             self.pending.set()
 
@@ -293,7 +327,8 @@ class DebugLogStore:
         with self.lock:
             return {'schemaVersion': 1, 'enabled': self.enabled, 'retainedLines': len(self.records),
                     'lineLimit': MAX_LINES, 'lastSequence': self.sequence,
-                    'content': 'sanitized_transport_metadata', 'protocolVersion': 2, 'clientMetadata': True,
+                    'content': 'sanitized_transport_and_observation_metadata', 'protocolVersion': 2, 'clientMetadata': True,
+                    'physicalRequestIds': True, 'structuredFailures': True, 'fullBundleExport': True,
                     'bidirectionalEvents': True, 'recordByteLimit': MAX_LINE_BYTES,
                     'retainedLineLimit': MAX_LINES, 'debugEnabled': self.enabled,
                     'storageChecked': self.journal.storage_checked,
@@ -316,9 +351,10 @@ class DebugLogStore:
                 return
             sequence = self.origin_sequences.get(key, 0) + 1
             self.origin_sequences[key] = sequence
+            occurred = fields.pop('occurred_at_utc', int(self.now() * 1000))
             event = sanitize_event(dict(fields, schema_version=2, origin_device_pseudonym=self.origin_id, origin_boot_id=self.boot_id,
                                         origin_sequence=sequence, event_id=event_identity(self.origin_id, self.boot_id, sequence),
-                                        occurred_at_utc=int(self.now() * 1000), owner='gateway'), imported=False)
+                                        occurred_at_utc=occurred, owner='gateway'), imported=False)
             if event is None:
                 self.queue_dropped += 1
                 return
@@ -389,8 +425,53 @@ class DebugLogStore:
 
     def export(self):
         with self.lock:
-            records = list(self.records)
+            records = [clean for row in self.records if (clean := sanitized_record(row)) is not None]
         return encode_records(records)
+
+    def export_bundle(self):
+        """Local-admin bundle: transport, retained causal events and honest coverage/provenance."""
+        if not self.export_lock.acquire(blocking=False):
+            raise DiagnosticProtocolError('DIAGNOSTIC_EXPORT_BUSY', 429)
+        try:
+            self.flush()
+            with self.lock:
+                records = [clean for row in self.records if (clean := sanitized_record(row)) is not None]
+                current = dict(self.provenance)
+                queued, dropped = self.event_queue.qsize(), self.queue_dropped
+            events, coverage = self.journal.local_snapshot()
+            versions = []
+            for candidate in [row.get('provenance') for row in records] + [current]:
+                safe = provenance(candidate)
+                if safe and safe not in versions:
+                    versions.append(safe)
+            builds = sorted({row['client']['appVersionCode'] for row in records
+                             if isinstance(row.get('client'), dict) and type(row['client'].get('appVersionCode')) is int})
+            transport = encode_records(records).encode('utf-8')
+            journal = encode_records(events).encode('utf-8')
+            files = {'gateway-debug.jsonl': transport, 'diagnostic-events.jsonl': journal}
+            manifest = {'schemaVersion': 1, 'diagnosticProtocolVersion': 2, 'exportedAtMs': int(self.now() * 1000),
+                        'scope': 'local_admin_retained_diagnostics', 'redaction': 'allowlisted_metadata_only',
+                        'versions': versions[-32:], 'versionsTruncated': len(versions) > 32, 'androidBuilds': builds[-64:],
+                        'transport': {'retainedCount': len(records), 'recordLimit': MAX_LINES, 'recordByteLimit': MAX_LINE_BYTES,
+                                      'firstSequence': min((r.get('sequence', 0) for r in records), default=None),
+                                      'lastSequence': max((r.get('sequence', 0) for r in records), default=None),
+                                      'captureStartMs': min((r.get('timestampMs', 0) for r in records), default=None),
+                                      'captureEndMs': max((r.get('timestampMs', 0) for r in records), default=None),
+                                      'timing': 'timestampMs is occurrence time; recordedAtMs is write time; durationMs is monotonic',
+                                      'httpIdentity': 'httpRequestId identifies one call; operationDigest identifies its caller operation',
+                                      'historicalTiming': 'Rows without arrivalAtMs retain legacy timing semantics.'},
+                        'journal': dict(coverage, queuedAtSnapshot=queued, queueDropped=dropped),
+                        'executionCoverage': 'Captured receipt transitions only. Absence does not prove no inference or lost jobs.',
+                        'files': [{'path': name, 'bytes': len(data), 'sha256': hashlib.sha256(data).hexdigest()}
+                                  for name, data in files.items()]}
+            output = io.BytesIO()
+            with zipfile.ZipFile(output, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
+                for name, data in files.items():
+                    archive.writestr(name, data)
+                archive.writestr('manifest.json', json.dumps(manifest, sort_keys=True, separators=(',', ':')).encode())
+            return output.getvalue()
+        finally:
+            self.export_lock.release()
 
     def export_session(self, principal, session):
         # A retained capture is bounded, but concurrent full exports multiply its
@@ -398,7 +479,7 @@ class DebugLogStore:
         if not self.export_lock.acquire(blocking=False):
             raise DiagnosticProtocolError('DIAGNOSTIC_EXPORT_BUSY', 429)
         try:
-            return self.journal.export(principal, session)
+            return self.journal.export(principal, session, versions=self.provenance)
         finally:
             self.export_lock.release()
 
@@ -446,11 +527,13 @@ def lifecycle(store, parent):
     @asynccontextmanager
     async def run(app):
         store.start()
+        clean = False
         try:
             async with parent(app):
                 yield
+            clean = True
         finally:
-            await asyncio.to_thread(store.stop)
+            await asyncio.to_thread(store.stop, clean=clean)
     return run
 
 
@@ -458,23 +541,33 @@ class DebugMiddleware:
     """Observe even admission errors; only admitted clients receive a metadata acknowledgement."""
     def __init__(self, app, store, instance_id):
         self.app, self.store, self.instance_id = app, store, instance_id
+        self.now = getattr(store, 'now', time.time)
 
     async def __call__(self, scope, receive, send):
         if scope['type'] != 'http':
             return await self.app(scope, receive, send)
+        started, arrived_at = time.monotonic(), int(self.now() * 1000)
         headers = dict(scope.get('headers', []))
         request_id = headers.get(b'x-request-id', b'').decode('latin1')
         if not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', request_id):
             request_id = uuid.uuid4().hex
         client = client_metadata(headers.get(CLIENT_HEADER.lower().encode(), b'').decode('latin1'))
-        context = {'requestDigest': digest(request_id), 'principalDigest': digest('unavailable'),
-                   'route': route_kind(scope.get('path', '')), 'method': scope.get('method', '')}
+        context = {'requestDigest': digest(request_id), 'operationDigest': digest(request_id),
+                   'httpRequestId': uuid.uuid4().hex, 'principalDigest': digest('unavailable'),
+                   'route': route_kind(scope.get('path', '')), 'method': scope.get('method', ''),
+                   'arrivalAtMs': arrived_at, 'clientType': 'unknown'}
+        retry = headers.get(b'x-gateway-retry-attempt', b'')
+        if re.fullmatch(b'[0-9]', retry):
+            context['retryAttempt'] = int(retry)
         job = headers.get(b'x-gateway-job-id', b'')
         if job:
             context['jobDigest'] = digest(job.decode('latin1'))
         observed = not scope.get('path', '').removeprefix('/v1').startswith('/gateway/admin/debug')
         observed = observed and not scope.get('path', '').removeprefix('/v1').startswith('/gateway/debug/')
         trace = trace_context(headers.get(b'traceparent', b'').decode('ascii', errors='ignore')) or {'trace_id': uuid.uuid4().hex, 'span_id': uuid.uuid4().hex[:16]}
+        context.update(traceId=trace['trace_id'], spanId=trace['span_id'])
+        if trace.get('parent_span_id'):
+            context['parentSpanId'] = trace['parent_span_id']
         scope.setdefault('state', {})['diagnostic_trace'] = trace
         trace_marker = current_diagnostic_trace.set(trace)
         session = headers.get(b'x-gateway-diagnostic-session', b'').decode('ascii', errors='ignore')
@@ -484,11 +577,12 @@ class DebugMiddleware:
             capture_started = None
         capture_marker = current_diagnostic_capture.set({'session': session, 'started': capture_started, 'request_state': scope['state']}
                                                          if HEX32.fullmatch(session) and capture_started is not None else None)
-        started = time.monotonic()
         received = sent = 0
         status = None
         response_started = response_completed = False
         request_logged = False
+        response_at = completed_at = completed_duration = None
+        admission, response_body, body_oversize = None, bytearray(), False
 
         def attributes():
             return {'route': context['route'], 'method': context['method'],
@@ -498,7 +592,8 @@ class DebugMiddleware:
             principal = scope.get('state', {}).get('principal')
             if observed and principal is not None and HEX32.fullmatch(session) and capture_started is not None:
                 self.store.record_event(principal.id, session, capture_started, stage=stage, severity=severity,
-                                        error_code=error_code, request_id=context['requestDigest'], **trace, **fields)
+                                        error_code=error_code, request_id=context['httpRequestId'],
+                                        operation_id=context['operationDigest'], **trace, **fields)
 
         def record_request():
             nonlocal request_logged
@@ -506,9 +601,12 @@ class DebugMiddleware:
                 return
             principal = scope.get('state', {}).get('principal')
             context['principalDigest'] = digest(getattr(principal, 'id', 'unavailable'))
-            self.store.record('client_request', client=client if principal else {}, **context)
+            if principal:
+                context['clientType'] = ('desktop_manager' if principal.id == 'local:manager' else
+                                         'android' if type(client.get('androidSdk')) is int else client.get('clientType', 'unknown'))
+            self.store.record('client_request', timestampMs=arrived_at, client=client if principal else {}, **context)
             event('request', direction='client_to_gateway', dispatch_state='dispatched', category='transport',
-                  bounded_attributes=attributes())
+                  occurred_at_utc=arrived_at, bounded_attributes=attributes())
             request_logged = True
 
         async def observed_receive():
@@ -518,10 +616,11 @@ class DebugMiddleware:
             return message
 
         async def observed_send(message):
-            nonlocal status, sent, response_started, response_completed
+            nonlocal status, sent, response_started, response_completed, response_at, completed_at, completed_duration, admission, body_oversize
             if message['type'] == 'http.response.start':
                 status = message['status']
                 additions = {b'x-gateway-instance-id': self.instance_id.encode(), b'x-gateway-debug-protocol': b'2',
+                             b'x-gateway-http-request-id': context['httpRequestId'].encode('ascii'),
                              b'x-gateway-debug-enabled': b'true' if self.store.enabled else b'false',
                              b'traceparent': f"00-{trace['trace_id']}-{trace['span_id']}-01".encode('ascii')}
                 if trace.get('parent_span_id'):
@@ -529,6 +628,7 @@ class DebugMiddleware:
                 if client and self.store.enabled and scope.get('state', {}).get('principal'):
                     additions[b'x-gateway-client-diagnostics-accepted'] = b'1'
                 prior = list(message.get('headers', []))
+                admission = next((v.decode('ascii', errors='ignore') for k, v in prior if k.lower() == b'x-gateway-admission-error'), None)
                 returned_id = next((v.decode('latin1') for k, v in prior if k.lower() == b'x-gateway-request-id'), None)
                 if returned_id is None:
                     additions[b'x-gateway-request-id'] = request_id.encode()
@@ -540,9 +640,22 @@ class DebugMiddleware:
             await send(message)
             if message['type'] == 'http.response.start':
                 response_started = True
+                response_at = int(self.now() * 1000)
             elif message['type'] == 'http.response.body':
-                sent += len(message.get('body', b''))
+                body = message.get('body', b'')
+                sent += len(body)
+                metadata = context['route'] in {'models', 'readiness', 'capabilities', 'backend_health', 'backend_properties', 'maintenance'}
+                metadata = metadata or context['route'] == 'engineering' and (status >= 400 or scope.get('path', '').endswith('/capabilities'))
+                if observed and self.store.enabled and metadata and not body_oversize:
+                    if len(response_body) + len(body) <= 65536:
+                        response_body.extend(body)
+                    else:
+                        response_body.clear()
+                        body_oversize = True
                 response_completed = not message.get('more_body', False)
+                if response_completed:
+                    completed_at = int(self.now() * 1000)
+                    completed_duration = max(0, int((time.monotonic() - started) * 1000))
 
         try:
             await self.app(scope, observed_receive, observed_send)
@@ -563,12 +676,32 @@ class DebugMiddleware:
                 # A broken connection before response.start is not an observed HTTP
                 # 500. A sent header also does not prove a complete response body.
                 if response_started:
+                    body = None
+                    if response_completed and response_body and not body_oversize:
+                        try:
+                            body = json.loads(response_body)
+                        except (ValueError, UnicodeDecodeError, RecursionError):
+                            pass
+                    summary = response_summary(body, admission)
+                    duration = completed_duration if completed_duration is not None else max(0, int((time.monotonic() - started) * 1000))
                     self.store.record('gateway_response', status=status, receivedBytes=received, sentBytes=sent,
-                                      durationMs=max(0, int((time.monotonic() - started) * 1000)), **context)
-                    event('response', severity='error' if status >= 400 else 'info', error_code='HTTP_ERROR' if status >= 400 else 'NONE',
+                                      timestampMs=completed_at or int(self.now() * 1000), responseStartedAtMs=response_at,
+                                      completedAtMs=completed_at, responseHeadersSent=response_started, responseBodyCompleted=response_completed,
+                                      durationMs=duration, observation=summary,
+                                      admissionCode=admission, diagnosticTruncated=body_oversize, **context)
+                    receipt = {**attributes(), 'status': status, 'received_bytes': received, 'sent_bytes': sent}
+                    receipt.update({key: value for key, value in {
+                        'gateway_admission_code': admission, 'failure_code': summary.get('failureCode'),
+                        'reason_code': summary.get('reasonCode'), 'dependency': summary.get('dependency'),
+                        'upstream_status': summary.get('upstreamStatus')}.items() if value is not None})
+                    restricted = admission == 'remote_surface_not_admitted'
+                    severity = 'info' if restricted else 'error' if status >= 500 else 'warning' if status >= 400 or summary.get('failureCode') else 'info'
+                    code = 'AUTHORIZATION_FAILED' if status in {401, 403} else 'HTTP_ERROR' if status >= 400 else 'SOURCE_UNAVAILABLE' if summary.get('failureCode') else 'NONE'
+                    event('response', severity=severity, error_code=code,
                           direction='gateway_to_client', category='transport', dispatch_state='response_received',
-                          local_duration_ms=max(0, int((time.monotonic() - started) * 1000)),
-                          bounded_attributes={**attributes(), 'status': status, 'received_bytes': received, 'sent_bytes': sent})
+                          occurred_at_utc=completed_at if completed_at is not None else int(self.now() * 1000),
+                          local_duration_ms=duration,
+                          bounded_attributes=receipt)
             current_diagnostic_trace.reset(trace_marker)
             current_diagnostic_capture.reset(capture_marker)
 
@@ -641,6 +774,14 @@ def install_routes(app, store):
             return JSONResponse({'error': {'code': 'invalid_debug_settings'}}, status_code=400)
 
     @app.get('/gateway/admin/debug/export')
-    def export():
-        return Response(store.export(), media_type='application/x-ndjson', headers={
-            'Content-Disposition': 'attachment; filename="gateway-debug.jsonl"', 'Cache-Control': 'no-store'})
+    def export(format: str = 'jsonl'):
+        if format == 'jsonl':
+            return Response(store.export(), media_type='application/x-ndjson', headers={
+                'Content-Disposition': 'attachment; filename="gateway-debug.jsonl"', 'Cache-Control': 'no-store'})
+        if format != 'zip':
+            return JSONResponse({'error': {'code': 'invalid_debug_export_format'}}, status_code=400)
+        try:
+            return Response(store.export_bundle(), media_type='application/zip', headers={
+                'Content-Disposition': 'attachment; filename="gateway-debug.zip"', 'Cache-Control': 'no-store'})
+        except DiagnosticProtocolError as failure:
+            return error(failure)

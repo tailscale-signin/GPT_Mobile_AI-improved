@@ -16,6 +16,9 @@ import time
 import uuid
 import zipfile
 
+from .debug_projection import ROUTES, FAILURE_CODES
+from .backend_observation import DEPENDENCIES
+
 MAX_EVENTS = 5000
 MAX_EVENT_BYTES = 2048
 MAX_BATCH_EVENTS = 64
@@ -47,12 +50,12 @@ ENUMS = {
 NUMBER_ATTRIBUTES = {'status', 'received_bytes', 'sent_bytes', 'queue_ms', 'load_ms', 'prefill_ms', 'decode_ms', 'output_tokens',
                      'input_tokens', 'frame_count', 'slow_frames', 'dropped_frames', 'gc_count', 'heap_bytes', 'network_epoch',
                      'android_sdk', 'app_version_code', 'occurrence_count', 'source_record_bytes', 'stalls_over_500_ms',
-                     'refresh_rate_millihz', 'gc_duration_ms', 'native_heap_bytes'}
+                     'refresh_rate_millihz', 'gc_duration_ms', 'native_heap_bytes', 'upstream_status'}
 DIGEST_ATTRIBUTES = {'profile_digest', 'model_digest', 'endpoint_digest', 'repository_digest', 'app_revision', 'gateway_revision',
                      'capability_digest', 'runtime_config_digest', 'source_event_digest'}
 BOOL_ATTRIBUTES = {'vendor_log_available', 'source_available', 'client_metadata_accepted', 'truncation_applied',
                    'response_headers_received', 'response_headers_sent', 'response_body_completed'}
-ENUM_ATTRIBUTES = {'route': {'chat', 'models', 'readiness', 'liveness', 'capabilities', 'dashboard', 'job', 'engineering', 'other'},
+ENUM_ATTRIBUTES = {'route': ROUTES, 'failure_code': FAILURE_CODES, 'reason_code': FAILURE_CODES, 'dependency': DEPENDENCIES,
                    'method': {'GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'},
                    'client_metadata_acknowledgment': {'ACCEPTED', 'NOT_REQUESTED', 'REJECTED_BEFORE_PROCESSING', 'NOT_CONFIRMED'},
                    'gateway_admission_code': {'remote_surface_not_admitted', 'scope_not_granted', 'engineering_scope_required',
@@ -473,6 +476,82 @@ class DiagnosticSessionJournal:
             except (OSError, sqlite3.Error, ValueError):
                 self.storage_error = 'DEBUG_STORAGE_UNAVAILABLE'
                 raise DiagnosticProtocolError(self.storage_error, 503) from None
+
+    def local_snapshot(self):
+        """Local-admin export across retained captures, bounded independently of database size.
+
+        A stopped gateway is opened read-only. Never initialize a missing journal,
+        copy a live WAL, change its lock mode or bypass per-principal remote exports.
+        """
+        with self.lock:
+            if self.db is None and not self.path.is_file():
+                return [], {'availability': 'not_observed', 'retainedCount': 0, 'complete': False}
+            db, owned = self.db, self.db is None
+            try:
+                if owned:
+                    db = sqlite3.connect(self.path.resolve().as_uri() + '?mode=ro', uri=True, timeout=1)
+                    db.row_factory = sqlite3.Row
+                total = db.execute('SELECT COUNT(*) FROM events').fetchone()[0]
+                rows = db.execute('SELECT owner,session,cursor,substr(payload,1,?) AS payload FROM events ORDER BY rowid DESC LIMIT ?',
+                                  (MAX_EVENT_BYTES + 1, MAX_EVENTS)).fetchall()
+                captures = db.execute('SELECT owner,session,created,last_ingest,evicted,rejected,dropped FROM captures ORDER BY updated DESC LIMIT ?',
+                                      (MAX_SESSIONS,)).fetchall()
+                clean, rejected = [], 0
+                for row in reversed(rows):
+                    try:
+                        raw = json.loads(row['payload'])
+                        event = sanitize_event(raw, imported=raw.get('owner') != 'gateway')
+                    except (ValueError, TypeError, AttributeError, RecursionError):
+                        event = None
+                    if (event is None or not isinstance(row['owner'], str) or not HEX64.fullmatch(row['owner'])
+                            or not isinstance(row['session'], str) or not HEX32.fullmatch(row['session']) or not integer(row['cursor'])):
+                        rejected += 1
+                        continue
+                    event.update(session_id=row['session'], principal_digest=row['owner'], gateway_ingest_sequence=row['cursor'])
+                    if integer(raw.get('observed_at_utc')):
+                        event['observed_at_utc'] = raw['observed_at_utc']
+                    clean.append(event)
+                coverage = []
+                for row in captures:
+                    if not isinstance(row['owner'], str) or not HEX64.fullmatch(row['owner']) or not isinstance(row['session'], str) or not HEX32.fullmatch(row['session']):
+                        continue
+                    item = {'principalDigest': row['owner'], 'sessionId': row['session']}
+                    for key in ('created', 'last_ingest', 'evicted', 'rejected', 'dropped'):
+                        if integer(row[key]):
+                            item[key] = row[key]
+                    item['exportedCount'] = sum(e['session_id'] == row['session'] and e['principal_digest'] == row['owner'] for e in clean)
+                    coverage.append(item)
+                sources = []
+                for row in db.execute('SELECT owner,session,origin,boot,accounted,highest_received,received_count,lost_count,substr(gaps,1,65536) AS gaps FROM origins ORDER BY updated DESC LIMIT ?',
+                                      (MAX_SESSIONS * MAX_SOURCES,)):
+                    if not all(isinstance(row[key], str) and pattern.fullmatch(row[key]) for key, pattern in
+                               (('owner', HEX64), ('session', HEX32), ('origin', HEX32), ('boot', HEX32))):
+                        continue
+                    item = {'principalDigest': row['owner'], 'sessionId': row['session'], 'origin': row['origin'], 'bootId': row['boot']}
+                    for key in ('accounted', 'highest_received', 'received_count', 'lost_count'):
+                        if integer(row[key]):
+                            item[key] = row[key]
+                    try:
+                        gaps = json.loads(row['gaps'])
+                        gaps = gaps if isinstance(gaps, list) else []
+                    except (ValueError, TypeError, RecursionError):
+                        gaps = []
+                    item['gapCount'] = len(gaps)
+                    item['gaps'] = [{'first': gap['first'], 'last': gap['last'], 'reason': gap['reason']} for gap in gaps[-16:]
+                                    if isinstance(gap, dict) and integer(gap.get('first'), 1) and integer(gap.get('last'), gap['first'])
+                                    and isinstance(gap.get('reason'), str) and gap['reason'] in LOSS_REASONS]
+                    item['gapsTruncated'] = len(gaps) > len(item['gaps'])
+                    sources.append(item)
+                return clean, {'availability': 'retained_evidence' if clean else 'not_observed',
+                               'retainedCount': total, 'exportedCount': len(clean), 'eventLimit': MAX_EVENTS,
+                               'exportRejectedCount': rejected, 'exportTruncated': total > MAX_EVENTS,
+                               'captures': coverage, 'sources': sources, 'complete': False,
+                               'coverage': 'Retained capture events only; capture gaps and uncaptured execution are not certified.'}
+            except (OSError, sqlite3.Error, ValueError, TypeError):
+                return [], {'availability': 'unavailable', 'failureCode': 'DEBUG_STORAGE_UNAVAILABLE', 'complete': False}
+            finally:
+                if owned and db is not None:
+                    db.close()
 
     def read(self, principal, session, after=0, limit=64, exclude_origin=None):
         if not integer(after) or not integer(limit, 1, MAX_BATCH_EVENTS) or (exclude_origin is not None and not HEX32.fullmatch(exclude_origin)):

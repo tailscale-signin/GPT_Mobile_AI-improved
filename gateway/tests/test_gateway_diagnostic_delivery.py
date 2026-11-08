@@ -51,7 +51,9 @@ class DiagnosticDeliveryTests(unittest.IsolatedAsyncioTestCase):
             await self.exchange(app)
         self.assertEqual(['client_request', 'transport_failure'], [row['event'] for row in self.store.records])
         self.assertEqual(['request', 'transport'], [row['stage'] for row in self.store.events])
-        self.assertTrue(all(row['trace_id'] == '1' * 32 and row['request_id'] == digest('1' * 32) for row in self.store.events))
+        physical = self.store.records[0]['httpRequestId']
+        self.assertTrue(all(row['trace_id'] == '1' * 32 and row['request_id'] == physical
+                            and row['operation_id'] == digest('1' * 32) for row in self.store.events))
         failure = self.store.events[-1]
         self.assertEqual('unknown', failure['dispatch_state'])
         self.assertFalse(failure['bounded_attributes']['response_headers_sent'])

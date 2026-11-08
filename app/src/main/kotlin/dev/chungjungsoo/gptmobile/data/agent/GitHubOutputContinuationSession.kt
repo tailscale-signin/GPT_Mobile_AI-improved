@@ -65,7 +65,14 @@ internal class GitHubOutputContinuationSession(
             emit(ProviderEvent.Failed("OUTPUT_CONTINUATION_PENDING_TOOLS: Reconcile the saved tool batch before continuing its draft. The completed response has not been regenerated and no tool actions were repeated.", errorCode = "OUTPUT_CONTINUATION_PENDING_TOOLS", taskOutcome = "BLOCKED"))
             return@flow
         }
-        val restored = handoff ?: previous?.takeIf {
+        // A normal first tool round has no answer draft to continue. Its next
+        // round must still use the original session with the now-confirmed results.
+        // A handoff made by an interrupted continuation can be reasoning-only;
+        // retain its explicit origin even when its visible draft is empty.
+        val restored = handoff?.takeIf {
+            (it["draft"] as? JsonPrimitive)?.contentOrNull?.isNotEmpty() == true ||
+                it["handoff_continuation"] == JsonPrimitive(true)
+        } ?: previous?.takeIf {
             sameEvidence &&
                 (it["state"] == JsonPrimitive("OUTPUT_LIMIT") || it["resume_allowed"] == JsonPrimitive(true) || revised && it["state"] == JsonPrimitive("BLOCKED_NO_PROGRESS"))
         }
@@ -115,7 +122,10 @@ internal class GitHubOutputContinuationSession(
                 put("draft_kind", if (text.isBlank()) "NO_VISIBLE_DRAFT" else "UNVERIFIED_VISIBLE_DRAFT")
                 put("user_input_required", pendingApproval)
                 if (pendingApproval) put("blocking_condition", "WAITING_FOR_APPROVAL")
-                if (pendingCalls.isNotEmpty()) put("pending_calls", JsonArray(pendingCalls.map { JsonPrimitive(callDigest(it)) }))
+                if (pendingCalls.isNotEmpty()) {
+                    put("pending_calls", JsonArray(pendingCalls.map { JsonPrimitive(callDigest(it)) }))
+                    put("handoff_continuation", needsContinuation)
+                }
                 failure?.let {
                     it.errorCode?.let { code -> put("failure_code", code) }
                     it.failureDetails?.let { details -> put("failure_details", details) }

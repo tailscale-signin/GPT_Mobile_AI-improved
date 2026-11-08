@@ -56,12 +56,24 @@ data class ProfileFailureRecord(
                 it == "WAITING_FOR_APPROVAL" || it in typedCodes || it in gatewayAdmissionCodes || it in readinessCodes || it in dev.chungjungsoo.gptmobile.data.github.GitHubFailurePolicy.codes || it in dev.chungjungsoo.gptmobile.data.network.error.ProviderContractFailure.codes
             } ?: "REQUEST_REJECTED".takeIf { rejectedStatus }
             val observed = classify(listOfNotNull(code, message).joinToString(": "))
+            val serverRequestId = dev.chungjungsoo.gptmobile.data.network.safeProviderRequestIdentity((details?.get("server_request_id") as? JsonPrimitive)?.contentOrNull)
+            val generationCompleted = (details?.get("generation_completed") as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull
+            val causeTypes = (details?.get("cause_types") as? JsonArray).orEmpty().take(16).mapNotNull { (it as? JsonPrimitive)?.contentOrNull?.takeIf { value -> value.length <= 160 && value.matches(Regex("[A-Za-z0-9_.$]+")) } }
             // A local rejection must not replace an already ambiguous remote operation.
-            if (observed.category == GatewayOutcomeRecovery.ERROR_CODE) return observed.copy(invocationId = invocationId)
-            if (observed.category == "TOOL_OUTCOME_UNKNOWN") {
-                // A later local rejection cannot establish that the earlier
-                // uncertain tool operation was never sent.
-                return observed.copy(dispatched = true.takeIf { details?.get("dispatched") == JsonPrimitive(true) }, invocationId = invocationId)
+            if (observed.category in setOf(GatewayOutcomeRecovery.ERROR_CODE, "TOOL_OUTCOME_UNKNOWN")) {
+                // Positive acceptance and identity are useful observations, not proof
+                // that uncertain tool work finished. A later negative admission
+                // receipt cannot establish that the earlier operation was never sent.
+                return observed.copy(
+                    retryAllowed = false,
+                    dispatched = true.takeIf { observed.category == GatewayOutcomeRecovery.ERROR_CODE || details?.get("dispatched") == JsonPrimitive(true) },
+                    remoteAcceptance = if ((details?.get("remote_acceptance") as? JsonPrimitive)?.contentOrNull in setOf("YES", "ACCEPTED")) RemoteRequestAcceptance.YES else observed.remoteAcceptance,
+                    invocationId = invocationId,
+                    serverRequestId = serverRequestId,
+                    generationCompleted = generationCompleted,
+                    requestReplayAllowed = false,
+                    causeTypes = causeTypes
+                )
             }
             val authoritative = code?.let { classify(it) }
             val legacy = if (authoritative != null) {
@@ -102,10 +114,10 @@ data class ProfileFailureRecord(
                 remoteAcceptance = if (localCircuitRejection || authorityPrecheck || catalogPrecheck || dispatchState in setOf("not_dispatched", "precheck_rejected")) RemoteRequestAcceptance.NO else observedAcceptance,
                 retryAfterMillis = if (localCircuitRejection && retryAfter != null) System.currentTimeMillis() + retryAfter else legacy.retryAfterMillis,
                 invocationId = invocationId,
-                serverRequestId = dev.chungjungsoo.gptmobile.data.network.safeProviderRequestIdentity((details?.get("server_request_id") as? JsonPrimitive)?.contentOrNull),
-                generationCompleted = (details?.get("generation_completed") as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull,
+                serverRequestId = serverRequestId,
+                generationCompleted = generationCompleted,
                 requestReplayAllowed = (details?.get("request_replay_allowed") as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull,
-                causeTypes = (details?.get("cause_types") as? JsonArray).orEmpty().take(16).mapNotNull { (it as? JsonPrimitive)?.contentOrNull?.takeIf { value -> value.length <= 160 && value.matches(Regex("[A-Za-z0-9_.$]+")) } }
+                causeTypes = causeTypes
             )
         }
 

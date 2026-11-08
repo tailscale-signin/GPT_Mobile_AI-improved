@@ -13,6 +13,7 @@ import dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
 import dev.chungjungsoo.gptmobile.data.model.ClientType
+import dev.chungjungsoo.gptmobile.data.queue.GatewayQueuedSelection
 import dev.chungjungsoo.gptmobile.data.repository.ChatRepository
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import io.mockk.coEvery
@@ -153,10 +154,32 @@ class GatewayChatSubmissionTest {
     fun temporaryChatAndLegacyEndpointNeverCreateDurableEngineeringWork() = runTest {
         coEvery { chats.researchPersistenceAllowed(4) } returns false
         assertNull(service.submitIfSupported(request))
+        coVerify(exactly = 0) { settings.getFeatureSettings() }
+        coVerify(exactly = 0) { engineering.conversationWriteBlocker(any()) }
         coVerify(exactly = 0) { engineering.supportsDurableChat(any()) }
         supported()
         coEvery { engineering.supportsDurableChat("profile") } returns false
         assertNull(service.submitIfSupported(request))
+        coVerify(exactly = 0) { engineering.submitTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun explicitGatewayChatKeepsItsOrdinaryWriteBlockerAndCannotBecomeEngineeringWork() = runTest {
+        coEvery { chats.researchPersistenceAllowed(4) } returns true
+        coEvery { settings.getFeatureSettings() } returns AppFeatureSettings(
+            conversationGateway = mapOf(4 to GatewayQueuedSelection.capture(request.platform, request.platform.model))
+        )
+        coEvery { conversations.conversationWriteBlocker(4) } returns null
+        assertNull(service.submitIfSupported(request))
+        coEvery { conversations.conversationWriteBlocker(4) } returns "Restore the original Gateway account."
+        try {
+            service.submitIfSupported(request)
+            fail("A retained ordinary Gateway binding must still block a changed destination")
+        } catch (expected: IllegalStateException) {
+            assertEquals("Restore the original Gateway account.", expected.message)
+        }
+        coVerify(exactly = 0) { engineering.conversationWriteBlocker(any()) }
+        coVerify(exactly = 0) { engineering.submitBoundTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
         coVerify(exactly = 0) { engineering.submitTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
     }
 

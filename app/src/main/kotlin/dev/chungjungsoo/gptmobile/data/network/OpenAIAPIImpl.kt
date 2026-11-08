@@ -360,12 +360,21 @@ class OpenAIAPIImpl @Inject constructor(
                                     val category = providerPayloadFailure(error.code, error.message, preparedRequest.toolChoice, !preparedRequest.tools.isNullOrEmpty())
                                     config.freeDiagnostics?.category = category
                                     val contract = dev.chungjungsoo.gptmobile.data.network.error.ProviderContractFailure.find(error.code, error.message)
+                                    val uncertainToolWork = dispatchRetryGuard.remoteOutcomeUnknown || decoded.gatewayProgress?.event in setOf("tool_started", "tool_completed", "tool_failed", "remote_tool_handoff")
+                                    val reportedMessage = contract?.message ?: "${category.name}: " + config.readableProviderError(providerErrorDetails(responseBody, error.message, config.token), error.code)
+                                    val details = structuredProviderFailure(responseBody, response.status.value)
                                     error.copy(
-                                        message = contract?.message ?: "${category.name}: " + config.readableProviderError(providerErrorDetails(responseBody, error.message, config.token), error.code),
-                                        code = contract?.code ?: error.code,
-                                        type = if (contract != null) "provider_contract_error" else category.name.lowercase(),
-                                        retryable = if (contract != null) false else error.retryable,
-                                        failureDetails = structuredProviderFailure(responseBody, response.status.value)
+                                        message = if (uncertainToolWork) uncertainGatewayFailureMessage(reportedMessage) else reportedMessage,
+                                        code = if (uncertainToolWork) "GATEWAY_OUTCOME_UNKNOWN" else contract?.code ?: error.code,
+                                        type = if (uncertainToolWork) {
+                                            "gateway_outcome_unknown"
+                                        } else if (contract != null) {
+                                            "provider_contract_error"
+                                        } else {
+                                            category.name.lowercase()
+                                        },
+                                        retryable = if (uncertainToolWork || contract != null) false else error.retryable,
+                                        failureDetails = if (uncertainToolWork) uncertainGatewayFailureDetails(details, responseObserver.snapshot(), error.code) else details
                                     )
                                 }
                             )
@@ -442,28 +451,36 @@ class OpenAIAPIImpl @Inject constructor(
                             val parsingTiming = responseObserver.parsed(decoded.hasAssistantGeneratedOutput())
                             config.freeDiagnostics?.response = config.freeDiagnostics?.response?.withChunk(decoded)
                             usageReceipt.observe(decoded.usage, decoded.hasAssistantStreamPayload())
-                            if (!receivedAssistantPayload && !receivedGatewayToolActivity) {
+                            if (decoded.gatewayProgress?.event in setOf("tool_started", "tool_completed", "tool_failed", "remote_tool_handoff")) {
+                                receivedGatewayToolActivity = true
+                            }
+                            if (!receivedAssistantPayload && !receivedGatewayToolActivity && !dispatchRetryGuard.remoteOutcomeUnknown) {
                                 decoded.error?.let { error ->
                                     if (error.retryable != false && ResilientStreamingClient.isRetryable(IllegalStateException("${error.code.orEmpty()} ${error.message}"))) {
                                         throw java.io.IOException("Gateway/provider transient error: ${error.message}")
                                     }
                                 }
                             }
-                            if (decoded.gatewayProgress?.event in setOf("tool_started", "tool_completed", "tool_failed", "remote_tool_handoff")) {
-                                receivedGatewayToolActivity = true
-                            }
                             val chunk = decoded.error?.let { error ->
                                 val category = providerPayloadFailure(error.code, error.message, preparedRequest.toolChoice, !preparedRequest.tools.isNullOrEmpty())
                                 config.freeDiagnostics?.category = category
                                 val details = structuredProviderFailure(data, response.status.value)
                                 val contract = dev.chungjungsoo.gptmobile.data.network.error.ProviderContractFailure.find(error.code, error.message)
+                                val uncertainToolWork = receivedGatewayToolActivity || dispatchRetryGuard.remoteOutcomeUnknown
+                                val reportedMessage = contract?.message ?: "${category.name}: " + config.readableProviderError(providerErrorDetails(data, error.message, config.token), error.code)
                                 decoded.copy(
                                     error = error.copy(
-                                        message = contract?.message ?: "${category.name}: " + config.readableProviderError(providerErrorDetails(data, error.message, config.token), error.code),
-                                        code = contract?.code ?: error.code,
-                                        type = if (contract != null) "provider_contract_error" else category.name.lowercase(),
-                                        retryable = if (contract != null) false else error.retryable,
-                                        failureDetails = details
+                                        message = if (uncertainToolWork) uncertainGatewayFailureMessage(reportedMessage) else reportedMessage,
+                                        code = if (uncertainToolWork) "GATEWAY_OUTCOME_UNKNOWN" else contract?.code ?: error.code,
+                                        type = if (uncertainToolWork) {
+                                            "gateway_outcome_unknown"
+                                        } else if (contract != null) {
+                                            "provider_contract_error"
+                                        } else {
+                                            category.name.lowercase()
+                                        },
+                                        retryable = if (uncertainToolWork || contract != null) false else error.retryable,
+                                        failureDetails = if (uncertainToolWork) uncertainGatewayFailureDetails(details, responseObserver.snapshot(), error.code) else details
                                     )
                                 )
                             } ?: decoded
@@ -570,7 +587,7 @@ class OpenAIAPIImpl @Inject constructor(
             if (e is CancellationException || e is dev.chungjungsoo.gptmobile.data.agent.ToolDefinitionsRejectedException) throw e
             ProviderConnectivityPreflight.failed(config.apiUrl, e)
             LocalServiceHealth.recordLocalFailure(config.apiUrl, e)
-            val gatewayOutcomeUnknown = dispatchRetryGuard.remoteOutcomeUnknown
+            val gatewayOutcomeUnknown = dispatchRetryGuard.remoteOutcomeUnknown || receivedGatewayToolActivity
             val transportFailure = networkFailureKind(e)
             val providerFailure = providerExceptionDetails(e, receivedAssistantPayload)
             val failureCode = providerFailure?.code ?: if (transportFailure == NetworkFailureKind.UNKNOWN) "PROVIDER_INVOCATION_FAILED" else transportFailure.code
@@ -808,10 +825,28 @@ class OpenAIAPIImpl @Inject constructor(
                             } catch (_: kotlinx.serialization.SerializationException) {
                                 continue
                             }
-                            val streamEvent = if (decoded is ResponseErrorEvent) {
-                                decoded.copy(message = effectiveConfig.readableProviderError(providerErrorDetails(data, decoded.message, effectiveConfig.token), decoded.code))
-                            } else {
-                                decoded
+                            val streamEvent = when (decoded) {
+                                is ResponseErrorEvent -> {
+                                    val reportedMessage = effectiveConfig.readableProviderError(providerErrorDetails(data, decoded.message, effectiveConfig.token), decoded.code)
+                                    if (dispatchRetryGuard.remoteOutcomeUnknown) {
+                                        decoded.copy(message = uncertainGatewayFailureMessage(reportedMessage), code = "GATEWAY_OUTCOME_UNKNOWN", failureDetails = uncertainGatewayFailureDetails(decoded.failureDetails ?: structuredResponsesFailure(data, response.status.value), responseObserver.snapshot(), decoded.code))
+                                    } else {
+                                        decoded.copy(message = reportedMessage)
+                                    }
+                                }
+                                is dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseFailedEvent -> {
+                                    if (dispatchRetryGuard.remoteOutcomeUnknown) {
+                                        val reported = decoded.response.error
+                                        ResponseErrorEvent(
+                                            message = uncertainGatewayFailureMessage(effectiveConfig.readableProviderError(providerErrorDetails(data, reported?.message ?: "Response failed", effectiveConfig.token), reported?.code)),
+                                            code = "GATEWAY_OUTCOME_UNKNOWN",
+                                            failureDetails = uncertainGatewayFailureDetails(structuredResponsesFailure(data, response.status.value), responseObserver.snapshot(), reported?.code)
+                                        )
+                                    } else {
+                                        decoded
+                                    }
+                                }
+                                else -> decoded
                             }
                             receivedTerminal = receivedTerminal ||
                                 streamEvent is dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseCompletedEvent ||
@@ -916,6 +951,36 @@ class OpenAIAPIImpl @Inject constructor(
             )
         }
     }.flowOn(Dispatchers.IO)
+}
+
+/** A server error is retained as a server report, not fabricated as a local socket exception. */
+private fun uncertainGatewayFailureMessage(reportedMessage: String): String =
+    "GATEWAY_OUTCOME_UNKNOWN: The accepted request may have performed server tool work. Check the saved gateway job before continuing; no request or tool action was replayed. Provider reported: $reportedMessage"
+
+private fun uncertainGatewayFailureDetails(details: kotlinx.serialization.json.JsonObject?, timing: ProviderResponseTiming, reportedCode: String?): kotlinx.serialization.json.JsonObject =
+    kotlinx.serialization.json.JsonObject(
+        details.orEmpty() + kotlinx.serialization.json.buildJsonObject {
+            put("code", JsonPrimitive("GATEWAY_OUTCOME_UNKNOWN"))
+            put("failed_stage", JsonPrimitive("gateway_dispatch"))
+            put("dispatched", JsonPrimitive(true))
+            timing.httpStatus?.let { put("http_status", JsonPrimitive(it)) }
+            put("remote_acceptance", JsonPrimitive(if (timing.httpStatus in 200..299) "YES" else "UNKNOWN"))
+            put("generation_completed", JsonPrimitive(false))
+            put("requires_reconciliation", JsonPrimitive(true))
+            put("request_replay_allowed", JsonPrimitive(false))
+            put("logical_continuation_allowed", JsonPrimitive(false))
+            timing.serverRequestId?.let { put("server_request_id", JsonPrimitive(it)) }
+            timing.generationId?.let { put("generation_id", JsonPrimitive(it)) }
+            (reportedCode ?: (details?.get("code") as? JsonPrimitive)?.content)?.takeIf { it.matches(Regex("[A-Za-z0-9_.:-]{1,80}")) }?.let { put("upstream_error_code", JsonPrimitive(it)) }
+            (details?.get("failed_stage") as? JsonPrimitive)?.content?.takeIf { it.matches(Regex("[A-Za-z0-9_.:-]{1,80}")) }?.let { put("upstream_failed_stage", JsonPrimitive(it)) }
+            (details?.get("dispatched") as? JsonPrimitive)?.booleanOrNull?.let { put("upstream_dispatched", JsonPrimitive(it)) }
+        }
+    )
+
+private fun structuredResponsesFailure(data: String, status: Int): kotlinx.serialization.json.JsonObject? {
+    val root = runCatching { kotlinx.serialization.json.Json.parseToJsonElement(data) as? kotlinx.serialization.json.JsonObject }.getOrNull() ?: return null
+    val error = ((root["response"] as? kotlinx.serialization.json.JsonObject)?.get("error") as? kotlinx.serialization.json.JsonObject) ?: root
+    return structuredProviderFailure(kotlinx.serialization.json.JsonObject(mapOf("error" to error)).toString(), status)
 }
 
 private fun ChatCompletionChunk.hasAssistantGeneratedOutput(): Boolean =

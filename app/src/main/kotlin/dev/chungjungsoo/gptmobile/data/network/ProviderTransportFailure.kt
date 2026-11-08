@@ -49,7 +49,9 @@ internal fun providerTransportFailureDetails(
         put("logical_continuation_allowed", !requiresReconciliation && kind.retryable)
         put("partial_output_preserved", receivedPayload)
         put("visible_output_preserved", receivedVisibleText)
-        put("failure_kind", kind.code)
+        // Dispatch/acceptance are boundary observations. They do not turn an
+        // arbitrary provider/preparation exception into a network diagnosis.
+        if (kind != NetworkFailureKind.UNKNOWN) put("failure_kind", kind.code)
         put("cause_types", JsonArray(sanitizedCauseTypes(error).map(::JsonPrimitive)))
         if (requiresReconciliation) put("requires_reconciliation", true)
     }

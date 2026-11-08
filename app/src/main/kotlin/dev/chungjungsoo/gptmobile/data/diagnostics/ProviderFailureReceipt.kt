@@ -116,7 +116,11 @@ data class ProviderFailureReceipt(
                 remoteAcceptance = classified.remoteAcceptance,
                 generationCompleted = classified.generationCompleted,
                 requestReplayAllowed = classified.requestReplayAllowed,
-                logicalContinuationAllowed = (failure.failureDetails?.get("logical_continuation_allowed") as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull,
+                logicalContinuationAllowed = if (classified.category in setOf("GATEWAY_OUTCOME_UNKNOWN", "TOOL_OUTCOME_UNKNOWN") || failure.failureDetails?.get("requires_reconciliation") == JsonPrimitive(true)) {
+                    false
+                } else {
+                    (failure.failureDetails?.get("logical_continuation_allowed") as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull
+                },
                 serverRequestId = classified.serverRequestId,
                 generationId = dev.chungjungsoo.gptmobile.data.network.safeProviderRequestIdentity((failure.failureDetails?.get("generation_id") as? JsonPrimitive)?.contentOrNull),
                 causeTypes = classified.causeTypes

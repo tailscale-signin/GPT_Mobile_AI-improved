@@ -59,6 +59,22 @@ class ProviderTransportFailureTest {
         assertEquals(JsonPrimitive(false), details["generation_completed"])
         assertEquals(JsonPrimitive("provider_admission"), details["failed_stage"])
         assertFalse(details.containsKey("http_status"))
+        assertFalse(details.containsKey("failure_kind"))
+    }
+
+    @Test fun arbitraryProviderFailureKeepsObservedDispatchWithoutInventingANetworkDiagnosis() {
+        val details = providerTransportFailureDetails(
+            buildJsonObject { put("failed_stage", "stage_not_recorded") },
+            IllegalStateException("Provider failed without a recorded transport cause"),
+            null, true, false, false, false, false, false
+        )
+        assertEquals(JsonPrimitive("stage_not_recorded"), details["failed_stage"])
+        assertEquals(JsonPrimitive(true), details["dispatched"])
+        assertEquals(JsonPrimitive("UNKNOWN"), details["remote_acceptance"])
+        assertEquals(JsonPrimitive(false), details["request_replay_allowed"])
+        assertEquals(JsonPrimitive(false), details["logical_continuation_allowed"])
+        assertFalse(details.containsKey("failure_kind"))
+        assertFalse(details.containsKey("http_status"))
     }
 
     @Test fun unsafeResponseIdentifiersAreExcludedAndCausesAreBounded() {

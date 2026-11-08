@@ -33,6 +33,68 @@ class GitHubStreamCheckpointTest {
         override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flowOf(*events)
     }
 
+    @Test fun ordinaryEmptyToolHandoffPreservesTheDelegatesNextDraftBeforeContinuing() = runTest {
+        var checkpoint: JsonObject? = null
+        var originalRounds = 0
+        var continuations = 0
+        val original = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                if (originalRounds++ == 0) {
+                    emit(call)
+                    emit(ProviderEvent.Completed)
+                } else {
+                    assertEquals(listOf(receipt), exchanges)
+                    emit(ProviderEvent.TextDelta("Saved findings."))
+                    emit(ProviderEvent.Failed("The response reached its output limit.", transportComplete = true))
+                }
+            }
+        }
+        val continuation = GitHubOutputContinuationSession(original, maxContinuations = 1, saveCheckpoint = { checkpoint = it }) { draft, results, _ ->
+            continuations++
+            assertEquals("Saved findings.", draft)
+            assertEquals(listOf(receipt), results)
+            session(ProviderEvent.TextDelta(" Finished from the receipt."), ProviderEvent.Completed)
+        }
+        assertEquals(listOf(call), continuation.streamRound(listOf(tool), emptyList()).toList().filterIsInstance<ProviderEvent.ToolCall>())
+        assertEquals(JsonPrimitive(false), checkpoint?.get("handoff_continuation"))
+        val completed = continuation.streamRound(listOf(tool), listOf(receipt)).toList()
+        assertEquals(2, originalRounds)
+        assertEquals(1, continuations)
+        assertEquals("Saved findings. Finished from the receipt.", completed.filterIsInstance<ProviderEvent.TextDelta>().single().text)
+    }
+
+    @Test fun reasoningOnlyInterruptedContinuationKeepsItsOriginAcrossAnotherToolHandoff() = runTest {
+        var checkpoint: JsonObject? = null
+        var originalRounds = 0
+        var continuations = 0
+        val next = call.copy(callId = "read-2")
+        val nextReceipt = AgentToolExchange(listOf(next), listOf(AgentToolResult(next.callId, ToolResultContent.Text("Second verified result"), false)))
+        val original = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                check(originalRounds++ == 0) { "The interrupted generation must not replay" }
+                emit(ProviderEvent.ThinkingDelta("Private reasoning before disconnect"))
+                emit(interrupted)
+            }
+        }
+        val continuation = GitHubOutputContinuationSession(original, readCheckpoint = { checkpoint }, saveCheckpoint = { checkpoint = it }) { draft, results, _ ->
+            assertEquals("", draft)
+            if (++continuations == 1) {
+                assertEquals(listOf(receipt), results)
+                session(next, ProviderEvent.Completed)
+            } else {
+                assertEquals(listOf(receipt, nextReceipt), results)
+                session(ProviderEvent.TextDelta("Answer from both saved results."), ProviderEvent.Completed)
+            }
+        }
+        assertEquals(interrupted, continuation.streamRound(listOf(tool), listOf(receipt)).toList().last())
+        assertEquals(listOf(next), continuation.streamRound(listOf(tool), listOf(receipt)).toList().filterIsInstance<ProviderEvent.ToolCall>())
+        assertEquals(JsonPrimitive(true), checkpoint?.get("handoff_continuation"))
+        val completed = continuation.streamRound(listOf(tool), listOf(receipt, nextReceipt)).toList()
+        assertEquals(1, originalRounds)
+        assertEquals(2, continuations)
+        assertEquals("Answer from both saved results.", completed.filterIsInstance<ProviderEvent.TextDelta>().single().text)
+    }
+
     @Test fun reasoningOnlyFailurePersistsTheCompletedBoundaryBeforeDispatchAndResumesAnEmptyDraft() = runTest {
         var checkpoint: JsonObject? = null
         val context = buildJsonObject {

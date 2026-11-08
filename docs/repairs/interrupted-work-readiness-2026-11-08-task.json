@@ -33,9 +33,11 @@
       "mcp": 41,
       "ci_reporting": 27,
       "accounting": 11,
-      "recovery": 98,
+      "recovery": 125,
       "workflow": 48,
-      "fixture_binding_publication": 20,
+      "fixture_binding_publication": 21,
+      "tool_schema_admission": 2,
+      "provider_transport": 51,
       "queue_deduplication": 2,
       "frame_and_memory_helpers": 6
     },
@@ -50,6 +52,7 @@
       "profile_creator_history_backup_host_passed": 62,
       "shared_monitor_host_passed": 16,
       "archive_policy_host_passed": 4,
+      "submission_policy_host_passed": 17,
       "queue_dao_sql_assertions_passed": 29,
       "chat_dao_sql_cases_passed": 4,
       "queue_room_tests_added": 17,
@@ -63,7 +66,7 @@
       "note": "Exact current-head results are reported by GitHub. Local host evidence is separate from Android workflow and physical-device qualification."
     }
   },
-  "qualification": "Requested source changes are implemented. Canonical host, focused behavioral, SQL and compile checks are recorded separately. Complete Android compilation/generated Room/Hilt/Compose checks await exact-head CI. Physical device lifecycle/performance and incident-PC model/service/fixture qualification remain unverified.",
+  "qualification": "Requested source changes are implemented. Canonical host, focused behavioral, SQL and compile checks are recorded separately. Exact-head GitHub workflows provide complete Android compilation/generated Room/Hilt/Compose and integration results at the linked checks page. Physical device lifecycle/performance and incident-PC model/service/fixture qualification remain unverified.",
   "issue_inventory": {
     "unique_issues": 250,
     "open": 0,

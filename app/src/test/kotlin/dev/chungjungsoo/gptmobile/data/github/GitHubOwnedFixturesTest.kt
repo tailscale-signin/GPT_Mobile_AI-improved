@@ -313,6 +313,54 @@ class GitHubOwnedFixturesTest {
         }
     }
 
+    @Test fun creationOnlyRecoveryReturnsPendingButCannotAuthorizeDeletionReconciliationAfterRestart() = runBlocking {
+        val directory = Files.createTempDirectory("github-fixture-before-delete").toFile()
+        try {
+            GitHubOwnedFixtures(GitHubRepositoryStateStore(directory), "task").register(root, creation(), created())
+            val restored = GitHubOwnedFixtures(GitHubRepositoryStateStore(directory), "task")
+            val recovery = buildJsonObject {
+                put("fixture_plan", GitHubOwnedFixtures.PLAN)
+                put("branch", branch)
+                put("base_sha", origin)
+                put("commit_sha", origin)
+            }
+            var reads = 0
+            var absenceProbes = 0
+            val status = restored.reconcile(
+                root,
+                recovery,
+                read = {
+                    reads++
+                    JsonObject(emptyMap())
+                },
+                expectedAbsence = {
+                    absenceProbes++
+                    true
+                },
+                approvalStatus = { error("Creation has no approval to recover") },
+                reconcile = { error("Creation has no publication to reconcile") }
+            )
+            assertEquals(JsonPrimitive("PENDING"), status["cleanup_status"])
+            assertFalse(status["deleted"] == JsonPrimitive(true))
+            assertFalse(status["absence_verified"] == JsonPrimitive(true))
+            val failure = runCatching {
+                restored.reconcileDeletion(root, recovery, read = {
+                    reads++
+                    JsonObject(emptyMap())
+                }, expectedAbsence = {
+                    absenceProbes++
+                    true
+                })
+            }.exceptionOrNull()
+            assertTrue(failure is IllegalArgumentException)
+            assertTrue(failure?.message.orEmpty().startsWith("FIXTURE_RECONCILE_REQUIRED:"))
+            assertEquals(0, reads)
+            assertEquals(0, absenceProbes)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
     @Test fun lostDeletionResponseIsReconciledByAbsenceAfterRestartAndNeverReplayed() = runBlocking {
         for (recreated in listOf(false, true)) {
             val directory = Files.createTempDirectory("github-fixture-delete").toFile()

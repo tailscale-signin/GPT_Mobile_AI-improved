@@ -654,7 +654,6 @@ internal class GitHubOperationTool(
                     properties["fixture_plan"] = buildJsonObject { put("enum", JsonArray(listOf(JsonPrimitive(dev.chungjungsoo.gptmobile.data.github.GitHubOwnedFixtures.PLAN)))) }
                     properties["engineering_task_id"] = buildJsonObject {
                         put("type", "string")
-                        put("description", "With action=recovery, read the exact saved native approval and reconcile publication. This cannot approve or repeat its write.")
                         put("pattern", "^[A-Za-z0-9_-]{1,128}$")
                     }
                     properties["refresh"] = field("boolean")
@@ -937,9 +936,9 @@ internal class GitHubOperationTool(
             }
             if (operation in setOf("github_context", "github_ci", "github_pr", "github_read")) properties["response_detail"] = choice("compact", "full")
             val description = when (operation) {
-                "github_context" -> "Changes:base_sha. Fixture recovery: base_sha=origin, commit_sha=head."
+                "github_context" -> "Changes:base_sha; fixture recovery:base_sha=origin,commit_sha=head."
                 "github_search" -> "Pinned search; globs; check coverage."
-                "github_read" -> "Pinned ranges/evidence_id; 1-based <=2000; end_line=-1 bounded EOF or max_lines; pages:view_cursor."
+                "github_read" -> "Pinned ranges/evidence_id; 1-based <=2000; end_line=-1:bounded EOF; view_cursor."
                 "github_stage_patch" -> "Stage an exact replacement with target_file, search_snippet and replacement_snippet, or SHA-checked edits. Reads the pinned blob and rejects ambiguous anchors. Returns immutable version/stage_id and preserves publication receipts. Supply restore_stage_id alone to select a saved local patch at the same branch/base. Commit on a permitted working branch using its current expected_head_sha."
                 "github_commit" -> "Create a working branch, commit a validated stage_id, or delete_branch with expected_head_sha after dependency inspection. Ordinary deletion blocks selected/default/protected branches, unmerged commits, open PRs and active runs. delete_fixture_branch additionally requires durable same-task ownership from fixture_plan=content_v1, origin_head_sha and a verified chain containing only its exact synthetic file; it never grants generic unmerged-branch deletion. GitHub deletion is not an atomic SHA lease."
                 "github_write" -> "Every files item requires a repository-relative path (for example app/src/main/kotlin/.../MainActivity.kt), never an absolute path or directory. Stage up to 20 UTF-8 file creations, replacements or deletions for exact user approval and one atomic commit on a working branch. Supply expected_head_sha and expected_blob_sha for existing files. Replacements require content; deletions require delete=true and no content. Never write to the default branch."
@@ -949,8 +948,8 @@ internal class GitHubOperationTool(
                 "github_issue" -> "List issues (PRs excluded). Prefer headers for title/state/updated_at without bodies or comments; use context/comments/history only when those details are needed. Create/update requires exact approval; update needs expected_updated_at. Timeline is not a full body-edit history."
                 else -> "Inspect release notes (detail), tags/annotations (tag), paginated tags/list, create_tag or explicitly publish the selected release."
             } + when (operation) {
-                "github_read" -> ""
-                "github_context", "github_search" -> " Exact continuation_call."
+                // The shared GitHub tool instruction already requires verbatim continuation_call.
+                "github_read", "github_context", "github_search" -> ""
                 else -> " Exact continuation_call; owner+repo."
             }
             return AgentToolDefinition(

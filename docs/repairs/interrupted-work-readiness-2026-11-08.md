@@ -91,7 +91,7 @@ The [repository issue search](https://github.com/tailscale-signin/GPT_Mobile_AI-
 
 ## Validation and deployment boundary
 
-The recorded local suites compile current production algorithms with explicit Android, Room, vault or service boundary adapters. They exercise behavior rather than testing source text. They are not a substitute for the complete Android compiler, Hilt graph, Compose runtime or WorkManager integration. Exact commands, counts and final CI state are recorded in the adjacent task JSON.
+The recorded local suites compile current production algorithms with explicit Android, Room, vault or service boundary adapters. They exercise behavior rather than testing source text. They are not a substitute for the complete Android compiler, Hilt graph, Compose runtime or WorkManager integration. Validation scope and local counts are recorded in the adjacent task JSON; its linked GitHub checks provide the exact-head CI outcomes.
 
 The local environment has JDK 17 and cannot download the pinned Gradle distribution; it does not have the required JDK 21/Android SDK 37 toolchain. Full Android validation therefore depends on the branch workflows or a correctly provisioned build host. Skipped or unavailable checks must remain distinct from passing checks.
 

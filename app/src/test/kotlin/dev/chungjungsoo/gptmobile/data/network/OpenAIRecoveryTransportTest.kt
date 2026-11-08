@@ -210,7 +210,13 @@ class OpenAIRecoveryTransportTest {
                 assertEquals("PROVIDER_INVOCATION_FAILED", code)
                 assertEquals(kotlinx.serialization.json.JsonPrimitive("stage_not_recorded"), details?.get("failed_stage"))
                 assertEquals(kotlinx.serialization.json.JsonPrimitive(false), details?.get("retryable"))
-                assertFalse(requireNotNull(details).containsKey("dispatched"))
+                // The mock engine was entered, but no HTTP response or transport
+                // cause was observed. Do not conflate that with non-dispatch.
+                assertEquals(kotlinx.serialization.json.JsonPrimitive(true), details?.get("dispatched"))
+                assertEquals(kotlinx.serialization.json.JsonPrimitive("UNKNOWN"), details?.get("remote_acceptance"))
+                assertEquals(kotlinx.serialization.json.JsonPrimitive(false), details?.get("logical_continuation_allowed"))
+                assertFalse(requireNotNull(details).containsKey("failure_kind"))
+                assertFalse(details.containsKey("http_status"))
             }
         }
     }
@@ -229,9 +235,14 @@ class OpenAIRecoveryTransportTest {
             }
         ) { api ->
             val events = api.streamResponses(ResponsesRequest(model = "fixture", input = listOf(dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputMessage("user", dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputContent.text("Transport fixture request."))), temperature = .4f, maxOutputTokens = 128), 5, config).toList()
-            assertEquals(2, events.size)
-            assertTrue(events.first() is ResponseGatewayMetadataEvent)
-            assertFalse(requireNotNull((events.first() as ResponseGatewayMetadataEvent).metadata).transportVerified)
+            assertEquals(4, events.size)
+            assertInitialResponsesHeaders(events, 400)
+            assertInitialResponsesHeaders(events.drop(1), 200)
+            val observed = events.filterIsInstance<ResponseGatewayMetadataEvent>()
+            assertEquals(listOf(400, 200), observed.mapNotNull { it.providerResponseTiming?.httpStatus })
+            val route = observed.single { it.metadata != null }
+            assertEquals(2, events.indexOf(route))
+            assertFalse(requireNotNull(route.metadata).transportVerified)
             assertTrue(events.last() is ResponseCompletedEvent)
             assertEquals(2, bodies.size)
             val second = NetworkClient.openAIJson.parseToJsonElement(bodies.last()).jsonObject
@@ -241,7 +252,7 @@ class OpenAIRecoveryTransportTest {
     }
 
     @Test
-    fun `gateway transient error retries before output but never after gateway tool execution`() = runTest {
+    fun `accepted transient stream failures never replay with or without tool activity`() = runTest {
         for (toolStarted in listOf(false, true)) {
             var attempts = 0
             withApi(
@@ -257,14 +268,26 @@ class OpenAIRecoveryTransportTest {
                 }
             ) { api ->
                 val chunks = api.streamChatCompletion(request, 5, config).toList()
-                assertEquals(if (toolStarted) 1 else 2, attempts)
-                assertEquals(toolStarted, chunks.any { it.error != null })
-                assertEquals(if (toolStarted) emptyList<Int>() else listOf(1), chunks.mapNotNull { it.retryAttempts })
-                assertEquals(if (toolStarted) "" else "recovered", chunks.flatMap { it.choices.orEmpty() }.mapNotNull { it.effectiveDelta.content }.joinToString(""))
-                val observations = chunks.filter { it.reasoningControlReceipt != null || it.providerResponseTiming != null }
-                assertTrue(observations.isNotEmpty())
-                assertTrue(observations.all { it.choices != null || it.error != null || it.gatewayProgress != null })
-                assertTrue(observations.all { it.reasoningControlReceipt != null && it.providerResponseTiming?.responseHeadersMs != null })
+                assertEquals(1, attempts)
+                assertInitialChatHeaders(chunks, 200)
+                val failure = chunks.single { it.error != null }.error!!
+                assertTrue(chunks.mapNotNull { it.retryAttempts }.isEmpty())
+                assertTrue(chunks.flatMap { it.choices.orEmpty() }.isEmpty())
+                assertEquals(if (toolStarted) 1 else 0, chunks.count { it.gatewayProgress != null })
+                assertTrue(chunks.all { it.reasoningControlReceipt != null && it.providerResponseTiming?.responseHeadersMs != null })
+                if (!toolStarted) {
+                    assertEquals("CONNECTION_ABORTED", failure.code)
+                    assertEquals(kotlinx.serialization.json.JsonPrimitive("YES"), failure.failureDetails?.get("remote_acceptance"))
+                    assertEquals(kotlinx.serialization.json.JsonPrimitive(false), failure.failureDetails?.get("request_replay_allowed"))
+                    assertEquals(kotlinx.serialization.json.JsonPrimitive(true), failure.failureDetails?.get("logical_continuation_allowed"))
+                } else {
+                    assertEquals("GATEWAY_OUTCOME_UNKNOWN", failure.code)
+                    assertEquals(false, failure.retryable)
+                    assertEquals(kotlinx.serialization.json.JsonPrimitive("YES"), failure.failureDetails?.get("remote_acceptance"))
+                    assertEquals(kotlinx.serialization.json.JsonPrimitive(true), failure.failureDetails?.get("requires_reconciliation"))
+                    assertEquals(kotlinx.serialization.json.JsonPrimitive(false), failure.failureDetails?.get("request_replay_allowed"))
+                    assertEquals(kotlinx.serialization.json.JsonPrimitive(false), failure.failureDetails?.get("logical_continuation_allowed"))
+                }
             }
         }
     }
@@ -297,6 +320,172 @@ class OpenAIRecoveryTransportTest {
                 assertEquals(1, dispatches)
             }
         }
+    }
+
+    @Test fun acceptedChatErrorsWithoutProgressReconcileOnlyWhenServerToolsWereAllowed() = runTest {
+        for (serverTools in listOf(false, true)) {
+            for (transport in listOf("sse", "buffered", "json-for-stream")) {
+                var dispatches = 0
+                val payload = """{"error":{"message":"Fixture backend failed","code":"backend_failed","retryable":false,"failed_stage":"precheck","dispatched":false,"dispatch_state":"PRECHECK_REJECTED"}}"""
+                val requestId = "chat-$serverTools-$transport"
+                withApi(
+                    MockEngine { incoming ->
+                        if (incoming.url.encodedPath.endsWith("gateway/capabilities")) {
+                            respond("""{"gatewayVersion":"15.0.0","accepted_request_headers":["X-Gateway-Allow-Local-Tools"]}""", headers = headersOf(HttpHeaders.ContentType, "application/json"))
+                        } else {
+                            dispatches++
+                            respond(
+                                if (transport == "sse") "data: $payload\n\ndata: [DONE]\n\n" else payload,
+                                headers = headersOf(
+                                    HttpHeaders.ContentType to listOf(if (transport == "sse") "text/event-stream" else "application/json"),
+                                    "X-Request-ID" to listOf(requestId),
+                                    "X-Generation-ID" to listOf("generation-$requestId")
+                                )
+                            )
+                        }
+                    }
+                ) { api ->
+                    val selected = config.copy(extraHeaders = if (serverTools) mapOf("X-Gateway-Allow-Local-Tools" to "true") else emptyMap())
+                    val chunks = api.streamChatCompletion(request.copy(stream = transport != "buffered"), 5, selected).toList()
+                    assertInitialChatHeaders(chunks, 200)
+                    assertEquals(1, dispatches)
+                    assertTrue(chunks.mapNotNull { it.retryAttempts }.isEmpty())
+                    val failure = chunks.single { it.error != null }.error!!
+                    assertTrue(failure.message.contains("Fixture backend failed"))
+                    if (serverTools) {
+                        assertUncertainAcceptedFailure(failure.code, failure.failureDetails, requestId)
+                        assertEquals(kotlinx.serialization.json.JsonPrimitive("backend_failed"), failure.failureDetails?.get("upstream_error_code"))
+                        assertRetainedServerPrecheck(failure.failureDetails)
+                    } else {
+                        assertEquals("backend_failed", failure.code)
+                        assertFalse(failure.failureDetails?.get("requires_reconciliation") == kotlinx.serialization.json.JsonPrimitive(true))
+                    }
+                }
+            }
+        }
+    }
+
+    @Test fun configuredServerToolsRetainATransientServerReportBeforeAnyProgress() = runTest {
+        var dispatches = 0
+        withApi(
+            MockEngine { incoming ->
+                if (incoming.url.encodedPath.endsWith("gateway/capabilities")) {
+                    respond("""{"gatewayVersion":"15.0.0","accepted_request_headers":["X-Gateway-Allow-Local-Tools"]}""", headers = headersOf(HttpHeaders.ContentType, "application/json"))
+                } else {
+                    dispatches++
+                    respond(
+                        "data: {\"error\":{\"message\":\"Software caused connection abort\",\"code\":\"backend_failed\",\"retryable\":true}}\n\ndata: [DONE]\n\n",
+                        headers = headersOf(HttpHeaders.ContentType to listOf("text/event-stream"), "X-Request-ID" to listOf("server-report"), "X-Generation-ID" to listOf("generation-server-report"))
+                    )
+                }
+            }
+        ) { api ->
+            val chunks = api.streamChatCompletion(request, 5, config.copy(extraHeaders = mapOf("X-Gateway-Allow-Local-Tools" to "true"))).toList()
+            assertEquals(1, dispatches)
+            val failure = chunks.single { it.error != null }.error!!
+            assertUncertainAcceptedFailure(failure.code, failure.failureDetails, "server-report")
+            assertTrue(failure.message.contains("Software caused connection abort"))
+            assertEquals(kotlinx.serialization.json.JsonPrimitive("backend_failed"), failure.failureDetails?.get("upstream_error_code"))
+        }
+    }
+
+    @Test fun toolActivityInTheSameErrorFrameIsObservedBeforeTransientErrorClassification() = runTest {
+        var dispatches = 0
+        withApi(
+            MockEngine {
+                dispatches++
+                respond(
+                    "data: {\"gateway_progress\":{\"event\":\"tool_started\"},\"error\":{\"message\":\"Software caused connection abort\"}}\n\ndata: [DONE]\n\n",
+                    headers = headersOf(HttpHeaders.ContentType to listOf("text/event-stream"), "X-Request-ID" to listOf("combined-frame"), "X-Generation-ID" to listOf("generation-combined-frame"))
+                )
+            }
+        ) { api ->
+            val chunks = api.streamChatCompletion(request, 5, config).toList()
+            assertEquals(1, dispatches)
+            val failure = chunks.single { it.error != null }.error!!
+            assertUncertainAcceptedFailure(failure.code, failure.failureDetails, "combined-frame")
+            assertTrue(failure.message.contains("Software caused connection abort"))
+        }
+    }
+
+    @Test fun acceptedResponsesErrorAndFailedEnvelopesRetainServerToolUncertaintyAndOriginalCode() = runTest {
+        for (serverTools in listOf(false, true)) {
+            for (type in listOf("error", "response.failed")) {
+                var dispatches = 0
+                val requestId = "responses-$serverTools-${type.replace('.', '-')}"
+                val payload = if (type == "error") {
+                    """{"type":"error","message":"Fixture backend failed","code":"backend_failed","failed_stage":"precheck","dispatched":false,"dispatch_state":"PRECHECK_REJECTED"}"""
+                } else {
+                    """{"type":"response.failed","response":{"id":"response-1","status":"failed","error":{"message":"Fixture backend failed","code":"backend_failed","failed_stage":"precheck","dispatched":false,"dispatch_state":"PRECHECK_REJECTED"}}}"""
+                }
+                withApi(
+                    MockEngine { incoming ->
+                        if (incoming.url.encodedPath.endsWith("gateway/capabilities")) {
+                            respond("""{"gatewayVersion":"15.0.0","accepted_request_headers":["X-Gateway-Allow-Local-Tools"]}""", headers = headersOf(HttpHeaders.ContentType, "application/json"))
+                        } else {
+                            dispatches++
+                            respond(
+                                "data: $payload\n\n",
+                                headers = headersOf(HttpHeaders.ContentType to listOf("text/event-stream"), "X-Request-ID" to listOf(requestId), "X-Generation-ID" to listOf("generation-$requestId"))
+                            )
+                        }
+                    }
+                ) { api ->
+                    val selected = config.copy(extraHeaders = if (serverTools) mapOf("X-Gateway-Allow-Local-Tools" to "true") else emptyMap())
+                    val input = listOf(dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputMessage("user", dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputContent.text("Use the existing results.")))
+                    val events = api.streamResponses(ResponsesRequest(model = "fixture", input = input), 5, selected).toList()
+                    assertInitialResponsesHeaders(events, 200)
+                    assertEquals(1, dispatches)
+                    val assembler = dev.chungjungsoo.gptmobile.data.agent.provider.OpenAIResponsesEventAssembler()
+                    val failure = events.flatMap(assembler::accept).filterIsInstance<dev.chungjungsoo.gptmobile.data.agent.ProviderEvent.Failed>().single()
+                    assertTrue(failure.message.contains("Fixture backend failed"))
+                    if (serverTools) {
+                        assertUncertainAcceptedFailure(failure.errorCode, failure.failureDetails, requestId)
+                        assertEquals(kotlinx.serialization.json.JsonPrimitive("backend_failed"), failure.failureDetails?.get("upstream_error_code"))
+                        assertRetainedServerPrecheck(failure.failureDetails)
+                    } else {
+                        assertEquals("backend_failed", failure.errorCode)
+                        assertFalse(failure.failureDetails?.get("requires_reconciliation") == kotlinx.serialization.json.JsonPrimitive(true))
+                    }
+                }
+            }
+        }
+    }
+
+    private fun assertUncertainAcceptedFailure(code: String?, details: kotlinx.serialization.json.JsonObject?, requestId: String) {
+        assertEquals("GATEWAY_OUTCOME_UNKNOWN", code)
+        assertEquals(kotlinx.serialization.json.JsonPrimitive("YES"), details?.get("remote_acceptance"))
+        assertEquals(kotlinx.serialization.json.JsonPrimitive(requestId), details?.get("server_request_id"))
+        assertEquals(kotlinx.serialization.json.JsonPrimitive("generation-$requestId"), details?.get("generation_id"))
+        assertEquals(kotlinx.serialization.json.JsonPrimitive(true), details?.get("requires_reconciliation"))
+        assertEquals(kotlinx.serialization.json.JsonPrimitive(false), details?.get("request_replay_allowed"))
+        assertEquals(kotlinx.serialization.json.JsonPrimitive(false), details?.get("logical_continuation_allowed"))
+        assertFalse(requireNotNull(details).containsKey("cause_types"))
+        val failure = dev.chungjungsoo.gptmobile.data.agent.ProviderEvent.Failed("Remote operation must be reconciled", errorCode = code, failureDetails = details)
+        assertEquals(null, dev.chungjungsoo.gptmobile.data.agent.GitHubTaskRecovery.delayMillis(failure, 0, false))
+        val classified = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.fromProvider(failure.message, code, details)
+        assertFalse(classified.retryAllowed)
+        assertEquals(dev.chungjungsoo.gptmobile.data.agent.RemoteRequestAcceptance.YES, classified.remoteAcceptance)
+        assertEquals(requestId, classified.serverRequestId)
+        assertEquals(false, classified.generationCompleted)
+        assertEquals(false, classified.requestReplayAllowed)
+        val receipt = dev.chungjungsoo.gptmobile.data.diagnostics.ProviderFailureReceipt.from(
+            dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2(uid = "profile", name = "Selected", model = "fixture"),
+            "primary",
+            failure
+        )
+        assertEquals(dev.chungjungsoo.gptmobile.data.agent.RemoteRequestAcceptance.YES, receipt.remoteAcceptance)
+        assertEquals(requestId, receipt.serverRequestId)
+        assertEquals("generation-$requestId", receipt.generationId)
+        assertEquals(false, receipt.requestReplayAllowed)
+        assertEquals(false, receipt.logicalContinuationAllowed)
+    }
+
+    private fun assertRetainedServerPrecheck(details: kotlinx.serialization.json.JsonObject?) {
+        assertEquals(kotlinx.serialization.json.JsonPrimitive(true), details?.get("dispatched"))
+        assertEquals(kotlinx.serialization.json.JsonPrimitive(false), details?.get("upstream_dispatched"))
+        assertEquals(kotlinx.serialization.json.JsonPrimitive("precheck"), details?.get("upstream_failed_stage"))
+        assertEquals(kotlinx.serialization.json.JsonPrimitive("PRECHECK_REJECTED"), details?.get("dispatch_state"))
     }
 
     @Test fun samplingRejectionAfterPossibleGatewayMutationDoesNotReplayEitherPhysicalTransport() = runTest {

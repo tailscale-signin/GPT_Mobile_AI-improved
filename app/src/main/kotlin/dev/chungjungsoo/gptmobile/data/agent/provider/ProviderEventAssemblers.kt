@@ -102,7 +102,7 @@ class OpenAIResponsesEventAssembler {
             }
         }
 
-        is ResponseFailedEvent -> listOf(ProviderEvent.Failed(event.response.error?.message ?: "Response failed"))
+        is ResponseFailedEvent -> listOf(ProviderEvent.Failed(event.response.error?.message ?: "Response failed", errorCode = event.response.error?.code))
 
         is ResponseErrorEvent -> listOf(ProviderEvent.Failed(event.message, errorCode = event.code, failureDetails = event.failureDetails))
 

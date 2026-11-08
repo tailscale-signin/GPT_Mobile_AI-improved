@@ -27,6 +27,7 @@ import dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputMessage
 import dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponsesRequest
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.ChatCompletionChunk
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseErrorEvent
+import dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponsesStreamEvent
 import io.ktor.client.engine.cio.CIO
 import java.net.InetSocketAddress
 import kotlinx.coroutines.flow.single
@@ -112,23 +113,28 @@ class ProviderToolRejectionTest {
     }
 
     @Test
-    fun `openai responses rejects tool definitions before emitting provider events`() = withServer(400, openAIError()) { baseUrl ->
+    fun `openai responses rejects tool definitions without emitting substantive events`() = withServer(400, openAIError()) { baseUrl ->
         val api = OpenAIAPIImpl(NetworkClient(CIO))
+        val observations = mutableListOf<ResponsesStreamEvent>()
 
         assertThrows(ToolDefinitionsRejectedException::class.java) {
             runBlocking {
-                api.streamResponses(responsesRequest(withTools = true), 5, config(baseUrl)).toList()
+                api.streamResponses(responsesRequest(withTools = true), 5, config(baseUrl)).collect { observations += it }
             }
         }
-        val event = runBlocking {
-            api.streamResponses(responsesRequest(withTools = false), 5, config(baseUrl)).single()
+        // flowOn may cancel an in-flight diagnostic emission when upstream throws.
+        assertTrue(observations.size <= 1)
+        if (observations.isNotEmpty()) assertInitialResponsesHeaders(observations, 400)
+        val events = runBlocking {
+            api.streamResponses(responsesRequest(withTools = false), 5, config(baseUrl)).toList()
         }
-
-        assertEquals("400", (event as ResponseErrorEvent).code)
+        assertInitialResponsesHeaders(events, 400)
+        assertEquals(2, events.size)
+        assertEquals("400", events.filterIsInstance<ResponseErrorEvent>().single().code)
     }
 
     @Test
-    fun `openai compatible rejects tool definitions before emitting provider events`() = withServer(422, openAIError()) { baseUrl ->
+    fun `openai compatible rejects tool definitions without emitting substantive events`() = withServer(422, openAIError()) { baseUrl ->
         val api = OpenAIAPIImpl(NetworkClient(CIO))
         val observations = mutableListOf<ChatCompletionChunk>()
 
@@ -137,12 +143,15 @@ class ProviderToolRejectionTest {
                 api.streamChatCompletion(chatRequest(withTools = true), 5, config(baseUrl)).collect { observations += it }
             }
         }
-        assertTrue(observations.isEmpty())
-        val chunk = runBlocking {
-            api.streamChatCompletion(chatRequest(withTools = false), 5, config(baseUrl)).single()
+        // flowOn may cancel an in-flight diagnostic emission when upstream throws.
+        assertTrue(observations.size <= 1)
+        if (observations.isNotEmpty()) assertInitialChatHeaders(observations, 422)
+        val chunks = runBlocking {
+            api.streamChatCompletion(chatRequest(withTools = false), 5, config(baseUrl)).toList()
         }
-
-        assertEquals("422", chunk.error?.code)
+        assertInitialChatHeaders(chunks, 422)
+        assertEquals(2, chunks.size)
+        assertEquals("422", chunks.single { it.error != null }.error?.code)
     }
 
     @Test
@@ -282,18 +291,22 @@ class ProviderToolRejectionTest {
 
             assertTrue(retriedWithoutTools)
             assertEquals(listOf(true, false), requestsWithTools)
-            assertEquals("chat fallback", chunks.single().choices!!.single().delta.content)
+            assertInitialChatHeaders(chunks, 200)
+            assertEquals(2, chunks.size)
+            assertEquals("chat fallback", chunks.single { it.choices != null }.choices!!.single().delta.content)
         }
     }
 
     @Test
     fun `unrelated openrouter 404 remains a surfaced provider error`() = withServer(404, """{"error":{"message":"Model route was not found"}}""") { baseUrl ->
-        val chunk = runBlocking {
+        val chunks = runBlocking {
             OpenAIAPIImpl(NetworkClient(CIO))
                 .streamChatCompletion(chatRequest(withTools = true), 5, config(baseUrl))
-                .single()
+                .toList()
         }
-
+        assertInitialChatHeaders(chunks, 404)
+        assertEquals(2, chunks.size)
+        val chunk = chunks.single { it.error != null }
         assertEquals("404", chunk.error?.code)
         assertEquals("Model route was not found", chunk.error?.message)
     }
@@ -303,14 +316,20 @@ class ProviderToolRejectionTest {
         val client = NetworkClient(CIO)
         try {
             val api = OpenAIAPIImpl(client)
-            val chunk = runBlocking { api.streamChatCompletion(chatRequest(withTools = true), 5, config(baseUrl)).single() }
+            val chunks = runBlocking { api.streamChatCompletion(chatRequest(withTools = true), 5, config(baseUrl)).toList() }
+            assertInitialChatHeaders(chunks, 401)
+            assertEquals(2, chunks.size)
+            val chunk = chunks.single { it.error != null }
             assertEquals("401", chunk.error?.code)
             assertTrue(chunk.reasoningControlReceipt != null)
             assertTrue(chunk.providerResponseTiming?.responseHeadersMs != null)
             assertEquals(null, chunk.providerResponseTiming?.firstParsedPayloadMs)
             assertTrue(chunk.error!!.message.contains("platform connection"))
             assertTrue(chunk.error!!.message.contains("HTTP 401"))
-            val response = runBlocking { api.streamResponses(responsesRequest(withTools = true), 5, config(baseUrl)).single() } as ResponseErrorEvent
+            val events = runBlocking { api.streamResponses(responsesRequest(withTools = true), 5, config(baseUrl)).toList() }
+            assertInitialResponsesHeaders(events, 401)
+            assertEquals(2, events.size)
+            val response = events.filterIsInstance<ResponseErrorEvent>().single()
             assertEquals(chunk.error!!.message, response.message)
         } finally {
             client().close()
@@ -323,7 +342,10 @@ class ProviderToolRejectionTest {
         withServer(200, body, contentType = "text/event-stream") { baseUrl ->
             val client = NetworkClient(CIO)
             try {
-                val chunk = runBlocking { OpenAIAPIImpl(client).streamChatCompletion(chatRequest(withTools = true), 5, config(baseUrl)).single() }
+                val chunks = runBlocking { OpenAIAPIImpl(client).streamChatCompletion(chatRequest(withTools = true), 5, config(baseUrl)).toList() }
+                assertInitialChatHeaders(chunks, 200)
+                assertEquals(2, chunks.size)
+                val chunk = chunks.single { it.error != null }
                 assertEquals("401", chunk.error?.code)
                 assertTrue(chunk.reasoningControlReceipt != null)
                 assertTrue(chunk.providerResponseTiming?.responseHeadersMs != null)

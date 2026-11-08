@@ -1,7 +1,9 @@
 # Gateway and Android diagnostic repair
 
-Repository: `tailscale-signin/GPT_Mobile_AI-improved`  
-Base: `main` at `293810dbc34ef93ee62521e2fd274681e10482ab`  
+Repository: `tailscale-signin/GPT_Mobile_AI-improved`
+
+Base: `main` at `293810dbc34ef93ee62521e2fd274681e10482ab`
+
 Branch: `fix/gateway-readiness-diagnostics-2026-11-08`
 
 This branch implements the actionable software repairs from the Android build 140 diagnostic audit and the 436-record gateway audit. Raw captures, private host addresses, profile names, prompts, responses and credentials are not committed. The task checkpoint records validation separately from deployment qualification.

@@ -179,7 +179,7 @@ class ChatViewModelStartupTest {
             val request = firstArg<PersistAgentTurnRequest>()
             val draft = request.runs.single()
             val user = request.userMessage.copy(id = 71)
-            val assistant = MessageV2(id = 72, chatId = 7, platformType = profile.uid, linkedMessageId = user.id, currentRunId = draft.runId)
+            val assistant = MessageV2(id = 72, chatId = 7, content = "", platformType = profile.uid, linkedMessageId = user.id, currentRunId = draft.runId)
             val run = AgentRun(draft.runId, 7, user.id, assistant.id, profile.uid, profile.compatibleType.name, profile.model, AgentRunStatus.QUEUED)
             PersistAgentTurnResult(request.chatRoom, user, listOf(assistant), listOf(run)).also {
                 persisted.complete(it)

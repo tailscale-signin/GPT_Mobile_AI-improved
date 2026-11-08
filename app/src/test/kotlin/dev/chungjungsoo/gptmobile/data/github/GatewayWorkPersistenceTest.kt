@@ -47,10 +47,10 @@ class GatewayWorkPersistenceTest {
         var cleanupFailure = false
         val settings = mockk<SettingRepository>()
         init {
-            coEvery { settings.getFeatureSettings() } answers { value }
+            coEvery { settings.getFeatureSettings() } answers { this@Preferences.value }
             coEvery { settings.mutateFeatureSettings(any()) } coAnswers {
                 if (cleanupFailure) error("Interrupted after Room commit")
-                firstArg<(AppFeatureSettings) -> AppFeatureSettings>()(value).also { value = it }
+                firstArg<(AppFeatureSettings) -> AppFeatureSettings>()(this@Preferences.value).also { this@Preferences.value = it }
             }
         }
     }

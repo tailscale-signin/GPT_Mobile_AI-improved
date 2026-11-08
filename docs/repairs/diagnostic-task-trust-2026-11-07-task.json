@@ -564,5 +564,72 @@
       "files": 5
     },
     "architecture_index_valid": true
+  },
+  "incoming_fixture_compilation_followup": {
+    "parent_head": "ab2845442fd30e317c4266b78e28c3880ecf851b",
+    "parent_tree": "da34bd2d12a8d724a559655f945c2725b5ca994f",
+    "canonical_run_id": 42431404076,
+    "canonical_job_id": 128580957620,
+    "production_compilation": "PASSED",
+    "room_export_schema_gate": "PASSED",
+    "unit_test_compilation": "FAILED_AT_TWO_INCOMING_FIXTURE_LOCATIONS",
+    "unit_execution": "NOT_RUN",
+    "heap_and_canonical_review_apk": "SKIPPED_AFTER_TEST_COMPILATION_FAILURE",
+    "repairs": [
+      {
+        "file": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayWorkPersistenceTest.kt",
+        "cause": "The MockK answer receiver shadows the mutable Preferences.value property with a read-only value member.",
+        "repair": "Qualify reads and writes as this@Preferences.value so mock answers retain the fixture settings and interrupted-cleanup behavior."
+      },
+      {
+        "file": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatViewModelStartupTest.kt",
+        "cause": "The assistant placeholder omits required MessageV2.content; the compiler reports the generated serialization constructor instead.",
+        "repair": "Explicitly supply the intended empty assistant content while retaining saved message/run identity."
+      }
+    ],
+    "all_original_assertions_preserved": true,
+    "production_and_prior_repairs_unchanged": true,
+    "validation": {
+      "canonical_fast": {
+        "passed": true,
+        "tests": 400,
+        "literal_regex_checks": 1304,
+        "dynamic_regex_patterns_not_evaluated": 77,
+        "resource_xml_files": 30
+      },
+      "changed_kotlin_ktlint_passed": true,
+      "changed_kotlin_files": 2,
+      "architecture_and_inventory_valid": true,
+      "production_inventory_files": 2265,
+      "inventory_areas": 26,
+      "exact_release_paths": 1146,
+      "production_files_changed": 0,
+      "assertions_removed_or_relaxed": 0
+    },
+    "exact_head_android_ci": "REQUIRED_AFTER_PUBLICATION",
+    "room50_export_byte_identical": true,
+    "room50_sha256": "07aa423477019550ad9c2f42c5a9c9aa0e31250ff66ecd9fc646c02e48710f50",
+    "unit_junit_xml_records": 0,
+    "gateway_matrix": "ALL_FOUR_PASSED_ON_PARENT",
+    "fixture_formatting": {
+      "passed": true,
+      "files": 2
+    },
+    "source_sha256": {
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayWorkPersistenceTest.kt": "1d139bed9cc9d5e8be328798aede2a94163676685f9b5eb1f861fc6e9362636a",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatViewModelStartupTest.kt": "8abb4f1c4bf39c9d1495aedf43cd12fbed27b82c8f9d2d92e562e525bb81ba44"
+    },
+    "preferences_probe": {
+      "passed": true,
+      "scope": "Exact nested fixture and production repository method declarations against real MockK, with a minimal DTO boundary. No Room execution.",
+      "verified": [
+        "reads stored settings",
+        "mutates and returns stored settings",
+        "interruption preserves state and does not invoke transform",
+        "retry remains usable"
+      ],
+      "source_drift": false
+    },
+    "message_constructor_validation": "Required content verified against current production MessageV2 source; no false compile claim from retained host stubs."
   }
 }

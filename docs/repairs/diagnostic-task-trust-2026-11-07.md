@@ -337,6 +337,40 @@ complete final fast rerun passes without changing timeouts or assertions. The
 published follow-up still requires fresh full Android, Room, heap, lint, emulator
 and packaged-APK checks.
 
+## Incoming continuity fixture compilation
+
+Canonical run `42431404076` on
+`ab2845442fd30e317c4266b78e28c3880ecf851b` passes production compilation and
+the exported Room schema gate. Unit-test compilation finds two further fixture
+errors in the incoming continuity work, so unit execution, constrained heaps and
+the canonical review APK do not run on that attempt.
+
+The persistence fixture's nested MockK answer receiver shadows its mutable
+`Preferences.value` with a read-only member. The fixture now qualifies its settings
+reads and writes with `this@Preferences`, preserving the interrupted-cleanup branch
+and all database assertions. The startup fixture's assistant placeholder now
+supplies the required empty `MessageV2.content`; its message, linked-user and run
+identities remain unchanged. No production implementation, composer fixture or
+existing assertion is altered by these two compilation corrections. Complete
+Android execution remains required after this follow-up is published.
+
+The exact preferences fixture compiles against real MockK in a bounded probe.
+Its runtime checks confirm stored-state reads, mutation and returned state,
+preservation without invoking the transform on interrupted cleanup, and a usable
+retry. This uses a minimal DTO boundary and does not execute the eight Room
+cases. The startup fix is checked against the actual `MessageV2` source, whose
+`content` is required; retained host stubs are not used as compilation evidence.
+Both changed test files pass formatting. The parent schema artifact contains no
+JUnit reports and reproduces the committed Room 50 bytes exactly. All four
+gateway matrix jobs pass on that parent; they do not replace fresh Android
+execution for this correction.
+
+Final canonical fast validation passes all 400 tests, 1,304 literal-regex checks
+and 30 XML checks; 77 dynamic patterns remain outside static evaluation. The
+unchanged 2,265-file / 26-area production inventory, architecture index and
+1,146-path release scope validate. No production file or validation threshold is
+changed by this follow-up.
+
 ## Measurement boundaries
 
 The gateway reports `completion_buffered` because generated content still passes

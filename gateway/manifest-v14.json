@@ -2,7 +2,7 @@
   "baseCommit": "a66155dfdc0cf647dd368019f605d91689d48583",
   "version": "15.0.0",
   "schemaVersion": 1,
-  "sourceCommit": "1f1aa49d47588bf1d4aa1c0e3a809c3c544fb2bc",
+  "sourceCommit": "587b75d64313687cacce52e9cb162a0d1f65586e",
   "files": {
     "COMPLETION_RECOVERY.md": "69f942eab0a85b9c1a2f1f0684a4cf653a3417401814673ffc426605ac3be429",
     "DIAGNOSTICS.md": "feccaf8573ce0682777f3428330559731630fce128a5c01b620c2d5681ad4e99",
@@ -90,7 +90,7 @@
     "tests/test_gateway_reasoning_capabilities.py": "64b6b77ce99995cdf8ecce5c47179e11b66bcc69195e53609a7a98d6ce0e5ecf",
     "tests/test_gateway_recovery_payload.py": "0af81fdf7cb8ca60b19f8edccce205a322eb41acdd6947e4d4e97a5bf993d9f3",
     "tests/test_gateway_reliability_faults.py": "233789a7ed3fe8b66f33a04618ce8798d876b99253f190ef42ea339bf6bad825",
-    "tests/test_gateway_repository_lifecycle.py": "fc9dddb56413b8f7ee28d7568a5205a205d2b31471f5a578d032255331fcb149",
+    "tests/test_gateway_repository_lifecycle.py": "8abbef762b52262c0e5847009188d1f3ff10f58f4f4f4b25d9621133441f5dc1",
     "tests/test_gateway_repository_lifecycle_http.py": "4f722b97358ff2e155ceba1778a3a6ab3b5e2fa450fb4fcc6f197d931f2b704d",
     "tests/test_gateway_saved_work_admission.py": "42b0edb5b8cca1d4e033d2817dba62793659019e73d56c8a383536179b32fc19",
     "tests/test_gateway_security.py": "9934e3f442bffc7f59e5f3e461d59877b55d54841e7a87a254bb5c75362ab5e0",

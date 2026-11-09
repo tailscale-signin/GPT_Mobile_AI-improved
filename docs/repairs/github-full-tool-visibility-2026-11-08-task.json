@@ -146,8 +146,10 @@
     },
     "gateway_manifest": {
       "status": "PASSED",
-      "source_commit": "1f1aa49d47588bf1d4aa1c0e3a809c3c544fb2bc",
-      "command": "python gateway/build_v14_package.py --manifest-only"
+      "source_commit": "587b75d64313687cacce52e9cb162a0d1f65586e",
+      "command": "python gateway/build_v14_package.py --manifest-only",
+      "validated_package_files": 188,
+      "validation_command": "gateway/gateway.py validate-config"
     },
     "native_repository_approval": {
       "passed": 19,
@@ -163,7 +165,8 @@
       "failed": 0,
       "scope": "Canonical ASCII pointer bytes avoid Windows text-mode CRLF expansion before the explicit CRLF test; production pointer validation unchanged",
       "original_failure_head": "f76ef961e1bd083912c72cb452be1bce00748a8a",
-      "qualification": "Full exact-head Windows matrix remains a CI gate"
+      "qualification": "Full exact-head Windows matrix remains a CI gate",
+      "package_manifest_verification": "Regenerated and verified all 188 packaged file hashes, including test sources"
     }
   },
   "qualification": "Physical PC routing/model availability and Android device performance must be reported separately from source changes and host/CI regression evidence.",

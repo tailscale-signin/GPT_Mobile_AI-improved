@@ -245,3 +245,44 @@ Automatic approval review initially required explicit destination approval for t
 - [MCP/gateway audit observations](../../app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditPluginServices.kt) and [safe remote identity fields](../../app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditRemoteIdentity.kt)
 - [Device frame/memory and OEM qualification procedure](android-diagnostic-performance-2026-11-08.md)
 - [Prior exact-connection repair and discovery contract](app-audit-mcp-remediation-2026-11-07.md)
+
+## Draft PR #815 repair follow-up
+
+The published head `68a0739ed2db14ddb0109abfb941c51c67ec99a7`, against main
+`f27fdbbc0ec351e3134ca0285dadf3e97bf28155`, was inspected after the user requested
+repairs to the draft branch. PR Validation and Diagnostic audit validation both
+reported 8,586 Android unit tests, 12 failures and five skipped cases. The review
+APK built, but its ART guard measured the main streaming continuation at 16,696
+DEX code units, above the exclusive 16,383 limit.
+
+- Extract continuation snapshot restoration and delivery-policy preparation into
+  `streamPrimaryAnswerRecovery`. The setup retains its original operation order,
+  coroutine context and exceptions. The existing method-size guard also covers the
+  extracted helper and its continuation; its threshold is unchanged.
+- Correct provider/repository assertions to require explicit model-origin output,
+  and application-origin assertions for deterministic GitHub acknowledgements.
+- Finish model-origin wiring in the shared Groq/LLAMA/NVIDIA reasoning decoder and
+  the on-device LiteRT/GGUF adapter, including buffered and recovery text. The
+  application-generated progress closing tag retains a separate application
+  origin. Provider tests exercise these distinctions.
+- Preserve explicit admission blockers when an integration task lacks executable
+  tools. Tests retain receipt evidence, prove no model is dispatched in that case,
+  and separately preserve actual provider-denial and retained-denial metadata.
+- Run the frame-timing regression under native Robolectric graphics and verify a
+  captured pixel for each valid and rejected label, alongside the size/layout
+  assertions. This replaces an assumption that layout completion implies drawing.
+
+Original failing workflow evidence:
+
+- [PR Validation unit job](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/42586012165/job/129055900365)
+- [Diagnostic audit Android job](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/42586012105/job/129055900019)
+- [Review APK method-size job](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/42586012244/job/129055900191)
+
+The focused GitHub host suite passes 146 tests using current runner, classification,
+verification and review source with explicit Android/storage/service boundaries.
+The provider-output/parser host suite passes 72 tests. Canonical fast validation
+passes 404 script tests, the regex/resource checks, secret scan, dependency/CI
+policy checks and diff check. All 12 changed Kotlin files pass Ktlint 1.3.1.
+Exact-head Android CI remains pending publication of this repair. Its results belong
+to the resulting commit and must be read from the PR checks. Physical-device and
+private-service qualification remain separate from host and emulator results.

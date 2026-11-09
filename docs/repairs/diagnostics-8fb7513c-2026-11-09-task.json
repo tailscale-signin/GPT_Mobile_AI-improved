@@ -5,7 +5,7 @@
   "base_sha": "f27fdbbc0ec351e3134ca0285dadf3e97bf28155",
   "working_branch": "fix/diagnostics-8fb7513c-2026-11-09",
   "intent": "Create a new branch containing the diagnostic-log repairs and the complete follow-up lists supplied for app-audit-1794200904370.json and app-diagnostics-6232543068969378433.jsonl. Preserve exact tool/model identity, credential and execution authority, measured evidence boundaries, and all untested follow-up work.",
-  "state": "VALIDATED_PUBLICATION_AUTHORIZED",
+  "state": "DRAFT_REPAIR_VALIDATED_LOCALLY",
   "task_store": "engineering_agent_checkpoints",
   "task_store_key": "diagnostics-8fb7513c-2026-11-09",
   "evidence": {
@@ -14,7 +14,7 @@
     "declared_app_commit": "78faa5a724efde8641d97c2e756ac8194d5028b9",
     "app_audit": "User-supplied review of app-audit-1794200904370.json; the JSON itself was not attached",
     "privacy": "Raw captures, private connection labels, endpoints, credentials, prompts and tool response bodies are not committed",
-    "diagnostic_review": "User-supplied F01–F23 review of app-diagnostics-6232543068969378433.jsonl; that exact JSONL was not attached"
+    "diagnostic_review": "User-supplied F01\u2013F23 review of app-diagnostics-6232543068969378433.jsonl; that exact JSONL was not attached"
   },
   "changes": {
     "runtime": "Nonfatal diagnostic frame labels; smaller GitHub workspace composables; accurate native/runtime incident scope",
@@ -107,5 +107,40 @@
   "validated_local_source_commits": [
     "194a225a0ab671e6096dd31d476a991a51cf23a9",
     "aab76320aa43d9f829db715baa7fdf009fc8f39a"
-  ]
+  ],
+  "draft_repair": {
+    "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+    "pull_request": 815,
+    "base_branch": "main",
+    "base_sha": "f27fdbbc0ec351e3134ca0285dadf3e97bf28155",
+    "working_branch": "fix/diagnostics-8fb7513c-2026-11-09",
+    "reviewed_head": "68a0739ed2db14ddb0109abfb941c51c67ec99a7",
+    "intent": "Fix exact-head CI failures, review changed behavior, publish repairs to the existing draft PR and verify the updated checks.",
+    "confirmed_ci_failures": [
+      "12 of 8586 Android unit tests failed: output lineage, missing-tool admission, frame drawing assertion",
+      "ChatRepositoryImpl streaming coroutine 16696 DEX code units exceeds the 16383 runtime guard"
+    ],
+    "validation_status": "LOCAL_CHECKS_PASSED_REMOTE_ANDROID_PENDING",
+    "ci_runs": [
+      42586012165,
+      42586012244
+    ],
+    "changes": [
+      "Extract primary continuation restoration from the oversized streaming coroutine without changing its guard or behavior",
+      "Complete MODEL_TEXT origins for Groq/LLAMA/NVIDIA and LiteRT/GGUF decoder paths; keep synthetic progress closure application-origin",
+      "Repair provider and repository lineage expectations",
+      "Assert missing-tool admission without provider dispatch and preserve provider-denial metadata separately",
+      "Render native Robolectric content and inspect captured pixels in the frame-timing regression"
+    ],
+    "validation": {
+      "canonical_fast_script_tests": 404,
+      "github_host_tests": 146,
+      "provider_output_parser_host_tests": 72,
+      "ktlint_1_3_1_changed_kotlin_files": 12,
+      "diff_check": "PASSED",
+      "extraction_review": "Exact setup logic and operation order preserved; helper remains included by DEX guard",
+      "android": "Pending exact published-head CI; local Android SDK/Gradle/JDK21 unavailable",
+      "host_scope": "Production logic with explicit Android/storage/service boundaries; not physical-device or live-service qualification"
+    }
+  }
 }

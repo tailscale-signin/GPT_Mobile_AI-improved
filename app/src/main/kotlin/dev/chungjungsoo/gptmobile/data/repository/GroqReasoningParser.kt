@@ -1,5 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.repository
 
+import dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage
+import dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin
 import dev.chungjungsoo.gptmobile.data.dto.ApiState
 
 private const val GROQ_THINK_OPEN = "<think>"
@@ -131,7 +133,7 @@ internal class GroqReasoningParser {
             return emptyList()
         }
 
-        return listOf(ApiState.Success(visibleText))
+        return listOf(ApiState.Success(visibleText, OutputLineage(OutputOrigin.MODEL_TEXT)))
     }
 
     private fun partialSuffixLength(buffer: StringBuilder, token: String): Int {

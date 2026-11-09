@@ -34,8 +34,11 @@ class GitHubVerificationRecoveryTest {
         assertTrue(text.contains("Recorded tool receipts: 0; dispatched tool calls: 0"))
         assertFalse(text.contains("97%") || text.contains("35 operations") || text.contains("12 seconds"))
         val terminal = events.last() as ProviderEvent.Failed
-        assertEquals("PARTIAL", terminal.taskOutcome)
-        assertEquals("GITHUB_EVIDENCE_REQUIRED", terminal.errorCode)
+        assertEquals("BLOCKED", terminal.taskOutcome)
+        assertEquals("REQUIRED_TOOL_CAPABILITY_UNAVAILABLE", terminal.errorCode)
+        assertEquals(JsonPrimitive("tool_admission"), terminal.failureDetails?.get("failed_stage"))
+        assertEquals(JsonPrimitive(false), terminal.failureDetails?.get("dispatched"))
+        assertEquals(JsonPrimitive(false), terminal.failureDetails?.get("retryable"))
         assertFalse(events.contains(ProviderEvent.Completed))
     }
 

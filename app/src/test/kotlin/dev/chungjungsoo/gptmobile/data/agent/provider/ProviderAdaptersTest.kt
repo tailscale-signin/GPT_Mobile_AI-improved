@@ -14,6 +14,8 @@ import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.context.ConversationTurn
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage
+import dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin
 import dev.chungjungsoo.gptmobile.data.dto.anthropic.response.ContentBlock
 import dev.chungjungsoo.gptmobile.data.dto.anthropic.response.ContentBlockType
 import dev.chungjungsoo.gptmobile.data.dto.anthropic.response.ContentDeltaResponseChunk
@@ -1026,7 +1028,7 @@ class ProviderAdaptersTest {
         val events = adapter.openSession(turns(), profile).streamRound(emptyList(), emptyList()).toList()
 
         assertEquals(
-            listOf(ProviderEvent.TextDelta("hello"), ProviderEvent.Completed),
+            listOf(ProviderEvent.TextDelta("hello", OutputLineage(OutputOrigin.MODEL_TEXT)), ProviderEvent.Completed),
             events
         )
         assertNull(api.responseRequests.single().tools)
@@ -1075,7 +1077,7 @@ class ProviderAdaptersTest {
             session.streamRound(listOf(definition), emptyList()).toList()
         )
         assertEquals(
-            listOf(ProviderEvent.TextDelta("done"), ProviderEvent.Usage(finishReason = "stop"), ProviderEvent.Completed),
+            listOf(ProviderEvent.TextDelta("done", OutputLineage(OutputOrigin.MODEL_TEXT)), ProviderEvent.Usage(finishReason = "stop"), ProviderEvent.Completed),
             session.streamRound(listOf(definition), listOf(AgentToolExchange(listOf(call), listOf(result)))).toList()
         )
         val continuation = api.chatRequests.last().messages.takeLast(2)
@@ -1268,7 +1270,7 @@ class ProviderAdaptersTest {
     }
 
     @Test
-    fun `NVIDIA keeps reasoning out of visible answer text`() = runBlocking {
+    fun `llama and NVIDIA keep reasoning separate and label decoded model text`() = runBlocking {
         val chunk = ChatCompletionChunk(
             choices = listOf(
                 Choice(
@@ -1278,12 +1280,17 @@ class ProviderAdaptersTest {
                 )
             )
         )
-        val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(flowOf(chunk))))
-        val events = OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
-            .openSession(turns(), platform(ClientType.NVIDIA).copy(model = "nvidia/nemotron-3-super-120b-a12b"))
-            .streamRound(emptyList(), emptyList()).toList()
-        assertEquals("Final answer.", events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text })
-        assertTrue(events.filterIsInstance<ProviderEvent.ThinkingDelta>().any { it.text.contains("draft analysis") })
+        for (provider in listOf(ClientType.LLAMA, ClientType.NVIDIA)) {
+            val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(flowOf(chunk))))
+            val events = OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
+                .openSession(turns(), platform(provider).copy(model = "nvidia/nemotron-3-super-120b-a12b"))
+                .streamRound(emptyList(), emptyList()).toList()
+            assertEquals(
+                listOf(ProviderEvent.TextDelta("Final answer.", OutputLineage(OutputOrigin.MODEL_TEXT))),
+                events.filterIsInstance<ProviderEvent.TextDelta>()
+            )
+            assertTrue(events.filterIsInstance<ProviderEvent.ThinkingDelta>().any { it.text.contains("draft analysis") })
+        }
     }
 
     @Test
@@ -1365,7 +1372,7 @@ class ProviderAdaptersTest {
             session.streamRound(listOf(definition), emptyList()).toList()
         )
         assertEquals(
-            listOf(ProviderEvent.TextDelta("done"), ProviderEvent.Usage(finishReason = "stop"), ProviderEvent.Completed),
+            listOf(ProviderEvent.TextDelta("done", OutputLineage(OutputOrigin.MODEL_TEXT)), ProviderEvent.Usage(finishReason = "stop"), ProviderEvent.Completed),
             session.streamRound(listOf(definition), listOf(AgentToolExchange(listOf(call), listOf(result)))).toList()
         )
         assertEquals("weather", groq.requests.first().tools!!.single().function.name)
@@ -1436,7 +1443,7 @@ class ProviderAdaptersTest {
 
         assertEquals(listOf(call, ProviderEvent.Completed), session.streamRound(listOf(definition), emptyList()).toList())
         assertEquals(
-            listOf(ProviderEvent.TextDelta("done"), ProviderEvent.Completed),
+            listOf(ProviderEvent.TextDelta("done", OutputLineage(OutputOrigin.MODEL_TEXT)), ProviderEvent.Completed),
             session.streamRound(listOf(definition), listOf(AgentToolExchange(listOf(call), listOf(result)))).toList()
         )
         val continuation = api.requests.last().messages.takeLast(2)
@@ -1741,7 +1748,7 @@ class ProviderAdaptersTest {
 
         assertEquals(listOf(call, ProviderEvent.Usage(finishReason = "STOP"), ProviderEvent.Completed), session.streamRound(listOf(definition), emptyList()).toList())
         assertEquals(
-            listOf(ProviderEvent.TextDelta("done"), ProviderEvent.Usage(finishReason = "STOP"), ProviderEvent.Completed),
+            listOf(ProviderEvent.TextDelta("done", OutputLineage(OutputOrigin.MODEL_TEXT)), ProviderEvent.Usage(finishReason = "STOP"), ProviderEvent.Completed),
             session.streamRound(listOf(definition), listOf(AgentToolExchange(listOf(call), listOf(result)))).toList()
         )
         assertEquals("AUTO", api.requests.first().toolConfig?.functionCallingConfig?.mode)

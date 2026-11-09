@@ -7,6 +7,8 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.CurrentRequestContract
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
+import dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage
+import dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
@@ -46,7 +48,7 @@ class GitHubIncidentRegressionTest {
             book.observe(ProviderEvent.ToolCall("old", "github_context", json("""{"action":"checks"}""")), AgentToolResult("old", ToolResultContent.Json(json("""{"checks":1}""")), false))
             val gate = GitHubVerifiedSession(forbidden, book, request, { 16384 }, { error("No rewrite") }, {}, {})
             val events = gate.streamRound(tools, emptyList()).toList()
-            assertEquals(listOf(ProviderEvent.TextDelta(CurrentRequestContract.from(request).acknowledgement()), ProviderEvent.Completed), events)
+            assertEquals(listOf(ProviderEvent.TextDelta(CurrentRequestContract.from(request).acknowledgement(), OutputLineage(OutputOrigin.APPLICATION_REPORT)), ProviderEvent.Completed), events)
             assertFalse(GitHubTaskCoverage.matches(request))
             assertFalse(GitHubTaskCoverage.boundedDiagnostic(request))
         }

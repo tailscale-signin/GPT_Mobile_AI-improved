@@ -4716,6 +4716,73 @@ class ChatRepositoryImpl(
         if (catalog != null) AppLogRecorder.record("ToolCatalog", "PROGRESSIVE_CATALOG · authorized=${runnerTools.size} · initiallyAdvertised=${catalog.selected(executableTools.map { it.definition }).size} · discovery=true · permissionExpansion=false")
     }
 
+    private data class PrimaryAnswerRecovery(
+        val frozenResume: dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot?,
+        val wordGoal: Int?,
+        val structuredEditorial: Boolean,
+        val comprehensiveEditorial: Boolean,
+        val remainingWordGoal: Int?,
+        val appendAccepted: Boolean,
+        val continuationLimit: Int,
+        val checkpoint: dev.chungjungsoo.gptmobile.data.agent.CombinedContinuationCheckpoint?,
+        val restoredDraft: String
+    )
+
+    /** Restore continuation state outside the response coroutine's ART-sensitive method. */
+    private suspend fun streamPrimaryAnswerRecovery(
+        platform: PlatformV2,
+        latestUser: MessageV2?,
+        runId: String,
+        chatToolConfig: ChatMcpToolConfig?,
+        requestConstraints: RequestConstraints,
+        editorialPass: Boolean,
+        previousAnswerWords: Int,
+        recoveredAnswer: String
+    ): PrimaryAnswerRecovery {
+        val frozenResume = if (editorialPass) {
+            agentPersistenceDao.recoveryRun(runId)?.synthesisSnapshot?.let {
+                kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromString<dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot>(it)
+            }
+        } else {
+            null
+        }
+        val editorialEnvelope = frozenResume?.prompt ?: latestUser?.content.orEmpty()
+        val wordGoal = dev.chungjungsoo.gptmobile.data.agent.LongResponsePolicy.requestedWords(
+            if (runId.startsWith("combined-synthesis:")) {
+                frozenResume?.userMessage?.content
+                    ?: runCatching { kotlinx.serialization.json.Json.parseToJsonElement(editorialEnvelope).let { it as? kotlinx.serialization.json.JsonObject }?.get("original_request").let { it as? kotlinx.serialization.json.JsonPrimitive }?.content }.getOrNull().orEmpty()
+            } else {
+                latestUser?.content.orEmpty()
+            }
+        )
+        // The admitted frozen snapshot owns delivery framing even when recovery passes the original request.
+        val structuredEditorial = editorialPass &&
+            (
+                frozenResume?.let { it.deliveryProtocol in setOf("PASSAGES_V2", "PASSAGES_V3") }
+                    ?: dev.chungjungsoo.gptmobile.data.agent.passageCombinedEnvelope(editorialEnvelope)
+                )
+        val comprehensiveEditorial = editorialPass && (structuredEditorial || dev.chungjungsoo.gptmobile.data.agent.comprehensiveCombinedEnvelope(editorialEnvelope))
+        val remainingWordGoal = wordGoal?.takeUnless { structuredEditorial }?.let { (it - previousAnswerWords).coerceAtLeast(0) }
+        val appendAccepted = dev.chungjungsoo.gptmobile.BuildConfig.COMBINED_APPEND_CONTINUATIONS &&
+            frozenResume?.combined?.requested?.appendContinuations == true &&
+            frozenResume.deliveryProtocol == "PASSAGES_V3"
+        val continuationLimit = dev.chungjungsoo.gptmobile.data.agent.responseContinuationLimit(
+            remainingWordGoal,
+            requestConstraints.outputLimit(platform.maxTokens),
+            chatToolConfig?.combined,
+            editorialPass,
+            appendAccepted,
+            editorialEnvelope
+        )
+        val sectionRecovery = editorialPass && dev.chungjungsoo.gptmobile.BuildConfig.COMBINED_SECTION_RECOVERY && !structuredEditorial
+        val checkpoint = if (sectionRecovery && latestUser != null) dev.chungjungsoo.gptmobile.data.agent.CombinedContinuationCheckpoint(workspace, latestUser, platform.uid, runId) else null
+        val restoredDraft = if (frozenResume?.resumeFromRunId != null) frozenResume.committedPrefix else checkpoint?.restore() ?: recoveredAnswer
+        return PrimaryAnswerRecovery(
+            frozenResume, wordGoal, structuredEditorial, comprehensiveEditorial, remainingWordGoal,
+            appendAccepted, continuationLimit, checkpoint, restoredDraft
+        )
+    }
+
     private fun streamPrimaryAnswer(
         platform: PlatformV2,
         requestPlatform: PlatformV2,
@@ -4905,44 +4972,25 @@ class ChatRepositoryImpl(
                 combined = passCombined
             ) ?: guarded
         }
-        val frozenResume = if (editorialPass) {
-            agentPersistenceDao.recoveryRun(runId)?.synthesisSnapshot?.let {
-                kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromString<dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot>(it)
-            }
-        } else {
-            null
-        }
-        val editorialEnvelope = frozenResume?.prompt ?: latestUser?.content.orEmpty()
-        val wordGoal = dev.chungjungsoo.gptmobile.data.agent.LongResponsePolicy.requestedWords(
-            if (runId.startsWith("combined-synthesis:")) {
-                frozenResume?.userMessage?.content
-                    ?: runCatching { kotlinx.serialization.json.Json.parseToJsonElement(editorialEnvelope).let { it as? kotlinx.serialization.json.JsonObject }?.get("original_request").let { it as? kotlinx.serialization.json.JsonPrimitive }?.content }.getOrNull().orEmpty()
-            } else {
-                latestUser?.content.orEmpty()
-            }
-        )
-        // The admitted frozen snapshot owns delivery framing even when recovery passes the original request.
-        val structuredEditorial = editorialPass &&
-            (
-                frozenResume?.let { it.deliveryProtocol in setOf("PASSAGES_V2", "PASSAGES_V3") }
-                    ?: dev.chungjungsoo.gptmobile.data.agent.passageCombinedEnvelope(editorialEnvelope)
-                )
-        val comprehensiveEditorial = editorialPass && (structuredEditorial || dev.chungjungsoo.gptmobile.data.agent.comprehensiveCombinedEnvelope(editorialEnvelope))
-        val remainingWordGoal = wordGoal?.takeUnless { structuredEditorial }?.let { (it - previousAnswerWords).coerceAtLeast(0) }
-        val appendAccepted = dev.chungjungsoo.gptmobile.BuildConfig.COMBINED_APPEND_CONTINUATIONS &&
-            frozenResume?.combined?.requested?.appendContinuations == true &&
-            frozenResume.deliveryProtocol == "PASSAGES_V3"
-        val continuationLimit = dev.chungjungsoo.gptmobile.data.agent.responseContinuationLimit(
-            remainingWordGoal,
-            requestConstraints.outputLimit(platform.maxTokens),
-            chatToolConfig?.combined,
+        val recovery = streamPrimaryAnswerRecovery(
+            platform,
+            latestUser,
+            runId,
+            chatToolConfig,
+            requestConstraints,
             editorialPass,
-            appendAccepted,
-            editorialEnvelope
+            previousAnswerWords,
+            recoveredAnswer
         )
-        val sectionRecovery = editorialPass && dev.chungjungsoo.gptmobile.BuildConfig.COMBINED_SECTION_RECOVERY && !structuredEditorial
-        val checkpoint = if (sectionRecovery && latestUser != null) dev.chungjungsoo.gptmobile.data.agent.CombinedContinuationCheckpoint(workspace, latestUser, platform.uid, runId) else null
-        val restoredDraft = if (frozenResume?.resumeFromRunId != null) frozenResume.committedPrefix else checkpoint?.restore() ?: recoveredAnswer
+        val frozenResume = recovery.frozenResume
+        val wordGoal = recovery.wordGoal
+        val structuredEditorial = recovery.structuredEditorial
+        val comprehensiveEditorial = recovery.comprehensiveEditorial
+        val remainingWordGoal = recovery.remainingWordGoal
+        val appendAccepted = recovery.appendAccepted
+        val continuationLimit = recovery.continuationLimit
+        val checkpoint = recovery.checkpoint
+        val restoredDraft = recovery.restoredDraft
         val multipassFinalTurns = AtomicReference<List<ConversationTurn>?>(null)
         val conversational = frozenResume?.let(dev.chungjungsoo.gptmobile.data.agent.CombinedConversationSession::prepare)
         val firstSession = conversational?.session ?: contextPlan.multipass?.let { plan ->

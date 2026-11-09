@@ -1,5 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.repository
 
+import dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage
+import dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin
 import dev.chungjungsoo.gptmobile.data.dto.ApiState
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -17,7 +19,7 @@ class GroqReasoningParserTest {
         assertEquals(
             listOf(
                 ApiState.Thinking("Thoughts"),
-                ApiState.Success("Answer")
+                ApiState.Success("Answer", OutputLineage(OutputOrigin.MODEL_TEXT))
             ),
             emitted
         )
@@ -32,7 +34,7 @@ class GroqReasoningParserTest {
         assertEquals(
             listOf(
                 ApiState.Thinking("Reasoning"),
-                ApiState.Success("Answer")
+                ApiState.Success("Answer", OutputLineage(OutputOrigin.MODEL_TEXT))
             ),
             emitted
         )
@@ -46,7 +48,7 @@ class GroqReasoningParserTest {
 
         assertEquals(
             listOf(
-                ApiState.Success("Answer")
+                ApiState.Success("Answer", OutputLineage(OutputOrigin.MODEL_TEXT))
             ),
             emitted
         )
@@ -67,7 +69,7 @@ class GroqReasoningParserTest {
         assertEquals(
             listOf(
                 ApiState.Thinking("Plan"),
-                ApiState.Success("Answer")
+                ApiState.Success("Answer", OutputLineage(OutputOrigin.MODEL_TEXT))
             ),
             emitted
         )
@@ -81,7 +83,7 @@ class GroqReasoningParserTest {
 
         assertEquals(
             listOf(
-                ApiState.Success("<think>unfinished")
+                ApiState.Success("<think>unfinished", OutputLineage(OutputOrigin.MODEL_TEXT))
             ),
             emitted
         )

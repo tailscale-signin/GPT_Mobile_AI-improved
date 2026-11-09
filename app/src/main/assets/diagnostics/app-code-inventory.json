@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "a606323bb75cba713dd9d8c940d6f3a658e4c7d6d0a515fed414f446f1124051",
+  "source_digest": "19d58cd99e2cf8c263dd80db9fc7c50245499d329e779fdd235f7bc8e10c85cc",
   "file_count": 2364,
-  "indexed_line_count": 368185,
+  "indexed_line_count": 368237,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -52,7 +52,7 @@
       "id": "agent_execution",
       "label": "Agent execution and recovery",
       "file_count": 207,
-      "indexed_line_count": 33636
+      "indexed_line_count": 33684
     },
     {
       "id": "agent_tools",
@@ -76,7 +76,7 @@
       "id": "model_providers",
       "label": "Model providers and adapters",
       "file_count": 59,
-      "indexed_line_count": 8704
+      "indexed_line_count": 8706
     },
     {
       "id": "models_and_profiles",
@@ -124,7 +124,7 @@
       "id": "persistence",
       "label": "Databases, backup and storage",
       "file_count": 108,
-      "indexed_line_count": 14343
+      "indexed_line_count": 14345
     },
     {
       "id": "diagnostics_and_export",
@@ -2033,8 +2033,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/LiteRtLmAdapter.kt",
       "area_id": "model_providers",
       "kind": "source",
-      "sha256": "5e5ecd78bb69939a11fe473ebedb225a5176ff49fecc0b17a9f0a91cbfe4f1e4",
-      "indexed_lines": 1467
+      "sha256": "988d42fa7257b29d785fe626be694704ff63ba1f25ca755a1463e621012d6c11",
+      "indexed_lines": 1469
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/LocalContextReplanBudget.kt",
@@ -9747,8 +9747,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ChatRepositoryImpl.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "fd438ee4f4f382d40583e4f0a45804980a3e70e0f85bf0fc97eef7712e072a89",
-      "indexed_lines": 7264
+      "sha256": "16f715afb26735d3f66ac0694bc0a514d32342c34de62efa41b9c8b6ca3f849c",
+      "indexed_lines": 7312
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/CombinedSettingsSaveJournal.kt",
@@ -9775,8 +9775,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/GroqReasoningParser.kt",
       "area_id": "persistence",
       "kind": "source",
-      "sha256": "62203a4994fbe1249cbda5f55de4f791f43989df96039f095130fca9e7edf6ce",
-      "indexed_lines": 156
+      "sha256": "bed844e554f5898b41830f6f24b9f99d9501454eff9a5dff8dd07990a2196f55",
+      "indexed_lines": 158
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/LocalModelRepository.kt",

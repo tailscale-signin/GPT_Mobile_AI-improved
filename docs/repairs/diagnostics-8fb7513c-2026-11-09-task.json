@@ -1,0 +1,111 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "f27fdbbc0ec351e3134ca0285dadf3e97bf28155",
+  "working_branch": "fix/diagnostics-8fb7513c-2026-11-09",
+  "intent": "Create a new branch containing the diagnostic-log repairs and the complete follow-up lists supplied for app-audit-1794200904370.json and app-diagnostics-6232543068969378433.jsonl. Preserve exact tool/model identity, credential and execution authority, measured evidence boundaries, and all untested follow-up work.",
+  "state": "VALIDATED_PUBLICATION_AUTHORIZED",
+  "task_store": "engineering_agent_checkpoints",
+  "task_store_key": "diagnostics-8fb7513c-2026-11-09",
+  "evidence": {
+    "diagnostic_capture": "8fb7513c-d551-43bb-bbe4-6f2bbb231a84",
+    "diagnostic_parts": "Complete single-part capture; archive and chunk integrity verified",
+    "declared_app_commit": "78faa5a724efde8641d97c2e756ac8194d5028b9",
+    "app_audit": "User-supplied review of app-audit-1794200904370.json; the JSON itself was not attached",
+    "privacy": "Raw captures, private connection labels, endpoints, credentials, prompts and tool response bodies are not committed",
+    "diagnostic_review": "User-supplied F01–F23 review of app-diagnostics-6232543068969378433.jsonl; that exact JSONL was not attached"
+  },
+  "changes": {
+    "runtime": "Nonfatal diagnostic frame labels; smaller GitHub workspace composables; accurate native/runtime incident scope",
+    "github": "Planner-owned saved-result recovery; durable 32-call automatic page allowance; final execution-schema catalog binding; bounded mismatch diagnostics; authoritative original request separate from saved receipts; evidence-only reporting admitted before context planning; authorization identity retained independently of executable budget; operational retry preserves structured evidence and reports its blocker; canonical operation/prerequisite metadata; complete digest-checked criterion export pages",
+    "gateway": "Exact-model router failure normalization and actionable capability rechecks without model loading or inference",
+    "audit": "Fresh bounded MCP contract rechecks; credential repair guidance; gateway observation identity and safe declared remote identity; linked configuration, credential and discovery readiness; explicit selected-model, rendering/accessibility, database, source-suite and device qualification; adjacent score/coverage/outcome counts; exact saved-profile benchmark preparation",
+    "voice": "Canonical speech rate-limit identity with separate startup phase; bounded TTS catalog initialization; current engine and utterance callback ownership",
+    "privacy_and_diagnostics": "Remove raw chat collection logging; redact multiline content before splitting and at retained-source export boundaries; normalize nested dispatch counters; correlate duplicate crash observations; retain bounded sanitized crash cause/suppression/completeness evidence",
+    "provider_recovery": "Typed output origins and invocation linkage; paid-provider rate-limit cooldown recovery under captured authorization and exact profile/model"
+  },
+  "validation": {
+    "focused_kotlin_host_passed": {
+      "github_replay_catalog_and_acceptance": 101,
+      "tool_admission": 18,
+      "gateway_capability_and_admission": 29,
+      "audit_services_export_qualification_and_runner": 97,
+      "audit_presentation_and_benchmark_preparation": 18,
+      "existing_voice_recovery": 19,
+      "android_voice_with_explicit_platform_boundaries": 6,
+      "diagnostic_privacy_crash_export_and_capture": 175,
+      "provider_output_cooldown_reducer_and_delivery": 66,
+      "output_journal_lineage_draw_and_coverage": 40,
+      "invocation_output_accounting": 3
+    },
+    "focused_gateway_python_passed": 32,
+    "host_scope": "Current production logic with explicit Android, storage or unrelated service boundaries. This is not full Android, physical-device or live-service qualification.",
+    "canonical_fast": {
+      "command": "bash scripts/validate-local.sh fast",
+      "status": "PASSED",
+      "script_tests": 404,
+      "script_test_seconds": 13.973,
+      "regex_literals_checked": 1410,
+      "dynamic_regex_patterns_skipped": 73,
+      "regex_errors": 0,
+      "resource_xml_files_checked": 34,
+      "source_commit": "aab76320aa43d9f829db715baa7fdf009fc8f39a",
+      "source_tree_sha": "470a4b5df9ceda25116a881f677be5d98c1e0c43",
+      "published_source_commit": "a8c1729962f5e87f45997086019986fd6d265279"
+    },
+    "android_local": "BLOCKED: local JDK 17, no Android SDK 37; pinned Gradle 9.8 download returned Network is unreachable",
+    "head_ci": "NOT_OBSERVED_AT_THIS_CHECKPOINT: inspect the published branch and pull request for exact-head CI outcomes",
+    "canonical_gateway": {
+      "total": 699,
+      "passed": 698,
+      "skipped": 1,
+      "skip_reason": "No bindable LAN IPv4 interface for the interface-specific case"
+    },
+    "canonical_browser_bridge_passed": 7,
+    "canonical_authentication_passed": 25,
+    "final_regressions": "All final focused suites passed; canonical fast passed after inventory regeneration. Full Android toolchain remains unavailable locally.",
+    "formatting": "Ktlint 1.3.1 completed successfully for all 105 changed Kotlin files; whole-tree git diff --check passed",
+    "original_capture_replay": {
+      "matching_crash_emitter_roots_before": 9,
+      "matching_crash_episodes_after": 2,
+      "chat_tagged_records_sanitized": 140,
+      "failed_model_attempts": 4,
+      "not_dispatched_model_attempts": 4,
+      "scope": "Original attached ZIP; ComposeInternal/AppCrash/AndroidRuntime correlation only. Unlinked OS exit history remains independent."
+    }
+  },
+  "remaining_qualification": [
+    "Reauthorize the exact saved connection mapped to target-11, then run fresh discovery and an approved named tool fixture",
+    "Freshly classify target-7 schema and target-9 HTTP 404 discovery failures against their actual configured endpoint and protocol",
+    "Execute the 39 named tool checks and 10 external suites from the supplied audit review in their authorized environments",
+    "Execute exact selected-model generation and persistent gateway job, queue, restoration and Android-closed behavior",
+    "Record exact APK/device identities and physical frame, memory, native backend and resource measurements",
+    "Verify the incident host's exact-model properties failure and running gateway/service build; neither a fixed error classifier nor capability discovery proves deployment repair",
+    "Enable or install optional plugins only when intended; disabled and absent plugins are configuration outcomes, not automatically software defects",
+    "Reproduce Gateway conversation navigation and activity recreation on the exact APK/device; a nonthrowing source repair is not a physical-device outcome",
+    "Profile streaming, scrolling, long text measurement, export latency and allocation turnover on a profileable or release build; historical debug timing is not a paired improvement measurement",
+    "Exercise real speech and TTS engines across rapid taps, navigation, disconnection and background/foreground transitions",
+    "Reproduce the ASUS protected-setting finalizer warning on identified firmware without bypassing protected platform APIs; application impact remains unestablished"
+  ],
+  "source_commits": [
+    "a8c1729962f5e87f45997086019986fd6d265279"
+  ],
+  "publication": {
+    "destination": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved",
+    "branch": "fix/diagnostics-8fb7513c-2026-11-09",
+    "reviewed_head_before_delivery_status": "319c311204f8484f66f7ba391fcfdd0aba7fb519",
+    "status": "USER_APPROVED",
+    "action": "git push -u origin fix/diagnostics-8fb7513c-2026-11-09",
+    "prior_block_reason": "Automatic review treated the push as external egress of potentially private repository contents and required explicit user approval of this destination. No workaround or indirect upload was attempted.",
+    "authorization": "The user explicitly approved publishing this branch to the named GitHub repository and opening its draft pull request on 2026-11-09.",
+    "method": "Authenticated GitHub connector; command-line Git credentials are unavailable",
+    "published_source_commit": "a8c1729962f5e87f45997086019986fd6d265279",
+    "source_tree_sha": "470a4b5df9ceda25116a881f677be5d98c1e0c43",
+    "source_tree_equivalence": "The published source tree exactly matches validated local commit aab76320aa43d9f829db715baa7fdf009fc8f39a."
+  },
+  "validated_local_source_commits": [
+    "194a225a0ab671e6096dd31d476a991a51cf23a9",
+    "aab76320aa43d9f829db715baa7fdf009fc8f39a"
+  ]
+}

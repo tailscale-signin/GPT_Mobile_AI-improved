@@ -77,6 +77,32 @@ def resolve_release(root, tag, source, *, release_id=None, published=False):
     return release
 
 
+def resolve_tag_sha(root, tag, source, release, *, published=False):
+    """Peel a release tag, permitting only a confirmed pending draft tag."""
+    source = immutable_sha(source)
+    try:
+        commit = gh_json("api", root + "/commits/" + tag)
+        return immutable_sha(commit.get("sha", ""))
+    except subprocess.CalledProcessError as error:
+        if published or release.get("draft") is not True or release.get("target_commitish") != source:
+            raise
+        if is_not_found(error):
+            return None
+        # GitHub returns this 422 before a new draft materializes its tag.
+        # Other validation failures must not authorize upload reconciliation.
+        if (not isinstance(error.stderr, str)
+                or error.stderr.rstrip() != f"gh: No commit found for SHA: {tag} (HTTP 422)"):
+            raise
+        try:
+            gh_json("api", root + "/git/ref/tags/" + tag)
+        except subprocess.CalledProcessError as ref_error:
+            if is_not_found(ref_error):
+                return None
+            raise
+        # A ref exists, so the commit lookup failure cannot prove a pending tag.
+        raise error
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repository", required=True)
@@ -96,16 +122,7 @@ def main():
     root = "repos/" + args.repository
     release = resolve_release(root, tag, source, release_id=args.release_id, published=args.published)
     # GitHub's commit endpoint peels lightweight and annotated tags.
-    try:
-        commit = gh_json("api", root + "/commits/" + tag)
-        sha = immutable_sha(commit.get("sha", ""))
-    except subprocess.CalledProcessError as error:
-        # A newly created draft may not have materialized its tag. Only an
-        # explicit 404 and its immutable target permit upload reconciliation.
-        if (not is_not_found(error) or args.published
-                or release.get("draft") is not True or release.get("target_commitish") != source):
-            raise
-        sha = None
+    sha = resolve_tag_sha(root, tag, source, release, published=args.published)
     names = [item["name"] for item in provenance["assets"]] + ["provenance.json", "SHA256SUMS.txt"]
     if any(Path(name).name != name or not re.fullmatch(r"[A-Za-z0-9_.+-]+", name) for name in names):
         raise ValueError("Unsafe asset filename")

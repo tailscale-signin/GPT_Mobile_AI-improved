@@ -1,0 +1,390 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "repository_id": 1355915242,
+  "recovery_branch": "recovery/publish-v0.9.66.7-2026-11-09",
+  "source_sha": "7db0c735f9e86eaece24513fbaf5c0a624f13822",
+  "source_tree": "f03798d3efdbacc7a59dafdd289c49fdeace26b4",
+  "version_name": "0.9.66.7",
+  "version_code": 141,
+  "tag": "v0.9.66.7",
+  "release_id": 439525320,
+  "release_body_sha256": "362d061c50a4aaae32b811ba8fbe31183244c1ad2575d6875557e0a911327983",
+  "signing_certificate_sha256": "5c97847a2ff1eadab864a7f7561d8291b1d421f3a27a32e21fbe2dc7ff365d15",
+  "source_run_id": 42663462790,
+  "source_run_attempt": 1,
+  "source_workflow_id": 349499390,
+  "source_workflow_path": ".github/workflows/release-build.yml",
+  "jobs": [
+    {
+      "id": 129320810843,
+      "name": "Check whether the version changed",
+      "conclusion": "success",
+      "steps": [
+        {
+          "name": "Set up job",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "conclusion": "success"
+        },
+        {
+          "name": "Select explicit or version-changing releases",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "conclusion": "success"
+        },
+        {
+          "name": "Complete job",
+          "conclusion": "success"
+        }
+      ]
+    },
+    {
+      "id": 129320914625,
+      "name": "Validate exact release commit",
+      "conclusion": "success",
+      "steps": [
+        {
+          "name": "Set up job",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "conclusion": "success"
+        },
+        {
+          "name": "Validate reviewed release scope and truthful milestone evidence",
+          "conclusion": "success"
+        },
+        {
+          "name": "Check release version before building",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run gradle/actions/setup-gradle@748248ddd2a24f49513d8f472f81c3a07d4d50e1",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd",
+          "conclusion": "success"
+        },
+        {
+          "name": "Provision verified memory model outside Gradle",
+          "conclusion": "success"
+        },
+        {
+          "name": "Install Vulkan shader headers for Android GGUF backend",
+          "conclusion": "success"
+        },
+        {
+          "name": "Validate Android resources",
+          "conclusion": "success"
+        },
+        {
+          "name": "Generate release validation sources in a separate process",
+          "conclusion": "success"
+        },
+        {
+          "name": "Compile release validation production sources in a separate process",
+          "conclusion": "success"
+        },
+        {
+          "name": "Compile release validation tests in a separate process",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run release validation unit tests",
+          "conclusion": "success"
+        },
+        {
+          "name": "Lint debug in a separate process",
+          "conclusion": "success"
+        },
+        {
+          "name": "Generate release sources in a separate process",
+          "conclusion": "success"
+        },
+        {
+          "name": "Compile release sources in a separate process",
+          "conclusion": "success"
+        },
+        {
+          "name": "Verify release compatibility and lint",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run gradle/actions/setup-gradle@748248ddd2a24f49513d8f472f81c3a07d4d50e1",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "conclusion": "success"
+        },
+        {
+          "name": "Complete job",
+          "conclusion": "success"
+        }
+      ]
+    },
+    {
+      "id": 129357658366,
+      "name": "Build, verify and publish",
+      "conclusion": "failure",
+      "steps": [
+        {
+          "name": "Set up job",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run gradle/actions/setup-gradle@748248ddd2a24f49513d8f472f81c3a07d4d50e1",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd",
+          "conclusion": "success"
+        },
+        {
+          "name": "Provision verified memory model outside Gradle",
+          "conclusion": "success"
+        },
+        {
+          "name": "Install Vulkan shader headers for Android GGUF backend",
+          "conclusion": "success"
+        },
+        {
+          "name": "Require green main checks on this exact candidate",
+          "conclusion": "success"
+        },
+        {
+          "name": "Configure release signing",
+          "conclusion": "success"
+        },
+        {
+          "name": "Require qualified QNN dispatch provenance",
+          "conclusion": "success"
+        },
+        {
+          "name": "Shrink release code in a separate process",
+          "conclusion": "success"
+        },
+        {
+          "name": "Build release artifacts",
+          "conclusion": "success"
+        },
+        {
+          "name": "Sign and verify APKs and bundle",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+          "conclusion": "success"
+        },
+        {
+          "name": "Publish new immutable release",
+          "conclusion": "failure"
+        },
+        {
+          "name": "Retain exact release and publication receipts",
+          "conclusion": "success"
+        },
+        {
+          "name": "Remove signing material",
+          "conclusion": "success"
+        },
+        {
+          "name": "Save release APK size diagnostics",
+          "conclusion": "success"
+        },
+        {
+          "name": "Retain release performance and shrinker reports",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run gradle/actions/setup-gradle@748248ddd2a24f49513d8f472f81c3a07d4d50e1",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "conclusion": "success"
+        },
+        {
+          "name": "Complete job",
+          "conclusion": "success"
+        }
+      ]
+    }
+  ],
+  "artifacts": [
+    {
+      "id": 13702935252,
+      "name": "signed-release-7db0c735f9e86eaece24513fbaf5c0a624f13822",
+      "size": 702274377,
+      "sha256": "91d5e32617b7b8004a745afaebc47f6724ef8faf954e39655165f8d8139ed05b",
+      "kind": "signed",
+      "files": [
+        {
+          "name": "app-arm64-v8a-release.apk",
+          "size": 162912714,
+          "sha256": "73ea6b4494cfc369cd6e40e98a192e85176e131152fa5a6d511a2a1ecd17d8d0"
+        },
+        {
+          "name": "app-arm64-v8a-release.apk.idsig",
+          "size": 1292159,
+          "sha256": "8aebd5f22d4e375b7932ec9a18cdf143dfa9990d87647f6945c77bde36a9c674"
+        },
+        {
+          "name": "app-release.aab",
+          "size": 231143508,
+          "sha256": "ab2676cb32d418d45270256bfb43993175dad01fdf29fd32c6a96d15dee88803"
+        },
+        {
+          "name": "app-universal-release.apk",
+          "size": 219364431,
+          "sha256": "86ec9e94a2b012cb99a6d09810272e6def5365488be09b33c736ae4d9e866034"
+        },
+        {
+          "name": "app-universal-release.apk.idsig",
+          "size": 1738623,
+          "sha256": "2299cac6a6d547a5c66b8effa082eed6777b0ed702647451b9c8c5db3b397468"
+        },
+        {
+          "name": "app-x86_64-release.apk",
+          "size": 96384195,
+          "sha256": "0a313d2082154d55f066fb24a5238df2cc95017f9390ee2d1a489895aff31c02"
+        },
+        {
+          "name": "app-x86_64-release.apk.idsig",
+          "size": 767871,
+          "sha256": "a126e8ef67a160b433e370f3e0e29abb06772e49444b2066e889071e70e53826"
+        },
+        {
+          "name": "optional-payload-inventory.json",
+          "size": 3364,
+          "sha256": "9dd4b6679f9da4762fbd12fa06cf5b1d9ee9eae817b6e9a92fd94e04b751e81d"
+        },
+        {
+          "name": "provenance.json",
+          "size": 2783,
+          "sha256": "fe34ded66cf3bee0cdcec9b914888067d622aafe8d9d022b2b41d7c0971c9c55"
+        },
+        {
+          "name": "SHA256SUMS.txt",
+          "size": 437,
+          "sha256": "416ab762cfb6cce5586ed7127b2b4f4f042cfd31ff8b3fb07af71c81f4071805"
+        }
+      ]
+    },
+    {
+      "id": 13702980363,
+      "name": "release-evidence-7db0c735f9e86eaece24513fbaf5c0a624f13822",
+      "size": 578,
+      "sha256": "7dd399f3ac1184f2bdcf7a06426ff9cfc74ac82b3659992c5b9a38b41499e76b",
+      "kind": "checks",
+      "files": [
+        {
+          "name": "release-checks.json",
+          "size": 1910,
+          "sha256": "ae21682ff0e214f742c36b65fac5e8f61b1dce7ca89ac77e211b551434192b01"
+        }
+      ]
+    }
+  ],
+  "assets": [
+    {
+      "id": 728634392,
+      "name": "app-arm64-v8a-release.apk",
+      "size": 162912714,
+      "sha256": "73ea6b4494cfc369cd6e40e98a192e85176e131152fa5a6d511a2a1ecd17d8d0"
+    },
+    {
+      "id": 728634388,
+      "name": "app-arm64-v8a-release.apk.idsig",
+      "size": 1292159,
+      "sha256": "8aebd5f22d4e375b7932ec9a18cdf143dfa9990d87647f6945c77bde36a9c674"
+    },
+    {
+      "id": 728634394,
+      "name": "app-release.aab",
+      "size": 231143508,
+      "sha256": "ab2676cb32d418d45270256bfb43993175dad01fdf29fd32c6a96d15dee88803"
+    },
+    {
+      "id": 728634397,
+      "name": "app-universal-release.apk",
+      "size": 219364431,
+      "sha256": "86ec9e94a2b012cb99a6d09810272e6def5365488be09b33c736ae4d9e866034"
+    },
+    {
+      "id": 728634421,
+      "name": "app-universal-release.apk.idsig",
+      "size": 1738623,
+      "sha256": "2299cac6a6d547a5c66b8effa082eed6777b0ed702647451b9c8c5db3b397468"
+    },
+    {
+      "id": 728634425,
+      "name": "app-x86_64-release.apk",
+      "size": 96384195,
+      "sha256": "0a313d2082154d55f066fb24a5238df2cc95017f9390ee2d1a489895aff31c02"
+    },
+    {
+      "id": 728634452,
+      "name": "app-x86_64-release.apk.idsig",
+      "size": 767871,
+      "sha256": "a126e8ef67a160b433e370f3e0e29abb06772e49444b2066e889071e70e53826"
+    },
+    {
+      "id": 728634493,
+      "name": "optional-payload-inventory.json",
+      "size": 3364,
+      "sha256": "9dd4b6679f9da4762fbd12fa06cf5b1d9ee9eae817b6e9a92fd94e04b751e81d"
+    },
+    {
+      "id": 728634526,
+      "name": "provenance.json",
+      "size": 2783,
+      "sha256": "fe34ded66cf3bee0cdcec9b914888067d622aafe8d9d022b2b41d7c0971c9c55"
+    },
+    {
+      "id": 728634391,
+      "name": "SHA256SUMS.txt",
+      "size": 437,
+      "sha256": "416ab762cfb6cce5586ed7127b2b4f4f042cfd31ff8b3fb07af71c81f4071805"
+    }
+  ],
+  "bundletool": {
+    "url": "https://github.com/google/bundletool/releases/download/1.18.3/bundletool-all-1.18.3.jar",
+    "sha256": "a099cfa1543f55593bc2ed16a70a7c67fe54b1747bb7301f37fdfd6d91028e29"
+  }
+}

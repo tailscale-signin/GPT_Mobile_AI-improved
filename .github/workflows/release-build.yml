@@ -23,6 +23,7 @@ env:
   OBX_DISABLE_ANALYTICS: "true"
 jobs:
   release_intent:
+    if: github.event_name != 'workflow_dispatch' || github.ref != 'refs/heads/recovery/publish-v0.9.66.7-2026-11-09'
     name: Check whether the version changed
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -362,4 +363,60 @@ jobs:
             build/reports/pipeline/
             app/build/outputs/mapping/release/
           if-no-files-found: ignore
+          retention-days: 14
+
+  recover_existing_release:
+    name: Verify retained v0.9.66.7 and publish its existing draft
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/recovery/publish-v0.9.66.7-2026-11-09' && github.repository == 'tailscale-signin/GPT_Mobile_AI-improved'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Checkout reviewed recovery controller
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Exercise recovery and publication behavior
+        run: python3 -m unittest discover -s scripts/tests -p 'test_*release*.py'
+      - name: Checkout immutable signed source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: 7db0c735f9e86eaece24513fbaf5c0a624f13822
+          path: release-source
+          persist-credentials: false
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+        with:
+          packages: 'platforms;android-37.0 build-tools;37.0.0'
+      - name: Provision verified memory model outside Gradle
+        working-directory: release-source
+        run: python3 scripts/provision_memory_model.py
+      - name: Provision pinned bundle manifest verifier
+        env:
+          BUNDLETOOL_JAR: ${{ runner.temp }}/release-recovery-bundletool.jar
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 --max-time 300 --output "$BUNDLETOOL_JAR" https://github.com/google/bundletool/releases/download/1.18.3/bundletool-all-1.18.3.jar
+          echo "a099cfa1543f55593bc2ed16a70a7c67fe54b1747bb7301f37fdfd6d91028e29  $BUNDLETOOL_JAR" | sha256sum --check --strict
+      - name: Verify every retained byte and publish the pinned release once
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUNDLETOOL_JAR: ${{ runner.temp }}/release-recovery-bundletool.jar
+        run: |
+          python3 scripts/recover_existing_release.py \
+            --source "$GITHUB_WORKSPACE/release-source" \
+            --work "$RUNNER_TEMP/release-recovery-v0.9.66.7"
+      - name: Retain recovery and publication receipts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-recovery-v0.9.66.7-${{ github.run_id }}
+          path: ${{ runner.temp }}/release-recovery-v0.9.66.7/evidence/
+          if-no-files-found: warn
           retention-days: 14

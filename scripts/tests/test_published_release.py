@@ -26,6 +26,11 @@ def not_found():
     return subprocess.CalledProcessError(1, ["gh", "api"], stderr="gh: Not Found (HTTP 404)")
 
 
+def missing_commit(tag=TAG):
+    return subprocess.CalledProcessError(
+        1, ["gh", "api"], stderr=f"gh: No commit found for SHA: {tag} (HTTP 422)\n")
+
+
 class PublishedReleaseTest(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
@@ -50,7 +55,8 @@ class PublishedReleaseTest(unittest.TestCase):
             ROOT + "/releases/tags/" + TAG: not_found(),
             ROOT + "/releases?per_page=100&page=1": [self.release],
             ROOT + "/releases/17": self.release,
-            ROOT + "/commits/" + TAG: not_found()
+            ROOT + "/commits/" + TAG: not_found(),
+            ROOT + "/git/ref/tags/" + TAG: not_found()
         }
         self.requests = []
         self.downloads = []
@@ -98,6 +104,46 @@ class PublishedReleaseTest(unittest.TestCase):
         self.assertIn(ROOT + "/releases?per_page=100&page=2", self.requests)
         self.assertIn(ROOT + "/releases/17", self.requests)
 
+    def test_missing_commit_422_requires_absent_tag_ref_and_verifies_all_bytes(self):
+        self.endpoints[ROOT + "/commits/" + TAG] = missing_commit()
+        receipt = self.verify()
+        self.assertEqual("UPLOAD_VERIFIED", receipt["status"])
+        self.assertEqual("PENDING_PUBLICATION", receipt["tagState"])
+        self.assertEqual(17, receipt["releaseId"])
+        self.assertEqual(SHA, receipt["sourceSha"])
+        self.assertEqual(list(self.contents), self.downloads)
+        self.assertEqual([ROOT + "/commits/" + TAG, ROOT + "/git/ref/tags/" + TAG], self.requests[-2:])
+
+    def test_other_commit_lookup_failures_cannot_authorize_pending_draft_tag(self):
+        errors = [subprocess.CalledProcessError(1, ["gh", "api"], stderr=f"gh: request failed (HTTP {status})")
+                  for status in (401, 403, 422, 429, 500)]
+        errors.extend([missing_commit("v1x2x3"), missing_commit(TAG + ".1"),
+                       subprocess.CalledProcessError(1, ["gh", "api"], stderr=None)])
+        for error in errors:
+            with self.subTest(stderr=error.stderr):
+                self.requests.clear()
+                self.endpoints[ROOT + "/commits/" + TAG] = error
+                with self.assertRaises(subprocess.CalledProcessError):
+                    self.verify()
+                self.assertNotIn(ROOT + "/git/ref/tags/" + TAG, self.requests)
+        self.assertEqual([], self.downloads)
+        self.assertFalse(self.output.exists())
+
+    def test_missing_commit_422_fails_when_tag_ref_is_present_or_unavailable(self):
+        self.endpoints[ROOT + "/commits/" + TAG] = missing_commit()
+        responses = [{"ref": "refs/tags/" + TAG, "object": {"type": "commit", "sha": SHA}}]
+        responses.extend(subprocess.CalledProcessError(1, ["gh", "api"], stderr=f"gh: request failed (HTTP {status})")
+                         for status in (401, 403, 422, 429, 500))
+        for response in responses:
+            with self.subTest(response=response):
+                self.requests.clear()
+                self.endpoints[ROOT + "/git/ref/tags/" + TAG] = response
+                with self.assertRaises(subprocess.CalledProcessError):
+                    self.verify()
+                self.assertIn(ROOT + "/git/ref/tags/" + TAG, self.requests)
+        self.assertEqual([], self.downloads)
+        self.assertFalse(self.output.exists())
+
     def make_published(self):
         self.release.update(draft=False, published_at="2026-11-07T00:00:00Z")
         self.endpoints[ROOT + "/releases/tags/" + TAG] = self.release
@@ -112,6 +158,19 @@ class PublishedReleaseTest(unittest.TestCase):
         self.assertEqual([ROOT + "/releases/17", ROOT + "/releases/tags/" + TAG,
                           ROOT + "/commits/" + TAG], self.requests)
 
+    def test_missing_commit_never_substitutes_for_a_published_tag(self):
+        self.make_published()
+        for options in ((), ("--published",)):
+            for error in (not_found(), missing_commit()):
+                with self.subTest(options=options, stderr=error.stderr):
+                    self.requests.clear()
+                    self.endpoints[ROOT + "/commits/" + TAG] = error
+                    with self.assertRaises(subprocess.CalledProcessError):
+                        self.verify("--release-id", "17", *options)
+                    self.assertNotIn(ROOT + "/git/ref/tags/" + TAG, self.requests)
+        self.assertEqual([], self.downloads)
+        self.assertFalse(self.output.exists())
+
     def test_published_tag_lookup_does_not_substitute_a_draft(self):
         with self.assertRaises(subprocess.CalledProcessError):
             self.verify("--published")
@@ -120,11 +179,12 @@ class PublishedReleaseTest(unittest.TestCase):
         self.assertFalse(self.output.exists())
 
     def test_only_an_explicit_404_permits_draft_collection_lookup(self):
-        for status in (401, 403, 429, 500):
-            with self.subTest(status=status):
+        errors = [subprocess.CalledProcessError(1, ["gh", "api"], stderr=f"gh: request failed (HTTP {status})")
+                  for status in (401, 403, 422, 429, 500)]
+        for error in [*errors, missing_commit()]:
+            with self.subTest(stderr=error.stderr):
                 self.requests.clear()
-                self.endpoints[ROOT + "/releases/tags/" + TAG] = subprocess.CalledProcessError(
-                    1, ["gh", "api"], stderr=f"gh: request failed (HTTP {status})")
+                self.endpoints[ROOT + "/releases/tags/" + TAG] = error
                 with self.assertRaises(subprocess.CalledProcessError):
                     self.verify()
                 self.assertEqual([ROOT + "/releases/tags/" + TAG], self.requests)
@@ -156,6 +216,7 @@ class PublishedReleaseTest(unittest.TestCase):
         self.assertFalse(self.output.exists())
 
     def test_draft_target_must_be_the_exact_immutable_source(self):
+        self.endpoints[ROOT + "/commits/" + TAG] = missing_commit()
         for target in ("main", "c" * 40):
             with self.subTest(target=target):
                 self.release["target_commitish"] = target
@@ -203,6 +264,7 @@ class PublishedReleaseTest(unittest.TestCase):
         self.assertFalse(self.output.exists())
 
     def test_downloaded_asset_and_manifest_bytes_still_control_the_receipt(self):
+        self.endpoints[ROOT + "/commits/" + TAG] = missing_commit()
         for asset_id in self.contents:
             with self.subTest(asset_id=asset_id):
                 original = self.contents[asset_id]
@@ -235,6 +297,11 @@ def missing():
     print("gh: Not Found (HTTP 404)", file=sys.stderr)
     sys.exit(1)
 
+def missing_commit():
+    save()
+    print("gh: No commit found for SHA: " + release["tag_name"] + " (HTTP 422)", file=sys.stderr)
+    sys.exit(1)
+
 if args[:2] == ["release", "create"]:
     assert args[2] == release["tag_name"] and "--draft" in args
     assert args[args.index("--target") + 1] == "a" * 40
@@ -264,8 +331,12 @@ elif args[0] == "api":
         print(json.dumps(release))
     elif endpoint == prefix + "/commits/v1.2.3":
         if release["draft"]:
-            missing()
+            missing_commit()
         print(json.dumps({"sha": "a" * 40}))
+    elif endpoint == prefix + "/git/ref/tags/v1.2.3":
+        if release["draft"]:
+            missing()
+        print(json.dumps({"ref": "refs/tags/v1.2.3", "object": {"type": "commit", "sha": "a" * 40}}))
     elif endpoint.startswith(prefix + "/releases/assets/"):
         assert args[2:] == ["--header", "Accept: application/octet-stream"]
         asset_id = int(endpoint.rsplit("/", 1)[1])
@@ -339,6 +410,7 @@ class ReleasePublicationWorkflowTest(unittest.TestCase):
                 self.assertEqual(0, result.returncode, result.stderr)
                 self.assertEqual(1, state["creates"])
                 self.assertEqual(1, state["publications"])
+                self.assertEqual(1, state["commands"].count(["api", ROOT + "/git/ref/tags/" + TAG]))
                 self.assertEqual("PUBLISHED_VERIFIED", receipt["status"])
                 self.assertEqual(17, receipt["releaseId"])
                 self.assertEqual(SHA, receipt["sourceSha"])

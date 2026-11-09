@@ -151,7 +151,7 @@
     },
     "gateway_manifest": {
       "status": "PASSED",
-      "source_commit": "587b75d64313687cacce52e9cb162a0d1f65586e",
+      "source_commit": "bb1b947792da99b8ee559654e576ae9d8fd3d55c",
       "command": "python gateway/build_v14_package.py --manifest-only",
       "validated_package_files": 188,
       "validation_command": "gateway/gateway.py validate-config"
@@ -179,18 +179,21 @@
       "failed": 0,
       "existing_tests_preserved": 15,
       "scope": "Actual Marketplace ViewModel and persistence helper with the production I/O dispatcher injectable into controlled tests; immediate denial, paused and failed durable revocation, safe retry and owned-connection deletion ordering",
-      "boundaries": "Controlled lifecycle Main.immediate/SupervisorJob and mocked registry/package/repository/resolver ports; reduced settings use extracted production gate functions; full Android gate remains separate"
+      "boundaries": "Controlled lifecycle Main.immediate/SupervisorJob and mocked registry/package/repository/resolver ports; reduced settings use extracted production gate functions; full Android gate remains separate",
+      "tested_local_commit": "865367be7f90a556d15c990a832e559e85ba42ed"
     },
     "voice_recovery": {
       "passed": 38,
       "failed": 0,
-      "scope": "All five actual voice policy suites; admitted owner per attempt, unchanged escalation/reset assertions, retired callback rejection and successful-start debounce"
+      "scope": "All five actual voice policy suites; admitted owner per attempt, unchanged escalation/reset assertions, retired callback rejection and successful-start debounce",
+      "tested_local_commit": "2b4eec3662e0d13d14e8b199cb008838d227885f"
     },
     "credential_clear_completion": {
       "passed": 3,
       "failed": 0,
       "scope": "Three exact credential-clear tests await the existing save completion callback and retain null secret-reference/vault assertions",
-      "boundaries": "Verbatim whole production save method and actual persistence/repository/DAO/endpoint code; unrelated refresh/probe/UI lifecycle ports are controlled; not all 35 ViewModel tests"
+      "boundaries": "Verbatim whole production save method and actual persistence/repository/DAO/endpoint code; unrelated refresh/probe/UI lifecycle ports are controlled; not all 35 ViewModel tests",
+      "tested_local_commit": "2b4eec3662e0d13d14e8b199cb008838d227885f"
     },
     "observed_android_unit_run": {
       "head": "53ce44de8ccfdc8c587563a3657b498e1e5c0f70",
@@ -251,14 +254,14 @@
     "branch": "main",
     "sha": "293810dbc34ef93ee62521e2fd274681e10482ab"
   },
-  "implementation_commit": "1f1aa49d47588bf1d4aa1c0e3a809c3c544fb2bc",
+  "implementation_commit": "bb1b947792da99b8ee559654e576ae9d8fd3d55c",
   "integration": {
     "preserved_remote_commit": "c04f718685473f86bd0db4e9a68cbf7961ad2b59",
     "resolution": "Kept substantive GitHub summaries and their stricter logical-continuation regression; regenerated audit inventories from integrated source."
   },
   "source_identity": {
-    "tested_local_commit": "22452a402b4dce314c2f18493fe85bd22f8e35e9",
-    "published_code_commit": "1f1aa49d47588bf1d4aa1c0e3a809c3c544fb2bc",
-    "matching_tree": "9bb8dca01ab0716d3fc0ebf794c491bdf8cc7536"
+    "tested_local_commit": "2b4eec3662e0d13d14e8b199cb008838d227885f",
+    "published_code_commit": "bb1b947792da99b8ee559654e576ae9d8fd3d55c",
+    "matching_tree": "09a6f9eb48af1d1382a6e1ba4d0af642981cf398"
   }
 }

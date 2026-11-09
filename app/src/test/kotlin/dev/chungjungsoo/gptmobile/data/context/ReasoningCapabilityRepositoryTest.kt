@@ -17,6 +17,19 @@ import org.junit.Test
 class ReasoningCapabilityRepositoryTest {
     private val profile = PlatformV2(uid = "selected", name = "Fixture", compatibleType = ClientType.LLAMA, model = "exact-model", apiUrl = "https://fixture.invalid/v1", token = "synthetic-secret", enabled = true)
 
+    @Test fun metadataRejectionGuidanceDoesNotQualifyOrChangeTheRequestedReasoningMode() = runTest {
+        val guidance = "The server rejected the metadata request. Check its selected model and server version."
+        val repository = ReasoningCapabilityRepository({ _, _ -> ReasoningCapabilityProbe(false, detailMessage = guidance) }, { 10L })
+        val result = repository.check(profile, ReasoningMode.OFF)
+        assertEquals(ReasoningMode.OFF, result.requested)
+        assertEquals("exact-model", result.model)
+        assertEquals(ReasoningCapabilityStatus.UNVERIFIED, result.status)
+        assertEquals("REASONING_CAPABILITY_UNVERIFIED", result.safeReasonCode)
+        assertEquals(guidance, result.detailMessage)
+        assertFalse(result.permitsRequest)
+        assertFalse(result.routeVerified)
+    }
+
     @Test fun unverifiedGatewayControlCannotBecomeUnsupportedJustBecauseItsCapacityIsKnown() = runTest {
         val repository = ReasoningCapabilityRepository({ _, _ -> ReasoningCapabilityProbe(true, runtimeRevision = "gateway-runtime", controlStatus = ReasoningCapabilityStatus.UNVERIFIED) }, { 10L })
         val result = repository.check(profile, ReasoningMode.OFF)

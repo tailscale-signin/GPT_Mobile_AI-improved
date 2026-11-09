@@ -77,6 +77,7 @@ import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as Alert
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDialog as Dialog
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDropdownMenu as DropdownMenu
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
+import dev.chungjungsoo.gptmobile.presentation.common.diagnosticFrameTiming
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.jsonObject
 
@@ -116,6 +117,12 @@ fun GitHubWorkspaceScreen(
     }
     val commandContext = programmerState.context?.takeIf { it.connectionUid == connection.connectionUid && it.owner == state.selection?.owner && it.repo == state.selection?.repo && it.ref == state.selection?.ref } ?: savedContext
     val visibleProgrammer = if (commandContext != null) programmerState.copy(context = commandContext, chatId = programmerState.chatId ?: initialChatId.takeIf { savedContext != null }) else programmerState.copy(context = null, chatId = null, messages = emptyList(), runs = emptyList(), events = emptyList(), eventCount = 0, eventCountsByRun = emptyMap(), approvals = emptyList(), pending = emptyList(), draftLoaded = false)
+    val latestRepositoryFailure = remember(visibleProgrammer.runs) { visibleProgrammer.runs.maxByOrNull { it.createdAt }?.terminalError }
+    val repositoryAccessFailure = remember(state.error, visibleProgrammer.error, latestRepositoryFailure) {
+        listOf(state.error, visibleProgrammer.error, latestRepositoryFailure).filterNotNull()
+            .map { dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.classify(it).category }
+            .firstOrNull { it in setOf("GITHUB_REPOSITORY_UNAVAILABLE", "GITHUB_REF_UNAVAILABLE", "GITHUB_NOT_FOUND_OR_INACCESSIBLE", "GITHUB_NOT_FOUND_OR_HIDDEN") }
+    }
     val engineeringModel: dev.chungjungsoo.gptmobile.presentation.ui.chat.GatewayEngineeringViewModel = hiltViewModel()
     val engineering by engineeringModel.state.collectAsStateWithLifecycle()
     dev.chungjungsoo.gptmobile.presentation.ui.chat.GatewayEngineeringObservation(engineeringModel, visibleProgrammer.chatId)
@@ -223,7 +230,7 @@ fun GitHubWorkspaceScreen(
                 dev.chungjungsoo.gptmobile.presentation.ui.chat.RepositoryGraphPanel(commandContext, engineeringProfile, onDismiss = { repositoryMapOpen = false })
             }
             Scaffold(
-                modifier = Modifier.fillMaxSize().imePadding().drawWithContent {
+                modifier = Modifier.diagnosticFrameTiming("GitHubWorkspace").fillMaxSize().imePadding().drawWithContent {
                     drawContent()
                     if (state.uiReady || savedContext != null) navigationTrace.firstUsefulFrame(cached = state.recentChatId != null || savedContext != null)
                 },
@@ -367,6 +374,22 @@ fun GitHubWorkspaceScreen(
                                     Text("Loading your GitHub selection…", style = MaterialTheme.typography.bodySmall)
                                 }
                                 state.notice?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.heightIn(max = 72.dp).verticalScroll(rememberScrollState())) }
+                            }
+                        }
+                    }
+                    if (repositoryAccessFailure != null) {
+                        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(if (repositoryAccessFailure == "GITHUB_REF_UNAVAILABLE") "Repository ref unavailable" else "Repository unavailable or inaccessible", style = MaterialTheme.typography.titleSmall)
+                            Text("Account: ${state.login.ifBlank { "Not verified" }} · Connection: ${(state.connection ?: connection).name}", style = MaterialTheme.typography.bodySmall)
+                            (state.selection ?: commandContext?.repository)?.let { selected -> Text("Repository: ${selected.fullName}\nRef: ${selected.ref}", style = MaterialTheme.typography.bodySmall) }
+                            Text("Your saved request is retained. Refresh access or choose a repository to continue.", style = MaterialTheme.typography.bodySmall)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedButton(onClick = viewModel::refreshRepositoryAccess, enabled = state.selection != null && !state.busy && !state.authRefresh && !state.repositoryRefresh) { Text("Refresh access") }
+                                OutlinedButton(onClick = {
+                                    tab = GitHubWorkspaceDestination.SETTINGS.id
+                                    viewModel.onRepositoryPickerOpened()
+                                    repositoryMenu = true
+                                }, enabled = !state.busy && !state.authRefresh && !state.repositoryRefresh) { Text("Change repository") }
                             }
                         }
                     }

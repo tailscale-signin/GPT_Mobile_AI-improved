@@ -31,7 +31,8 @@ internal class GitHubEvidenceBook(
     private val currentToolContracts: Map<String, JsonObject> = emptyMap(),
     private val retentionLimitRecords: Int = 4096,
     private val retentionLimitBytes: Int = 16 * 1024 * 1024,
-    private val runtimeIdentity: () -> JsonObject = GitHubRuntimeIdentity::current
+    private val runtimeIdentity: () -> JsonObject = GitHubRuntimeIdentity::current,
+    private val readSources: Set<String> = emptySet()
 ) {
     init {
         require(retentionLimitRecords in 1..4096)
@@ -85,6 +86,8 @@ internal class GitHubEvidenceBook(
         val contract = currentToolContracts[name]
         val exclusion = when {
             name !in trustedTools -> "TOOL_NOT_AUTHORIZED_IN_CURRENT_CATALOG"
+            saved["repository_role"] == JsonPrimitive("READ_SOURCE") &&
+                (saved["repository"] as? JsonPrimitive)?.contentOrNull?.lowercase(java.util.Locale.ROOT) !in readSources -> "READ_SOURCE_NOT_IN_CURRENT_TASK"
             contract != null && (arguments == null || dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator.errors(arguments, contract).isNotEmpty()) -> "TOOL_ARGUMENT_CONTRACT_CHANGED"
             else -> null
         }
@@ -131,7 +134,17 @@ internal class GitHubEvidenceBook(
             action == "stage_patch" &&
             native?.get("commit_immediately") == JsonPrimitive(true) ||
             action in setOf("create_branch", "update_file", "create_pull_request", "create_issue_comment", "dispatch_workflow", "rerun_workflow", "rerun_failed_jobs", "cancel_workflow")
+        val sourceRead = !selected &&
+            !mutation &&
+            GitHubTargetPolicy.isReadAction(action) &&
+            "$owner/$repo".lowercase(java.util.Locale.ROOT) in readSources
+        val lifecycle = action in GitHubRepositoryLifecycle.actions && action != "repository_lifecycle_capabilities"
         val root = (content as? JsonObject)?.let { (it["data"] as? JsonObject) ?: it }
+        val lifecycleTarget = if (action == "clone_repository" || action == "repository_lifecycle_status" && native?.get("operation") == JsonPrimitive("clone_repository")) "source" else "destination"
+        val lifecycleRepository = listOf("${lifecycleTarget}_owner", "${lifecycleTarget}_repo").map { (effectiveArguments[it] as? JsonPrimitive)?.contentOrNull.orEmpty() }
+            .takeIf { lifecycle && it.all(String::isNotBlank) }?.joinToString("/")
+            ?: (root?.get("${lifecycleTarget}_repository") as? JsonPrimitive)?.contentOrNull?.takeIf { lifecycle && action == "repository_lifecycle_status" && it.matches(Regex("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")) }
+        val evidenceRepository = lifecycleRepository ?: if (selected) repository else "$owner/$repo"
         val head = (
             listOf("head_sha", "commit_sha").firstNotNullOfOrNull { (root?.get(it) as? JsonPrimitive)?.contentOrNull }
                 ?: ((root?.get("head") as? JsonObject)?.get("sha") as? JsonPrimitive)?.contentOrNull
@@ -147,7 +160,7 @@ internal class GitHubEvidenceBook(
         val headObservation = !immutable &&
             action in setOf("repo_status", "get_branch_head", "resolve_context", "branch_context") &&
             effectiveArguments["commit_sha"] == null
-        if (trusted && selected && targetBranch == branch && !result.sharedResult) {
+        if (trusted && selected && !lifecycle && targetBranch == branch && !result.sharedResult) {
             if (remoteChange || !result.isError && headObservation && head != null && observedHead != null && head != observedHead) epoch++
             if (!result.isError && head != null && (headObservation || remoteChange)) observedHead = head
         }
@@ -157,7 +170,19 @@ internal class GitHubEvidenceBook(
             put("binding", binding)
             put("call_id", call.callId)
             put("tool", call.name)
-            put("repository", if (selected) repository else "$owner/$repo")
+            put("repository", evidenceRepository)
+            put(
+                "repository_role",
+                if (lifecycleRepository != null) {
+                    "LIFECYCLE_DESTINATION"
+                } else if (sourceRead) {
+                    "READ_SOURCE"
+                } else if (selected) {
+                    "WRITE_DESTINATION"
+                } else {
+                    "UNAUTHORIZED_TARGET"
+                }
+            )
             put("runtime_identity", runtimeIdentity())
             put("branch", targetBranch)
             put("workspace_branch", branch)
@@ -167,7 +192,7 @@ internal class GitHubEvidenceBook(
             resourceBranch?.let { put("resource_branch", it) }
             head?.let { put("resource_sha", it) }
             put("arguments", effectiveArguments)
-            GitHubActionIdentity.digest(binding, repository, call.name, effectiveArguments)?.let { put("action_identity_sha256", it) }
+            GitHubActionIdentity.digest(binding, evidenceRepository, call.name, effectiveArguments)?.let { put("action_identity_sha256", it) }
             val priorAttempts = attempts[attemptKey(call.name, effectiveArguments)]
             if (priorAttempts != null) {
                 put(
@@ -190,10 +215,10 @@ internal class GitHubEvidenceBook(
             put("observed_at_ms", sourceTime ?: if (origin == "LIVE" && !result.sharedResult) now() else 0)
             put("epoch", epoch)
             put("source_head_sha", head?.let(::JsonPrimitive) ?: JsonNull)
-            put("head_observation", headObservation || remoteChange)
+            put("head_observation", selected && !lifecycle && (headObservation || remoteChange))
             put("immutable", immutable)
-            put("trusted", trusted && selected)
-            put("verification_eligible", trusted && selected)
+            put("trusted", trusted && (selected || sourceRead || lifecycleRepository != null))
+            put("verification_eligible", trusted && (selected || sourceRead || lifecycleRepository != null))
             put("success", !result.isError && result.errorCode == null)
             put("dispatched", result.dispatched)
             put("shared_result", result.sharedResult)

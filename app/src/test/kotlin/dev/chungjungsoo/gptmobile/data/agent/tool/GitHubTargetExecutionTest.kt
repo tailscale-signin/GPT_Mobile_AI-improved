@@ -25,6 +25,39 @@ import org.junit.Test
 class GitHubTargetExecutionTest {
     private fun json(text: String) = Json.parseToJsonElement(text).jsonObject
 
+    @Test fun suppliedSourceResolutionCannotReplaceTheNativeDestinationOrAuthorizeSourceWrites() = runTest {
+        val sourceHead = "c".repeat(40)
+        val tree = "b".repeat(40)
+        val paths = mutableListOf<String>()
+        val http = HttpClient(
+            MockEngine { request ->
+                paths += request.url.encodedPath
+                when (request.url.encodedPath) {
+                    "/repos/upstream/project/commits/source%2Fbranch" -> respond("""{"sha":"$sourceHead","commit":{"tree":{"sha":"$tree"}}}""")
+                    "/repos/upstream/project/git/trees/$tree" -> respond("""{"sha":"$tree","tree":[],"truncated":false}""")
+                    "/repos/selected/repository/actions/workflows" -> respond("""{"total_count":0,"workflows":[]}""")
+                    else -> error("A source read cannot dispatch a destination change: ${request.url}")
+                }
+            }
+        )
+        try {
+            val scope = GitHubConversationContext("connection", "selected", "repository", "main", "a".repeat(40), "profile")
+            val native = GitHubTool("token", http, repositoryScope = scope, persistentState = false, taskRequest = "Read upstream/project to help with the selected repository")
+            val source = native.execute("source", json("""{"action":"resolve_context","owner":"upstream","repo":"project","ref":"source/branch","refresh":true}"""))
+            assertFalse(source.toString(), source.isError)
+            assertEquals(scope.repository, native.planningContext().repository)
+            assertEquals(scope.commitSha, native.planningContext().observedCommitSha)
+            val write = native.execute("source-write", json("""{"action":"update_file","owner":"upstream","repo":"project","path":"README.md","content":"replacement","message":"change"}"""))
+            assertTrue(write.isError)
+            assertFalse(write.dispatched)
+            val destination = native.execute("destination", json("""{"action":"list_workflows"}"""))
+            assertFalse(destination.toString(), destination.isError)
+            assertEquals(listOf("/repos/upstream/project/commits/source%2Fbranch", "/repos/upstream/project/git/trees/$tree", "/repos/selected/repository/actions/workflows"), paths)
+        } finally {
+            http.close()
+        }
+    }
+
     @Test fun aVerifiedBranchTransitionUpdatesPlanningAndExecutorDefaultsInsideTheBoundRepository() = runTest {
         val head = "c".repeat(40)
         val tree = "b".repeat(40)

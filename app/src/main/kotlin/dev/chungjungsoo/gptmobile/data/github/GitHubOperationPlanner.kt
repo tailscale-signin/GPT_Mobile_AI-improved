@@ -15,8 +15,28 @@ object GitHubOperationPlanner {
         val wantsRelease = listOf("release", "publish", "tag").any(normalized::contains)
         val wantsMerge = "merge" in normalized
         val wantsWrite = listOf("fix", "change", "implement", "update", "refactor", "merge", "release", "publish").any(normalized::contains)
+        val lifecycle = GitHubRepositoryLifecycle.intent(goal)
 
         return buildJsonArray {
+            if (lifecycle != null) {
+                add(step("repository_identity", "Confirm the intended GitHub account and explicit source/destination names, owner_type and visibility. Obtain missing required inputs before submitting the operation."))
+                add(lifecycleStep("repository_lifecycle_capabilities", "capabilities", "Inspect supported repository operations. History import and local clone require a qualified online gateway with Git and the selected account."))
+                if (lifecycle != "create_repository") add(step("repository_source_revision", "Keep source_owner, source_repo and source_ref separate from the destination. Pin the source commit before copying; retain that immutable revision across retries."))
+                if (lifecycle == "import_repository") add(step("repository_copy_mode", "Use the explicitly requested copy_mode: snapshot copies one complete tree; history preserves the requested Git history, branches and tags through the gateway. Resolve a missing choice before creating the destination."))
+                add(lifecycleStep(lifecycle, lifecycle.removeSuffix("_repository"), "Submit the exact repository operation and retain its creation receipt or gateway operation_id. An interrupted response requires reconciliation through that same retained identity."))
+                add(lifecycleStep("repository_lifecycle_status", "status", "Verify this conversation's retained expected_repository_id and original operation, or gateway operation_id. Check destination identity and visibility; imports require the exact source tree or requested history, and clones require the pinned checked-out SHA and workspace ID. PENDING is incomplete."))
+                if (!GitHubRepositoryAcceptance.requiresAdditionalEvidence(goal)) return@buildJsonArray
+                add(
+                    buildJsonObject {
+                        put("id", "select_verified_repository")
+                        put("user_action", "CHANGE_REPOSITORY")
+                        put("user_input_required", true)
+                        put("automatic_dispatch", false)
+                        put("description", "After verifying creation or transfer, stop at this selection boundary. Use Change repository to select the verified destination and exact connection/ref, then resume the saved implementation request. The creation receipt and unfinished requirements remain retained. This step is a user action, not a tool operation; resolve_context cannot switch a task away from its selected destination. Implementation, configuration and test evidence are still required after selection.")
+                    }
+                )
+                return@buildJsonArray
+            }
             add(step("resolve_context", "Pin this task to repository, connection, ref, commit and tree; reuse the saved snapshot."))
             add(step("search_repository", "Use the persistent lexical index and explicit continuation until relevant paths are covered."))
             add(step("read_ranges", "Load a bounded multi-file bundle concurrently, inspect its revision-bound import graph and related tests, and retain evidence handles and immutable blob SHAs. Lexical hints do not establish compiler resolution."))
@@ -42,6 +62,13 @@ object GitHubOperationPlanner {
 
     private fun step(id: String, description: String) = buildJsonObject {
         put("id", id)
+        put("description", description)
+    }
+
+    private fun lifecycleStep(id: String, action: String, description: String) = buildJsonObject {
+        put("id", id)
+        put("tool", "github_repository")
+        put("action", action)
         put("description", description)
     }
 }

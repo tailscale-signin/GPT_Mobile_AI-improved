@@ -10,6 +10,7 @@
     <string name="gateway_home_setup">Add a local AI profile connected to your gateway. Once its connection is verified, you can create chats here even when it is offline.</string>
     <string name="gateway_home_history_offline">Gateway history is unavailable right now. Your saved chats and queued messages remain available.</string>
     <string name="gateway_home_saved_history">Showing saved gateway history</string>
+    <string name="gateway_home_saved_history_at">Saved gateway history · Last checked %1$s</string>
     <string name="gateway_home_empty">No gateway chats yet. Tap New Chat to start.</string>
     <string name="gateway_home_no_matches">No matching gateway chats.</string>
     <string name="gateway_home_server_history">On the gateway</string>

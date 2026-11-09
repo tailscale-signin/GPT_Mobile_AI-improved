@@ -465,6 +465,37 @@ class GitHubWorkspaceViewModel @Inject constructor(
         loadHeadAndDirectory()
     }
 
+    /** A direct account/repository check; the saved prompt and staged edits stay intact. */
+    fun refreshRepositoryAccess() = refreshWork(auth = true) {
+        val selected = requireNotNull(_state.value.selection) { "Choose a repository before refreshing access." }
+        if (_state.value.appAuthorization) loadInstallations(1)
+        val metadata = api(
+            "get_repository",
+            buildJsonObject {
+                put("owner", selected.owner)
+                put("repo", selected.repo)
+                put("refresh", true)
+            }
+        ).jsonObject
+        val current = _state.value
+        val appCanWrite = !current.appAuthorization || current.installations.firstOrNull { it.text("id") == current.installationId }?.get("permissions")?.jsonObject?.text("contents") == "write"
+        updateState {
+            it.copy(
+                repositoryId = metadata.text("id").takeIf(String::isNotBlank),
+                defaultBranch = metadata.text("default_branch"),
+                canWrite = appCanWrite && metadata["permissions"]?.jsonObject?.flag("push") == true && !metadata.flag("archived") && current.connection?.toolPolicy != "READ_ONLY"
+            )
+        }
+        // A refresh with local edits must not move their pinned base or reset the editor.
+        if (current.staged.isEmpty() && current.editorDrafts.isEmpty() && current.patchStage == null && pendingRecovery?.dirty != true) loadHeadAndDirectory()
+        updateState {
+            it.copy(
+                composerReadiness = if (it.headSha.matches(Regex("[a-fA-F0-9]{40}|[a-fA-F0-9]{64}"))) dev.chungjungsoo.gptmobile.data.github.GitHubComposerReadiness.READY else it.composerReadiness,
+                notice = "Repository access refreshed. Your saved request is unchanged; continue it when ready."
+            )
+        }
+    }
+
     fun acceptPublishedCommit(sha: String) {
         require(sha.matches(Regex("[a-fA-F0-9]{40}")))
         updateState { it.copy(headSha = sha, snapshot = null, commits = emptyList(), observedAt = System.currentTimeMillis(), activityLoaded = false, directoryLoaded = false, pullsLoaded = false, ciDigest = null) }

@@ -32,6 +32,7 @@ internal object GitHubRequestCompletion {
 
     /** Only explicit work on repository subjects requires tool evidence before review. */
     fun requiresRepositoryEvidence(task: String): Boolean {
+        if (GitHubRepositoryLifecycle.intent(task) != null) return true
         val request = requestText(task)
         return requestsAction(request) && repositorySubject.containsMatchIn(request)
     }
@@ -69,11 +70,15 @@ internal object GitHubRequestCompletion {
 
     private data class Assessment(val state: GitHubAcceptanceLedger.State, val reason: String)
 
-    private fun engineeringAcceptance(acceptance: JsonObject, receipts: Map<String, JsonObject>): Assessment {
+    private fun engineeringAcceptance(acceptance: JsonObject, receipts: Map<String, JsonObject>, expectedRepository: String? = null): Assessment {
         fun JsonObject.text(key: String) = (get(key) as? JsonPrimitive)?.contentOrNull.orEmpty()
         fun selected(key: String) = (acceptance[key] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.contentOrNull?.let(receipts::get) }
         fun root(receipt: JsonObject): JsonObject? = (receipt["result"] as? JsonObject)?.let { (it["data"] as? JsonObject) ?: it }
-        fun eligible(receipt: JsonObject) = receipt["trusted"] == JsonPrimitive(true) && receipt["verification_eligible"] != JsonPrimitive(false) && receipt["success"] == JsonPrimitive(true)
+        fun eligible(receipt: JsonObject) = receipt["trusted"] == JsonPrimitive(true) &&
+            receipt["verification_eligible"] != JsonPrimitive(false) &&
+            receipt["success"] == JsonPrimitive(true) &&
+            receipt["repository_role"] != JsonPrimitive("READ_SOURCE") &&
+            (expectedRepository == null || receipt.text("repository").equals(expectedRepository, true))
         val implementations = selected("implementation_receipts").filter { receipt ->
             eligible(receipt) &&
                 (receipt["arguments"] as? JsonObject)?.text("action") in setOf("commit", "commit_staged_patch") &&
@@ -133,7 +138,13 @@ internal object GitHubRequestCompletion {
             val covered = if (requirements.size == 1) verified else selected.isNotEmpty() && selected.all { claims.getOrNull(it)?.get("status") in setOf(JsonPrimitive("VERIFIED"), JsonPrimitive("INFERRED")) }
             val acceptance = (answer["acceptance"] as? JsonObject)?.get(id(requirement)) as? JsonObject
             val assessment = acceptance?.let {
-                GitHubOperationAcceptance.evaluate(requirement, it, receipts, now)?.let { operation -> Assessment(operation.state, operation.reason) }
+                GitHubOperationAcceptance.evaluate(requirement, it, receipts, now)?.let { operation ->
+                    if (operation.state == GitHubAcceptanceLedger.State.PASS && GitHubRepositoryLifecycle.intent(requirement) != null && GitHubRepositoryAcceptance.requiresAdditionalEvidence(requirement)) {
+                        engineeringAcceptance(it, receipts, operation.repository)
+                    } else {
+                        Assessment(operation.state, operation.reason)
+                    }
+                }
                     ?: engineeringAcceptance(it, receipts)
             }
             val implementedAndTested = assessment?.state == GitHubAcceptanceLedger.State.PASS

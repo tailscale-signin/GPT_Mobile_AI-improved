@@ -9,7 +9,11 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 
-internal class GatewayControlNegotiation(private val api: GatewayAPI, now: () -> Long = { System.nanoTime() / 1_000_000 }) {
+internal class GatewayControlNegotiation(
+    private val api: GatewayAPI,
+    private val diagnostic: (String) -> Unit = { AppLogRecorder.record("Gateway", it) },
+    now: () -> Long = { System.nanoTime() / 1_000_000 }
+) {
     private data class CapabilityAttempt(val capabilities: GatewayCapabilities? = null, val failure: GatewayCapabilityDiscoveryException? = null)
     private val cache = RouteCapabilityCache<CapabilityAttempt>(now, negativeTtl = 15_000, valueTtl = { if (it.failure != null) 15_000 else 300_000 })
     suspend fun prepare(config: ProviderRequestConfig): ProviderRequestConfig = try {
@@ -22,7 +26,8 @@ internal class GatewayControlNegotiation(private val api: GatewayAPI, now: () ->
 
     private suspend fun prepareVerified(config: ProviderRequestConfig): ProviderRequestConfig {
         // Captured display metadata and retention cannot bypass negotiation.
-        val permittedHeaders = GatewayClientDiagnostics.requestHeaders(config).filterKeys { it.lowercase() !in profileHeaders }
+        val requestedHeaders = GatewayClientDiagnostics.preparationHeaders(config)
+        val permittedHeaders = requestedHeaders.filterKeys { it.lowercase() !in profileHeaders }
         val permitted = config.copy(extraHeaders = permittedHeaders, gatewayConversationSync = false)
         val requested = permittedHeaders.filterKeys { it.startsWith("X-Gateway-", true) }
         val knownGateway = GatewayClientDiagnostics.runtimeEpoch(config) != "unobserved"
@@ -66,7 +71,8 @@ internal class GatewayControlNegotiation(private val api: GatewayAPI, now: () ->
                 profileDisplayHeaders(config.copy(gatewayConversationSync = capability.supportsFeature("conversation_sync_v1")), accepted)
         }
         val sourceCommit = (capability?.build?.get("sourceCommit") as? JsonPrimitive)?.contentOrNull?.takeIf { it.matches(Regex("[a-f0-9]{40}")) }
-        AppLogRecorder.record("Gateway", "CONTROL_NEGOTIATION · route=$identity · requested=${requested.keys.sorted()} · accepted=${transmitted.keys.sorted()} · serverCommit=${sourceCommit ?: "Not measured"} · effective=Not measured · gatewayVersion=${capability?.gatewayVersion ?: capability?.version ?: "unavailable"}")
+        val contract = if (capability == null) "UNSUPPORTED_GATEWAY_CONTRACT" else "GATEWAY_CONTRACT"
+        diagnostic("CONTROL_NEGOTIATION · route=$identity · contract=$contract · requested=${requestedHeaders.keys.filter { it.startsWith("X-Gateway-", true) }.sorted()} · clientAllowed=${requested.keys.sorted()} · preparedForDispatch=${transmitted.keys.sorted()} · transmitted=Not measured · serverAdvertised=${capability?.acceptedRequestHeaders.orEmpty().distinct().sorted()} · serverAcknowledged=Not measured · serverCommit=${sourceCommit ?: "Not measured"} · effective=Not measured · gatewayVersion=${capability?.gatewayVersion ?: capability?.version ?: "unavailable"}")
         return permitted.copy(
             extraHeaders = permittedHeaders - requested.keys + transmitted,
             gatewayConversationSync = capability?.supportsFeature("conversation_sync_v1") == true

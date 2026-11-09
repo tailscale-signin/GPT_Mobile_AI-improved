@@ -159,6 +159,7 @@ import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as Alert
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDialog as Dialog
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDropdownMenu as DropdownMenu
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
+import dev.chungjungsoo.gptmobile.presentation.common.diagnosticFrameTiming
 import dev.chungjungsoo.gptmobile.presentation.common.glassBackdropSource
 import dev.chungjungsoo.gptmobile.presentation.common.glassWindowBackdrop
 import dev.chungjungsoo.gptmobile.presentation.ui.archive.ArchivedConversationsBar
@@ -342,6 +343,7 @@ fun HomeScreen(
 
     Scaffold(
         modifier = modifier.then(backFade.modifier)
+            .diagnosticFrameTiming("Home")
             .fillMaxSize()
             .nestedScroll(scrollBehavior.nestedScrollConnection),
         containerColor = MaterialTheme.colorScheme.background,

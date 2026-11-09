@@ -19,6 +19,48 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LlamaHealthDiagnosticsTest {
+    @Test fun rejectedPropsRetainsSanitizedContractFailureAndCorrelationWithoutChangingTheRequest() = runTest {
+        var propsReads = 0
+        var propsRequestId: String? = null
+        val http = HttpClient(MockEngine) {
+            engine {
+                dispatcher = StandardTestDispatcher(testScheduler)
+                addHandler { request ->
+                    assertEquals("selected-exact-model", request.url.parameters["model"])
+                    assertEquals("false", request.url.parameters["autoload"])
+                    when (request.url.encodedPath) {
+                        "/props" -> {
+                            propsReads++
+                            propsRequestId = request.headers["X-Request-ID"]
+                            respond("""{"error":{"code":"invalid_parameter","type":"invalid_request_error","param":"autoload","message":"Bearer private-token file=/private/model.gguf prompt=private-text"}}""", HttpStatusCode.BadRequest)
+                        }
+                        "/health" -> respond("""{"status":"ok"}""")
+                        "/v1/models" -> respond("""{"data":[{"id":"selected-exact-model"}]}""")
+                        else -> error("A metadata failure must not dispatch inference or change the model")
+                    }
+                }
+            }
+        }
+        http.use {
+            val diagnostics = LlamaHealthDiagnostics({ http })
+            val selected = ProviderRequestConfig("https://rejected-props.example/v1", null, extraHeaders = mapOf("X-Request-ID" to "b".repeat(32)))
+            val report = diagnostics.inspect(selected, "selected-exact-model")
+            assertEquals(400, report.propsHttpStatus)
+            assertEquals("METADATA_REQUEST_REJECTED", report.propsFailure)
+            assertEquals("invalid_parameter", report.propsRejection?.serverCode)
+            assertEquals("autoload", report.propsRejection?.parameter)
+            assertEquals("b".repeat(32), propsRequestId)
+            assertEquals(propsRequestId, report.propsRejection?.requestId)
+            assertTrue(report.propsRejection?.message.orEmpty().contains("server version"))
+            assertFalse(report.inferenceTested)
+            assertNull(report.inferenceReady)
+            assertFalse(report.diagnosticFields().toString().contains("private-token"))
+            assertFalse(report.summary().contains("private-text"))
+            diagnostics.inspect(selected, "selected-exact-model")
+            assertEquals(1, propsReads)
+        }
+    }
+
     @Test fun knownGatewayUsesItsReadinessContractWithoutProbingForbiddenAdministrativeMetadata() = runTest {
         val selected = ProviderRequestConfig("https://restricted-health.example/v1", "restricted-health-test")
         GatewayClientDiagnostics.observeInstance(selected, "a".repeat(32))
@@ -207,7 +249,7 @@ class LlamaHealthDiagnosticsTest {
             assertEquals(0, inferenceCalls)
             assertFalse(report.inferenceTested)
             assertNull(report.inferenceReady)
-            assertEquals(LlamaConnectionPhase.REACHABLE, report.phase)
+            assertEquals(LlamaConnectionPhase.DEGRADED, report.phase)
         } finally {
             http.close()
         }
@@ -294,7 +336,7 @@ class LlamaHealthDiagnosticsTest {
             val report = LlamaHealthDiagnostics({ http }).inspect(ProviderRequestConfig("https://restricted-different.example/v1", null), "selected")
             assertTrue(report.metadataRestricted)
             assertNull(report.gatewayReady)
-            assertEquals(LlamaConnectionPhase.REACHABLE, report.phase)
+            assertEquals(LlamaConnectionPhase.DEGRADED, report.phase)
             assertFalse(report.inferenceTested)
         } finally {
             http.close()

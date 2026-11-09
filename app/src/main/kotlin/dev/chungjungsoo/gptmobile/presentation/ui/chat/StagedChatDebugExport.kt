@@ -57,6 +57,7 @@ internal suspend fun writeStagedChatDiagnostics(
     research: ResearchSessionStore?,
     reducedMemory: Boolean,
     resume: Boolean,
+    workspace: dev.chungjungsoo.gptmobile.data.workspace.WorkspaceRepository? = null,
     stillAuthorized: () -> Unit
 ): DiagnosticCaptureResult = DiagnosticExportGate.run {
     withContext(Dispatchers.IO) {
@@ -172,7 +173,7 @@ internal suspend fun writeStagedChatDiagnostics(
                 }, { sink.emit(it, projected = true) }, { sink.omit(it) }, maximumSourceBytes = maximumSourceCharacters, metadata = { sink.emit(it, evidence = false, projected = true) })
             },
             DiagnosticCaptureStage("critical_logs", "critical-app-logs.jsonl", critical = true, lowMemorySafe = true, emptyReason = "NO_RETAINED_CRITICAL_LOGS") { captureLogs(it, critical = true) },
-            DiagnosticCaptureStage("capture_context", "capture-context.jsonl", lowMemorySafe = true) { sink ->
+            DiagnosticCaptureStage("capture_context", "capture-context.jsonl", lowMemorySafe = true, content = dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticStageContent.CONFIGURATION) { sink ->
                 sink.emit(
                     buildJsonObject {
                         put("schema", "gptmobile.diagnostic-context.v1")
@@ -187,7 +188,7 @@ internal suspend fun writeStagedChatDiagnostics(
                         put("recordChunking", "diagnostic_record_chunk records reassemble by recordId/chunkIndex; verify each chunkSha256 and the recordSha256 over concatenated UTF-8 content before parsing JSON.")
                         put("captureParts", "All chunks of a logical record stay in one archive part. Resume advances frozen database table cursors and references earlier archive/section digests; retain previous parts to reconstruct complete captured history.")
                         put("timelineKeys", "Journal eventId/runId/invocationId and database run_id/parentRunId/call_id join source records. Sequence orders each journal stream; stage intervals qualify cross-section comparisons.")
-                        put("drawTimingScope", "Measured FIRST_VISIBLE_TEXT records observe Compose drawContent completion for the owned run/fence/part, with processSession and monotonicNanos. They do not confirm display presentation or identify the provider invocation that supplied verified/synthesized output; per-HTTP first_ui_paint_ms remains unmeasured without explicit lineage.")
+                        put("drawTimingScope", "Measured FIRST_VISIBLE_TEXT records observe Compose drawContent completion for the owned run/fence/part, with outputOrigin, processSession and monotonicNanos. Exact-byte provenance may link a model invocation; provider-to-draw timing requires MODEL_TEXT plus matching INVOCATION_STARTED and FIRST_TEXT in the same process. System errors, progress notices and ambiguous output are not provider latency. Draw completion does not confirm display presentation; per-HTTP first_ui_paint_ms remains unmeasured without explicit lineage.")
                         put("sourceDigests", "Record digests describe their original stored representations. Credential redaction can change text; stage file hashes certify the bytes in this export.")
                         put("logSnapshotScope", "Logs are frozen independently per log section and capture session, then retained for interrupted stages. Resume does not replace captured evidence after ring rotation. Start a new capture to collect newer logs.")
                         put("profileScope", "Current configured profiles; actual routing evidence is in runs and invocations, not inferred from settings.")
@@ -220,8 +221,35 @@ internal suspend fun writeStagedChatDiagnostics(
                 }
             },
             DiagnosticCaptureStage("tool_catalog", "tool-catalog.jsonl", lowMemorySafe = true, refreshOnResume = true) { sink ->
-                dev.chungjungsoo.gptmobile.data.agent.ToolCatalogDiagnostics.snapshot().forEach { row ->
+                // Current process inventories do not stand in for a past run's admissions.
+                dev.chungjungsoo.gptmobile.data.agent.ToolCatalogDiagnostics.snapshot().filter { it["kind"] != JsonPrimitive("run_tool_admission") }.forEach { row ->
                     sink.emit(row, evidence = row["kind"] == JsonPrimitive("tool_catalog_stage"))
+                }
+                if (workspace == null) {
+                    sink.omit("RUN_TOOL_ADMISSION_STORE_UNAVAILABLE")
+                } else {
+                    val records = workspace.dao.githubTaskEvidence(room.id, "tool-admission:")
+                    sink.emit(
+                        buildJsonObject {
+                            put("kind", "run_tool_admission_snapshot_scope")
+                            put("availability", if (records.isEmpty()) "NO_RETAINED_RUN_SNAPSHOTS" else "PERSISTED_RUN_SNAPSHOTS")
+                            put("retainedRecordCount", minOf(records.size, 4096))
+                            put("recordCountTruncated", records.size > 4096)
+                            put("scope", "Saved preparation-stage receipts for this conversation. Missing receipts do not prove an empty catalog or successful preparation.")
+                        },
+                        evidence = false
+                    )
+                    if (records.size > 4096) sink.omit("RUN_TOOL_ADMISSION_RECORD_LIMIT")
+                    records.take(4096).forEach { record ->
+                        authorized()
+                        sink.checkBudget()
+                        val snapshot = workspace.protectedSynthesisCheckpoint(record.id)
+                        if (snapshot == null || snapshot["schema"] != JsonPrimitive("gptmobile.run-tool-admission.v1") || snapshot["runId"] != JsonPrimitive(record.runId)) {
+                            sink.omit("RUN_TOOL_ADMISSION_SNAPSHOT_UNREADABLE")
+                        } else {
+                            sink.emit(snapshot)
+                        }
+                    }
                 }
             }
         )
@@ -332,7 +360,7 @@ internal suspend fun writeStagedChatDiagnostics(
             captured.records.forEach { sink.emit(it) }
             dev.chungjungsoo.gptmobile.data.free.FreeProviderDiagnostics.snapshot(room.id).forEach { sink.emit(json.encodeToJsonElement(it)) }
         }
-        stages += DiagnosticCaptureStage("feature_settings", "feature-settings.jsonl") { sink ->
+        stages += DiagnosticCaptureStage("feature_settings", "feature-settings.jsonl", content = dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticStageContent.CONFIGURATION) { sink ->
             sink.emit(
                 buildJsonObject {
                     put("diagnosticsCollection", features.diagnosticsCollection)

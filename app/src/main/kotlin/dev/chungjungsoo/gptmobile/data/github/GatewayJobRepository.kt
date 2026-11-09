@@ -1,11 +1,13 @@
 package dev.chungjungsoo.gptmobile.data.github
 
 import androidx.room.withTransaction
+import dev.chungjungsoo.gptmobile.data.context.RouteCapabilityCache
 import dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2
 import dev.chungjungsoo.gptmobile.data.database.entity.GatewayJobRecord
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewaySurfacePolicy
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -28,6 +30,8 @@ class GatewayJobRepository @Inject constructor(
 ) {
     private val json = Json { ignoreUnknownKeys = true }
     private val dao get() = database.gatewayJobDao()
+    private val savedWorkContracts = RouteCapabilityCache<GatewaySavedWorkContract>({ System.nanoTime() / 1_000_000 }, positiveTtl = 30_000)
+    private val savedWorkRouteIdentities = linkedSetOf<String>()
 
     fun observe(profileUid: String): Flow<List<GatewayJobRecord>> = flow {
         val route = route(profileUid, requireEnabled = false)
@@ -42,7 +46,7 @@ class GatewayJobRepository @Inject constructor(
             try {
                 val selected = profiles.singleOrNull { it.uid == profileUid }
                 val bound = features.githubProfileOverrides[profileUid]?.engineeringGatewayProfileUid
-                if (selected == null || bound == null && !GitHubAutonomousEngineeringPolicy.supportsSavedJobs(selected.copy(enabled = true))) {
+                if (selected == null || bound.isNullOrBlank()) {
                     null
                 } else {
                     resolveRoute(profileUid, profiles, features, requireEnabled = false, useEngineeringGateway = true)
@@ -56,7 +60,20 @@ class GatewayJobRepository @Inject constructor(
 
     suspend fun refresh(profileUid: String, cursor: String? = null): GatewayJobCatalog {
         val route = route(profileUid)
+        val surfaceIdentity = GatewaySurfacePolicy.identity(route.config)
+        synchronized(savedWorkRouteIdentities) {
+            if (savedWorkRouteIdentities.size >= 128) savedWorkRouteIdentities.remove(savedWorkRouteIdentities.first())
+            savedWorkRouteIdentities.add(surfaceIdentity)
+        }
+        val contract = savedWorkContracts.getOrLoad("$surfaceIdentity|${route.configurationRevision}") {
+            client.verifySavedWorkContract(route.config, verifyHistorySurfaces = false)
+        } ?: throw GatewayHistoryUnsupported(GatewayAdmissionSurface.CAPABILITIES)
+        requireRouteUnchanged(profileUid, route)
         val page = client.catalog(route.config, cursor)
+        if (page.gatewayId != contract.identity.gatewayId || page.principalId != contract.identity.principalId) {
+            savedWorkContracts.invalidate()
+            throw GatewayAdmissionException(GatewayAdmissionReason.IDENTITY_MISMATCH, 200, null, GatewayAdmissionSurface.JOB_CATALOG)
+        }
         require(page.items.map { it.jobKind to it.jobId }.distinct().size == page.items.size)
         requireRouteUnchanged(profileUid, route)
         database.withTransaction {
@@ -84,6 +101,14 @@ class GatewayJobRepository @Inject constructor(
         requireRouteUnchanged(profileUid, route)
         verifiedScopes.remember(route.profileUid, route.configurationRevision, page.gatewayId, page.principalId)
         return page
+    }
+
+    /** Manual repair rechecks the gateway contract without submitting or replaying any work. */
+    fun invalidateSavedWorkContract() {
+        savedWorkContracts.invalidate()
+        synchronized(savedWorkRouteIdentities) {
+            savedWorkRouteIdentities.forEach { GatewaySurfacePolicy.shared.invalidate(it, GatewaySurfacePolicy.Surface.CAPABILITIES) }
+        }
     }
 
     /** The menu shows the server inventory, including conversations never opened on this device. */
@@ -118,9 +143,10 @@ class GatewayJobRepository @Inject constructor(
     suspend fun configured(profileUid: String?): Boolean {
         if (profileUid == null) return false
         val profiles = settings.fetchPlatformV2s()
-        val selected = profiles.singleOrNull { it.uid == profileUid } ?: return false
+        if (profiles.singleOrNull { it.uid == profileUid } == null) return false
         val configured = settings.getFeatureSettings().githubProfileOverrides[profileUid]?.engineeringGatewayProfileUid
-        return configured != null || GitHubAutonomousEngineeringPolicy.supportsSavedJobs(selected.copy(enabled = true))
+        val gatewayProfile = profiles.singleOrNull { it.uid == configured } ?: return false
+        return gatewayProfile.apiUrl.isNotBlank() && GitHubAutonomousEngineeringPolicy.supportsSavedJobs(gatewayProfile.copy(enabled = true))
     }
 
     /** Explicit legacy cache, never represented as a complete server inventory. */
@@ -167,10 +193,12 @@ class GatewayJobRepository @Inject constructor(
 
     private suspend fun resolveRoute(profileUid: String, profiles: List<PlatformV2>, features: AppFeatureSettings, requireEnabled: Boolean, useEngineeringGateway: Boolean): GatewayJobRoute {
         val configured = if (useEngineeringGateway) features.githubProfileOverrides[profileUid]?.engineeringGatewayProfileUid else null
+        check(!useEngineeringGateway || !configured.isNullOrBlank()) { "Select the engineering gateway connection in GitHub settings. The model server address is not a fallback for saved jobs." }
         val profile = profiles.singleOrNull { it.uid == (configured ?: profileUid) }
             ?: error("Restore the original gateway profile to reconnect. Its saved work is retained.")
         check(!requireEnabled || profile.enabled) { "The gateway profile is disabled. Enable its original connection to reconnect." }
         check(profile.apiUrl.isNotBlank()) { "The original gateway address is unavailable." }
+        check(GitHubAutonomousEngineeringPolicy.supportsSavedJobs(profile.copy(enabled = true))) { "Select a private Llama or Ollama gateway connection for saved jobs." }
         return GatewayJobRoute(profile.uid, profile.apiUrl.trimEnd('/'), ProviderRequestConfig(profile.apiUrl, profile.token, profileUid = profile.uid), verifiedScopes.configurationRevision(profile))
     }
 

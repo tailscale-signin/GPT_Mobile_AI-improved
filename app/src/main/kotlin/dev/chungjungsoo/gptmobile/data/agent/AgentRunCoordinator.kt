@@ -948,7 +948,10 @@ class AgentRunCoordinator @Inject constructor(
                     onUpdate = { content, thoughts, timeline ->
                         if (!firstVisibleOutput && content.isNotBlank()) {
                             firstVisibleOutput = true
-                            AppLogRecorder.record("Agent", "RUN_FIRST_VISIBLE_OUTPUT · runId=${request.runId} · elapsedMs=${(System.nanoTime() - executionStartNanos) / 1_000_000} · visibleCharacters=${content.length}")
+                            val lineage = withContext(Dispatchers.Default) {
+                                dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.traceOutput(request.runId, dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceBoundary.REDUCER, content, fence = assistantMessage.ownershipFence)
+                            }
+                            AppLogRecorder.record("Agent", "RUN_FIRST_VISIBLE_OUTPUT · runId=${request.runId} · elapsedMs=${(System.nanoTime() - executionStartNanos) / 1_000_000} · visibleCharacters=${content.length} · outputOrigin=${lineage?.origin ?: dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.UNKNOWN} · invocationId=${lineage?.invocationId ?: "not_recorded"} · timingKind=FIRST_VISIBLE_OUTPUT")
                         }
                         val retained = if (content.isEmpty() && committedPrefix.isNotEmpty()) committedPrefix else content
                         require(retained.startsWith(committedPrefix)) { "A resumed Combined stream attempted to replace its committed prefix." }

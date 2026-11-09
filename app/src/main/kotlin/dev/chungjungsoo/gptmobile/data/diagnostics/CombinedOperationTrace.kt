@@ -16,6 +16,7 @@ internal data class CombinedOperationOwner(
 
 /** Async slices remain valid when a suspend operation resumes on another dispatcher. */
 internal object CombinedOperationTrace {
+    internal const val FRAME_SAMPLE_THRESHOLD_NANOS = 4_000_000L
     private val nextCookie = AtomicInteger()
     private val frameCoverage = FrameOperationCoverage()
     internal fun frameWindow(startedNanos: Long, endedNanos: Long): FrameOperationCoverage.Snapshot = frameCoverage.snapshot(startedNanos, endedNanos)
@@ -58,10 +59,15 @@ internal object CombinedOperationTrace {
         // Perfetto retains every enabled slice. Text diagnostics sample frequent
         // operations at 16 ms and other operations at 100 ms; these records are
         // not a complete latency population.
-        val threshold = if (token.operation in highFrequency) 16_000_000L else 100_000_000L
+        val threshold = if (token.operation in highFrequency || token.operation.startsWith("ui_")) 16_000_000L else 100_000_000L
         val diagnosticCaptureEpoch = token.diagnosticCaptureEpoch ?: return
-        if (duration < threshold || !AppLogRecorder.operationCaptureCurrent(diagnosticCaptureEpoch)) return
-        if (!frameCoverage.observe(FrameOperationCoverage.Sample(token.operation, token.cookie, token.startedNanos, endedNanos, token.owner.runId), token.frameGeneration)) return
+        if (!AppLogRecorder.operationCaptureCurrent(diagnosticCaptureEpoch)) return
+        // Frame correlation must not inherit the much higher text-log threshold:
+        // repeated 4–15 ms layout/DAO work can miss a high-refresh display deadline
+        // without ever producing a slow-operation log. Keep those samples bounded
+        // in memory and emit only the normal per-window coverage report.
+        if (duration >= FRAME_SAMPLE_THRESHOLD_NANOS && !frameCoverage.observe(FrameOperationCoverage.Sample(token.operation, token.cookie, token.startedNanos, endedNanos, token.owner.runId), token.frameGeneration)) return
+        if (duration < threshold) return
         fun value(text: String?) = text?.replace('\n', ' ')?.replace('\r', ' ')?.take(160) ?: "unknown"
         val owner = token.owner
         runCatching {

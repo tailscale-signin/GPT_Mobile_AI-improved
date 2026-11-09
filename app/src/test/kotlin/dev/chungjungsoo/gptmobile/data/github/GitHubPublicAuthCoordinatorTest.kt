@@ -13,6 +13,7 @@ import io.mockk.mockk
 import java.io.IOException
 import java.net.URLEncoder
 import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
@@ -35,6 +36,73 @@ class GitHubPublicAuthCoordinatorTest {
         }
     }
 
+    @Test fun deviceAuthorizationWaitsForDurableRevocationBeforeActivatingAnyIdentity() = runBlocking {
+        Fixture().use { f ->
+            val entered = CompletableDeferred<Unit>()
+            val durable = CompletableDeferred<Unit>()
+            f.revokeGrants = {
+                entered.complete(Unit)
+                durable.await()
+            }
+            val coordinator = f.coordinator()
+            val completing = async { coordinator.completeDevice(f.connection, f.config.clientId, GitHubOAuthCredential("ghu_first")) }
+            entered.await()
+            assertEquals(null, f.connection.secretRef)
+            assertEquals(null, f.vault.read("stored-access"))
+            assertEquals(null, f.vault.read(GitHubPublicAuthCoordinator.bindingReference("github")))
+            assertEquals(null, coordinator.session("github"))
+            durable.complete(Unit)
+            assertEquals("1", completing.await().id)
+            assertEquals(1, f.revocations)
+            assertEquals("ghu_first", f.vault.read("stored-access")?.decodeToString())
+        }
+    }
+
+    @Test fun browserAndResumedAuthorizationUseTheSameDurableActivationFence() = runBlocking {
+        for (resume in listOf(false, true)) {
+            Fixture().use { f ->
+                val coordinator = f.coordinator()
+                coordinator.begin("github")
+                if (resume) {
+                    f.lostRedemptionResponse = true
+                    assertTrue(runCatching { coordinator.complete(f.validCallback()) }.isFailure)
+                    f.lostRedemptionResponse = false
+                }
+                val entered = CompletableDeferred<Unit>()
+                val durable = CompletableDeferred<Unit>()
+                f.revokeGrants = {
+                    entered.complete(Unit)
+                    durable.await()
+                }
+                val completing = async { if (resume) coordinator.resumePendingAuthorization() else coordinator.complete(f.validCallback()) }
+                entered.await()
+                assertEquals(null, f.connection.secretRef)
+                assertEquals(null, f.vault.read(GitHubPublicAuthCoordinator.bindingReference("github")))
+                assertEquals(null, coordinator.session("github"))
+                durable.complete(Unit)
+                assertEquals("1", completing.await().id)
+                assertEquals(1, f.revocations)
+            }
+        }
+    }
+
+    @Test fun failedRevocationCannotActivateCredentialsAndPendingAuthorizationCanRetry() = runBlocking {
+        Fixture().use { f ->
+            val coordinator = f.coordinator()
+            coordinator.begin("github")
+            f.revokeGrants = { throw IOException("durable revocation failed") }
+            assertTrue(runCatching { coordinator.complete(f.validCallback()) }.isFailure)
+            assertEquals(null, f.connection.secretRef)
+            assertEquals(null, f.vault.read("stored-access"))
+            assertEquals(null, f.vault.read(GitHubPublicAuthCoordinator.bindingReference("github")))
+            assertEquals(null, coordinator.session("github"))
+            assertTrue(coordinator.canResumeAuthorization())
+            f.revokeGrants = {}
+            assertEquals("1", coordinator.resumePendingAuthorization().id)
+            assertEquals(1, f.revocations)
+        }
+    }
+
     private class Fixture : AutoCloseable {
         val vault = MemoryVault()
         val repository = mockk<ToolConnectionRepository>()
@@ -51,6 +119,8 @@ class GitHubPublicAuthCoordinatorTest {
         var expiresIn = 28800
         var uncertainRefresh = false
         var lostRedemptionResponse = false
+        var revocations = 0
+        var revokeGrants: suspend () -> Unit = {}
         val http = HttpClient(
             MockEngine { request ->
                 val response = when {
@@ -102,7 +172,12 @@ class GitHubPublicAuthCoordinatorTest {
 
         fun coordinator(configuration: GitHubPublicAuthConfiguration = config) = GitHubPublicAuthCoordinator(repository, vault, configuration, { now }, { GitHubPublicAuthClient(http, origin, callback, config.clientId, { now }, { ByteArray(it) }) }, { access ->
             GitHubPublicAuthCoordinator.Account(if (access == "ghu_second_account") "2" else "1", "coder")
-        }, { clientId, refreshToken -> GitHubDeviceAuthClient(http, wallMillis = { now }).refresh(clientId, refreshToken) })
+        }, { clientId, refreshToken -> GitHubDeviceAuthClient(http, wallMillis = { now }).refresh(clientId, refreshToken) }, { uid, activate ->
+            assertEquals("github", uid)
+            revokeGrants()
+            revocations++
+            activate()
+        })
         fun validCallback() = "$callback?state=$state&ticket=${"t".repeat(43)}"
         override fun close() {
             http.close()
@@ -118,6 +193,7 @@ class GitHubPublicAuthCoordinatorTest {
             val originalIdentity = coordinator.durableIdentity(opened.connectionUid)
             f.now += 2000
             assertEquals("ghu_rotated", coordinator.accessToken(opened))
+            assertEquals(1, f.revocations)
             assertEquals(originalIdentity, coordinator.durableIdentity(opened.connectionUid))
             f.vault.put("rotated-reference", "ghu_rotated".encodeToByteArray())
             f.vault.delete("stored-access")

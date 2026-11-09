@@ -75,24 +75,57 @@ class ToolConnectionsViewModel @Inject constructor(
     val permissionAudit = permissionAuditMutable.asStateFlow()
     fun refreshPermissionAudit() {
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            permissionAuditMutable.value = toolTrust?.grants().orEmpty().map { Triple(it.first, it.second, false) } + freeToolConsent?.grants().orEmpty().map { Triple(it.first, it.second, true) }
+            try {
+                permissionAuditMutable.value = dev.chungjungsoo.gptmobile.data.permissions.ToolGrantPersistence.mutate {
+                    toolTrust?.grants().orEmpty().map { Triple(it.first, it.second, false) } + freeToolConsent?.grants().orEmpty().map { Triple(it.first, it.second, true) }
+                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                showError(failure)
+            }
         }
     }
     fun revokeAuditedGrant(key: String, freeModel: Boolean) {
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            if (freeModel) freeToolConsent?.revokeGrant(key) else toolTrust?.revokeGrant(key)
-            refreshPermissionAudit()
+        val revocation = dev.chungjungsoo.gptmobile.data.permissions.ToolGrantPersistence.prepareGrantRevocation(toolTrust, freeToolConsent, key, freeModel)
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO, start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+            try {
+                revocation.commit()
+                refreshPermissionAudit()
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                showError(failure)
+            }
         }
     }
 
-    fun revokeToolGrants(connectionUid: String) {
-        toolTrust?.revoke(connectionUid)
-        freeToolConsent?.revokeConnection(connectionUid)
+    fun revokeToolGrants(connectionUid: String): Job {
+        val revocation = dev.chungjungsoo.gptmobile.data.permissions.ToolGrantPersistence.prepareConnectionRevocation(toolTrust, freeToolConsent, connectionUid)
+        return viewModelScope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+            try {
+                commitGrantRevocation(revocation)
+                refreshPermissionAudit()
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                showError(failure)
+            }
+        }
     }
 
-    fun revokePluginGrants(pluginId: String) {
-        if (pluginId.startsWith("connection:")) {
-            revokeToolGrants(pluginId.removePrefix("connection:"))
+    private suspend fun commitGrantRevocation(revocation: dev.chungjungsoo.gptmobile.data.permissions.ToolGrantPersistence.Revocation) {
+        val trace = dev.chungjungsoo.gptmobile.data.diagnostics.CombinedOperationTrace.begin("tool_grant_revoke", dev.chungjungsoo.gptmobile.data.diagnostics.CombinedOperationOwner(screen = "ToolConnections"))
+        try {
+            revocation.commit()
+        } finally {
+            dev.chungjungsoo.gptmobile.data.diagnostics.CombinedOperationTrace.end(trace)
+        }
+    }
+
+    fun revokePluginGrants(pluginId: String): Job {
+        val revocations = if (pluginId.startsWith("connection:")) {
+            listOf(dev.chungjungsoo.gptmobile.data.permissions.ToolGrantPersistence.prepareConnectionRevocation(toolTrust, freeToolConsent, pluginId.removePrefix("connection:")))
         } else {
             val toolName = when (pluginId) {
                 "calculator" -> "calculate_expression"
@@ -100,11 +133,21 @@ class ToolConnectionsViewModel @Inject constructor(
                 "model_delegation" -> "delegate_to_model"
                 else -> pluginId
             }
-            freeToolConsent?.revoke("", "null:$toolName")
-            if (pluginId == "github") _uiState.value.connections.filter { it.type == "GITHUB" }.forEach { revokeToolGrants(it.connectionUid) }
-            if (pluginId == "amazon_search") _uiState.value.connections.filter { it.type == ToolConnectionType.AMAZON_SERPAPI }.forEach { revokeToolGrants(it.connectionUid) }
+            listOf(dev.chungjungsoo.gptmobile.data.permissions.ToolGrantPersistence.preparePersonalToolRevocation(freeToolConsent, "", "null:$toolName")) +
+                _uiState.value.connections.filter { pluginId == "github" && it.type == "GITHUB" || pluginId == "amazon_search" && it.type == ToolConnectionType.AMAZON_SERPAPI }
+                    .map { dev.chungjungsoo.gptmobile.data.permissions.ToolGrantPersistence.prepareConnectionRevocation(toolTrust, freeToolConsent, it.connectionUid) }
         }
-        _uiState.update { it.copy(errorMessage = null) }
+        return viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO, start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+            try {
+                dev.chungjungsoo.gptmobile.data.permissions.ToolGrantPersistence.combine(revocations).commit()
+                refreshPermissionAudit()
+                _uiState.update { it.copy(errorMessage = null) }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                showError(failure)
+            }
+        }
     }
 
     val features = settingRepository.observeFeatureSettings().stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings())
@@ -306,9 +349,21 @@ class ToolConnectionsViewModel @Inject constructor(
             _uiState.update { it.copy(errorMessage = "MCP endpoint must be HTTP(S); cleartext HTTP requires explicit approval.") }
             return
         }
+        val clientId = oauthClientId.trim().takeIf { actualAuthType == ToolConnectionAuthType.OAUTH && it.isNotEmpty() }
+        val metadataChanged = existing?.let {
+            it.type != provider.type ||
+                it.endpointUrl != actualEndpoint ||
+                it.authType != actualAuthType ||
+                it.oauthClientId != clientId
+        } == true
+        val shouldClear = clearCredential || actualAuthType == ToolConnectionAuthType.NONE || metadataChanged
+        val replacesCredential = actualAuthType in setOf(ToolConnectionAuthType.BEARER, ToolConnectionAuthType.API_KEY) && credential.isNotBlank()
+        val revocation = existing?.takeIf { metadataChanged || clearCredential || replacesCredential || actualAuthType == ToolConnectionAuthType.NONE && it.secretRef != null }?.let {
+            // Deny before dispatch; keep the fence until all replacement credential writes finish.
+            dev.chungjungsoo.gptmobile.data.permissions.ToolGrantPersistence.prepareConnectionRevocation(toolTrust, freeToolConsent, it.connectionUid)
+        }
         viewModelScope.launch {
             val now = System.currentTimeMillis() / 1000
-            val clientId = oauthClientId.trim().takeIf { actualAuthType == ToolConnectionAuthType.OAUTH && it.isNotEmpty() }
             val marketplaceOrigin = existing?.marketplaceOrigin
                 ?: if (marketplaceProviderId != null) "MARKETPLACE" else "MANUAL"
             val connection = ToolConnection(
@@ -327,13 +382,6 @@ class ToolConnectionsViewModel @Inject constructor(
                 marketplaceProviderId = existing?.marketplaceProviderId ?: marketplaceProviderId,
                 marketplaceInstallationId = existing?.marketplaceInstallationId ?: if (marketplaceOrigin == "MARKETPLACE") UUID.randomUUID().toString() else null
             ).preservingPolicyFrom(existing)
-            val metadataChanged = existing?.let {
-                it.type != connection.type ||
-                    it.endpointUrl != connection.endpointUrl ||
-                    it.authType != connection.authType ||
-                    it.oauthClientId != connection.oauthClientId
-            } == true
-            val shouldClear = clearCredential || actualAuthType == ToolConnectionAuthType.NONE || metadataChanged
             val credentialBytes = if (actualAuthType == ToolConnectionAuthType.BEARER || actualAuthType == ToolConnectionAuthType.API_KEY) {
                 credentialInput(credential, clearCredential)
             } else {
@@ -349,11 +397,14 @@ class ToolConnectionsViewModel @Inject constructor(
                 )
                 dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations.mutex.withLock {
                     invalidateConnectionHealth(connection.connectionUid)
-                    toolConnectionRepository.upsertConnection(
-                        connection = connection,
-                        credential = credentialBytes,
-                        clearCredential = (shouldClear || shouldClearCredential) && credentialBytes == null
-                    )
+                    val activate: suspend () -> Unit = {
+                        toolConnectionRepository.upsertConnection(
+                            connection = connection,
+                            credential = credentialBytes,
+                            clearCredential = (shouldClear || shouldClearCredential) && credentialBytes == null
+                        )
+                    }
+                    if (revocation == null) activate() else revocation.activate(activate)
                     if (existing == null && normalizedAlias in setOf("searxng_mcp", "youtube_transcripts", "free_search_mcp", "gitmcp_docs")) {
                         val updated = settingRepository.mutateFeatureSettings { it.withToolPluginEnabled(ToolPluginId.connection(connection.connectionUid), false) }
                         _uiState.update { it.copy(pluginStates = updated.toolPluginStates) }
@@ -382,12 +433,13 @@ class ToolConnectionsViewModel @Inject constructor(
     }
 
     fun deleteConnection(connectionUid: String) {
+        val revocation = dev.chungjungsoo.gptmobile.data.permissions.ToolGrantPersistence.prepareConnectionRevocation(toolTrust, freeToolConsent, connectionUid)
         if (_uiState.value.gitHubSignIn?.connectionUid == connectionUid) cancelGitHubSignIn()
         viewModelScope.launch {
             runCatching {
                 invalidateConnectionHealth(connectionUid)
                 mcpClientManager.close(connectionUid)
-                revokeToolGrants(connectionUid)
+                commitGrantRevocation(revocation)
                 dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations.mutex.withLock {
                     toolConnectionRepository.deleteConnection(connectionUid)
                 }
@@ -677,9 +729,8 @@ class ToolConnectionsViewModel @Inject constructor(
         oauthStartJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             _uiState.update { it.copy(isOAuthBusy = true, errorMessage = null) }
             try {
-                val connectionUid = requireNotNull(auth.pendingConnectionUid()) { "No pending GitHub sign-in remains." }
+                requireNotNull(auth.pendingConnectionUid()) { "No pending GitHub sign-in remains." }
                 auth.resumePendingAuthorization()
-                revokeToolGrants(connectionUid)
                 refresh()
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
@@ -736,7 +787,6 @@ class ToolConnectionsViewModel @Inject constructor(
                 kotlinx.coroutines.currentCoroutineContext().ensureActive()
                 if (gitHubPublicAuth != null) {
                     gitHubPublicAuth.completeDevice(connection, authorization.clientId, credential)
-                    revokeToolGrants(connectionUid)
                     refresh()
                     return@launch
                 }
@@ -746,8 +796,9 @@ class ToolConnectionsViewModel @Inject constructor(
                     dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations.mutex.withLock {
                         val current = requireNotNull(toolConnectionRepository.getConnection(connectionUid)) { "The GitHub connection was removed." }
                         check(current == connection) { "The GitHub connection changed. Start sign-in again." }
-                        revokeToolGrants(connectionUid)
-                        toolConnectionRepository.upsertConnection(current.copy(updatedAt = System.currentTimeMillis() / 1000), credential = token)
+                        dev.chungjungsoo.gptmobile.data.permissions.ToolGrantPersistence.prepareConnectionRevocation(toolTrust, freeToolConsent, connectionUid).activate {
+                            toolConnectionRepository.upsertConnection(current.copy(updatedAt = System.currentTimeMillis() / 1000), credential = token)
+                        }
                     }
                 } finally {
                     token.fill(0)
@@ -767,8 +818,10 @@ class ToolConnectionsViewModel @Inject constructor(
     }
 
     fun disconnectGitHub(connectionUid: String) {
+        val revocation = dev.chungjungsoo.gptmobile.data.permissions.ToolGrantPersistence.prepareConnectionRevocation(toolTrust, freeToolConsent, connectionUid)
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
+                commitGrantRevocation(revocation)
                 if (gitHubPublicAuth != null) {
                     gitHubPublicAuth.disconnect(connectionUid)
                 } else {
@@ -776,7 +829,6 @@ class ToolConnectionsViewModel @Inject constructor(
                     require(connection.type == ToolConnectionType.GITHUB)
                     dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations.mutex.withLock { toolConnectionRepository.upsertConnection(connection, clearCredential = true) }
                 }
-                revokeToolGrants(connectionUid)
                 refresh()
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled

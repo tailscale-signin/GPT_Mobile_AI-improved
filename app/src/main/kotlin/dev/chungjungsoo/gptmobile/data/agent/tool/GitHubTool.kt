@@ -66,13 +66,16 @@ class GitHubTool(
     private val graphQuery: (suspend (JsonObject) -> JsonObject)? = null,
     private val apiOrigins: dev.chungjungsoo.gptmobile.data.github.GitHubApiOrigins = dev.chungjungsoo.gptmobile.data.github.GitHubApiOrigins.GITHUB_COM,
     private val taskRequest: String? = null,
-    private val engineeringStatus: (suspend (String, String) -> JsonObject?)? = null
+    private val engineeringStatus: (suspend (String, String) -> JsonObject?)? = null,
+    private val repositoryGateway: (suspend (JsonObject) -> JsonObject)? = null
 ) : AgentTool {
 
     private val BASE_URL get() = apiOrigins.rest
-    private val authenticationRejected = if (httpClient === defaultHttpClient) dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.authenticationForCredential(apiToken, apiOrigins.hostIdentity) else java.util.concurrent.atomic.AtomicBoolean()
+    private var authenticationRejected = if (httpClient === defaultHttpClient) dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.authenticationForCredential(apiToken, apiOrigins.hostIdentity) else java.util.concurrent.atomic.AtomicBoolean()
     private val rateLimits = if (httpClient === defaultHttpClient) dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.rateLimitsForCredential(apiToken, apiOrigins.hostIdentity) else dev.chungjungsoo.gptmobile.data.github.GitHubRateLimitManager()
-    private val refAvailability = if (httpClient === defaultHttpClient) dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.refsForCredential(apiToken, apiOrigins.hostIdentity) else dev.chungjungsoo.gptmobile.data.github.GitHubRefAvailability()
+    private var refAvailability = if (httpClient === defaultHttpClient) dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.refsForCredential(apiToken, apiOrigins.hostIdentity) else dev.chungjungsoo.gptmobile.data.github.GitHubRefAvailability()
+    private val credentialLock = Any()
+    private fun requestCredential() = synchronized(credentialLock) { dev.chungjungsoo.gptmobile.data.github.GitHubRequestCredential(apiToken, authenticationRejected, refAvailability) }
     private val targetPolicy = dev.chungjungsoo.gptmobile.data.github.GitHubTargetPolicy(taskRequest)
     private val workflowPages = dev.chungjungsoo.gptmobile.data.github.GitHubWorkflowPageCapture()
     private val operationBlocks by lazy { if (persistentState && stateStore != null) stateStore else dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore() }
@@ -105,14 +108,18 @@ class GitHubTool(
     }
     private val scheduler = if (httpClient === defaultHttpClient) dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.schedulerForCredential(apiToken, apiOrigins.hostIdentity) else dev.chungjungsoo.gptmobile.data.github.GitHubRequestScheduler()
     private val responseCache = if (httpClient === defaultHttpClient) dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.forCredential(apiToken, apiOrigins.hostIdentity) else dev.chungjungsoo.gptmobile.data.github.GitHubResponseCache()
-    private val workspaceClient by lazy {
-        GitHubWorkspaceClient(
-            apiToken, httpClient, rateLimits = rateLimits, authenticationRejected = authenticationRejected,
+    private val workspaceClient by lazy { createWorkspaceClient() }
+    private val sourceWorkspaceClients = java.util.concurrent.ConcurrentHashMap<String, GitHubWorkspaceClient>()
+    private fun createWorkspaceClient(source: String? = null): GitHubWorkspaceClient {
+        val credential = requestCredential()
+        return GitHubWorkspaceClient(
+            credential.token, httpClient, rateLimits = rateLimits, authenticationRejected = credential.authenticationRejected,
             responseCache = responseCache,
             conditionalReads = featureSettings.githubConditionalReads, blobCache = featureSettings.githubBlobCache,
             freshnessSeconds = featureSettings.pluginExecution[dev.chungjungsoo.gptmobile.data.model.ToolPluginId.GITHUB]?.githubCacheSeconds ?: 15,
-            connectionUid = connectionUid, conversationId = conversationId, taskId = taskId, persistentState = persistentState, stateStore = stateStore, scheduler = scheduler, engineeringPrepare = engineeringPrepare, engineeringStatus = engineeringStatus,
-            durableIdentity = durableIdentity, legacyCredentialIdentities = legacyCredentialIdentities, credentialProvider = credentialProvider, apiOrigins = apiOrigins, refAvailability = refAvailability
+            connectionUid = connectionUid, conversationId = if (source == null) conversationId else "$conversationId:read-source:$source", taskId = if (source == null) taskId else "$taskId:read-source:$source", persistentState = persistentState, stateStore = stateStore, scheduler = scheduler, engineeringPrepare = engineeringPrepare, engineeringStatus = engineeringStatus,
+            durableIdentity = durableIdentity, legacyCredentialIdentities = legacyCredentialIdentities, credentialProvider = credentialProvider, apiOrigins = apiOrigins, refAvailability = credential.refAvailability,
+            repositoryGateway = repositoryGateway, sharedCredentialAdmission = httpClient === defaultHttpClient
         )
     }
     internal suspend fun normalizeOperationRepository(arguments: JsonObject): JsonObject {
@@ -522,6 +529,11 @@ class GitHubTool(
                             put("description", "Pull request number.")
                         }
                     )
+                    // The broad compatibility tool advertises the same explicit
+                    // lifecycle fields as the compact repository facade.
+                    (GitHubOperationTool.definition("github_repository").inputSchema["properties"] as JsonObject)
+                        .filterKeys { it !in setOf("action", "view_cursor", "expected_head_sha") }
+                        .forEach { (name, schema) -> put(name, schema) }
                 }
             )
             put(
@@ -558,10 +570,14 @@ class GitHubTool(
                 if (blocked != null) return@withContext accounting.finish(AgentToolResult(callId, ToolResultContent.Json(blocked), true, errorCode = "GITHUB_OPERATION_BLOCKED", dispatched = false), true)
                 val observed = accounting.finish(executeTracked(callId, arguments), action in MUTATING_ACTIONS)
                 val resource = buildJsonObject {
-                    listOf("owner", "repo", "ref", "branch", "commit_sha", "head_sha", "expected_head_sha", "workflow_id", "run_id", "job_id", "run_attempt", "page", "per_page", "index_cursor").forEach { field ->
-                        (if (field in setOf("owner", "repo")) identity[field] else arguments[field])?.let { put(field, it) }
+                    if (action in dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryLifecycle.actions) {
+                        listOf("destination_owner", "destination_repo", "source_owner", "source_repo", "source_ref", "source_commit_sha", "operation_id", "expected_repository_id", "copy_mode", "visibility").forEach { field -> arguments[field]?.let { put(field, it) } }
+                    } else {
+                        listOf("owner", "repo", "ref", "branch", "commit_sha", "head_sha", "expected_head_sha", "workflow_id", "run_id", "job_id", "run_attempt", "page", "per_page", "index_cursor").forEach { field ->
+                            (if (field in setOf("owner", "repo")) identity[field] else arguments[field])?.let { put(field, it) }
+                        }
+                        selected?.ref?.takeIf { it.isNotBlank() }?.let { put("selected_ref", it) }
                     }
-                    selected?.ref?.takeIf { it.isNotBlank() }?.let { put("selected_ref", it) }
                 }
                 val result = observed.copy(executionReceipt = JsonObject(observed.executionReceipt.orEmpty() + mapOf("incident_id" to JsonPrimitive(incidentId(callId)), "resource_context" to resource)))
                 if (!result.isError) targetPolicy.observeDiscovery(action, dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.element(result.content))
@@ -608,6 +624,10 @@ class GitHubTool(
 
     private suspend fun executeTracked(callId: String, arguments: JsonObject): AgentToolResult {
         if (credentialAdmissionFailed) return AgentToolResult(callId, ToolResultContent.Text("GitHub authorization could not be verified. Check the internet connection and reconnect GitHub if authorization expired. No remote request was dispatched; reconcile any previous uncertain write before retrying."), true, errorCode = "GITHUB_AUTHORIZATION_UNVERIFIED", dispatched = false)
+        if ((arguments["action"] as? JsonPrimitive)?.content in dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryLifecycle.actions) {
+            if (listOf("owner", "repo", "ref").any { it in arguments }) return AgentToolResult(callId, ToolResultContent.Text("Repository creation and transfer use explicit destination_owner/destination_repo and source_owner/source_repo/source_ref. Remove workspace owner/repo/ref fields; no operation was dispatched."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
+            return executeEffective(callId, arguments)
+        }
 
         val repository = try {
             dev.chungjungsoo.gptmobile.data.github.normalizeGitHubRepository(
@@ -622,7 +642,8 @@ class GitHubTool(
             if (action in setOf("search_repositories", "search_issues", "search_code", "list_repositories") || (action == "build_index" && !selected.prepareIndex)) {
                 return AgentToolResult(callId, ToolResultContent.Text("This programmer conversation uses the selected repository only. Use pinned repository search; index preparation requires its workspace option."), true, errorCode = "REPOSITORY_SCOPE_MISMATCH", dispatched = false)
             }
-            if ((repository.first != null && !repository.first.equals(selected.owner, true)) || (repository.second != null && !repository.second.equals(selected.repo, true))) {
+            val sourceRead = repository.first != null && repository.second != null && targetPolicy.suppliedRead(action, "${repository.first}/${repository.second}")
+            if (!sourceRead && ((repository.first != null && !repository.first.equals(selected.owner, true)) || (repository.second != null && !repository.second.equals(selected.repo, true)))) {
                 return AgentToolResult(callId, ToolResultContent.Text("This programmer conversation is bound to ${selected.owner}/${selected.repo}. Open a separate workspace to use another repository."), true, errorCode = "REPOSITORY_SCOPE_MISMATCH", dispatched = false)
             }
         }
@@ -666,10 +687,45 @@ class GitHubTool(
                         require(!sameRepo || arguments["branch"]?.jsonPrimitive?.content != selected.ref) { "Cannot delete the selected workspace branch. Select another branch first." }
                     }
                 }
-                val result = workspaceClient.execute(action, arguments)
+                val selected = selectedRepository()
+                val requested = "${arguments["owner"]?.jsonPrimitive?.content}/${arguments["repo"]?.jsonPrimitive?.content}"
+                val sourceRead = selected != null && !requested.equals(selected.fullName, true) && targetPolicy.suppliedRead(action, requested)
+                // Source snapshots have their own selected-context key; an upstream read
+                // cannot move the destination branch or replace its staged patch.
+                val client = if (sourceRead) sourceWorkspaceClients.getOrPut(requested.lowercase(java.util.Locale.ROOT)) { createWorkspaceClient(requested.lowercase(java.util.Locale.ROOT)) } else workspaceClient
+                val result = client.execute(action, arguments)
                 val checkpoint = result as? JsonObject
+                if (action in dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryLifecycle.actions && checkpoint != null && checkpoint["status"] in setOf(JsonPrimitive("BLOCKED"), JsonPrimitive("FAILED"))) {
+                    return AgentToolResult(callId, ToolResultContent.Json(checkpoint), true, errorCode = (checkpoint["error_code"] as? JsonPrimitive)?.content, dispatched = checkpoint["dispatched"] == JsonPrimitive(true))
+                }
                 if (checkpoint != null && (checkpoint["status"] as? JsonPrimitive)?.content in setOf("RECONCILE_REQUIRED", "EXECUTION_IN_PROGRESS")) return executionResult(callId, checkpoint)
-                return successResult(callId, result.toString())
+                val destination = (checkpoint?.get("destination_repository") as? JsonPrimitive)?.content
+                val requiresSelection = action in dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryLifecycle.actions &&
+                    checkpoint?.get("status") == JsonPrimitive("VERIFIED") &&
+                    checkpoint["remote_state_verified"] == JsonPrimitive(true) &&
+                    !destination.isNullOrBlank() &&
+                    !destination.equals(selected?.fullName, true) &&
+                    dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryAcceptance.requiresAdditionalEvidence(taskRequest.orEmpty())
+                val presented = if (requiresSelection) {
+                    JsonObject(
+                        requireNotNull(checkpoint) + buildJsonObject {
+                            put("user_input_required", true)
+                            put("task_complete", false)
+                            put(
+                                "next_action",
+                                buildJsonObject {
+                                    put("user_action", "CHANGE_REPOSITORY")
+                                    put("destination_repository", destination)
+                                    put("resume_saved_request", true)
+                                }
+                            )
+                            put("agent_instruction", "The repository operation is verified, but the requested implementation has not run. Ask the user to use Change repository to select $destination, then resume the saved request. Keep this receipt; do not repeat creation or attempt dependent writes through the previous workspace.")
+                        }
+                    )
+                } else {
+                    result
+                }
+                return successResult(callId, presented.toString())
             }
             when (action) {
                 "watch_checks" -> successResult(callId, requireNotNull(watchChecks) { "Background check subscriptions require a connected account and saved chat." }(arguments).toString())
@@ -1167,9 +1223,10 @@ class GitHubTool(
                     }.toString()
                 )
             }
-            val log = dev.chungjungsoo.gptmobile.data.github.GitHubCiLogReader(httpClient, apiToken, scheduler, responseCache, authenticationRejected = authenticationRejected, apiOrigins = apiOrigins)
+            val credential = requestCredential()
+            val log = dev.chungjungsoo.gptmobile.data.github.GitHubCiLogReader(httpClient, credential.token, scheduler, responseCache, authenticationRejected = credential.authenticationRejected, apiOrigins = apiOrigins)
                 .read("/repos/$owner/$repo/actions/jobs/$jobId/logs", immutable = true)
-            val safe = dev.chungjungsoo.gptmobile.data.diagnostics.redactLogMessage(log.text).let { if (apiToken.isNotBlank()) it.replace(apiToken, "[REDACTED]") else it }
+            val safe = dev.chungjungsoo.gptmobile.data.diagnostics.redactLogMessage(log.text).let { if (credential.token.isNotBlank()) it.replace(credential.token, "[REDACTED]") else it }
             val page = dev.chungjungsoo.gptmobile.data.github.GitHubCiLogPage.render(log.copy(text = safe), arguments)
             return successResult(callId, JsonObject(page + job.filterKeys { it in setOf("run_id", "head_sha", "head_branch", "run_attempt") } + ("job_status" to JsonPrimitive("completed"))).toString())
         }
@@ -2075,21 +2132,24 @@ class GitHubTool(
 
     private suspend fun refreshCredential() {
         val refreshed = credentialProvider?.invoke() ?: return
-        if (refreshed != apiToken) {
-            apiToken = refreshed
-            responseCache.clear()
-            refAvailability.clear()
-            workflowPages.clear()
-            authenticationRejected.set(false)
+        synchronized(credentialLock) {
+            if (refreshed != apiToken) {
+                apiToken = refreshed
+                responseCache.clear()
+                refAvailability = if (httpClient === defaultHttpClient) dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.refsForCredential(refreshed, apiOrigins.hostIdentity) else dev.chungjungsoo.gptmobile.data.github.GitHubRefAvailability()
+                workflowPages.clear()
+                authenticationRejected = if (httpClient === defaultHttpClient) dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.authenticationForCredential(refreshed, apiOrigins.hostIdentity) else java.util.concurrent.atomic.AtomicBoolean()
+            }
         }
     }
 
     private suspend fun writeGitHubApi(url: String, method: HttpMethod, body: JsonObject): GitHubBoundedResponse {
         require(apiOrigins.acceptsApiUrl(url)) { "GitHub API origin changed." }
         refreshCredential()
+        val credential = requestCredential()
         return scheduler.execute(null) {
             try {
-                check(!authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
+                check(!credential.authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
                 rateLimits.requireAvailable("core")
             } catch (rejected: IllegalStateException) {
                 throw dev.chungjungsoo.gptmobile.data.github.GitHubRequestRejected(0, rejected.message ?: "Request admission failed before dispatch")
@@ -2103,13 +2163,13 @@ class GitHubTool(
                 header(HttpHeaders.Accept, "application/vnd.github+json")
                 header(HttpHeaders.UserAgent, "GPT-Mobile-App")
                 header("X-GitHub-Api-Version", GitHubWorkspaceClient.API_VERSION)
-                header(HttpHeaders.Authorization, "Bearer $apiToken")
+                header(HttpHeaders.Authorization, "Bearer ${credential.token}")
                 setBody(body.toString())
             }.also {
                 if (it.status.value in 400..499 && it.status.value != 408) dev.chungjungsoo.gptmobile.data.github.GitHubMutationAttempts.rejected()
                 dev.chungjungsoo.gptmobile.data.github.GitHubDispatchAccounting.responded(true, it.status.value, observationId, it.headers["X-GitHub-Request-Id"])
                 rateLimits.record(it.headers, it.status.value)
-                if (it.status.value == 401) authenticationRejected.set(true)
+                if (it.status.value == 401) credential.authenticationRejected.set(true)
             }
         }
     }
@@ -2117,10 +2177,12 @@ class GitHubTool(
     private suspend fun getGitHubApi(url: String): GitHubBoundedResponse = dev.chungjungsoo.gptmobile.data.github.GitHubReadRetry.run {
         require(apiOrigins.acceptsApiUrl(url)) { "GitHub API origin changed." }
         refreshCredential()
+        val credential = requestCredential()
         val resourcePath = url.removePrefix(BASE_URL)
-        refAvailability.requireAvailable(resourcePath)
-        scheduler.execute("$url:$durableIdentity:${dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore.digest(apiToken)}") {
-            check(!authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
+        credential.refAvailability.requireAvailable(resourcePath)
+        scheduler.execute("$url:$durableIdentity:${dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore.digest(credential.token)}") {
+            check(!credential.authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
+            credential.refAvailability.requireAvailable(resourcePath)
             rateLimits.requireAvailable(if (url.contains("/search/")) "search" else "core")
             scheduler.recordRequest()
             val observationId = dev.chungjungsoo.gptmobile.data.github.GitHubDispatchAccounting.started(false)
@@ -2128,18 +2190,18 @@ class GitHubTool(
                 header(HttpHeaders.Accept, "application/vnd.github+json")
                 header(HttpHeaders.UserAgent, "GPT-Mobile-App")
                 header("X-GitHub-Api-Version", GitHubWorkspaceClient.API_VERSION)
-                if (apiToken.isNotBlank()) header(HttpHeaders.Authorization, "Bearer $apiToken")
+                if (credential.token.isNotBlank()) header(HttpHeaders.Authorization, "Bearer ${credential.token}")
             }.also {
                 dev.chungjungsoo.gptmobile.data.github.GitHubDispatchAccounting.responded(false, it.status.value, observationId, it.headers["X-GitHub-Request-Id"])
                 rateLimits.record(it.headers, it.status.value)
-                if (it.status.value == 401) authenticationRejected.set(true)
+                if (it.status.value == 401) credential.authenticationRejected.set(true)
                 // Read the body within the retry boundary, including an interrupted HTTP/2 body.
                 val body = it.bodyAsText()
                 if (it.status.isSuccess()) {
-                    refAvailability.succeeded(resourcePath)
+                    credential.refAvailability.succeeded(resourcePath)
                 } else {
                     val message = runCatching { jsonParser.parseToJsonElement(body).jsonObject["message"]?.jsonPrimitive?.content }.getOrNull().orEmpty()
-                    refAvailability.failed(resourcePath, it.status.value, message)
+                    credential.refAvailability.failed(resourcePath, it.status.value, message)
                 }
                 if (dev.chungjungsoo.gptmobile.data.github.GitHubReadRetry.transientStatus(it.status.value)) {
                     throw dev.chungjungsoo.gptmobile.data.github.GitHubReadRetry.HttpFailure(it.status.value, it.headers["Retry-After"])

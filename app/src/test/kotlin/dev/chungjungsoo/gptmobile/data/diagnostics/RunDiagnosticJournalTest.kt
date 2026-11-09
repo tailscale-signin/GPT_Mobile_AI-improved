@@ -11,6 +11,69 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class RunDiagnosticJournalTest {
+    @Test fun precheckFailureIsSystemOutputAtCommitRenderAndDrawWithoutAProviderInvocation() = runTest {
+        val vault = MemoryVault()
+        val journal = RunDiagnosticJournal(vault, backgroundScope).apply {
+            enabled = true
+            setRunPrivacy("run", false)
+        }
+        val body = "private-precheck-canary: select an available profile"
+        val committed = journal.traceOutput("run", OutputTraceBoundary.COMMITTED, body, fence = 1, outputOrigin = OutputOrigin.SYSTEM_ERROR)
+        val rendered = journal.traceOutput("run", OutputTraceBoundary.RENDER_INPUT, body, fence = 1, representation = OutputTextRepresentation.DISPLAY_FILTERED_MARKDOWN_UTF8, partId = "0")
+        val transformed = journal.traceOutput("run", OutputTraceBoundary.RENDER_TRANSFORM, "transformed $body", fence = 1, representation = OutputTextRepresentation.MATH_PLACEHOLDER_MARKDOWN_UTF8, partId = "0", outputOrigin = rendered.origin, invocationId = rendered.invocationId)
+        journal.firstVisibleDraw(OutputTraceOwner("run", 1, "0", origin = rendered.origin, invocationId = rendered.invocationId))
+        runCurrent()
+        val events = journal.snapshot(setOf("run")).events
+        assertEquals(OutputLineage(OutputOrigin.SYSTEM_ERROR), committed)
+        assertEquals(committed, rendered)
+        assertEquals(rendered, transformed)
+        assertEquals(4, events.size)
+        assertTrue(events.all { it.outputOrigin == OutputOrigin.SYSTEM_ERROR && it.invocationId == null })
+        assertTrue(events.none { it.kind in setOf(RunDiagnosticKind.INVOCATION_STARTED, RunDiagnosticKind.FIRST_TEXT) })
+        assertEquals(null, linkedParsedToDrawMillis(events))
+        assertTrue(vault.rows.values.none { it.decodeToString().contains("private-precheck-canary") })
+    }
+
+    @Test fun exactProviderOutputCarriesLineageWhileProgressDoesNotSuppressItsDraw() = runTest {
+        val journal = RunDiagnosticJournal(MemoryVault(), backgroundScope).apply {
+            enabled = true
+            setRunPrivacy("run", false)
+        }
+        journal.firstVisibleDraw(OutputTraceOwner("run", 1, "0", origin = OutputOrigin.PROGRESS_NOTICE))
+        journal.record("run", RunDiagnosticKind.INVOCATION_STARTED, invocationId = "invocation")
+        journal.record("run", RunDiagnosticKind.FIRST_TEXT, invocationId = "invocation")
+        journal.record("run", RunDiagnosticKind.OUTPUT_CHECKPOINT, invocationId = "invocation", outputBoundary = OutputTraceBoundary.PROVIDER_VISIBLE, outputRepresentation = OutputTextRepresentation.VISIBLE_UTF8, outputFingerprint = outputFingerprint("answer"))
+        val committed = journal.traceOutput("run", OutputTraceBoundary.COMMITTED, "answer", fence = 1)
+        val rendered = journal.traceOutput("run", OutputTraceBoundary.RENDER_INPUT, "answer", fence = 1, representation = OutputTextRepresentation.DISPLAY_FILTERED_MARKDOWN_UTF8, partId = "0")
+        repeat(2) { journal.firstVisibleDraw(OutputTraceOwner("run", 1, "0", origin = rendered.origin, invocationId = rendered.invocationId)) }
+        val events = journal.snapshot(setOf("run")).events
+        assertEquals(OutputLineage(OutputOrigin.MODEL_TEXT, "invocation"), committed)
+        assertEquals(committed, rendered)
+        assertEquals(listOf(OutputOrigin.PROGRESS_NOTICE, OutputOrigin.MODEL_TEXT), events.filter { it.kind == RunDiagnosticKind.FIRST_VISIBLE_TEXT }.map { it.outputOrigin })
+        assertTrue(linkedParsedToDrawMillis(events) != null)
+    }
+
+    @Test fun mixedAndAmbiguousTextStayUnlinkedAndPrivacyTransitionClearsLineage() = runTest {
+        val journal = RunDiagnosticJournal(MemoryVault(), backgroundScope).apply {
+            enabled = true
+            setRunPrivacy("run", false)
+        }
+        for (invocation in listOf("first", "latest")) {
+            journal.traceOutput("run", OutputTraceBoundary.PROVIDER_VISIBLE, "answer", invocationId = invocation)
+        }
+        assertEquals(OutputLineage(OutputOrigin.MODEL_TEXT), journal.traceOutput("run", OutputTraceBoundary.COMMITTED, "answer"))
+        assertEquals(OutputLineage(), journal.traceOutput("run", OutputTraceBoundary.COMMITTED, "answer\nConnection failed"))
+        // A transform cannot acquire ownership by accidentally matching a different source.
+        assertEquals(OutputLineage(), journal.traceOutput("run", OutputTraceBoundary.RENDER_TRANSFORM, "answer"))
+        journal.traceOutput("run", OutputTraceBoundary.COMMITTED, "setup", outputOrigin = OutputOrigin.SYSTEM_ERROR)
+        journal.privateSession = true
+        journal.privateSession = false
+        assertEquals(OutputLineage(), journal.traceOutput("run", OutputTraceBoundary.RENDER_INPUT, "setup"))
+        journal.traceOutput("run", OutputTraceBoundary.COMMITTED, "setup", outputOrigin = OutputOrigin.SYSTEM_ERROR)
+        journal.clear()
+        assertEquals(OutputLineage(), journal.traceOutput("run", OutputTraceBoundary.RENDER_INPUT, "setup"))
+    }
+
     @Test fun boundedSnapshotCannotPublishCapturedEventsOrWatermarksAfterClearOrPrivateSession() = runTest {
         for (clear in listOf(true, false)) {
             val storage = MemoryVault()

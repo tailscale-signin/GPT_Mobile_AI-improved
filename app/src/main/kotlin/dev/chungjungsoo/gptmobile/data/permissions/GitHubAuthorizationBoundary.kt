@@ -9,6 +9,7 @@ import kotlinx.serialization.json.JsonPrimitive
 internal object GitHubAuthorizationBoundary {
     const val READ_APPROVAL_PREFIX = "GitHub read · safe to retry\n"
     const val EXACT_APPROVAL_PREFIX = "GitHub action · exact approval required\n"
+    const val LIFECYCLE_APPROVAL_PREFIX = EXACT_APPROVAL_PREFIX + "High-risk repository operation\n"
 
     fun applies(connection: ToolConnection): Boolean = connection.type == "GITHUB" ||
         (
@@ -57,6 +58,40 @@ internal object GitHubAuthorizationBoundary {
             (native["commit_immediately"] == null || native["commit_immediately"] == JsonPrimitive(false))
     }
 
+    /** Only the resolver's native descriptor can opt in; an MCP name or annotation cannot. */
+    fun isNativeRepositoryLifecycle(connection: ToolConnection, tool: String, arguments: JsonObject, nativeGitHub: Boolean): Boolean =
+        nativeGitHub &&
+            connection.type == "GITHUB" &&
+            tool == "github" &&
+            (arguments["action"] as? JsonPrimitive)?.takeIf { it.isString }?.content in dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryLifecycle.writes
+
+    /** Critical identities precede the bounded generic preview and are never silently truncated. */
+    fun repositoryLifecyclePreview(arguments: JsonObject): String = buildString {
+        val fields = listOf(
+            "Operation" to "action",
+            "Destination owner" to "destination_owner",
+            "Destination repository" to "destination_repo",
+            "Owner type" to "owner_type",
+            "Visibility" to "visibility",
+            "Source owner" to "source_owner",
+            "Source repository" to "source_repo",
+            "Source ref" to "source_ref",
+            "Pinned source commit" to "source_commit_sha",
+            "Copy mode" to "copy_mode",
+            "Initialize repository" to "auto_init",
+            "Default branch only" to "default_branch_only",
+            "Include LFS" to "include_lfs",
+            "Reviewed destination head" to "expected_head_sha"
+        )
+        fields.forEach { (label, name) ->
+            val value = arguments[name] ?: return@forEach
+            if (value !is JsonPrimitive || value.toString().length > 1024) {
+                throw ToolAuthorizationRejected("INVALID_ARGUMENTS", "$label cannot be reviewed exactly. Supply a bounded scalar value before requesting repository approval. No request was sent.")
+            }
+            append(label).append(": ").append(value.toString()).append('\n')
+        }
+    }
+
     fun requiresElevatedAuthorization(tool: String, arguments: JsonObject): Boolean {
         val operation = if (tool == "github") (arguments["action"] as? JsonPrimitive)?.content.orEmpty() else tool.substringAfterLast("__")
         val method = (arguments["method"] as? JsonPrimitive)?.content.orEmpty()
@@ -69,6 +104,9 @@ internal object GitHubAuthorizationBoundary {
                 name.contains("permission") ||
                 name.contains("branch_protection") ||
                 name.contains("ruleset") ||
+                name in dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryLifecycle.writes ||
+                name in setOf("create", "fork", "import", "clone") &&
+                tool.substringBefore("__") == "github_repository" ||
                 name in setOf("update_repository", "delete_repository", "transfer_repository", "archive_repository", "edit_repository", "set_repository_settings", "create_repository_variable", "update_repository_variable", "delete_repository_variable", "create_org", "update_org", "delete_org")
         }
     }
@@ -76,6 +114,9 @@ internal object GitHubAuthorizationBoundary {
 
 internal val ToolApproval.requiresExactConfirmation: Boolean
     get() = argumentPreview.startsWith(GitHubAuthorizationBoundary.EXACT_APPROVAL_PREFIX)
+
+internal val ToolApproval.isRepositoryLifecycleApproval: Boolean
+    get() = argumentPreview.startsWith(GitHubAuthorizationBoundary.LIFECYCLE_APPROVAL_PREFIX)
 
 internal val ToolApproval.isReplayableGitHubRead: Boolean
     get() = argumentPreview.startsWith(GitHubAuthorizationBoundary.READ_APPROVAL_PREFIX)

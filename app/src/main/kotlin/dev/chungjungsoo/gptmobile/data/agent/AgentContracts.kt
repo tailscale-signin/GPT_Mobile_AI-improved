@@ -113,7 +113,7 @@ data class AgentToolDefinition(
     }
 }
 
-enum class AgentToolCapability { WEB_SEARCH, PAGE_READER, USER_DECISION }
+enum class AgentToolCapability { WEB_SEARCH, PAGE_READER, USER_DECISION, GITHUB }
 
 data class AgentToolResult(
     val callId: String,

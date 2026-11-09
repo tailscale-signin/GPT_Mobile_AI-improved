@@ -7,6 +7,42 @@ import kotlinx.serialization.json.put
 
 /** Retain known response/admission evidence before considering an exception a transport failure. */
 internal fun providerExceptionDetails(error: Exception, partialOutput: Boolean, nowMillis: Long = System.currentTimeMillis()): ErrorDetail? {
+    if (error is dev.chungjungsoo.gptmobile.data.agent.GitHubToolContextBudgetException) {
+        val failure = error.providerFailure()
+        return ErrorDetail(
+            message = failure.message,
+            type = "local_admission",
+            code = failure.errorCode,
+            retryable = false,
+            failureDetails = buildJsonObject {
+                failure.failureDetails.orEmpty().forEach { (key, value) -> if (!partialOutput || key != "dispatched") put(key, value) }
+                put("attempt_dispatch_state", "NOT_DISPATCHED")
+                if (!partialOutput) {
+                    put("dispatch_state", "PRECHECK_REJECTED")
+                    put("remote_acceptance", "NO")
+                }
+                put("partial_output_preserved", partialOutput)
+            }
+        )
+    }
+    if (error is dev.chungjungsoo.gptmobile.data.github.GitHubReadValidation) {
+        return ErrorDetail(
+            message = error.message.orEmpty(),
+            type = "github_read_validation",
+            code = error.code,
+            retryable = false,
+            failureDetails = buildJsonObject {
+                error.details.forEach { (key, value) ->
+                    // A refused dependent read cannot establish that an earlier model
+                    // request was unsent after its output has already been observed.
+                    if (!partialOutput || key !in setOf("dispatched", "dispatch_state", "remote_acceptance")) put(key, value)
+                }
+                put("code", error.code)
+                put("retryable", false)
+                put("partial_output_preserved", partialOutput)
+            }
+        )
+    }
     if (error is dev.chungjungsoo.gptmobile.data.network.gateway.GatewayCapabilityDiscoveryException) {
         return ErrorDetail(
             message = requireNotNull(error.message),

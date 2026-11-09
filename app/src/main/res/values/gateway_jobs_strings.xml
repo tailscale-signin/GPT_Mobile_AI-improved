@@ -23,6 +23,7 @@
     <string name="gateway_jobs_live">Connected · saved server state</string>
     <string name="gateway_jobs_last_synced">Cached · last synced %1$s</string>
     <string name="gateway_jobs_loading">Checking saved jobs…</string>
+    <string name="gateway_jobs_unavailable">Saved jobs unavailable · refresh after repairing the connection</string>
     <string name="gateway_jobs_legacy">Retained job evidence · full catalog unavailable</string>
     <string name="gateway_jobs_local_evidence">Read older local evidence</string>
     <string name="gateway_jobs_current_account">Return to current account jobs</string>

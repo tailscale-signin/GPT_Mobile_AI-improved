@@ -188,6 +188,59 @@ class GatewayJobsViewModelTest {
         coVerify(exactly = 0) { control.stop(any()) }
     }
 
+    @Test fun unsupportedCatalogSuspendsPollingUntilAnExplicitRefreshSucceeds() = runTest(StandardTestDispatcher(dispatcher.scheduler)) {
+        coEvery { repository.refresh("profile-a", any()) } throws GatewayHistoryUnsupported()
+        coEvery { repository.legacyJobs("profile-a") } returns emptyList()
+        val observing = backgroundScope.launch { model.visible("profile-a") }
+        model.state.first { !it.automaticRefreshAllowed && !it.loading }
+        advanceTimeBy(60_000)
+        runCurrent()
+        coVerify(exactly = 1) { repository.refresh("profile-a", null) }
+        assertEquals(listOf(record), model.state.value.rows.map { it.record })
+
+        coEvery { repository.refresh("profile-a", any()) } returns page
+        model.refresh()
+        runCurrent()
+        assertTrue(model.state.value.automaticRefreshAllowed)
+        advanceTimeBy(5_000)
+        runCurrent()
+        coVerify(exactly = 3) { repository.refresh("profile-a", null) }
+        observing.cancelAndJoin()
+        coVerify(exactly = 0) { control.stop(any()) }
+    }
+
+    @Test fun reopeningAnUnsupportedRouteKeepsTheRepairStateWithoutAnotherRequest() = runTest(StandardTestDispatcher(dispatcher.scheduler)) {
+        coEvery { repository.refresh("profile-a", any()) } throws GatewayHistoryUnsupported()
+        coEvery { repository.legacyJobs("profile-a") } returns emptyList()
+        val first = backgroundScope.launch { model.visible("profile-a") }
+        model.state.first { !it.automaticRefreshAllowed && it.error != null }
+        first.cancelAndJoin()
+        val reopened = backgroundScope.launch { model.visible("profile-a") }
+        model.state.first { it.configured && !it.automaticRefreshAllowed && it.error != null }
+        advanceTimeBy(60_000)
+        runCurrent()
+        coVerify(exactly = 1) { repository.refresh("profile-a", null) }
+        reopened.cancelAndJoin()
+    }
+
+    @Test fun transientCatalogFailureBacksOffAndRetainsPreviouslyVerifiedRows() = runTest(StandardTestDispatcher(dispatcher.scheduler)) {
+        coEvery { repository.refresh("profile-a", any()) } throws IOException("Offline fixture")
+        val observing = backgroundScope.launch { model.visible("profile-a") }
+        model.state.first { it.error != null && !it.loading }
+        assertTrue(model.state.value.automaticRefreshAllowed)
+        assertEquals(10_000L, model.state.value.refreshDelayMillis)
+        advanceTimeBy(9_999)
+        runCurrent()
+        coVerify(exactly = 1) { repository.refresh("profile-a", null) }
+        advanceTimeBy(1)
+        runCurrent()
+        coVerify(exactly = 2) { repository.refresh("profile-a", null) }
+        assertEquals(20_000L, model.state.value.refreshDelayMillis)
+        assertEquals(listOf(record), model.state.value.rows.map { it.record })
+        observing.cancelAndJoin()
+        coVerify(exactly = 0) { control.stop(any()) }
+    }
+
     @Test fun anUnverifiedConfigurationCannotDisplayCachedAccountsOrUseTheirActions() = runTest(dispatcher) {
         coEvery { repository.cachedScope(route) } returns null
         model.bind("profile-a")
@@ -262,15 +315,24 @@ class GatewayJobsViewModelTest {
         assertTrue(model.state.value.legacy)
         assertTrue(model.state.value.rows.isEmpty())
         val legacyRow = GatewayJobRow(retained, summary)
+        val binding = mockk<dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringBinding>()
+        coEvery { repository.legacyBinding(retained.remoteJobId) } returns binding
+        model.open(legacyRow) { error("Legacy evidence must not navigate through an unverified remote account") }
+        model.state.first { it.legacyDetail === binding && it.opening == null }
+        coVerify(exactly = 1) { repository.legacyBinding(retained.remoteJobId) }
+        coVerify(exactly = 0) { conversations.attach(any()) }
         model.showStop(legacyRow)
         model.showInstruction(legacyRow)
         model.showTranscript(legacyRow)
         assertNull(model.state.value.stop)
         assertNull(model.state.value.instruction)
         assertNull(model.state.value.transcriptKey)
-        model.closeLegacyEvidence()
+        coEvery { repository.refresh("profile-a", null) } returns page
+        model.refresh()
         assertTrue(!model.state.value.legacy)
-        assertTrue(model.state.value.rows.isEmpty())
+        assertTrue(model.state.value.automaticRefreshAllowed)
+        assertEquals(GatewayCatalogState.CURRENT, model.state.value.catalogState)
+        assertNull(model.state.value.legacyDetail)
         coVerify(exactly = 0) { control.inspect(any()) }
         coVerify(exactly = 0) { conversations.queueInstruction(any(), any(), any()) }
         coVerify(exactly = 0) { conversations.prepareTranscript(any(), any(), any(), any()) }

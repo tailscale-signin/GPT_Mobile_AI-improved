@@ -44,7 +44,10 @@ internal fun LocalAssistCard(viewModel: LocalRuntimeSettingsViewModel, onMarketp
         Text("Use a selected local model to help prepare research and source material.", style = MaterialTheme.typography.bodySmall)
         Column {
             TextButton(onClick = { choosing = true }, enabled = !busy) {
-                Text(selected?.name ?: if (policy.profileUid != null) "Selected helper unavailable" else "Choose helper")
+                Text(selected?.name ?: if (policy.profileUid != null) "Selected helper unavailable" else "Set up Local Assist · choose helper")
+            }
+            if (policy.profileUid == null && profiles.none { it.compatibleType == ClientType.LITERT_LM }) {
+                TextButton(onClick = onMarketplace, enabled = !busy) { Text("Install a local model") }
             }
             DropdownMenu(choosing, { choosing = false }) {
                 profiles.filter { it.compatibleType == ClientType.LITERT_LM }.forEach { profile ->

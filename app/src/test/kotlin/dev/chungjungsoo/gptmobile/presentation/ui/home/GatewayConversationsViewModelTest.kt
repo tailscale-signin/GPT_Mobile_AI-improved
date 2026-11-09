@@ -132,10 +132,22 @@ class GatewayConversationsViewModelTest {
             assertEquals(page, failed.page)
             assertNotNull(failed.lastSyncedAt)
             assertEquals(synced.lastSyncedAt, failed.lastSyncedAt)
+            assertTrue(failed.cachedInventory)
         } finally {
             store.clear()
             Dispatchers.resetMain()
         }
+    }
+
+    @Test fun eachVisibleLocalConversationHidesOnlyItsMatchingServerRow() {
+        val secondAccount = row.copy(principalId = "other-account")
+        val visible = ChatRoomV2(id = 7, title = "Local gateway", conversationMode = ConversationMode.GATEWAY)
+        val canonicalKey = gatewayIdentityKey(row.gatewayId, row.principalId, row.conversationId)
+        val otherKey = gatewayIdentityKey(secondAccount.gatewayId, secondAccount.principalId, secondAccount.conversationId)
+        val initial = GatewayConversationsState(page = page, localChats = listOf(visible), localConversationChats = mapOf(canonicalKey to 7, otherKey to 8))
+        assertTrue(initial.unmirroredConversations.isEmpty())
+        assertEquals(listOf(row), initial.copy(localChats = emptyList()).unmirroredConversations)
+        assertEquals(listOf(secondAccount), initial.copy(page = page.copy(principalId = secondAccount.principalId, items = listOf(secondAccount))).unmirroredConversations)
     }
 
     @Test fun paginationCannotCombineDifferentGatewayPrincipals() = runTest {

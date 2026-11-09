@@ -35,6 +35,25 @@ class CombinedOperationTracePrivacyTest {
 
     private fun observedRuns() = CombinedOperationTrace.frameWindow(Long.MIN_VALUE, Long.MAX_VALUE).samples.mapNotNull { it.runId }
 
+    @Test fun frameCoverageRetainsWorkBelowTheVerboseTimingThreshold() {
+        val token = requireNotNull(CombinedOperationTrace.begin("tool_grant_revoke", CombinedOperationOwner(runId = "short-work")))
+            .copy(startedNanos = System.nanoTime() - 8_000_000L)
+        CombinedOperationTrace.end(token)
+        val sample = CombinedOperationTrace.frameWindow(Long.MIN_VALUE, Long.MAX_VALUE).samples.single()
+        assertEquals("tool_grant_revoke", sample.operation)
+        assertEquals("short-work", sample.runId)
+        assertTrue(sample.endedNanos - sample.startedNanos >= CombinedOperationTrace.FRAME_SAMPLE_THRESHOLD_NANOS)
+    }
+
+    @Test fun shortWorkCannotRepopulateFrameCoverageAcrossAPrivateSession() {
+        val token = requireNotNull(CombinedOperationTrace.begin("ui_Home_measure", CombinedOperationOwner(runId = "old-work")))
+            .copy(startedNanos = System.nanoTime() - 8_000_000L)
+        AppLogRecorder.setPrivateSession(privateOwner, true)
+        AppLogRecorder.setPrivateSession(privateOwner, false)
+        CombinedOperationTrace.end(token)
+        assertTrue(observedRuns().isEmpty())
+    }
+
     @Test fun privacyEntryClearsHistoryAndSpanningTokensCannotPublishAfterExit() {
         val inFlight = slowToken("public-in-flight")
         CombinedOperationTrace.end(slowToken("earlier-public"))

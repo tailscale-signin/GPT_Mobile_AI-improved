@@ -5,6 +5,24 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class RecognitionStartGateTest {
+    @Test fun retiredOwnerCannotResetOrExtendTheSharedServiceCooldown() {
+        var time = 0L
+        val gate = RecognitionStartGate { time }
+        assertTrue(gate.acquire("retired"))
+        gate.bindingFailed("retired")
+        gate.succeeded("retired")
+        gate.bindingFailed("retired")
+        org.junit.Assert.assertEquals(5000L, gate.remainingMillis())
+        time += 5000
+        assertTrue(gate.acquire("current"))
+        gate.succeeded("retired")
+        assertFalse(gate.acquire("third"))
+        gate.bindingFailed("current")
+        org.junit.Assert.assertEquals(15000L, gate.remainingMillis())
+        gate.failed(true, "retired")
+        org.junit.Assert.assertEquals(15000L, gate.remainingMillis())
+    }
+
     @Test fun rateLimitedServiceCannotBeRestartedByRapidTaps() {
         var time = 0L
         val gate = RecognitionStartGate { time }

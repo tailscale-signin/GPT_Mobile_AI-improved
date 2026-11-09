@@ -222,6 +222,7 @@ class MarketplaceViewModel @Inject constructor(
 
     private fun runOperation(entry: GitHubMarketplacePackage, removing: Boolean, deleteSavedData: Boolean = false) {
         if (jobs.containsKey(entry.id)) return
+        val entryRevocation = if (removing) dev.chungjungsoo.gptmobile.data.permissions.ToolGrantPersistence.prepareConnectionRevocation(toolTrust, freeConsent, entry.id) else null
         val job = viewModelScope.launch(start = CoroutineStart.LAZY) {
             try {
                 // Do not let an older startup scan overwrite a new download/removal.
@@ -238,23 +239,20 @@ class MarketplaceViewModel @Inject constructor(
                         }
                         store.beginRemoval(entry)
                         if (NativeMarketplaceCatalog.supports(entry)) registry.uninstall(entry)
-                        toolTrust?.revoke(entry.id)
-                        freeConsent?.revokeConnection(entry.id)
+                        requireNotNull(entryRevocation).commit()
                         // A marketplace-created MCP registration is owned by its persisted provider identity;
                         // similarly named user-created connections are never removed as a side effect.
                         val ownedConnections = connections.listConnections()
                             .filter { it.marketplaceOrigin == "MARKETPLACE" && it.marketplaceProviderId == entry.id }
                         ownedConnections.forEach { owned ->
-                            toolTrust?.revoke(owned.connectionUid)
-                            freeConsent?.revokeConnection(owned.connectionUid)
+                            dev.chungjungsoo.gptmobile.data.permissions.ToolGrantPersistence.prepareConnectionRevocation(toolTrust, freeConsent, owned.connectionUid).commit()
                             connections.deleteConnection(owned.connectionUid)
                         }
                         store.remove(entry)
                         if (entry.provider == "openstreetmap") {
                             dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplaceCatalog.legacyPackages.forEach { legacy ->
                                 store.remove(legacy)
-                                toolTrust?.revoke(legacy.id)
-                                freeConsent?.revokeConnection(legacy.id)
+                                dev.chungjungsoo.gptmobile.data.permissions.ToolGrantPersistence.prepareConnectionRevocation(toolTrust, freeConsent, legacy.id).commit()
                             }
                         }
                         store.finishRemoval(entry)

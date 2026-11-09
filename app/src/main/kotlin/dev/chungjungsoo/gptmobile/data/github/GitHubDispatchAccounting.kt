@@ -90,7 +90,7 @@ internal class GitHubDispatchAccounting(
                     accepted++
                     "ACCEPTED"
                 }
-                in 400..499 -> if (status == 408) {
+                in 400..499 -> if (status in setOf(408, 499)) {
                     "UNKNOWN_OUTCOME"
                 } else {
                     unknown--

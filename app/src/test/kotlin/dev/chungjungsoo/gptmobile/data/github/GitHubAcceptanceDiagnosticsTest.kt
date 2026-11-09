@@ -13,6 +13,49 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubAcceptanceDiagnosticsTest {
+    @Test fun lifecycleDiagnosticsRetainSafeOperationNamesForFacadeAndNativeAliases() {
+        val ids = listOf("github_repository__private_account:create", "github_repository:fork", "github_repository:import", "github_repository:clone", "github_repository:status", "github__private_account:create_repository", "github_repository:repository_lifecycle_status")
+        val ledger = buildJsonObject {
+            put(
+                "capabilities",
+                JsonArray(
+                    ids.map { id ->
+                        buildJsonObject {
+                            put("id", id)
+                            put("kind", "CAPABILITY")
+                            put("state", "NOT_TESTED")
+                        }
+                    }
+                )
+            )
+        }
+        val projection = GitHubAcceptanceDiagnostics.snapshot(ledger)
+        val operations = (projection["criteria"] as JsonArray).map { it.jsonObject["operation"] }
+        assertEquals(listOf("create", "fork", "import", "clone", "status", "create", "status").map { JsonPrimitive("github_repository:$it") }, operations)
+        assertTrue(GitHubAcceptanceDiagnostics.valid(projection))
+        assertFalse(projection.toString().contains("private_account"))
+        val requirements = GitHubAcceptanceDiagnostics.snapshot(
+            buildJsonObject {
+                put(
+                    "requirements",
+                    JsonArray(
+                        listOf(
+                            buildJsonObject {
+                                put("id", "private-request")
+                                put("criterion", "Fork private-owner/private-project")
+                                put("state", "NOT_TESTED")
+                            }
+                        )
+                    )
+                )
+            }
+        )
+        val row = (requirements["criteria"] as JsonArray).single().jsonObject
+        assertEquals(JsonPrimitive("Repository creation and transfer"), row["label"])
+        assertEquals(JsonPrimitive("VERIFY_RETAINED_REPOSITORY_OPERATION"), row["next_action"])
+        assertFalse(requirements.toString().contains("private-owner"))
+    }
+
     private fun requirement(id: String, text: String, state: String, evidence: List<String> = emptyList()) = buildJsonObject {
         put("id", id)
         put("requirement", text)

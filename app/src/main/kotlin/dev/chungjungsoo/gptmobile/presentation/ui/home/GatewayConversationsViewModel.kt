@@ -55,8 +55,19 @@ internal data class GatewayConversationsState(
     val queuedCounts: Map<Int, Int> = emptyMap(),
     val activeChatIds: Set<Int> = emptySet(),
     val gatewayStates: Map<Int, GatewayQueuedChatState> = emptyMap(),
-    val localConversationKeys: Set<String> = emptySet()
-)
+    val localConversationKeys: Set<String> = emptySet(),
+    val localConversationChats: Map<String, Int> = emptyMap()
+) {
+    /** A visible local mirror already opens this same server conversation and queued job. */
+    val unmirroredConversations: List<GatewayConversationSnapshot> get() {
+        val visibleLocalIds = localChats.map { it.id }.toSet()
+        return page?.let { inventory ->
+            inventory.items.filter { conversation ->
+                localConversationChats[gatewayIdentityKey(inventory.gatewayId, inventory.principalId, conversation.conversationId)] !in visibleLocalIds
+            }
+        }.orEmpty()
+    }
+}
 
 @HiltViewModel
 internal class GatewayConversationsViewModel @Inject constructor(
@@ -85,7 +96,12 @@ internal class GatewayConversationsViewModel @Inject constructor(
         }
         viewModelScope.launch {
             database.gatewayJobDao().observeAttachedConversations().collect { records ->
-                _state.update { it.copy(localConversationKeys = records.map { record -> record.key }.toSet()) }
+                _state.update {
+                    it.copy(
+                        localConversationKeys = records.map { record -> record.key }.toSet(),
+                        localConversationChats = records.mapNotNull { record -> record.localChatId?.let { chatId -> record.key to chatId } }.toMap()
+                    )
+                }
             }
         }
         viewModelScope.launch {
@@ -238,9 +254,9 @@ internal class GatewayConversationsViewModel @Inject constructor(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: GatewayHistoryUnsupported) {
-                if (requestGeneration == generation) _state.value = _state.value.copy(loading = false, error = GatewayBrowserError.UNSUPPORTED)
+                if (requestGeneration == generation) _state.value = _state.value.copy(loading = false, error = GatewayBrowserError.UNSUPPORTED, cachedInventory = _state.value.page != null)
             } catch (_: Exception) {
-                if (requestGeneration == generation) _state.value = _state.value.copy(loading = false, error = GatewayBrowserError.CONNECTION)
+                if (requestGeneration == generation) _state.value = _state.value.copy(loading = false, error = GatewayBrowserError.CONNECTION, cachedInventory = _state.value.page != null)
             } finally {
                 if (requestGeneration == generation) _state.value = _state.value.copy(loading = false)
             }

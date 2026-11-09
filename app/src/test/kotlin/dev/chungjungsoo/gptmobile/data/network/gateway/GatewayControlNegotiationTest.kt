@@ -23,6 +23,33 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GatewayControlNegotiationTest {
+    @Test fun directRoutePreparationDoesNotClaimTransmissionAcceptanceOrEffectiveSettings() = runBlocking {
+        val records = mutableListOf<String>()
+        val config = ProviderRequestConfig("https://direct-controls-fixture.invalid/v1", null, providerType = "LLAMA", extraHeaders = mapOf("X-Gateway-Allow-Local-Tools" to "false", "X-Gateway-Cache-Reuse" to "1024"))
+        val prepared = GatewayControlNegotiation(Fake(), diagnostic = { records += it }).prepare(config)
+        assertEquals(mapOf("X-Gateway-Allow-Local-Tools" to "false"), prepared.extraHeaders)
+        val evidence = records.single()
+        assertTrue(evidence.contains("contract=UNSUPPORTED_GATEWAY_CONTRACT"))
+        assertTrue(evidence.contains("preparedForDispatch=[X-Gateway-Allow-Local-Tools]"))
+        assertTrue(evidence.contains("transmitted=Not measured"))
+        assertTrue(evidence.contains("serverAdvertised=[]"))
+        assertTrue(evidence.contains("serverAcknowledged=Not measured"))
+        assertTrue(evidence.contains("clientAllowed=[X-Gateway-Allow-Local-Tools, X-Gateway-Cache-Reuse]"))
+        assertTrue(evidence.contains("effective=Not measured"))
+        assertFalse(evidence.contains(" · accepted="))
+    }
+
+    @Test fun advertisedGatewayControlsStillNeedPerRequestConfirmation() = runBlocking {
+        val records = mutableListOf<String>()
+        val header = "X-Gateway-Cache-Reuse"
+        val capability = GatewayCapabilities(gatewayVersion = "15.0.0", acceptedRequestHeaders = listOf(header))
+        val config = ProviderRequestConfig("https://advertised-controls-fixture.invalid/v1", null, providerType = "LLAMA", extraHeaders = mapOf(header to "1024"))
+        assertEquals(config.extraHeaders, GatewayControlNegotiation(Fake(capability), diagnostic = { records += it }).prepare(config).extraHeaders)
+        assertTrue(records.single().contains("contract=GATEWAY_CONTRACT"))
+        assertTrue(records.single().contains("serverAdvertised=[$header]"))
+        assertTrue(records.single().contains("serverAcknowledged=Not measured"))
+    }
+
     @Test fun missingIsolationRetainsItsSpecificBoundaryReason() = runBlocking {
         val config = ProviderRequestConfig("https://unconfirmed-isolation.example/v1", null, providerType = "LLAMA", extraHeaders = mapOf("X-Gateway-Allow-Local-Tools" to "false"))
         val dispatch = dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext(emptySet())

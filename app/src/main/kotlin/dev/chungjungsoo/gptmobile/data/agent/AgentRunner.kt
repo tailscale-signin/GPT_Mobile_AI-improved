@@ -49,6 +49,8 @@ data class AgentRunLimits(
     val detectRepetition: Boolean = false,
     val researchAcquisition: Boolean = false,
     val githubTask: Boolean = false,
+    /** GitHub workspace execution always exposes the complete authorized GitHub catalog. */
+    val githubMode: Boolean = false,
     /** Optional objective for reading a saved batch; this is not an end-to-end recovery target. */
     val checkpointRestoreObjective: CheckpointRestoreObjective? = null,
     val combined: CombinedExecutionContext? = null
@@ -143,7 +145,7 @@ class AgentRunner(
         dynamicTools: () -> List<AgentTool>,
         selectDefinitions: (List<AgentToolDefinition>) -> List<AgentToolDefinition>
     ) {
-        val initialSchemaTokens = selectDefinitions(initialExposedDefinitions).sumOf { ProgressiveToolCatalog.schemaTokens(it).toLong() }
+        val initialSchemaTokens = selectedForRound(initialExposedDefinitions, selectDefinitions).sumOf { providerSchemaTokens(it, limits.githubMode) }
         val state = LoopState(initialExecutableToolByName, initialExposedDefinitions, initialRounds, initialToolCallCount, initialToolMayHaveExecuted, initialRetriedWithoutTools, recovery)
         if (state.restoredCalls.isNotEmpty() && recovery != null) {
             AppLogRecorder.record("Recovery", "TOOL_BATCH_RESTORED · checkpointVersion=1 · pendingCalls=${state.restoredCalls.size} · previouslyDispatched=${state.restoredDispatched.size} · completed=${recovery.completedCount} · failed=${recovery.failedCount} · uncertain=${recovery.unknownCount} · queued=${recovery.queuedCount} · rejected=${recovery.rejectedCount} · snapshotLoadMs=${recovery.loadMillis} · objectiveMs=${recovery.objectiveMillis ?: "none"} · objectiveStatus=${recovery.objectiveStatus} · measurement=checkpoint_load_only")
@@ -160,10 +162,15 @@ class AgentRunner(
                 // downstream collector errors must leave the run without retrying or emitting.
                 val searchContext = searchRoundContext(toolByName, executableToolByName, exchanges)
                 val observedLimit = if (limits.combined == null) limits.maxObservedToolCalls.coerceIn(1, 1024) else limits.maxObservedToolCalls.coerceAtLeast(0)
-                val roundDefinitions = fitProviderToolSchemas(selectDefinitions(exposedDefinitions), limits, initialSchemaTokens, replayTokens)
+                val roundDefinitions = try {
+                    fitProviderToolSchemas(selectedForRound(exposedDefinitions, selectDefinitions), limits, initialSchemaTokens, replayTokens)
+                } catch (capacity: GitHubToolContextBudgetException) {
+                    emit(AgentRunEvent.Provider(capacity.providerFailure()))
+                    return
+                }
                 reconcileDiscoveryExchange(exchanges, roundDefinitions)
                 val restoringBatch = restoredCalls.isNotEmpty()
-                val savedRead = if (limits.githubTask && !finalResponseRequested && !restoringBatch && observedToolCalls < observedLimit) GitHubReplayRecovery.nextSavedRead(exchanges, roundDefinitions) else null
+                val savedRead = if (limits.githubTask && !finalResponseRequested && !restoringBatch && observedToolCalls < observedLimit) GitHubReplayRecovery.nextSavedRead(exchanges, roundDefinitions, minOf(limits.maxReplayResultTokens, limits.maxReplayTokens / 2)) else null
                 val round = if (restoringBatch) {
                     RoundResult(calls = restoredCalls, completed = true, observedCalls = restoredCalls.size).also { restoredCalls = emptyList() }
                 } else if (savedRead != null) {
@@ -190,6 +197,10 @@ class AgentRunner(
                     continue
                 }
                 if (round.toolDefinitionsRejected) {
+                    if (limits.githubMode) {
+                        emit(AgentRunEvent.Provider(ProviderEvent.Failed(round.failure ?: "This model rejected the required GitHub tool catalog.", errorCode = "GITHUB_TOOL_CONTRACT_UNSUPPORTED", failureDetails = round.failureDetails)))
+                        return
+                    }
                     if (limits.combined?.requested?.singlePass != true && exposedDefinitions.isNotEmpty() && !toolMayHaveExecuted && !retriedWithoutTools && !round.textEmitted) {
                         retriedWithoutTools = true
                         exposedDefinitions = emptyList()
@@ -674,7 +685,7 @@ class AgentRunner(
         plan.acceptedByName.forEach { (name, count) -> toolCallsByName[name] = (toolCallsByName[name] ?: 0) + count }
         if (plan.disabledNames.isNotEmpty()) {
             executableToolByName = executableToolByName.filterKeys { it !in plan.disabledNames }
-            exposedDefinitions = exposedDefinitions.filterNot { it.name in plan.disabledNames }
+            exposedDefinitions = exposedDefinitions.filterNot { it.name in plan.disabledNames && !(limits.githubMode && ProgressiveToolCatalog.isGitHubTool(it)) }
             AppLogRecorder.record("Agent", "TOOL_REPEAT_SUPPRESSED · tools=${plan.disabledNames.size} · calls=${plan.perToolSuppressedIds.size}", "W")
         }
 
@@ -718,7 +729,7 @@ class AgentRunner(
         val newlyBlockedTools = updateFailureCircuits(executableCalls, executedResults, consecutiveToolFailures, blockedReadScopes, ::failureScope)
         if (newlyBlockedTools.isNotEmpty()) {
             executableToolByName = executableToolByName.filterKeys { it !in newlyBlockedTools }
-            exposedDefinitions = exposedDefinitions.filterNot { it.name in newlyBlockedTools }
+            exposedDefinitions = exposedDefinitions.filterNot { it.name in newlyBlockedTools && !(limits.githubMode && ProgressiveToolCatalog.isGitHubTool(it)) }
             newlyBlockedTools.forEach { toolName ->
                 AppLogRecorder.record("Agent", "TOOL_FAILURE_CIRCUIT_OPEN · tool=$toolName · failures=${consecutiveToolFailures[toolName]}", "W")
             }
@@ -730,12 +741,14 @@ class AgentRunner(
             authorizationStops.forEach { name -> AppLogRecorder.record("Agent", "TOOL_AUTHORIZATION_STOP · tool=$name · action=review_authorization · providerCircuitChanged=false") }
         }
 
-        val deferredResults = deferredToolResults(deferredCalls, hostSuppressedIds, perToolSuppressedIds, plan.unavailableIds, executableToolByName.keys, exchanges).map { result -> if (result.callId in plan.dependencyDeferredIds) ToolResultEnvelope.error(result.callId, "DEPENDENCY_DEFERRED", "This dependent remains undispatched because a prerequisite was not admitted. Complete the missing read or correct its arguments before resuming this saved dependency group.") else result }
+        val pausedGitHubNames = exposedDefinitions.filter { limits.githubMode && ProgressiveToolCatalog.isGitHubTool(it) && it.name !in executableToolByName }.mapTo(hashSetOf()) { it.name }
+        val deferredResults = deferredToolResults(deferredCalls, hostSuppressedIds, perToolSuppressedIds, plan.unavailableIds, executableToolByName.keys, exchanges, pausedGitHubNames).map { result -> if (result.callId in plan.dependencyDeferredIds) ToolResultEnvelope.error(result.callId, "DEPENDENCY_DEFERRED", "This dependent remains undispatched because a prerequisite was not admitted. Complete the missing read or correct its arguments before resuming this saved dependency group.") else result }
         deferredCalls.zip(deferredResults).forEach { (call, result) -> checkpoint?.complete(call, result) }
         val savedReadAvailable = limits.githubTask &&
             GitHubReplayRecovery.nextSavedRead(
                 exchanges + AgentToolExchange(calls, executedResults + deferredResults),
-                exposedDefinitions.filter { it.name in executableToolByName }
+                exposedDefinitions.filter { it.name in executableToolByName },
+                minOf(limits.maxReplayResultTokens, limits.maxReplayTokens / 2)
             ) != null
         val canReadOtherSources = savedReadAvailable ||
             (plan.unavailableIds.isNotEmpty() && executableToolByName.isNotEmpty()) ||
@@ -748,12 +761,17 @@ class AgentRunner(
             calls, executedResults + deferredResults, exchanges, executableCalls.isEmpty(),
             canReadOtherSources, suppressedReadRounds >= 2 && !savedReadAvailable,
             roundLimitReached, toolCallCount, executionToolCallLimit,
-            unproductiveDiscoveryRounds, finalResponseRequested, executableCalls.mapTo(hashSetOf()) { it.callId }
+            unproductiveDiscoveryRounds, finalResponseRequested, executableCalls.mapTo(hashSetOf()) { it.callId },
+            executableToolByName.values.any { it.definition.modelVisible && ProgressiveToolCatalog.isGitHubTool(it.definition) }
         )
         finalResponseRequested = completedBatch.finalResponseRequested
         if (finalResponseRequested) {
             exposedDefinitions = emptyList()
             executableToolByName = emptyMap()
+        } else if (completedBatch.suppressDiscovery) {
+            // Stop the repeated directory operation while retaining useful authorized work.
+            exposedDefinitions = exposedDefinitions.filterNot { it.name == ProgressiveToolCatalog.NAME }
+            executableToolByName = executableToolByName - ProgressiveToolCatalog.NAME
         }
         return ToolRoundCompletion(executableToolByName, exposedDefinitions, toolCallCount, executedResults.any { it.dispatched }, suppressedReadRounds, completedBatch)
     }
@@ -795,8 +813,15 @@ class AgentRunner(
         return SearchRoundContext(names, successful)
     }
 
-    private fun deferredToolResults(calls: List<ProviderEvent.ToolCall>, hostSuppressedIds: Set<String>, perToolSuppressedIds: Set<String>, unavailableIds: Set<String>, availableNames: Set<String>, exchanges: List<AgentToolExchange>): List<AgentToolResult> = calls.map { call ->
+    private fun deferredToolResults(calls: List<ProviderEvent.ToolCall>, hostSuppressedIds: Set<String>, perToolSuppressedIds: Set<String>, unavailableIds: Set<String>, availableNames: Set<String>, exchanges: List<AgentToolExchange>, pausedGitHubNames: Set<String> = emptySet()): List<AgentToolResult> = calls.map { call ->
         if (call.callId in unavailableIds) {
+            if (call.name in pausedGitHubNames) {
+                return@map ToolResultEnvelope.error(
+                    call.callId,
+                    "TOOL_EXECUTION_PAUSED",
+                    "This authorized GitHub tool remains visible, but execution is paused for this response after repeated failures or a repeat limit. Nothing was dispatched. Use the retained error's correction or another authorized GitHub operation; resume the paused operation after its blocker is resolved."
+                )
+            }
             return@map AgentToolResult(
                 call.callId,
                 ToolResultContent.Text("The requested tool '${call.name}' is not available in this round. Nothing was dispatched. Use an exact advertised tool name and its schema. Available tools: " + availableNames.sorted().take(32).joinToString(", ").ifEmpty { "none; answer using the evidence already collected" }),
@@ -849,7 +874,7 @@ class AgentRunner(
             round.batchRejection?.contains("threshold=STREAM_TOOL_SLOTS") == true
         ) {
             val batchSize = 1
-            val repaired = exposedDefinitions.take(4).map { definition ->
+            val repaired = (if (limits.githubMode) exposedDefinitions else exposedDefinitions.take(4)).map { definition ->
                 definition.copy(description = definition.description + " Batch repair: the previous response exceeded the tool-call limit and NONE of its calls ran. Make at most $batchSize total calls in this response, then wait for results before requesting more.")
             }
             emit(AgentRunEvent.Notice("The provider requested too many tools at once. Retrying once with a smaller batch; completed evidence is retained.", persistent = false))
@@ -888,6 +913,13 @@ class AgentRunner(
 
     private data class ToolCatalogUpdate(val tools: Map<String, AgentTool>, val definitions: List<AgentToolDefinition>)
 
+    private fun selectedForRound(definitions: List<AgentToolDefinition>, selectDefinitions: (List<AgentToolDefinition>) -> List<AgentToolDefinition>): List<AgentToolDefinition> {
+        val selected = selectDefinitions(definitions)
+        if (!limits.githubMode) return selected
+        val authorized = definitions.filter { it.modelVisible }.associateBy { it.name }
+        return (authorized.values.filter { ProgressiveToolCatalog.isGitHubTool(it) } + selected.mapNotNull { authorized[it.name] }).distinctBy { it.name }
+    }
+
     /** Dynamic discovery has an independent coroutine to stay below ART's method-size ceiling. */
     private suspend fun kotlinx.coroutines.flow.FlowCollector<AgentRunEvent>.admitDiscoveredTools(
         discovered: List<AgentTool>,
@@ -905,7 +937,18 @@ class AgentRunner(
             emit(failed("Ambiguous discovered tool aliases; no discovered action dispatched."))
             return null
         }
-        val selectedSchemas = selectDefinitions((exposedDefinitions + additions.map { it.definition }).distinctBy { it.name })
+        val selectedSchemas = selectedForRound((exposedDefinitions + additions.map { it.definition }).distinctBy { it.name }, selectDefinitions)
+        if (limits.githubMode) {
+            val admittedSchemas = try {
+                fitProviderToolSchemas(selectedSchemas, limits, initialSchemaTokens, replayTokens)
+            } catch (capacity: GitHubToolContextBudgetException) {
+                emit(AgentRunEvent.Provider(capacity.providerFailure()))
+                return null
+            }
+            val admittedNames = admittedSchemas.mapTo(hashSetOf()) { it.name }
+            val admitted = additions.filter { it.definition.name in admittedNames }
+            return ToolCatalogUpdate(executableToolByName + admitted.associateBy { it.definition.name }, (exposedDefinitions + admitted.map { it.definition }).distinctBy { it.name })
+        }
         val selectedNames = selectedSchemas.mapTo(HashSet()) { it.name }
         var schemaTokens = selectedSchemas.filter { it.name in executableToolByName }.sumOf { ProgressiveToolCatalog.schemaTokens(it).toLong() }
         val contextWithoutInitialSchemas = (limits.initialContextTokens.toLong() - initialSchemaTokens).coerceAtLeast(0)
@@ -923,7 +966,7 @@ class AgentRunner(
         return ToolCatalogUpdate(executableToolByName + admitted.associateBy { it.definition.name }, (exposedDefinitions + admitted.map { it.definition }).distinctBy { it.name })
     }
 
-    private data class BatchCompletion(val replayTokens: Long, val discoveryRounds: Int, val finalResponseRequested: Boolean, val hasSuccessfulResult: Boolean)
+    private data class BatchCompletion(val replayTokens: Long, val discoveryRounds: Int, val finalResponseRequested: Boolean, val hasSuccessfulResult: Boolean, val suppressDiscovery: Boolean)
 
     /** Separate tool-result publication/finalization from the dispatch coroutine for ART compilation. */
     private suspend fun kotlinx.coroutines.flow.FlowCollector<AgentRunEvent>.finishBatch(
@@ -938,7 +981,8 @@ class AgentRunner(
         executionToolCallLimit: Int,
         previousDiscoveryRounds: Int,
         wasFinalResponseRequested: Boolean,
-        publishedCallIds: Set<String> = emptySet()
+        publishedCallIds: Set<String> = emptySet(),
+        hasActionableGitHubTools: Boolean = false
     ): BatchCompletion {
         var finalResponseRequested = wasFinalResponseRequested
         val resultByCallId = producedResults.associateBy { it.callId }
@@ -950,7 +994,8 @@ class AgentRunner(
             )
         }.toMutableList()
         // Discovery that leaves the advertised set unchanged is not research progress.
-        // After two such rounds, preserve evidence and force a tool-free answer.
+        // After two such rounds, stop discovery. GitHub execution can continue with
+        // its attached operations; unrelated conversations can finish from evidence.
         val noNewTools = calls.isNotEmpty() &&
             calls.all { it.name == ProgressiveToolCatalog.NAME } &&
             allResults.all { result ->
@@ -958,6 +1003,8 @@ class AgentRunner(
             }
         val unproductiveDiscoveryRounds = if (noNewTools) previousDiscoveryRounds + 1 else 0
         val repeatedDiscoveryStalled = unproductiveDiscoveryRounds >= 2
+        val suppressDiscovery = repeatedDiscoveryStalled && (limits.githubMode || limits.githubTask) && hasActionableGitHubTools
+        val discoveryRequiresFinalization = repeatedDiscoveryStalled && !suppressDiscovery
         val combinedWorkBudgetExhausted = allResults.any { it.combinedWorkBudgetExhausted }
         val outputBudgetExhausted = allResults.any { it.outputBudgetExhausted }
         val toolCallBudgetExhausted = allResults.any { it.toolCallBudgetExhausted }
@@ -984,7 +1031,7 @@ class AgentRunner(
         val mustFinalize = unavailableCallsOnly ||
             allResults.any { it.errorCode == "GITHUB_USER_STOP" } ||
             repeatedReadSuppression ||
-            repeatedDiscoveryStalled ||
+            discoveryRequiresFinalization ||
             roundLimitReached ||
             contextNearLimit ||
             combinedWorkBudgetExhausted ||
@@ -1000,7 +1047,7 @@ class AgentRunner(
         } else if (repeatedReadSuppression) {
             finalResponseRequested = true
             emit(AgentRunEvent.Notice("Repeated reads produced no new work. Finishing with the results already collected.", persistent = false))
-        } else if (repeatedDiscoveryStalled) {
+        } else if (discoveryRequiresFinalization) {
             finalResponseRequested = true
             emit(AgentRunEvent.Notice("No new tools became available after repeated discovery. Summarizing the evidence already collected.", persistent = false))
         } else if (roundLimitReached) {
@@ -1063,7 +1110,7 @@ class AgentRunner(
                 unavailableCallsOnly && repeatLimited -> appendInstruction(allResults.last(), "Repeated identical calls reached their safety limit. This does not establish that GitHub read or write tools are disabled. Report completed work and remaining actions accurately; do not claim edits or commits without successful tool receipts. Finish this response from retained evidence.")
                 unavailableCallsOnly -> appendInstruction(allResults.last(), "These tools are disabled or unavailable. Use successful findings already collected to answer now. Do not request more tools in this response.")
                 repeatedReadSuppression -> appendInstruction(allResults.last(), "Repeated reads were skipped without acquiring new evidence. Summarize the results already collected and identify remaining gaps. Do not request more tools in this response.")
-                repeatedDiscoveryStalled -> appendInstruction(allResults.last(), "No more tools became available. Do not call discovery again; summarize completed findings and clearly identify any gaps.")
+                discoveryRequiresFinalization -> appendInstruction(allResults.last(), "No more tools became available. Do not call discovery again; summarize completed findings and clearly identify any gaps.")
                 roundLimitReached -> appendInstruction(allResults.last(), ROUND_LIMIT_FINAL_RESPONSE_INSTRUCTION)
                 contextNearLimit -> appendInstruction(allResults.last(), "The context limit is approaching. Use the available findings to give a final response now and ask whether the user wants to continue. Do not call more tools.")
                 outputBudgetExhausted && toolCallBudgetExhausted ->
@@ -1071,6 +1118,9 @@ class AgentRunner(
                 outputBudgetExhausted -> appendInstruction(allResults.last(), OUTPUT_BUDGET_FINAL_RESPONSE_INSTRUCTION)
                 else -> appendFinalResponseInstruction(allResults.last())
             }
+        } else if (suppressDiscovery && allResults.isNotEmpty()) {
+            allResults[allResults.lastIndex] = appendInstruction(allResults.last(), "Repeated discovery returned no new schemas. Discovery is paused for this response. The attached authorized GitHub tools remain available; use their exact schemas to continue the requested work. Do not repeat discovery or claim that GitHub tools are unavailable.")
+            emit(AgentRunEvent.Notice("Repeated discovery is paused. Continuing with the available GitHub tools.", persistent = false))
         } else if (shouldInjectWrapUp && allResults.isNotEmpty()) {
             val wrapUpPrompt = ToolBudgetPolicy.buildWrapUpPrompt(remainingAllowance, combined = limits.combined != null)
             allResults[allResults.lastIndex] = appendInstruction(allResults.last(), wrapUpPrompt)
@@ -1094,7 +1144,7 @@ class AgentRunner(
         )
         exchanges.clear()
         exchanges.addAll(retained)
-        return BatchCompletion(replayTokens, unproductiveDiscoveryRounds, finalResponseRequested, allResults.any { !it.isError })
+        return BatchCompletion(replayTokens, unproductiveDiscoveryRounds, finalResponseRequested, allResults.any { !it.isError }, suppressDiscovery)
     }
 
     private data class RoundResult(

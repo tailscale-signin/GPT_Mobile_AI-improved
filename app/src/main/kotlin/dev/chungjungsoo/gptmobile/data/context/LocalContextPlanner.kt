@@ -1,6 +1,8 @@
 package dev.chungjungsoo.gptmobile.data.context
 
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
+import dev.chungjungsoo.gptmobile.data.agent.GitHubToolContextBudgetException
+import dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveContent
 
 internal data class LocalContextPlan(
@@ -21,12 +23,12 @@ internal data class LocalContextPlan(
  * Estimates are deliberately conservative; only the native tokenizer is authoritative.
  */
 internal object LocalContextPlanner {
-    /** Authorization permits discovery; only upstream-advertised schemas enter the first prompt. */
-    fun advertisedToolNames(authorized: List<AgentToolDefinition>, advertised: List<AgentToolDefinition>?, discovered: List<AgentToolDefinition>? = null): Set<String> {
+    /** Ordinary chats honor discovery; GitHub mode retains every authorized visible GitHub schema. */
+    fun advertisedToolNames(authorized: List<AgentToolDefinition>, advertised: List<AgentToolDefinition>?, discovered: List<AgentToolDefinition>? = null, githubMode: Boolean = false): Set<String> {
         val allowed = authorized.mapTo(hashSetOf()) { it.name }
         val selected = advertised ?: discovered ?: authorized.filter { it.modelVisible }
         require(selected.all { it.name in allowed }) { "Local advertised catalog contains an unauthorized tool" }
-        return selected.mapTo(linkedSetOf()) { it.name }
+        return selected.mapTo(linkedSetOf()) { it.name } + githubToolNames(authorized, githubMode)
     }
 
     fun plan(
@@ -40,20 +42,23 @@ internal object LocalContextPlanner {
         historyImageCount: (ConversationTurn) -> Int = { 0 },
         renderToolPrompt: ((List<AgentToolDefinition>) -> String)? = null,
         renderCapabilityPrompt: ((List<AgentToolDefinition>) -> String)? = null,
-        explicitlyRequiredTools: Set<String> = emptySet()
+        explicitlyRequiredTools: Set<String> = emptySet(),
+        githubMode: Boolean = false
     ): LocalContextPlan {
         require(contextTokens > 0)
-        val currentRequiredNames = requiredToolNames(currentUserPrompt, tools) + explicitlyRequiredTools.intersect(tools.map { it.name }.toSet())
+        val githubRequiredNames = githubToolNames(tools, githubMode)
+        val currentRequiredNames = requiredToolNames(currentUserPrompt, tools, githubMode) + explicitlyRequiredTools.intersect(tools.map { it.name }.toSet())
         // Follow only a contiguous, bounded chain of references to the previous
         // task. A new substantive request ends it; disabled tools are never added.
-        val intentIndex = if (currentRequiredNames.isEmpty() && isToolFollowUp(currentUserPrompt)) {
+        val intentIndex = if ((currentRequiredNames - githubRequiredNames).isEmpty() && isToolFollowUp(currentUserPrompt)) {
             priorTurns.indices.reversed().take(6).firstOrNull { !isToolFollowUp(priorTurns[it].userMessage.effectiveContent()) }
         } else {
             null
         }
         val inheritedNames = intentIndex?.let { requiredToolNames(priorTurns[it].userMessage.effectiveContent(), tools) }.orEmpty()
+        val requiresIntentAnchor = intentIndex != null && (inheritedNames.isNotEmpty() || githubRequiredNames.isNotEmpty())
         val requiredNames = currentRequiredNames + inheritedNames
-        val relevantTools = relevantTools(currentUserPrompt, tools, requiredNames)
+        val relevantTools = relevantTools(currentUserPrompt, tools, requiredNames, githubMode)
         val rankedTools = relevantTools.sortedWith(compareByDescending<AgentToolDefinition> { it.name in requiredNames }.thenByDescending { relevance(currentUserPrompt, it) }.thenBy { it.name })
         fun schemaCost(selected: List<AgentToolDefinition>): Long = (
             renderToolPrompt?.let { estimate(it(selected)) }
@@ -80,6 +85,10 @@ internal object LocalContextPlanner {
         // enforces the smaller result allowance on every tool callback. At least
         // 512 bytes are needed before executeBoundTool can dispatch any tool.
         val minimumReply = minOf(outputLimit?.takeIf { it > 0 } ?: 512, if (contextTokens >= 4096) 512 else 128)
+        val minimumSchemaAllowance = (contextTokens.toLong() - used - templateReserve - 256 - minimumReply - 1).coerceAtLeast(0)
+        if (githubRequiredNames.isNotEmpty() && requiredSchemaTokens > minimumSchemaAllowance) {
+            throw GitHubToolContextBudgetException(requiredSchemaTokens, minimumSchemaAllowance)
+        }
         val resultHeadroom = contextTokens.toLong() - used - requiredSchemaTokens - templateReserve - minimumReply - 1
         val toolResultReserve = if (relevantTools.isEmpty()) {
             0
@@ -92,7 +101,7 @@ internal object LocalContextPlanner {
         var anchorTokens = 0L
         // Keep the history anchors that fit before optional schemas are considered.
         // Reserving a capability must borrow reply space rather than evict documents.
-        val anchorIndices = (listOfNotNull(intentIndex.takeIf { inheritedNames.isNotEmpty() }) + listOf(0, priorTurns.lastIndex)).distinct()
+        val anchorIndices = (listOfNotNull(intentIndex.takeIf { requiresIntentAnchor }) + listOf(0, priorTurns.lastIndex)).distinct()
         anchorIndices.filter { it in priorTurns.indices }.forEach { index ->
             val tokens = cost(priorTurns[index])
             if (used + requiredSchemaTokens + anchorTokens + tokens < baselinePromptLimit) anchorTokens += tokens
@@ -125,6 +134,7 @@ internal object LocalContextPlanner {
 
         val selectedTools = mutableListOf<AgentToolDefinition>()
         var toolTokens = schemaCost(emptyList())
+        val availableSchemaTokens = (promptLimit - used - 1).coerceAtLeast(0)
         used += toolTokens
         fun admitTool(tool: AgentToolDefinition) {
             val tokens = schemaCost(selectedTools + tool) - toolTokens
@@ -137,6 +147,9 @@ internal object LocalContextPlanner {
         protectedTools.forEach(::admitTool)
         val missingRequiredNames = requiredNames - selectedTools.map { it.name }.toSet()
         if (missingRequiredNames.isNotEmpty()) {
+            if (missingRequiredNames.intersect(githubRequiredNames).isNotEmpty()) {
+                throw GitHubToolContextBudgetException(requiredSchemaTokens, availableSchemaTokens)
+            }
             val missingGitHubOperations = missingRequiredNames.mapNotNull { name ->
                 dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(name)
             }.distinct()
@@ -159,7 +172,7 @@ internal object LocalContextPlanner {
             }
         }
         anchorIndices.forEach(::admitTurn)
-        require(inheritedNames.isEmpty() || intentIndex in retainedIndices) {
+        require(!requiresIntentAnchor || intentIndex in retainedIndices) {
             "The earlier task needed for this follow-up does not fit the local context. Restate the request or choose a larger-context model."
         }
         rankedTools.filterNot { it in protectedTools }.forEach(::admitTool)
@@ -182,6 +195,7 @@ internal object LocalContextPlanner {
                 tool.name to when {
                     tool !in relevantTools -> "not_needed_for_request"
                     tool !in selectedTools -> "context_budget"
+                    tool.name in githubRequiredNames -> "required_github_mode"
                     tool.name in currentRequiredNames -> "required_current_request"
                     tool.name in inheritedNames -> "required_follow_up"
                     else -> "relevant_to_request"
@@ -190,9 +204,9 @@ internal object LocalContextPlanner {
         )
     }
 
-    internal fun requiredToolNames(prompt: String, tools: List<AgentToolDefinition>): Set<String> {
+    internal fun requiredToolNames(prompt: String, tools: List<AgentToolDefinition>, githubMode: Boolean = false): Set<String> {
         val lower = prompt.lowercase()
-        val required = mutableSetOf<String>()
+        val required = githubToolNames(tools, githubMode).toMutableSet()
         tools.filter { tool -> Regex("(?<![a-z0-9_])" + Regex.escape(tool.name.lowercase()) + "(?![a-z0-9_])").containsMatchIn(lower) }.forEach { required += it.name }
         fun select(word: String) {
             val matching = tools.firstOrNull { it.name == word } ?: tools.firstOrNull {
@@ -227,7 +241,8 @@ internal object LocalContextPlanner {
     }
 
     /** Relevance precedes capacity: spare context is not a reason to send schemas. */
-    internal fun relevantTools(prompt: String, tools: List<AgentToolDefinition>, required: Set<String> = requiredToolNames(prompt, tools)): List<AgentToolDefinition> {
+    internal fun relevantTools(prompt: String, tools: List<AgentToolDefinition>, required: Set<String> = requiredToolNames(prompt, tools), githubMode: Boolean = false): List<AgentToolDefinition> {
+        val required = required + githubToolNames(tools, githubMode)
         if (dev.chungjungsoo.gptmobile.data.research.isResearchConversationOnly(prompt) && required.isEmpty()) return emptyList()
         val taskWords = Regex("[a-z0-9_]{3,}").findAll(prompt.lowercase()).map { it.value }
             .filterNot { it in setOf("the", "and", "for", "this", "that", "with", "please", "can", "could", "use", "what", "how", "write", "explain", "tell", "give", "about") }.toSet()
@@ -243,6 +258,9 @@ internal object LocalContextPlanner {
         val fallback = if (inventoryRequest && discovery == null && selected.isEmpty()) tools.take(3) else emptyList()
         return (selected + fallback + if (toolIntent && discovery != null) listOf(discovery) else emptyList()).distinctBy { it.name }
     }
+
+    private fun githubToolNames(tools: List<AgentToolDefinition>, githubMode: Boolean): Set<String> =
+        if (githubMode) tools.filter { it.modelVisible && ProgressiveToolCatalog.isGitHubTool(it) }.mapTo(linkedSetOf()) { it.name } else emptySet()
 
     internal fun isToolFollowUp(prompt: String): Boolean = prompt.trim().lowercase().let { text ->
         text.length <= 160 &&

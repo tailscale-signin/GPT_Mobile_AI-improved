@@ -14,6 +14,30 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GatewayClientDiagnosticsTest {
+    @Test fun preparingHeadersDoesNotInventAPhysicalRequestOrTransportFailure() {
+        val original = LocalDiagnosticsPolicy.enabled
+        val config = ProviderRequestConfig(
+            "https://prepared-only.example/v1",
+            null,
+            extraHeaders = mapOf(
+                GatewayClientDiagnostics.CLIENT_HEADER to "{}",
+                "traceparent" to "00-${"a".repeat(32)}-${"b".repeat(16)}-01"
+            )
+        )
+        try {
+            LocalDiagnosticsPolicy.setEnabled(true)
+            val prepared = GatewayClientDiagnostics.preparationHeaders(config)
+            assertEquals(config.extraHeaders, prepared)
+            assertEquals(null, GatewayClientDiagnostics.failureFields(config, prepared, java.io.IOException("unsent")))
+            val dispatched = GatewayClientDiagnostics.requestHeaders(config)
+            assertTrue(GatewayClientDiagnostics.failureFields(config, dispatched, java.io.IOException("dispatched")) != null)
+            LocalDiagnosticsPolicy.setEnabled(false)
+            assertEquals(emptyMap<String, String>(), GatewayClientDiagnostics.preparationHeaders(config))
+        } finally {
+            LocalDiagnosticsPolicy.setEnabled(original)
+        }
+    }
+
     @Test fun serverPhysicalRequestIdentityIsDistinctFromTheLogicalOperationDigestAndStrictlyValidated() {
         val config = ProviderRequestConfig("https://physical-request.example/v1", null)
         val headers = mapOf("X-Gateway-Request-ID" to "logical-original-command", "X-Gateway-HTTP-Request-ID" to "a".repeat(32))

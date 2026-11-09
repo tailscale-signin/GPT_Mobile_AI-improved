@@ -117,6 +117,10 @@ internal object GatewayClientDiagnostics {
 
     private val captureAllowed: Boolean get() = LocalDiagnosticsPolicy.enabled && !AppLogRecorder.privateSessionActive
 
+    /** Negotiation prepares headers; it does not create a physical HTTP attempt. */
+    fun preparationHeaders(config: ProviderRequestConfig): Map<String, String> =
+        if (captureAllowed) config.extraHeaders else withoutDiagnosticHeaders(config.extraHeaders)
+
     /** Recheck at each physical dispatch; a request prepared before Debug was disabled must not upload metadata. */
     fun requestHeaders(config: ProviderRequestConfig, route: String = "other", method: String = "GET"): Map<String, String> {
         if (!captureAllowed) return withoutDiagnosticHeaders(config.extraHeaders)

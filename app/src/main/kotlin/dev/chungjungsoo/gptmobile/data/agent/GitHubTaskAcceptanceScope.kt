@@ -5,6 +5,7 @@ internal fun requiresNativeGitHubAcceptance(request: String, hasNativeTools: Boo
     if (CurrentRequestContract.from(request).conversational) return false
     val explicitGitHub = Regex("(?i)(?<![A-Za-z0-9])github(?:_[A-Za-z0-9_]+)?(?![A-Za-z0-9])").containsMatchIn(request)
     if (!hasNativeTools && !explicitGitHub) return false
+    if (dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryLifecycle.intent(request) != null) return true
     val repositoryEntity = Regex("(?i)\\b(?:repos?(?:itory|itories)?|repositories|codebase|pull requests?)\\b|\\b[A-Za-z0-9_.-]+\\.(?:kt|java|py|js|ts|tsx|yml|yaml|json|xml)\\b").containsMatchIn(request)
     val repositoryScope = explicitGitHub || repositoryEntity
     val repositoryRead = repositoryEntity &&
@@ -22,8 +23,10 @@ internal fun requiresNativeGitHubAcceptance(request: String, hasNativeTools: Boo
 }
 
 /** Decide before dispatch: an unbound task cannot later acquire repository acceptance. */
-internal fun requireNativeGitHubTarget(required: Boolean, targetCount: Int) {
-    if (!required || targetCount == 1) return
+internal fun requireNativeGitHubTarget(required: Boolean, targetCount: Int, request: String = "") {
+    // Creation/import selects a destination in its own schema. Requiring an
+    // already accessible open repository would prevent that workflow entirely.
+    if (!required || targetCount == 1 || dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryLifecycle.intent(request) != null) return
     if (targetCount == 0) {
         error("GITHUB_REPOSITORY_TARGET_REQUIRED: Select the exact repository and connection for this task before dependent work. No repository operation was dispatched.")
     } else {

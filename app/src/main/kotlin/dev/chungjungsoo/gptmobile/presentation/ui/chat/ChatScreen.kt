@@ -154,6 +154,7 @@ import dev.chungjungsoo.gptmobile.presentation.common.FadingModalBottomSheet as 
 import dev.chungjungsoo.gptmobile.presentation.common.GlassBackdropBox
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import dev.chungjungsoo.gptmobile.presentation.common.appOverlayTokens
+import dev.chungjungsoo.gptmobile.presentation.common.diagnosticFrameTiming
 import dev.chungjungsoo.gptmobile.presentation.common.glassBackdrop
 import dev.chungjungsoo.gptmobile.presentation.common.hasGlassBackdrop
 import dev.chungjungsoo.gptmobile.util.isAssistantErrorMessage
@@ -810,6 +811,7 @@ private fun ChatScreenContent(
     Scaffold(
         snackbarHost = { androidx.compose.material3.SnackbarHost(snackbarHost) },
         modifier = Modifier.then(backFade.modifier)
+            .diagnosticFrameTiming("Chat")
             .clickable(
                 indication = null,
                 interactionSource = remember { MutableInteractionSource() }

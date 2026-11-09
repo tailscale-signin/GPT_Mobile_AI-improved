@@ -130,7 +130,11 @@ class MemoryEnrichmentWorker @AssistedInject constructor(
                     null
                 }
             }
-            if (reason == "INFERENCE_TIMEOUT") MemoryEnrichmentQueue.coolDownRuntime(applicationContext, runtime)
+            if (reason == "INFERENCE_TIMEOUT" && !MemoryEnrichmentQueue.coolDownRuntime(applicationContext, runtime)) {
+                // A failed durable cooldown must not turn a timeout into repeated inference.
+                MemoryEnrichmentQueue.markWaiting(applicationContext, inputData)
+                return outcome("FAILED", "COOLDOWN_PERSISTENCE_FAILED")
+            }
             if (writes == 0) reason = "PROCESSED_NO_NEW_FACTS"
             if (writes != null && writes > 0) reason = "ENRICHED_WITH_WRITES"
             finish(reason)

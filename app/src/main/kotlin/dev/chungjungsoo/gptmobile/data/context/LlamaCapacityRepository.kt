@@ -1,5 +1,8 @@
 package dev.chungjungsoo.gptmobile.data.context
 
+import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
+import dev.chungjungsoo.gptmobile.data.llama.LlamaMetadataFailure
+import dev.chungjungsoo.gptmobile.data.llama.llamaMetadataFailure
 import dev.chungjungsoo.gptmobile.data.network.LocalEndpointConnectionPolicy
 import dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth
 import dev.chungjungsoo.gptmobile.data.network.NetworkClient
@@ -45,6 +48,7 @@ internal class LlamaCapacityRepository(
     constructor(client: NetworkClient, now: () -> Long = { System.nanoTime() / 1_000_000 }) : this({ client() }, now, client::evictIdleConnections, client::gatewayReadClient)
     private data class Metadata(val capacity: CapacitySnapshot, val template: String, val buildKnown: Boolean, val reportedModel: String?)
     private val cache = RouteCapabilityCache<Metadata>(now)
+    private val metadataFailures = linkedMapOf<String, LlamaMetadataFailure>()
     private val reasoningCache = RouteCapabilityCache<ReasoningTemplateControl>(now)
     private val schemaCache = RouteCapabilityCache<Boolean>(now, negativeTtl = 60_000L)
     private val gatewayCache = RouteCapabilityCache<GatewayModelCapabilityObservation>(now, positiveTtl = 15_000L, valueTtl = {
@@ -124,25 +128,46 @@ internal class LlamaCapacityRepository(
         val route = config.apiUrl.trim().trimEnd('/')
         val identity = researchHash(routeRevision(config, model))
         return cache.getOrLoad(identity) {
+            synchronized(metadataFailures) { metadataFailures.remove(identity) }
             try {
                 withTimeoutOrNull(5000L) {
                     val uri = URI(route)
                     require(uri.scheme in setOf("http", "https") && uri.host != null && uri.rawQuery == null && uri.rawFragment == null && uri.userInfo == null)
                     val endpoint = route.removeSuffix("/v1") + "/props"
-                    val (response, body) = LocalEndpointConnectionPolicy.probe(config.apiUrl, evictIdleConnections) {
-                        val response = readClient().get(endpoint) {
-                            config.token?.takeIf { it.isNotBlank() }?.let { bearerAuth(it) }
-                            GatewayClientDiagnostics.requestHeaders(config).forEach { (name, value) -> header(name, value) }
-                            parameter("model", model)
-                            parameter("autoload", "false")
-                            if (LocalEndpointConnectionPolicy.freshConnection(config.apiUrl)) header(HttpHeaders.Connection, "close")
+                    val diagnostic = GatewayClientDiagnostics.withHeaders(config.copy(providerType = config.providerType ?: "LLAMA"), model)
+                    val (response, body, requestId) = LocalEndpointConnectionPolicy.probe(config.apiUrl, evictIdleConnections) {
+                        gatewayClientExchange(diagnostic, "capabilities", safeRead = true) { headers ->
+                            val response = readClient().get(endpoint) {
+                                config.token?.takeIf { it.isNotBlank() }?.let { bearerAuth(it) }
+                                headers.forEach { (name, value) -> header(name, value) }
+                                parameter("model", model)
+                                parameter("autoload", "false")
+                                if (LocalEndpointConnectionPolicy.freshConnection(config.apiUrl)) header(HttpHeaders.Connection, "close")
+                            }
+                            GatewayClientDiagnostics.observe(config, response.status.value) { response.headers[it] }
+                            val body = try {
+                                response.boundedMetadata(if (response.status.value == 200) 1_000_000 else 16 * 1024)
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (failure: Exception) {
+                                if (response.status.value == 200) throw failure
+                                ""
+                            }
+                            Triple(response, body, headers["X-Request-ID"])
                         }
-                        GatewayClientDiagnostics.observe(config, response.status.value) { response.headers[it] }
-                        response to response.boundedMetadata(1_000_000)
                     }
-                    val error = runCatching { (Json.parseToJsonElement(body) as? JsonObject)?.get("error") as? JsonObject }.getOrNull()
+                    val document = runCatching { Json.parseToJsonElement(body) as? JsonObject }.getOrNull()
+                    val error = document?.get("error") as? JsonObject
                     GatewaySurfacePolicy.shared.observe(GatewaySurfacePolicy.identity(config), GatewaySurfacePolicy.Surface.PROPS, response.status.value, (error?.get("code") as? JsonPrimitive)?.contentOrNull)
-                    if (response.status.value != 200) return@withTimeoutOrNull null
+                    if (response.status.value != 200) {
+                        val failure = llamaMetadataFailure(response.status.value, document, requestId)
+                        synchronized(metadataFailures) {
+                            if (metadataFailures.size >= 128 && identity !in metadataFailures) metadataFailures.remove(metadataFailures.keys.first())
+                            metadataFailures[identity] = failure
+                        }
+                        AppLogRecorder.recordEvent("LocalConnection", "LLAMA_METADATA_REJECTED", failure.diagnosticFields() + ("route" to identity), "W")
+                        return@withTimeoutOrNull null
+                    }
                     val capacity = parseLlamaCapacity(body, config, model, now()) ?: return@withTimeoutOrNull null
                     val root = Json.parseToJsonElement(body) as JsonObject
                     val reportedModel = (root["model_alias"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
@@ -156,6 +181,9 @@ internal class LlamaCapacityRepository(
             }
         }
     }
+
+    fun metadataFailure(config: ProviderRequestConfig, model: String): LlamaMetadataFailure? =
+        synchronized(metadataFailures) { metadataFailures[researchHash(routeRevision(config, model))] }
 
     /** Route allocation may omit model identity; a capability action requires the explicit serving-model proof. */
     suspend fun hasExactModelProof(config: ProviderRequestConfig, model: String, capacity: CapacitySnapshot): Boolean {
@@ -295,6 +323,7 @@ internal class LlamaCapacityRepository(
         reasoningCache.invalidate()
         schemaCache.invalidate()
         gatewayCache.invalidate()
+        synchronized(metadataFailures) { metadataFailures.clear() }
     }
 }
 

@@ -24,6 +24,31 @@ import org.junit.Assert.assertNotNull
 import org.junit.Test
 
 class LlamaCapacityRepositoryTest {
+    @Test fun rejectedMetadataIsCachedAsFailureWithoutRetryingDeterministicRequestsOrDroppingAutoload() = runBlocking {
+        var reads = 0
+        HttpClient(
+            MockEngine { request ->
+                reads++
+                assertEquals("/props", request.url.encodedPath)
+                assertEquals("selected", request.url.parameters["model"])
+                assertEquals("false", request.url.parameters["autoload"])
+                respond("""{"error":{"code":"invalid_parameter","param":"model","message":"private-server-detail"}}""", io.ktor.http.HttpStatusCode.BadRequest)
+            }
+        ).use { http ->
+            val repository = LlamaCapacityRepository({ http })
+            val config = ProviderRequestConfig("http://127.0.0.1:29981/v1", null, extraHeaders = mapOf("X-Request-ID" to "a".repeat(32)))
+            assertEquals(null, repository.discover(config, "selected"))
+            assertEquals(null, repository.discover(config, "selected"))
+            assertEquals(1, reads)
+            val failure = requireNotNull(repository.metadataFailure(config, "selected"))
+            assertEquals(400, failure.httpStatus)
+            assertEquals("model", failure.parameter)
+            assertEquals("METADATA_REQUEST_REJECTED", failure.code)
+            assertNotNull(failure.requestId)
+            assertFalse(failure.toString().contains("private-server-detail"))
+        }
+    }
+
     @Test fun exactModelProofRequiresReportedIdentityWhilePreservingLegacyAllocationEvidence() = runBlocking {
         for ((index, reported) in listOf("", "\"model_alias\":\"test-model\",", "\"model\":\"test-model\",").withIndex()) {
             var reads = 0

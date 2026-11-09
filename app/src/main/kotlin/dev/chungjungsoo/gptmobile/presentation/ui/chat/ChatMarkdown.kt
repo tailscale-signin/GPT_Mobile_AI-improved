@@ -140,7 +140,8 @@ private data class PreparedChatMarkdown(
     val memoryRanges: List<IntRange> = emptyList(),
     val profileIndex: ProfileSpanIndex = ProfileSpanIndex(emptyList()),
     val contentDigest: String? = null,
-    val sourceLinkRanges: List<IntRange> = emptyList()
+    val sourceLinkRanges: List<IntRange> = emptyList(),
+    val outputTrace: dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceOwner? = null
 )
 
 @Composable
@@ -268,25 +269,31 @@ private fun ChatMarkdownContent(
             formattingProgress = ""
             formattingFailed = prepared == null
             if (prepared == null) return@collect
-            rendered = prepared
             val now = android.os.SystemClock.elapsedRealtime()
             val traceJournal = dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.takeIf { it.enabled }
             val trace = request.outputTrace
-            if (trace != null && traceJournal != null && (!request.streaming || now - lastTraceAt >= 250)) {
+            val preparedOwner = if (trace != null && traceJournal != null && (!request.streaming || now - lastTraceAt >= 250)) {
                 lastTraceAt = now
-                withContext(Dispatchers.Default) {
-                    traceJournal.traceOutput(trace.runId, dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceBoundary.RENDER_INPUT, request.content, fence = trace.fence, representation = dev.chungjungsoo.gptmobile.data.diagnostics.OutputTextRepresentation.DISPLAY_FILTERED_MARKDOWN_UTF8, partId = trace.partId)
-                    traceJournal.traceOutput(trace.runId, dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceBoundary.RENDER_TRANSFORM, prepared.markdown, fence = trace.fence, representation = dev.chungjungsoo.gptmobile.data.diagnostics.OutputTextRepresentation.MATH_PLACEHOLDER_MARKDOWN_UTF8, partId = trace.partId)
+                val lineage = withContext(Dispatchers.Default) {
+                    val input = traceJournal.traceOutput(trace.runId, dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceBoundary.RENDER_INPUT, request.content, fence = trace.fence, invocationId = trace.invocationId, representation = dev.chungjungsoo.gptmobile.data.diagnostics.OutputTextRepresentation.DISPLAY_FILTERED_MARKDOWN_UTF8, partId = trace.partId, outputOrigin = trace.origin)
+                    // This transformation belongs to this exact input, not to the latest part drawn.
+                    traceJournal.traceOutput(trace.runId, dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceBoundary.RENDER_TRANSFORM, prepared.markdown, fence = trace.fence, invocationId = input.invocationId, representation = dev.chungjungsoo.gptmobile.data.diagnostics.OutputTextRepresentation.MATH_PLACEHOLDER_MARKDOWN_UTF8, partId = trace.partId, outputOrigin = input.origin)
+                    input
                 }
+                trace.copy(origin = lineage.origin, invocationId = lineage.invocationId)
+            } else {
+                trace
             }
+            rendered = prepared.copy(outputTrace = preparedOwner)
         }
     }
     val parsed = rendered.parsed
-    val firstDrawn = remember(outputTrace?.runId, outputTrace?.fence) { java.util.concurrent.atomic.AtomicBoolean() }
+    val drawnOwner = if (formattingFailed) outputTrace else rendered.outputTrace
+    val firstDrawn = remember(drawnOwner?.runId, drawnOwner?.fence, drawnOwner?.origin, drawnOwner?.invocationId) { java.util.concurrent.atomic.AtomicBoolean() }
     val contentDrawn = {
         onContentDrawn?.invoke()
-        if (outputTrace != null && firstDrawn.compareAndSet(false, true)) {
-            dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.firstVisibleDraw(outputTrace)
+        if (drawnOwner != null && firstDrawn.compareAndSet(false, true)) {
+            dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.firstVisibleDraw(drawnOwner)
         }
     }
     val combinedMarkdown = rendered.markdown

@@ -15,9 +15,12 @@ from v14.engineering_diagnostics import diagnostic_job
 from v14.execution_binding import ExecutionBindingError
 from v14.conversations import FEATURES, QueueFull, ConversationConflict
 from v14.conversation_policy import verify_mutation_identity, MUTATION_IDENTITY_HEADERS
+from v14.repository_lifecycle import RepositoryLifecycle, RepositoryLifecycleError
 
 
 def install_engineering_routes(app, service):
+    repository_lifecycle = getattr(service, 'repository_lifecycle', None) or RepositoryLifecycle(service)
+    service.repository_lifecycle = repository_lifecycle
     server_build = "sha256:" + hashlib.sha256((Path(__file__).resolve().parents[1] / "manifest-v14.json").read_bytes()).hexdigest()
     def public_job(job):
         return service.job_response(job)
@@ -44,6 +47,8 @@ def install_engineering_routes(app, service):
         except ExecutionBindingError as error:
             return JSONResponse({'error': {'code': error.code, 'message': str(error),
                                            'retryable': error.retryable, 'routeSubstituted': False}}, status_code=error.status)
+        except RepositoryLifecycleError as error:
+            return JSONResponse({'error': {'code': error.code, 'message': str(error), 'retryable': False}}, status_code=error.status)
         except QueueFull:
             return JSONResponse({'error': {'code': 'queue_full', 'retryable': True}}, status_code=429)
         except ConversationConflict as error:
@@ -62,10 +67,12 @@ def install_engineering_routes(app, service):
         async def run():
             owner = principal(request)
             readiness = await asyncio.to_thread(service.readiness)
+            repository_operations = await asyncio.to_thread(repository_lifecycle.capabilities)
             return {'service': 'engineering-gateway', 'protocol_version': 1, 'diagnostic_protocol': 1, 'gateway_version': VERSION, 'server_build': server_build, 'enabled': readiness['ready'], 'readiness': readiness, 'duration_hours': [3, 6, 12, 0], 'until_complete_limit_hours': 72,
                     'principal_id': owner, 'gateway_id': await asyncio.to_thread(service.store.conversations.gateway_id) if service.store.runtime.GATEWAY_DURABLE_JOBS else None,
                     'instance_id': getattr(getattr(service.store.runtime, 'gateway_service', None), 'instance_id', None),
-                    'task_scope_protocol': 1, 'task_scopes': ['read', 'plan', 'implement'], 'features': dict({key: bool(service.store.runtime.GATEWAY_DURABLE_JOBS) for key in FEATURES}, mutation_identity_preconditions_v1=True), **{key: bool(service.store.runtime.GATEWAY_DURABLE_JOBS) for key in FEATURES},
+                    'task_scope_protocol': 1, 'task_scopes': ['read', 'plan', 'implement'], 'features': dict({key: bool(service.store.runtime.GATEWAY_DURABLE_JOBS) for key in FEATURES}, mutation_identity_preconditions_v1=True, repository_lifecycle_v1=repository_operations['enabled']), **{key: bool(service.store.runtime.GATEWAY_DURABLE_JOBS) for key in FEATURES},
+                    'repository_operations': repository_operations,
                     'mutationIdentityPreconditions': MUTATION_IDENTITY_HEADERS,
                     'repair_attempts': 5, 'explicit_merge_approval': True, 'approval_ttl_seconds': 1800,
                     'notifications': 'android_background_sync', 'batch_reads': True,
@@ -74,6 +81,24 @@ def install_engineering_routes(app, service):
                     'code_graph': {'schema_version': 1, 'supported': True,
                                    'configured': readiness.get('checks', {}).get('host_github_connection') == 'configured',
                                    'enabled': readiness['graph_ready'], 'incremental': True, 'source_level_only': True}}
+        return await execute(run)
+
+    @app.post('/gateway/engineering/repository-operations')
+    @app.post('/v1/gateway/engineering/repository-operations')
+    async def repository_operation_create(request: Request):
+        async def run():
+            owner = principal(request)
+            if any(request.headers.get(name) is None for name in MUTATION_IDENTITY_HEADERS):
+                raise ExecutionBindingError('CONTINUITY_IDENTITY_REQUIRED', 'Refresh the gateway identity and supply both installation and account preconditions.', 400)
+            result = await asyncio.to_thread(repository_lifecycle.submit, owner, await body(request))
+            return JSONResponse(result, status_code=202 if result['status'] in {'PENDING', 'RUNNING'} else 200)
+        return await execute(run)
+
+    @app.get('/gateway/engineering/repository-operations/{operation_id}')
+    @app.get('/v1/gateway/engineering/repository-operations/{operation_id}')
+    async def repository_operation_status(operation_id: str, request: Request):
+        async def run():
+            return await asyncio.to_thread(repository_lifecycle.status, principal(request), operation_id)
         return await execute(run)
 
     @app.post('/gateway/engineering/bindings')

@@ -21,7 +21,8 @@ data class GatewayEngineeringCapabilities(
     @SerialName("task_scope_protocol") val taskScopeProtocol: Int = 0,
     @SerialName("task_scopes") val taskScopes: List<String> = emptyList(),
     @SerialName("conversation_sync_v1") val conversationSync: Boolean = false,
-    @SerialName("durable_detach_v1") val durableDetach: Boolean = false
+    @SerialName("durable_detach_v1") val durableDetach: Boolean = false,
+    @SerialName("repository_operations") val repositoryOperations: GatewayRepositoryCapability? = null
 ) {
     val supportsDurableChat: Boolean get() = taskScopeProtocol == 1 && taskScopes.containsAll(listOf("read", "plan", "implement")) && conversationSync && durableDetach
 
@@ -62,6 +63,20 @@ data class GatewayEngineeringCapabilities(
             else -> "The gateway engineering service is disabled or unavailable. Chat inference readiness does not establish job readiness."
         }
     }
+}
+
+@Serializable
+data class GatewayRepositoryCapability(
+    val schema: String = "",
+    val enabled: Boolean = false,
+    val operations: List<String> = emptyList(),
+    @SerialName("copy_modes") val copyModes: List<String> = emptyList()
+) {
+    fun supports(operation: String): Boolean = schema == "github.repository-lifecycle.v1" &&
+        enabled &&
+        operation in setOf("clone_repository", "import_repository") &&
+        operation in operations &&
+        (operation != "import_repository" || "history" in copyModes)
 }
 
 @Serializable

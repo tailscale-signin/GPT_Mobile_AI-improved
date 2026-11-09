@@ -18,6 +18,73 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubReplayRecoveryTest {
+    @Test fun issuedLargerPagesBatchRecoveryWithinTheActualReplayAllowanceAndSurviveRestart() {
+        val views = GitHubResultViews()
+        val original = "retained-".repeat(600)
+        val request = buildJsonObject {
+            put("action", "detail")
+            put("tag_name", "v1")
+        }
+        val source = views.present(
+            "scope",
+            "github_release",
+            "github_release",
+            AgentToolResult("original", ToolResultContent.Json(buildJsonObject { put("body", original) }), false),
+            request
+        )
+        val initial = AgentToolExchange(
+            listOf(ProviderEvent.ToolCall("original", "github_release", request)),
+            listOf(source.copy(content = requireNotNull(GitHubReplayRecovery.compact(source.content, 1600))))
+        )
+        val definitions = listOf(GitHubOperationTool.definition("github_release"))
+        fun selected(tokens: Int) = requireNotNull(GitHubReplayRecovery.nextSavedRead(listOf(initial), definitions, tokens))
+        assertTrue(selected(512).arguments["view_cursor"]!!.jsonPrimitive.content.endsWith(":1536"))
+        assertTrue(selected(1400).arguments["view_cursor"]!!.jsonPrimitive.content.endsWith(":4096"))
+        val large = selected(3000)
+        val largeCursor = large.arguments["view_cursor"]!!.jsonPrimitive.content
+        assertTrue(largeCursor.endsWith(":8192"))
+        val snapshot = requireNotNull(views.checkpoint("scope", source)).second
+        assertTrue(snapshot["issued_cursors"]!!.toString().contains(largeCursor))
+        val restored = GitHubResultViews()
+        assertTrue(restored.restore("scope", "github_release", "github_release", largeCursor, snapshot))
+        val afterRestart = restored.read("scope", "github_release", "github_release", largeCursor, large.callId)
+        assertFalse(afterRestart.isError)
+        assertFalse(afterRestart.dispatched)
+        val forged = restored.read("scope", "github_release", "github_release", largeCursor.substringBeforeLast(':') + ":6000", "forged")
+        assertEquals("SAVED_VIEW_CURSOR_ALTERED", forged.errorCode)
+
+        fun consume(tokens: Int): Int {
+            val history = mutableListOf(initial)
+            val pieces = sortedMapOf<Int, String>()
+            var pages = 0
+            while (true) {
+                val call = GitHubReplayRecovery.nextSavedRead(history, definitions, tokens) ?: break
+                val cursor = call.arguments["view_cursor"]!!.jsonPrimitive.content
+                val page = views.read("scope", "github_release", "github_release", cursor, call.callId)
+                assertFalse(page.isError)
+                assertTrue(page.content.let { (it as ToolResultContent.Json).value.toString().encodeToByteArray().size } <= tokens * 3)
+                history += AgentToolExchange(listOf(call), listOf(page))
+                val replay = ToolExchangeCompactor.compact(history, tokens * 8, tokens)
+                val delivered = (replay.last().results.last().content as ToolResultContent.Json).value.jsonObject
+                assertFalse(delivered.containsKey("replay_compacted"))
+                for (record in delivered["fragments"] as JsonArray) {
+                    val fragment = record.jsonObject
+                    if (fragment["pointer"]?.jsonPrimitive?.content == "/body") {
+                        val offset = fragment["offset"]?.jsonPrimitive?.intOrNull ?: 0
+                        assertEquals(null, pieces.put(offset, fragment["value"]!!.jsonPrimitive.content))
+                    }
+                }
+                pages++
+                assertTrue(pages <= 32)
+            }
+            assertEquals(original, pieces.values.joinToString(""))
+            return pages
+        }
+        val smallPages = consume(512)
+        val largePages = consume(3000)
+        assertTrue("Expected fewer local pages: small=$smallPages large=$largePages", largePages < smallPages)
+    }
+
     @Test fun previouslyDeliveredPagesKeepUnreadContinuationInsteadOfRecoveringConsumedBytes() {
         val recovery = buildJsonObject {
             put("tool", "github_read")

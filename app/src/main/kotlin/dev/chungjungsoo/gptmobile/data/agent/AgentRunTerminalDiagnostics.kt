@@ -17,6 +17,9 @@ internal data class AgentRunTerminalDiagnostics(
         fun from(status: String, failure: ProfileFailureRecord?, acceptance: GitHubRunAcceptance.Assessment? = null): AgentRunTerminalDiagnostics {
             val completed = status == AgentRunStatus.COMPLETED
             val unknown = failure?.category in setOf("TOOL_OUTCOME_UNKNOWN", "GATEWAY_OUTCOME_UNKNOWN") || acceptance?.verification == "UNKNOWN_OUTCOME"
+            val acceptanceIncomplete = acceptance != null && acceptance.verification != "VERIFIED"
+            val acceptedStage = failure?.phase?.takeIf { it != "stage_not_recorded" && it.matches(Regex("[a-zA-Z0-9_:-]{1,80}")) }
+            val acceptedReason = failure?.category?.takeUnless { it in setOf("INCOMPLETE", "GITHUB_TASK_INCOMPLETE", "TASK_INCOMPLETE") }
             val state = when {
                 unknown -> "UNKNOWN_OUTCOME"
                 completed -> "COMPLETED"
@@ -25,8 +28,18 @@ internal data class AgentRunTerminalDiagnostics(
                 else -> "FAILED"
             }
             return AgentRunTerminalDiagnostics(
-                reason = if (completed) "RESPONSE_FLOW_COMPLETED" else failure?.category ?: "TASK_INCOMPLETE",
-                stage = if (completed) "none" else failure?.phase?.takeIf { it.matches(Regex("[a-zA-Z0-9_:-]{1,80}")) } ?: "stage_not_recorded",
+                reason = if (completed) {
+                    "RESPONSE_FLOW_COMPLETED"
+                } else {
+                    acceptedReason ?: when (acceptance?.verification) {
+                        "UNKNOWN_OUTCOME" -> "RECONCILIATION_REQUIRED"
+                        "BLOCKED" -> "GITHUB_ACCEPTANCE_BLOCKED"
+                        "FAILED" -> "GITHUB_ACCEPTANCE_FAILED"
+                        "PARTIAL" -> "GITHUB_EVIDENCE_MISSING"
+                        else -> failure?.category ?: "TASK_INCOMPLETE"
+                    }
+                },
+                stage = if (completed) "none" else acceptedStage ?: if (acceptanceIncomplete) "task_acceptance" else "stage_not_recorded",
                 executionState = state,
                 taskVerification = when {
                     unknown && acceptance != null -> "UNKNOWN_OUTCOME"

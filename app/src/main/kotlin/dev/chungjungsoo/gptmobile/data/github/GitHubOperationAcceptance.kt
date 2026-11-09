@@ -9,7 +9,7 @@ import kotlinx.serialization.json.longOrNull
 
 /** Non-code requests have their own final-state proof; they cannot borrow implementation/test acceptance. */
 internal object GitHubOperationAcceptance {
-    data class Assessment(val state: GitHubAcceptanceLedger.State, val reason: String)
+    data class Assessment(val state: GitHubAcceptanceLedger.State, val reason: String, val repository: String? = null)
     private data class Request(val resource: String, val action: String, val state: String? = null, val number: String? = null, val branch: String? = null, val base: String? = null, val title: String? = null, val repository: String? = null)
     private val singleOperation = Regex("(?i)^\\s*(?:please\\s+)?(?:(?:can|could|would|will) you (?:please )?)?(create|make|add|delete|remove|update|edit|close|reopen)\\s+(?:(?:a|an|the|new|existing|github)\\s+)*(branch|issue|pull request|pr)\\b")
     private const val QUOTED = "(?:`[^`\\r\\n]+`|\"[^\"\\r\\n]+\"|'[^'\\r\\n]+')"
@@ -58,9 +58,10 @@ internal object GitHubOperationAcceptance {
         )
     }
 
-    fun supports(requirement: String): Boolean = request(requirement) != null
+    fun supports(requirement: String): Boolean = request(requirement) != null || GitHubRepositoryLifecycle.intent(requirement) != null
 
     fun evaluate(requirement: String, acceptance: JsonObject, receipts: Map<String, JsonObject>, now: Long = System.currentTimeMillis()): Assessment? {
+        GitHubRepositoryAcceptance.evaluate(requirement, acceptance, receipts, now)?.let { return it }
         val requested = request(requirement) ?: return null
         val operations = ids(acceptance, "operation_receipts")
         if (operations.isEmpty() || operations.any { it !in receipts }) return missing("Link the exact authorized operation receipt and a fresh readback of its final state")

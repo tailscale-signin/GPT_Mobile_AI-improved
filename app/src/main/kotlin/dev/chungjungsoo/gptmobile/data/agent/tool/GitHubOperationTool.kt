@@ -79,7 +79,7 @@ internal class GitHubOperationTool(
 
     private suspend fun executeOperation(callId: String, arguments: JsonObject): AgentToolResult {
         val normalized = try {
-            if ("view_cursor" in arguments) arguments else (backend as? GitHubTool)?.normalizeOperationRepository(arguments) ?: arguments
+            if ("view_cursor" in arguments || operation == "github_repository") arguments else (backend as? GitHubTool)?.normalizeOperationRepository(arguments) ?: arguments
         } catch (invalid: IllegalArgumentException) {
             return AgentToolResult(callId, ToolResultContent.Text(invalid.message.orEmpty()), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
         }
@@ -167,7 +167,7 @@ internal class GitHubOperationTool(
                 dispatched = false
             )
         }
-        if (operation in setOf("github_context", "github_write", "github_search", "github_read", "github_pr", "github_commit", "github_stage_patch", "github_ci", "github_watch_checks", "github_issue", "github_release")) {
+        if (operation in names) {
             val errors = ToolArgumentValidator.errors(arguments, definition.inputSchema).ifEmpty {
                 GitHubOperationArguments.errors(operation, arguments)
             }
@@ -466,7 +466,7 @@ internal class GitHubOperationTool(
     }
 
     companion object {
-        val names = setOf("github_context", "github_search", "github_read", "github_pr", "github_ci", "github_watch_checks", "github_stage_patch", "github_commit", "github_write", "github_release", "github_issue")
+        val names = setOf("github_context", "github_search", "github_read", "github_pr", "github_ci", "github_watch_checks", "github_stage_patch", "github_commit", "github_write", "github_release", "github_issue", "github_repository")
         fun operationName(name: String): String? = name.substringBefore("__").takeIf { it in names }
         fun immutableRead(name: String, arguments: JsonObject): Boolean = operationName(name) in setOf("github_read", "github_search") &&
             (arguments["commit_sha"] as? JsonPrimitive)?.content?.matches(Regex("[a-fA-F0-9]{40}|[a-fA-F0-9]{64}")) == true &&
@@ -477,6 +477,15 @@ internal class GitHubOperationTool(
             if ("view_cursor" in args) return JsonObject(args + ("action" to JsonPrimitive("read_saved_result")))
             val requested = (args["action"] as? JsonPrimitive)?.content.orEmpty()
             val action = when (op) {
+                "github_repository" -> when (requested) {
+                    "create" -> "create_repository"
+                    "fork" -> "fork_repository"
+                    "import" -> "import_repository"
+                    "clone" -> "clone_repository"
+                    "status" -> "repository_lifecycle_status"
+                    "", "capabilities" -> "repository_lifecycle_capabilities"
+                    else -> return null
+                }
                 "github_context" -> when (requested) {
                     "", "resolve" -> "resolve_context"
                     "status" -> "repo_status"
@@ -589,6 +598,7 @@ internal class GitHubOperationTool(
             val issueRequest = Regex("\\b(?:list|show|inspect|read|create|update|close|reopen|triage)\\s+(?:(?:the|all|open|closed|github|repository)\\s+)*issues?\\b|\\bissue\\s*#?\\d+\\b").containsMatchIn(text)
             if (explicitlyNamed.isEmpty() && !isGitHubTask(text) && !issueRequest && !Regex("\\b(code|source|ci|pr)\\b").containsMatchIn(text)) return emptySet()
             val selected = linkedSetOf("github_context", "github_search", "github_read")
+            if (dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryLifecycle.intent(task) != null) selected += "github_repository"
             selected += explicitlyNamed
             if (Regex("\\b(pr|pull request|review|merge)\\b").containsMatchIn(text)) selected += "github_pr"
             if (Regex("\\b(ci|build|test failure|workflow|pipeline)\\b").containsMatchIn(text)) selected += "github_ci"
@@ -644,6 +654,21 @@ internal class GitHubOperationTool(
                 properties["verify_live"] = field("boolean")
             }
             when (operation) {
+                "github_repository" -> {
+                    listOf("owner", "repo", "commit_sha").forEach(properties::remove)
+                    properties["action"] = choice("capabilities", "create", "fork", "import", "clone", "status")
+                    listOf("destination_owner", "destination_repo", "source_owner", "source_repo", "source_ref", "source_commit_sha", "description", "expected_head_sha", "operation_id").forEach { properties[it] = field("string") }
+                    properties["owner_type"] = choice("user", "organization")
+                    properties["visibility"] = choice("public", "private")
+                    properties["copy_mode"] = choice("snapshot", "history")
+                    properties["operation"] = choice("create_repository", "fork_repository", "import_repository", "clone_repository")
+                    properties["expected_repository_id"] = buildJsonObject {
+                        put("type", "integer")
+                        put("minimum", 1)
+                    }
+                    properties["auto_init"] = field("boolean")
+                    properties["default_branch_only"] = field("boolean")
+                }
                 "github_context" -> {
                     properties["action"] = choice("resolve", "status", "index", "changes", "efficiency", "capabilities", "branches", "branch", "branch_dependencies", "commits", "commit", "commit_search", "checks", "repository", "repositories", "recovery")
                     properties["ref"] = field("string")
@@ -936,6 +961,7 @@ internal class GitHubOperationTool(
             }
             if (operation in setOf("github_context", "github_ci", "github_pr", "github_read")) properties["response_detail"] = choice("compact", "full")
             val description = when (operation) {
+                "github_repository" -> "Create a repository, fork upstream, import an independent snapshot/history, or clone on the gateway. Explicit destination_owner, destination_repo, owner_type and visibility are required for remote creation; source_owner/source_repo stay separate. Import requires source_ref and copy_mode. Snapshot copies the exact file tree without history; history, Git LFS and local clone require a qualified Git gateway. Status uses expected_repository_id for native creation or operation_id for a gateway transfer, plus operation from the retained receipt. Asynchronous acceptance alone is not completion. Creation never changes the selected workspace."
                 "github_context" -> "Changes:base_sha; fixture recovery:base_sha=origin,commit_sha=head."
                 "github_search" -> "Pinned search; globs; check coverage."
                 "github_read" -> "Pinned ranges/evidence_id; 1-based <=2000; end_line=-1:bounded EOF; view_cursor."

@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.repository
 
 import dev.chungjungsoo.gptmobile.data.ModelConstants
 import dev.chungjungsoo.gptmobile.data.assist.migrateProcessingPermissions
+import dev.chungjungsoo.gptmobile.data.assist.reconcileSelectedProfile
 import dev.chungjungsoo.gptmobile.data.database.dao.ChatPlatformModelV2Dao
 import dev.chungjungsoo.gptmobile.data.database.dao.PlatformV2Dao
 import dev.chungjungsoo.gptmobile.data.database.dao.ProviderConnectionDao
@@ -172,16 +173,10 @@ class SettingRepositoryImpl @Inject constructor(
 
     override suspend fun mutateFeatureSettings(transform: (AppFeatureSettings) -> AppFeatureSettings): AppFeatureSettings = walletFeatureMutation.withLock {
         dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.advance()
-        val profiles = fetchPlatformV2s()
+        // Reference repair needs the current saved inventory, not decrypted credentials or a stale UI cache.
+        val profiles = platformV2Dao.getPlatforms()
         settingDataSource.mutateFeatureSettings { current ->
-            transform(
-                current.copy(
-                    localAssistPolicy = current.localAssistPolicy.migrateProcessingPermissions(profiles),
-                    settingsHome = current.settingsHome.migrate(profiles.filter { it.enabled }.map { it.uid }),
-                    llamaReasoningModes = migratedLlamaReasoning(current, profiles),
-                    llamaReasoningMigrationVersion = 1
-                )
-            )
+            normalizeFeatureReferences(transform(normalizeFeatureReferences(current, profiles)), profiles)
         }.also {
             walletLocal?.setEnabled(dev.chungjungsoo.gptmobile.data.model.SettingsHomeConfiguration.WALLET in it.settingsHome.selectedItems)
             dev.chungjungsoo.gptmobile.data.network.NetworkClient.diagnosticsEnabled = it.diagnosticsCollection
@@ -189,16 +184,30 @@ class SettingRepositoryImpl @Inject constructor(
     }
 
     private suspend fun migrateAssistPermissions(settings: AppFeatureSettings): AppFeatureSettings {
-        if (settings.localAssistPolicy.permissionVersion >= 1 && settings.settingsHome.schemaVersion >= 2 && settings.llamaReasoningMigrationVersion >= 1) return settings
-        val profiles = fetchPlatformV2s()
-        return settingDataSource.mutateFeatureSettings { current ->
-            current.copy(
-                localAssistPolicy = current.localAssistPolicy.migrateProcessingPermissions(profiles),
-                settingsHome = current.settingsHome.migrate(profiles.filter { it.enabled }.map { it.uid }),
-                llamaReasoningModes = migratedLlamaReasoning(current, profiles),
-                llamaReasoningMigrationVersion = 1
-            )
+        val profiles = platformV2Dao.getPlatforms()
+        val selected = settings.localAssistPolicy.profileUid
+        if (settings.localAssistPolicy.permissionVersion >= 1 &&
+            settings.settingsHome.schemaVersion >= 2 &&
+            settings.llamaReasoningMigrationVersion >= 1 &&
+            (selected == null || profiles.any { it.uid == selected })
+        ) {
+            return settings
         }
+        return settingDataSource.mutateFeatureSettings { current ->
+            normalizeFeatureReferences(current, profiles)
+        }
+    }
+
+    private fun normalizeFeatureReferences(settings: AppFeatureSettings, profiles: List<PlatformV2>): AppFeatureSettings {
+        val policy = settings.localAssistPolicy.reconcileSelectedProfile(profiles.mapTo(mutableSetOf()) { it.uid })
+        val removed = settings.localAssistPolicy.profileUid != null && policy.profileUid == null
+        return settings.copy(
+            localAssist = settings.localAssist && !removed,
+            localAssistPolicy = policy.migrateProcessingPermissions(profiles),
+            settingsHome = settings.settingsHome.migrate(profiles.filter { it.enabled }.map { it.uid }),
+            llamaReasoningModes = migratedLlamaReasoning(settings, profiles),
+            llamaReasoningMigrationVersion = 1
+        )
     }
 
     private fun migratedLlamaReasoning(settings: AppFeatureSettings, profiles: List<PlatformV2>): Map<String, dev.chungjungsoo.gptmobile.data.context.ReasoningMode> =
@@ -231,9 +240,10 @@ class SettingRepositoryImpl @Inject constructor(
 
     override suspend fun updateFeatureSettings(settings: AppFeatureSettings) = walletFeatureMutation.withLock {
         dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.advance()
-        settingDataSource.updateFeatureSettings(settings)
-        walletLocal?.setEnabled(dev.chungjungsoo.gptmobile.data.model.SettingsHomeConfiguration.WALLET in settings.settingsHome.selectedItems)
-        dev.chungjungsoo.gptmobile.data.network.NetworkClient.diagnosticsEnabled = settings.diagnosticsCollection
+        val normalized = normalizeFeatureReferences(settings, platformV2Dao.getPlatforms())
+        settingDataSource.updateFeatureSettings(normalized)
+        walletLocal?.setEnabled(dev.chungjungsoo.gptmobile.data.model.SettingsHomeConfiguration.WALLET in normalized.settingsHome.selectedItems)
+        dev.chungjungsoo.gptmobile.data.network.NetworkClient.diagnosticsEnabled = normalized.diagnosticsCollection
     }
 
     override suspend fun updateResearchSettings(settings: dev.chungjungsoo.gptmobile.data.model.DeepResearchSettings) = settingDataSource.updateResearchSettings(settings)
@@ -452,13 +462,8 @@ class SettingRepositoryImpl @Inject constructor(
         val providerConnectionUid = persisted?.providerConnectionUid ?: platform.providerConnectionUid
         chatPlatformModelV2Dao.deleteByPlatformUid(platform.uid)
         platformV2Dao.deletePlatform(platform)
-        mutateFeatureSettings { settings ->
-            if (settings.localAssistPolicy.profileUid == platform.uid) {
-                settings.copy(localAssist = false, localAssistPolicy = settings.localAssistPolicy.copy(profileUid = null, permissionEpoch = java.util.UUID.randomUUID().toString()))
-            } else {
-                settings
-            }
-        }
+        invalidatePlatformCache()
+        mutateFeatureSettings { it }
         if (providerConnectionUid == null || platform.compatibleType == ClientType.FREE) {
             secretRef?.let { secretVault.delete(it) }
         }
@@ -536,6 +541,8 @@ class SettingRepositoryImpl @Inject constructor(
         walletLocal?.detach(connection.uid)?.let { secretVault.delete(it) }
         providerConnectionDao.deleteWithProfiles(persisted)
         try {
+            invalidatePlatformCache()
+            mutateFeatureSettings { it }
             persisted.secretRef?.let { secretVault.delete(it) }
         } finally {
             invalidatePlatformCache()

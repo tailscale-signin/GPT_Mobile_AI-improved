@@ -47,4 +47,14 @@ class AgentRunTerminalDiagnosticsTest {
         assertEquals("stage_not_recorded", unclassified.phase)
         assertEquals("stage_not_recorded", AgentRunTerminalDiagnostics.from(AgentRunStatus.FAILED, null).stage)
     }
+
+    @Test fun retainedMissingAcceptanceIdentifiesItsOwnStageWithoutInventingDispatch() {
+        val acceptance = dev.chungjungsoo.gptmobile.data.github.GitHubRunAcceptance.Assessment("PARTIAL", "receipt", 3, 0, 0)
+        val result = AgentRunTerminalDiagnostics.from(AgentRunStatus.PARTIAL, ProfileFailureRecord("INCOMPLETE", true), acceptance)
+        assertEquals("GITHUB_EVIDENCE_MISSING", result.reason)
+        assertEquals("task_acceptance", result.stage)
+        assertEquals("PARTIAL", result.taskVerification)
+        assertEquals(null, result.dispatched)
+        assertEquals(RemoteRequestAcceptance.UNKNOWN, result.remoteAcceptance)
+    }
 }

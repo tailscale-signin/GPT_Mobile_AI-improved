@@ -66,7 +66,7 @@ internal fun planToolBatch(
 /** Reading independent pages is useful research, not a repeated invocation loop. */
 internal fun toolRepeatKey(call: ProviderEvent.ToolCall): String {
     val name = call.name.substringAfterLast("__")
-    val github = call.name == "github" || call.name.startsWith("github_") || name in setOf("get_file_contents", "read_code", "search_code", "search_repository", "read_ranges", "get_pull_request", "pull_request_read")
+    val github = call.name == "github" || call.name.startsWith("github_") || call.name == "repository_graph" || call.name.startsWith("repository_graph__") || name in setOf("get_file_contents", "read_code", "search_code", "search_repository", "read_ranges", "get_pull_request", "pull_request_read")
     val pageRead = name in setOf("read_recovery_context", "read_url", "firecrawl_scrape", "tavily_extract", "web_fetch_exa", "fetch", "read_doc", "browse", "browse_url", "web_fetch", "fetch_url", "read_webpage") || name.endsWith("_read_url") || name.endsWith("_web_fetch")
     if (!github && !pageRead) return call.name
     fun canonical(value: kotlinx.serialization.json.JsonElement): String = when (value) {

@@ -67,7 +67,7 @@ class StagedDiagnosticCaptureTest {
                 ),
                 available
             )
-            assertEquals("EMPTY_RETAINED", receipt(result, "empty").text("availability"))
+            assertEquals("METADATA_ONLY", receipt(result, "empty").text("availability"))
             assertEquals("UNAVAILABLE", receipt(result, "failed").text("availability"))
             assertEquals("PARTIAL", receipt(result, "partial").text("availability"))
             assertEquals("AVAILABLE", receipt(result, "complete").text("availability"))
@@ -75,6 +75,25 @@ class StagedDiagnosticCaptureTest {
             val missing = result.manifest["missingEvidence"] as JsonArray
             assertEquals(setOf("failed", "partial"), missing.map { it.jsonObject.text("stage") }.toSet())
             assertFalse(result.manifest.toString().contains("private source"))
+        }
+    }
+
+    @Test fun configurationAndAbsentRecordsHaveDifferentManifestLabels() = temporary { directory ->
+        runBlocking {
+            val result = StagedDiagnosticCapture.capture(
+                directory,
+                "configuration",
+                listOf(
+                    DiagnosticCaptureStage("settings", "settings.jsonl", content = DiagnosticStageContent.CONFIGURATION) { it.note("configuration") },
+                    stage("empty") { }
+                ),
+                available
+            )
+            assertEquals("CONFIGURATION_ONLY", receipt(result, "settings").text("availability"))
+            assertEquals(JsonPrimitive(1L), receipt(result, "settings")["metadataRecords"])
+            assertEquals(JsonPrimitive(0L), receipt(result, "settings")["evidenceRecords"])
+            assertEquals("EMPTY_RETAINED", receipt(result, "empty").text("availability"))
+            assertEquals(result.manifest, StagedDiagnosticCapture.verify(result.file))
         }
     }
 

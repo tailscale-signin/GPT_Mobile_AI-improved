@@ -123,7 +123,8 @@ class ChatViewModel @Inject constructor(
     private val gitHubDecisions: dev.chungjungsoo.gptmobile.data.github.GitHubChatDecisions? = null,
     private val gitHubDecisionNotifications: dev.chungjungsoo.gptmobile.data.github.GitHubDecisionNotifications? = null,
     private val diagnosticDatabase: dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticDatabaseSource? = null,
-    private val reasoningCapabilities: dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityRepository? = null
+    private val reasoningCapabilities: dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityRepository? = null,
+    private val diagnosticWorkspace: dev.chungjungsoo.gptmobile.data.workspace.WorkspaceRepository? = null
 ) : ViewModel() {
     private val diagnosticPrivacyOwner = java.util.UUID.randomUUID().toString()
     private val visibleHistoryTurns = MutableStateFlow(if (savedStateHandle.get<Int>("targetMessageId") != null) Int.MAX_VALUE else 40)
@@ -2862,6 +2863,7 @@ class ChatViewModel @Inject constructor(
             liveMessages = agentRunCoordinator.streamMessages.value.values.filter { it.chatId == room.id },
             database = source,
             research = researchSessionStore,
+            workspace = diagnosticWorkspace,
             reducedMemory = reduced,
             resume = resume,
             stillAuthorized = {

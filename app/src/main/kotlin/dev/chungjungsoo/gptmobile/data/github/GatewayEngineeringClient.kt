@@ -52,6 +52,8 @@ class GatewayEngineeringClient internal constructor(
         val endpoint = config.buildEndpoint("$root/$path")
         val exchange: suspend () -> String = {
             gatewayClientExchange(diagnostic, "engineering", safeRead = body == null, method = if (body == null) "GET" else "POST") { headers ->
+                val repositoryRequest = path == "repository-operations" || path.startsWith("repository-operations/")
+                val repositoryRequestId = if (repositoryRequest) GitHubDispatchAccounting.started(body != null) else null
                 (if (body == null) readHttp else http).prepareRequest(endpoint) {
                     method = if (body == null) HttpMethod.Get else HttpMethod.Post
                     config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
@@ -68,6 +70,7 @@ class GatewayEngineeringClient internal constructor(
                         socketTimeoutMillis = if (path == "capabilities") 4_000 else 120_000
                     }
                 }.execute { response ->
+                    if (repositoryRequest) GitHubDispatchAccounting.responded(body != null, response.status.value, repositoryRequestId, response.headers["X-Request-ID"])
                     GatewayClientDiagnostics.observe(diagnostic, response.status.value) { response.headers[it] }
                     if (path == "capabilities" && response.status.value in setOf(404, 501)) throw UnsupportedEngineeringGateway()
                     val payload = response.boundedMetadata(if (path == "capabilities") 128 * 1024 else 2_000_000)
@@ -237,6 +240,16 @@ class GatewayEngineeringClient internal constructor(
     suspend fun graph(config: ProviderRequestConfig, arguments: kotlinx.serialization.json.JsonObject): kotlinx.serialization.json.JsonObject =
         json.parseToJsonElement(request(config, "graph", arguments.toString())) as? kotlinx.serialization.json.JsonObject
             ?: error("The gateway returned an invalid repository graph response.")
+
+    internal suspend fun repositoryOperation(config: ProviderRequestConfig, arguments: JsonObject): JsonObject =
+        json.parseToJsonElement(request(config, "repository-operations", arguments.toString())) as? JsonObject
+            ?: error("The gateway returned an invalid repository operation receipt. Reconcile the original operation before retrying.")
+
+    internal suspend fun repositoryOperationStatus(config: ProviderRequestConfig, operationId: String): JsonObject {
+        require(operationId.matches(Regex("repoop_[a-f0-9]{32}")))
+        return json.parseToJsonElement(request(config, "repository-operations/$operationId")) as? JsonObject
+            ?: error("The gateway returned an invalid repository operation status.")
+    }
 
     suspend fun get(config: ProviderRequestConfig, id: String, afterRevision: Int): GatewayEngineeringJob {
         require(id.matches(Regex("eng_[a-f0-9]{32}")))

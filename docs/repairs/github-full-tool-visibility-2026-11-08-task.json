@@ -1,0 +1,196 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "fix/gateway-readiness-diagnostics-2026-11-08",
+  "base_sha": "3bca5dd264c2257b98e20848efcfe9c1da6833b9",
+  "working_branch": "fix/gateway-readiness-diagnostics-2026-11-08",
+  "pull_request": 814,
+  "intent": "Keep every authorized GitHub tool visible throughout GitHub execution and recovery, and implement findings F01-F20 plus Gateway home additions G01/G02 from the supplied report while preserving repository scope, permissions, selected profiles, and verified completion.",
+  "state": "IMPLEMENTED",
+  "task_store": "engineering_agent_checkpoints",
+  "task_store_key": "github-full-tool-visibility-2026-11-08",
+  "scope": [
+    "Complete GitHub schemas on the initial request, execution continuations and retries without progressive discovery hiding",
+    "Discovery no-progress handling that retains useful authorized operations",
+    "Stable accepted requirements and typed terminal causes across recovery",
+    "Gateway service identification, deterministic polling suppression and truthful metadata/control diagnostics",
+    "Efficient saved-result retrieval and recoverable MCP catalog visibility",
+    "Off-main-thread grant persistence, single-owner voice lifecycle and deferred semantic enrichment",
+    "Structured privacy-preserving execution receipts and meaningful frame operation evidence"
+  ],
+  "validation": {
+    "note": "Focused Kotlin suites overlap and are not a unique global total. Host boundaries and physical qualification are distinct from the Android application gate.",
+    "native_github_integration": {
+      "passed": 136,
+      "failed": 0,
+      "scope": "Actual native Tool/Workspace/facades, repository lifecycle, cache/credential races, saved results and acceptance; includes the compound creation selection boundary"
+    },
+    "github_catalog_runner_mcp": {
+      "passed": 54,
+      "failed": 0,
+      "scope": "Catalog, context, runner, official MCP schema mapping/acquisition/aliases and target boundaries",
+      "post_integration_passed": 54,
+      "post_integration_commit": "d2eee7cd634eb0265888fcec2fcf96eccef63a3f"
+    },
+    "github_selection_boundary": {
+      "passed": 16,
+      "failed": 0,
+      "scope": "Current lifecycle planning and native/MCP repository wrappers"
+    },
+    "repository_admission": {
+      "passed": 44,
+      "failed": 0,
+      "scope": "Typed preparation/provider failures, saved failure records and partial-output semantics"
+    },
+    "gateway_repository_bridge": {
+      "passed": 28,
+      "failed": 0,
+      "scope": "Durable operation binding, lost response, cancellation, atomic dispatch, capability/client contracts, HTTP 499 and terminal diagnostics"
+    },
+    "gateway_canonical": {
+      "python_suites": 57,
+      "passed": 696,
+      "failed": 0,
+      "skipped": 1,
+      "skip": "LiveNetworkTests.test_actual_lan_and_specific_interface_without_token: no bindable LAN IPv4 interface on the host",
+      "browser_bridge_passed": 7,
+      "repository_lifecycle_tests_included": 31
+    },
+    "gateway_package_after_manifest_update": {
+      "passed": 25,
+      "failed": 0
+    },
+    "authentication": {
+      "passed": 25,
+      "failed": 0,
+      "runtime": "Pinned gateway Python environment"
+    },
+    "gateway_readiness_metadata": {
+      "passed": 217,
+      "failed": 0
+    },
+    "gateway_chat_profiles_menu": {
+      "passed": 63,
+      "failed": 0
+    },
+    "gateway_jobs_repository": {
+      "passed": 21,
+      "failed": 0
+    },
+    "gateway_controls_final": {
+      "passed": 42,
+      "failed": 0
+    },
+    "android_policy_memory_voice_assist": {
+      "passed": 19,
+      "failed": 0
+    },
+    "output_journal_lineage": {
+      "passed": 39,
+      "failed": 0
+    },
+    "frame_privacy_export": {
+      "passed": 114,
+      "failed": 0
+    },
+    "tool_admission_snapshots": {
+      "passed": 11,
+      "failed": 0,
+      "limit": "Snapshot behavior tested; full Android export wiring requires the application gate"
+    },
+    "staged_capture_archive": {
+      "passed": 26,
+      "failed": 0
+    },
+    "android_gradle_local": {
+      "status": "BLOCKED_BY_ENVIRONMENT",
+      "command": "./gradlew --console=plain :app:compileDebugKotlin :app:testDebugUnitTest",
+      "reason": "Pinned Gradle 9.8.0 download failed with network unreachable; JDK 21 and Android SDK 37 are unavailable in the editor environment"
+    },
+    "android_ci": {
+      "status": "CHECK_EXACT_PUBLISHED_HEAD",
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/814/checks"
+    },
+    "grant_revocation_activation": {
+      "passed": 55,
+      "failed": 0,
+      "scope": "Actual trust/consent stores, generation fences, persistence, approval manager, public auth coordinator and OAuth clients; controlled queued/failed commits, cancellation, overlapping activation and stale approval prompts",
+      "boundaries": "Android Context/SharedPreferences and repository/vault ports use controlled host implementations; UI call sites reviewed and linted, full Android build/device checks separate",
+      "post_lifecycle_integration_passed": 55
+    },
+    "litert_catalog_admission": {
+      "passed": 36,
+      "failed": 0,
+      "scope": "Current local planner, real prompt-bridge costs and typed pre/post-generation failure mapping",
+      "adapter_compile": "Actual adapter and full adapter test source compiled against cached production JVM 21 signatures",
+      "adapter_execution": "Requires Android CI; not executed in this editor environment"
+    },
+    "canonical_fast": {
+      "status": "PASSED",
+      "script_tests_passed": 404,
+      "command": "bash scripts/validate-local.sh fast",
+      "scope": "CI/dependency policy, secret scan, host scripts, regex, Android resource preflight and diff checks",
+      "stage": "After integrating remote c04f718 and the explicit lifecycle approval path, with regenerated inventories"
+    },
+    "ktlint": {
+      "status": "PASSED",
+      "version": "1.3.1",
+      "changed_kotlin_files": 153,
+      "scope": "Integrated Kotlin changes since the original task base"
+    },
+    "gateway_manifest": {
+      "status": "PASSED",
+      "source_commit": "d2eee7cd634eb0265888fcec2fcf96eccef63a3f",
+      "command": "python gateway/build_v14_package.py --manifest-only"
+    },
+    "native_repository_approval": {
+      "passed": 19,
+      "failed": 0,
+      "combined_approval_suite_passed": 74,
+      "scope": "Actual approval manager, trust stores and native facade mapping; exact one-time lifecycle decisions, persistent-grant exclusion, native provenance, non-lifecycle administrative denial, live account/generation/profile/plugin changes, cancellation and known-unsent claim cleanup",
+      "boundaries": "Controlled Android/storage ports; full Compose/application/device gate remains separate"
+    }
+  },
+  "qualification": "Physical PC routing/model availability and Android device performance must be reported separately from source changes and host/CI regression evidence.",
+  "expanded_scope": [
+    "F01 repository refresh and recovery without model dispatch",
+    "F02 create/fork/import and gateway clone capabilities",
+    "F03 independent read sources and write destination",
+    "F04 typed preparation failures survive storage and UI",
+    "F05 acceptance criteria and failed-stage recovery",
+    "F06 discovery and saved-result efficiency",
+    "F07 separate gateway/model routes and capability qualification",
+    "F08 unsupported job history state and polling",
+    "F09 exact selected local model metadata/reasoning qualification",
+    "F10 truthful local capability causes and control receipts",
+    "F11 transport retry versus deterministic contract failure",
+    "F12 single-owner recognition and rate-limit cause",
+    "F13 off-main durable grant revocation",
+    "F14 scoped frame traces",
+    "F15 lifecycle resource cleanup",
+    "F16 durable pending memory and wakeups",
+    "F17 stale Local Assist references",
+    "F18 per-run tool admission snapshots",
+    "F19 output origin and provider invocation lineage",
+    "F20 configuration-only export labels",
+    "G01 gateway chat home, model picker, offline serial queue, job-to-chat navigation",
+    "G02 stable gateway menu option and periodic background availability"
+  ],
+  "integration_parent_sha": "c04f718685473f86bd0db4e9a68cbf7961ad2b59",
+  "behavior_boundaries": [
+    "Compound creation and engineering require selecting the verified new destination with Change repository before dependent writes; no implicit workspace migration.",
+    "The captured direct llama.cpp mode/version was unqualified. Metadata diagnostics preserve exact model and autoload protection; no speculative fallback or automatic port substitution was added.",
+    "History import and local clone require an updated, explicitly configured gateway advertising the reviewed repository lifecycle contract.",
+    "No real user repository was created or modified to test lifecycle behavior.",
+    "Physical microphone/TTS behavior, release frame improvements, actual LAN recovery and live incident-host inference require their real environments."
+  ],
+  "pull_request_base": {
+    "branch": "main",
+    "sha": "293810dbc34ef93ee62521e2fd274681e10482ab"
+  },
+  "implementation_commit": "d2eee7cd634eb0265888fcec2fcf96eccef63a3f",
+  "integration": {
+    "preserved_remote_commit": "c04f718685473f86bd0db4e9a68cbf7961ad2b59",
+    "resolution": "Kept substantive GitHub summaries and their stricter logical-continuation regression; regenerated audit inventories from integrated source."
+  }
+}

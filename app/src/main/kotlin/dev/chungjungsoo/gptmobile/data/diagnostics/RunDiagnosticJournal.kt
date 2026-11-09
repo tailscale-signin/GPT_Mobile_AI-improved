@@ -42,7 +42,7 @@ enum class RunDiagnosticRole {
 /** Deliberately has no prompt, URL, header, exception text, model label or arbitrary field map. */
 @Serializable
 data class RunDiagnosticEvent(
-    val schema: Int = 7,
+    val schema: Int = 8,
     val eventId: String,
     val processSession: String,
     val runId: String,
@@ -75,11 +75,12 @@ data class RunDiagnosticEvent(
     val outputRepresentation: OutputTextRepresentation? = null,
     val outputFingerprint: OutputFingerprint? = null,
     val outputPartId: String? = null,
+    val outputOrigin: OutputOrigin = OutputOrigin.UNKNOWN,
     val localAdmissionReceipt: dev.chungjungsoo.gptmobile.data.localruntime.LocalAdmissionReceipt? = null,
     val providerFailure: ProviderFailureReceipt? = null
 )
 
-const val RUN_EVENT_SCHEMA = 7
+const val RUN_EVENT_SCHEMA = 8
 
 @Serializable
 data class RunJournalSnapshot(
@@ -122,7 +123,10 @@ internal class RunDiagnosticJournal(
     private val writes = kotlinx.coroutines.sync.Mutex()
     private val sequences = mutableMapOf<String, Long>()
     private val terminals = mutableSetOf<String>()
-    private val firstVisible = mutableSetOf<Pair<String, Long?>>()
+    private data class FirstVisibleKey(val runId: String, val fence: Long?, val origin: OutputOrigin, val invocationId: String?)
+    private val firstVisible = mutableSetOf<FirstVisibleKey>()
+    private val outputLineage = OutputLineageRegistry()
+    private var outputEpoch = 0L
     private val permittedRuns = mutableSetOf<String>()
     private val privateRuns = mutableSetOf<String>()
     private val dropped = AtomicLong()
@@ -136,6 +140,13 @@ internal class RunDiagnosticJournal(
     @Volatile var enabled = false
 
     @Volatile var privateSession = false
+        set(value) = synchronized(lock) {
+            if (field != value) {
+                outputEpoch++
+                outputLineage.clear()
+            }
+            field = value
+        }
 
     @Volatile private var failed = false
     private var retentionCheckedAt = 0L
@@ -231,6 +242,8 @@ internal class RunDiagnosticJournal(
             privateRuns += runId
             permittedRuns.remove(runId)
             pending.removeAll { it.runId == runId }
+            outputLineage.removeRun(runId)
+            firstVisible.removeAll { it.runId == runId }
         } else if (runId !in privateRuns && permittedRuns.size < 10_000) {
             permittedRuns += runId
         }
@@ -277,59 +290,67 @@ internal class RunDiagnosticJournal(
         outputFingerprint: OutputFingerprint? = null,
         outputPartId: String? = null,
         localAdmissionReceipt: dev.chungjungsoo.gptmobile.data.localruntime.LocalAdmissionReceipt? = null,
-        providerFailure: ProviderFailureReceipt? = null
-    ) {
+        providerFailure: ProviderFailureReceipt? = null,
+        outputOrigin: OutputOrigin = OutputOrigin.UNKNOWN
+    ): RunDiagnosticEvent? {
         if (!enabled && kind !in minimalKinds) {
             disabledSuppressed.incrementAndGet()
-            return
+            return null
         }
         if (privateSession) {
             privacySuppressed.incrementAndGet()
-            return
+            return null
         }
         if (providerFailure?.valid() == false) {
             dropped.incrementAndGet()
             rejected.incrementAndGet()
-            return
+            return null
         }
         // Identifiers are internally generated IDs. Reject accidental content at the boundary.
         if (!safeId(runId) || invocationId != null && !safeId(invocationId) || physicalAttemptId != null && !safeId(physicalAttemptId)) {
             dropped.incrementAndGet()
             rejected.incrementAndGet()
-            return
+            return null
         }
         if (listOfNotNull(physicalAttempt, fence, inputTokens, outputTokens, safetyTokens, contextTokens, visibleBytes, reasoningBytes, elapsedMillis, cacheHits, cacheMisses, staleCacheReads).any { it < 0 }) {
             dropped.incrementAndGet()
             rejected.incrementAndGet()
-            return
+            return null
         }
         if (outputPartId != null && !outputPartId.matches(Regex("[0-9:]{1,40}|sha256:[a-f0-9]{64}"))) {
             dropped.incrementAndGet()
             rejected.incrementAndGet()
-            return
+            return null
         }
         if ((outputBoundary == null) != (outputRepresentation == null) || (outputBoundary == null) != (outputFingerprint == null) || outputFingerprint?.let { it.utf8Bytes < 0 || !it.sha256.matches(Regex("[a-f0-9]{64}")) } == true) {
             dropped.incrementAndGet()
             rejected.incrementAndGet()
-            return
+            return null
         }
-        synchronized(lock) {
-            if ((!enabled && kind !in minimalKinds) || privateSession || runId !in permittedRuns || runId in terminals && kind in setOf(RunDiagnosticKind.RUN_TERMINAL, RunDiagnosticKind.REDUCER_CHECKPOINT, RunDiagnosticKind.SEGMENT_COMMITTED)) return
-            if (kind == RunDiagnosticKind.FIRST_VISIBLE_TEXT && (runId to fence) in firstVisible) return
+        val event = synchronized(lock) {
+            if ((!enabled && kind !in minimalKinds) || privateSession || runId !in permittedRuns || runId in terminals && kind in setOf(RunDiagnosticKind.RUN_TERMINAL, RunDiagnosticKind.REDUCER_CHECKPOINT, RunDiagnosticKind.SEGMENT_COMMITTED)) return null
+            val explicitOrigin = if (outputOrigin == OutputOrigin.UNKNOWN && invocationId != null && (kind == RunDiagnosticKind.FIRST_TEXT || outputBoundary == OutputTraceBoundary.PROVIDER_VISIBLE)) OutputOrigin.MODEL_TEXT else outputOrigin
+            val lineage = if (outputFingerprint != null && outputBoundary != OutputTraceBoundary.RENDER_TRANSFORM) {
+                outputLineage.resolve(runId, outputFingerprint, OutputLineage(explicitOrigin, invocationId))
+            } else {
+                OutputLineage(explicitOrigin, invocationId)
+            }
+            val visibleKey = FirstVisibleKey(runId, fence, lineage.origin, lineage.invocationId)
+            if (kind == RunDiagnosticKind.FIRST_VISIBLE_TEXT && visibleKey in firstVisible) return null
             val prior = sequences[runId] ?: 0L
             if (prior == Long.MAX_VALUE || prior == 0L && sequences.size >= 10_000) {
                 dropped.incrementAndGet()
                 capacityDropped.incrementAndGet()
-                return
+                return null
             }
             val sequence = prior + 1L
             sequences[runId] = sequence
-            val event = RunDiagnosticEvent(eventId = UUID.randomUUID().toString(), processSession = sessionId, runId = runId, streamId = "$sessionId:$runId", sequence = sequence, capturedAtMillis = now(), monotonicNanos = System.nanoTime(), kind = kind, role = role, invocationId = invocationId, physicalAttempt = physicalAttempt, fence = fence, inputTokens = inputTokens, outputTokens = outputTokens, safetyTokens = safetyTokens, contextTokens = contextTokens, visibleBytes = visibleBytes, reasoningBytes = reasoningBytes, elapsedMillis = elapsedMillis, successful = successful, measured = measured, phase = phase, cacheHits = cacheHits, cacheMisses = cacheMisses, staleCacheReads = staleCacheReads, physicalAttemptId = physicalAttemptId, progressStage = progressStage, progressDeadline = progressDeadline, outputBoundary = outputBoundary, outputRepresentation = outputRepresentation, outputFingerprint = outputFingerprint, outputPartId = outputPartId, localAdmissionReceipt = localAdmissionReceipt, providerFailure = providerFailure)
+            val event = RunDiagnosticEvent(eventId = UUID.randomUUID().toString(), processSession = sessionId, runId = runId, streamId = "$sessionId:$runId", sequence = sequence, capturedAtMillis = now(), monotonicNanos = System.nanoTime(), kind = kind, role = role, invocationId = lineage.invocationId, physicalAttempt = physicalAttempt, fence = fence, inputTokens = inputTokens, outputTokens = outputTokens, safetyTokens = safetyTokens, contextTokens = contextTokens, visibleBytes = visibleBytes, reasoningBytes = reasoningBytes, elapsedMillis = elapsedMillis, successful = successful, measured = measured, phase = phase, cacheHits = cacheHits, cacheMisses = cacheMisses, staleCacheReads = staleCacheReads, physicalAttemptId = physicalAttemptId, progressStage = progressStage, progressDeadline = progressDeadline, outputBoundary = outputBoundary, outputRepresentation = outputRepresentation, outputFingerprint = outputFingerprint, outputPartId = outputPartId, outputOrigin = lineage.origin, localAdmissionReceipt = localAdmissionReceipt, providerFailure = providerFailure)
             val critical = kind in criticalKinds
             if (!critical && pending.size >= 480) {
                 dropped.incrementAndGet()
                 capacityDropped.incrementAndGet()
-                return
+                return null
             }
             if (pending.size >= 512) {
                 val sample = pending.indexOfFirst { it.kind == RunDiagnosticKind.REDUCER_CHECKPOINT }
@@ -339,33 +360,42 @@ internal class RunDiagnosticJournal(
                 } else {
                     dropped.incrementAndGet()
                     capacityDropped.incrementAndGet()
-                    return
+                    return null
                 }
                 dropped.incrementAndGet()
                 capacityDropped.incrementAndGet()
             }
             if (kind == RunDiagnosticKind.RUN_TERMINAL) terminals += runId
-            if (kind == RunDiagnosticKind.FIRST_VISIBLE_TEXT) firstVisible += runId to fence
+            if (kind == RunDiagnosticKind.FIRST_VISIBLE_TEXT) firstVisible += visibleKey
             pending.addLast(event)
+            event
         }
         wake.trySend(Unit)
+        return event
     }
 
-    /** Invoke only after rendered content's drawContent returns. The renderer owns a run/fence,
-     * not the provider invocation that supplied an accepted or synthesized answer. Persistence
-     * stays on the journal worker; this callback never reads storage or hashes answer text. */
+    /** Invoke only after this prepared content's drawContent returns. The background renderer
+     * supplies provenance for those exact bytes; this callback does not hash or read storage. */
     fun firstVisibleDraw(owner: OutputTraceOwner) {
-        record(owner.runId, RunDiagnosticKind.FIRST_VISIBLE_TEXT, fence = owner.fence, measured = true, outputPartId = outputTracePartId(owner.partId))
+        record(owner.runId, RunDiagnosticKind.FIRST_VISIBLE_TEXT, invocationId = owner.invocationId, fence = owner.fence, measured = true, outputPartId = outputTracePartId(owner.partId), outputOrigin = owner.origin)
     }
 
-    /** Call from a background worker after the corresponding boundary has actually accepted the text. */
-    fun traceOutput(runId: String, boundary: OutputTraceBoundary, text: String, fence: Long? = null, invocationId: String? = null, representation: OutputTextRepresentation = OutputTextRepresentation.VISIBLE_UTF8, partId: String? = null) {
-        if (!enabled || privateSession) return
-        val eligible = synchronized(lock) { runId in permittedRuns }
-        if (!eligible) return
-        runCatching {
-            record(runId, RunDiagnosticKind.OUTPUT_CHECKPOINT, invocationId = invocationId, fence = fence, outputBoundary = boundary, outputRepresentation = representation, outputFingerprint = outputFingerprint(text), outputPartId = outputTracePartId(partId))
-        }.onFailure { failed = true }
+    /** Call from a background worker after the corresponding boundary has accepted the text.
+     * Unknown or mixed output stays unlinked unless identical bytes have unambiguous provenance. */
+    fun traceOutput(runId: String, boundary: OutputTraceBoundary, text: String, fence: Long? = null, invocationId: String? = null, representation: OutputTextRepresentation = OutputTextRepresentation.VISIBLE_UTF8, partId: String? = null, outputOrigin: OutputOrigin = OutputOrigin.UNKNOWN): OutputLineage {
+        if (!enabled || privateSession) return OutputLineage()
+        val epoch = synchronized(lock) { if (runId in permittedRuns) captureEpoch to outputEpoch else null } ?: return OutputLineage()
+        return runCatching {
+            val fingerprint = outputFingerprint(text)
+            synchronized(lock) {
+                if (epoch != (captureEpoch to outputEpoch) || !enabled || privateSession || runId !in permittedRuns) return@synchronized OutputLineage()
+                val event = record(runId, RunDiagnosticKind.OUTPUT_CHECKPOINT, invocationId = invocationId, fence = fence, outputBoundary = boundary, outputRepresentation = representation, outputFingerprint = fingerprint, outputPartId = outputTracePartId(partId), outputOrigin = outputOrigin)
+                event?.let { OutputLineage(it.outputOrigin, it.invocationId) } ?: OutputLineage()
+            }
+        }.getOrElse {
+            failed = true
+            OutputLineage()
+        }
     }
 
     /** Read on an IO worker. Frozen watermarks exclude later samples; byteLimit bounds retained event JSON as well as decrypted batches. */
@@ -596,6 +626,8 @@ internal class RunDiagnosticJournal(
             sequences.clear()
             terminals.clear()
             firstVisible.clear()
+            outputLineage.clear()
+            outputEpoch++
             dropped.set(0)
             listOf(disabledSuppressed, privacySuppressed, rejected, capacityDropped, storageFailedEvents, retentionPrunedBatches).forEach { it.set(0) }
         }

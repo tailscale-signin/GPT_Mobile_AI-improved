@@ -55,12 +55,32 @@ internal object GitHubOperationArguments {
                 errors += "$key must be a valid branch name or refs/heads/name; do not use a tag or revision expression"
             }
         }
-        for (key in listOf("commit_sha", "expected_head_sha", "expected_base_sha", "head_sha", "tree_sha", "origin_head_sha")) {
+        for (key in listOf("commit_sha", "source_commit_sha", "expected_head_sha", "expected_base_sha", "head_sha", "tree_sha", "origin_head_sha")) {
             if (key in args && (!text(key).matches(Regex("[a-fA-F0-9]{40}|[a-fA-F0-9]{64}")) || text(key).all { it == '0' })) {
                 errors += "$key must be a real commit/tree SHA, not a placeholder; discover the current head with github_context action=branch before retrying"
             }
         }
         when (operation) {
+            "github_repository" -> {
+                val action = text("action").ifBlank { "capabilities" }
+                if (action !in setOf("capabilities", "clone") && !(action == "status" && text("operation_id").isNotBlank())) required("destination_owner", "destination_repo", "owner_type", "visibility")
+                if (action in setOf("fork", "import", "clone")) required("source_owner", "source_repo")
+                if (action in setOf("import", "clone")) required("source_ref")
+                if (action == "import") required("copy_mode")
+                if (action == "status") {
+                    required("operation")
+                    if (text("operation_id").isBlank()) required("expected_repository_id")
+                }
+                if ("operation_id" in args && !text("operation_id").matches(Regex("repoop_[a-f0-9]{32}"))) errors += "operation_id must come from a retained gateway repository operation receipt"
+                positive("expected_repository_id")
+                unused("owner", "repo", "commit_sha")
+                when (action) {
+                    "create" -> unused("source_owner", "source_repo", "source_ref", "source_commit_sha", "copy_mode", "default_branch_only", "expected_head_sha", "expected_repository_id", "operation_id", "operation")
+                    "fork" -> unused("source_ref", "source_commit_sha", "copy_mode", "auto_init", "expected_head_sha", "expected_repository_id", "operation_id", "operation")
+                    "import" -> unused("auto_init", "default_branch_only", "expected_repository_id", "operation_id", "operation")
+                    "clone" -> unused("destination_owner", "destination_repo", "owner_type", "visibility", "copy_mode", "auto_init", "default_branch_only", "expected_head_sha", "expected_repository_id", "operation_id", "operation", "description")
+                }
+            }
             "github_context" -> {
                 if ("engineering_task_id" in args) {
                     if (text("action") != "recovery") errors += "engineering_task_id is only used by read-only native approval recovery"

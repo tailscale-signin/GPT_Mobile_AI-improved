@@ -53,6 +53,18 @@ class GitHubSavedCursorContinuationTest {
         assertNull(GitHubReplayRecovery.nextSavedRead(listOf(exchange()), listOf(tool(visible = false))))
     }
 
+    @Test fun aConsumedPageCannotBeReopenedWithADifferentRecoveryPageSize() {
+        val first = requireNotNull(GitHubReplayRecovery.nextSavedRead(listOf(exchange()), listOf(tool())))
+        val page = buildJsonObject {
+            put("schema", "github.result.v1")
+            put("recovery_call", recipe(cursor = "retained:0:8192"))
+            put("continuation_call", recipe(cursor = "retained:1536:1536"))
+        }
+        val completed = AgentToolExchange(listOf(first), listOf(AgentToolResult(first.callId, ToolResultContent.Json(page), false, dispatched = false)))
+        val next = requireNotNull(GitHubReplayRecovery.nextSavedRead(listOf(exchange(), completed), listOf(tool())))
+        assertEquals(recipe(cursor = "retained:1536:1536").getValue("arguments"), next.arguments)
+    }
+
     @Test fun remotePaginationAndMutationRecipesAreNeverAutoDispatched() {
         val remote = exchange(
             content = buildJsonObject {

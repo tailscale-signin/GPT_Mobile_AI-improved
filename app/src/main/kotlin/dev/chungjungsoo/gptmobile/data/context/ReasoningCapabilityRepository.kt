@@ -32,7 +32,8 @@ data class ReasoningCapabilityObservation(
     val observedAtMillis: Long,
     val safeReasonCode: String?,
     val routeVerified: Boolean,
-    val supportVerified: Boolean
+    val supportVerified: Boolean,
+    val detailMessage: String? = null
 ) {
     val permitsRequest: Boolean get() = status == ReasoningCapabilityStatus.SUPPORTED && supportVerified
 }
@@ -43,7 +44,8 @@ internal data class ReasoningCapabilityProbe(
     val runtimeRevision: String? = null,
     val safeReasonCode: String? = null,
     /** Missing proof is not a conclusive unsupported-template result. */
-    val controlStatus: ReasoningCapabilityStatus? = null
+    val controlStatus: ReasoningCapabilityStatus? = null,
+    val detailMessage: String? = null
 )
 
 /** Shared read/template-only preflight. It never loads a model, creates a job or generates text. */
@@ -116,7 +118,8 @@ class ReasoningCapabilityRepository internal constructor(
                     else -> result.safeReasonCode ?: "REASONING_CAPABILITY_UNVERIFIED"
                 },
                 result.routeVerified,
-                supported
+                supported,
+                result.detailMessage
             ).also { entry.flow.value = it }
         }
     }
@@ -143,7 +146,7 @@ class ReasoningCapabilityRepository internal constructor(
             // An access/transport failure does not qualify either route.
             gateway.getCapabilities(config, forceRefresh = true)?.let { GatewayClientDiagnostics.observeInstance(config, it.instanceId) }
             val snapshot = capacity.discover(config, profile.model)
-                ?: return ReasoningCapabilityProbe(false, safeReasonCode = "REASONING_CAPABILITY_UNVERIFIED")
+                ?: return ReasoningCapabilityProbe(false, safeReasonCode = "REASONING_CAPABILITY_UNVERIFIED", detailMessage = capacity.metadataFailure(config, profile.model)?.message)
             val verified = snapshot.provenance == CapacityProvenance.VERIFIED_ROUTE &&
                 snapshot.fingerprint.requestedModel == profile.model &&
                 snapshot.fingerprint.resolvedModel == profile.model &&

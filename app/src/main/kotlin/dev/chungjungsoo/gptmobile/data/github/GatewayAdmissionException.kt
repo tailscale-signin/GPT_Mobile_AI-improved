@@ -96,7 +96,7 @@ private fun admissionMessage(reason: GatewayAdmissionReason, status: Int?, surfa
         GatewayAdmissionReason.MISSING_SCOPE -> "The gateway identity is recognized but lacks permission for this saved-work route. Check the original account's jobs or engineering scope on the PC gateway."
         GatewayAdmissionReason.TRANSPORT_IDENTITY_REQUIRED -> "The gateway did not recognize this connection's transport identity. Check its configured access mode and original connection. Key-free LAN mode does not require adding an API token."
         GatewayAdmissionReason.IDENTITY_MISMATCH -> "The gateway installation or account changed. Restore the original connection and refresh its identity before sending the saved command."
-        GatewayAdmissionReason.UNSUPPORTED_CONTRACT -> "This gateway does not expose the required saved-work contract. Update the running PC gateway package and verify its source commit and identity, conversation and Jobs routes."
+        GatewayAdmissionReason.UNSUPPORTED_CONTRACT -> "The selected address does not expose the required gateway saved-work contract. A direct model server can answer model requests without providing gateway Jobs. Verify the configured gateway address and reverse-proxy routes; if this is the intended gateway, update its running package and verify its identity, conversation and Jobs routes."
         GatewayAdmissionReason.INVALID_RESPONSE -> "The gateway returned an incompatible saved-work document. Verify the selected address, installed source commit and saved-work contract."
         GatewayAdmissionReason.INVALID_CONNECTION -> "The gateway rejected this connection's host, origin or admission headers. Check the configured destination and access mode on the PC gateway."
         GatewayAdmissionReason.STORAGE_UNAVAILABLE -> "The gateway's saved-work storage is unavailable. Restore its durable journal on the PC, then reconnect to the original jobs."
@@ -136,7 +136,7 @@ private val admissionReasons = mapOf(
 internal fun safeGatewayAdmissionCode(value: String?): String? = value?.takeIf { it.length <= 80 && it in admissionReasons }
 
 /** The header is authoritative when admitted; no arbitrary server message or raw cause is retained. */
-internal fun gatewayAdmissionFailure(status: Int, surface: GatewayAdmissionSurface, headerCode: String?, boundedBody: String? = null): GatewayAdmissionException {
+internal fun gatewayAdmissionFailure(status: Int, surface: GatewayAdmissionSurface, headerCode: String?, boundedBody: String? = null, directModelServer: Boolean = false): GatewayAdmissionException {
     val code = safeGatewayAdmissionCode(headerCode) ?: boundedBody?.takeIf { it.toByteArray(Charsets.UTF_8).size <= 16 * 1024 }?.let { body ->
         val root = runCatching { Json.parseToJsonElement(body) as? JsonObject }.getOrNull()
         val error = root?.get("error") as? JsonObject ?: root?.get("detail") as? JsonObject ?: root
@@ -148,8 +148,12 @@ internal fun gatewayAdmissionFailure(status: Int, surface: GatewayAdmissionSurfa
         else -> GatewayAdmissionReason.HTTP_REJECTED
     }
     return when (reason) {
-        GatewayAdmissionReason.UNSUPPORTED_CONTRACT -> GatewayHistoryUnsupported(surface, status)
+        GatewayAdmissionReason.UNSUPPORTED_CONTRACT -> GatewayHistoryUnsupported(surface, status, directModelServer)
         GatewayAdmissionReason.CURSOR_EXPIRED -> GatewayCursorExpired(surface, status, code)
-        else -> GatewayAdmissionException(reason, status, code, surface)
+        else -> if (reason == GatewayAdmissionReason.HTTP_REJECTED && status in setOf(408, 429, 500, 502, 503, 504) && surface != GatewayAdmissionSurface.COMMAND) {
+            GatewayAdmissionException(reason, status, code, surface, retryability = GatewayAdmissionRetryability.SAFE_READ)
+        } else {
+            GatewayAdmissionException(reason, status, code, surface)
+        }
     }
 }

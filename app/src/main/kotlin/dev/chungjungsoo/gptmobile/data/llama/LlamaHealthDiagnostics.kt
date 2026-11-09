@@ -72,7 +72,8 @@ internal data class LlamaHealthReport(
     val skippedMetadataSurfaces: List<String> = emptyList(),
     val gatewayFailure: String? = null,
     val gatewayReasonCode: String? = null,
-    val gatewayRetryable: Boolean? = null
+    val gatewayRetryable: Boolean? = null,
+    val propsRejection: LlamaMetadataFailure? = null
 ) {
     val phase: LlamaConnectionPhase get() = when {
         activeGenerations > 0 -> LlamaConnectionPhase.GENERATING
@@ -91,7 +92,7 @@ internal data class LlamaHealthReport(
         "propsHttp=${propsHttpStatus ?: "unknown"}; servingContext=${contextTokens ?: "unknown"}; templateRevision=${templateRevision ?: "unknown"}; " +
         "gatewayHttp=${gatewayHttpStatus ?: "unknown"}; gatewayReady=${gatewayReady ?: "Not measured"}; gatewayReasonCode=${gatewayReasonCode ?: "Not reported"}; gatewayFailure=${gatewayFailure ?: "none"}; metadataSource=$metadataSource; metadataRestricted=$metadataRestricted; cachedRestrictedSurfaces=$cachedRestrictedSurfaces; " +
         "phase=$phase; serverGeneration=${serverGeneration ?: "Not reported"}; modelIdentity=${modelIdentity ?: "Not reported"}; " +
-        "healthFailure=${healthFailure ?: "none"}; propsFailure=${propsFailure ?: "none"}; modelsFailure=${modelsFailure ?: "none"}; " +
+        "healthFailure=${healthFailure ?: "none"}; propsFailure=${propsFailure ?: "none"}; propsErrorCode=${propsRejection?.serverCode ?: "Not reported"}; propsErrorType=${propsRejection?.serverType ?: "Not reported"}; propsErrorParameter=${propsRejection?.parameter ?: "Not reported"}; propsErrorMessage=${propsRejection?.message ?: "Not reported"}; propsRequestId=${propsRejection?.requestId ?: "Not reported"}; modelsFailure=${modelsFailure ?: "none"}; " +
         "activeGenerations=$activeGenerations; requestId=${activeRequestId ?: "Not reported"}; inferenceTested=$inferenceTested; inferenceReady=${inferenceReady ?: "Not measured"}; inferenceFailure=${inferenceFailure ?: "none"}; inferenceLatencyMs=${inferenceLatencyMs ?: "Not measured"}; timeToFirstTokenMs=${timeToFirstTokenMs ?: "Not measured"}; gatewayToolsReady=${gatewayToolsReady ?: "Not measured"}"
 
     fun diagnosticFields(): Map<String, Any?> = mapOf(
@@ -116,6 +117,11 @@ internal data class LlamaHealthReport(
         "modelIdentity" to modelIdentity,
         "healthFailure" to healthFailure,
         "propsFailure" to propsFailure,
+        "propsErrorCode" to propsRejection?.serverCode,
+        "propsErrorType" to propsRejection?.serverType,
+        "propsErrorParameter" to propsRejection?.parameter,
+        "propsErrorMessage" to propsRejection?.message,
+        "propsRequestId" to propsRejection?.requestId,
         "modelsFailure" to modelsFailure,
         "activeGenerations" to activeGenerations,
         "requestId" to activeRequestId,
@@ -189,6 +195,7 @@ internal class LlamaHealthDiagnostics(
                     healthFailure = healthResult.failure,
                     modelsFailure = modelResult.failure,
                     propsFailure = propsResult.failure,
+                    propsRejection = propsResult.rejection,
                     cachedRestrictedSurfaces = listOfNotNull("health".takeIf { healthResult.cached }, "props".takeIf { propsResult.cached })
                 )
             }
@@ -317,10 +324,13 @@ internal class LlamaHealthDiagnostics(
         }
     }
 
-    private data class Probe(val status: Int? = null, val body: JsonObject? = null, val failure: String? = null, val cached: Boolean = false)
+    private data class Probe(val status: Int? = null, val body: JsonObject? = null, val failure: String? = null, val cached: Boolean = false, val rejection: LlamaMetadataFailure? = null)
 
     private suspend fun readMetadata(endpoint: String, config: ProviderRequestConfig, model: String, surface: GatewaySurfacePolicy.Surface): Probe {
-        GatewaySurfacePolicy.shared.rememberedStatus(GatewaySurfacePolicy.identity(config), surface)?.let { return Probe(status = it, cached = true) }
+        GatewaySurfacePolicy.shared.rememberedStatus(GatewaySurfacePolicy.identity(config), surface)?.let {
+            val rejection = llamaMetadataFailure(it, null)
+            return Probe(status = it, failure = rejection.code, cached = true, rejection = rejection)
+        }
         val result = read(endpoint, config, model)
         val code = ((result.body?.get("error") as? JsonObject)?.get("code") as? JsonPrimitive)?.contentOrNull
         result.status?.let { GatewaySurfacePolicy.shared.observe(GatewaySurfacePolicy.identity(config), surface, it, code) }
@@ -329,8 +339,9 @@ internal class LlamaHealthDiagnostics(
 
     private suspend fun read(endpoint: String, config: ProviderRequestConfig, model: String, timeoutMillis: Long = 1_500): Probe = try {
         withTimeoutOrNull(timeoutMillis) {
+            val diagnostic = GatewayClientDiagnostics.withHeaders(config.copy(providerType = config.providerType ?: "LLAMA"), model)
             LocalEndpointConnectionPolicy.probe(endpoint, evictIdleConnections) {
-                gatewayClientExchange(config, if (endpoint.substringBefore('?').endsWith("/gateway/ready")) "readiness" else "capabilities", safeRead = true) { headers ->
+                gatewayClientExchange(diagnostic, if (endpoint.substringBefore('?').endsWith("/gateway/ready")) "readiness" else "capabilities", safeRead = true) { headers ->
                     val response = readClient().get(endpoint) {
                         config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
                         headers.forEach { (key, value) -> header(key, value) }
@@ -339,8 +350,19 @@ internal class LlamaHealthDiagnostics(
                         if (LocalEndpointConnectionPolicy.freshConnection(endpoint)) header(HttpHeaders.Connection, "close")
                     }
                     GatewayClientDiagnostics.observe(config, response.status.value) { response.headers[it] }
-                    val body = response.boundedMetadata(64 * 1024)
-                    Probe(response.status.value, runCatching { Json.parseToJsonElement(body) as? JsonObject }.getOrNull())
+                    val status = response.status.value
+                    val body = try {
+                        response.boundedMetadata(64 * 1024)
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (failure: Exception) {
+                        // A rejected response remains HTTP evidence even if its optional body is unreadable.
+                        if (status in 200..299) throw failure
+                        null
+                    }
+                    val document = body?.let { runCatching { Json.parseToJsonElement(it) as? JsonObject }.getOrNull() }
+                    val rejection = if (status !in 200..299) llamaMetadataFailure(status, document, headers["X-Request-ID"]) else null
+                    Probe(status, document, rejection?.code ?: if (document == null) "METADATA_INVALID_JSON" else null, rejection = rejection)
                 }
             }
         } ?: Probe(failure = "PROBE_TIMEOUT")

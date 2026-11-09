@@ -58,7 +58,10 @@ import dev.chungjungsoo.gptmobile.data.github.gatewayIdentityKey
 import dev.chungjungsoo.gptmobile.data.queue.GatewayQueuedChatState
 import dev.chungjungsoo.gptmobile.data.queue.GatewayQueuedState
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
+import dev.chungjungsoo.gptmobile.presentation.common.diagnosticFrameTiming
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.GatewayTranscriptDialog
+import java.text.DateFormat
+import java.util.Date
 import kotlinx.coroutines.awaitCancellation
 
 /** The same home navigation, toolbar, chat rows and compose button, scoped to saved gateway work. */
@@ -83,8 +86,8 @@ internal fun GatewayConversationsScreen(
     val localChats = remember(state.localChats, query) {
         state.localChats.filter { query.isBlank() || it.title.contains(query.trim(), ignoreCase = true) }
     }
-    val remoteChats = remember(state.page, query) {
-        state.page?.items.orEmpty().filter {
+    val remoteChats = remember(state.page, state.localChats, state.localConversationChats, query) {
+        state.unmirroredConversations.filter {
             query.isBlank() || listOf(it.title, it.model, it.repository.orEmpty()).any { text -> text.contains(query.trim(), ignoreCase = true) }
         }
     }
@@ -103,7 +106,7 @@ internal fun GatewayConversationsScreen(
         }
     }
     Scaffold(
-        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+        modifier = Modifier.diagnosticFrameTiming("Gateway chats").nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             HomeTopBar(
                 chatListState = listState,
@@ -196,7 +199,14 @@ internal fun GatewayConversationsScreen(
                                 color = if (state.error == GatewayBrowserError.CONNECTION) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error
                             )
                         }
-                        if (state.cachedInventory && state.page != null) Text(stringResource(R.string.gateway_home_saved_history), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (state.cachedInventory && state.page != null) {
+                            val observationTime = remember(state.lastSyncedAt) { state.lastSyncedAt?.let { DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(it)) } }
+                            Text(
+                                if (observationTime == null) stringResource(R.string.gateway_home_saved_history) else stringResource(R.string.gateway_home_saved_history_at, observationTime),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
                 itemsIndexed(localChats, key = { _, chat -> "local:${chat.id}" }) { index, chat ->

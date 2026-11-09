@@ -10,7 +10,7 @@ enum class ProviderUsagePhase { INITIAL, INTERIM, FINAL }
 
 sealed interface ProviderEvent {
     data class ThinkingDelta(val text: String) : ProviderEvent
-    data class TextDelta(val text: String) : ProviderEvent
+    data class TextDelta(val text: String, val lineage: dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage = dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage()) : ProviderEvent
     data class CombinedQuality(val report: CombinedQualityReport) : ProviderEvent
 
     /** The body and its attribution are one publication; neither may be checkpointed alone. */
@@ -23,7 +23,7 @@ sealed interface ProviderEvent {
         val originalInvocationFingerprint: String? = null
     ) : ProviderEvent
     data class ToolResult(val call: ToolCall, val result: AgentToolResult) : ProviderEvent
-    data class Failed(val message: String, val progressDeadline: ProgressDeadlineOutcome? = null, val errorCode: String? = null, val transportComplete: Boolean = false, val providerLimit: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision? = null, val taskOutcome: String? = null, val failureDetails: JsonObject? = null) : ProviderEvent
+    data class Failed(val message: String, val progressDeadline: ProgressDeadlineOutcome? = null, val errorCode: String? = null, val transportComplete: Boolean = false, val providerLimit: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision? = null, val taskOutcome: String? = null, val failureDetails: JsonObject? = null, val invocationId: String? = null) : ProviderEvent
     data class Notice(val message: String, val persistent: Boolean = false, val researchDelivery: dev.chungjungsoo.gptmobile.data.research.delivery.ResearchDeliveryReceipt? = null) : ProviderEvent
     data class PhaseChanged(val phase: dev.chungjungsoo.gptmobile.data.localruntime.LocalInferencePhase, val nativeProgress: dev.chungjungsoo.gptmobile.data.localruntime.GgufNativeProgress? = null) : ProviderEvent
     data class LocalMetrics(val metrics: dev.chungjungsoo.gptmobile.data.localruntime.LocalInferenceMetrics) : ProviderEvent
@@ -200,6 +200,9 @@ data class AgentToolExchange(
 interface AgentProviderSession {
     val allowsControlJsonText: Boolean get() = false
     val hasPreparedSearchEvidence: Boolean get() = false
+
+    /** The session chooses recovery reads from durable evidence, including its own cleanup and verification reserve. */
+    val handlesToolResultRecovery: Boolean get() = false
     val handlesToolsInternally: Boolean
         get() = false
 

@@ -17,7 +17,9 @@ internal fun Flow<AgentRunEvent>.withGitHubTerminalDelivery(enabled: Boolean): F
         var successfulDispatch = false
         suspend fun finish(failure: ProviderEvent.Failed) {
             if (terminal) return
-            if (!visible) {
+            // A typed rejection can be saved for the existing provider wait. Do not
+            // turn a no-output attempt into an answer before its durable safety check.
+            if (!visible && failure.providerLimit?.knownNotAccepted != true) {
                 val reason = failure.errorCode?.takeIf { it.matches(Regex("[A-Z][A-Z0-9_]{0,95}")) } ?: "GITHUB_RUN_INTERRUPTED"
                 val evidence = if (receipts.isEmpty()) {
                     "No tool result was delivered for this attempt."
@@ -29,7 +31,8 @@ internal fun Flow<AgentRunEvent>.withGitHubTerminalDelivery(enabled: Boolean): F
                         ProviderEvent.TextDelta(
                             "The GitHub task stopped before a verified final result was available.\n\n" +
                                 "$evidence\n\nStatus: ${if (successfulDispatch) "PARTIAL" else "BLOCKED"}. Recorded failure: `$reason`. " +
-                                "Review the failure details before resuming. Completed actions must be reconciled, and uncertain writes must not be repeated."
+                                "Review the failure details before resuming. Completed actions must be reconciled, and uncertain writes must not be repeated.",
+                            dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.SYSTEM_ERROR, failure.invocationId)
                         )
                     )
                 )

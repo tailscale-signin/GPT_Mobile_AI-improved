@@ -8,6 +8,8 @@ import dagger.multibindings.IntoSet
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditPluginProbeSource
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditPluginServices
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditProbeSource
+import dev.chungjungsoo.gptmobile.data.audit.AppAuditSelectedModelProbeSource
+import dev.chungjungsoo.gptmobile.data.audit.AppAuditSelectedModelServices
 import javax.inject.Singleton
 
 @Module
@@ -17,4 +19,9 @@ internal object AppAuditPluginModule {
     @Singleton
     @IntoSet
     fun providePluginAuditSource(services: AppAuditPluginServices): AppAuditProbeSource = AppAuditPluginProbeSource(services::inventory, services::target)
+
+    @Provides
+    @Singleton
+    @IntoSet
+    fun provideSelectedModelAuditSource(services: AppAuditSelectedModelServices): AppAuditProbeSource = AppAuditSelectedModelProbeSource(services::inventory, services::target)
 }

@@ -15,11 +15,12 @@ internal fun Flow<ProviderEvent>.withAssistantTextMarkupGuard(
     var guard = AssistantTextMarkupGuard(allowControlJsonText)
     var blocked = false
     var successfulWebSearch = initialSuccessfulSearch || !validateSearchClaims
+    val textLineage = dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineageAccumulator()
 
     suspend fun finishText() {
         if (blocked) return
         val result = guard.finish(successfulWebSearch)
-        if (result.text.isNotEmpty()) emit(ProviderEvent.TextDelta(result.text))
+        if (result.text.isNotEmpty()) emit(ProviderEvent.TextDelta(result.text, textLineage.lineage))
         if (result.blocked) {
             blocked = true
             logRejectedMarkup(result.reason.orEmpty())
@@ -54,6 +55,7 @@ internal fun Flow<ProviderEvent>.withAssistantTextMarkupGuard(
                 // The bundle replaces provisional text. Its digest-bound body must
                 // stay intact, and no retained provisional suffix may follow it.
                 guard = AssistantTextMarkupGuard(allowControlJsonText)
+                textLineage.reset()
                 if (result.blocked) {
                     blocked = true
                     logRejectedMarkup(result.reason.orEmpty())
@@ -63,8 +65,9 @@ internal fun Flow<ProviderEvent>.withAssistantTextMarkupGuard(
                 }
             }
             is ProviderEvent.TextDelta -> {
+                if (event.text.isNotEmpty()) textLineage.append(event.lineage)
                 val result = guard.append(event.text, successfulWebSearch)
-                if (result.text.isNotEmpty()) emit(ProviderEvent.TextDelta(result.text))
+                if (result.text.isNotEmpty()) emit(ProviderEvent.TextDelta(result.text, textLineage.lineage))
                 if (result.blocked) {
                     blocked = true
                     logRejectedMarkup(result.reason.orEmpty())

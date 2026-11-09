@@ -28,6 +28,7 @@ internal object GitHubAuthorizedCatalog {
         val expected = first?.let(::data)?.number("authorized_tool_count")
         val names = linkedSetOf<String>()
         val ids = mutableListOf<kotlinx.serialization.json.JsonElement>()
+        val contractChanges = mutableListOf<JsonObject>()
         var offset = 0
         var next: JsonObject? = null
         var complete = false
@@ -38,15 +39,10 @@ internal object GitHubAuthorizedCatalog {
                 val value = data(page) ?: break
                 val entries = (value["authorized_inventory"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
                 val pageNames = entries.map { it.text("name") }
-                val changedContract = entries.any { entry ->
-                    val definition = tools.firstOrNull { it.name == entry.text("name") } ?: return@any false
-                    val schemaChanged = if (entry.text("semantic_schema_fingerprint").isNotBlank()) {
-                        entry.text("semantic_schema_fingerprint") != ToolContractFingerprint.schema(definition.inputSchema)
-                    } else {
-                        entry.text("schema_fingerprint") != GitHubEvidenceBook.digest(definition.inputSchema.toString())
-                    }
-                    schemaChanged || entry.text("invocation_contract_version").let { it.isNotBlank() && it != definition.contractVersion.toString() }
+                contractChanges += entries.mapNotNull { entry ->
+                    tools.firstOrNull { it.name == entry.text("name") }?.let { contractChange(entry, it) }
                 }
+                val changedContract = contractChanges.isNotEmpty()
                 if (value.text("inventory_version") != version ||
                     page["binding"] != first["binding"] ||
                     page["repository"] != first["repository"] ||
@@ -134,6 +130,10 @@ internal object GitHubAuthorizedCatalog {
             put("known_github_tool_count", known.size)
             put("observed_names", JsonArray(names.map(::JsonPrimitive)))
             put("receipt_ids", JsonArray(ids))
+            if (contractChanges.isNotEmpty()) {
+                put("contract_change_count", contractChanges.size)
+                put("contract_changes", JsonArray(contractChanges.take(32)))
+            }
             if (!complete && invalid == null) next?.let { put("continuation_call", it) }
             (invalid ?: failedNext?.text("error_code")?.ifBlank { "CATALOG_CONTINUATION_FAILED" })?.let { put("blocker", it) }
             put("scope", "Authorized tool names; capability actions and repository inventory pages have independent denominators")
@@ -192,6 +192,38 @@ internal object GitHubAuthorizedCatalog {
 
     fun required(tools: List<AgentToolDefinition>, receipts: Map<String, JsonObject>): Boolean =
         tools.any { it.name == TOOL } || receipts.values.any { it.text("tool") == TOOL }
+
+    private fun contractChange(entry: JsonObject, definition: AgentToolDefinition): JsonObject? {
+        val semantic = entry.text("semantic_schema_fingerprint").isNotBlank()
+        val observed = entry.text(if (semantic) "semantic_schema_fingerprint" else "schema_fingerprint")
+        val expected = if (semantic) ToolContractFingerprint.schema(definition.inputSchema) else GitHubEvidenceBook.digest(definition.inputSchema.toString())
+        val observedVersion = entry.text("invocation_contract_version")
+        val versionChanged = observedVersion.isNotBlank() && observedVersion != definition.contractVersion.toString()
+        if (observed == expected && !versionChanged) return null
+        val fingerprintValid = observed.matches(Regex("[a-fA-F0-9]{64}"))
+        val versionValid = observedVersion.matches(Regex("[1-9][0-9]{0,9}\\.[0-9]{1,10}"))
+        return buildJsonObject {
+            put("name", definition.name)
+            put("fingerprint_kind", if (semantic) "SEMANTIC_SCHEMA_V1" else "RAW_SCHEMA_V1")
+            put("observed_schema_fingerprint", if (fingerprintValid) observed else "INVALID")
+            put("schema_fingerprint_invalid", !fingerprintValid)
+            put("expected_schema_fingerprint", expected)
+            put("schema_changed", observed != expected)
+            put(
+                "observed_contract_version",
+                if (versionValid) {
+                    observedVersion
+                } else if (observedVersion.isBlank()) {
+                    "NOT_PROVIDED"
+                } else {
+                    "INVALID"
+                }
+            )
+            put("contract_version_invalid", observedVersion.isNotBlank() && !versionValid)
+            put("expected_contract_version", definition.contractVersion.toString())
+            put("contract_version_changed", versionChanged)
+        }
+    }
 
     private fun github(name: String) = name.substringBefore("__").let { it.startsWith("github_") || it == "repository_graph" }
     private fun data(receipt: JsonObject) = (receipt["result"] as? JsonObject)?.let { (it["data"] as? JsonObject) ?: it }

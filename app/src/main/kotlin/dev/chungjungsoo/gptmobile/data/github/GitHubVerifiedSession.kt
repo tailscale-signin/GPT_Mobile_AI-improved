@@ -44,6 +44,9 @@ internal class GitHubVerifiedSession(
     private val currentRequest: String = task,
     private val openExecutionContinuation: (suspend (String) -> AgentProviderSession)? = null
 ) : AgentProviderSession by delegate {
+    override val handlesToolResultRecovery: Boolean = GitHubTestChecklist.integration(task) ||
+        GitHubTaskContinuity.reportOnly(currentRequest) ||
+        GitHubTaskContinuity.diagnostic(currentRequest)
     private var lastChecklist: JsonObject? = null
     private var initialReceiptIds: Set<String>? = null
     private var initiallyVerifiedComplete = false
@@ -82,7 +85,7 @@ internal class GitHubVerifiedSession(
     override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
         val intent = dev.chungjungsoo.gptmobile.data.agent.CurrentRequestContract.from(GitHubTaskContinuity.request(task))
         if (intent.conversational) {
-            emit(ProviderEvent.TextDelta(intent.acknowledgement()))
+            emit(ProviderEvent.TextDelta(intent.acknowledgement(), dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.APPLICATION_REPORT)))
             emit(ProviderEvent.Completed)
             return@flow
         }
@@ -94,7 +97,7 @@ internal class GitHubVerifiedSession(
         if (GitHubTaskContinuity.diagnostic(currentRequest)) {
             validatePublication()
             val (receipts, _) = evidence.snapshot()
-            emit(ProviderEvent.TextDelta(GitHubTaskContinuity.explain(evidence.diagnostic(), receipts)))
+            emit(ProviderEvent.TextDelta(GitHubTaskContinuity.explain(evidence.diagnostic(), receipts), dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.APPLICATION_REPORT)))
             emit(ProviderEvent.Completed)
             return@flow
         }
@@ -127,7 +130,7 @@ internal class GitHubVerifiedSession(
             validatePublication()
             val report = gatewayDiagnostic?.invoke() ?: "Gateway integration: unavailable. Configure an engineering gateway connection in GitHub settings."
             validatePublication()
-            emit(ProviderEvent.TextDelta(report))
+            emit(ProviderEvent.TextDelta(report, dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.APPLICATION_REPORT)))
             emit(ProviderEvent.Completed)
             return@flow
         }
@@ -165,7 +168,7 @@ internal class GitHubVerifiedSession(
                 return@flow
             }
         }
-        if (GitHubTestChecklist.integration(task) && (tools.isNotEmpty() || evidence.snapshot().first.values.any { it["trusted"] == kotlinx.serialization.json.JsonPrimitive(true) })) {
+        if (GitHubTestChecklist.integration(task)) {
             val receipts = evidence.snapshot().first
             val (checkpoint, planned, missing) = withContext(computationDispatcher) {
                 Triple(
@@ -201,7 +204,39 @@ internal class GitHubVerifiedSession(
             }
             // Coverage fields come exclusively from the cumulative ledger. No model draft
             // or answer rewrite can supply missing executions or unlock a blocked dependency.
-            emitAll(publish(null))
+            val acceptanceComplete = (checkpoint["requirements"] as? JsonArray)?.isNotEmpty() == true &&
+                (checkpoint["remaining_requirements"] as? JsonArray)?.isEmpty() == true
+            val executionBlocker = when {
+                acceptanceComplete -> null
+                remainingToolCalls() == 0 -> "TOOL_BUDGET_EXHAUSTED"
+                tools.isEmpty() -> "REQUIRED_TOOL_CAPABILITY_UNAVAILABLE"
+                else -> null
+            }
+            if (executionBlocker == null) {
+                emitAll(publish(null))
+            } else {
+                emitAll(
+                    publish(
+                        null,
+                        failureCode = executionBlocker,
+                        originalFailure = ProviderEvent.Failed(
+                            if (executionBlocker == "TOOL_BUDGET_EXHAUSTED") {
+                                "The accepted tool allowance is exhausted. Saved operation, catalog and fixture receipts are retained. Review the remaining work and explicitly authorize a new allowance before continuing execution."
+                            } else {
+                                "The current request has no executable tool catalog for the missing verification. Review the exact saved connection, repository scope and tool selection. Saved evidence alone cannot perform the unfinished operations."
+                            },
+                            errorCode = executionBlocker,
+                            taskOutcome = "BLOCKED",
+                            failureDetails = buildJsonObject {
+                                put("failed_stage", "tool_admission")
+                                put("stop_reason", executionBlocker)
+                                put("dispatched", false)
+                                put("retryable", false)
+                            }
+                        )
+                    )
+                )
+            }
             return@flow
         }
         if (GitHubStatusRequest.matches(task) && tools.isNotEmpty()) {
@@ -296,7 +331,7 @@ internal class GitHubVerifiedSession(
         }
         val (body, verdict) = saved
         val text = "## Saved report\n\nThese are the retained observations from the accepted task; no new repository checks were run.\n\n$body"
-        emit(ProviderEvent.TextDelta(text))
+        emit(ProviderEvent.TextDelta(text, dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.RETAINED_CONTENT)))
         val delivered = evidence.retainVerdict(
             JsonObject(
                 verdict + buildJsonObject {
@@ -400,7 +435,8 @@ internal class GitHubVerifiedSession(
                     emit(
                         ProviderEvent.TextDelta(
                             "The answer review could not finish. The draft remains unverified, and no GitHub completion is claimed. " +
-                                "Saved operations are retained. Retry resumes only the bounded review recovery; it does not repeat a commit.\n\nRecorded failure: `${failure.errorCode}`."
+                                "Saved operations are retained. Retry resumes only the bounded review recovery; it does not repeat a commit.\n\nRecorded failure: `${failure.errorCode}`.",
+                            dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.SYSTEM_ERROR, failure.invocationId)
                         )
                     )
                 }
@@ -562,7 +598,7 @@ internal class GitHubVerifiedSession(
                 throw policy
             } else {
                 if (originalFailure != null) {
-                    emit(ProviderEvent.TextDelta("The task was interrupted before verification finished. Completed operations remain saved; no completion is claimed.\n\nOriginal failure: ${originalFailure.message}\n\nVerification also could not finish: ${failure.message.orEmpty().take(400)}"))
+                    emit(ProviderEvent.TextDelta("The task was interrupted before verification finished. Completed operations remain saved; no completion is claimed.\n\nOriginal failure: ${originalFailure.message}\n\nVerification also could not finish: ${failure.message.orEmpty().take(400)}", dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.SYSTEM_ERROR, originalFailure.invocationId)))
                     emit(originalFailure)
                 } else {
                     emit(ProviderEvent.Failed("GitHub answer withheld: ${failure.message.orEmpty().take(400)}. Not available / Not measured. Retained evidence can be inspected or refreshed.", errorCode = "GITHUB_EVIDENCE_REQUIRED"))
@@ -579,7 +615,7 @@ internal class GitHubVerifiedSession(
         } catch (failure: Exception) {
             throw ProgressCheckpointFailure(failure, originalFailure)
         }
-        emit(ProviderEvent.TextDelta(text))
+        emit(ProviderEvent.TextDelta(text, dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.APPLICATION_REPORT)))
         val delivered = evidence.retainVerdict(
             JsonObject(
                 report + buildJsonObject {
@@ -605,6 +641,8 @@ internal class GitHubVerifiedSession(
                         failureCode ?: extractionCode ?: (delivered["verification_failure"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: "GITHUB_TASK_INCOMPLETE"
                     },
                     transportComplete = true,
+                    providerLimit = originalFailure?.providerLimit?.takeUnless { unresolved || waitingApproval },
+                    invocationId = originalFailure?.invocationId,
                     taskOutcome = if (waitingApproval || originalFailure?.taskOutcome == "BLOCKED") "BLOCKED" else "PARTIAL",
                     failureDetails = if (waitingApproval) {
                         buildJsonObject {

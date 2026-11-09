@@ -30,7 +30,7 @@ class DiagnosticLogSnapshot internal constructor(
     val byteCount: Long get() = sources.sumOf { it.byteCount }
 
     fun forEachLine(consume: (String) -> Unit) {
-        sources.forEach { source -> source.file.bufferedReader().useLines { lines -> lines.forEach(consume) } }
+        sources.forEach { source -> source.file.bufferedReader().useLines { lines -> lines.forEach { consume(redactLogMessage(it)) } } }
     }
 
     fun writeTo(destination: Writer): Long {
@@ -92,8 +92,11 @@ internal object DiagnosticLogFiles {
                         length = completeLength
                         if (truncated) truncatedRecords++
                         if (length > 0) {
-                            output.write(line, 0, length)
-                            byteCount += length
+                            // Retained files can predate current redaction rules. Re-sanitize
+                            // their complete physical records before any export snapshot exists.
+                            val safe = redactLogMessage(String(line, 0, length, Charsets.UTF_8)).toByteArray(Charsets.UTF_8)
+                            output.write(safe)
+                            byteCount += safe.size
                             if (truncated) {
                                 val marker = " · truncatedAtSnapshot=true".toByteArray(Charsets.UTF_8)
                                 output.write(marker)

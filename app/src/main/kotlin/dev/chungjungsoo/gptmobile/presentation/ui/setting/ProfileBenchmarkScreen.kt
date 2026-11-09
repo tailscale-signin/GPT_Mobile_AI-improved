@@ -134,7 +134,7 @@ fun ProfileBenchmarkScreen(
     val legacyReport by viewModel.legacyReport.collectAsStateWithLifecycle()
     val batches by viewModel.batches.collectAsStateWithLifecycle()
     val session by viewModel.benchmarkSession.collectAsStateWithLifecycle()
-    val auditGatewayCandidates by viewModel.auditGatewayCandidates.collectAsStateWithLifecycle()
+    val auditModelCandidates by viewModel.auditModelCandidates.collectAsStateWithLifecycle()
     val auditTargetNames by viewModel.auditTargetNames.collectAsStateWithLifecycle()
     val auditLabelWarning by viewModel.auditLabelWarning.collectAsStateWithLifecycle()
     var allowAuditNetworkReads by rememberSaveable { mutableStateOf(false) }
@@ -328,7 +328,7 @@ fun ProfileBenchmarkScreen(
                         busy = session != null || progress != null,
                         allowNetworkReads = allowAuditNetworkReads,
                         onAllowNetworkReads = { allowAuditNetworkReads = it },
-                        gatewayProfiles = auditGatewayCandidates,
+                        modelProfiles = auditModelCandidates,
                         selectedProfileIds = auditProfileIds,
                         onToggleProfile = { id -> auditProfileIds = if (id in auditProfileIds) auditProfileIds - id else auditProfileIds + id },
                         onStart = {
@@ -369,7 +369,21 @@ fun ProfileBenchmarkScreen(
                             onExport = { requestAuditExport(selectedAudit.id) }
                         )
                     }
-                    appAuditEvidenceContent(selectedAudit, auditTargetNames, onOpenAuditConnection)
+                    appAuditEvidenceContent(
+                        selectedAudit,
+                        auditTargetNames,
+                        onOpenAuditConnection,
+                        onPrepareModelBenchmark = if (ready && session == null && progress == null) {
+                            { entry ->
+                                viewModel.prepareAuditModelBenchmark(entry) {
+                                    mode = BenchmarkMode.QUICK
+                                    tab = 0
+                                }
+                            }
+                        } else {
+                            null
+                        }
+                    )
                 }
             } else if (tab == 6) {
                 item {

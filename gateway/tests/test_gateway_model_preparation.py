@@ -80,6 +80,40 @@ class ModelQualificationTests(unittest.TestCase):
         self.assertNotIn('secret', json.dumps(result))
         self.assertEqual('PARSED', result['upstreamErrorBodyState'])
 
+    def test_router_error_variants_remain_exact_model_bound_without_inference(self):
+        cases = [
+            ('model is not loaded', 'SELECTED_MODEL_NOT_LOADED', 'MODEL_NOT_LOADED', 'UNLOADED'),
+            ('model name=selected is not running', 'SELECTED_MODEL_NOT_LOADED', 'MODEL_NOT_LOADED', 'UNLOADED'),
+            ('model is not found', 'SELECTED_MODEL_NOT_AVAILABLE', 'MODEL_NOT_FOUND', 'UNAVAILABLE'),
+            ('model name=selected is not found', 'SELECTED_MODEL_NOT_AVAILABLE', 'MODEL_NOT_FOUND', 'UNAVAILABLE'),
+            ('model name is missing from the request', 'BACKEND_CONFIGURATION_INVALID', 'MODEL_SELECTOR_REQUIRED', 'UNKNOWN'),
+        ]
+        for message, reason, marker, state in cases:
+            with self.subTest(message=message):
+                get = Mock(side_effect=[Response({'data': [{'id': 'selected'}]}),
+                                       Response({'error': {'code': 400, 'type': 'invalid_request_error', 'message': message}}, 400)])
+                post = Mock(side_effect=AssertionError('An error observation must not load or infer'))
+                result = InferenceCapabilities(runtime(get, post)).selected_model('selected')
+                self.assertEqual(reason, result['reasonCode'])
+                self.assertEqual(marker, result['upstreamMessageCode'])
+                self.assertEqual(state, result['modelState'])
+                self.assertFalse(result['limitsVerified'])
+                self.assertFalse(result['inferenceTested'])
+                self.assertFalse(result['retryable'])
+                self.assertEqual(2, get.call_count)
+                self.assertEqual({'model': 'selected', 'autoload': 'false'}, get.call_args.kwargs['params'])
+                post.assert_not_called()
+                projected = response_summary({'selectedModel': result})
+                self.assertEqual(marker, projected['upstreamMessageCode'])
+        unrelated = response_failure(Response({'error': {'message': 'model name=other is not found'}}, 400), 'backend_properties', 'selected')
+        self.assertEqual('BACKEND_HTTP_ERROR', unrelated['reasonCode'])
+        self.assertNotIn('upstreamMessageCode', unrelated)
+
+    def test_model_selector_error_cannot_override_a_permission_rejection(self):
+        result = response_failure(Response({'error': {'message': 'model name is missing from the request'}}, 403), 'backend_properties', 'selected')
+        self.assertEqual('BACKEND_METADATA_DENIED', result['reasonCode'])
+        self.assertFalse(result['retryable'])
+
     def test_invalid_oversize_and_interrupted_error_bodies_keep_the_http_rejection(self):
         for response, body_state in [(Response(status=400, raw=b'not-json'), 'INVALID'),
                                      (Response(status=400, raw=b'x' * 20000), 'TOO_LARGE'),

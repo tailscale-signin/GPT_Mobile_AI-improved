@@ -17,10 +17,12 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
-data class AppLogEntry(val time: Long, val level: String, val tag: String, val message: String, val eventId: String = java.util.UUID.randomUUID().toString(), val monotonicNanos: Long = System.nanoTime(), val bootMillis: Long? = runCatching { android.os.SystemClock.elapsedRealtime() }.getOrNull(), val processId: Int = runCatching { Process.myPid() }.getOrDefault(-1), val processName: String? = runCatching { Application.getProcessName() }.getOrNull()) {
+private val diagnosticProcessSessionId = java.util.UUID.randomUUID().toString()
+
+data class AppLogEntry(val time: Long, val level: String, val tag: String, val message: String, val eventId: String = java.util.UUID.randomUUID().toString(), val monotonicNanos: Long = System.nanoTime(), val bootMillis: Long? = runCatching { android.os.SystemClock.elapsedRealtime() }.getOrNull(), val processId: Int = runCatching { Process.myPid() }.getOrDefault(-1), val processName: String? = runCatching { Application.getProcessName() }.getOrNull(), val processSessionId: String = diagnosticProcessSessionId) {
     fun line(): String {
         val identity = eventId.take(64)
-        val prefix = "${Instant.ofEpochMilli(time)} ${level.take(1)}/${tag.take(64)}: eventId=$identity · monoNs=$monotonicNanos · bootMs=${bootMillis ?: "unknown"} · processId=$processId · processName=${processName?.take(256) ?: "unknown"} · "
+        val prefix = "${Instant.ofEpochMilli(time)} ${level.take(1)}/${tag.take(64)}: eventId=$identity · monoNs=$monotonicNanos · bootMs=${bootMillis ?: "unknown"} · processId=$processId · processName=${processName?.take(256) ?: "unknown"} · processSessionId=${processSessionId.take(64)} · "
         return boundedDiagnosticRecord(prefix, identity, message)
     }
 }
@@ -92,7 +94,7 @@ object AppLogRecorder {
         if (previousHandler != null) {
             Thread.setDefaultUncaughtExceptionHandler { thread, failure ->
                 // Keep sanitized method frames, including framework-only failures, even
-                // when the async queue cannot drain. Exception messages stay private.
+                // when the async queue cannot drain. Only fixed safe message templates survive.
                 runCatching {
                     checkpoint("AppCrash", crashDiagnosticSummary(failure, thread.name), level = "F")
                 }
@@ -250,7 +252,7 @@ object AppLogRecorder {
     /** A long-running producer cannot publish old capture data after clear or a privacy transition. */
     internal fun recordCaptured(epoch: Long, tag: String, message: String, level: String = "I") {
         if (!operationCaptureCurrent(epoch)) return
-        coalescer.accept(tag.take(64), diagnosticMessageForStorage(message), level).forEach { (eventTag, eventMessage, eventLevel) ->
+        coalescer.accept(tag.take(64), diagnosticMessageForStorage(message, tag), level).forEach { (eventTag, eventMessage, eventLevel) ->
             if (!mutableEnabled.value || privateSessions.isNotEmpty() || epoch != captureEpoch.get()) return@forEach
             val entry = AppLogEntry(System.currentTimeMillis(), eventLevel.take(1), eventTag, eventMessage)
             val characters = entry.message.length + entry.tag.length + entry.level.length + entry.processName.orEmpty().length + 256
@@ -268,7 +270,7 @@ object AppLogRecorder {
     internal fun checkpoint(tag: String, message: String, level: String = "I") {
         if (!mutableEnabled.value || privateSessions.isNotEmpty()) return
         val epoch = captureEpoch.get()
-        val entry = AppLogEntry(System.currentTimeMillis(), level, tag.take(64), diagnosticMessageForStorage(message))
+        val entry = AppLogEntry(System.currentTimeMillis(), level, tag.take(64), diagnosticMessageForStorage(message, tag))
         synchronized(fileLock) {
             if (!mutableEnabled.value || privateSessions.isNotEmpty() || epoch != captureEpoch.get()) return
             retainRecent(entry)
@@ -409,9 +411,21 @@ object AppLogRecorder {
                 captureForExport(folder).use { snapshot ->
                     val exportedAt = System.currentTimeMillis()
                     val incidents = DiagnosticIncidentTracker()
+                    if (structured) {
+                        snapshot.sources.forEach { source ->
+                            val cursor = DiagnosticCaptureCursor(source.name) { true }
+                            source.file.bufferedReader().useLines { lines ->
+                                lines.forEachIndexed { index, line ->
+                                    val record = cursor.accept(line, index)
+                                    incidents.index(line, record.identity, record.parent)
+                                }
+                            }
+                        }
+                        incidents.finishIndex()
+                    }
                     val duplicateReferences = DiagnosticExportDeduplicator()
                     target.bufferedWriter().use { output ->
-                        val summary = if (structured) DiagnosticExportSummary() else null
+                        val summary = if (structured) DiagnosticExportSummary(incidentCorrelationLimited = incidents.correlationLimited) else null
                         fun writeLine(line: String) {
                             summary?.accept(line)
                             output.appendLine(line)

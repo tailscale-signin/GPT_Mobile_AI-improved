@@ -54,6 +54,7 @@ class InferenceCapabilities:
             if not 200 <= response.status_code < 300:
                 details = response_failure(response, dependency, (params or {}).get('model') or (body or {}).get('model'))
                 code = {'denied': 'EXECUTION_METADATA_DENIED', 'unsupported': 'EXECUTION_CAPABILITY_UNSUPPORTED',
+                        'configuration': 'EXECUTION_MODEL_IDENTITY_INVALID',
                         'model_not_loaded': 'EXECUTION_MODEL_NOT_LOADED', 'model_loading': 'EXECUTION_MODEL_LOADING',
                         'model_unavailable': 'EXECUTION_MODEL_UNAVAILABLE'}.get(details['failureCategory'], 'EXECUTION_BACKEND_UNAVAILABLE')
                 message = details.get('upstreamMessage') or 'Required metadata is unavailable on the configured backend; no other route was tried.'

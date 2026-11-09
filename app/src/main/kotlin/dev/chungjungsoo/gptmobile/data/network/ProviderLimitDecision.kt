@@ -57,7 +57,7 @@ internal fun providerLimitDecision(config: ProviderRequestConfig, model: String,
     (error as? FreeProviderException)?.providerLimit?.let {
         return if (receivedPayload) it.copy(knownNotAccepted = false, continuationPrefixDigest = null) else it.copy(continuationPrefixDigest = prefixDigest.takeIf { _ -> it.knownNotAccepted })
     }
-    val provider = config.freeProvider ?: return null
+    val provider = config.freeProvider ?: return providerHttpLimitDecision(config, model, receivedPayload, error, prefixDigest)
     val category = config.freeDiagnostics?.category ?: freeFailureCategory(error)
     if (category !in setOf(FreeFailureCategory.LOCAL_COOLDOWN_ACTIVE, FreeFailureCategory.LOCAL_ALLOWANCE_EXHAUSTED, FreeFailureCategory.PROVIDER_RATE_LIMITED)) return null
     val identity = freeCredentialIdentity(provider, config.token)
@@ -78,5 +78,24 @@ internal fun providerLimitDecision(config: ProviderRequestConfig, model: String,
         cooldown?.originatingFailureId,
         continuationPrefixDigest = prefixDigest.takeIf { localRejection || rejectedHttp },
         httpStatus = cooldown?.status
+    )
+}
+
+/** A durable wait follows an observed rejection, never a message containing "429". */
+private fun providerHttpLimitDecision(config: ProviderRequestConfig, model: String, receivedPayload: Boolean, error: Exception, prefixDigest: String?): ProviderLimitDecision? {
+    val failure = error as? ProviderHttpFailure ?: return null
+    if (failure.status != 429 || !failure.knownNotAccepted || config.profileUid.isNullOrBlank() || model.isBlank()) return null
+    if (config.lockedModel != null && config.lockedModel != model) return null
+    val retryAt = failure.retryAtMillis ?: return null
+    return ProviderLimitDecision(
+        provider = config.providerType?.takeIf { it.matches(Regex("[A-Z][A-Z0-9_]{0,63}")) } ?: "OPENAI_COMPATIBLE",
+        profileUid = requireNotNull(config.profileUid),
+        model = model,
+        retryAt = retryAt,
+        scope = ProviderCooldown.scope(config),
+        category = FreeFailureCategory.PROVIDER_RATE_LIMITED.name,
+        knownNotAccepted = !receivedPayload,
+        continuationPrefixDigest = prefixDigest.takeUnless { receivedPayload },
+        httpStatus = failure.status
     )
 }

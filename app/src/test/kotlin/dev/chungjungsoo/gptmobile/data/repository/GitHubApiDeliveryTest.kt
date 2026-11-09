@@ -28,6 +28,7 @@ class GitHubApiDeliveryTest {
         assertTrue(text.contains("blocked before execution"))
         assertFalse(text.contains("uncertain"))
         assertEquals(failure, states.filterIsInstance<ApiState.Error>().single())
+        assertEquals(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.SYSTEM_ERROR, states.filterIsInstance<ApiState.Success>().single().lineage.origin)
     }
 
     @Test fun preparationFailureRetainsItsMetadataAndHasOneVisibleResponse() = runTest {

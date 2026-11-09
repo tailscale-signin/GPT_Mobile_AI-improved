@@ -421,11 +421,33 @@ internal object GitHubTestChecklist {
                     capability.automatic && tools.any { it.name.substringBefore("__") == capability.tool } -> "UNTESTED"
                     else -> "BLOCKED"
                 }
+                val blockerCode = when {
+                    status in setOf("PASSED", "RECOVERED") -> null
+                    notRequested -> GitHubCriterionBlocker.OUT_OF_SCOPE
+                    excluded -> GitHubCriterionBlocker.REPOSITORY_SCOPE_EXCLUDED
+                    tools.isNotEmpty() && !authorized -> GitHubCriterionBlocker.AUTHORIZATION_REQUIRED
+                    eligible.isEmpty() && observed.isNotEmpty() -> GitHubCriterionBlocker.HISTORICAL_CONTRACT_CHANGED
+                    waitingApproval -> GitHubCriterionBlocker.APPROVAL_REQUIRED
+                    transportMissing -> GitHubCriterionBlocker.LIVE_EVIDENCE_REQUIRED
+                    incomplete -> GitHubCriterionBlocker.CONTINUATION_REQUIRED
+                    status == "PREFLIGHT_REJECTED" -> GitHubCriterionBlocker.PRECHECK_REJECTED
+                    status == "FAILED" -> GitHubCriterionBlocker.OPERATION_FAILED
+                    status == "UNTESTED" -> GitHubCriterionBlocker.EXECUTION_NOT_EXERCISED
+                    capability.tool == "github_decide" -> GitHubCriterionBlocker.USER_DECISION_REQUIRED
+                    capability.tool == "github_watch_checks" -> GitHubCriterionBlocker.CHECK_SUBSCRIPTION_REQUIRED
+                    !readOnly(capability) -> GitHubCriterionBlocker.OWNED_FIXTURE_REQUIRED
+                    capability.tool == "github_issue" -> GitHubCriterionBlocker.ISSUE_ID_REQUIRED
+                    capability.tool == "github_pr" -> GitHubCriterionBlocker.PULL_REQUEST_ID_REQUIRED
+                    capability.tool == "github_ci" -> GitHubCriterionBlocker.WORKFLOW_RUN_OR_JOB_REQUIRED
+                    capability.tool == "github_release" -> GitHubCriterionBlocker.RELEASE_OR_TAG_REQUIRED
+                    else -> GitHubCriterionBlocker.REPOSITORY_INPUT_REQUIRED
+                }
                 buildJsonObject {
                     put("id", "${capability.tool}:${capability.action}")
                     put("scope", capability.scope)
                     put("status", status)
                     put("acceptance_state", GitHubAcceptanceLedger.state(status).name)
+                    blockerCode?.let { put("blocker_code", it.name) }
                     put("evidence_origins", JsonArray(eligible.map { GitHubEvidenceOrigin.of(it) }.distinct().map(::JsonPrimitive)))
                     put("live_verified", successes.any { GitHubEvidenceOrigin.of(it) == "LIVE" })
                     put("response_validated", eligible.any { it["success"] == JsonPrimitive(true) })

@@ -18,13 +18,18 @@ internal fun Flow<ApiState>.withGitHubApiDelivery(enabled: Boolean, runId: Strin
         var done = false
         suspend fun ensureVisible(error: ApiState.Error? = null) {
             if (visible) return
+            if (error?.providerLimit?.knownNotAccepted == true) {
+                emit(ApiState.ProgressCheckpoint("The provider limited this request before accepting it. The saved request is being checked for a safe wait and resume.", invocationId = error.invocationId))
+                visible = true
+                return
+            }
             val text = githubFailureDeliveryText(error)
             runId?.let { run ->
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
-                    dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.traceOutput(run, dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceBoundary.REDUCER, text, outputOrigin = dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.SYSTEM_ERROR)
+                    dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.traceOutput(run, dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceBoundary.REDUCER, text, invocationId = error?.invocationId, outputOrigin = dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.SYSTEM_ERROR)
                 }
             }
-            emit(ApiState.Success(text))
+            emit(ApiState.Success(text, dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.SYSTEM_ERROR, error?.invocationId)))
             visible = true
         }
         upstream.catch { error ->

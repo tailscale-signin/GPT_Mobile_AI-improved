@@ -39,6 +39,7 @@ class AppAuditPresentationTest {
         assertEquals(75.0, result.score.score!!, 0.0)
         assertEquals("Passing weight 3 / measured weight 4", result.weightText)
         assertEquals("Exercised 2/8 planned checks · Verified passes 1/8 planned checks", result.coverageText)
+        assertEquals("Measured checks 1/2 passed · Planned checks verified 1/8 · 1 failed · 1 blocked · 0 unavailable · 2 untested · 1 canceled", result.coverageSummaryText)
         assertTrue(result.countsText.contains("Passed 3 · Failed 1 · Blocked 1"))
         assertTrue(result.countsText.contains("Untested or pending 2"))
         assertTrue(result.countsText.contains("Canceled 1"))
@@ -56,6 +57,29 @@ class AppAuditPresentationTest {
         assertEquals("Measured check pass score: Not measured", result.scoreText)
         assertEquals("Exercised 0/2 planned checks · Verified passes 0/2 planned checks", result.coverageText)
         assertEquals(1, result.summary.unavailable)
+    }
+
+    @Test fun perfectMeasuredScoreRetainsReportedFailureAndPlannedCoverageInOneSummary() {
+        val measured = (1..26).map { auditEntry("measured-$it") }
+        val configured = (1..29).map { auditEntry("configured-$it", AppAuditEvidenceKind.CONFIGURATION) }
+        val failed = auditEntry("local-credential-failure", AppAuditEvidenceKind.LIVE_METADATA)
+        val blocked = (1..5).map { auditEntry("blocked-$it") }
+        val unavailable = (1..10).map { auditEntry("unavailable-$it") }
+        val untested = (1..49).map { auditEntry("untested-$it", AppAuditEvidenceKind.EXTERNAL_SUITE) }
+        val presentation = appAuditPresentation(
+            auditRun(
+                measured + configured + failed + blocked + unavailable + untested,
+                measured.map { auditResult(it) } +
+                    configured.map { auditResult(it, source = AppAuditObservationSource.CONFIGURATION) } +
+                    auditResult(failed, AppAuditOutcome.FAIL, AppAuditObservationSource.NONE, reason = "MCP_LOCAL_CREDENTIAL_INVALID") +
+                    blocked.map { auditResult(it, AppAuditOutcome.BLOCKED, attempted = false) } +
+                    unavailable.map { auditResult(it, AppAuditOutcome.UNAVAILABLE, attempted = false) } +
+                    untested.map { auditResult(it, AppAuditOutcome.UNTESTED, attempted = false) }
+            )
+        )
+        assertEquals(100.0, presentation.score.score!!, 0.0)
+        assertEquals(55, presentation.summary.passed)
+        assertEquals("Measured checks 26/26 passed · Planned checks verified 26/120 · 1 failed · 5 blocked · 10 unavailable · 49 untested", presentation.coverageSummaryText)
     }
 
     @Test fun pendingAndExternalChecksRemainDistinguishableFromFailures() {
@@ -147,6 +171,7 @@ class AppAuditPresentationTest {
             listOf("same-id" to "Connection name\n")
         )
         assertEquals("Gateway name", names["gateway:same-id"])
+        assertEquals("Gateway name", names["model:same-id"])
         assertEquals("Connection name", names["connection:same-id"])
         assertNull(names["gateway:ambiguous"])
         assertNull(names["connection:missing"])
@@ -180,5 +205,25 @@ class AppAuditPresentationTest {
         assertTrue(appAuditRetryabilityText(false).contains("explicitly reconnect"))
         assertTrue(appAuditRetryabilityText(true).contains("recovery conditions"))
         assertTrue(appAuditRetryabilityText(null).contains("not determined"))
+    }
+
+    @Test fun credentialRejectionOffersExplicitRepairWithoutCallingItAConnectionRequest() {
+        val entry = auditEntry("credential").copy(targetId = "connection:exact")
+        val result = auditResult(entry, AppAuditOutcome.FAIL, AppAuditObservationSource.NONE, attempted = false, reason = "MCP_LOCAL_CREDENTIAL_INVALID")
+        val item = appAuditPresentation(auditRun(listOf(entry), listOf(result)), mapOf("connection:exact" to "Saved target")).components.single().entries.single()
+        assertEquals("Repair credentials and reconnect", appAuditConnectionActionLabel(item))
+        assertEquals("exact", appAuditConnectionUid(item))
+        assertTrue(appAuditReason(item).contains("did not send an MCP request"))
+    }
+
+    @Test fun cachedObservationAgeUsesItsOriginalTimestampAndTheAuditCheckTime() {
+        val entry = auditEntry("cached", AppAuditEvidenceKind.LIVE_METADATA)
+        val cached = auditResult(entry, source = AppAuditObservationSource.CACHE).let {
+            it.copy(startedAtEpochMs = 6_400_000, observation = it.observation.copy(observedAtEpochMs = 1_060_000))
+        }
+        assertEquals("Retained evidence was 89 minutes old when this audit check began.", appAuditCacheAgeText(cached))
+        assertNull(appAuditCacheAgeText(cached.copy(observation = cached.observation.copy(observedAtEpochMs = null))))
+        assertNull(appAuditCacheAgeText(cached.copy(observation = cached.observation.copy(observationSource = AppAuditObservationSource.LIVE))))
+        assertEquals("Observation time is later than this audit check; cache age cannot be established.", appAuditCacheAgeText(cached.copy(startedAtEpochMs = 1_000_000)))
     }
 }

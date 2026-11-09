@@ -24,6 +24,23 @@ enum class AppAuditDispatchEvidence { NOT_ATTEMPTED, NOT_DISPATCHED, ATTEMPTED, 
 enum class AppAuditObservationSource { CONFIGURATION, FIXTURE, LIVE, CACHE, NONE }
 
 @Serializable
+enum class AppAuditRemoteService { GATEWAY }
+
+@Serializable
+enum class AppAuditRemoteIdentitySource { DECLARED_CAPABILITIES }
+
+/** A server declaration read from metadata; it does not verify remote source or execution. */
+@Serializable
+data class AppAuditRemoteIdentity(
+    val service: AppAuditRemoteService = AppAuditRemoteService.GATEWAY,
+    val source: AppAuditRemoteIdentitySource = AppAuditRemoteIdentitySource.DECLARED_CAPABILITIES,
+    val version: String? = null,
+    val instanceId: String? = null,
+    val sourceCommit: String? = null,
+    val buildStatus: String? = null
+)
+
+@Serializable
 enum class AppAuditMetricName { TARGET_COUNT, TOOL_COUNT, ENABLED_COUNT, FILE_COUNT, LINE_COUNT, CHECK_COUNT, PAYLOAD_BYTES, DURATION_MS, RESULT_COUNT }
 
 @Serializable
@@ -89,7 +106,7 @@ data class AppAuditPlanEntry(
     }
 }
 
-/** Only fixed codes, enums and numeric metrics cross a probe's diagnostic boundary. */
+/** Typed diagnostic facts only; remote declarations also pass the identity allowlist before export. */
 @Serializable
 data class AppAuditObservation(
     val outcome: AppAuditOutcome,
@@ -107,7 +124,8 @@ data class AppAuditObservation(
     val validationRule: String? = null,
     val validationField: String? = null,
     val observedAtEpochMs: Long? = null,
-    val configurationRevision: String? = null
+    val configurationRevision: String? = null,
+    val remoteIdentity: AppAuditRemoteIdentity? = null
 ) {
     init {
         require(appAuditIdentifier(reasonCode) && appAuditIdentifier(stage))

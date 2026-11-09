@@ -172,9 +172,7 @@ fun GitHubWorkspaceScreen(
     LaunchedEffect(tab, state.commitDetail) { workspaceScroll.scrollTo(0) }
     LaunchedEffect(tab, state.selection, state.headSha, state.busy, state.repositoryRefresh, state.error) { viewModel.onSectionVisible(tab) }
     var repositoryMenu by remember { mutableStateOf(false) }
-    var installationMenu by remember { mutableStateOf(false) }
-    var branchMenu by remember { mutableStateOf(false) }
-    var repositoryQuery by remember { mutableStateOf("") }
+    val selectionMenus = remember { GitHubWorkspaceSelectionMenus() }
     var fileQuery by remember(state.selection?.fullName, state.directory) { mutableStateOf("") }
     var branchName by rememberSaveable { mutableStateOf("") }
     var message by rememberSaveable { mutableStateOf("") }
@@ -264,118 +262,20 @@ fun GitHubWorkspaceScreen(
                         }
                     }
                     if (tab == 5 || state.selection == null || state.setupRequired) {
-                        Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
-                            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                state.recoveryRepository?.let { repository ->
-                                    Text("Saved edits for $repository are preserved. Choose that repository to recover them.", style = MaterialTheme.typography.bodySmall)
-                                    OutlinedButton(onClick = viewModel::discardSavedRecovery, enabled = !state.busy) {
-                                        Icon(Icons.Rounded.Close, null, Modifier.padding(end = 8.dp))
-                                        Text("Discard saved edits")
-                                    }
-                                }
-                                if (state.appAuthorization) {
-                                    val installation = state.installations.firstOrNull { it.text("id") == state.installationId }
-                                    OutlinedButton(onClick = { installationMenu = true }, enabled = canNavigate, modifier = Modifier.fillMaxWidth()) {
-                                        Icon(Icons.Rounded.AccountTree, null, Modifier.padding(end = 8.dp))
-                                        Text(installation?.get("account")?.jsonObject?.text("login")?.let { "Installation: $it" } ?: "Choose GitHub App installation")
-                                    }
-                                    DropdownMenu(expanded = installationMenu, onDismissRequest = { installationMenu = false }) {
-                                        state.installations.forEach { item ->
-                                            val suspended = item["suspended_at"] != null && item["suspended_at"] != kotlinx.serialization.json.JsonNull
-                                            DropdownMenuItem(
-                                                text = { Text(item["account"]?.jsonObject?.text("login").orEmpty() + if (suspended) " (suspended)" else "") },
-                                                leadingIcon = { Icon(Icons.Rounded.AccountTree, null) },
-                                                enabled = !suspended && !state.busy,
-                                                onClick = {
-                                                    installationMenu = false
-                                                    viewModel.selectInstallation(item.text("id"))
-                                                }
-                                            )
-                                        }
-                                        if (state.moreInstallations) DropdownMenuItem(text = { Text("Load more installations") }, enabled = !state.busy, onClick = viewModel::moreInstallations)
-                                    }
-                                    OutlinedButton(onClick = { uriHandler.openUri(GitHubPublicAuthConfiguration.project().installationManagementUrl(state.connection?.oauthClientId)) }, modifier = Modifier.fillMaxWidth()) {
-                                        Icon(Icons.Rounded.Launch, null, Modifier.padding(end = 8.dp))
-                                        Text("Manage GitHub repository access")
-                                    }
-                                    if (state.installations.isEmpty()) Text("Install the GitHub App on the repositories you want to use, then reopen this workspace.", style = MaterialTheme.typography.bodySmall)
-                                    installation?.get("permissions")?.jsonObject?.let { permissions ->
-                                        Text("App permissions: Contents ${permissions.text("contents").ifBlank { "none" }}, Pull requests ${permissions.text("pull_requests").ifBlank { "none" }}, Actions ${permissions.text("actions").ifBlank { "none" }}. GitHub also checks your account permissions and repository rules.", style = MaterialTheme.typography.bodySmall)
-                                    }
-                                }
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    OutlinedButton(onClick = {
-                                        repositoryMenu = true
-                                        viewModel.onRepositoryPickerOpened()
-                                    }, enabled = canNavigate, modifier = Modifier.weight(1f)) {
-                                        Icon(Icons.Rounded.FolderOpen, null, Modifier.padding(end = 8.dp))
-                                        Text(state.selection?.fullName ?: "Choose a repository", maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    }
-                                    if (state.selection != null) WorkspaceBadge(if (state.canWrite) "Can edit" else "Read only")
-                                    DropdownMenu(expanded = repositoryMenu, onDismissRequest = { repositoryMenu = false }) {
-                                        OutlinedTextField(repositoryQuery, { repositoryQuery = it }, label = { Text("Find repository") }, leadingIcon = { Icon(Icons.Rounded.Search, null) }, singleLine = true, modifier = Modifier.padding(12.dp))
-                                        state.repositories.filter { it.text("full_name").contains(repositoryQuery, true) }.forEach { repo ->
-                                            DropdownMenuItem(text = { Text(repo.text("full_name")) }, leadingIcon = { Icon(Icons.Rounded.Folder, null) }, onClick = {
-                                                repositoryMenu = false
-                                                viewModel.selectRepository(repo["owner"]!!.jsonObject.text("login"), repo.text("name"))
-                                            })
-                                        }
-                                        if (state.moreRepositories) DropdownMenuItem(text = { Text("Load more repositories") }, enabled = !state.busy, onClick = viewModel::moreRepositories)
-                                    }
-                                }
-                                if (state.selection != null) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        OutlinedButton(onClick = {
-                                            branchMenu = true
-                                            viewModel.onBranchPickerOpened()
-                                        }, enabled = canNavigate) {
-                                            Icon(Icons.Rounded.AccountTree, null, Modifier.size(18.dp).padding(end = 4.dp))
-                                            Text(state.selection?.ref.orEmpty(), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                        }
-                                        DropdownMenu(expanded = branchMenu, onDismissRequest = { branchMenu = false }) {
-                                            state.branches.forEach { branch ->
-                                                DropdownMenuItem(text = { Text(branch) }, leadingIcon = { Icon(Icons.Rounded.AccountTree, null) }, onClick = {
-                                                    branchMenu = false
-                                                    if (branch != state.selection?.ref) viewModel.selectBranch(branch, programmerState.chatId)
-                                                })
-                                            }
-                                            if (state.moreBranches) DropdownMenuItem(text = { Text("Load more branches") }, enabled = !state.busy, onClick = viewModel::moreBranches)
-                                        }
-                                        if (state.headSha.isNotBlank()) WorkspaceBadge(state.headSha.take(8))
-                                    }
-                                    if (tab != 3) {
-                                        Row(Modifier.horizontalScroll(rememberScrollState())) {
-                                            OutlinedButton(onClick = viewModel::useInChats, enabled = !state.busy && state.headSha.isNotBlank()) {
-                                                Icon(Icons.Rounded.Check, null, Modifier.size(18.dp).padding(end = 4.dp))
-                                                Text("Use in chats")
-                                            }
-                                            OutlinedButton(onClick = viewModel::clearChatContext, enabled = !state.busy) { Text("Clear chat context") }
-                                        }
-                                    }
-                                }
-                                listOfNotNull(state.error, visibleProgrammer.error).distinct().joinToString("\n").takeIf(String::isNotBlank)?.let { error ->
-                                    Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                                    OutlinedButton(onClick = viewModel::clearError) { Text("Dismiss") }
-                                }
-                                if (state.setupRequired) {
-                                    GitHubProfilePicker(visibleProgrammer.profiles, visibleProgrammer.selectedProfileUid ?: visibleProgrammer.profileUid ?: initialProfileUid, programmer::selectProfile)
-                                    Text("Your selected AI profile handles every GitHub request and review. You can change it explicitly in GitHub settings.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    TextButton(onClick = onManageProfiles, enabled = !state.busy) {
-                                        Text(if (visibleProgrammer.profiles.isEmpty()) "Add an AI profile" else "Manage AI profiles")
-                                    }
-                                    Button(
-                                        onClick = viewModel::completeSetup,
-                                        enabled = !state.busy && state.composerReadiness == dev.chungjungsoo.gptmobile.data.github.GitHubComposerReadiness.READY && state.selection != null && state.headSha.isNotBlank() && visibleProgrammer.profileUid != null,
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) { Text("Open GitHub chat") }
-                                }
-                                if ((state.busy || state.authRefresh || state.repositoryRefresh) && (state.selection == null || state.setupRequired)) {
-                                    androidx.compose.material3.LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                                    Text("Loading your GitHub selection…", style = MaterialTheme.typography.bodySmall)
-                                }
-                                state.notice?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.heightIn(max = 72.dp).verticalScroll(rememberScrollState())) }
-                            }
-                        }
+                        GitHubWorkspaceRepositoryCard(
+                            state = state,
+                            visibleProgrammer = visibleProgrammer,
+                            initialProfileUid = initialProfileUid,
+                            tab = tab,
+                            canNavigate = canNavigate,
+                            chatId = programmerState.chatId,
+                            selectionMenus = selectionMenus,
+                            repositoryMenu = repositoryMenu,
+                            onRepositoryMenuChange = { repositoryMenu = it },
+                            viewModel = viewModel,
+                            programmer = programmer,
+                            onManageProfiles = onManageProfiles
+                        )
                     }
                     if (repositoryAccessFailure != null) {
                         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -503,89 +403,15 @@ fun GitHubWorkspaceScreen(
                                         WorkspaceAction(Icons.Rounded.Commit, "Review changes") { openChanges() }
                                     }
                                 }
-                                0 -> {
-                                    GitHubRepositoryInsights(state, onSearch = { query, mode -> viewModel.searchRevision(query, mode) }, onContinueSearch = { viewModel.searchRevision("", continuation = true) }, onExplainCi = viewModel::explainFailedCi, onMarkReviewed = viewModel::markReviewed, onChanges = viewModel::changesSinceReview, onOpenFile = viewModel::readFile)
-                                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
-                                        OutlinedButton(onClick = { viewModel.browse("") }, enabled = !state.busy && !editorDirty) {
-                                            Icon(Icons.Rounded.FolderOpen, null, Modifier.size(18.dp))
-                                            Text("Root")
-                                        }
-                                        val segments = state.directory.split('/').filter(String::isNotBlank)
-                                        segments.forEachIndexed { index, segment ->
-                                            Text("/", color = MaterialTheme.colorScheme.outline)
-                                            OutlinedButton(onClick = { viewModel.browse(segments.take(index + 1).joinToString("/")) }, enabled = !state.busy && !editorDirty) { Text(segment) }
-                                        }
-                                    }
-                                    if (state.file == null) {
-                                        OutlinedTextField(fileQuery, { fileQuery = it }, singleLine = true, label = { Text("Filter loaded files") }, leadingIcon = { Icon(Icons.Rounded.Search, null) }, modifier = Modifier.fillMaxWidth())
-                                        val entries = state.entries.filter { it.text("name").contains(fileQuery, true) }.sortedWith(compareBy({ it.text("type") != "dir" }, { it.text("name").lowercase() }))
-                                        if (entries.isEmpty() && !state.busy) WorkspaceEmpty(Icons.Rounded.Search, if (fileQuery.isBlank()) "This folder is empty" else "No matching files", if (state.moreEntries) "Load more files to keep looking." else "Try another folder or search.")
-                                        LazyColumn(Modifier.fillMaxWidth().heightIn(max = 480.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                            items(entries, key = { it.text("path") }) { entry ->
-                                                Surface(onClick = { if (entry.text("type") == "dir") viewModel.browse(entry.text("path")) else viewModel.readFile(entry.text("path")) }, enabled = !state.busy, shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth()) {
-                                                    Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                                        Icon(if (entry.text("type") == "dir") Icons.Rounded.Folder else Icons.Rounded.Description, null, Modifier.size(22.dp))
-                                                        Text(entry.text("name"), Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                                        if (state.staged.any { it.path == entry.text("path") }) WorkspaceBadge("Staged")
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        if (state.moreEntries) OutlinedButton(onClick = viewModel::moreFiles, enabled = !state.busy) { Text("Load more files") }
-                                    } else {
-                                        val file = requireNotNull(state.file)
-                                        val original = file.text("content")
-                                        val path = file.text("path")
-                                        var anchor by rememberSaveable(path, state.headSha) { mutableStateOf("") }
-                                        var replacement by rememberSaveable(path, state.headSha) { mutableStateOf("") }
-                                        var patchEditor by rememberSaveable(path, state.headSha) { mutableStateOf(false) }
-                                        var edited by rememberSaveable(path, state.headSha) { mutableStateOf(state.editorDrafts[path] ?: state.staged.firstOrNull { it.path == path }?.content ?: original) }
-                                        LaunchedEffect(path, state.headSha) {
-                                            editorDirty = edited != (state.staged.firstOrNull { it.path == path }?.content ?: original)
-                                        }
-                                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                                            Text(path.substringAfterLast('/'), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                                            IconButton(onClick = { copy(path) }) { Icon(Icons.Rounded.ContentCopy, "Copy file path") }
-                                            file.text("html_url").takeIf { it.startsWith("https://github.com/") }?.let { url -> IconButton(onClick = { uriHandler.openUri(url) }) { Icon(Icons.Rounded.Launch, "Open file on GitHub") } }
-                                        }
-                                        Text("Lines ${file.text("start_line")}–${file.text("end_line")} of ${file.text("total_lines")} · ${original.toByteArray().size} excerpt bytes", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        OutlinedButton(onClick = { viewModel.browse(state.directory) }, enabled = !state.busy && !editorDirty) { Text("Back to files") }
-                                        if (!file.flag("complete_file")) {
-                                            Text("Bounded source excerpt. Use an exact patch to change this range safely.", style = MaterialTheme.typography.bodySmall)
-                                            WorkspaceCode(original)
-                                            if (file.flag("has_more")) OutlinedButton(onClick = viewModel::moreFileRange, enabled = !state.busy) { Text("Next source range") }
-                                        } else {
-                                            OutlinedTextField(edited, {
-                                                if (it.toByteArray().size <= 256_000) {
-                                                    edited = it
-                                                    viewModel.editDraft(path, it, original)
-                                                    editorDirty = edited != (state.staged.firstOrNull { staged -> staged.path == path }?.content ?: original)
-                                                }
-                                            }, modifier = Modifier.fillMaxWidth().heightIn(min = 240.dp, max = 480.dp), label = { Text("File content") }, textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace), readOnly = !state.canWrite || state.busy || state.selection?.ref == state.defaultBranch)
-                                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                                Button(onClick = { if (viewModel.stage(path, original, edited)) editorDirty = false }, enabled = state.canWrite && !state.busy && state.selection?.ref != state.defaultBranch && editorDirty) {
-                                                    Icon(Icons.Rounded.Add, null, Modifier.padding(end = 6.dp), tint = MaterialTheme.colorScheme.onPrimary)
-                                                    Text("Stage")
-                                                }
-                                                OutlinedButton(onClick = {
-                                                    edited = state.staged.firstOrNull { it.path == path }?.content ?: original
-                                                    viewModel.editDraft(path, edited, original)
-                                                    editorDirty = false
-                                                }, enabled = !state.busy && editorDirty) { Text("Reset editor") }
-                                            }
-                                            if (state.selection?.ref == state.defaultBranch) Text("Create a working branch in Settings to start editing.", style = MaterialTheme.typography.bodySmall)
-                                            if (editorDirty) Text("Stage or reset your edits before leaving this file.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
-                                        }
-                                        if (state.canWrite && state.selection?.ref != state.defaultBranch) {
-                                            OutlinedButton(onClick = { patchEditor = !patchEditor }, enabled = !state.busy && !editorDirty) { Text(if (patchEditor) "Hide exact patch editor" else "Prepare an exact patch") }
-                                            if (patchEditor) {
-                                                OutlinedTextField(anchor, { anchor = it.take(16000) }, label = { Text("Exact existing text") }, modifier = Modifier.fillMaxWidth(), textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace))
-                                                OutlinedTextField(replacement, { replacement = it.take(16000) }, label = { Text("Replacement text") }, modifier = Modifier.fillMaxWidth(), textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace))
-                                                Button(onClick = { viewModel.stageExactPatch(anchor, replacement) }, enabled = !state.busy && anchor.isNotEmpty() && anchor != replacement && state.staged.isEmpty()) { Text("Preview exact patch") }
-                                            }
-                                        }
-                                    }
-                                }
+                                0 -> GitHubWorkspaceFiles(
+                                    state = state,
+                                    viewModel = viewModel,
+                                    fileQuery = fileQuery,
+                                    onFileQueryChange = { fileQuery = it },
+                                    editorDirty = editorDirty,
+                                    onEditorDirtyChange = { editorDirty = it },
+                                    onCopy = ::copy
+                                )
                                 1 -> {
                                     Text("Prepare your changes", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                                     if (state.selection?.ref == state.defaultBranch) {
@@ -780,6 +606,239 @@ private fun WorkspaceCode(content: String) {
     Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
         SelectionContainer {
             Text(content, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall, modifier = Modifier.fillMaxWidth().heightIn(max = 300.dp).verticalScroll(rememberScrollState()).horizontalScroll(rememberScrollState()).padding(12.dp))
+        }
+    }
+}
+
+@androidx.compose.runtime.Stable
+private class GitHubWorkspaceSelectionMenus {
+    var installationMenu by mutableStateOf(false)
+    var branchMenu by mutableStateOf(false)
+    var repositoryQuery by mutableStateOf("")
+}
+
+/** Keep selector composition separate from the live chat: ART must be able to compile each UI branch. */
+@Composable
+private fun GitHubWorkspaceRepositoryCard(
+    state: GitHubWorkspaceState,
+    visibleProgrammer: GitHubProgrammerState,
+    initialProfileUid: String?,
+    tab: Int,
+    canNavigate: Boolean,
+    chatId: Int?,
+    selectionMenus: GitHubWorkspaceSelectionMenus,
+    repositoryMenu: Boolean,
+    onRepositoryMenuChange: (Boolean) -> Unit,
+    viewModel: GitHubWorkspaceViewModel,
+    programmer: GitHubProgrammerViewModel,
+    onManageProfiles: () -> Unit
+) {
+    val uriHandler = LocalUriHandler.current
+    Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            state.recoveryRepository?.let { repository ->
+                Text("Saved edits for $repository are preserved. Choose that repository to recover them.", style = MaterialTheme.typography.bodySmall)
+                OutlinedButton(onClick = viewModel::discardSavedRecovery, enabled = !state.busy) {
+                    Icon(Icons.Rounded.Close, null, Modifier.padding(end = 8.dp))
+                    Text("Discard saved edits")
+                }
+            }
+            if (state.appAuthorization) {
+                val installation = state.installations.firstOrNull { it.text("id") == state.installationId }
+                OutlinedButton(onClick = { selectionMenus.installationMenu = true }, enabled = canNavigate, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Rounded.AccountTree, null, Modifier.padding(end = 8.dp))
+                    Text(installation?.get("account")?.jsonObject?.text("login")?.let { "Installation: $it" } ?: "Choose GitHub App installation")
+                }
+                DropdownMenu(expanded = selectionMenus.installationMenu, onDismissRequest = { selectionMenus.installationMenu = false }) {
+                    state.installations.forEach { item ->
+                        val suspended = item["suspended_at"] != null && item["suspended_at"] != kotlinx.serialization.json.JsonNull
+                        DropdownMenuItem(
+                            text = { Text(item["account"]?.jsonObject?.text("login").orEmpty() + if (suspended) " (suspended)" else "") },
+                            leadingIcon = { Icon(Icons.Rounded.AccountTree, null) },
+                            enabled = !suspended && !state.busy,
+                            onClick = {
+                                selectionMenus.installationMenu = false
+                                viewModel.selectInstallation(item.text("id"))
+                            }
+                        )
+                    }
+                    if (state.moreInstallations) DropdownMenuItem(text = { Text("Load more installations") }, enabled = !state.busy, onClick = viewModel::moreInstallations)
+                }
+                OutlinedButton(onClick = { uriHandler.openUri(GitHubPublicAuthConfiguration.project().installationManagementUrl(state.connection?.oauthClientId)) }, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Rounded.Launch, null, Modifier.padding(end = 8.dp))
+                    Text("Manage GitHub repository access")
+                }
+                if (state.installations.isEmpty()) Text("Install the GitHub App on the repositories you want to use, then reopen this workspace.", style = MaterialTheme.typography.bodySmall)
+                installation?.get("permissions")?.jsonObject?.let { permissions ->
+                    Text("App permissions: Contents ${permissions.text("contents").ifBlank { "none" }}, Pull requests ${permissions.text("pull_requests").ifBlank { "none" }}, Actions ${permissions.text("actions").ifBlank { "none" }}. GitHub also checks your account permissions and repository rules.", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                OutlinedButton(onClick = {
+                    onRepositoryMenuChange(true)
+                    viewModel.onRepositoryPickerOpened()
+                }, enabled = canNavigate, modifier = Modifier.weight(1f)) {
+                    Icon(Icons.Rounded.FolderOpen, null, Modifier.padding(end = 8.dp))
+                    Text(state.selection?.fullName ?: "Choose a repository", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                if (state.selection != null) WorkspaceBadge(if (state.canWrite) "Can edit" else "Read only")
+                DropdownMenu(expanded = repositoryMenu, onDismissRequest = { onRepositoryMenuChange(false) }) {
+                    OutlinedTextField(selectionMenus.repositoryQuery, { selectionMenus.repositoryQuery = it }, label = { Text("Find repository") }, leadingIcon = { Icon(Icons.Rounded.Search, null) }, singleLine = true, modifier = Modifier.padding(12.dp))
+                    state.repositories.filter { it.text("full_name").contains(selectionMenus.repositoryQuery, true) }.forEach { repo ->
+                        DropdownMenuItem(text = { Text(repo.text("full_name")) }, leadingIcon = { Icon(Icons.Rounded.Folder, null) }, onClick = {
+                            onRepositoryMenuChange(false)
+                            viewModel.selectRepository(repo["owner"]!!.jsonObject.text("login"), repo.text("name"))
+                        })
+                    }
+                    if (state.moreRepositories) DropdownMenuItem(text = { Text("Load more repositories") }, enabled = !state.busy, onClick = viewModel::moreRepositories)
+                }
+            }
+            if (state.selection != null) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedButton(onClick = {
+                        selectionMenus.branchMenu = true
+                        viewModel.onBranchPickerOpened()
+                    }, enabled = canNavigate) {
+                        Icon(Icons.Rounded.AccountTree, null, Modifier.size(18.dp).padding(end = 4.dp))
+                        Text(state.selection?.ref.orEmpty(), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    DropdownMenu(expanded = selectionMenus.branchMenu, onDismissRequest = { selectionMenus.branchMenu = false }) {
+                        state.branches.forEach { branch ->
+                            DropdownMenuItem(text = { Text(branch) }, leadingIcon = { Icon(Icons.Rounded.AccountTree, null) }, onClick = {
+                                selectionMenus.branchMenu = false
+                                if (branch != state.selection?.ref) viewModel.selectBranch(branch, chatId)
+                            })
+                        }
+                        if (state.moreBranches) DropdownMenuItem(text = { Text("Load more branches") }, enabled = !state.busy, onClick = viewModel::moreBranches)
+                    }
+                    if (state.headSha.isNotBlank()) WorkspaceBadge(state.headSha.take(8))
+                }
+                if (tab != 3) {
+                    Row(Modifier.horizontalScroll(rememberScrollState())) {
+                        OutlinedButton(onClick = viewModel::useInChats, enabled = !state.busy && state.headSha.isNotBlank()) {
+                            Icon(Icons.Rounded.Check, null, Modifier.size(18.dp).padding(end = 4.dp))
+                            Text("Use in chats")
+                        }
+                        OutlinedButton(onClick = viewModel::clearChatContext, enabled = !state.busy) { Text("Clear chat context") }
+                    }
+                }
+            }
+            listOfNotNull(state.error, visibleProgrammer.error).distinct().joinToString("\n").takeIf(String::isNotBlank)?.let { error ->
+                Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                OutlinedButton(onClick = viewModel::clearError) { Text("Dismiss") }
+            }
+            if (state.setupRequired) {
+                GitHubProfilePicker(visibleProgrammer.profiles, visibleProgrammer.selectedProfileUid ?: visibleProgrammer.profileUid ?: initialProfileUid, programmer::selectProfile)
+                Text("Your selected AI profile handles every GitHub request and review. You can change it explicitly in GitHub settings.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                TextButton(onClick = onManageProfiles, enabled = !state.busy) {
+                    Text(if (visibleProgrammer.profiles.isEmpty()) "Add an AI profile" else "Manage AI profiles")
+                }
+                Button(
+                    onClick = viewModel::completeSetup,
+                    enabled = !state.busy && state.composerReadiness == dev.chungjungsoo.gptmobile.data.github.GitHubComposerReadiness.READY && state.selection != null && state.headSha.isNotBlank() && visibleProgrammer.profileUid != null,
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("Open GitHub chat") }
+            }
+            if ((state.busy || state.authRefresh || state.repositoryRefresh) && (state.selection == null || state.setupRequired)) {
+                androidx.compose.material3.LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                Text("Loading your GitHub selection…", style = MaterialTheme.typography.bodySmall)
+            }
+            state.notice?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.heightIn(max = 72.dp).verticalScroll(rememberScrollState())) }
+        }
+    }
+}
+
+/** Keep file editing in its own compiled method instead of the live workspace composition. */
+@Composable
+internal fun GitHubWorkspaceFiles(
+    state: GitHubWorkspaceState,
+    viewModel: GitHubWorkspaceViewModel,
+    fileQuery: String,
+    onFileQueryChange: (String) -> Unit,
+    editorDirty: Boolean,
+    onEditorDirtyChange: (Boolean) -> Unit,
+    onCopy: (String) -> Unit
+) {
+    val uriHandler = LocalUriHandler.current
+    GitHubRepositoryInsights(state, onSearch = { query, mode -> viewModel.searchRevision(query, mode) }, onContinueSearch = { viewModel.searchRevision("", continuation = true) }, onExplainCi = viewModel::explainFailedCi, onMarkReviewed = viewModel::markReviewed, onChanges = viewModel::changesSinceReview, onOpenFile = viewModel::readFile)
+    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
+        OutlinedButton(onClick = { viewModel.browse("") }, enabled = !state.busy && !editorDirty) {
+            Icon(Icons.Rounded.FolderOpen, null, Modifier.size(18.dp))
+            Text("Root")
+        }
+        val segments = state.directory.split('/').filter(String::isNotBlank)
+        segments.forEachIndexed { index, segment ->
+            Text("/", color = MaterialTheme.colorScheme.outline)
+            OutlinedButton(onClick = { viewModel.browse(segments.take(index + 1).joinToString("/")) }, enabled = !state.busy && !editorDirty) { Text(segment) }
+        }
+    }
+    if (state.file == null) {
+        OutlinedTextField(fileQuery, onFileQueryChange, singleLine = true, label = { Text("Filter loaded files") }, leadingIcon = { Icon(Icons.Rounded.Search, null) }, modifier = Modifier.fillMaxWidth())
+        val entries = state.entries.filter { it.text("name").contains(fileQuery, true) }.sortedWith(compareBy({ it.text("type") != "dir" }, { it.text("name").lowercase() }))
+        if (entries.isEmpty() && !state.busy) WorkspaceEmpty(Icons.Rounded.Search, if (fileQuery.isBlank()) "This folder is empty" else "No matching files", if (state.moreEntries) "Load more files to keep looking." else "Try another folder or search.")
+        LazyColumn(Modifier.fillMaxWidth().heightIn(max = 480.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            items(entries, key = { it.text("path") }) { entry ->
+                Surface(onClick = { if (entry.text("type") == "dir") viewModel.browse(entry.text("path")) else viewModel.readFile(entry.text("path")) }, enabled = !state.busy, shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth()) {
+                    Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Icon(if (entry.text("type") == "dir") Icons.Rounded.Folder else Icons.Rounded.Description, null, Modifier.size(22.dp))
+                        Text(entry.text("name"), Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        if (state.staged.any { it.path == entry.text("path") }) WorkspaceBadge("Staged")
+                    }
+                }
+            }
+        }
+        if (state.moreEntries) OutlinedButton(onClick = viewModel::moreFiles, enabled = !state.busy) { Text("Load more files") }
+    } else {
+        val file = requireNotNull(state.file)
+        val original = file.text("content")
+        val path = file.text("path")
+        var anchor by rememberSaveable(path, state.headSha) { mutableStateOf("") }
+        var replacement by rememberSaveable(path, state.headSha) { mutableStateOf("") }
+        var patchEditor by rememberSaveable(path, state.headSha) { mutableStateOf(false) }
+        var edited by rememberSaveable(path, state.headSha) { mutableStateOf(state.editorDrafts[path] ?: state.staged.firstOrNull { it.path == path }?.content ?: original) }
+        LaunchedEffect(path, state.headSha) {
+            onEditorDirtyChange(edited != (state.staged.firstOrNull { it.path == path }?.content ?: original))
+        }
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(path.substringAfterLast('/'), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            IconButton(onClick = { onCopy(path) }) { Icon(Icons.Rounded.ContentCopy, "Copy file path") }
+            file.text("html_url").takeIf { it.startsWith("https://github.com/") }?.let { url -> IconButton(onClick = { uriHandler.openUri(url) }) { Icon(Icons.Rounded.Launch, "Open file on GitHub") } }
+        }
+        Text("Lines ${file.text("start_line")}–${file.text("end_line")} of ${file.text("total_lines")} · ${original.toByteArray().size} excerpt bytes", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        OutlinedButton(onClick = { viewModel.browse(state.directory) }, enabled = !state.busy && !editorDirty) { Text("Back to files") }
+        if (!file.flag("complete_file")) {
+            Text("Bounded source excerpt. Use an exact patch to change this range safely.", style = MaterialTheme.typography.bodySmall)
+            WorkspaceCode(original)
+            if (file.flag("has_more")) OutlinedButton(onClick = viewModel::moreFileRange, enabled = !state.busy) { Text("Next source range") }
+        } else {
+            OutlinedTextField(edited, {
+                if (it.toByteArray().size <= 256_000) {
+                    edited = it
+                    viewModel.editDraft(path, it, original)
+                    onEditorDirtyChange(edited != (state.staged.firstOrNull { staged -> staged.path == path }?.content ?: original))
+                }
+            }, modifier = Modifier.fillMaxWidth().heightIn(min = 240.dp, max = 480.dp), label = { Text("File content") }, textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace), readOnly = !state.canWrite || state.busy || state.selection?.ref == state.defaultBranch)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = { if (viewModel.stage(path, original, edited)) onEditorDirtyChange(false) }, enabled = state.canWrite && !state.busy && state.selection?.ref != state.defaultBranch && editorDirty) {
+                    Icon(Icons.Rounded.Add, null, Modifier.padding(end = 6.dp), tint = MaterialTheme.colorScheme.onPrimary)
+                    Text("Stage")
+                }
+                OutlinedButton(onClick = {
+                    edited = state.staged.firstOrNull { it.path == path }?.content ?: original
+                    viewModel.editDraft(path, edited, original)
+                    onEditorDirtyChange(false)
+                }, enabled = !state.busy && editorDirty) { Text("Reset editor") }
+            }
+            if (state.selection?.ref == state.defaultBranch) Text("Create a working branch in Settings to start editing.", style = MaterialTheme.typography.bodySmall)
+            if (editorDirty) Text("Stage or reset your edits before leaving this file.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+        }
+        if (state.canWrite && state.selection?.ref != state.defaultBranch) {
+            OutlinedButton(onClick = { patchEditor = !patchEditor }, enabled = !state.busy && !editorDirty) { Text(if (patchEditor) "Hide exact patch editor" else "Prepare an exact patch") }
+            if (patchEditor) {
+                OutlinedTextField(anchor, { anchor = it.take(16000) }, label = { Text("Exact existing text") }, modifier = Modifier.fillMaxWidth(), textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace))
+                OutlinedTextField(replacement, { replacement = it.take(16000) }, label = { Text("Replacement text") }, modifier = Modifier.fillMaxWidth(), textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace))
+                Button(onClick = { viewModel.stageExactPatch(anchor, replacement) }, enabled = !state.busy && anchor.isNotEmpty() && anchor != replacement && state.staged.isEmpty()) { Text("Preview exact patch") }
+            }
         }
     }
 }

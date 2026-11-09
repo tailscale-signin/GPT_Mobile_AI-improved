@@ -22,6 +22,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsOff
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -31,14 +32,18 @@ import dev.chungjungsoo.gptmobile.data.audit.AppAuditEvidenceKind
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditObservationSource
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditOptions
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditOutcome
+import dev.chungjungsoo.gptmobile.data.audit.AppAuditPlanEntry
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditPrerequisite
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditRun
+import dev.chungjungsoo.gptmobile.data.audit.AppAuditSafetyClass
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkBatch
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkBatchState
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkMode
+import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionAuthType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
+import dev.chungjungsoo.gptmobile.data.model.ClientType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -110,17 +115,33 @@ class AppAuditContentTest {
         assertFalse(changed)
     }
 
-    @Test fun removedGatewayTargetCanBeClearedWithoutReplacingItWithAnotherProfile() {
+    @Test fun removedModelTargetCanBeClearedWithoutReplacingItWithAnotherProfile() {
         var selected by mutableStateOf(listOf("removed-profile"))
         show {
             AppAuditControls(true, false, false, {}, emptyList(), selected, { id -> selected = selected - id }, {})
         }
-        compose.onNodeWithText("Optional gateway targets (1 selected)").scrollIntoView().performClick()
+        compose.onNodeWithText("Optional model targets (1 selected)").scrollIntoView().performClick()
         compose.onNodeWithText("1 selected target is no longer available", substring = true).assertExists()
-        compose.onNodeWithText("Clear gateway targets").scrollIntoView().performClick()
+        compose.onNodeWithText("Clear model targets").scrollIntoView().performClick()
         assertTrue(selected.isEmpty())
         compose.onNodeWithText("1 selected target is no longer available", substring = true).assertDoesNotExist()
         compose.onNodeWithTag("app_audit_start").scrollIntoView().assertIsEnabled()
+    }
+
+    @Test fun optionalModelSelectionIncludesLocalAndRemoteProfilesWithoutEnablingReads() {
+        val local = PlatformV2(uid = "local", name = "Local saved model", model = "local-test", compatibleType = ClientType.LITERT_LM)
+        val remote = PlatformV2(uid = "remote", name = "Remote saved model", model = "remote-test")
+        var selected by mutableStateOf(emptyList<String>())
+        var started = false
+        show {
+            AppAuditControls(true, false, false, {}, listOf(local, remote), selected, { id -> selected = if (id in selected) selected - id else selected + id }, { started = true })
+        }
+        compose.onNodeWithText("Optional model targets (0 selected)").scrollIntoView().performClick()
+        compose.onNodeWithText("Local saved model").scrollIntoView().assertIsOff().performClick()
+        assertEquals(listOf("local"), selected)
+        compose.onNodeWithText("Remote saved model").scrollIntoView().assertIsOff()
+        compose.onNodeWithText("Include configured service read checks").assertIsOff()
+        assertFalse(started)
     }
 
     @Test fun completedPartialAuditDisplaysCoverageBesideScoreAndExportsThatAudit() {
@@ -132,7 +153,9 @@ class AppAuditContentTest {
         compose.onNodeWithText("Finished · recorded check outcomes").assertIsDisplayed()
         compose.onNodeWithText("Measured check pass score:", substring = true).assertIsDisplayed()
         compose.onNodeWithText("Passing weight 1 / measured weight 1").assertExists()
-        compose.onNodeWithText("Exercised 1/4 planned checks · Verified passes 1/4 planned checks").assertExists()
+        compose.onNodeWithTag("app_audit_score_and_coverage")
+            .assert(hasText("Measured check pass score:", substring = true))
+            .assert(hasText("Measured checks 1/1 passed · Planned checks verified 1/4 · 0 failed · 0 blocked · 0 unavailable · 3 untested"))
         compose.onNodeWithText("Partial coverage: 3", substring = true).assertExists()
         compose.onNodeWithText("Untested or pending 3", substring = true).assertExists()
         compose.onNodeWithText("Export audit evidence").scrollIntoView().performClick()
@@ -216,6 +239,50 @@ class AppAuditContentTest {
         compose.runOnIdle { names = mapOf("connection:replacement" to "Saved connection") }
         compose.waitForIdle()
         compose.onNodeWithText("Open connection settings and checks").assertDoesNotExist()
+    }
+
+    @Test fun cachedFailureShowsOriginalObservationTimeAndAgeBeforeDetailsAreOpened() {
+        val entry = auditEntry("catalog", AppAuditEvidenceKind.LIVE_METADATA)
+        val result = auditResult(entry, AppAuditOutcome.BLOCKED, AppAuditObservationSource.CACHE, reason = "MCP_DISCOVERY_CONFIGURATION").let {
+            it.copy(startedAtEpochMs = 6_400_000, observation = it.observation.copy(observedAtEpochMs = 1_060_000))
+        }
+        show { AppAuditEntryCard(appAuditPresentation(auditRun(listOf(entry), listOf(result))).components.single().entries.single()) }
+        compose.onNodeWithText("Original observation: ${benchmarkResultDate(1_060_000)}").scrollIntoView()
+        compose.onNodeWithText("Retained evidence was 89 minutes old when this audit check began.").scrollIntoView()
+        compose.onNodeWithText("Hide evidence details").assertDoesNotExist()
+    }
+
+    @Test fun invalidCredentialRepairOpensItsExactSavedConnectionOnlyAfterTheAction() {
+        val entry = auditEntry("credential", AppAuditEvidenceKind.LIVE_METADATA).copy(targetId = "connection:exact")
+        val result = auditResult(entry, AppAuditOutcome.FAIL, AppAuditObservationSource.NONE, attempted = false, reason = "MCP_LOCAL_CREDENTIAL_INVALID")
+        var opened: String? = null
+        show { AppAuditEntryCard(appAuditPresentation(auditRun(listOf(entry), listOf(result)), mapOf("connection:exact" to "Saved target")).components.single().entries.single()) { opened = it } }
+        assertEquals(null, opened)
+        compose.onNodeWithText("This local rejection did not send an MCP request.", substring = true).assertExists()
+        compose.onNodeWithText("Repair credentials and reconnect").scrollIntoView().performClick()
+        assertEquals("exact", opened)
+    }
+
+    @Test fun modelGapOnlyPreparesTheExactAcceptedProfileAndDoesNotSubstituteAReplacement() {
+        val entry = auditEntry("generation", AppAuditEvidenceKind.MODEL_EXECUTION).copy(
+            sourceId = "selected_models",
+            probeId = "model_generation",
+            targetId = "model:exact",
+            safetyClass = AppAuditSafetyClass.EXTERNAL_ONLY,
+            reasonCode = "MODEL_BENCHMARK_REQUIRED"
+        )
+        val run = auditRun(listOf(entry))
+        var names by mutableStateOf(mapOf("model:exact" to "Selected profile"))
+        var prepared: AppAuditPlanEntry? = null
+        show { AppAuditEntryCard(appAuditPresentation(run, names).components.single().entries.single(), onPrepareModelBenchmark = { prepared = it }) }
+        assertEquals(null, prepared)
+        compose.onNodeWithText("Prepare model benchmark").scrollIntoView().performClick()
+        assertEquals(entry, prepared)
+        compose.onNodeWithText("Review the suite and press Run", substring = true).assertExists()
+        compose.runOnIdle { names = mapOf("model:replacement" to "Selected profile") }
+        compose.waitForIdle()
+        compose.onNodeWithText("Prepare model benchmark").assertDoesNotExist()
+        compose.onNodeWithText("Target: target-1").assertExists()
     }
 
     @Test fun openingConnectionRepairDoesNotDispatchAndOnlyTheExplicitCheckRuns() {

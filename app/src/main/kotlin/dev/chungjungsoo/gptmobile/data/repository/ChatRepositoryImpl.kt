@@ -2116,8 +2116,8 @@ class ChatRepositoryImpl(
                     val documentContext = dispatchPreparation.memory.documentContext
                     suspend fun validateDocuments() = dispatchPreparation.memory.validateDocuments()
                     var requestPlatform = dispatchPreparation.requestPlatform
-                    suspend fun planRunContext(turns: List<ConversationTurn>, prompt: String, tools: List<ResolvedAgentTool>, settings: dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings) =
-                        planPreparedRunContext(platform, synthesisRun, chatToolConfig?.combined, turns, prompt, tools, settings, chatToolConfig?.github != null)
+                    suspend fun planRunContext(turns: List<ConversationTurn>, prompt: String, tools: List<ResolvedAgentTool>, settings: dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings, requireToolExecution: Boolean = preparationInput.requiresExecutionTools(resumeWriterOnly)) =
+                        planPreparedRunContext(platform, synthesisRun, chatToolConfig?.combined, turns, prompt, tools, settings, chatToolConfig?.github != null, taskRecovery?.originalRequest ?: latestUser?.content.orEmpty(), requireToolExecution)
                     var contextPlan = dispatchPreparation.contextPlan
                     val reservedFinalToolCalls = dispatchPreparation.budgets.reservedFinalToolCalls
                     val toolBudget = dispatchPreparation.budgets.toolBudget
@@ -2356,17 +2356,23 @@ class ChatRepositoryImpl(
                             prepareDelegatedEvidence()
                         }
                         suspend fun finalizePreparedContext() {
+                            var requireToolExecution = preparationInput.requiresExecutionTools(resumeWriterOnly) &&
+                                toolBudget.canExecute() &&
+                                !preparedEvidenceComplete &&
+                                !localDelegation.researchStopped() &&
+                                !(synthesisRun && delegationConfig.enabled && processingOwnership == 0)
                             if (stage?.writerRequestPlan != null) {
                                 // The complete writer input was accepted before this run. A zero
                                 // tool budget must not rebuild its frozen instructions from live
                                 // memory, project settings or the ordinary conversation contract.
                                 exposedTools = emptyList()
-                                contextPlan = planRunContext(preparedTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools, limits)
+                                requireToolExecution = false
+                                contextPlan = planRunContext(preparedTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools, limits, requireToolExecution)
                                 return
                             }
                             if (preparedTurns != contextTurns) {
                                 try {
-                                    contextPlan = planRunContext(preparedTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools, limits)
+                                    contextPlan = planRunContext(preparedTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools, limits, requireToolExecution)
                                 } catch (capacity: IllegalArgumentException) {
                                     if (synthesisRun) throw capacity
                                     emit(ApiState.Notice("Prepared evidence did not fit the main model's context budget. Continuing with the original context.", persistent = true))
@@ -2375,6 +2381,7 @@ class ChatRepositoryImpl(
                             // A completed handoff is evidence-only by default. Do not advertise calls
                             // which the shared budget cannot execute, or repeat finished research.
                             if (!toolBudget.canExecute() || preparedEvidenceComplete || (synthesisRun && delegationConfig.enabled && processingOwnership == 0)) {
+                                requireToolExecution = false
                                 exposedTools = if (!toolBudget.canExecute() || processingOwnership == 0) {
                                     emptyList()
                                 } else {
@@ -2384,24 +2391,26 @@ class ChatRepositoryImpl(
                                     systemPrompt = recalled.prefix() + researchMemory.text + documentContext + baseSystemPrompt() +
                                         if (preparedEvidenceComplete && processingOwnership == 0) "\nThe delegate has completed preparation. Independent review status: ${if (preparedEvidenceReviewed) "passed" else "unverified"}. Write from the retained handoff, flag unverified claims and gaps, and never claim unavailable verification completed. Do not start tools, more research, or another delegate." else ""
                                 )
-                                contextPlan = planRunContext(preparedTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools, limits)
+                                contextPlan = planRunContext(preparedTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools, limits, requireToolExecution)
                             }
                             // Preparation can narrow tools, but original saved evidence must remain readable.
                             taskRoutedTools.firstOrNull { it.realToolName == "read_recovery_context" }?.let { recoveryTool ->
                                 if (exposedTools.none { it.realToolName == recoveryTool.realToolName }) {
                                     exposedTools = listOf(recoveryTool) + exposedTools
-                                    contextPlan = planRunContext(preparedTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools, limits)
+                                    contextPlan = planRunContext(preparedTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools, limits, requireToolExecution)
                                 }
                             }
                             if (resumeWriterOnly) {
+                                requireToolExecution = false
                                 exposedTools = exposedTools.filter { it.realToolName == "read_recovery_context" }
                                 requestPlatform = requestPlatform.withSystemPrompt(systemPrompt = requestPlatform.systemPrompt.orEmpty() + "\nResume final writing from the saved evidence and retained review report. New acquisition or external actions were not requested. Explain unresolved coverage instead of repeating completed work.")
-                                contextPlan = planRunContext(preparedTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools, limits)
+                                contextPlan = planRunContext(preparedTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools, limits, requireToolExecution)
                             }
                             if (localDelegation.researchStopped()) {
+                                requireToolExecution = false
                                 exposedTools = exposedTools.filter { it.realToolName == "read_recovery_context" }
                                 requestPlatform = requestPlatform.withSystemPrompt(systemPrompt = requestPlatform.systemPrompt.orEmpty() + "\nResearch acquisition stopped. Summarize completed evidence and identify unfinished questions. Do not infer who stopped it or claim independent review completed. Only saved-evidence reads remain available.")
-                                contextPlan = planRunContext(preparedTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools, limits)
+                                contextPlan = planRunContext(preparedTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools, limits, requireToolExecution)
                             }
                         }
                         if (recovery?.isAuthorized() == false) {
@@ -2418,7 +2427,7 @@ class ChatRepositoryImpl(
                             streamPrimaryAnswer(
                                 platform, requestPlatform, latestUser, runId, turnKey, chatToolConfig, contextPlan,
                                 budgetSettings, limits, customRunner, delegationSettings, effectiveTools, exposedTools,
-                                resolvedTools, delegatedTools, trace, traceSequences, recalled, documentContext,
+                                resolvedTools, taskRoutedTools, delegatedTools, trace, traceSequences, recalled, documentContext,
                                 localResearch, processingOwnership, reservedFinalToolCalls, followUps,
                                 remainingToolCalls = toolBudget::remainingCalls,
                                 githubProgress = githubProgress,
@@ -3000,7 +3009,7 @@ class ChatRepositoryImpl(
             )
         }
         suspend fun planRunContext(turns: List<ConversationTurn>, prompt: String, tools: List<ResolvedAgentTool>, settings: dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings) =
-            planPreparedRunContext(platform, synthesisRun, chatToolConfig?.combined, turns, prompt, tools, settings, chatToolConfig?.github != null)
+            planPreparedRunContext(platform, synthesisRun, chatToolConfig?.combined, turns, prompt, tools, settings, chatToolConfig?.github != null, taskRecovery?.originalRequest ?: latestUser?.content.orEmpty(), input.requiresExecutionTools(admission.resumeWriterOnly))
         var contextPlan = measurePreparation(runId, PreparationPhase.CONTEXT_ASSEMBLY) { planRunContext(contextTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools, limits) }
         AppLogRecorder.record(
             "Tools",
@@ -3230,13 +3239,15 @@ class ChatRepositoryImpl(
         prompt: String,
         tools: List<ResolvedAgentTool>,
         settings: dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings,
-        githubMode: Boolean
+        githubMode: Boolean,
+        requestedTask: String,
+        requireToolExecution: Boolean = true
     ): dev.chungjungsoo.gptmobile.data.context.ContextPlan {
         val frozenOutput = if (synthesisRun) kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.CombinedWriterDispatchGuard]?.plan?.effectiveOutputTokens else null
         val features = settingRepository.getFeatureSettings()
         val github = turns.lastOrNull()?.userMessage?.chatId?.let { features.conversationGitHub[it] }
         val engineering = dev.chungjungsoo.gptmobile.data.github.GitHubChatPolicy.features(features, platform.uid, github).engineeringProfiles[platform.uid]
-        val task = turns.lastOrNull { it.isCurrentTurn }?.userMessage?.effectiveContent().orEmpty()
+        val task = requestedTask
         val adaptiveSettings = if (engineering != null && combined == null && !synthesisRun) {
             dev.chungjungsoo.gptmobile.data.context.EngineeringAdaptivePolicy.budgets(engineering, task, settings)
         } else {
@@ -3249,17 +3260,16 @@ class ChatRepositoryImpl(
             dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.planFullInputOrMultipass(turns, prompt, admittedSettings, combined)
         } else {
             if (platform.compatibleType == ClientType.LITERT_LM && !githubMode) {
-                val task = turns.lastOrNull { it.isCurrentTurn }?.userMessage?.effectiveContent().orEmpty()
                 val intent = if (dev.chungjungsoo.gptmobile.data.context.LocalContextPlanner.isToolFollowUp(task)) turns.dropLast(1).takeLast(6).lastOrNull { !dev.chungjungsoo.gptmobile.data.context.LocalContextPlanner.isToolFollowUp(it.userMessage.effectiveContent()) }?.userMessage?.effectiveContent().orEmpty() else ""
                 val required = dev.chungjungsoo.gptmobile.data.context.LocalContextPlanner.requiredToolNames(task + "\n" + intent + "\n" + platform.systemPrompt.orEmpty(), tools.map { it.tool.definition })
                 val relevant = dev.chungjungsoo.gptmobile.data.context.LocalContextPlanner.relevantTools(task, tools.map { it.tool.definition }, required).map { it.name }.toSet()
-                val plan = planPrimaryContext(turns, prompt, tools.filter { it.tool.definition.name in relevant }, admittedSettings, true, githubMode = false)
+                val plan = planPrimaryContext(turns, prompt, tools.filter { it.tool.definition.name in relevant }, admittedSettings, true, githubMode = false, requestedTask = requestedTask, requireToolExecution = requireToolExecution)
                 plan.copy(
                     authorizedTools = if (relevant.isEmpty()) plan.authorizedTools else tools.map { it.tool.definition },
                     toolOmissions = plan.toolOmissions + tools.filterNot { it.tool.definition.name in relevant }.associate { it.modelToolName to dev.chungjungsoo.gptmobile.data.context.ToolOmissionReason.NOT_NEEDED }
                 )
             } else {
-                planPrimaryContext(turns, prompt, tools, admittedSettings, true, githubMode)
+                planPrimaryContext(turns, prompt, tools, admittedSettings, true, githubMode, requestedTask, requireToolExecution)
             }
         }
     }
@@ -3700,7 +3710,7 @@ class ChatRepositoryImpl(
         }
     }
 
-    private fun planPrimaryContext(turns: List<ConversationTurn>, prompt: String, tools: List<ResolvedAgentTool>, limits: dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings, externalTools: Boolean, githubMode: Boolean): dev.chungjungsoo.gptmobile.data.context.ContextPlan = dev.chungjungsoo.gptmobile.data.agent.planAuthorizedToolContext(turns, prompt, tools, limits, externalTools, githubMode)
+    private fun planPrimaryContext(turns: List<ConversationTurn>, prompt: String, tools: List<ResolvedAgentTool>, limits: dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings, externalTools: Boolean, githubMode: Boolean, requestedTask: String, requireToolExecution: Boolean): dev.chungjungsoo.gptmobile.data.context.ContextPlan = dev.chungjungsoo.gptmobile.data.agent.planAuthorizedToolContext(turns, prompt, tools, limits, externalTools, githubMode, requestedTask, requireToolExecution)
 
     private fun withoutExcludedAttachments(messages: List<MessageV2>, excluded: Collection<String>) =
         messages.map { message -> message.copy(attachments = message.attachments.filterNot { it.filePathForDisplay in excluded }) }
@@ -3790,6 +3800,12 @@ class ChatRepositoryImpl(
     ) {
         val githubTask: Boolean get() = chatToolConfig?.github != null ||
             dev.chungjungsoo.gptmobile.data.agent.requiresNativeGitHubAcceptance(taskRecovery?.originalRequest ?: effectiveUserMessages.lastOrNull()?.content.orEmpty(), true)
+
+        // Delivery still validates saved-evidence access, but must not require an
+        // original execution tool before it reaches final-writing preparation.
+        fun requiresExecutionTools(resumeWriterOnly: Boolean): Boolean = !resumeWriterOnly &&
+            stage?.writerRequestPlan == null &&
+            !(githubTask && dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.reportOnly(savedUserTurns.lastOrNull()?.content.orEmpty()))
     }
 
     private data class PrimaryRunAdmission(
@@ -4322,7 +4338,7 @@ class ChatRepositoryImpl(
         runId: String,
         turnKey: String,
         githubContext: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext?,
-        effectiveTools: List<ResolvedAgentTool>,
+        evidenceTools: List<ResolvedAgentTool>,
         catalog: dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog?,
         dispatchAuthority: dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard,
         originalUserRequest: String,
@@ -4334,12 +4350,12 @@ class ChatRepositoryImpl(
     ): Pair<String, dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook?> {
         // Recovery controls belong to the current instruction, never the immutable criteria.
         var githubEffectiveTask = dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.request(acceptanceRequest)
-        val targets = effectiveTools.filter { it.nativeGitHub }.mapNotNull { it.gitHubPlanningContext }
+        val targets = evidenceTools.filter { it.nativeGitHub }.mapNotNull { it.gitHubPlanningContext }
             .filter { it.repository != null && it.connectionUid.isNotBlank() }.distinctBy { it.connectionUid to it.repository }
         dev.chungjungsoo.gptmobile.data.agent.requireNativeGitHubTarget(requiresAcceptance, if (githubContext != null) 1 else targets.size, acceptanceRequest)
         val inferred = targets.singleOrNull()?.takeIf { requiresAcceptance }
         val lifecycle = dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryLifecycle.intent(acceptanceRequest) != null
-        val lifecycleConnection = effectiveTools.filter { it.nativeGitHub }.mapNotNull { it.connectionUid }.distinct().singleOrNull().takeIf { lifecycle }
+        val lifecycleConnection = evidenceTools.filter { it.nativeGitHub }.mapNotNull { it.connectionUid }.distinct().singleOrNull().takeIf { lifecycle }
         val connectionUid = githubContext?.connectionUid ?: inferred?.connectionUid ?: lifecycleConnection
         // Account-scoped creation evidence is intentionally not a dispatchable repository.
         val selectedRepository = githubContext?.repository ?: inferred?.repository ?: connectionUid?.takeIf { lifecycle }?.let { dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryContext("@account", it, "") }
@@ -4347,7 +4363,7 @@ class ChatRepositoryImpl(
         if (requiresAcceptance && !diagnosticFollowUp) expectGitHubRunAcceptance(runId)
         val verifiedEvidence = selectedRepository?.takeIf { connectionUid != null }?.let { repository ->
             val user = requireNotNull(latestUser)
-            val identity = effectiveTools.filter { it.nativeGitHub && it.connectionUid == connectionUid }.firstNotNullOfOrNull { it.authorizationIdentity }.orEmpty()
+            val identity = evidenceTools.filter { it.nativeGitHub && it.connectionUid == connectionUid }.firstNotNullOfOrNull { it.authorizationIdentity }.orEmpty()
             val scopeIdentity = "${user.chatId}:${platform.uid}:$connectionUid:$identity:${repository.owner}/${repository.repo}:${repository.ref}"
             // A catalog revision invalidates dispatch preparation, not historical task identity.
             // Account/profile/repository boundaries and live authorization still gate every restore.
@@ -4387,8 +4403,8 @@ class ChatRepositoryImpl(
                 binding = binding,
                 repository = "${repository.owner}/${repository.repo}",
                 branch = repository.ref,
-                trustedTools = effectiveTools.filter { it.nativeGitHub }.mapTo(hashSetOf()) { it.modelToolName } + listOfNotNull(catalog?.definition?.name),
-                currentToolContracts = effectiveTools.filter { it.nativeGitHub }.associate { it.modelToolName to it.tool.definition.inputSchema },
+                trustedTools = evidenceTools.filter { it.nativeGitHub }.mapTo(hashSetOf()) { it.modelToolName } + listOfNotNull(catalog?.definition?.name),
+                currentToolContracts = evidenceTools.filter { it.nativeGitHub }.associate { it.modelToolName to it.tool.definition.inputSchema },
                 readSources = dev.chungjungsoo.gptmobile.data.github.GitHubTargetPolicy.readSources(if (reuse) previousTask else githubEffectiveTask),
                 load = { id -> workspace?.protectedSynthesisCheckpoint("github-evidence:$binding:$id") },
                 latestVerdict = {
@@ -4432,7 +4448,7 @@ class ChatRepositoryImpl(
                 }
             ).also {
                 it.restore()
-                val definitions = effectiveTools.filter { tool -> tool.nativeGitHub }.map { tool -> tool.tool.definition }
+                val definitions = evidenceTools.filter { tool -> tool.nativeGitHub }.map { tool -> tool.tool.definition }
                 it.retainTaskContract(if (reuse) previousTask else githubEffectiveTask, sourceMessageId ?: user.id, definitions, callLimit)
                 it.retainPolicy(dispatchAuthority.revision, definitions)
             }
@@ -4684,11 +4700,13 @@ class ChatRepositoryImpl(
         contextPlan: dev.chungjungsoo.gptmobile.data.context.ContextPlan,
         githubMode: Boolean
     ): dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog? =
-        effectiveTools.firstNotNullOfOrNull { it.progressiveCatalog } ?: if (settings.adaptiveToolCatalog && !session.handlesToolsInternally) {
-            dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog.create(runnerTools.map { it.definition }, latestUser?.content.orEmpty(), contextPlan.tools.mapTo(HashSet()) { it.name }, githubMode = githubMode)
-        } else {
-            null
-        }
+        (
+            effectiveTools.firstNotNullOfOrNull { it.progressiveCatalog } ?: if (settings.adaptiveToolCatalog && !session.handlesToolsInternally) {
+                dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog.create(runnerTools.map { it.definition }, latestUser?.content.orEmpty(), contextPlan.tools.mapTo(HashSet()) { it.name }, githubMode = githubMode)
+            } else {
+                null
+            }
+            ).also { it?.bindExecutionContracts(runnerTools.map { tool -> tool.definition }) }
 
     private fun recordPrimaryToolCatalog(
         catalog: dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog?,
@@ -4713,6 +4731,7 @@ class ChatRepositoryImpl(
         effectiveTools: List<ResolvedAgentTool>,
         exposedTools: List<ResolvedAgentTool>,
         resolvedTools: List<ResolvedAgentTool>,
+        authorizedEvidenceTools: List<ResolvedAgentTool>,
         delegatedTools: List<ResolvedAgentTool>,
         trace: ToolTraceSession,
         traceSequences: java.util.concurrent.atomic.AtomicInteger,
@@ -4739,7 +4758,7 @@ class ChatRepositoryImpl(
         validateSavedEvidence: suspend () -> Boolean = { true }
     ): Flow<ApiState> = channelFlow {
         val admission = streamPrimaryAnswerAdmission(
-            platform, latestUser, runId, chatToolConfig, contextPlan, limits, effectiveTools, exposedTools,
+            platform, latestUser, runId, chatToolConfig, contextPlan, limits, authorizedEvidenceTools, exposedTools,
             localResearch, processingOwnership, toolBudgetSourceMessageId, acceptanceRequest, restoreGatewayHandoffRequested
         )
         val dispatchAuthority = admission.dispatchAuthority
@@ -5361,10 +5380,15 @@ class ChatRepositoryImpl(
         }
 
         val catalog = primaryToolCatalog(effectiveTools, runnerTools, groundedSession, budgetSettings, latestUser, contextPlan, chatToolConfig?.github != null)
+        // Exhausted execution budgets and writer-only stages must not erase the
+        // still-authorized identity/contracts used to restore durable evidence.
+        // Only runnerTools are executable; this catalog is a read-validation scope.
+        val evidenceCatalog = catalog ?: authorizedEvidenceTools.firstNotNullOfOrNull { it.progressiveCatalog }
+            ?.also { it.bindExecutionContracts(authorizedEvidenceTools.map { tool -> tool.tool.definition }) }
         val initiallySelectedSession = catalog?.let { groundedSession.withToolCatalog(it) } ?: groundedSession
         val (githubEffectiveTask, verifiedEvidence) = prepareGitHubTaskEvidence(
             platform, latestUser, runId, turnKey, chatToolConfig?.github,
-            effectiveTools, catalog, dispatchAuthority, originalUserRequest, acceptanceRequest, requiresNativeAcceptance,
+            authorizedEvidenceTools, evidenceCatalog, dispatchAuthority, originalUserRequest, acceptanceRequest, requiresNativeAcceptance,
             toolBudgetSourceMessageId, customRunner.limits.maxToolCalls, validateSavedEvidence
         )
         val selectedSession = if (verifiedEvidence != null &&
@@ -5553,7 +5577,7 @@ class ChatRepositoryImpl(
                     )
                     openPrimarySession(continuation.turns, "github-execution-continuation", textOnly = false)
                 },
-                authorizedTools = runnerTools.map { it.definition }.filter { it.modelVisible },
+                authorizedTools = (authorizedEvidenceTools.map { it.tool.definition } + listOfNotNull(evidenceCatalog?.definition)).filter { it.modelVisible }.distinctBy { it.name },
                 inputLimit = { (githubStageBudget("github-claim-extraction").input - dev.chungjungsoo.gptmobile.data.context.TextTokenEstimate.estimate(dev.chungjungsoo.gptmobile.data.github.GitHubEvidencePolicy.INSTRUCTION)).coerceAtLeast(0) },
                 openVerifier = { prompt ->
                     openPrimarySession(
@@ -5727,6 +5751,7 @@ class ChatRepositoryImpl(
         dev.chungjungsoo.gptmobile.data.diagnostics.FrameTimingRecorder.phase(runId, "streaming")
         val progressTracker = dev.chungjungsoo.gptmobile.data.agent.ToolProgressTracker()
         val progressParser = dev.chungjungsoo.gptmobile.data.agent.PublicProgressParser()
+        val progressLineage = dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineageAccumulator()
         var gatewayTelemetrySeen = false
         var providerToolCalls = 0
         var providerUsefulToolCalls = 0
@@ -5794,8 +5819,10 @@ class ChatRepositoryImpl(
                             providerTextSeen = true
                             emit(ApiState.GatewayProgressChanged(providerProgress("response_started", "generating", "Writing the response…")))
                         }
+                        if (!progressParser.hasPendingText) progressLineage.reset()
+                        if (providerEvent.text.isNotEmpty()) progressLineage.append(providerEvent.lineage)
                         progressParser.accept(providerEvent.text).forEach { (progress, text) ->
-                            if (progress) emit(ApiState.ProgressCheckpoint(text, modelAuthored = true)) else emit(ApiState.Success(text))
+                            if (progress) emit(ApiState.ProgressCheckpoint(text, modelAuthored = true, invocationId = progressLineage.lineage.invocationId)) else emit(ApiState.Success(text, progressLineage.lineage))
                         }
                     }
 
@@ -5808,6 +5835,7 @@ class ChatRepositoryImpl(
                         // A full replacement owns its own text. A marker fragment
                         // retained from provisional deltas must not flush after it.
                         progressParser.reset()
+                        progressLineage.reset()
                         providerTextSeen = providerTextSeen || providerEvent.text.isNotBlank()
                         if (editorialPass) dev.chungjungsoo.gptmobile.data.agent.CombinedWriterObservations.recordDelivery(observationKey, providerEvent.report, resolvedOutputCap)
                         emit(ApiState.CombinedAnswer(providerEvent.text, providerEvent.report, providerEvent.formatVersion))
@@ -5815,7 +5843,7 @@ class ChatRepositoryImpl(
                     is ProviderEvent.Failed -> {
                         val recovery = if (runId.startsWith("combined-synthesis:")) dev.chungjungsoo.gptmobile.data.agent.CombinedRecoveryFailure.from(providerEvent) else null
                         recovery?.let { dev.chungjungsoo.gptmobile.data.agent.CombinedWriterObservations.recordFailure(observationKey, it.category) }
-                        emit(ApiState.Error(providerEvent.message, providerEvent.progressDeadline, combinedFailure = recovery, providerLimit = providerEvent.providerLimit?.bindAuthority(dispatchAuthority), errorCode = providerEvent.errorCode, taskOutcome = providerEvent.taskOutcome, failureDetails = providerEvent.failureDetails))
+                        emit(ApiState.Error(providerEvent.message, providerEvent.progressDeadline, combinedFailure = recovery, providerLimit = providerEvent.providerLimit?.bindAuthority(dispatchAuthority), errorCode = providerEvent.errorCode, taskOutcome = providerEvent.taskOutcome, failureDetails = providerEvent.failureDetails, invocationId = providerEvent.invocationId))
                     }
                     is ProviderEvent.Notice -> emit(ApiState.Notice(providerEvent.message, providerEvent.persistent, providerEvent.researchDelivery))
                     is ProviderEvent.PhaseChanged -> {
@@ -5908,7 +5936,7 @@ class ChatRepositoryImpl(
 
                     is ProviderEvent.ToolResult -> Unit
                     ProviderEvent.Completed -> progressParser.accept("", flush = true).forEach { (progress, text) ->
-                        if (progress) emit(ApiState.ProgressCheckpoint(text, modelAuthored = true)) else emit(ApiState.Success(text))
+                        if (progress) emit(ApiState.ProgressCheckpoint(text, modelAuthored = true, invocationId = progressLineage.lineage.invocationId)) else emit(ApiState.Success(text, progressLineage.lineage))
                     }
                 }
 

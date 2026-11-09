@@ -49,6 +49,7 @@ UPSTREAM_MESSAGES = {
     'MODEL_LOADING': 'The selected model is loading.',
     'MODEL_NOT_FOUND': 'The selected model was not found.',
     'MODEL_LOAD_FAILED': 'Loading the selected model failed.',
+    'MODEL_SELECTOR_REQUIRED': 'The backend requires an explicit model selector.',
     'INVALID_API_KEY': 'The backend rejected its API key.',
     'ENDPOINT_DISABLED': 'The backend endpoint is disabled.',
 }
@@ -100,10 +101,13 @@ def upstream_error(response, model=None):
             'the model is not loaded': 'MODEL_NOT_LOADED', 'model <selected> is not loaded': 'MODEL_NOT_LOADED',
             'model not loaded and autoload is disabled': 'MODEL_NOT_LOADED',
             'model <selected> is not loaded and autoload is disabled': 'MODEL_NOT_LOADED',
+            'model is not running': 'MODEL_NOT_LOADED', 'model name=<selected> is not running': 'MODEL_NOT_LOADED',
             'loading model': 'MODEL_LOADING', 'model is loading': 'MODEL_LOADING',
             'model <selected> is loading': 'MODEL_LOADING', 'model not found': 'MODEL_NOT_FOUND',
+            'model is not found': 'MODEL_NOT_FOUND', 'model name=<selected> is not found': 'MODEL_NOT_FOUND',
             'model <selected> not found': 'MODEL_NOT_FOUND', 'failed to load model': 'MODEL_LOAD_FAILED',
             'failed to load model <selected>': 'MODEL_LOAD_FAILED', 'invalid api key': 'INVALID_API_KEY',
+            'model name is missing from the request': 'MODEL_SELECTOR_REQUIRED',
             'this endpoint is disabled': 'ENDPOINT_DISABLED', 'endpoint is disabled': 'ENDPOINT_DISABLED',
         }
         # Match only the selected identity against known complete templates;
@@ -161,11 +165,15 @@ def response_failure(response, dependency, model=None):
             category = 'model_loading'
         elif marker == 'MODEL_NOT_FOUND' or code in {'model_not_found', 'invalid_model'}:
             category = 'model_unavailable'
+        elif marker == 'MODEL_SELECTOR_REQUIRED':
+            category = 'configuration'
     result = failure(category, dependency, response.status_code) if category else http_failure(response.status_code, dependency)
     result.update(details)
     if category in {'model_not_loaded', 'model_loading'}:
         result.update(modelLoaded=False,
                       modelState='LOADING' if category == 'model_loading' else 'UNLOADED')
+    elif category == 'model_unavailable':
+        result.update(modelLoaded=False, modelState='UNAVAILABLE')
     return result
 
 

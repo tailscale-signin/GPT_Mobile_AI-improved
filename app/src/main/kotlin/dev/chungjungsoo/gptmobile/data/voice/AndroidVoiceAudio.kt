@@ -26,7 +26,8 @@ class AndroidVoiceAudio internal constructor(
     private val speechWork: java.util.concurrent.Executor,
     private val speechFactory: (Context, TextToSpeech.OnInitListener) -> TextToSpeech,
     private val recognitionService: RecognitionService,
-    private val recognitionGate: RecognitionStartGate
+    private val recognitionGate: RecognitionStartGate,
+    private val diagnostics: (String, String, String) -> Unit = { tag, message, level -> dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(tag, message, level) }
 ) : VoiceAudio {
     internal constructor(context: Context, speechWork: java.util.concurrent.Executor, speechFactory: (Context, TextToSpeech.OnInitListener) -> TextToSpeech) :
         this(context, speechWork, speechFactory, AndroidRecognitionService(context), sharedRecognitionGate)
@@ -36,6 +37,7 @@ class AndroidVoiceAudio internal constructor(
 
     private val main = Handler(Looper.getMainLooper())
     private var recognizer: SpeechRecognizer? = null
+    private var recognizerInstance: Long? = null
 
     @Volatile private var tts: TextToSpeech? = null
 
@@ -51,8 +53,12 @@ class AndroidVoiceAudio internal constructor(
     @Volatile private var generation = 0L
     private var pendingSpeech: (() -> Unit)? = null
     private var playbackError: ((String) -> Unit)? = null
+    private var speechInitializationTimeout: Runnable? = null
     companion object {
         private val sharedRecognitionGate = RecognitionStartGate()
+        private val nextRecognizerInstance = java.util.concurrent.atomic.AtomicLong()
+        private val activeRecognizerOwners = java.util.concurrent.atomic.AtomicInteger()
+        private val activeSpeechOwners = java.util.concurrent.atomic.AtomicInteger()
     }
     private val audioManager = context.getSystemService(AudioManager::class.java)
     private var focus: AudioFocusRequest? = null
@@ -142,11 +148,12 @@ class AndroidVoiceAudio internal constructor(
             failed?.invoke("The speech engine disconnected. Review Android speech settings, then recheck spoken replies. Captions remain available.")
         }
     }
-    private fun event(name: String, ticket: Long = generation) = dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("VoiceTiming", "$name · incidentId=voice:$sessionId:$ticket · session=$sessionId · attempt=$ticket · elapsedMs=${android.os.SystemClock.elapsedRealtime()}")
+    private fun event(name: String, ticket: Long = generation) = diagnostics("VoiceTiming", "$name · incidentId=voice:$sessionId:$ticket · session=$sessionId · attempt=$ticket · elapsedMs=${android.os.SystemClock.elapsedRealtime()}", "I")
     private fun recognitionFailure(code: String, stage: String, dispatched: Boolean, ticket: Long = generation, error: Int? = null) {
-        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
+        val locale = languageTag.takeIf { it.matches(Regex("[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8}){0,4}")) } ?: "und"
+        diagnostics(
             "VoiceRecognition",
-            "recognition_error=${error ?: "not_reported"} · errorCode=$code · failedStage=$stage · dispatched=$dispatched · incidentId=voice:$sessionId:$ticket · retryAfterMs=${recognitionGate.remainingMillis()} · locale=$languageTag · onDevice=${!allowOnlineSpeech}",
+            "recognition_error=${error ?: "not_reported"} · errorCode=$code · failedStage=$stage · dispatched=$dispatched · incidentId=voice:$sessionId:$ticket · retryAfterMs=${recognitionGate.remainingMillis()} · locale=$locale · onDevice=${!allowOnlineSpeech}",
             "W"
         )
     }
@@ -219,6 +226,8 @@ class AndroidVoiceAudio internal constructor(
             failedStage = "service_creation"
             val engine = recognitionService.create(onDevice)
             recognizer = engine
+            recognizerInstance = nextRecognizerInstance.incrementAndGet()
+            event("recognizer_created · engineInstance=$recognizerInstance · activeOwnedEngines=${activeRecognizerOwners.incrementAndGet()} · engineMode=${if (onDevice) "on_device" else "system"}", ticket)
             failedStage = "listener_configuration"
             var becameReady = false
             fun active() = !closed && ticket == generation && recognizer === engine
@@ -276,8 +285,8 @@ class AndroidVoiceAudio internal constructor(
                     }
                     stop()
                     val code = when {
-                        bindingFailure -> "SPEECH_SERVICE_START_FAILED"
                         error == SpeechRecognizer.ERROR_TOO_MANY_REQUESTS -> "SPEECH_RATE_LIMITED"
+                        bindingFailure -> "SPEECH_SERVICE_START_FAILED"
                         error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "SPEECH_PERMISSION_REQUIRED"
                         error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "SPEECH_SERVICE_BUSY"
                         error == SpeechRecognizer.ERROR_NETWORK -> "SPEECH_NETWORK_FAILED"
@@ -303,7 +312,9 @@ class AndroidVoiceAudio internal constructor(
                         else -> listener::failure
                     }
                     failure(
-                        if (bindingFailure) {
+                        if (bindingFailure && error == SpeechRecognizer.ERROR_TOO_MANY_REQUESTS) {
+                            "The Android speech service rejected this start because of its request limit. Wait before trying again, review the speech service if it persists, or continue typing in chat."
+                        } else if (bindingFailure) {
                             "The Android speech service could not start. Check your speech service in Android settings, or continue typing in chat."
                         } else {
                             when (error) {
@@ -482,10 +493,11 @@ class AndroidVoiceAudio internal constructor(
                     val spoken = if (text.length > 12000) text.take(12000) + " The rest of this response is available in the chat." else text
                     val chunks = speechChunks(spoken, minOf(3000, TextToSpeech.getMaxSpeechInputLength()))
                     val finalId = "$ticket:${chunks.lastIndex}"
+                    val utteranceIds = chunks.indices.mapTo(hashSetOf()) { "$ticket:$it" }
                     engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                         override fun onStart(utteranceId: String?) {
                             main.post {
-                                if (!closed && ticket == generation) {
+                                if (!closed && ticket == generation && engineVersion == speechGeneration && tts === engine && utteranceId in utteranceIds) {
                                     event("tts_audio_started · utterance=$utteranceId", ticket)
                                     val index = utteranceId?.substringAfterLast(':')?.toIntOrNull()
                                     val length = index?.let(chunks::getOrNull)?.length ?: 3000
@@ -501,7 +513,7 @@ class AndroidVoiceAudio internal constructor(
                         }
                         override fun onDone(utteranceId: String?) {
                             main.post {
-                                if (!closed && ticket == generation && engineVersion == speechGeneration && tts === engine) {
+                                if (!closed && ticket == generation && engineVersion == speechGeneration && tts === engine && utteranceId in utteranceIds) {
                                     event("tts_utterance_completed · utterance=$utteranceId", ticket)
                                     if (utteranceId == finalId) {
                                         val finished = synchronized(speechStateLock) {
@@ -524,7 +536,11 @@ class AndroidVoiceAudio internal constructor(
                         }
 
                         @Deprecated("Platform compatibility callback")
-                        override fun onError(utteranceId: String?) = fail("Could not play this response. Turn off the speaker to continue with captions.", retireEngine = true)
+                        override fun onError(utteranceId: String?) {
+                            if (engineVersion == speechGeneration && tts === engine && (utteranceId == null || utteranceId in utteranceIds)) {
+                                fail("Could not play this response. Turn off the speaker to continue with captions.", retireEngine = true)
+                            }
+                        }
                     })
                     for ((index, chunk) in chunks.withIndex()) {
                         val admitted = synchronized(speechStateLock) {
@@ -551,14 +567,6 @@ class AndroidVoiceAudio internal constructor(
             return
         }
         pendingSpeech = play
-        armWatchdog(10_000) {
-            if (!closed && ticket == generation && !speechReady) {
-                terminal("timeout_initialization")
-                stop()
-                releaseSpeech(SpeechVoiceCatalogState.UNAVAILABLE)
-                error("The speech engine did not initialize. Your answer remains in chat.")
-            }
-        }
         initializeSpeech()
     }
 
@@ -567,11 +575,29 @@ class AndroidVoiceAudio internal constructor(
         speechState = SpeechEngineState.INITIALIZING
         mutableVoiceCatalog.value = SpeechVoiceCatalogState.CHECKING
         val initialization = ++speechGeneration
+        // Voice-settings discovery also binds TTS without a pending utterance.
+        // A missing initialization callback must not leave its catalogue checking forever.
+        speechInitializationTimeout = Runnable {
+            if (!closed && initialization == speechGeneration && speechState == SpeechEngineState.INITIALIZING) {
+                val failed = playbackError
+                val pending = pendingSpeech
+                event("tts_initialization_timeout · engineInstance=$initialization")
+                releaseSpeech(SpeechVoiceCatalogState.UNAVAILABLE)
+                if (pending != null) {
+                    terminal("timeout_initialization")
+                    stop()
+                    failed?.invoke("The speech engine did not initialize. Your answer remains in chat.")
+                }
+            }
+        }.also { main.postDelayed(it, 10_000) }
         try {
             tts = speechFactory(context) { status ->
                 main.post {
-                    if (closed || initialization != speechGeneration) return@post
+                    if (closed || initialization != speechGeneration || speechState != SpeechEngineState.INITIALIZING) return@post
+                    speechInitializationTimeout?.let(main::removeCallbacks)
+                    speechInitializationTimeout = null
                     speechState = if (status == TextToSpeech.SUCCESS) SpeechEngineState.READY else SpeechEngineState.UNINITIALIZED
+                    event("tts_initialization_result · engineInstance=$initialization · state=${speechState.name}")
                     val pending = pendingSpeech
                     pendingSpeech = null
                     if (speechReady) {
@@ -594,6 +620,7 @@ class AndroidVoiceAudio internal constructor(
                     }
                 }
             }
+            event("tts_engine_created · engineInstance=$initialization · activeOwnedEngines=${activeSpeechOwners.incrementAndGet()} · state=INITIALIZING")
         } catch (_: Exception) {
             val failed = playbackError
             val pending = pendingSpeech
@@ -611,22 +638,28 @@ class AndroidVoiceAudio internal constructor(
     }
 
     private fun releaseSpeech(catalogState: SpeechVoiceCatalogState = SpeechVoiceCatalogState.UNINITIALIZED) {
+        speechInitializationTimeout?.let(main::removeCallbacks)
+        speechInitializationTimeout = null
         val previous = synchronized(speechStateLock) {
+            val retired = tts?.let { it to speechGeneration }
             speechGeneration++
             speechState = if (closed) SpeechEngineState.CLOSED else SpeechEngineState.UNINITIALIZED
-            tts.also { tts = null }
+            tts = null
+            retired
         }
         installedVoices = emptySet()
         mutableVoices.value = emptyList()
         voiceQueryInFlight = null
         mutableVoiceCatalog.value = catalogState
         if (previous != null) {
+            val (engine, version) = previous
+            event("tts_engine_retired · engineInstance=$version · activeOwnedEngines=${activeSpeechOwners.decrementAndGet()} · state=${speechState.name}")
             speechWork.execute {
-                if (configuredEngine === previous) {
+                if (configuredEngine === engine) {
                     configuredEngine = null
                     configuredSpeech = null
                 }
-                runCatching { previous.shutdown() }
+                runCatching { engine.shutdown() }
             }
         }
     }
@@ -645,9 +678,14 @@ class AndroidVoiceAudio internal constructor(
         pendingSpeech = null
         playbackError = null
         val previous = recognizer
+        val previousInstance = recognizerInstance
         recognizer = null
+        recognizerInstance = null
         runCatching { previous?.cancel() }
-        runCatching { previous?.destroy() }
+        val destroyed = runCatching { previous?.destroy() }.isSuccess
+        if (previous != null && previousInstance != null) {
+            event("recognizer_retired · engineInstance=$previousInstance · activeOwnedEngines=${activeRecognizerOwners.decrementAndGet()} · destroyCompleted=$destroyed")
+        }
         recognitionGate.release(sessionId)
         // Queue cancellation behind configuration/admission on the same worker.
         // Inspect state there: a stop racing a final admission must still cancel

@@ -41,8 +41,8 @@ class RunDiagnosticJournalTest {
         }
         journal.firstVisibleDraw(OutputTraceOwner("run", 1, "0", origin = OutputOrigin.PROGRESS_NOTICE))
         journal.record("run", RunDiagnosticKind.INVOCATION_STARTED, invocationId = "invocation")
-        journal.record("run", RunDiagnosticKind.FIRST_TEXT, invocationId = "invocation")
-        journal.record("run", RunDiagnosticKind.OUTPUT_CHECKPOINT, invocationId = "invocation", outputBoundary = OutputTraceBoundary.PROVIDER_VISIBLE, outputRepresentation = OutputTextRepresentation.VISIBLE_UTF8, outputFingerprint = outputFingerprint("answer"))
+        journal.record("run", RunDiagnosticKind.FIRST_TEXT, invocationId = "invocation", outputOrigin = OutputOrigin.MODEL_TEXT)
+        journal.record("run", RunDiagnosticKind.OUTPUT_CHECKPOINT, invocationId = "invocation", outputBoundary = OutputTraceBoundary.PROVIDER_VISIBLE, outputRepresentation = OutputTextRepresentation.VISIBLE_UTF8, outputFingerprint = outputFingerprint("answer"), outputOrigin = OutputOrigin.MODEL_TEXT)
         val committed = journal.traceOutput("run", OutputTraceBoundary.COMMITTED, "answer", fence = 1)
         val rendered = journal.traceOutput("run", OutputTraceBoundary.RENDER_INPUT, "answer", fence = 1, representation = OutputTextRepresentation.DISPLAY_FILTERED_MARKDOWN_UTF8, partId = "0")
         repeat(2) { journal.firstVisibleDraw(OutputTraceOwner("run", 1, "0", origin = rendered.origin, invocationId = rendered.invocationId)) }
@@ -59,7 +59,7 @@ class RunDiagnosticJournalTest {
             setRunPrivacy("run", false)
         }
         for (invocation in listOf("first", "latest")) {
-            journal.traceOutput("run", OutputTraceBoundary.PROVIDER_VISIBLE, "answer", invocationId = invocation)
+            journal.traceOutput("run", OutputTraceBoundary.PROVIDER_VISIBLE, "answer", invocationId = invocation, outputOrigin = OutputOrigin.MODEL_TEXT)
         }
         assertEquals(OutputLineage(OutputOrigin.MODEL_TEXT), journal.traceOutput("run", OutputTraceBoundary.COMMITTED, "answer"))
         assertEquals(OutputLineage(), journal.traceOutput("run", OutputTraceBoundary.COMMITTED, "answer\nConnection failed"))
@@ -72,6 +72,19 @@ class RunDiagnosticJournalTest {
         journal.traceOutput("run", OutputTraceBoundary.COMMITTED, "setup", outputOrigin = OutputOrigin.SYSTEM_ERROR)
         journal.clear()
         assertEquals(OutputLineage(), journal.traceOutput("run", OutputTraceBoundary.RENDER_INPUT, "setup"))
+    }
+
+    @Test fun anInvocationIdentifierAloneCannotDeclareUnknownTextToBeModelOutput() = runTest {
+        val journal = RunDiagnosticJournal(MemoryVault(), backgroundScope).apply {
+            enabled = true
+            setRunPrivacy("run", false)
+        }
+        journal.record("run", RunDiagnosticKind.FIRST_TEXT, invocationId = "invocation")
+        journal.traceOutput("run", OutputTraceBoundary.PROVIDER_VISIBLE, "unattributed", invocationId = "invocation")
+        val events = journal.snapshot(setOf("run")).events
+        assertTrue(events.all { it.outputOrigin == OutputOrigin.UNKNOWN })
+        assertEquals(OutputLineage(), journal.traceOutput("run", OutputTraceBoundary.RENDER_INPUT, "unattributed"))
+        assertEquals(null, linkedParsedToDrawMillis(events))
     }
 
     @Test fun boundedSnapshotCannotPublishCapturedEventsOrWatermarksAfterClearOrPrivateSession() = runTest {

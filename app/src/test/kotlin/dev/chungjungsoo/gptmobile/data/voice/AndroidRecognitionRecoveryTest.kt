@@ -108,6 +108,39 @@ class AndroidRecognitionRecoveryTest {
         }
     }
 
+    @Test fun preReadyErrorTenRetainsItsRateLimitMeaningAndOneEngineLifetime() {
+        val context = RuntimeEnvironment.getApplication()
+        shadowOf(context).grantPermissions(Manifest.permission.RECORD_AUDIO)
+        val service = Service()
+        val records = mutableListOf<Pair<String, String>>()
+        val audio = AndroidVoiceAudio(context, Executor { it.run() }, { _, _ -> mock(TextToSpeech::class.java) }, service, RecognitionStartGate { 0L }) { tag, message, _ -> records += tag to message }
+        val listener = Listener()
+        audio.languageTag = "en-US\nprivate-setting"
+        try {
+            audio.listen(listener)
+            val platform = service.listener()
+            platform.onError(SpeechRecognizer.ERROR_TOO_MANY_REQUESTS)
+            platform.onError(SpeechRecognizer.ERROR_TOO_MANY_REQUESTS)
+            audio.stop()
+            val failure = records.single { it.first == "VoiceRecognition" }.second
+            assertTrue(failure.contains("recognition_error=10"))
+            assertTrue(failure.contains("errorCode=SPEECH_RATE_LIMITED"))
+            assertTrue(failure.contains("failedStage=service_start"))
+            assertTrue(failure.contains("locale=und"))
+            assertFalse(records.any { it.second.contains("private-setting") })
+            assertEquals(1, records.count { it.second.startsWith("recognizer_created") })
+            assertEquals(1, records.count { it.second.startsWith("recognizer_retired") })
+            assertTrue(records.single { it.second.startsWith("recognizer_created") }.second.contains("activeOwnedEngines=1"))
+            assertTrue(records.single { it.second.startsWith("recognizer_retired") }.second.contains("activeOwnedEngines=0"))
+            assertTrue(listener.failures.single().contains("request limit"))
+            assertEquals(0, listener.retryable)
+            assertEquals(5000L, audio.retryAfterMillis())
+            verify(service.engine).destroy()
+        } finally {
+            audio.close()
+        }
+    }
+
     @Test fun anUnavailableOfflineRecognizerNeverBindsAnOnlineService() {
         val service = Service().apply { available = false }
         val audio = audio(service, RecognitionStartGate { 0L })

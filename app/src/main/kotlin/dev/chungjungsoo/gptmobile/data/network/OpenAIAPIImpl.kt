@@ -280,7 +280,18 @@ class OpenAIAPIImpl @Inject constructor(
                                 }
                             }
                             if (response.status.value in listOf(429, 502, 503, 504) && ResilientStreamingClient.providerAllowsRetry(errorBody)) {
-                                throw ProviderHttpFailure(response.status.value, ProviderCooldown.defer(config, response.headers[HttpHeaders.RetryAfter]))
+                                throw ProviderHttpFailure(
+                                    response.status.value,
+                                    ProviderCooldown.defer(config, response.headers[HttpHeaders.RetryAfter]),
+                                    knownNotAccepted = response.status.value == 429 &&
+                                        !dispatchRetryGuard.remoteOutcomeUnknown &&
+                                        !receivedAssistantPayload &&
+                                        !receivedGatewayToolActivity &&
+                                        !config.requireGatewayConversation &&
+                                        config.gatewayConversationId == null &&
+                                        config.gatewayConversationKey == null &&
+                                        response.headers["X-Gateway-Job-ID"].isNullOrBlank()
+                                )
                             }
                             throwIfToolDefinitionsRejected(response.status.value, !request.tools.isNullOrEmpty(), errorBody)
 

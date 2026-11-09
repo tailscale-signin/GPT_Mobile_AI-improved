@@ -93,6 +93,7 @@ internal fun structuredDiagnosticLine(
         put("bootMillis", number("bootMs"))
         put("processId", number("processId") ?: number("process"))
         put("processName", text("processName"))
+        put("processSessionId", text("processSessionId"))
         put("workerGenerationId", text("workerGenerationId"))
         put("nativeOperationId", text("nativeOperationId") ?: text("operationId"))
         put("terminationRequested", (parsedFields["terminationRequested"] as? JsonPrimitive)?.booleanOrNull)
@@ -158,7 +159,7 @@ internal fun diagnosticFields(message: String): JsonObject {
             val formattedValue = message.substring(field.range.last + 1, end).trim().removeSuffix("[private payload redacted]").trim().trimEnd('·').trim().let {
                 if (legacyReadiness) it.removeSuffix(";").trimEnd() else it
             }
-            val value = if (key in setOf("eventId", "parentEventId", "monoNs", "bootMs", "processId", "processName")) formattedValue.takeWhile { !it.isWhitespace() && it != '·' } else formattedValue
+            val value = if (key in setOf("eventId", "parentEventId", "monoNs", "bootMs", "processId", "processName", "processSessionId")) formattedValue.takeWhile { !it.isWhitespace() && it != '·' } else formattedValue
             val nested = if (value.startsWith('{') || value.startsWith('[')) runCatching { Json.parseToJsonElement(value) }.getOrNull() else null
             when {
                 nested is JsonObject || nested is JsonArray -> put(key, diagnosticJsonValue(nested))

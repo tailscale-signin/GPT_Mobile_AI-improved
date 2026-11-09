@@ -21,6 +21,7 @@ internal fun classifyDiagnostic(level: String?, tag: String?, message: String): 
         tag == "ProcessExit" && Regex("(?:^| · )reasoncode=6(?: · |$)").containsMatchIn(text) ->
             DiagnosticClassification("historical_anr", "warning", true, "inspect_same_process_anr_receipt")
         tag == "ProcessExit" -> DiagnosticClassification("historical_process_exit", "info", false, "use_os_exit_reason_without_attributing_nearby_exceptions")
+        tag == "Android" && capturedTag == "androidruntime" && text.startsWith("process:") -> DiagnosticClassification("crash_context", "info", false)
         tag == "VoiceRecognition" && Regex("(?:^| · )errorcode=speech_service_(?:start_failed|start_timeout|unavailable)(?: · |$)").containsMatchIn(text) ->
             DiagnosticClassification("speech_service_start", "warning", true, "check_service_availability_and_respect_binding_cooldown")
         tag == "VoiceRecognition" && Regex("^recognition_error=10(?: · |$)").containsMatchIn(text) && "failedstage=recognition" !in text ->
@@ -164,7 +165,7 @@ private fun significantFrameWindow(message: String): Boolean {
 }
 
 /** Strip recorder metadata without swallowing the event label. */
-private fun diagnosticRecorderPayload(message: String): String = message.replace(Regex("^(?:(?:eventId=[A-Za-z0-9_.:-]+|monoNs=[0-9]+|bootMs=(?:[0-9]+|unknown)|processId=-?[0-9]+|processName=[A-Za-z0-9_.:-]+)(?: · | +))+"), "")
+private fun diagnosticRecorderPayload(message: String): String = message.replace(Regex("^(?:(?:eventId=[A-Za-z0-9_.:-]+|monoNs=[0-9]+|bootMs=(?:[0-9]+|unknown)|processId=-?[0-9]+|processName=[A-Za-z0-9_.:-]+|processSessionId=[A-Za-z0-9_.:-]+)(?: · | +))+"), "")
 
 private val capturedAndroidPrefix = Regex("^[VDIWEF]/([^(:]+)(?:\\(\\s*([0-9]+)\\))?:\\s*")
 

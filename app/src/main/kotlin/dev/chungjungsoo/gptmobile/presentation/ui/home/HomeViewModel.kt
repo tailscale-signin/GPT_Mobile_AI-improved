@@ -1,6 +1,5 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.home
 
-import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -761,8 +760,6 @@ class HomeViewModel @Inject constructor(
             allChats = rawChats.filterNot { it.id in hidden }
             publishFolderChats()
             fetchArchivedChats()
-
-            Log.d("chats", "${_chatListState.value.chats}")
         }
     }
 

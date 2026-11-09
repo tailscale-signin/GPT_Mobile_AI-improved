@@ -8,6 +8,9 @@ internal class DiagnosticIncidentTracker {
     private val counted = linkedSetOf<String>()
     private val associations = linkedMapOf<String, String>()
     private val identityValue = Regex("[A-Za-z0-9_.:-]{1,128}")
+    private val crashes = DiagnosticCrashCorrelation()
+    private var indexing = false
+    val correlationLimited: Boolean get() = crashes.limited
     private data class Trace(val id: String, val at: Instant?, val hasFatalHeader: Boolean)
 
     // Android logcat interleaves framework and application streams. A record from
@@ -16,6 +19,23 @@ internal class DiagnosticIncidentTracker {
     private var lastTrace: String? = null
     private val record = Regex("^(\\S+) ([VDIWEF])/([^:]+): (.*)$")
     private val exceptionStart = Regex("^(?:[A-Za-z_$][A-Za-z0-9_$]*\\.)*[A-Za-z_$][A-Za-z0-9_$]*(?:Exception|Error)(?::|$)")
+
+    fun index(line: String, eventId: String, parentEventId: String?) {
+        indexing = true
+        if (eventId in associations) return
+        val association = accept(line, eventId, parentEventId)
+        crashes.observe(association.id, line)
+    }
+
+    /** Resolve aliases before exporting countAsIssue; later frames cannot undo an emitted root. */
+    fun finishIndex() {
+        indexing = false
+        crashes.finish()
+        counted.clear()
+        associations.clear()
+        traces.clear()
+        lastTrace = null
+    }
 
     fun accept(line: String, eventId: String, parentEventId: String?): Association {
         associations[eventId]?.let { return Association(it, false) }
@@ -53,12 +73,16 @@ internal class DiagnosticIncidentTracker {
             content.startsWith("Fatal signal", true) ||
             content.startsWith("type=") ||
             tag == "Android" &&
+            content == "Error was captured in composition." ||
+            tag == "Android" &&
             content.startsWith("Uncaught exception thrown by finalizer", true)
         val begins = fatalHeader || exceptionStart.containsMatchIn(content)
         val continuation = content.startsWith("at ") ||
             content.startsWith("Caused by:") ||
             content.startsWith("Suppressed:") ||
             content.startsWith("... ") ||
+            trace?.hasFatalHeader == true &&
+            content.startsWith("Process:") ||
             classification.category == "fatal" &&
             !begins ||
             trace?.hasFatalHeader == true &&
@@ -87,10 +111,11 @@ internal class DiagnosticIncidentTracker {
     }
 
     private fun remember(eventId: String, incidentId: String, actionable: Boolean): Association {
-        associations[eventId] = incidentId
-        val first = actionable && counted.add(incidentId)
+        val owner = if (indexing) incidentId else crashes.canonical(incidentId)
+        associations[eventId] = owner
+        val first = actionable && counted.add(owner)
         while (counted.size > 2048) counted.remove(counted.first())
         while (associations.size > 4096) associations.remove(associations.keys.first())
-        return Association(incidentId, first)
+        return Association(owner, first)
     }
 }

@@ -9,7 +9,7 @@ import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 
 /** Counts observation records, correlated incidents and attempts separately in a bounded export pass. */
-internal class DiagnosticExportSummary(private val maximumIdentities: Int = 16_384) {
+internal class DiagnosticExportSummary(private val maximumIdentities: Int = 16_384, private val incidentCorrelationLimited: Boolean = false) {
     private var eventRecords = 0L
     private var continuationRecords = 0L
     private var duplicateBatches = 0L
@@ -49,7 +49,12 @@ internal class DiagnosticExportSummary(private val maximumIdentities: Int = 16_3
                     val invocationId = row.diagnosticText("invocationId")
                     if (invocationId == null && row.diagnosticText("tag") == "Model") unidentifiedFailedModelRecords++
                     add(failedInvocations, invocationId)
-                    if (status == "NOT_DISPATCHED") add(unsentInvocations, invocationId)
+                    // A failed admission retains status=FAILED while its typed
+                    // dispatch evidence proves that no request left the process.
+                    val execution = diagnosticExecutionEvidence(fields, row.diagnosticText("eventName").orEmpty())
+                    if (((row["dispatched"] as? JsonPrimitive)?.booleanOrNull ?: execution.dispatched) == false) {
+                        add(unsentInvocations, invocationId)
+                    }
                 }
             }
         }
@@ -69,6 +74,7 @@ internal class DiagnosticExportSummary(private val maximumIdentities: Int = 16_3
             "countCoverage",
             when {
                 identitiesLimited -> "IDENTITY_LIMIT_LOWER_BOUND"
+                incidentCorrelationLimited -> "INCIDENT_CORRELATION_WINDOW_LIMIT"
                 unidentifiedFailedRunRecords > 0 || unidentifiedFailedModelRecords > 0 -> "UNIDENTIFIED_ATTEMPTS_LOWER_BOUND"
                 else -> "COMPLETE_FOR_EXPORTED_RECORDS"
             }

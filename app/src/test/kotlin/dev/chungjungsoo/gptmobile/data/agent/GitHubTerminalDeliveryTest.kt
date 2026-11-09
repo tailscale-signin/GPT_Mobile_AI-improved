@@ -21,8 +21,16 @@ class GitHubTerminalDeliveryTest {
             .withGitHubTerminalDelivery(true).toList().filterIsInstance<AgentRunEvent.Provider>().map { it.event }
         assertEquals(1, events.filterIsInstance<ProviderEvent.TextDelta>().size)
         assertTrue(events.filterIsInstance<ProviderEvent.TextDelta>().single().text.contains("BLOCKED"))
+        assertEquals(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.SYSTEM_ERROR, events.filterIsInstance<ProviderEvent.TextDelta>().single().lineage.origin)
         assertEquals(listOf(failure), events.filterIsInstance<ProviderEvent.Failed>())
         assertFalse(events.any { it is ProviderEvent.Completed })
+    }
+
+    @Test fun knownRateLimitRejectionPreservesAnEmptyAnswerForDurableWaitAdmission() = runTest {
+        val limit = dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision("OPENROUTER", "profile", "selected", 100_000, "scope", "PROVIDER_RATE_LIMITED", true, httpStatus = 429)
+        val failure = ProviderEvent.Failed("HTTP 429", providerLimit = limit, invocationId = "actual")
+        val events = flowOf(provider(failure)).withGitHubTerminalDelivery(true).toList()
+        assertEquals(listOf(provider(failure)), events)
     }
 
     @Test fun deniedToolsCannotBePresentedAsPartiallyCompletedActions() = runTest {

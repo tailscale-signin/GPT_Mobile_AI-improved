@@ -17,6 +17,55 @@ import org.junit.Test
 class ReasoningCapabilityRepositoryTest {
     private val profile = PlatformV2(uid = "selected", name = "Fixture", compatibleType = ClientType.LLAMA, model = "exact-model", apiUrl = "https://fixture.invalid/v1", token = "synthetic-secret", enabled = true)
 
+    @Test fun explicitGatewayRecheckPreservesExactFailureGuidanceWithoutAdministrativeFallback() = runTest {
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            val selected = profile.copy(uid = "gateway-recheck", apiUrl = "http://127.0.0.1:29989/v1")
+            val config = dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig(selected.apiUrl, selected.token, profileUid = selected.uid)
+            dev.chungjungsoo.gptmobile.data.network.gateway.GatewayClientDiagnostics.observeInstance(config, "c".repeat(32))
+            var reads = 0
+            val client = io.ktor.client.HttpClient(
+                io.ktor.client.engine.mock.MockEngine { request ->
+                    reads++
+                    assertEquals("GET", request.method.value)
+                    assertEquals("/v1/gateway/capabilities", request.url.encodedPath)
+                    assertEquals(selected.model, request.url.parameters["model"])
+                    assertEquals("false", request.url.parameters["autoload"])
+                    respond(
+                        """{"contractVersion":1,"instanceId":"${"c".repeat(32)}","selectedModel":{
+                        "schema":"gptmobile.gateway.selected-model.v1","schemaVersion":1,"requestedModel":"exact-model",
+                        "limitsVerified":false,"reasoningControlState":"UNVERIFIED","reasonCode":"SELECTED_MODEL_NOT_LOADED",
+                        "failureCode":"EXECUTION_MODEL_NOT_LOADED","dependency":"backend_properties","upstreamStatus":400,
+                        "modelAdvertised":true,"modelLoaded":false,"modelState":"UNLOADED","upstreamMessage":"private upstream payload"}}"""
+                    )
+                }
+            )
+            val network = io.mockk.mockk<dev.chungjungsoo.gptmobile.data.network.NetworkClient>()
+            io.mockk.every { network() } returns client
+            io.mockk.every { network.gatewayReadClient() } returns client
+            val gateway = io.mockk.mockk<dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAPI>()
+            io.mockk.coEvery { gateway.getCapabilities(any(), forceRefresh = true) } returns null
+            try {
+                val repository = ReasoningCapabilityRepository(network, gateway) { 100L }
+                val result = repository.check(selected, ReasoningMode.OFF, forceRefresh = true)
+                assertEquals(ReasoningCapabilityStatus.UNVERIFIED, result.status)
+                assertEquals("SELECTED_MODEL_NOT_LOADED", result.safeReasonCode)
+                assertEquals("c".repeat(32), result.runtimeRevision)
+                assertTrue(requireNotNull(result.detailMessage).contains("prepare-model --model"))
+                assertFalse(result.toString().contains("private upstream"))
+                assertFalse(result.routeVerified)
+                assertFalse(result.permitsRequest)
+                assertEquals(ReasoningMode.OFF, result.requested)
+                assertEquals(1, reads)
+                assertEquals(result, repository.check(selected, ReasoningMode.OFF))
+                assertEquals(1, reads)
+                repository.check(selected, ReasoningMode.OFF, forceRefresh = true)
+                assertEquals(2, reads)
+            } finally {
+                client.close()
+            }
+        }
+    }
+
     @Test fun metadataRejectionGuidanceDoesNotQualifyOrChangeTheRequestedReasoningMode() = runTest {
         val guidance = "The server rejected the metadata request. Check its selected model and server version."
         val repository = ReasoningCapabilityRepository({ _, _ -> ReasoningCapabilityProbe(false, detailMessage = guidance) }, { 10L })

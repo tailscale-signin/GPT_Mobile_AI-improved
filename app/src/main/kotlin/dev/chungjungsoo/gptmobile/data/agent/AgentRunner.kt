@@ -170,7 +170,8 @@ class AgentRunner(
                 }
                 reconcileDiscoveryExchange(exchanges, roundDefinitions)
                 val restoringBatch = restoredCalls.isNotEmpty()
-                val savedRead = if (limits.githubTask && !finalResponseRequested && !restoringBatch && observedToolCalls < observedLimit) GitHubReplayRecovery.nextSavedRead(exchanges, roundDefinitions, minOf(limits.maxReplayResultTokens, limits.maxReplayTokens / 2)) else null
+                val automaticRecovery = if (limits.githubTask && !session.handlesToolResultRecovery) savedResultRecovery else null
+                val savedRead = if (automaticRecovery != null && !finalResponseRequested && !restoringBatch && observedToolCalls < observedLimit) GitHubReplayRecovery.nextSavedRead(exchanges, roundDefinitions, minOf(limits.maxReplayResultTokens, limits.maxReplayTokens / 2), automaticRecovery) else null
                 val round = if (restoringBatch) {
                     RoundResult(calls = restoredCalls, completed = true, observedCalls = restoredCalls.size).also { restoredCalls = emptyList() }
                 } else if (savedRead != null) {
@@ -198,7 +199,7 @@ class AgentRunner(
                 }
                 if (round.toolDefinitionsRejected) {
                     if (limits.githubMode) {
-                        emit(AgentRunEvent.Provider(ProviderEvent.Failed(round.failure ?: "This model rejected the required GitHub tool catalog.", errorCode = "GITHUB_TOOL_CONTRACT_UNSUPPORTED", failureDetails = round.failureDetails)))
+                        emit(AgentRunEvent.Provider(ProviderEvent.Failed(round.failure ?: "This model rejected the required GitHub tool catalog.", errorCode = "GITHUB_TOOL_CONTRACT_UNSUPPORTED", failureDetails = round.failureDetails, invocationId = round.invocationId)))
                         return
                     }
                     if (limits.combined?.requested?.singlePass != true && exposedDefinitions.isNotEmpty() && !toolMayHaveExecuted && !retriedWithoutTools && !round.textEmitted) {
@@ -239,6 +240,7 @@ class AgentRunner(
                 }
                 resolvedCalls.forEach { emit(AgentRunEvent.Provider(it)) }
                 val calls = routeSearchCalls(resolvedCalls, executableToolByName)
+                savedResultRecovery.record(calls)
                 if (calls.isEmpty()) {
                     val recovery = recoverRoundWithoutCalls(session, round, exchanges, exposedDefinitions, emptyAnswerRecoveryAttempted, finalResponseRequested) ?: return
                     exposedDefinitions = recovery.definitions
@@ -259,7 +261,7 @@ class AgentRunner(
                     calls, toolByName, executableToolByName, exposedDefinitions, exchanges, dynamicTools, selectDefinitions,
                     initialSchemaTokens, replayTokens, toolCallsByName, consecutiveToolFailures, blockedReadScopes,
                     remainingCalls, toolCallCount, restoredDispatched, restoredRetained, roundLimitReached, finalResponseRequested,
-                    retriedWithoutTools, executionToolCallLimit, suppressedReadRounds, unproductiveDiscoveryRounds, unknownOutcomes, retainedUnknownOutcome
+                    retriedWithoutTools, executionToolCallLimit, suppressedReadRounds, unproductiveDiscoveryRounds, unknownOutcomes, retainedUnknownOutcome, automaticRecovery
                 ) ?: return
                 executableToolByName = completed.tools
                 exposedDefinitions = completed.definitions
@@ -323,6 +325,7 @@ class AgentRunner(
         val unknownOutcomes = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
         val retainedUnknownOutcome = (recovery?.unknownCount ?: 0) > 0
         val consumedCallIds = recovery?.consumedCallIds.orEmpty().toMutableSet()
+        val savedResultRecovery = GitHubReplayRecovery.State(recovery?.completedExchanges.orEmpty().flatMap { it.calls } + recovery?.pending.orEmpty())
     }
 
     /** Deliver retained receipts before provider work without expanding the loop coroutine. */
@@ -491,7 +494,7 @@ class AgentRunner(
         if (GatewayOutcomeRecovery.requiresReconciliation(roundFailure, round.errorCode)) {
             // Even a tool-free repair can reach a gateway with server tools enabled.
             // Leave the terminal delivery boundary to report the retained failure without another model request.
-            emit(AgentRunEvent.Provider(ProviderEvent.Failed(roundFailure, round.progressDeadline, GatewayOutcomeRecovery.ERROR_CODE, round.failureTransportComplete, round.providerLimit, round.taskOutcome, round.failureDetails)))
+            emit(AgentRunEvent.Provider(ProviderEvent.Failed(roundFailure, round.progressDeadline, GatewayOutcomeRecovery.ERROR_CODE, round.failureTransportComplete, round.providerLimit, round.taskOutcome, round.failureDetails, round.invocationId)))
             return null
         }
         if (round.errorCode in ToolFailureMetadata.authorityInvalidationCodes || round.taskOutcome == "CONFIGURATION_INVALIDATED") {
@@ -509,7 +512,7 @@ class AgentRunner(
             } else {
                 round.failureDetails
             }
-            emit(AgentRunEvent.Provider(ProviderEvent.Failed(roundFailure, round.progressDeadline, if (hasUnknownOutcome) "RECONCILIATION_REQUIRED" else round.errorCode, round.failureTransportComplete, round.providerLimit, if (hasUnknownOutcome) "PARTIAL" else "CONFIGURATION_INVALIDATED", details)))
+            emit(AgentRunEvent.Provider(ProviderEvent.Failed(roundFailure, round.progressDeadline, if (hasUnknownOutcome) "RECONCILIATION_REQUIRED" else round.errorCode, round.failureTransportComplete, round.providerLimit, if (hasUnknownOutcome) "PARTIAL" else "CONFIGURATION_INVALIDATED", details, round.invocationId)))
             return null
         }
         if (hasUnknownOutcome) {
@@ -532,13 +535,13 @@ class AgentRunner(
             )
             return null
         }
-        val typedFailure = ProviderEvent.Failed(roundFailure, round.progressDeadline, round.errorCode, round.failureTransportComplete, round.providerLimit, round.taskOutcome, round.failureDetails)
+        val typedFailure = ProviderEvent.Failed(roundFailure, round.progressDeadline, round.errorCode, round.failureTransportComplete, round.providerLimit, round.taskOutcome, round.failureDetails, round.invocationId)
         val continuationDelay = GitHubTaskRecovery.delayMillis(typedFailure, state.githubRecoveries, hasUnknownOutcome)
         val recoverableConnection = GitHubTaskRecovery.isConnectionUnavailable(typedFailure) && continuationDelay != null
         var exposedDefinitions = definitions
         var finalize = false
         if (round.providerLimit != null || round.taskOutcome in setOf("BLOCKED", "CONFIGURATION_INVALIDATED", "WAITING_FOR_APPROVAL") || round.errorCode == "WAITING_FOR_APPROVAL" || round.taskOutcome == "PARTIAL" && !recoverableConnection) {
-            emit(AgentRunEvent.Provider(ProviderEvent.Failed(roundFailure, round.progressDeadline, round.errorCode, round.failureTransportComplete, round.providerLimit, round.taskOutcome, round.failureDetails)))
+            emit(AgentRunEvent.Provider(ProviderEvent.Failed(roundFailure, round.progressDeadline, round.errorCode, round.failureTransportComplete, round.providerLimit, round.taskOutcome, round.failureDetails, round.invocationId)))
             return null
         }
         val protocolFailure = round.errorCode?.startsWith("TOOL_PROTOCOL_") == true ||
@@ -563,7 +566,7 @@ class AgentRunner(
                 emit(AgentRunEvent.Notice("The provider could not repair its tool format. Generating a text answer from completed GitHub operations; their actions will not be repeated.", persistent = false))
                 return RoundRecovery(emptyList(), restoreRound = true, finalize = true)
             }
-            val failure = ProviderEvent.Failed(roundFailure, round.progressDeadline, errorCode = round.errorCode ?: "TOOL_PROTOCOL_INVALID_FRAME", failureDetails = round.failureDetails)
+            val failure = ProviderEvent.Failed(roundFailure, round.progressDeadline, errorCode = round.errorCode ?: "TOOL_PROTOCOL_INVALID_FRAME", failureDetails = round.failureDetails, invocationId = round.invocationId)
             if (limits.githubTask && hasToolWork && round.calls.isEmpty()) {
                 session.retainedFailureResponse(failure).collect { event ->
                     if (event is ProviderEvent.Completed) checkpoint?.finish()
@@ -617,7 +620,7 @@ class AgentRunner(
             kotlinx.coroutines.delay(1000)
             return RoundRecovery(exposedDefinitions, limits.githubTask, finalize)
         }
-        val failure = ProviderEvent.Failed(roundFailure, round.progressDeadline, round.errorCode, round.failureTransportComplete, round.providerLimit, round.taskOutcome, round.failureDetails)
+        val failure = ProviderEvent.Failed(roundFailure, round.progressDeadline, round.errorCode, round.failureTransportComplete, round.providerLimit, round.taskOutcome, round.failureDetails, round.invocationId)
         if (limits.githubTask && round.calls.isEmpty()) {
             session.retainedFailureResponse(failure).collect { event ->
                 if (event is ProviderEvent.Completed) checkpoint?.finish()
@@ -662,7 +665,8 @@ class AgentRunner(
         previousSuppressedReadRounds: Int,
         unproductiveDiscoveryRounds: Int,
         unknownOutcomes: MutableSet<String>,
-        retainedUnknownOutcome: Boolean
+        retainedUnknownOutcome: Boolean,
+        savedResultRecovery: GitHubReplayRecovery.State?
     ): ToolRoundCompletion? {
         var executableToolByName = initialTools
         var exposedDefinitions = initialDefinitions
@@ -744,11 +748,12 @@ class AgentRunner(
         val pausedGitHubNames = exposedDefinitions.filter { limits.githubMode && ProgressiveToolCatalog.isGitHubTool(it) && it.name !in executableToolByName }.mapTo(hashSetOf()) { it.name }
         val deferredResults = deferredToolResults(deferredCalls, hostSuppressedIds, perToolSuppressedIds, plan.unavailableIds, executableToolByName.keys, exchanges, pausedGitHubNames).map { result -> if (result.callId in plan.dependencyDeferredIds) ToolResultEnvelope.error(result.callId, "DEPENDENCY_DEFERRED", "This dependent remains undispatched because a prerequisite was not admitted. Complete the missing read or correct its arguments before resuming this saved dependency group.") else result }
         deferredCalls.zip(deferredResults).forEach { (call, result) -> checkpoint?.complete(call, result) }
-        val savedReadAvailable = limits.githubTask &&
+        val savedReadAvailable = savedResultRecovery != null &&
             GitHubReplayRecovery.nextSavedRead(
                 exchanges + AgentToolExchange(calls, executedResults + deferredResults),
                 exposedDefinitions.filter { it.name in executableToolByName },
-                minOf(limits.maxReplayResultTokens, limits.maxReplayTokens / 2)
+                minOf(limits.maxReplayResultTokens, limits.maxReplayTokens / 2),
+                savedResultRecovery
             ) != null
         val canReadOtherSources = savedReadAvailable ||
             (plan.unavailableIds.isNotEmpty() && executableToolByName.isNotEmpty()) ||
@@ -947,6 +952,7 @@ class AgentRunner(
             }
             val admittedNames = admittedSchemas.mapTo(hashSetOf()) { it.name }
             val admitted = additions.filter { it.definition.name in admittedNames }
+            healthCatalog?.bindExecutionContracts(admitted.map { it.definition })
             return ToolCatalogUpdate(executableToolByName + admitted.associateBy { it.definition.name }, (exposedDefinitions + admitted.map { it.definition }).distinctBy { it.name })
         }
         val selectedNames = selectedSchemas.mapTo(HashSet()) { it.name }
@@ -963,6 +969,7 @@ class AgentRunner(
         }
         ToolCatalogDiagnostics.recordOmissions("dynamic_admission", omitted, schemaAllowance, inventoryNames = additions.map { it.definition.name })
         if (admitted.size < additions.size) emit(AgentRunEvent.Notice("Some discovered tool schemas exceed the remaining context allowance. Existing conversation context was preserved.", persistent = false))
+        healthCatalog?.bindExecutionContracts(admitted.map { it.definition })
         return ToolCatalogUpdate(executableToolByName + admitted.associateBy { it.definition.name }, (exposedDefinitions + admitted.map { it.definition }).distinctBy { it.name })
     }
 
@@ -1161,7 +1168,8 @@ class AgentRunner(
         val failureTransportComplete: Boolean = false,
         val providerLimit: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision? = null,
         val taskOutcome: String? = null,
-        val failureDetails: JsonObject? = null
+        val failureDetails: JsonObject? = null,
+        val invocationId: String? = null
     )
 
     private fun recoverableRoundFailure(message: String, hasToolContext: Boolean): Boolean = (
@@ -1205,6 +1213,7 @@ class AgentRunner(
         var failureTransportComplete = false
         var taskOutcome: String? = null
         var failureDetails: JsonObject? = null
+        var failureInvocationId: String? = null
         var providerLimit: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision? = null
         var textEmitted = false
         var providerPayloadObserved = false
@@ -1371,6 +1380,7 @@ class AgentRunner(
                 providerLimit = event.providerLimit
                 taskOutcome = event.taskOutcome
                 failureDetails = event.failureDetails
+                failureInvocationId = event.invocationId
                 return@collect
             }
             if (failure != null && event !is ProviderEvent.Usage) {
@@ -1400,6 +1410,7 @@ class AgentRunner(
                     failureTransportComplete = event.transportComplete
                     taskOutcome = event.taskOutcome
                     failureDetails = event.failureDetails
+                    failureInvocationId = event.invocationId
                     providerLimit = event.providerLimit
                 }
 
@@ -1449,7 +1460,7 @@ class AgentRunner(
             checkpoint?.markConsumed(deliveredCallIds)
             consumedCallIds += deliveredCallIds
         }
-        return RoundResult(calls, completed, failure, textEmitted, toolDefinitionsRejected, batchRejected, maxOf(admission.observed, parserObservedCalls), progressDeadline, batchRejection, failureCode, failureTransportComplete, providerLimit, taskOutcome, failureDetails)
+        return RoundResult(calls, completed, failure, textEmitted, toolDefinitionsRejected, batchRejected, maxOf(admission.observed, parserObservedCalls), progressDeadline, batchRejection, failureCode, failureTransportComplete, providerLimit, taskOutcome, failureDetails, failureInvocationId)
     }
 
     private fun toolResultText(result: AgentToolResult): String = when (val content = result.content) {

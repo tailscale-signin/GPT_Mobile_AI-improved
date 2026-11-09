@@ -826,7 +826,6 @@ class AgentRunCoordinator @Inject constructor(
         }
         val startedAt = currentEpochSeconds()
         val executionStartNanos = System.nanoTime()
-        var firstVisibleOutput = false
         AppLogRecorder.record("Agent", "RUN_EXECUTION_STARTED · runId=${request.runId} · chatId=${request.chatId} · phase=PREPARATION · providerDispatched=unknown")
         var assistantMessage = request.assistantMessage
         val recoveryMarkers = request.assistantMessage.timeline.filter { it.recovery?.generationId == request.runId || it.combinedTurn != null || it.writerIdentity != null || it.generation?.responseSource != null }
@@ -837,9 +836,12 @@ class AgentRunCoordinator @Inject constructor(
         var completedCombinedPublication = false
         var gatewayPreflightKnownUnsent = false
         var researchLifecycle: dev.chungjungsoo.gptmobile.data.research.ResearchDispatchLifecycle? = null
+        var latestPublishedOutput: Pair<String, dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage>? = null
         suspend fun traceReducedOutput(message: MessageV2) {
             dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.let { journal ->
-                withContext(Dispatchers.Default) { journal.traceOutput(request.runId, dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceBoundary.REDUCER, message.content, fence = message.ownershipFence) }
+                val published = latestPublishedOutput
+                val lineage = if (published != null && message.content === published.first) published.second else dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage()
+                withContext(Dispatchers.Default) { journal.traceOutput(request.runId, dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceBoundary.REDUCER, message.content, fence = message.ownershipFence, invocationId = lineage.invocationId, outputOrigin = lineage.origin) }
             }
         }
         fun newCheckpoints() = ConflatedCheckpointWriter<MessageV2>(this, minimumIntervalMillis = 500, writeGate = checkpointWriteGate) { snapshot ->
@@ -945,14 +947,26 @@ class AgentRunCoordinator @Inject constructor(
                 }
                 val outcome = response.flowOn(researchLifecycle ?: kotlin.coroutines.EmptyCoroutineContext).collectApiStateUpdates(
                     restoredTimeline = request.assistantMessage.timeline,
-                    onUpdate = { content, thoughts, timeline ->
-                        if (!firstVisibleOutput && content.isNotBlank()) {
-                            firstVisibleOutput = true
-                            val lineage = withContext(Dispatchers.Default) {
-                                dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.traceOutput(request.runId, dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceBoundary.REDUCER, content, fence = assistantMessage.ownershipFence)
-                            }
-                            AppLogRecorder.record("Agent", "RUN_FIRST_VISIBLE_OUTPUT · runId=${request.runId} · elapsedMs=${(System.nanoTime() - executionStartNanos) / 1_000_000} · visibleCharacters=${content.length} · outputOrigin=${lineage?.origin ?: dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.UNKNOWN} · invocationId=${lineage?.invocationId ?: "not_recorded"} · timingKind=FIRST_VISIBLE_OUTPUT")
+                    onOutputPublication = { content, lineage, first ->
+                        if (content.isNotEmpty()) {
+                            latestPublishedOutput = content to lineage
                         }
+                        val elapsed = ((System.nanoTime() - executionStartNanos) / 1_000_000).coerceAtLeast(0)
+                        if (first.isNotEmpty()) {
+                            withContext(Dispatchers.Default) {
+                                dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.let { journal ->
+                                    if (content.isNotEmpty()) journal.traceOutput(request.runId, dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceBoundary.REDUCER, content, fence = assistantMessage.ownershipFence, invocationId = lineage.invocationId, outputOrigin = lineage.origin)
+                                    first.forEach { publication ->
+                                        journal.record(request.runId, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.valueOf(publication.kind.name), invocationId = publication.lineage.invocationId, fence = assistantMessage.ownershipFence, elapsedMillis = elapsed, outputOrigin = publication.lineage.origin)
+                                    }
+                                }
+                            }
+                        }
+                        first.forEach { publication ->
+                            AppLogRecorder.record("Agent", "RUN_${publication.kind.name} · runId=${request.runId} · elapsedMs=$elapsed · visibleCharacters=${publication.characters} · outputOrigin=${publication.lineage.origin} · invocationId=${publication.lineage.invocationId ?: "not_recorded"} · timingKind=${publication.kind.name} · observedBoundary=REDUCER_PUBLICATION · measuredDraw=false")
+                        }
+                    },
+                    onUpdate = { content, thoughts, timeline ->
                         val retained = if (content.isEmpty() && committedPrefix.isNotEmpty()) committedPrefix else content
                         require(retained.startsWith(committedPrefix)) { "A resumed Combined stream attempted to replace its committed prefix." }
                         assistantMessage = assistantMessage.copy(

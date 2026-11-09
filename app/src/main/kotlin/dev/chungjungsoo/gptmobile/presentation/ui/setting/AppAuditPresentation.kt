@@ -1,12 +1,14 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditEvidenceKind
+import dev.chungjungsoo.gptmobile.data.audit.AppAuditObservationSource
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditOutcome
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditPlanEntry
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditPrerequisite
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditResult
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditRun
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditScore
+import dev.chungjungsoo.gptmobile.data.audit.AppAuditSelectedModelProbeSource
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditSummary
 import dev.chungjungsoo.gptmobile.data.audit.appAuditScore
 import dev.chungjungsoo.gptmobile.data.audit.appAuditSummary
@@ -37,6 +39,11 @@ internal data class AppAuditPresentation(
     val scoreText: String get() = "Measured check pass score: ${benchmarkMetricText(score.score, "/ 100", 1)}"
     val weightText: String get() = "Passing weight ${score.passedWeight} / measured weight ${score.measuredWeight}"
     val coverageText: String get() = "Exercised ${summary.exercised}/${summary.planned} planned checks · Verified passes ${summary.verified}/${summary.planned} planned checks"
+    val coverageSummaryText: String get() = "Measured checks ${summary.verified}/${summary.exercised} passed · " +
+        "Planned checks verified ${summary.verified}/${summary.planned} · ${summary.failed} failed · ${summary.blocked} blocked · " +
+        "${summary.unavailable} unavailable · ${summary.untested} untested" +
+        (if (summary.skipped > 0) " · ${summary.skipped} skipped" else "") +
+        (if (summary.canceled > 0) " · ${summary.canceled} canceled" else "")
     val countsText: String get() = "Passed ${summary.passed} · Failed ${summary.failed} · Blocked ${summary.blocked} · Unavailable ${summary.unavailable} · Untested or pending ${summary.untested} · Skipped ${summary.skipped} · Canceled ${summary.canceled}"
     val coverageNotice: String get() = when {
         summary.planned == 0 -> "No accepted check plan is available. A score cannot establish coverage."
@@ -75,7 +82,7 @@ internal fun appAuditPresentation(run: AppAuditRun, currentTargetNames: Map<Stri
 
 /** Display-only current labels. Exact UIDs never fall back to a name, URL or another target. */
 internal fun appAuditCurrentTargetNames(profiles: List<Pair<String, String>>, connections: List<Pair<String, String>>): Map<String, String> =
-    (profiles.map { "gateway:${it.first}" to it.second } + connections.map { "connection:${it.first}" to it.second })
+    (profiles.flatMap { listOf("gateway:${it.first}" to it.second, "model:${it.first}" to it.second) } + connections.map { "connection:${it.first}" to it.second })
         .groupBy { it.first }
         .mapNotNull { (target, matches) ->
             val name = matches.singleOrNull()?.second?.filterNot(Char::isISOControl)?.trim()?.take(120)?.takeIf(String::isNotBlank)
@@ -87,6 +94,31 @@ internal fun appAuditConnectionUid(item: AppAuditEntryPresentation): String? = i
     ?.takeIf { it.startsWith("connection:") && item.currentSavedName != null }
     ?.removePrefix("connection:")
     ?.takeIf { it.isNotBlank() && it.length <= 160 && it.none(Char::isISOControl) }
+
+internal fun appAuditModelProfileUid(entry: AppAuditPlanEntry): String? = entry.targetId
+    ?.takeIf {
+        entry.sourceId == AppAuditSelectedModelProbeSource.SOURCE_ID &&
+            entry.probeId == AppAuditSelectedModelProbeSource.GENERATION &&
+            entry.evidenceKind == AppAuditEvidenceKind.MODEL_EXECUTION &&
+            it.startsWith(AppAuditSelectedModelProbeSource.TARGET_PREFIX)
+    }
+    ?.removePrefix(AppAuditSelectedModelProbeSource.TARGET_PREFIX)
+    ?.takeIf { it.isNotBlank() && it.length <= 160 && it.none(Char::isISOControl) }
+
+internal fun appAuditConnectionActionLabel(item: AppAuditEntryPresentation): String = when (item.result?.reasonCode ?: item.entry.reasonCode) {
+    "MCP_LOCAL_CREDENTIAL_MISSING", "MCP_LOCAL_CREDENTIAL_INVALID", "PLUGIN_CREDENTIAL_IDENTITY_UNAVAILABLE",
+    "MCP_AUTHENTICATION_REQUIRED", "AUTHENTICATION_FAILED" -> "Repair credentials and reconnect"
+    else -> "Open connection settings and checks"
+}
+
+/** A retained observation's age is anchored to its original check, not the time this screen opens. */
+internal fun appAuditCacheAgeText(result: AppAuditResult): String? {
+    if (result.observationSource != AppAuditObservationSource.CACHE) return null
+    val observed = result.observation.observedAtEpochMs ?: return null
+    if (observed > result.startedAtEpochMs) return "Observation time is later than this audit check; cache age cannot be established."
+    val age = (result.startedAtEpochMs - observed) / 60_000
+    return if (age == 0L) "Retained evidence was less than a minute old when this audit check began." else "Retained evidence was $age ${if (age == 1L) "minute" else "minutes"} old when this audit check began."
+}
 
 internal fun appAuditRetryabilityText(retryable: Boolean?): String = when (retryable) {
     true -> "Retryable: yes, after the connection's recovery conditions are met."
@@ -145,7 +177,11 @@ internal fun appAuditReason(item: AppAuditEntryPresentation): String {
 
 internal fun appAuditReasonCodeMessage(code: String?): String? = when (code) {
     "NETWORK_READS_DISABLED", "NETWORK_READS_NOT_SELECTED" -> "Service reads were disabled for this plan. Enable them and start a new audit to measure this connection."
-    "MODEL_EXECUTION_NOT_SELECTED" -> "Model generation is outside this audit. Use the model benchmark queue to measure it."
+    "MODEL_EXECUTION_NOT_SELECTED", "MODEL_BENCHMARK_REQUIRED" -> "Model generation is untested in this audit. Prepare this exact saved profile in the model benchmark queue, review the suite, then explicitly run it."
+    "MODEL_PROFILE_NOT_CONFIGURED" -> "The selected model profile is unavailable or incomplete. Review that saved profile before preparing a benchmark."
+    "MODEL_PROFILE_DISABLED" -> "The selected model profile was disabled for the accepted plan. Its execution remains untested."
+    "MODEL_CONFIGURATION_CHANGED" -> "The selected model configuration or credential changed. Start a fresh audit before preparing its benchmark."
+    "MODEL_CONFIGURATION_ONLY" -> "The selected model configuration was inspected. Generation, first-token latency and throughput remain untested."
     "AUDIT_SOURCE_CHANGED", "AUDIT_MANIFEST_CHANGED", "AUDIT_VERSION_CHANGED", "AUDIT_INCOMPATIBLE" -> "The app build or audit catalogue changed. Saved evidence is retained; start a new audit for the current version."
     "CONFIGURATION_CHANGED", "AUDIT_AUTHORITY_CHANGED", "PLUGIN_CONFIGURATION_CHANGED" -> "The connection or its authorization changed. Start a new audit with the intended configuration."
     "PROBE_TIMEOUT", "RUN_DEADLINE_EXCEEDED", "REQUEST_TIMEOUT", "MCP_CATALOG_TIMEOUT", "CONNECT_TIMEOUT", "STREAM_IDLE_TIMEOUT" -> "The bounded measurement time expired. This check does not count as successful."

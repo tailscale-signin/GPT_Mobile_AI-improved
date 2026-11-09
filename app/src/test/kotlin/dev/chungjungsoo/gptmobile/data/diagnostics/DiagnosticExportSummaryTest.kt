@@ -10,6 +10,32 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DiagnosticExportSummaryTest {
+    @Test fun failedTypedAdmissionCountsItsExplicitNotDispatchedEvidenceForEachInvocation() {
+        val summary = DiagnosticExportSummary()
+        repeat(4) { index ->
+            val message = structuredDiagnosticEventMessage(
+                "INVOCATION_FAILED",
+                mapOf("status" to "FAILED", "invocationId" to "invoke-$index", "errorCode" to "REASONING_CAPABILITY_UNAVAILABLE", "failedStage" to "provider_admission", "dispatched" to false)
+            )
+            val line = structuredDiagnosticLine("2026-11-09T03:37:41Z E/Model: $message")
+            summary.accept(line)
+            summary.accept(line)
+        }
+        val counts = Json.parseToJsonElement(summary.line(0)).jsonObject
+        assertEquals(JsonPrimitive(4), counts["failedModelAttempts"])
+        assertEquals(JsonPrimitive(4), counts["notDispatchedModelAttempts"])
+    }
+
+    @Test fun failedStatusOrUnknownOutcomeAloneDoesNotInventAnUnsentRequest() {
+        val summary = DiagnosticExportSummary()
+        listOf("dispatched=true", "dispatchState=UNKNOWN_OUTCOME", "errorCode=TIMEOUT").forEachIndexed { index, evidence ->
+            summary.accept(structuredDiagnosticLine("2026-11-09T03:37:41Z E/Model: INVOCATION_FAILED · invocationId=invoke-$index · status=FAILED · $evidence"))
+        }
+        val counts = Json.parseToJsonElement(summary.line(0)).jsonObject
+        assertEquals(JsonPrimitive(3), counts["failedModelAttempts"])
+        assertEquals(JsonPrimitive(0), counts["notDispatchedModelAttempts"])
+    }
+
     @Test fun oneRejectedAttemptRetainsEveryFailureObservationWithoutTriplingIncidentCount() {
         val tracker = DiagnosticIncidentTracker()
         val summary = DiagnosticExportSummary()

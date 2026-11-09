@@ -53,7 +53,7 @@ class OpenAIResponsesEventAssembler {
 
         is ReasoningSummaryTextDeltaEvent -> listOf(ProviderEvent.ThinkingDelta(event.delta))
 
-        is OutputTextDeltaEvent -> listOf(ProviderEvent.TextDelta(event.delta))
+        is OutputTextDeltaEvent -> listOf(ProviderEvent.TextDelta(event.delta, dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.MODEL_TEXT)))
 
         is OutputItemAddedEvent -> {
             if (event.item.type != "function_call") {
@@ -184,7 +184,7 @@ class AnthropicEventAssembler {
                 else -> Unit
             }
             when (event.contentBlock.type) {
-                ContentBlockType.TEXT -> event.contentBlock.text?.takeIf(String::isNotEmpty)?.let { listOf(ProviderEvent.TextDelta(it)) }.orEmpty()
+                ContentBlockType.TEXT -> event.contentBlock.text?.takeIf(String::isNotEmpty)?.let { listOf(ProviderEvent.TextDelta(it, dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.MODEL_TEXT))) }.orEmpty()
                 ContentBlockType.THINKING -> event.contentBlock.thinking?.takeIf(String::isNotEmpty)?.let { listOf(ProviderEvent.ThinkingDelta(it)) }.orEmpty()
                 else -> emptyList()
             }
@@ -193,7 +193,7 @@ class AnthropicEventAssembler {
         is ContentDeltaResponseChunk -> when (event.delta.type) {
             ContentBlockType.TEXT, ContentBlockType.DELTA -> event.delta.text?.let {
                 pendingText.getOrPut(event.index) { StringBuilder() }.append(it)
-                listOf(ProviderEvent.TextDelta(it))
+                listOf(ProviderEvent.TextDelta(it, dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.MODEL_TEXT)))
             }.orEmpty()
 
             ContentBlockType.THINKING, ContentBlockType.THINKING_DELTA -> event.delta.thinking?.let {
@@ -259,7 +259,7 @@ object GeminiEventMapper {
         val admission = ToolRoundAdmission()
         response.candidates.orEmpty().asSequence().flatMap { it.content?.parts.orEmpty().asSequence() }.forEach { part ->
             part.text?.let { text ->
-                events += if (part.thought == true) ProviderEvent.ThinkingDelta(text) else ProviderEvent.TextDelta(text)
+                events += if (part.thought == true) ProviderEvent.ThinkingDelta(text) else ProviderEvent.TextDelta(text, dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.MODEL_TEXT))
             }
             part.functionCall?.let { call ->
                 val event = ProviderEvent.ToolCall(call.id ?: java.util.UUID.randomUUID().toString(), call.name, call.args)

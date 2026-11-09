@@ -8,6 +8,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import traceback
 import unittest
 from unittest import mock
 import zipfile
@@ -269,6 +270,108 @@ class ReleaseRecoveryTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 recovery.main()
         run.assert_not_called()
+
+
+class GitHubDownloadProtocolTest(unittest.TestCase):
+    """Exercise the real download adapter through a media-type enforcing CLI."""
+
+    def setUp(self):
+        self.folder = tempfile.TemporaryDirectory()
+        self.addCleanup(self.folder.cleanup)
+        self.root = Path(self.folder.name)
+        self.body = self.root / "response.bin"
+        self.body.write_bytes(b"PK\x03\x04\x00\xffexact signed archive bytes\x00")
+        self.requests = self.root / "requests.jsonl"
+        executable = self.root / "gh"
+        executable.write_text('''#!/usr/bin/env python3
+import json, os
+from pathlib import Path
+import sys
+args = sys.argv[1:]
+with Path(os.environ["RECOVERY_TEST_REQUESTS"]).open("a") as log:
+    log.write(json.dumps(args) + "\\n")
+assert len(args) == 6 and args[:3] == ["api", "--method", "GET"] and args[4] == "--header"
+path, header = args[3], args[5]
+expected = "Accept: application/vnd.github+json" if "/actions/artifacts/" in path else "Accept: application/octet-stream"
+mode = os.environ.get("RECOVERY_TEST_MODE", "success")
+if header != expected or mode == "http_failure":
+    print("redirect https://storage.invalid/archive?token=PRIVATE_SIGNATURE", file=sys.stderr)
+    print("Authorization: Bearer PRIVATE_CREDENTIAL", file=sys.stderr)
+    print("gh: Unsupported media type (HTTP 415)", file=sys.stderr)
+    raise SystemExit(1)
+if mode == "transport_failure":
+    print("failed https://storage.invalid/archive?token=PRIVATE_SIGNATURE", file=sys.stderr)
+    raise SystemExit(1)
+sys.stdout.buffer.write(Path(os.environ["RECOVERY_TEST_BODY"]).read_bytes())
+''')
+        executable.chmod(0o755)
+        self.environment = mock.patch.dict(os.environ, {
+            "PATH": str(self.root) + os.pathsep + os.environ.get("PATH", ""),
+            "RECOVERY_TEST_REQUESTS": str(self.requests), "RECOVERY_TEST_BODY": str(self.body),
+            "RECOVERY_TEST_MODE": "success",
+        })
+        self.environment.start()
+        self.addCleanup(self.environment.stop)
+        self.api = recovery.GitHub("owner/repository")
+        self.expected = {"size": self.body.stat().st_size, "sha256": digest(self.body.read_bytes())}
+
+    def call(self, path):
+        destination = self.root / "download.bin"
+        self.api.download(path, destination, self.expected)
+        self.assertEqual(self.body.read_bytes(), destination.read_bytes())
+        return json.loads(self.requests.read_text().strip())
+
+    def test_actions_archive_uses_json_media_type_and_preserves_binary_bytes(self):
+        request = self.call("repos/owner/repository/actions/artifacts/123/zip")
+        self.assertEqual("Accept: application/vnd.github+json", request[-1])
+
+    def test_release_asset_requests_octet_stream_and_preserves_binary_bytes(self):
+        request = self.call("repos/owner/repository/releases/assets/456")
+        self.assertEqual("Accept: application/octet-stream", request[-1])
+
+    def test_successful_response_still_requires_exact_archive_hash(self):
+        self.expected["sha256"] = "0" * 64
+        with self.assertRaisesRegex(ValueError, "File digest differs"):
+            self.call("repos/owner/repository/actions/artifacts/123/zip")
+        self.assertEqual(1, len(self.requests.read_text().splitlines()))
+
+    def test_successful_response_still_requires_exact_asset_size(self):
+        self.expected["size"] += 1
+        with self.assertRaisesRegex(ValueError, "File size differs"):
+            self.call("repos/owner/repository/releases/assets/456")
+
+    def test_http_failure_exposes_only_status_without_redirect_or_credentials(self):
+        with mock.patch.dict(os.environ, {"RECOVERY_TEST_MODE": "http_failure"}):
+            with self.assertRaises(RuntimeError) as caught:
+                self.call("repos/owner/repository/actions/artifacts/123/zip")
+        self.assertEqual("GitHub download failed (HTTP 415)", str(caught.exception))
+        rendered = "".join(traceback.format_exception(caught.exception))
+        for secret in ("PRIVATE_SIGNATURE", "PRIVATE_CREDENTIAL", "storage.invalid", "Authorization:"):
+            self.assertNotIn(secret, rendered)
+        self.assertTrue(caught.exception.__suppress_context__)
+        self.assertEqual(1, len(self.requests.read_text().splitlines()))
+
+    def test_non_http_failure_does_not_print_untrusted_error_text(self):
+        with mock.patch.dict(os.environ, {"RECOVERY_TEST_MODE": "transport_failure"}):
+            with self.assertRaisesRegex(RuntimeError, "HTTP unavailable") as caught:
+                self.call("repos/owner/repository/releases/assets/456")
+        self.assertNotIn("PRIVATE_SIGNATURE", "".join(traceback.format_exception(caught.exception)))
+
+    def test_timeout_omits_captured_redirect_information(self):
+        error = subprocess.TimeoutExpired("gh", 900, stderr=b"https://storage.invalid/?token=PRIVATE_SIGNATURE")
+        with mock.patch.object(recovery.subprocess, "run", side_effect=error):
+            with self.assertRaisesRegex(RuntimeError, "HTTP unavailable") as caught:
+                self.call("repos/owner/repository/actions/artifacts/123/zip")
+        self.assertNotIn("PRIVATE_SIGNATURE", "".join(traceback.format_exception(caught.exception)))
+
+    def test_unexpected_endpoints_are_rejected_before_invoking_cli(self):
+        for path in ("repos/other/repository/actions/artifacts/123/zip",
+                     "repos/owner/repository/actions/artifacts/123",
+                     "repos/owner/repository/releases/assets/456?redirect=other"):
+            with self.subTest(path=path), self.assertRaises(ValueError):
+                self.api.download(path, self.root / "unused", self.expected)
+        self.assertFalse(self.requests.exists())
+        self.assertFalse((self.root / "unused").exists())
 
 
 if __name__ == "__main__":

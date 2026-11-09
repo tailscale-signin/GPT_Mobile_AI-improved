@@ -76,11 +76,23 @@ class GitHub:
         return json.loads(result.stdout)
 
     def download(self, path, destination, expected):
-        require(path.startswith(self.root + "/"), "Unexpected download repository")
+        if re.fullmatch(re.escape(self.root) + r"/actions/artifacts/[1-9][0-9]*/zip", path):
+            accept = "application/vnd.github+json"
+        elif re.fullmatch(re.escape(self.root) + r"/releases/assets/[1-9][0-9]*", path):
+            accept = "application/octet-stream"
+        else:
+            raise ValueError("Unexpected download endpoint")
         with destination.open("xb") as output:
-            subprocess.run(["gh", "api", "--method", "GET", path,
-                            "--header", "Accept: application/octet-stream"],
-                           stdout=output, stderr=subprocess.PIPE, check=True, timeout=900)
+            try:
+                subprocess.run(["gh", "api", "--method", "GET", path,
+                                "--header", "Accept: " + accept],
+                               stdout=output, stderr=subprocess.PIPE, check=True, timeout=900)
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+                stderr = error.stderr.decode(errors="replace") if isinstance(error.stderr, bytes) else error.stderr
+                statuses = re.findall(r"\(HTTP ([1-5][0-9]{2})\)", stderr or "")
+                status = statuses[-1] if statuses else "unavailable"
+                # Never expose gh stderr: redirects may contain signed URLs.
+                raise RuntimeError("GitHub download failed (HTTP " + status + ")") from None
         verify_file(destination, expected)
 
     def publish_once(self, release_id):

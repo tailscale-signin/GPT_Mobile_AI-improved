@@ -30,7 +30,8 @@
       "failed": 0,
       "scope": "Catalog, context, runner, official MCP schema mapping/acquisition/aliases and target boundaries",
       "post_integration_passed": 54,
-      "post_integration_commit": "d2eee7cd634eb0265888fcec2fcf96eccef63a3f"
+      "tested_local_commit": "d2eee7cd634eb0265888fcec2fcf96eccef63a3f",
+      "published_code_commit": "f84b586486f6736cdff427c41e4f4ff2bdf2ec17"
     },
     "github_selection_boundary": {
       "passed": 16,
@@ -140,7 +141,7 @@
     },
     "gateway_manifest": {
       "status": "PASSED",
-      "source_commit": "d2eee7cd634eb0265888fcec2fcf96eccef63a3f",
+      "source_commit": "f84b586486f6736cdff427c41e4f4ff2bdf2ec17",
       "command": "python gateway/build_v14_package.py --manifest-only"
     },
     "native_repository_approval": {
@@ -148,7 +149,8 @@
       "failed": 0,
       "combined_approval_suite_passed": 74,
       "scope": "Actual approval manager, trust stores and native facade mapping; exact one-time lifecycle decisions, persistent-grant exclusion, native provenance, non-lifecycle administrative denial, live account/generation/profile/plugin changes, cancellation and known-unsent claim cleanup",
-      "boundaries": "Controlled Android/storage ports; full Compose/application/device gate remains separate"
+      "boundaries": "Controlled Android/storage ports; full Compose/application/device gate remains separate",
+      "tested_local_commit": "e6b4158ee219a38d7a18f43fcf8243004643ad8d"
     }
   },
   "qualification": "Physical PC routing/model availability and Android device performance must be reported separately from source changes and host/CI regression evidence.",
@@ -188,9 +190,14 @@
     "branch": "main",
     "sha": "293810dbc34ef93ee62521e2fd274681e10482ab"
   },
-  "implementation_commit": "d2eee7cd634eb0265888fcec2fcf96eccef63a3f",
+  "implementation_commit": "f84b586486f6736cdff427c41e4f4ff2bdf2ec17",
   "integration": {
     "preserved_remote_commit": "c04f718685473f86bd0db4e9a68cbf7961ad2b59",
     "resolution": "Kept substantive GitHub summaries and their stricter logical-continuation regression; regenerated audit inventories from integrated source."
+  },
+  "source_identity": {
+    "tested_local_commit": "e6b4158ee219a38d7a18f43fcf8243004643ad8d",
+    "published_code_commit": "f84b586486f6736cdff427c41e4f4ff2bdf2ec17",
+    "matching_tree": "dd5e7e906f965500fb93c690817beb3821dc535a"
   }
 }

@@ -1,3 +1,14 @@
+# 0.9.66.7 — Gateway continuity and diagnostic reliability
+
+- Add persistent gateway conversations, a gateway-wide Jobs tab, durable queued commands and reconnection to the original saved work.
+- Repair gateway capability/model readiness, strict reasoning admission, exact execution identity and client-tool handoff recovery.
+- Keep the full authorized GitHub catalog available, add explicitly approved repository creation/transfer, and preserve interrupted work and native approval recovery.
+- Improve bounded evidence recovery, owned-fixture cleanup, independent acceptance criteria, public progress presentation and complete resumable exports.
+- Add durable App audit checks, measured scores with explicit coverage, exact-connection repair controls and prerequisite-bound qualification worklists.
+- Fix the Gateway frame-timing crash, redact multiline chat diagnostics, correlate crash evidence and preserve explicit provider/output origins.
+- Bound speech/TTS lifecycle recovery, reduce rendering/checkpoint work and repair Android method-size and regression failures without weakening validation guards.
+- Build 141; scoped qualification and all unmeasured device/deployment boundaries are retained in [RELEASE_NOTES.md](RELEASE_NOTES.md). Versioned-candidate and exact-main release checks remain mandatory.
+
 # 0.9.66.6 — Diagnostic reliability
 
 - Verified task completion, stale-ref recovery, protected result retention, gateway recovery and correlated diagnostics.

@@ -32,6 +32,18 @@ class GitHubSelfTestReadsTest {
         }
     }
 
+    @Test fun runSelectionPrefersExecutedWorkOverTheNewestSkippedWorkflow() {
+        val sha = "a".repeat(40)
+        val status = json("""{"trusted":true,"success":true,"tool":"github_context","arguments":{"action":"status"},"result":{"commit_sha":"$sha"}}""")
+        val runs = json("""{"trusted":true,"success":true,"tool":"github_ci","arguments":{"action":"runs"},"result":{"workflow_runs":[{"id":10,"head_sha":"$sha","status":"completed","conclusion":"skipped"},{"id":9,"head_sha":"$sha","status":"completed","conclusion":"success"}]}}""")
+        assertEquals(JsonPrimitive(9), GitHubSelfTestReads.next(listOf(tool("github_ci", "jobs")), listOf(status, runs))?.arguments?.get("run_id"))
+    }
+
+    @Test fun logSelectionRejectsKnownEmptyStepsAndPrefersRecordedExecution() {
+        val receipt = json("""{"trusted":true,"success":true,"tool":"github_ci","arguments":{"action":"jobs"},"result":{"jobs":[{"id":1,"status":"completed","conclusion":"success","steps":[]},{"id":2,"status":"completed","conclusion":"success"},{"id":3,"status":"completed","conclusion":"success","steps":[{"status":"completed","conclusion":"success"}]}]}}""")
+        assertEquals(JsonPrimitive(3), GitHubSelfTestReads.next(listOf(tool("github_ci", "logs")), listOf(receipt))?.arguments?.get("job_id"))
+    }
+
     @Test fun logReadsStayWithinTheExactRevisionRun() {
         val sha = "a".repeat(40)
         val status = json("""{"trusted":true,"success":true,"tool":"github_context","arguments":{"action":"status"},"result":{"commit_sha":"$sha"}}""")

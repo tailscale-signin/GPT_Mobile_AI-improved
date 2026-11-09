@@ -7,6 +7,86 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class ProviderExceptionDetailsTest {
+    @Test fun fullGithubCatalogBudgetFailureRemainsAnUnsentAdmissionFailure() {
+        val error = dev.chungjungsoo.gptmobile.data.agent.GitHubToolContextBudgetException(8000, 4000)
+        val detail = requireNotNull(providerExceptionDetails(error, partialOutput = false))
+        assertEquals("GITHUB_TOOL_CONTEXT_BUDGET", detail.code)
+        assertEquals(JsonPrimitive(false), detail.failureDetails?.get("dispatched"))
+        assertEquals(JsonPrimitive("PRECHECK_REJECTED"), detail.failureDetails?.get("dispatch_state"))
+        val record = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.fromProvider(detail.message, detail.code, detail.failureDetails)
+        assertEquals("GITHUB_TOOL_CONTEXT_BUDGET", record.category)
+        assertEquals("provider_admission", record.phase)
+        assertEquals(false, record.retryAllowed)
+        assertEquals(dev.chungjungsoo.gptmobile.data.agent.RemoteRequestAcceptance.NO, record.remoteAcceptance)
+    }
+
+    @Test fun cachedRepositoryAdmissionSurvivesProviderAndDurableFailureBoundaries() {
+        val gate = dev.chungjungsoo.gptmobile.data.github.GitHubRefAvailability(now = { 1000 }, cooldownMillis = 5000)
+        gate.failed("/repos/owner/repo", 404, "Not found")
+        val rejection = runCatching { gate.requireAvailable("/repos/owner/repo/commits/main") }.exceptionOrNull() as dev.chungjungsoo.gptmobile.data.github.GitHubReadValidation
+        val detail = requireNotNull(providerExceptionDetails(rejection, partialOutput = false))
+        assertEquals("GITHUB_REPOSITORY_UNAVAILABLE", detail.code)
+        val record = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.fromProvider(detail.message, detail.code, detail.failureDetails)
+        val restored = kotlinx.serialization.json.Json.decodeFromString<dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord>(kotlinx.serialization.json.Json.encodeToString(dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.serializer(), record))
+        assertEquals("GITHUB_REPOSITORY_UNAVAILABLE", restored.category)
+        assertEquals("repository_admission", restored.phase)
+        assertEquals("PRECHECK_REJECTED", restored.dispatchState)
+        assertEquals(false, restored.retryAllowed)
+        assertEquals(false, restored.dispatched)
+        assertEquals(dev.chungjungsoo.gptmobile.data.agent.RemoteRequestAcceptance.NO, restored.remoteAcceptance)
+        assertEquals(listOf("REFRESH_REPOSITORY_ACCESS", "CHANGE_REPOSITORY"), restored.recoveryActions)
+        org.junit.Assert.assertTrue(requireNotNull(restored.retryAfterMillis) > System.currentTimeMillis())
+        val partial = requireNotNull(providerExceptionDetails(rejection, partialOutput = true))
+        assertEquals(JsonPrimitive("NOT_DISPATCHED"), partial.failureDetails?.get("attempt_dispatch_state"))
+        assertNull(partial.failureDetails?.get("dispatched"))
+        assertNull(partial.failureDetails?.get("dispatch_state"))
+        assertNull(partial.failureDetails?.get("remote_acceptance"))
+    }
+
+    @Test fun gatewayModelQualificationPreservesOriginalPropertiesFailureThroughProviderAdapter() {
+        val observation = dev.chungjungsoo.gptmobile.data.context.GatewayModelCapabilityObservation(
+            failureCode = "EXECUTION_MODEL_NOT_LOADED",
+            reasonCode = "SELECTED_MODEL_NOT_LOADED",
+            dependency = "backend_properties",
+            upstreamStatus = 400,
+            modelState = "UNLOADED",
+            modelAdvertised = true,
+            modelLoaded = false,
+            upstreamMessageCode = "MODEL_NOT_LOADED"
+        )
+        val exception = dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityUnavailableException("REASONING_CAPABILITY_UNAVAILABLE", observation)
+        val failure = requireNotNull(providerExceptionDetails(exception, partialOutput = false))
+        assertEquals("REASONING_CAPABILITY_UNAVAILABLE", failure.code)
+        assertEquals(false, failure.retryable)
+        assertEquals(JsonPrimitive("provider_admission"), failure.failureDetails?.get("failed_stage"))
+        assertEquals(JsonPrimitive("NOT_DISPATCHED"), failure.failureDetails?.get("attempt_dispatch_state"))
+        assertEquals(JsonPrimitive("SELECTED_MODEL_NOT_LOADED"), failure.failureDetails?.get("gateway_reason_code"))
+        assertEquals(JsonPrimitive("backend_properties"), failure.failureDetails?.get("gateway_dependency"))
+        assertEquals(JsonPrimitive(400), failure.failureDetails?.get("gateway_upstream_status"))
+        org.junit.Assert.assertTrue(failure.message.contains("prepare-model --model"))
+    }
+
+    @Test fun gatewayPrerequisitesPreserveTypedCauseWithoutClaimingEarlierAttemptsWereUnsent() {
+        val error = dev.chungjungsoo.gptmobile.data.github.GatewayAdmissionException(dev.chungjungsoo.gptmobile.data.github.GatewayAdmissionReason.ENGINEERING_GITHUB_REQUIRED, 200, null, dev.chungjungsoo.gptmobile.data.github.GatewayAdmissionSurface.CAPABILITIES)
+        val failure = requireNotNull(providerExceptionDetails(error, partialOutput = true))
+        assertEquals("GATEWAY_ENGINEERING_GITHUB_REQUIRED", failure.code)
+        assertEquals(JsonPrimitive("NOT_DISPATCHED"), failure.failureDetails?.get("attempt_dispatch_state"))
+        assertEquals(JsonPrimitive("CONFIGURE_HOST_GITHUB"), failure.failureDetails?.get("repair"))
+        assertNull(failure.failureDetails?.get("dispatched"))
+        assertNull(failure.failureDetails?.get("dispatch_state"))
+        assertEquals(false, failure.retryable)
+    }
+
+    @Test fun failedCapabilityDiscoveryRetainsItsPreflightStageAndHttpEvidence() {
+        val error = dev.chungjungsoo.gptmobile.data.network.gateway.GatewayCapabilityDiscoveryException("Capability check denied", httpStatus = 403)
+        val failure = requireNotNull(providerExceptionDetails(error, partialOutput = false))
+        assertEquals("GATEWAY_CAPABILITY_UNAVAILABLE", failure.code)
+        assertEquals(JsonPrimitive("connection_preflight"), failure.failureDetails?.get("failed_stage"))
+        assertEquals(JsonPrimitive(403), failure.failureDetails?.get("http_status"))
+        assertEquals(JsonPrimitive("NOT_DISPATCHED"), failure.failureDetails?.get("attempt_dispatch_state"))
+        assertNull(failure.failureDetails?.get("dispatched"))
+    }
+
     @Test fun typedReasoningAdmissionRetainsItsPhaseWithoutErasingEarlierUncertainty() {
         val failure = requireNotNull(providerExceptionDetails(dev.chungjungsoo.gptmobile.data.context.ReasoningAdmissionException(dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF), partialOutput = false))
         assertEquals("REASONING_OFF_UNSUPPORTED", failure.code)

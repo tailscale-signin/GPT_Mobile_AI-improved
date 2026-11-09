@@ -137,19 +137,27 @@ class VoiceRecoveryTest {
     @Test fun throttleEscalatesAndResetsOnlyAfterSuccess() {
         var now = 0L
         val gate = RecognitionStartGate { now }
-        gate.failed(true)
+        assertTrue(gate.acquire("first"))
+        gate.failed(true, "first")
         assertEquals(1_000L, gate.remainingMillis())
         now += 1_000
-        assertTrue(gate.acquire())
-        gate.failed(true)
+        assertTrue(gate.acquire("second"))
+        gate.failed(true, "second")
         assertEquals(2_500L, gate.remainingMillis())
         now += 2_500
-        gate.failed(true)
+        assertTrue(gate.acquire("third"))
+        gate.succeeded("second")
+        gate.failed(true, "third")
         assertEquals(5_000L, gate.remainingMillis())
-        assertFalse(gate.acquire())
+        assertFalse(gate.acquire("recovered"))
         now += 5_000
-        gate.succeeded()
-        gate.failed(true)
+        assertTrue(gate.acquire("recovered"))
+        gate.succeeded("recovered")
+        assertEquals(500L, gate.remainingMillis())
+        assertFalse(gate.acquire("after-success"))
+        now += 500
+        assertTrue(gate.acquire("after-success"))
+        gate.failed(true, "after-success")
         assertEquals(1_000L, gate.remainingMillis())
     }
 

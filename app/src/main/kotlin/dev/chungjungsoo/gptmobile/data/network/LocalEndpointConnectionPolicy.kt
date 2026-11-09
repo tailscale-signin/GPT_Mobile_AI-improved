@@ -4,6 +4,8 @@ import dev.chungjungsoo.gptmobile.data.model.EndpointLocality
 import dev.chungjungsoo.gptmobile.data.model.endpointLocality
 import java.net.URI
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.coroutines.AbstractCoroutineContextElement
+import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -24,7 +26,7 @@ internal object LocalEndpointConnectionPolicy {
     /** Only read-only metadata/template probes belong here. Mutations and inference never do. */
     suspend fun <T> probe(endpoint: String, onStaleConnection: suspend () -> Unit = {}, action: suspend () -> T): T {
         try {
-            return action()
+            return withContext(LocalMetadataReadAttempt(0)) { action() }
         } catch (failure: Exception) {
             val causes = generateSequence<Throwable>(failure) { it.cause?.takeUnless { cause -> cause === it } }.take(8).toList()
             // A response rejection or invalid document is definitive, even when its
@@ -61,7 +63,7 @@ internal object LocalEndpointConnectionPolicy {
             // One retry owner, two attempts total. Stagger simultaneous dashboard,
             // readiness and recovery reads without extending an outer request budget.
             kotlinx.coroutines.delay(kotlin.random.Random.nextLong(150, 451))
-            return action()
+            return withContext(LocalMetadataReadAttempt(1)) { action() }
         }
     }
 
@@ -72,4 +74,9 @@ internal object LocalEndpointConnectionPolicy {
         until.remove(key)
         return false
     }
+}
+
+/** This ordinal describes only our bounded read loop; it does not count engine or SDK retries. */
+internal class LocalMetadataReadAttempt(val ordinal: Int) : AbstractCoroutineContextElement(Key) {
+    companion object Key : CoroutineContext.Key<LocalMetadataReadAttempt>
 }

@@ -10,11 +10,15 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentRunCoordinator
 import dev.chungjungsoo.gptmobile.data.repository.ChatRepository
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -32,10 +36,14 @@ class GatewayNetworkRecoveryMonitor @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val agentRunCoordinator: AgentRunCoordinator,
     private val chatRepository: ChatRepository,
-    private val settings: SettingRepository
+    private val settings: SettingRepository,
+    private val researchArchive: dev.chungjungsoo.gptmobile.data.research.feature.ResearchArchiveRepository
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val started = AtomicBoolean(false)
+    private val routeRevision = AtomicLong()
+    private val routeRevisionState = MutableStateFlow(0L)
+    internal val routeChanges = routeRevisionState.asStateFlow()
     private val connectivityManager by lazy {
         context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
     }
@@ -72,6 +80,7 @@ class GatewayNetworkRecoveryMonitor @Inject constructor(
                     resumeResearchOutbox()
                     recoveryPolling.wake()
                 }
+                routeRevisionState.value = routeRevision.incrementAndGet()
             }
         }
 
@@ -83,9 +92,11 @@ class GatewayNetworkRecoveryMonitor @Inject constructor(
                 if (dev.chungjungsoo.gptmobile.BuildConfig.MCP_ROUTE_RECOVERY) dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.networkChanged()
                 resumeResearchOutbox()
                 recoveryPolling.routeChanged(true)
+                routeRevisionState.value = routeRevision.incrementAndGet()
             } else if (!validated && validatedNetwork == network) {
                 validatedNetwork = null
                 recoveryPolling.routeChanged(false)
+                routeRevisionState.value = routeRevision.incrementAndGet()
             }
         }
 
@@ -97,6 +108,7 @@ class GatewayNetworkRecoveryMonitor @Inject constructor(
                 validatedNetwork = null
                 recoveryPolling.routeChanged(false)
             }
+            routeRevisionState.value = routeRevision.incrementAndGet()
         }
     }
 
@@ -112,6 +124,7 @@ class GatewayNetworkRecoveryMonitor @Inject constructor(
         connectivityManager.registerDefaultNetworkCallback(callback)
 
         recoveryPolling.routeChanged(validatedNetwork != null)
+        routeRevisionState.value = routeRevision.incrementAndGet()
         scope.launch {
             // A run becoming interrupted on an unchanged network must also wake
             // recovery. Ignore token/progress updates while its live owner exists.
@@ -126,12 +139,11 @@ class GatewayNetworkRecoveryMonitor @Inject constructor(
 
     private fun resumeResearchOutbox() {
         scope.launch {
-            runCatching {
-                val manager = androidx.work.WorkManager.getInstance(context)
-                val running = manager.getWorkInfosForUniqueWork("research-examination-outbox").get()
-                    .any { it.state == androidx.work.WorkInfo.State.RUNNING }
-                if (!running) dev.chungjungsoo.gptmobile.data.research.work.ResearchExaminationWorker.enqueue(context, reconsider = true)
-            }.onFailure { error ->
+            try {
+                dev.chungjungsoo.gptmobile.data.research.work.ResearchExaminationWorker.reconcile(context, researchArchive, reconsider = true)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
                 dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
                     "ResearchExamine",
                     "NETWORK_RECOVERY_ENQUEUE_FAILED · reason=${error.javaClass.simpleName} · action=durable_outbox_retained",

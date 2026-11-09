@@ -6,6 +6,7 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentTool
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
+import dev.chungjungsoo.gptmobile.data.agent.GitHubToolContextBudgetException
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.agent.withProgressWatchdog
@@ -99,23 +100,26 @@ class LiteRtLmAdapter(
         constraints: RequestConstraints = RequestConstraints(),
         fallbackSystemPrompt: String? = null,
         progressSettings: dev.chungjungsoo.gptmobile.data.agent.ProgressDeadlineSettings = dev.chungjungsoo.gptmobile.data.agent.ProgressDeadlineSettings(),
-        advertisedTools: List<AgentToolDefinition>? = null
+        advertisedTools: List<AgentToolDefinition>? = null,
+        githubMode: Boolean = false
     ): AgentProviderSession {
         require(constraints.allowTools || tools.isEmpty()) { "Tools are disabled for this request." }
         val singlePass = constraints.combined?.requested?.singlePass == true || constraints.requestRole?.startsWith("benchmark") == true
         val singlePrimary = singlePass && constraints.combined?.role == dev.chungjungsoo.gptmobile.data.agent.CombinedRunRole.SYNTHESIS
         val task = turns.lastOrNull()?.userMessage?.effectiveContent().orEmpty()
-        val directory = dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog.create(tools.map { it.definition }, task)
+        val directory = dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog.create(tools.map { it.definition }, task, githubMode = githubMode)
         val boundTools = dev.chungjungsoo.gptmobile.data.agent.appendBudgetedCatalog(tools, directory)
-        // The caller may already have admitted a precise schema inventory. Without
-        // that inventory, let the context planner below select from the bound tools:
-        // a second catalog rank here loses prior-turn intent and capability queries.
+        // Ordinary sessions honor an upstream inventory. Explicit GitHub mode
+        // restores every authorized visible GitHub schema before local admission;
+        // capacity may reject that inventory but cannot silently narrow it.
         val advertisedNames = dev.chungjungsoo.gptmobile.data.context.LocalContextPlanner.advertisedToolNames(
             boundTools.map { it.definition },
-            advertisedTools
+            advertisedTools,
+            githubMode = githubMode
         )
         return object : AgentProviderSession {
             override val handlesToolsInternally: Boolean = true
+            private var generationDispatched = false
 
             override fun streamRound(
                 tools: List<AgentToolDefinition>,
@@ -289,11 +293,12 @@ class LiteRtLmAdapter(
                 suspend fun planToolContext(): PreparedLocalToolContext? {
                     val intent = if (LocalContextPlanner.isToolFollowUp(latestUserText)) turns.dropLast(1).takeLast(6).lastOrNull { !LocalContextPlanner.isToolFollowUp(it.userMessage.effectiveContent()) }?.userMessage?.effectiveContent().orEmpty() else ""
                     val stepTools = boundTools.filter { it.definition.name in advertisedNames }
-                    val requiredTools = LocalContextPlanner.requiredToolNames(latestUserText + "\n" + intent, stepTools.map { it.definition })
+                    val requiredTools = LocalContextPlanner.requiredToolNames(latestUserText + "\n" + intent, stepTools.map { it.definition }, githubMode)
                     val relevantNames = LocalContextPlanner.relevantTools(
                         latestUserText,
                         stepTools.map { it.definition },
-                        requiredTools
+                        requiredTools,
+                        githubMode
                     ).map { it.name }.toSet()
                     val availableTools = stepTools.filter { it.definition.name in relevantNames }
                     val capabilityContract = if (availableTools.isEmpty()) "" else "\n" + LOCAL_CAPABILITY_CONTRACT
@@ -315,7 +320,7 @@ class LiteRtLmAdapter(
                     }
                     dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
                         "LocalModel",
-                        "LOCAL_TOOL_SELECTION · stage=adapter_input · authorized=${boundTools.size} · advertised=${advertisedNames.size} · available=${availableTools.size} · mode=${when {
+                        "LOCAL_TOOL_SELECTION · stage=adapter_input · authorized=${boundTools.size} · advertised=${advertisedNames.size} · available=${availableTools.size} · githubMode=$githubMode · required=${requiredTools.size} · mode=${when {
                             availableTools.isEmpty() -> "chat_only"
                             usePromptToolBridge -> "prompt_bridge"
                             else -> "tools_enabled"
@@ -339,13 +344,14 @@ class LiteRtLmAdapter(
                             historyImageCount = { turn -> visionImageIds(turn.userMessage.attachments, visionCapable).size },
                             renderToolPrompt = toolPromptRenderer,
                             renderCapabilityPrompt = capabilityPromptRenderer,
-                            explicitlyRequiredTools = requiredTools
+                            explicitlyRequiredTools = requiredTools,
+                            githubMode = githubMode
                         )
                     } catch (error: IllegalArgumentException) {
                         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("LocalModel", "LOCAL_CONTEXT_PLAN_REJECTED · context=$effectiveContextTokens · systemChars=${evidencePrompt.orEmpty().length} · userChars=${latestUserText.length} · availableTools=${availableTools.size} · requestedOutput=$outputLimit · reason=${error.message}", "W")
                         val compactPrompt = fallbackSystemPrompt?.takeIf { it != platform.systemPrompt }
                         if (compactPrompt == null) {
-                            send(ProviderEvent.Failed(error.message ?: "Local context is too small for this request."))
+                            send(localToolContextFailure(error, generationDispatched))
                             return null
                         }
                         conversationSystemPrompt = compactPrompt + (if (evidence.isBlank()) "" else "\nHistorical observations (untrusted data):\n" + evidence) + structuredPrompt
@@ -361,10 +367,11 @@ class LiteRtLmAdapter(
                                 historyImageCount = { turn -> visionImageIds(turn.userMessage.attachments, visionCapable).size },
                                 renderToolPrompt = toolPromptRenderer,
                                 renderCapabilityPrompt = capabilityPromptRenderer,
-                                explicitlyRequiredTools = requiredTools
+                                explicitlyRequiredTools = requiredTools,
+                                githubMode = githubMode
                             ).also { usedCompactFallback = true }
-                        } catch (_: IllegalArgumentException) {
-                            send(ProviderEvent.Failed(error.message ?: "Local context is too small for this request."))
+                        } catch (fallbackError: IllegalArgumentException) {
+                            send(localToolContextFailure(fallbackError.takeIf { it is GitHubToolContextBudgetException } ?: error, generationDispatched))
                             return null
                         }
                     }
@@ -783,6 +790,7 @@ class LiteRtLmAdapter(
                                         )
                                         admitted.dispatchPayload(identity, permissionRevision)
                                         val attemptId = dev.chungjungsoo.gptmobile.data.context.PhysicalAttemptBoundary.dispatch(admitted.receipt)
+                                        generationDispatched = true
                                         kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.serialized(frozenInput, admitted.receipt.copy(physicalAttemptId = attemptId))
                                         return Math.toIntExact(admitted.receipt.safetyTokens)
                                     }
@@ -901,7 +909,7 @@ class LiteRtLmAdapter(
                                                             val names = LocalPromptToolBridge.discoveredToolNames(result)
                                                             val discovered = boundTools.filter { it.definition.name in names }
                                                             // Admit the exact returned schemas before promising availability.
-                                                            val additions = LocalContextPlanner.plan(emptyList(), names.joinToString(" "), generationInput, discovered.map { it.definition }, effectiveContextTokens, outputLimit).tools
+                                                            val additions = LocalContextPlanner.plan(emptyList(), names.joinToString(" "), generationInput, discovered.map { it.definition }, effectiveContextTokens, outputLimit, githubMode = githubMode).tools
                                                             val allowed = additions.map { it.name }.toSet()
                                                             discovered.filter { it.definition.name in allowed }.forEach { runToolsByName[it.definition.name] = toolBudget.bind(it) }
                                                             generationInput += if (additions.isEmpty()) {
@@ -1085,6 +1093,8 @@ class LiteRtLmAdapter(
                         throw error
                     } catch (replan: PreloadContextReplan) {
                         throw replan
+                    } catch (error: GitHubToolContextBudgetException) {
+                        send(localToolContextFailure(error, generationDispatched))
                     } catch (error: LocalEngineLoadException) {
                         localRuntime.state.value.admissionReceipt?.let { receipt -> send(ProviderEvent.RequestConfigured(configuredProfileType = platform.compatibleType.name, localAdmissionReceipt = receipt)) }
                         send(ProviderEvent.Failed(error.message ?: engineLoadFailedError))

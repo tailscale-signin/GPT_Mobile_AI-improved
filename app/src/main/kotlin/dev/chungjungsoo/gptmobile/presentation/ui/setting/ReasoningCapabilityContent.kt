@@ -36,6 +36,7 @@ internal fun ReasoningCapabilityContent(
             },
             style = MaterialTheme.typography.bodySmall
         )
+        if (!state.checking) observation?.detailMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
         if (!state.checking && observation?.routeVerified == false) Text("The inference route is not verified as ready.", style = MaterialTheme.typography.bodySmall)
         TextButton(onClick = onRecheck, enabled = enabled && !state.checking) { Text("Recheck reasoning support") }
         if (mode != ReasoningMode.AUTO) TextButton(onClick = onSwitchToAuto, enabled = enabled && !state.checking) { Text("Switch to Auto") }

@@ -32,7 +32,8 @@ data class ReasoningCapabilityObservation(
     val observedAtMillis: Long,
     val safeReasonCode: String?,
     val routeVerified: Boolean,
-    val supportVerified: Boolean
+    val supportVerified: Boolean,
+    val detailMessage: String? = null
 ) {
     val permitsRequest: Boolean get() = status == ReasoningCapabilityStatus.SUPPORTED && supportVerified
 }
@@ -41,7 +42,10 @@ internal data class ReasoningCapabilityProbe(
     val routeVerified: Boolean,
     val control: ReasoningTemplateControl? = null,
     val runtimeRevision: String? = null,
-    val safeReasonCode: String? = null
+    val safeReasonCode: String? = null,
+    /** Missing proof is not a conclusive unsupported-template result. */
+    val controlStatus: ReasoningCapabilityStatus? = null,
+    val detailMessage: String? = null
 )
 
 /** Shared read/template-only preflight. It never loads a model, creates a job or generates text. */
@@ -68,6 +72,9 @@ class ReasoningCapabilityRepository internal constructor(
 
     suspend fun check(profile: PlatformV2, requested: ReasoningMode, forceRefresh: Boolean = false): ReasoningCapabilityObservation {
         val entry = entry(profile.uid)
+        // A route binding is bookkeeping, not a verified gateway observation.
+        // Do it before the cache key so registration cannot invalidate this check.
+        GatewayClientDiagnostics.observeInstance(ProviderRequestConfig(profile.apiUrl, profile.token, profileUid = profile.uid), null)
         // This key remains private in memory. Only the unrelated random revision is exposed.
         val identity = "${ConfiguredDispatchAuthority.profileRevision(profile)}|$requested|${LocalServiceHealth.networkEpoch}|${GatewayClientDiagnostics.profileCapabilityEpoch(profile.uid, profile.apiUrl)}"
         return entry.mutex.withLock {
@@ -93,6 +100,7 @@ class ReasoningCapabilityRepository internal constructor(
             val supported = !needsTemplateControl || result.control != null
             val status = when {
                 supported -> ReasoningCapabilityStatus.SUPPORTED
+                result.controlStatus != null -> result.controlStatus
                 result.routeVerified -> ReasoningCapabilityStatus.UNSUPPORTED
                 else -> ReasoningCapabilityStatus.UNVERIFIED
             }
@@ -106,11 +114,12 @@ class ReasoningCapabilityRepository internal constructor(
                 now(),
                 when {
                     supported -> result.safeReasonCode
-                    result.routeVerified -> "REASONING_${requested}_UNSUPPORTED"
+                    status == ReasoningCapabilityStatus.UNSUPPORTED -> "REASONING_${requested}_UNSUPPORTED"
                     else -> result.safeReasonCode ?: "REASONING_CAPABILITY_UNVERIFIED"
                 },
                 result.routeVerified,
-                supported
+                supported,
+                result.detailMessage
             ).also { entry.flow.value = it }
         }
     }
@@ -137,14 +146,23 @@ class ReasoningCapabilityRepository internal constructor(
             // An access/transport failure does not qualify either route.
             gateway.getCapabilities(config, forceRefresh = true)?.let { GatewayClientDiagnostics.observeInstance(config, it.instanceId) }
             val snapshot = capacity.discover(config, profile.model)
-                ?: return ReasoningCapabilityProbe(false, safeReasonCode = "REASONING_CAPABILITY_UNVERIFIED")
+                ?: return ReasoningCapabilityProbe(false, safeReasonCode = "REASONING_CAPABILITY_UNVERIFIED", detailMessage = capacity.metadataFailure(config, profile.model)?.message)
             val verified = snapshot.provenance == CapacityProvenance.VERIFIED_ROUTE &&
                 snapshot.fingerprint.requestedModel == profile.model &&
                 snapshot.fingerprint.resolvedModel == profile.model &&
                 capacity.hasExactModelProof(config, profile.model, snapshot)
             val control = if (verified) capacity.reasoningControl(config, profile.model, snapshot) else null
             val revision = researchHash("${snapshot.fingerprint.runtimeRevision}|${snapshot.fingerprint.templateRevision}|${snapshot.fingerprint.allocationRevision}")
-            return ReasoningCapabilityProbe(verified, control, revision)
+            val controlStatus = if (snapshot.fingerprint.templateRevision.startsWith("gateway:")) {
+                when (capacity.gatewayObservation(config, profile.model)?.reasoningControlState) {
+                    "VERIFIED" -> if (control != null) ReasoningCapabilityStatus.SUPPORTED else ReasoningCapabilityStatus.UNVERIFIED
+                    "UNSUPPORTED" -> ReasoningCapabilityStatus.UNSUPPORTED
+                    else -> ReasoningCapabilityStatus.UNVERIFIED
+                }
+            } else {
+                null
+            }
+            return ReasoningCapabilityProbe(verified, control, revision, controlStatus = controlStatus)
         }
     }
 

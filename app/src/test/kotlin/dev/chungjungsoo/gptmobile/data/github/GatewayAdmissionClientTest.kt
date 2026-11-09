@@ -16,6 +16,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 
 class GatewayAdmissionClientTest {
@@ -25,6 +26,70 @@ class GatewayAdmissionClientTest {
     private val conversations = """{"schema_version":1,"gateway_id":"original-installation","principal_id":"network:shared","items":[]}"""
     private val catalog = """{"schema_version":1,"gateway_id":"original-installation","principal_id":"network:shared","server_now":1,"items":[],"complete":true}"""
     private fun capabilities(source: String = sha) = """{"gatewayVersion":"15.0.0","contractVersion":1,"gateway_id":"original-installation","principal_id":"network:shared","instanceId":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","build":{"sourceCommit":"$source"},"features":{"conversation_sync_v1":true,"job_catalog_v1":true},"contracts":{"gatewayConversations":["gptmobile.gateway.conversations.v1"],"gatewayJobCatalog":["gptmobile.gateway.job-catalog.v1"]}}"""
+
+    @Before fun clearSharedCapabilityEvidence() {
+        dev.chungjungsoo.gptmobile.data.network.gateway.GatewaySurfacePolicy.shared.invalidate()
+    }
+
+    @Test fun unsupportedCapabilitiesShareNegativeEvidenceUntilExplicitRefresh() = runBlocking {
+        var reads = 0
+        var repaired = false
+        HttpClient(
+            MockEngine { request ->
+                reads++
+                when {
+                    !repaired -> respond("unsupported", HttpStatusCode.NotFound)
+                    request.url.encodedPath.endsWith("capabilities") -> respond(capabilities())
+                    request.url.encodedPath.endsWith("identity") -> respond(identity)
+                    else -> error("Unexpected history surface")
+                }
+            }
+        ) { install(HttpTimeout) }.use { http ->
+            val client = GatewayJobClient(http)
+            repeat(2) {
+                assertTrue(runCatching { client.verifySavedWorkContract(config, verifyHistorySurfaces = false) }.exceptionOrNull() is GatewayHistoryUnsupported)
+            }
+            assertEquals(1, reads)
+            repaired = true
+            dev.chungjungsoo.gptmobile.data.network.gateway.GatewaySurfacePolicy.shared.invalidate(dev.chungjungsoo.gptmobile.data.network.gateway.GatewaySurfacePolicy.identity(config), dev.chungjungsoo.gptmobile.data.network.gateway.GatewaySurfacePolicy.Surface.CAPABILITIES)
+            assertEquals("original-installation", client.verifySavedWorkContract(config, verifyHistorySurfaces = false).identity.gatewayId)
+            assertEquals(3, reads)
+        }
+    }
+
+    @Test fun directLlamaResponseIdentifiesTheMissingGatewayContractWithoutGuessingAPort() = runBlocking {
+        var calls = 0
+        val selected = ProviderRequestConfig("https://direct-fixture.invalid:9443", null)
+        HttpClient(
+            MockEngine { request ->
+                calls++
+                assertEquals("direct-fixture.invalid", request.url.host)
+                assertEquals(9443, request.url.port)
+                respond("""{"error":{"code":404,"message":"private server details"}}""", HttpStatusCode.NotFound, headersOf("Server", "llama.cpp"))
+            }
+        ) { install(HttpTimeout) }.use { http ->
+            val failure = runCatching { GatewayJobClient(http).catalog(selected) }.exceptionOrNull() as GatewayHistoryUnsupported
+            assertTrue(failure.directModelServer)
+            assertTrue(failure.message.orEmpty().contains("identifies itself as llama.cpp"))
+            assertTrue(failure.message.orEmpty().contains("reverse-proxy"))
+            assertFalse(failure.message.orEmpty().contains("8090"))
+            assertFalse(failure.message.orEmpty().contains("private server details"))
+            assertEquals(GatewayAdmissionRetryability.AFTER_REPAIR, failure.retryability)
+            assertEquals(GatewayAdmissionDispatchState.NOT_DISPATCHED, failure.dispatchState)
+        }
+        assertEquals(1, calls)
+    }
+
+    @Test fun transientHttpRejectionsPermitOnlySafeReadRetryAndKeepCommandReconciliation() {
+        for (status in listOf(408, 429, 500, 502, 503, 504)) {
+            val read = gatewayAdmissionFailure(status, GatewayAdmissionSurface.JOB_CATALOG, null)
+            assertEquals(GatewayAdmissionRetryability.SAFE_READ, read.retryability)
+            assertEquals(GatewayAdmissionRetryability.RECONCILE_ORIGINAL_COMMAND, gatewayAdmissionFailure(status, GatewayAdmissionSurface.COMMAND, null).retryability)
+        }
+        for (status in listOf(400, 401, 403, 404, 405, 422, 501)) {
+            assertEquals(GatewayAdmissionRetryability.AFTER_REPAIR, gatewayAdmissionFailure(status, GatewayAdmissionSurface.JOB_CATALOG, null).retryability)
+        }
+    }
 
     @Test fun explicitRemoteSurfaceDenialKeepsItsRepairAndNeverRequestsAnApiTokenOrRetries() = runBlocking {
         var calls = 0
@@ -226,6 +291,28 @@ class GatewayAdmissionClientTest {
             assertEquals(GatewayActionReadiness.NOT_VERIFIED, result.readiness.graph)
             assertEquals(4, paths.size)
             assertFalse(paths.any { it.contains("completions") || it.contains("/models") || it.contains("/engineering") })
+        }
+    }
+
+    @Test fun catalogPreflightChecksGatewayIdentityAndRequiredCapabilitiesBeforeListingButDoesNotClaimObservedHistory() = runBlocking {
+        val paths = mutableListOf<String>()
+        HttpClient(
+            MockEngine { request ->
+                paths += request.url.encodedPath
+                when {
+                    request.url.encodedPath.endsWith("capabilities") -> respond(capabilities())
+                    request.url.encodedPath.endsWith("identity") -> respond(identity)
+                    else -> error("Catalog preflight must not start a separate history poll or inference")
+                }
+            }
+        ) { install(HttpTimeout) }.use { http ->
+            val result = GatewayJobClient(http).verifySavedWorkContract(config, verifyHistorySurfaces = false)
+            assertEquals(listOf("/v1/gateway/capabilities", "/v1/gateway/identity"), paths)
+            assertEquals(GatewayActionReadiness.VERIFIED, result.readiness.identity)
+            assertEquals(GatewayActionReadiness.NOT_VERIFIED, result.readiness.jobs)
+            assertEquals(GatewayActionReadiness.NOT_VERIFIED, result.readiness.conversations)
+            assertEquals("original-installation", result.identity.gatewayId)
+            assertEquals("network:shared", result.identity.principalId)
         }
     }
 

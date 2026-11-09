@@ -19,7 +19,9 @@ sealed class ResponsesStreamEvent
 @SerialName("client.gateway_metadata")
 data class ResponseGatewayMetadataEvent(
     @kotlinx.serialization.Transient
-    val metadata: dev.chungjungsoo.gptmobile.data.network.gateway.GatewayResponseMetadata? = null
+    val metadata: dev.chungjungsoo.gptmobile.data.network.gateway.GatewayResponseMetadata? = null,
+    @kotlinx.serialization.Transient
+    val providerResponseTiming: dev.chungjungsoo.gptmobile.data.network.ProviderResponseTiming? = null
 ) : ResponsesStreamEvent()
 
 /**

@@ -36,6 +36,7 @@ import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.permissions.PersonalDataCategory
 import dev.chungjungsoo.gptmobile.data.permissions.PersonalDataGrantOptions
 import dev.chungjungsoo.gptmobile.data.permissions.ToolApproval
+import dev.chungjungsoo.gptmobile.data.permissions.isRepositoryLifecycleApproval
 import dev.chungjungsoo.gptmobile.data.permissions.requiresExactConfirmation
 import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
@@ -66,7 +67,7 @@ internal fun ToolApprovalDialog(
                 )
             }
         },
-        title = { Text("Allow this tool?", fontWeight = FontWeight.SemiBold) },
+        title = { Text(if (approval.isRepositoryLifecycleApproval) "Approve repository operation?" else "Allow this tool?", fontWeight = FontWeight.SemiBold) },
         text = {
             Column(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
@@ -95,7 +96,11 @@ internal fun ToolApprovalDialog(
                     }
                 }
                 Text(
-                    if (approval.requiresExactConfirmation) "Review this exact GitHub action. Approval applies once to the displayed arguments; remembered permissions cannot approve it." else "Allow once for this action, or remember it for every model. Change this anytime in Plugins/Tools → Permissions.",
+                    when {
+                        approval.isRepositoryLifecycleApproval -> "This operation creates or copies a repository, or stores a clone on your gateway. Review the exact account, source, destination, visibility and copy mode shown above. Approval applies once; workspace trust and remembered permissions cannot approve it."
+                        approval.requiresExactConfirmation -> "Review this exact GitHub action. Approval applies once to the displayed arguments; remembered permissions cannot approve it."
+                        else -> "Allow once for this action, or remember it for every model. Change this anytime in Plugins/Tools → Permissions."
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -114,9 +119,17 @@ internal fun ToolApprovalDialog(
         },
         confirmButton = {
             FilledTonalButton(
-                onClick = if (allowProvider) onAlwaysAllowProvider else onAllowOnce
+                onClick = if (allowProvider && !approval.requiresExactConfirmation) onAlwaysAllowProvider else onAllowOnce
             ) {
-                Text(if (allowProvider) "Always allow provider" else "Allow once")
+                Text(
+                    if (approval.isRepositoryLifecycleApproval) {
+                        "Approve this operation once"
+                    } else if (allowProvider && !approval.requiresExactConfirmation) {
+                        "Always allow provider"
+                    } else {
+                        "Allow once"
+                    }
+                )
             }
         },
         dismissButton = { OutlinedButton(onClick = onDeny) { Text("Deny") } }

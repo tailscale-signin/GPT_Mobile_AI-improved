@@ -202,4 +202,14 @@ class GitHubChatProgressTest {
         assertEquals(null, progress.forward(prose))
         assertEquals(null, progress.forward(ApiState.ProgressCheckpoint("Check 3/8")))
     }
+
+    @Test fun publicProseChunksReachTheSummaryInsteadOfBeingReplacedByTheTicker() {
+        val progress = GitHubChatProgress("Investigate the build") { 0L }
+        progress.tick()
+        val first = ApiState.ProgressCheckpoint("The failing step is ", modelAuthored = true)
+        val second = ApiState.ProgressCheckpoint("the Kotlin compilation. I will inspect its diagnostic next.", modelAuthored = true)
+        assertEquals(first, progress.forward(first))
+        assertEquals(second, progress.forward(second))
+        assertEquals(null, progress.forward(ApiState.ProgressCheckpoint("Reviewing the latest result.")))
+    }
 }

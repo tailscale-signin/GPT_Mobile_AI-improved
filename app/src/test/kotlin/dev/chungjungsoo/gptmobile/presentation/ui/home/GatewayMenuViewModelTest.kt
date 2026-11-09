@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.home
 
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.github.GatewayKnownProfileStore
 import dev.chungjungsoo.gptmobile.data.github.GatewayVerifiedScope
 import dev.chungjungsoo.gptmobile.data.github.GatewayVerifiedScopeStore
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
@@ -11,6 +12,7 @@ import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAvailabilityStatus
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAvailabilityTarget
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -41,7 +43,8 @@ class GatewayMenuViewModelTest {
         every { settings.observeFeatureSettings() } returns flowOf(AppFeatureSettings())
         every { scopes.changes } returns changes
         coEvery { scopes.verified(any()) } returns scope
-        every { availability.observe(any()) } answers {
+        coEvery { scopes.configurationRevision(any()) } returns scope.configurationRevision
+        every { availability.observeBackground(any()) } answers {
             flowOf(firstArg<List<GatewayAvailabilityTarget>>().associate { it.profileUid to GatewayAvailability(status = GatewayAvailabilityStatus.OFFLINE) })
         }
     }
@@ -54,11 +57,46 @@ class GatewayMenuViewModelTest {
         assertEquals(scope, connection.verifiedScope)
     }
 
-    @Test fun anUnverifiedOfflineConfigurationCannotKeepTheHomeEntry() = runTest {
+    @Test fun anUnverifiedOfflineConfigurationCannotAuthorizeHistoryOrGeneration() = runTest {
         coEvery { scopes.verified(profile) } returns null
         val connection = gatewayMenuConnections(settings, availability, scopes).first().single()
         assertFalse(connection.canBrowseHistory)
         assertFalse(connection.availability.isOnline)
+    }
+
+    @Test fun capabilitySupportIsRememberedWithTheFrozenExactConfigurationRevision() = runTest {
+        val known = mockk<GatewayKnownProfileStore>()
+        coEvery { known.remember(any(), any(), any(), any()) } returns true
+        every { availability.observeBackground(any()) } answers {
+            val targets = firstArg<List<GatewayAvailabilityTarget>>()
+            assertEquals(scope.configurationRevision, targets.single().config?.profileRevision)
+            flowOf(targets.associate { it.profileUid to GatewayAvailability(status = GatewayAvailabilityStatus.NOT_READY, instanceId = "instance", conversationSyncSupported = true) })
+        }
+        val connection = gatewayMenuConnections(settings, availability, scopes, known).first().single()
+        assertEquals(scope.configurationRevision, connection.configurationRevision)
+        assertFalse(connection.availability.isOnline)
+        coVerify(exactly = 1) { known.remember(profile, "instance", scope.configurationRevision, true) }
+    }
+
+    @Test fun incompatibleDiscoveryRevokesOnlyItsCapturedConfigurationProof() = runTest {
+        val known = mockk<GatewayKnownProfileStore>()
+        coEvery { known.forget(any(), any()) } returns Unit
+        every { availability.observeBackground(any()) } answers {
+            flowOf(firstArg<List<GatewayAvailabilityTarget>>().associate { it.profileUid to GatewayAvailability(status = GatewayAvailabilityStatus.INCOMPATIBLE) })
+        }
+        gatewayMenuConnections(settings, availability, scopes, known).first()
+        coVerify(exactly = 1) { known.forget(profile, scope.configurationRevision) }
+        coVerify(exactly = 0) { known.remember(any(), any(), any(), any()) }
+    }
+
+    @Test fun anUnresolvedCredentialRevisionCannotBecomeRememberedGatewaySupport() = runTest {
+        val known = mockk<GatewayKnownProfileStore>()
+        coEvery { scopes.configurationRevision(profile) } returns null
+        every { availability.observeBackground(any()) } answers {
+            flowOf(firstArg<List<GatewayAvailabilityTarget>>().associate { it.profileUid to GatewayAvailability(status = GatewayAvailabilityStatus.ONLINE, instanceId = "instance") })
+        }
+        gatewayMenuConnections(settings, availability, scopes, known).first()
+        coVerify(exactly = 0) { known.remember(any(), any(), any(), any()) }
     }
 
     @Test fun retainedHistoryDoesNotDependOnTheExecutionModelOrEnabledReadinessCandidate() = runTest {

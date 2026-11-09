@@ -135,6 +135,31 @@ class Supervisor:
         response.raise_for_status()
         return response.json()
 
+    def export_diagnostics(self):
+        """Fetch a consistent live snapshot with the existing local manager identity."""
+        url = 'http://' + authority(control_host(self.cfg), self.cfg['port']) + '/gateway/admin/debug/export'
+        destination = self.root / 'logs' / 'gateway-debug.zip'
+        temporary = destination.with_suffix('.zip.tmp')
+        try:
+            with self.http.get(url, params={'format': 'zip'}, headers={'X-Gateway-Management': self.token},
+                               timeout=(2, 15), stream=True, allow_redirects=False) as response:
+                response.raise_for_status()
+                if response.headers.get('content-type', '').split(';')[0] != 'application/zip':
+                    raise ValueError('Gateway does not support the full diagnostic bundle. Update the complete gateway package.')
+                size, deadline = 0, time.monotonic() + 30
+                with temporary.open('wb') as out:
+                    for chunk in response.iter_content(65536):
+                        size += len(chunk)
+                        if size > 32 * 1024 * 1024 or time.monotonic() > deadline:
+                            raise ValueError('Diagnostic bundle exceeded its export bound')
+                        out.write(chunk)
+                    out.flush()
+                    os.fsync(out.fileno())
+            os.replace(temporary, destination)
+            return destination
+        finally:
+            temporary.unlink(missing_ok=True)
+
     def spawn(self, number):
         releases.validate_release(release_path(self.root, number), number)
         # Do not adopt an unrelated listener or touch a live journal after a port conflict.
@@ -142,6 +167,7 @@ class Supervisor:
             check.bind((self.cfg['bind_host'], self.cfg['port']))
         env = environment(self.root, self.cfg, self.token)
         env['GATEWAY_START_QUIESCED'] = '1'
+        env['GATEWAY_STARTUP_REASON'] = getattr(self, 'startup_reason', 'supervisor_start')
         self.child = subprocess.Popen(executable(self.root, number, 'serve-engine'), env=env,
             stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
@@ -359,6 +385,7 @@ class Supervisor:
                     raise RuntimeError('Five unexpected exits within ten minutes; restart stopped')
                 crashes.append(time.monotonic())
                 self.publish(state='recovering')
+                self.startup_reason = 'crash_recovery'
                 time.sleep(min(2 ** len(crashes), 30))
                 result = self.boot()
                 if result:
@@ -383,6 +410,11 @@ class Supervisor:
                     if accepted:
                         self.publish(state='stopped')
                         return RESTART if action == 'restart' else 0
+                elif action == 'export-debug':
+                    self.export_diagnostics()
+                    atomic_json(self.root / 'response.json', {'id': ident, 'accepted': True})
+                    # Do not acknowledge this request again through update checks.
+                    ident = None
                 elif action not in {None, 'check', 'install'}:
                     raise ValueError('Unknown manager command')
                 if action in {'check', 'install'} or current_cfg['update_mode'] != 'off' and time.monotonic() >= next_check:

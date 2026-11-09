@@ -186,6 +186,20 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(self.client.post('/mcp',json={}).status_code,404)
         self.assertFalse(self.gateway.runtime.AUTO_MEMORY_STORE)
 
+    def test_actual_model_routes_use_bounded_observation_and_public_failure_receipt(self):
+        import requests
+        from unittest.mock import Mock
+        get = Mock(side_effect=requests.ConnectTimeout('private backend address'))
+        with patch.object(self.gateway.runtime, 'http_get', get):
+            for path in ('/models', '/v1/models'):
+                response = self.client.get(path)
+                self.assertEqual(502, response.status_code)
+                self.assertEqual('BACKEND_CONNECT_TIMEOUT', response.json()['error']['failureCode'])
+                self.assertEqual('backend_models', response.json()['error']['dependency'])
+                self.assertNotIn('private', response.text)
+        self.assertEqual(2, get.call_count)
+        self.assertTrue(all(call.kwargs.get('stream') and call.kwargs.get('allow_redirects') is False for call in get.call_args_list))
+
     def test_keyfree_chat_calls_retained_runtime_without_dummy_key(self):
         from fastapi.responses import JSONResponse
         async def completion(request):

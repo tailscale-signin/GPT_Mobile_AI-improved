@@ -10,10 +10,12 @@ import kotlinx.serialization.json.put
 
 /** Task state is persisted alongside its receipts, independently of a provider's terminal frame. */
 internal object GitHubTaskLifecycle {
-    enum class State { PLANNED, RUNNING, BLOCKED, PARTIAL, FAILED, COMPLETED }
+    enum class State { PLANNED, RUNNING, WAITING_FOR_APPROVAL, WAITING_FOR_CONNECTION, BLOCKED, PARTIAL, FAILED, COMPLETED }
 
     fun progress(failure: ProviderEvent.Failed?, receiptCount: Int): State = when {
         failure == null -> State.RUNNING
+        failure.errorCode == "WAITING_FOR_APPROVAL" -> State.WAITING_FOR_APPROVAL
+        failure.failureDetails?.get("recovery_state") == JsonPrimitive("WAITING_FOR_CONNECTION") -> State.WAITING_FOR_CONNECTION
         failure.taskOutcome in setOf("BLOCKED", "CONFIGURATION_INVALIDATED") -> State.BLOCKED
         failure.errorCode == "GITHUB_REVIEW_BLOCKED" || failure.errorCode == "REVIEW_INPUT_REQUIRED" -> State.BLOCKED
         ProfileFailureRecord.fromProvider(failure.message, failure.errorCode, failure.failureDetails).isTaskVerification -> State.PARTIAL
@@ -26,6 +28,8 @@ internal object GitHubTaskLifecycle {
         val requested = (verdict["task_outcome"] as? JsonPrimitive)?.contentOrNull
         val checklist = verdict["acceptance_ledger"] as? JsonObject
         return when {
+            verdict["blocking_condition"] == JsonPrimitive("WAITING_FOR_APPROVAL") || verdict["task_state"] == JsonPrimitive("WAITING_FOR_APPROVAL") -> State.WAITING_FOR_APPROVAL
+            verdict["recovery_state"] == JsonPrimitive("WAITING_FOR_CONNECTION") -> State.WAITING_FOR_CONNECTION
             requested == "BLOCKED" || requested == "CONFIGURATION_INVALIDATED" -> State.BLOCKED
             requested == "COMPLETED" &&
                 verdict["completion_verified"] == JsonPrimitive(true) &&
@@ -63,6 +67,17 @@ internal object GitHubTaskLifecycle {
             details["dispatched"]?.let { put("failed_stage_dispatched", it) }
                 ?: classification.dispatched?.let { put("failed_stage_dispatched", it) }
             put("retryable_without_new_input", failure.taskOutcome !in setOf("BLOCKED", "CONFIGURATION_INVALIDATED") && classification.retryAllowed)
+            put("remote_acceptance", classification.remoteAcceptance.name)
+            classification.serverRequestId?.let { put("server_request_id", it) }
+            classification.generationCompleted?.let { put("generation_completed", it) }
+            classification.requestReplayAllowed?.let { put("request_replay_allowed", it) }
+            if (classification.causeTypes.isNotEmpty()) put("cause_types", kotlinx.serialization.json.JsonArray(classification.causeTypes.map(::JsonPrimitive)))
+            if (failure.errorCode == "WAITING_FOR_APPROVAL") {
+                put("user_input_required", true)
+                put("blocking_condition", "WAITING_FOR_APPROVAL")
+            }
+            details["recovery_state"]?.let { put("recovery_state", it) }
+            details["pending_approvals"]?.let { put("pending_approvals", it) }
             details["changed_policy_fields"]?.let { put("changed_policy_fields", it) }
             details["resume_required"]?.let { put("resume_required", it) }
             details["missing_requirements"]?.let { put("missing_requirements", it) }

@@ -45,6 +45,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.yield
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
@@ -53,6 +54,79 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LiteRtLmAdapterTest {
+    @Test
+    fun `github mode keeps the complete authorized catalog in native and prompt conversations`() = runBlocking {
+        val github = (1..12).map { index ->
+            object : AgentTool by lookupTool("opaque_$index") {
+                override val definition = lookupTool("opaque_$index").definition.copy(
+                    capabilities = setOf(dev.chungjungsoo.gptmobile.data.agent.AgentToolCapability.GITHUB)
+                )
+            }
+        } + lookupTool("github_read") + lookupTool("repository_graph__local")
+        val hidden = object : AgentTool by lookupTool("hidden_legacy") {
+            override val definition = github.first().definition.copy(name = "hidden_legacy", modelVisible = false)
+        }
+        for (nativeSupport in listOf(true, false)) {
+            val runtime = FakeLocalRuntime().apply {
+                deviceRamGb = 16L
+                capabilities = LocalModelCapabilities(contextTokens = 8192, backends = setOf("gpu"), tools = nativeSupport)
+                scriptedEvents = listOf(listOf(LocalRuntimeEvent.TextDelta("Ready."), LocalRuntimeEvent.Done))
+            }
+            val events = adapter(runtime).openSession(
+                turns("Hi"),
+                localPlatform(),
+                github + hidden + lookupTool("unrelated_calendar"),
+                advertisedTools = listOf(github.first().definition),
+                githubMode = true
+            ).streamRound(emptyList(), emptyList()).toList()
+            assertEquals(ProviderEvent.Completed, events.last())
+            val configured = runtime.createConversationCalls.single()
+            if (nativeSupport) {
+                assertEquals(github.map { it.definition.name }.toSet(), configured.tools.map { it.name }.toSet())
+            } else {
+                github.forEach { tool ->
+                    assertTrue(configured.systemPrompt.orEmpty().contains("\"name\":\"${tool.definition.name}\""))
+                }
+                assertTrue(configured.systemPrompt.orEmpty().contains("\"parameters\""))
+            }
+            assertFalse(configured.systemPrompt.orEmpty().contains("hidden_legacy"))
+            assertFalse(configured.systemPrompt.orEmpty().contains("unrelated_calendar"))
+        }
+    }
+
+    @Test
+    fun `github catalog overflow fails before engine generation rather than hiding schemas`() = runBlocking {
+        val runtime = FakeLocalRuntime().apply {
+            capabilities = LocalModelCapabilities(contextTokens = 2048, backends = setOf("gpu"), tools = false)
+        }
+        val github = (1..10).map { index ->
+            object : AgentTool by lookupTool("opaque_$index") {
+                override val definition = lookupTool("opaque_$index").definition.copy(
+                    description = "Full authorized operation schema ".repeat(100),
+                    capabilities = setOf(dev.chungjungsoo.gptmobile.data.agent.AgentToolCapability.GITHUB)
+                )
+            }
+        }
+        val events = adapter(runtime).openSession(
+            turns("Hi"),
+            localPlatform(),
+            github,
+            advertisedTools = emptyList(),
+            githubMode = true,
+            fallbackSystemPrompt = "Short optional context"
+        ).streamRound(emptyList(), emptyList()).toList()
+        val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+        assertEquals("GITHUB_TOOL_CONTEXT_BUDGET", failure.errorCode)
+        assertEquals(JsonPrimitive("provider_admission"), failure.failureDetails?.get("failed_stage"))
+        assertEquals(JsonPrimitive(false), failure.failureDetails?.get("dispatched"))
+        assertEquals(JsonPrimitive("NO"), failure.failureDetails?.get("remote_acceptance"))
+        assertEquals(JsonPrimitive("PRECHECK_REJECTED"), failure.failureDetails?.get("dispatch_state"))
+        assertTrue(runtime.loadEngineCalls.isEmpty())
+        assertTrue(runtime.createConversationCalls.isEmpty())
+        assertTrue(runtime.sendMessageCalls.isEmpty())
+        assertTrue(events.none { it is ProviderEvent.ToolCall || it is ProviderEvent.Completed })
+    }
+
     @Test
     fun `preload replan during suspended progress delivery preserves later events`() = runBlocking {
         val deliveryStarted = CompletableDeferred<Unit>()

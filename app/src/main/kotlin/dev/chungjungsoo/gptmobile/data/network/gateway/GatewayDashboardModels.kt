@@ -68,7 +68,9 @@ internal data class GatewayReadinessObservation(
     val modelLoading: Boolean? = null,
     val observedAtMillis: Long? = null,
     val observationAgeMillis: Long? = null,
-    val receivedAtMonotonicMillis: Long? = null
+    val receivedAtMonotonicMillis: Long? = null,
+    val reasonCode: String? = null,
+    val retryable: Boolean? = null
 )
 
 internal fun parseGatewayReadiness(value: JsonObject, status: Int, model: String?, receivedAtMillis: Long, receivedAtMonotonicMillis: Long? = null): GatewayReadinessObservation {
@@ -107,7 +109,9 @@ internal fun parseGatewayReadiness(value: JsonObject, status: Int, model: String
         capabilities.optionalFlag("modelLoading"),
         observedAt,
         reportedAge,
-        receivedAtMonotonicMillis
+        receivedAtMonotonicMillis,
+        GatewayReadinessFailure.reasonCode(((capabilities["reasonCode"] ?: value["reasonCode"]) as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull),
+        ((capabilities["retryable"] ?: value["retryable"]) as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull
     )
 }
 

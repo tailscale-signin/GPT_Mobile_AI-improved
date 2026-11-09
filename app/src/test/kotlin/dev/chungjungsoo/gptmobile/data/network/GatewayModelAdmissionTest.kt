@@ -18,6 +18,48 @@ import org.junit.Assert.assertFalse
 import org.junit.Test
 
 class GatewayModelAdmissionTest {
+    @Test fun unloadedGatewayModelPreservesStrictReasoningAndRejectsBeforeAnyInferencePost() = runTest {
+        withContext(Dispatchers.Default) {
+            val selected = ProviderRequestConfig("http://127.0.0.1:29984/v1", null, profileUid = "unloaded-gateway-model", providerType = "LLAMA", reasoningMode = dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF, allowReasoning = false)
+            GatewayClientDiagnostics.observeInstance(selected, "c".repeat(32))
+            var calls = 0
+            HttpClient(
+                MockEngine { request ->
+                    calls++
+                    assertEquals("GET", request.method.value)
+                    assertEquals("/v1/gateway/capabilities", request.url.encodedPath)
+                    assertEquals("selected-model", request.url.parameters["model"])
+                    assertEquals("false", request.url.parameters["autoload"])
+                    respond(
+                        """{"contractVersion":1,"instanceId":"${"c".repeat(32)}","selectedModel":{
+                        "schema":"gptmobile.gateway.selected-model.v1","schemaVersion":1,"requestedModel":"selected-model",
+                        "limitsVerified":false,"failureCode":"EXECUTION_MODEL_NOT_LOADED","reasonCode":"SELECTED_MODEL_NOT_LOADED",
+                        "dependency":"backend_properties","upstreamStatus":400,"modelState":"UNLOADED","modelAdvertised":true,"modelLoaded":false}}"""
+                    )
+                }
+            ).use { http ->
+                val network = mockk<NetworkClient>()
+                every { network() } returns http
+                every { network.gatewayReadClient() } returns http
+                val error = runCatching {
+                    ModelRequestPreparation(network).prepare(
+                        """{"model":"selected-model","messages":[{"role":"user","content":"Hello"}],"max_tokens":1024}""",
+                        selected,
+                        "selected-model",
+                        1024
+                    )
+                }.exceptionOrNull()
+                org.junit.Assert.assertTrue(error is dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityUnavailableException)
+                val failure = requireNotNull(providerExceptionDetails(requireNotNull(error) as Exception, partialOutput = false))
+                assertEquals(JsonPrimitive(400), failure.failureDetails?.get("gateway_upstream_status"))
+                assertEquals(JsonPrimitive("NOT_DISPATCHED"), failure.failureDetails?.get("attempt_dispatch_state"))
+                assertEquals(dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF, selected.reasoningMode)
+                assertFalse(selected.allowReasoning)
+                assertEquals(1, calls)
+            }
+        }
+    }
+
     @Test fun anIdentifiedCompatibleGatewayUsesConfirmedLimitsDuringPhysicalRequestPreparation() = runTest {
         withContext(Dispatchers.Default) {
             val selected = ProviderRequestConfig("http://127.0.0.1:29783/v1", null, profileUid = "prepared-gateway-capacity", providerType = "OPENAI", contextCeiling = 1_048_576)

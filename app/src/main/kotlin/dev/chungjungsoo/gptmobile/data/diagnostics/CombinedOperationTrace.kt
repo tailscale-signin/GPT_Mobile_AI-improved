@@ -16,7 +16,11 @@ internal data class CombinedOperationOwner(
 
 /** Async slices remain valid when a suspend operation resumes on another dispatcher. */
 internal object CombinedOperationTrace {
+    internal const val FRAME_SAMPLE_THRESHOLD_NANOS = 4_000_000L
     private val nextCookie = AtomicInteger()
+    private val frameCoverage = FrameOperationCoverage()
+    internal fun frameWindow(startedNanos: Long, endedNanos: Long): FrameOperationCoverage.Snapshot = frameCoverage.snapshot(startedNanos, endedNanos)
+    internal fun clearFrameHistory() = frameCoverage.clear()
     private val platformAvailable by lazy {
         runCatching {
             Trace.isEnabled()
@@ -31,30 +35,44 @@ internal object CombinedOperationTrace {
         val cookie: Int,
         val startedNanos: Long,
         val startThread: String,
-        val platformTrace: Boolean
+        val platformTrace: Boolean,
+        val diagnosticCaptureEpoch: Long?,
+        val frameGeneration: Long
     )
 
     fun begin(operation: String, owner: CombinedOperationOwner = CombinedOperationOwner()): Token? {
         val trace = platformAvailable && runCatching { Trace.isEnabled() }.getOrDefault(false)
-        if (!trace && !AppLogRecorder.enabled.value) return null
-        val token = Token(operation, owner, nextCookie.incrementAndGet(), System.nanoTime(), Thread.currentThread().name, trace)
+        // Capture before reading privacy. A privacy/clear transition during begin
+        // invalidates this epoch even if the operation ends after logging resumes.
+        val diagnosticCaptureEpoch = AppLogRecorder.operationCaptureEpoch()
+        if (!trace && diagnosticCaptureEpoch == null) return null
+        val token = Token(operation, owner, nextCookie.incrementAndGet(), System.nanoTime(), Thread.currentThread().name, trace, diagnosticCaptureEpoch, frameCoverage.generation())
         if (trace) runCatching { Trace.beginAsyncSection("Combined.$operation", token.cookie) }
         return token
     }
 
     fun end(token: Token?) {
         if (token == null) return
-        val duration = (System.nanoTime() - token.startedNanos).coerceAtLeast(0)
+        val endedNanos = System.nanoTime()
+        val duration = (endedNanos - token.startedNanos).coerceAtLeast(0)
         if (token.platformTrace) runCatching { Trace.endAsyncSection("Combined.${token.operation}", token.cookie) }
         // Perfetto retains every enabled slice. Text diagnostics sample frequent
         // operations at 16 ms and other operations at 100 ms; these records are
         // not a complete latency population.
-        val threshold = if (token.operation in highFrequency) 16_000_000L else 100_000_000L
-        if (!AppLogRecorder.enabled.value || duration < threshold) return
+        val threshold = if (token.operation in highFrequency || token.operation.startsWith("ui_")) 16_000_000L else 100_000_000L
+        val diagnosticCaptureEpoch = token.diagnosticCaptureEpoch ?: return
+        if (!AppLogRecorder.operationCaptureCurrent(diagnosticCaptureEpoch)) return
+        // Frame correlation must not inherit the much higher text-log threshold:
+        // repeated 4–15 ms layout/DAO work can miss a high-refresh display deadline
+        // without ever producing a slow-operation log. Keep those samples bounded
+        // in memory and emit only the normal per-window coverage report.
+        if (duration >= FRAME_SAMPLE_THRESHOLD_NANOS && !frameCoverage.observe(FrameOperationCoverage.Sample(token.operation, token.cookie, token.startedNanos, endedNanos, token.owner.runId), token.frameGeneration)) return
+        if (duration < threshold) return
         fun value(text: String?) = text?.replace('\n', ' ')?.replace('\r', ' ')?.take(160) ?: "unknown"
         val owner = token.owner
         runCatching {
-            AppLogRecorder.record(
+            AppLogRecorder.recordCaptured(
+                diagnosticCaptureEpoch,
                 "CombinedTiming",
                 "OPERATION_TIMING · operation=${token.operation} · traceId=${token.cookie} · durationNs=$duration · logThresholdNs=$threshold · screen=${value(owner.screen)} · message=${owner.messageId ?: "unknown"} · run=${value(owner.runId)} · revision=${value(owner.revisionId)} · block=${value(owner.blockId)} · digest=${value(owner.digest?.takeIf { it.length == 64 && it.all { c -> c in '0'..'9' || c in 'a'..'f' } })} · profile=${value(owner.profileUid)} · startThread=${value(token.startThread)} · endThread=${value(Thread.currentThread().name)}"
             )

@@ -82,7 +82,16 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
             val discovery = response.result
             val versions = discoveryVersions(discovery["supportedVersions"], "supportedVersions", response.httpStatus)
             when {
-                VERSION in versions -> discovery
+                VERSION in versions -> {
+                    if (discovery["capabilities"] !is JsonObject) {
+                        throw McpProtocolConfigurationException("MCP_DISCOVERY_SCHEMA_INVALID", "MCP discovery must provide a capabilities object. Correct the modern server or bridge response; legacy initialization was not attempted.", response.httpStatus, "CAPABILITIES_OBJECT_REQUIRED", "capabilities")
+                    }
+                    val resultType = discovery["resultType"]
+                    if (resultType != null && (resultType !is JsonPrimitive || !resultType.isString || resultType.content != "complete")) {
+                        throw McpProtocolConfigurationException("MCP_DISCOVERY_SCHEMA_INVALID", "MCP discovery must be a complete result. Correct the modern server or bridge response; legacy initialization was not attempted.", response.httpStatus, "DISCOVERY_COMPLETE_REQUIRED", "resultType")
+                    }
+                    discovery
+                }
                 versions.any { it in LEGACY_VERSIONS } -> null
                 else -> throw McpProtocolConfigurationException("MCP_PROTOCOL_VERSION_UNSUPPORTED", "The server advertises no protocol version supported by this app. Update the MCP server or app, then reconnect.", response.httpStatus, "SUPPORTED_PROTOCOL_REQUIRED", "supportedVersions")
             }

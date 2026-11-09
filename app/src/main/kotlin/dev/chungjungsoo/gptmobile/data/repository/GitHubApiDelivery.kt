@@ -9,22 +9,29 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flow
 
 /** Covers preparation failures as well as the agent loop, while preserving the original failure metadata. */
-internal fun Flow<ApiState>.withGitHubApiDelivery(enabled: Boolean): Flow<ApiState> {
+internal fun Flow<ApiState>.withGitHubApiDelivery(enabled: Boolean, runId: String? = null): Flow<ApiState> {
     if (!enabled) return this
     val upstream = this
     return flow {
         var visible = false
         var failed = false
         var done = false
-        suspend fun ensureVisible() {
+        suspend fun ensureVisible(error: ApiState.Error? = null) {
             if (visible) return
-            emit(ApiState.Success("The GitHub request stopped before a verified result was delivered. Review the recorded failure before resuming. Saved action outcomes must be reconciled before any uncertain operation is repeated."))
+            val text = githubFailureDeliveryText(error)
+            runId?.let { run ->
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                    dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.traceOutput(run, dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceBoundary.REDUCER, text, outputOrigin = dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.SYSTEM_ERROR)
+                }
+            }
+            emit(ApiState.Success(text))
             visible = true
         }
         upstream.catch { error ->
             if (error is CancellationException || error !is Exception || error is dev.chungjungsoo.gptmobile.data.research.ResearchProviderDeferred) throw error
             val classified = ErrorClassification.classify(error)
-            emit(ApiState.Error(classified.userMessage, errorCode = classified.errorCode))
+            val detail = dev.chungjungsoo.gptmobile.data.network.providerExceptionDetails(error, partialOutput = visible)
+            emit(ApiState.Error(detail?.message ?: classified.userMessage, errorCode = detail?.code ?: classified.errorCode, failureDetails = detail?.failureDetails))
         }.collect { state ->
             if (done) return@collect
             when (state) {
@@ -33,7 +40,7 @@ internal fun Flow<ApiState>.withGitHubApiDelivery(enabled: Boolean): Flow<ApiSta
                     emit(state)
                 }
                 is ApiState.Error -> if (!failed) {
-                    ensureVisible()
+                    ensureVisible(state)
                     failed = true
                     emit(state)
                 }
@@ -54,4 +61,14 @@ internal fun Flow<ApiState>.withGitHubApiDelivery(enabled: Boolean): Flow<ApiSta
             emit(ApiState.Done)
         }
     }
+}
+
+internal fun githubFailureDeliveryText(error: ApiState.Error?): String {
+    val details = error?.failureDetails
+    val unsent = details?.get("dispatched") == kotlinx.serialization.json.JsonPrimitive(false) &&
+        details["remote_acceptance"] == kotlinx.serialization.json.JsonPrimitive("NO")
+    if (unsent) {
+        return requireNotNull(error).message + "\n\nThis request was blocked before execution. Repair the recorded prerequisite, then resume the saved request."
+    }
+    return "The GitHub request stopped before a verified result was delivered. Review the recorded failure before resuming. Saved action outcomes must be reconciled before any uncertain operation is repeated."
 }

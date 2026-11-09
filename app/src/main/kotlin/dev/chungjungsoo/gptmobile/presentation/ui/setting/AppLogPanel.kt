@@ -24,6 +24,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -53,7 +54,8 @@ private data class LogViewRequest(
     val entries: List<dev.chungjungsoo.gptmobile.data.diagnostics.AppLogEntry>,
     val errorsOnly: Boolean,
     val selectedTag: String,
-    val query: String
+    val query: String,
+    val pageIndex: Int
 )
 
 @Composable
@@ -67,6 +69,7 @@ internal fun AppLogPanel(entriesOverride: List<AppLogEntry>? = null) {
     var query by rememberSaveable { mutableStateOf("") }
     var errorsOnly by rememberSaveable { mutableStateOf(false) }
     var selectedTag by rememberSaveable { mutableStateOf("All tags") }
+    var pageIndex by remember { mutableIntStateOf(0) }
     var structuredExport by rememberSaveable { mutableStateOf(true) }
     var frozen by remember { mutableStateOf<List<dev.chungjungsoo.gptmobile.data.diagnostics.AppLogEntry>?>(null) }
     var projection by remember { mutableStateOf(AppLogProjection()) }
@@ -79,13 +82,13 @@ internal fun AppLogPanel(entriesOverride: List<AppLogEntry>? = null) {
         var grouped = emptyList<GroupedAppLog>()
         // Keep the newest pending snapshot while one is being grouped, rather
         // than restarting expensive parsing on every logging update.
-        snapshotFlow { LogViewRequest(frozen ?: entries, errorsOnly, selectedTag, query) }.conflate().collect { request ->
+        snapshotFlow { LogViewRequest(frozen ?: entries, errorsOnly, selectedTag, query, pageIndex) }.conflate().collect { request ->
             projection = withContext(Dispatchers.Default) {
                 if (groupedEntries !== request.entries) {
                     grouped = dev.chungjungsoo.gptmobile.data.diagnostics.groupAppLogs(request.entries)
                     groupedEntries = request.entries
                 }
-                projectAppLogs(request.entries, grouped, request.errorsOnly, request.selectedTag, request.query)
+                projectAppLogs(request.entries, grouped, request.errorsOnly, request.selectedTag, request.query, request.pageIndex)
             }
         }
     }
@@ -108,19 +111,34 @@ internal fun AppLogPanel(entriesOverride: List<AppLogEntry>? = null) {
             style = MaterialTheme.typography.labelLarge,
             color = if (failureCount > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
         )
-        OutlinedTextField(query, { query = it }, label = { Text("Filter logs") }, modifier = Modifier.fillMaxWidth().testTag("app_log_filter"), singleLine = true)
+        OutlinedTextField(query, {
+            query = it
+            pageIndex = 0
+        }, label = { Text("Filter logs") }, modifier = Modifier.fillMaxWidth().testTag("app_log_filter"), singleLine = true)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(!errorsOnly, { errorsOnly = false }, label = { Text("All levels") })
-            FilterChip(errorsOnly, { errorsOnly = true }, label = { Text("Warnings & errors") })
+            FilterChip(!errorsOnly, {
+                errorsOnly = false
+                pageIndex = 0
+            }, label = { Text("All levels") })
+            FilterChip(errorsOnly, {
+                errorsOnly = true
+                pageIndex = 0
+            }, label = { Text("Warnings & errors") })
         }
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             projection.tags.forEach { tag ->
-                FilterChip(selectedTag == tag, { selectedTag = tag }, label = { Text(tag) })
+                FilterChip(selectedTag == tag, {
+                    selectedTag = tag
+                    pageIndex = 0
+                }, label = { Text(tag) })
             }
         }
         FilterChip(structuredExport, { structuredExport = !structuredExport }, label = { Text("Structured export (JSONL)") })
         Row {
-            TextButton(onClick = { frozen = if (frozen == null) entries else null }) { Text(if (frozen == null) "Pause view" else "Resume") }
+            TextButton(onClick = {
+                frozen = if (frozen == null) entries else null
+                pageIndex = 0
+            }) { Text(if (frozen == null) "Pause view" else "Resume") }
             TextButton(onClick = {
                 scope.launch {
                     try {
@@ -148,21 +166,28 @@ internal fun AppLogPanel(entriesOverride: List<AppLogEntry>? = null) {
             }) { Text("Export retained logs") }
             TextButton(onClick = {
                 frozen = null
+                pageIndex = 0
                 AppLogRecorder.clear()
             }) { Text("Clear logs") }
         }
-        Text("${projection.visibleEvents} events · ${projection.visibleIssues} issue groups · ${projection.rows.size} rows · newest first", style = MaterialTheme.typography.labelMedium)
+        Text("${projection.visibleEvents} events · ${projection.visibleIssues} issue groups · ${projection.rows.size} of ${projection.matchingRows} matching rows · page ${projection.pageIndex + 1} · newest first", style = MaterialTheme.typography.labelMedium)
+        Row {
+            TextButton(onClick = { pageIndex = (projection.pageIndex - 1).coerceAtLeast(0) }, enabled = projection.pageIndex > 0) { Text("Newer rows") }
+            TextButton(onClick = {
+                if (frozen == null) frozen = entries
+                pageIndex = projection.pageIndex + 1
+            }, enabled = projection.hasOlderRows) { Text("Older rows") }
+        }
         Text("Records with the same incident or operation identity share one issue group. Similar messages may share a display row; expand it for every event. Missing causal identities remain separate.", style = MaterialTheme.typography.labelSmall)
         if (projection.rows.isEmpty()) Text(if (enabled) "Waiting for matching app events…" else "Enable tracking to record a test session.")
         LazyColumn(Modifier.fillMaxWidth().heightIn(max = 560.dp).testTag("app_log_rows"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(projection.rows, key = { it.key }) { row ->
                 val group = row.group
                 var expanded by remember(row.key) { mutableStateOf(false) }
-                var detailLimit by remember(row.key) { mutableStateOf(20) }
                 Card(Modifier.fillMaxWidth()) {
                     Column {
                         Text(
-                            row.preview + if (group.repetitions > 1) "\n× ${group.repetitions} · last ${java.time.Instant.ofEpochMilli(group.lastTime)}" else "",
+                            row.preview,
                             modifier = Modifier.padding(12.dp),
                             fontFamily = FontFamily.Monospace,
                             style = MaterialTheme.typography.bodySmall,
@@ -174,12 +199,7 @@ internal fun AppLogPanel(entriesOverride: List<AppLogEntry>? = null) {
                         )
                         if (row.hasDetails) {
                             TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Hide Raw Details" else "Show Raw Details") }
-                            if (expanded) {
-                                group.rawDetails.take(detailLimit).forEach { detail -> Text(detail.line(), modifier = Modifier.padding(12.dp), fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall) }
-                                if (group.rawDetails.size > detailLimit) {
-                                    TextButton(onClick = { detailLimit += 20 }) { Text("Show next ${minOf(20, group.rawDetails.size - detailLimit)} events") }
-                                }
-                            }
+                            if (expanded) AppLogRawDetails(group.rawDetails)
                         }
                     }
                 }

@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.backup
 
 import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringBinding
 import dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext
+import dev.chungjungsoo.gptmobile.data.queue.GatewayQueuedSelection
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -44,6 +45,15 @@ internal object GitHubBackupPreferences {
             if (context.connectionUid !in connections || context.mainProfileUid !in profiles) return@forEach
             workspaces[target] = json.encodeToJsonElement(GitHubConversationContext.serializer(), context.copy(autoApproveTools = false, stagedFileCount = null, recentCommits = emptyList(), observedAtMillis = null))
         }
+        val gatewayChats = if (restoringChats) mutableMapOf() else (old["conversationGateway"] as? JsonObject).orEmpty().filterKeys { it.toIntOrNull() in existingChatIds }.toMutableMap()
+        (saved["conversationGateway"] as? JsonObject).orEmpty().forEach { (source, value) ->
+            val target = if (restoringChats && source.toIntOrNull() in existingChatIds) source else sourceIdentity[source]?.let(targetByIdentity::get)
+            if (target == null) return@forEach
+            val selection = runCatching { json.decodeFromJsonElement(GatewayQueuedSelection.serializer(), value) }.getOrNull() ?: return@forEach
+            // Keep the original route/model as a blocked historical selection when its
+            // profile is missing. Restoring settings never proves a replacement route.
+            gatewayChats[target] = json.encodeToJsonElement(GatewayQueuedSelection.serializer(), selection)
+        }
         val globals = if (restoreGlobal) saved else old
         val jobs = mutableMapOf<String, GatewayEngineeringBinding>()
         fun restoreJobs(root: JsonObject, remap: Boolean) {
@@ -69,7 +79,7 @@ internal object GitHubBackupPreferences {
         val prepareIndex = (globals["githubPrepareIndex"] as? JsonArray).orEmpty().filter { (it as? JsonPrimitive)?.contentOrNull in connections }
         val overrides = (globals["githubProfileOverrides"] as? JsonObject).orEmpty().filterKeys { it in profiles }
         val defaultProfile = globals["githubDefaultProfileUid"]?.takeIf { (it as? JsonPrimitive)?.contentOrNull in profiles } ?: kotlinx.serialization.json.JsonNull
-        val updated = JsonObject(base + mapOf("gatewayEngineeringJobs" to JsonArray(jobs.values.map { json.encodeToJsonElement(GatewayEngineeringBinding.serializer(), it) }), "githubProfileOverrides" to JsonObject(overrides), "githubDefaultProfileUid" to defaultProfile, "conversationGitHub" to JsonObject(workspaces), "githubMainProfiles" to JsonObject(mainProfiles), "githubPrepareIndex" to JsonArray(prepareIndex)))
+        val updated = JsonObject(base + mapOf("gatewayEngineeringJobs" to JsonArray(jobs.values.map { json.encodeToJsonElement(GatewayEngineeringBinding.serializer(), it) }), "githubProfileOverrides" to JsonObject(overrides), "githubDefaultProfileUid" to defaultProfile, "conversationGitHub" to JsonObject(workspaces), "conversationGateway" to JsonObject(gatewayChats), "githubMainProfiles" to JsonObject(mainProfiles), "githubPrepareIndex" to JsonArray(prepareIndex)))
         return next + (KEY to BackupValue("string", updated.toString()))
     }
 }

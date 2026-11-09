@@ -6,9 +6,11 @@ internal suspend fun <T> timedDatabaseOperation(operation: String, block: suspen
     require(operation.matches(Regex("[A-Za-z0-9_.]{1,80}")))
     val start = System.nanoTime()
     val mainThread = android.os.Looper.myLooper() == android.os.Looper.getMainLooper()
+    val frameTrace = CombinedOperationTrace.begin("dao_$operation", CombinedOperationOwner(screen = "Database"))
     try {
         return block()
     } finally {
+        CombinedOperationTrace.end(frameTrace)
         val elapsed = (System.nanoTime() - start) / 1_000_000
         if (elapsed >= 100 || mainThread) AppLogRecorder.record("Database", "DAO_TIMING · operation=$operation · elapsedMs=$elapsed · mainThread=$mainThread · measurement=COROUTINE_ELAPSED", "W")
     }

@@ -21,9 +21,33 @@ data class GatewayEngineeringCapabilities(
     @SerialName("task_scope_protocol") val taskScopeProtocol: Int = 0,
     @SerialName("task_scopes") val taskScopes: List<String> = emptyList(),
     @SerialName("conversation_sync_v1") val conversationSync: Boolean = false,
-    @SerialName("durable_detach_v1") val durableDetach: Boolean = false
+    @SerialName("durable_detach_v1") val durableDetach: Boolean = false,
+    @SerialName("repository_operations") val repositoryOperations: GatewayRepositoryCapability? = null
 ) {
     val supportsDurableChat: Boolean get() = taskScopeProtocol == 1 && taskScopes.containsAll(listOf("read", "plan", "implement")) && conversationSync && durableDetach
+
+    /** A valid capability HTTP response is not evidence that a dependent job was admitted. */
+    fun requireJobReadiness(savedResultsOnly: Boolean = false) {
+        val reason = if (savedResultsOnly) {
+            GatewayAdmissionReason.ENGINEERING_STORAGE_UNAVAILABLE.takeIf { readiness?.savedResults == false }
+        } else {
+            jobReadinessFailure()
+        }
+        if (reason != null) throw GatewayAdmissionException(reason, 200, null, GatewayAdmissionSurface.CAPABILITIES)
+    }
+
+    internal fun jobReadinessFailure(): GatewayAdmissionReason? {
+        if (enabled && readiness?.ready != false) return null
+        val checks = readiness?.checks
+        return when {
+            checks?.journal == "disabled" -> GatewayAdmissionReason.ENGINEERING_STORAGE_DISABLED
+            checks?.journal in setOf("unavailable", "write_failed") -> GatewayAdmissionReason.ENGINEERING_STORAGE_UNAVAILABLE
+            checks?.hostGithubConnection == "missing" -> GatewayAdmissionReason.ENGINEERING_GITHUB_REQUIRED
+            checks?.draining == true -> GatewayAdmissionReason.ENGINEERING_DRAINING
+            checks?.worker == "unavailable" -> GatewayAdmissionReason.ENGINEERING_WORKER_UNAVAILABLE
+            else -> GatewayAdmissionReason.ENGINEERING_UNAVAILABLE
+        }
+    }
 
     fun unavailableReason(graph: Boolean = false): String? {
         val ready = if (graph) codeGraph?.enabled == true && readiness?.graphReady != false else enabled && readiness?.ready != false
@@ -39,6 +63,20 @@ data class GatewayEngineeringCapabilities(
             else -> "The gateway engineering service is disabled or unavailable. Chat inference readiness does not establish job readiness."
         }
     }
+}
+
+@Serializable
+data class GatewayRepositoryCapability(
+    val schema: String = "",
+    val enabled: Boolean = false,
+    val operations: List<String> = emptyList(),
+    @SerialName("copy_modes") val copyModes: List<String> = emptyList()
+) {
+    fun supports(operation: String): Boolean = schema == "github.repository-lifecycle.v1" &&
+        enabled &&
+        operation in setOf("clone_repository", "import_repository") &&
+        operation in operations &&
+        (operation != "import_repository" || "history" in copyModes)
 }
 
 @Serializable

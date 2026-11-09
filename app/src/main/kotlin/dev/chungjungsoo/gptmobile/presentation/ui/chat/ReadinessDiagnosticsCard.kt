@@ -45,9 +45,15 @@ internal fun ReadinessDiagnosticsCard(runId: String?, running: Boolean) {
         val visible = events.firstOrNull { it.kind == RunDiagnosticKind.FIRST_VISIBLE_TEXT }
         val drawDelay = dev.chungjungsoo.gptmobile.data.diagnostics.linkedParsedToDrawMillis(events)
         if (drawDelay != null) {
-            Text("First parsed answer to first draw: $drawDelay ms · linked invocation", style = MaterialTheme.typography.bodySmall)
+            Text("First parsed answer to linked draw: $drawDelay ms · matched model invocation", style = MaterialTheme.typography.bodySmall)
         } else if (visible != null) {
-            Text("First answer draw observed for this run. Provider-to-draw latency is unmeasured because the rendered output has no invocation link.", style = MaterialTheme.typography.bodySmall)
+            val origin = when (visible.outputOrigin) {
+                dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.SYSTEM_ERROR -> "App error"
+                dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.PROGRESS_NOTICE -> "Progress notice"
+                dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.MODEL_TEXT -> "Model text"
+                dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.UNKNOWN -> "Output of unverified origin"
+            }
+            Text("$origin drawn. Provider-to-draw latency is unmeasured without matching model invocation evidence.", style = MaterialTheme.typography.bodySmall)
         }
         Text("${events.count { it.kind == RunDiagnosticKind.HTTP_CALL_START }} observed HTTP attempts · ${events.count { it.kind == RunDiagnosticKind.REQUEST_BODY_END }} body writes completed · ${events.count { it.kind == RunDiagnosticKind.RESPONSE_HEADERS }} response headers", style = MaterialTheme.typography.bodySmall)
         events.lastOrNull { it.kind == RunDiagnosticKind.PROVIDER_COOLDOWN }?.let { Text("Provider cooldown observed: ${it.elapsedMillis ?: 0} ms", style = MaterialTheme.typography.bodySmall) }

@@ -7,8 +7,7 @@ internal class McpCatalogOmissions(private val capacity: Int = 128) {
     @Synchronized fun changed(connection: String, names: Set<String>, reason: String): Boolean {
         require(capacity > 0)
         if (names.isEmpty()) {
-            states.remove(connection)
-            return false
+            return states.remove(connection) != null
         }
         val signature = dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest(reason + "\n" + names.sorted().joinToString("\n"))
         if (states[connection] == signature) return false

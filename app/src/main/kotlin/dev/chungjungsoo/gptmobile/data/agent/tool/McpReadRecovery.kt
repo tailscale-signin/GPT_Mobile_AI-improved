@@ -34,8 +34,19 @@ internal suspend fun <T> withMcpReadRecovery(method: String, pause: suspend (Lon
     val retryable = failure.isMcpInterruptedRead() || causes.any { it is UnknownHostException }
     if (method !in MCP_REPLAYABLE_READS || !retryable || causes.any { it is javax.net.ssl.SSLException || it is ModernMcpError || it is io.modelcontextprotocol.kotlin.sdk.client.StreamableHttpError }) throw failure
     currentCoroutineContext().ensureActive()
+    val category = if (causes.any { it is UnknownHostException }) "DNS_FAILED" else "CONNECTION_ABORTED"
+    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("MCP", "READ_RECOVERY · method=$method · originalFailure=$category · failedAttempt=1 · nextAttempt=2 · policy=IDEMPOTENT_READ_ONLY", "W")
     pause(250L + kotlin.random.Random.nextLong(0, 251))
-    action()
+    try {
+        action().also {
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("MCP", "READ_RECOVERED · method=$method · originalFailure=$category · completedAttempt=2 · priorFailureRetained=true")
+        }
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (second: Exception) {
+        if (second !== failure) second.addSuppressed(failure)
+        throw second
+    }
 }
 
 /** A request deadline is transport failure; cancelling its parent remains intentional cancellation. */

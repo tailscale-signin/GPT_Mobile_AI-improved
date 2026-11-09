@@ -21,8 +21,7 @@ class FreeModelToolConsentStore @Inject constructor(
     private val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
 
     /** Expiry is a permission change even without an explicit settings mutation. */
-    @Synchronized
-    fun revision(): Long {
+    fun revision(): Long = synchronized(mutationLock) {
         val now = System.currentTimeMillis()
         val expired = preferences.all.filter { (key, value) ->
             key.startsWith("grant:") && (value !is String || runCatching { json.decodeFromString<PersonalDataGrant>(value).active(now) }.getOrDefault(false).not())
@@ -32,7 +31,17 @@ class FreeModelToolConsentStore @Inject constructor(
             expired.forEach(editor::remove)
             check(editor.putLong("revision", preferences.getLong("revision", 0) + 1).commit()) { "Could not expire personal-data permission." }
         }
-        return preferences.getLong("revision", 0)
+        preferences.getLong("revision", 0) + revocations.revision()
+    }
+
+    private fun nextPersistedRevision(): Long {
+        revision()
+        return preferences.getLong("revision", 0) + 1
+    }
+
+    private fun scopes(profileUid: String, toolId: String, storedKey: String? = null): List<String> {
+        val tool = toolId.trim()
+        return listOfNotNull("profile:$profileUid", "tool:$tool", "profile-tool:" + key(profileUid, tool), tool.substringBefore(':').takeIf { ':' in tool }?.let { "connection:$it" }, storedKey?.let { "grant:$it" })
     }
 
     private fun scope(profile: PlatformV2) = "${profile.uid}|${ProviderPrivacyPolicy.scope(profile)}"
@@ -40,14 +49,17 @@ class FreeModelToolConsentStore @Inject constructor(
     fun isGranted(profile: PlatformV2, toolId: String, chatId: Int? = null): Boolean = grantFor(profile, toolId, chatId) != null
 
     fun grantFor(profile: PlatformV2, toolId: String, chatId: Int? = null): PersonalDataGrant? {
+        val snapshot = revocations.snapshot(scopes(profile.uid, toolId)) ?: return null
         if (!profile.enabled || profile.disableAllTools) return null
         val policy = ProviderPrivacyPolicy.forProfile(profile)?.takeIf { it.personalDataAllowed } ?: return null
         revision()
         val keys = listOfNotNull(chatId?.let { grantKey(profile, toolId, it) }, grantKey(profile, toolId, null))
-        return keys.firstNotNullOfOrNull { storedKey ->
+        val granted = keys.firstNotNullOfOrNull { storedKey ->
+            val storedSnapshot = revocations.snapshot(scopes(profile.uid, toolId, storedKey)) ?: return@firstNotNullOfOrNull null
             preferences.getString(storedKey, null)?.let { raw -> runCatching { json.decodeFromString<PersonalDataGrant>(raw) }.getOrNull() }
                 ?.takeIf { grant ->
-                    grant.active(System.currentTimeMillis()) &&
+                    revocations.current(storedSnapshot) &&
+                        grant.active(System.currentTimeMillis()) &&
                         grant.profileUid == profile.uid &&
                         grant.destinationScope == ProviderPrivacyPolicy.scope(profile) &&
                         grant.toolId == toolId &&
@@ -57,67 +69,97 @@ class FreeModelToolConsentStore @Inject constructor(
                         (grant.chatId == null || grant.chatId == chatId)
                 }
         }
+        return granted?.takeIf { revocations.current(snapshot) }
     }
 
-    @Synchronized
     fun grant(profile: PlatformV2, toolId: String, chatId: Int? = null, expiresAt: Long = System.currentTimeMillis() + 24 * 60 * 60_000L, categories: Set<PersonalDataCategory> = personalDataCategories(toolId), healthRangeDays: Int? = null, rangeStart: Long? = null, rangeEnd: Long? = null, downstreamRecipients: Set<String> = emptySet()) {
-        val policy = ProviderPrivacyPolicy.forProfile(profile)
-        check(policy?.personalDataAllowed == true) { "This route does not permit personal tools." }
-        require(chatId == null || chatId > 0)
-        val now = System.currentTimeMillis()
-        require(expiresAt > now && expiresAt - now <= (if (chatId == null) 30L else 1L) * 24 * 60 * 60_000L) { "Conversation permission lasts at most 24 hours; profile permission lasts at most 30 days." }
-        require(categories.isNotEmpty() && personalDataCategories(toolId).containsAll(categories)) { "The selected categories do not match this tool." }
-        require(downstreamRecipients.isEmpty() || personalDataCategory(toolId) == PersonalDataCategory.PRECISE_LOCATION && downstreamRecipients == setOf(LOCATION_MAP_RECIPIENT)) { "A downstream recipient must be explicitly supported by this tool." }
-        val allowedCategories = if (PersonalDataCategory.PRECISE_LOCATION in categories) categories + PersonalDataCategory.COARSE_LOCATION else categories
-        val grant = PersonalDataGrant(
-            profileUid = profile.uid, destinationScope = ProviderPrivacyPolicy.scope(profile),
-            toolId = toolId, recipients = policy.recipients, categories = allowedCategories, chatId = chatId, issuedAt = now, expiresAt = expiresAt,
-            rangeStart = rangeStart, rangeEnd = rangeEnd, healthRangeDays = healthRangeDays, downstreamRecipients = downstreamRecipients
-        )
-        require(grant.active(now)) { "Choose a valid data range before allowing this tool." }
-        check(
-            preferences.edit().putString(grantKey(profile, toolId, chatId), json.encodeToString(PersonalDataGrant.serializer(), grant))
-                .putLong("revision", revision() + 1).commit()
-        ) { "Could not save personal-data permission." }
+        val snapshot = requireNotNull(revocations.snapshot(scopes(profile.uid, toolId, grantKey(profile, toolId, chatId)))) { "Personal-data permission revocation is still pending." }
+        synchronized(mutationLock) {
+            check(revocations.current(snapshot)) { "Personal-data permission changed before the grant could be saved." }
+            val policy = ProviderPrivacyPolicy.forProfile(profile)
+            check(policy?.personalDataAllowed == true) { "This route does not permit personal tools." }
+            require(chatId == null || chatId > 0)
+            val now = System.currentTimeMillis()
+            require(expiresAt > now && expiresAt - now <= (if (chatId == null) 30L else 1L) * 24 * 60 * 60_000L) { "Conversation permission lasts at most 24 hours; profile permission lasts at most 30 days." }
+            require(categories.isNotEmpty() && personalDataCategories(toolId).containsAll(categories)) { "The selected categories do not match this tool." }
+            require(downstreamRecipients.isEmpty() || personalDataCategory(toolId) == PersonalDataCategory.PRECISE_LOCATION && downstreamRecipients == setOf(LOCATION_MAP_RECIPIENT)) { "A downstream recipient must be explicitly supported by this tool." }
+            val allowedCategories = if (PersonalDataCategory.PRECISE_LOCATION in categories) categories + PersonalDataCategory.COARSE_LOCATION else categories
+            val grant = PersonalDataGrant(
+                profileUid = profile.uid, destinationScope = ProviderPrivacyPolicy.scope(profile),
+                toolId = toolId, recipients = policy.recipients, categories = allowedCategories, chatId = chatId, issuedAt = now, expiresAt = expiresAt,
+                rangeStart = rangeStart, rangeEnd = rangeEnd, healthRangeDays = healthRangeDays, downstreamRecipients = downstreamRecipients
+            )
+            require(grant.active(now)) { "Choose a valid data range before allowing this tool." }
+            check(
+                preferences.edit().putString(grantKey(profile, toolId, chatId), json.encodeToString(PersonalDataGrant.serializer(), grant))
+                    .putLong("revision", nextPersistedRevision()).commit()
+            ) { "Could not save personal-data permission." }
+        }
     }
 
     private fun grantKey(profile: PlatformV2, toolId: String, chatId: Int?) = "grant:" + key(scope(profile) + "|chat=" + (chatId ?: "profile"), toolId)
 
-    fun isGranted(profileUid: String, toolId: String): Boolean =
-        preferences.getBoolean(key(profileUid, toolId), false)
+    fun isGranted(profileUid: String, toolId: String): Boolean {
+        val snapshot = revocations.snapshot(scopes(profileUid, toolId, key(profileUid, toolId))) ?: return false
+        return preferences.getBoolean(key(profileUid, toolId), false) && revocations.current(snapshot)
+    }
 
-    @Synchronized
     fun grant(profileUid: String, toolId: String) {
-        check(preferences.edit().putBoolean(key(profileUid, toolId), true).putString("tool:" + key(profileUid, toolId), toolId).putLong("revision", revision() + 1).commit()) {
-            "Could not save free-model tool permission."
+        val snapshot = requireNotNull(revocations.snapshot(scopes(profileUid, toolId, key(profileUid, toolId)))) { "Personal-data permission revocation is still pending." }
+        synchronized(mutationLock) {
+            check(revocations.current(snapshot)) { "Personal-data permission changed before the grant could be saved." }
+            check(preferences.edit().putBoolean(key(profileUid, toolId), true).putString("tool:" + key(profileUid, toolId), toolId).putLong("revision", nextPersistedRevision()).commit()) {
+                "Could not save free-model tool permission."
+            }
         }
     }
 
-    @Synchronized
-    fun revoke(profileUid: String, toolId: String) {
+    private fun toolScope(profileUid: String, toolId: String) = if (profileUid.isBlank()) "tool:${toolId.trim()}" else "profile-tool:" + key(profileUid, toolId)
+    internal fun denyTool(profileUid: String, toolId: String) = revocations.begin(toolScope(profileUid, toolId))
+    internal fun denyGrant(key: String) = revocations.begin("grant:$key")
+    internal fun denyConnection(connectionUid: String) = revocations.begin("connection:$connectionUid")
+
+    fun revoke(profileUid: String, toolId: String) = revoke(profileUid, toolId, denyTool(profileUid, toolId))
+    internal fun revoke(profileUid: String, toolId: String, denial: ToolGrantRevocations.Ticket, release: Boolean = true) = synchronized(mutationLock) {
+        require(denial.scope == toolScope(profileUid, toolId))
         val digest = key("", toolId).substringAfter(':')
         val editor = preferences.edit()
         preferences.all.keys.filter { it.endsWith(":$digest") && (profileUid.isBlank() || it.removePrefix("tool:").removePrefix("grant:").let { owner -> owner.startsWith("$profileUid:") || owner.startsWith("$profileUid|") }) }.forEach(editor::remove)
-        editor.putLong("revision", revision() + 1)
+        editor.putLong("revision", nextPersistedRevision())
         check(editor.commit()) {
             "Could not revoke free-model tool permission."
         }
+        if (release) revocations.complete(denial)
     }
 
-    @Synchronized
     fun revokeProfile(profileUid: String) {
-        val editor = preferences.edit()
-        preferences.all.keys.filter { it.removePrefix("tool:").removePrefix("grant:").let { key -> key.startsWith("$profileUid:") || key.startsWith("$profileUid|") } }.forEach(editor::remove)
-        editor.putLong("revision", revision() + 1)
-        check(editor.commit()) { "Could not reset free-model tool permissions." }
+        val denial = revocations.begin("profile:$profileUid")
+        synchronized(mutationLock) {
+            val editor = preferences.edit()
+            preferences.all.keys.filter { it.removePrefix("tool:").removePrefix("grant:").let { key -> key.startsWith("$profileUid:") || key.startsWith("$profileUid|") } }.forEach(editor::remove)
+            editor.putLong("revision", nextPersistedRevision())
+            check(editor.commit()) { "Could not reset free-model tool permissions." }
+            revocations.complete(denial)
+        }
     }
 
-    fun revokeConnection(connectionUid: String) {
-        val tools = preferences.all.filter { it.key.startsWith("tool:") }.values.filterIsInstance<String>() +
-            preferences.all.filter { it.key.startsWith("grant:") }.values.filterIsInstance<String>().mapNotNull { raw ->
-                runCatching { json.decodeFromString<PersonalDataGrant>(raw).toolId }.getOrNull()
+    fun revokeConnection(connectionUid: String) = revokeConnection(connectionUid, denyConnection(connectionUid))
+    internal fun revokeConnection(connectionUid: String, denial: ToolGrantRevocations.Ticket, release: Boolean = true) = synchronized(mutationLock) {
+        require(denial.scope == "connection:$connectionUid")
+        val editor = preferences.edit()
+        preferences.all.forEach { (key, value) ->
+            val tool = when {
+                key.startsWith("tool:") -> value as? String
+                key.startsWith("grant:") && value is String -> runCatching { json.decodeFromString<PersonalDataGrant>(value).toolId }.getOrNull()
+                else -> null
             }
-        tools.filter { it.startsWith("$connectionUid:") }.distinct().forEach { revoke("", it) }
+            if (tool?.trim()?.startsWith("$connectionUid:") == true) {
+                editor.remove(key)
+                if (key.startsWith("tool:")) editor.remove(key.removePrefix("tool:"))
+            }
+        }
+        check(editor.putLong("revision", nextPersistedRevision()).commit()) { "Could not revoke free-model connection permissions." }
+        if (release) revocations.complete(denial)
     }
 
     /** Legacy entries have no stored tool label; keep their actual owner visible without guessing. */
@@ -136,15 +178,23 @@ class FreeModelToolConsentStore @Inject constructor(
         }
     }
 
-    @Synchronized
-    fun revokeGrant(key: String) {
-        check(preferences.edit().remove(key).remove("tool:$key").putLong("revision", revision() + 1).commit()) { "Could not revoke free-model tool permission." }
+    fun revokeGrant(key: String) = revokeGrant(key, denyGrant(key))
+    internal fun revokeGrant(key: String, denial: ToolGrantRevocations.Ticket, release: Boolean = true) = synchronized(mutationLock) {
+        require(denial.scope == "grant:$key")
+        check(preferences.edit().remove(key).remove("tool:$key").putLong("revision", nextPersistedRevision()).commit()) { "Could not revoke free-model tool permission." }
+        if (release) revocations.complete(denial)
     }
+    internal fun finishRevocation(denial: ToolGrantRevocations.Ticket) = revocations.complete(denial)
 
     private fun key(profileUid: String, toolId: String): String {
         val digest = MessageDigest.getInstance("SHA-256")
             .digest(toolId.trim().toByteArray())
             .joinToString("") { "%02x".format(it) }
         return "$profileUid:$digest"
+    }
+
+    private companion object {
+        val revocations = ToolGrantRevocations()
+        val mutationLock = Any()
     }
 }

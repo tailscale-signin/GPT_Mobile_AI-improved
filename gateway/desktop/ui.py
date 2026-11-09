@@ -130,13 +130,20 @@ def build_window(root, parent=None, section='General'):
 
     values['debug_mode'] = tk.BooleanVar(value=cfg['debug_mode'])
     ttk.Checkbutton(advanced, text='Debug mode — retain up to 5,000 diagnostic lines', variable=values['debug_mode']).grid(row=8, column=0, columnspan=3, sticky='w', pady=(14, 4))
-    ttk.Label(advanced, text='Records gateway requests, responses and client diagnostic metadata. Enable Debug mode on your phone to include its profile, build and network details. Prompts, message bodies and credentials are excluded.', style='Muted.TLabel', wraplength=600).grid(row=9, column=0, columnspan=3, sticky='w', pady=8)
+    ttk.Label(advanced, text='The full diagnostic bundle includes request timing, backend failures, gateway build details and retained task events. Enable Debug mode on your phone to include its profile, build and network details. Prompts, message bodies and credentials are excluded.', style='Muted.TLabel', wraplength=600).grid(row=9, column=0, columnspan=3, sticky='w', pady=8)
     def export_debug():
-        target = filedialog.asksaveasfilename(defaultextension='.jsonl', initialfile='gateway-debug.jsonl', filetypes=[('Diagnostic log', '*.jsonl')])
+        target = filedialog.asksaveasfilename(defaultextension='.zip', initialfile='gateway-debug.zip',
+                                            filetypes=[('Full diagnostic bundle', '*.zip'), ('Transport log only', '*.jsonl')])
         if not target:
             return
         def work():
             try:
+                if Path(target).suffix.lower() == '.zip':
+                    request(root, 'export-debug')
+                    import shutil
+                    shutil.copyfile(root / 'logs' / 'gateway-debug.zip', target)
+                    messages.put((True, 'Exported the diagnostic bundle. Its manifest identifies retained evidence and coverage gaps.'))
+                    return
                 from v14.debug import DebugLogStore
                 source = root / 'logs' / 'gateway-debug.jsonl'
                 if not source.is_file():
@@ -145,8 +152,8 @@ def build_window(root, parent=None, section='General'):
                 if not content:
                     raise ValueError('No diagnostic records are available yet.')
                 Path(target).write_text(content, encoding='utf-8')
-                messages.put((True, 'Exported the latest 5,000 diagnostic lines or fewer.'))
-            except (OSError, ValueError) as error:
+                messages.put((True, 'Exported transport records only. Choose the ZIP bundle to include build details and retained task events.'))
+            except (OSError, ValueError, RuntimeError) as error:
                 messages.put((False, str(error)))
         threading.Thread(target=work, daemon=True).start()
     ttk.Button(advanced, text='Export debug log…', command=export_debug).grid(row=10, column=0, columnspan=3, sticky='w', pady=8)

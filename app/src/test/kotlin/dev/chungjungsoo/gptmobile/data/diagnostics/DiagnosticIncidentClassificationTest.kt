@@ -6,6 +6,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DiagnosticIncidentClassificationTest {
+    @Test fun acknowledgedDeferredMemoryAndLegacyNegotiationAreNotCompletedWorkOrFailures() {
+        val deferred = classifyDiagnostic("I", "Memory", "ENRICHMENT_LIFECYCLE · workerState=SUCCEEDED · outcome=WAITING_FOR_MODEL · deferred=true · enrichmentComplete=false")
+        assertEquals("deferred_work", deferred.category)
+        assertEquals("waiting", deferred.recovery)
+        assertFalse(deferred.actionable)
+        assertEquals("deferred_work", classifyDiagnostic("I", "Memory", "ENRICHMENT_LOCAL_FALLBACK · semanticReady=false").category)
+        assertEquals("compatibility_probe", classifyDiagnostic("I", "MCP", "DISCOVERY_NEGOTIATION · status=400 · outcome=legacy_initialization_required").category)
+    }
+
     @Test fun incompleteTasksRemainActionableWithoutMisclassifyingUserCancellation() {
         for (status in listOf("PARTIAL", "BLOCKED", "EVIDENCE_MISSING")) {
             val result = classifyDiagnostic("I", "Agent", "RUN_TERMINAL · runId=run-1 · status=$status · reason=TASK_INCOMPLETE")

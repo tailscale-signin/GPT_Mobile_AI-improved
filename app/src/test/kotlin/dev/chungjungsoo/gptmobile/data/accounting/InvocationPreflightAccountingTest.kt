@@ -18,6 +18,7 @@ import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.network.ModelRequestPreparation
 import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
+import dev.chungjungsoo.gptmobile.data.network.ProviderResponseTiming
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
@@ -34,12 +35,38 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class InvocationPreflightAccountingTest {
+    @Test fun acceptedHeadersSurviveAFailureWithoutRepeatedAcceptanceMetadata() = runBlocking {
+        val (saved, _) = execute {
+            emit(ProviderEvent.Usage(providerResponseTiming = ProviderResponseTiming(httpStatus = 200, serverRequestId = "accepted-request")))
+            emit(ProviderEvent.Failed("Stream interrupted", errorCode = "CONNECTION_ABORTED"))
+        }
+        val failure = kotlinx.serialization.json.Json.parseToJsonElement(requireNotNull(saved.usageEvidenceJson)).jsonObject.getValue("failure").jsonObject
+        assertEquals(JsonPrimitive("YES"), failure["remoteAcceptance"])
+        assertEquals(JsonPrimitive("accepted-request"), failure["serverRequestId"])
+        assertEquals(JsonPrimitive("CONNECTION_ABORTED"), failure["category"])
+        assertEquals("FAILED", saved.status)
+        assertEquals(100, saved.inputTokens)
+    }
+
+    @Test fun acceptedHeadersPreventALaterLocalRejectionFromRefundingTheInvocation() = runBlocking {
+        val (saved, events) = execute {
+            emit(ProviderEvent.Usage(providerResponseTiming = ProviderResponseTiming(httpStatus = 200, serverRequestId = "accepted-request")))
+            requireNotNull(currentCoroutineContext()[RequestDispatchContext]).rejectedBeforeInference(InferencePreflightReason.REASONING_OFF_UNSUPPORTED)
+            emit(ProviderEvent.Failed("The next local attempt was rejected"))
+        }
+        assertEquals("FAILED", saved.status)
+        assertEquals(100, saved.inputTokens)
+        assertEquals(600L, saved.costMicros)
+        assertEquals(null, events.filterIsInstance<ProviderEvent.Failed>().single().failureDetails?.get("dispatched"))
+    }
+
     @Test fun actualReasoningAdmissionReleasesOrdinaryTokenAndMoneyReservationsWithZeroInferenceCalls() = runBlocking {
         val requests = mutableListOf<String>()
         val client = HttpClient(
@@ -71,6 +98,8 @@ class InvocationPreflightAccountingTest {
             val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
             assertEquals("REASONING_OFF_UNSUPPORTED", failure.errorCode)
             assertEquals(JsonPrimitive(false), failure.failureDetails?.get("dispatched"))
+            assertEquals(JsonPrimitive(saved.id), failure.failureDetails?.get("invocation_id"))
+            assertEquals(JsonPrimitive(saved.parentRunId), failure.failureDetails?.get("run_id"))
             assertTrue(saved.usageEvidenceJson.orEmpty().contains("LOCAL_INFERENCE_ADMISSION"))
         } finally {
             client.close()
@@ -78,11 +107,27 @@ class InvocationPreflightAccountingTest {
     }
 
     @Test fun absentReceiptOrAReasonLookingMessageIsNotProofThatInferenceWasUnsent() = runBlocking {
-        val (saved, _) = execute { emit(ProviderEvent.Failed("REASONING_OFF_UNSUPPORTED from an untrusted response")) }
+        val (saved, events) = execute { emit(ProviderEvent.Failed("REASONING_OFF_UNSUPPORTED from an untrusted response")) }
         assertEquals("FAILED", saved.status)
         assertEquals(100, saved.inputTokens)
         assertEquals(600L, saved.costMicros)
         assertTrue(saved.estimated)
+        val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+        assertEquals(JsonPrimitive(saved.id), failure.failureDetails?.get("invocation_id"))
+        assertEquals(null, failure.failureDetails?.get("dispatched"))
+    }
+
+    @Test fun gatewayIsolationPrecheckRetainsItsSpecificReasonAndConnectionStage() = runBlocking {
+        val (saved, events) = execute {
+            requireNotNull(currentCoroutineContext()[RequestDispatchContext]).rejectedBeforeInference(InferencePreflightReason.GATEWAY_ISOLATION_UNAVAILABLE)
+            emit(ProviderEvent.Failed("The required gateway isolation contract is unavailable"))
+        }
+        val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+        assertEquals("GATEWAY_ISOLATION_UNAVAILABLE", failure.errorCode)
+        assertEquals(JsonPrimitive("connection_preflight"), failure.failureDetails?.get("failed_stage"))
+        assertEquals(JsonPrimitive(false), failure.failureDetails?.get("dispatched"))
+        assertEquals("NOT_DISPATCHED", saved.status)
+        assertEquals(0L, saved.costMicros)
     }
 
     @Test fun laterLocalRejectionCannotRefundAnEarlierUncertainAttempt() = runBlocking {

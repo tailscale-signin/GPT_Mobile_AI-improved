@@ -182,7 +182,7 @@ class GatewayEngineeringRepository @Inject constructor(
         }
         val capability = client.capabilities(gateway.engineeringConfig())
         if (runId != null) check(capability.supportsDurableChat) { "This gateway does not support durable chat admission. Update it before sending this saved turn." }
-        capability.unavailableReason()?.let { error(it) }
+        capability.requireJobReadiness()
         val principal = requireNotNull(capability.principalId)
         val frozenConfig = gateway.engineeringConfig()
         val identity = if (capability.conversationSync) history.identity(frozenConfig) else null

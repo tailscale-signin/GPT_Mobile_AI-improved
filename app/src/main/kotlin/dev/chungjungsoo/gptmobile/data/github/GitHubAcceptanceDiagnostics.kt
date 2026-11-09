@@ -13,8 +13,10 @@ internal object GitHubAcceptanceDiagnostics {
     private const val SCHEMA = "github.acceptance-diagnostics.v1"
     private const val LIMIT = 64
     private val classes = setOf("LIVE_ACCOUNT", "CACHED", "LOCAL", "MOCKED", "HISTORICAL_CI_OBSERVATION", "CURRENT_DEVICE_EXECUTION", "APP_GATEWAY", "NOT_TESTED")
-    private val tools = setOf("github_context", "github_read", "github_search", "github_stage_patch", "github_write", "github_commit", "github_pr", "github_issue", "github_release", "github_ci", "github_watch_checks", "repository_graph")
+    private val tools = setOf("github_context", "github_repository", "github_read", "github_search", "github_stage_patch", "github_write", "github_commit", "github_pr", "github_issue", "github_release", "github_ci", "github_watch_checks", "repository_graph")
+    private val lifecycleActions = mapOf("create_repository" to "create", "fork_repository" to "fork", "import_repository" to "import", "clone_repository" to "clone", "repository_lifecycle_status" to "status", "repository_lifecycle_capabilities" to "capabilities")
     private val actions = setOf("default", "status", "resolve", "branch", "branches", "branch_dependencies", "commits", "commit", "commit_search", "checks", "changes", "list", "get", "search", "search_code", "search_repository", "ranges", "files", "history", "headers", "context", "comments", "reviews", "create", "update", "close", "comment", "reply", "review", "merge", "write", "delete_branch", "delete_fixture_branch", "commit_staged_patch", "definitions", "workflows", "runs", "run", "jobs", "job", "logs", "artifacts", "failure", "dispatch", "rerun", "rerun_failed_jobs", "rerun_all", "cancel", "index", "query", "node", "callers", "callees", "path", "impact", "architecture", "diff", "diagnose", "contracts", "prs", "symbols", "neighbors", "note", "notes", "requirements", "wiki", "metrics", "federated", "provider", "publish", "create_tag", "tags", "tag", "detail", "by_tag", "repository", "repositories", "capabilities", "efficiency", "recovery")
+    private val repositoryActions = setOf("fork", "import", "clone")
     private val labels = mapOf(
         "BUILD_REVISION_BINDING" to "Running build and repository revision",
         "AUTHORIZED_CATALOG" to "Authorized tool catalog",
@@ -25,12 +27,14 @@ internal object GitHubAcceptanceDiagnostics {
         "REPOSITORY_GRAPH" to "Selected repository graph",
         "CI_VERIFICATION" to "CI execution verification",
         "API_OPERATION" to "GitHub API operation",
+        "REPOSITORY_LIFECYCLE" to "Repository creation and transfer",
         "REQUIREMENT" to "Requested acceptance criterion"
     )
 
     fun category(text: String): String {
         val value = text.lowercase()
         return when {
+            GitHubRepositoryLifecycle.intent(text) != null -> "REPOSITORY_LIFECYCLE"
             listOf("separate", "separation", "distinguish").any { it in value } && "device" in value && ("mock" in value || "live" in value) -> "EVIDENCE_SEPARATION"
             ("bind" in value || "binding" in value) && ("build" in value || "revision" in value) -> "BUILD_REVISION_BINDING"
             ("catalog" in value || "catalogue" in value) && ("discover" in value || "exhaust" in value || "authorized" in value) -> "AUTHORIZED_CATALOG"
@@ -125,7 +129,8 @@ internal object GitHubAcceptanceDiagnostics {
     private fun operation(id: String): String? {
         val tool = id.substringBefore(':').substringBefore("__")
         val action = id.substringAfter(':', "default").ifBlank { "default" }
-        return "$tool:$action".takeIf { tool in tools && action in actions }
+        if (tool in setOf("github", "github_repository")) lifecycleActions[action]?.let { return "github_repository:$it" }
+        return "$tool:$action".takeIf { tool in tools && (action in actions || tool == "github_repository" && action in repositoryActions) }
     }
 
     private fun blocker(category: String, state: String): String = when {
@@ -136,6 +141,7 @@ internal object GitHubAcceptanceDiagnostics {
         category == "AUTHORIZED_CATALOG" -> "CATALOG_NOT_EXHAUSTED"
         category == "FIXTURE_LIFECYCLE" -> "FIXTURE_PROOF_INCOMPLETE"
         category == "REPOSITORY_GRAPH" -> "GRAPH_QUALIFICATION_INCOMPLETE"
+        category == "REPOSITORY_LIFECYCLE" -> "REPOSITORY_OPERATION_UNVERIFIED"
         else -> "MATCHING_EVIDENCE_MISSING"
     }
 
@@ -146,6 +152,7 @@ internal object GitHubAcceptanceDiagnostics {
         category == "BUILD_REVISION_BINDING" -> "OBSERVE_EXACT_BUILD_AND_REPOSITORY_REVISION"
         category == "DEVICE_EXECUTION" -> "RUN_CURRENT_BUILD_ON_RECORDED_DEVICE"
         category == "REPOSITORY_GRAPH" -> "QUALIFY_SELECTED_GATEWAY_AND_COMMIT"
+        category == "REPOSITORY_LIFECYCLE" -> "VERIFY_RETAINED_REPOSITORY_OPERATION"
         category == "EVIDENCE_SEPARATION" -> "CLASSIFY_RETAINED_EVIDENCE_SOURCES"
         category in setOf("API_OPERATION", "TOOL_ACTION_COVERAGE") -> "PERFORM_UNVERIFIED_AUTHORIZED_OPERATION"
         category == "CI_VERIFICATION" -> "VERIFY_OWNED_WORKFLOW_AT_EXACT_REVISION"

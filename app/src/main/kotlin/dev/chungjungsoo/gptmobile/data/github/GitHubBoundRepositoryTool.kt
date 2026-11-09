@@ -17,7 +17,8 @@ import kotlinx.serialization.json.put
 internal class GitHubBoundRepositoryTool(
     private val delegate: AgentTool,
     repository: GitHubRepositoryContext,
-    private val connectionMatches: Boolean = true
+    private val connectionMatches: Boolean = true,
+    private val readSources: Set<String> = emptySet()
 ) : PreparableAgentTool,
     OwnedAgentTool {
     private val repository = normalizeGitHubRepository(repository.owner, repository.repo).let { (owner, repo) ->
@@ -30,9 +31,10 @@ internal class GitHubBoundRepositoryTool(
 
     override fun withChildBudget(bind: (AgentTool) -> AgentTool): AgentTool =
         GitHubBoundRepositoryTool(
-            delegate.withChildBudget { child -> bind(GitHubBoundRepositoryTool(child, repository, connectionMatches)) },
+            delegate.withChildBudget { child -> bind(GitHubBoundRepositoryTool(child, repository, connectionMatches, readSources)) },
             repository,
-            connectionMatches
+            connectionMatches,
+            readSources
         )
 
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult = try {
@@ -69,6 +71,10 @@ internal class GitHubBoundRepositoryTool(
             GitHubOperationTool.nativeArguments(definition.name, arguments) ?: return arguments
         }
         val action = (native["action"] as? JsonPrimitive)?.content.orEmpty()
+        if (action in GitHubRepositoryLifecycle.actions) {
+            if (!connectionMatches) throw Rejected("GITHUB_REPOSITORY_TARGET_MISMATCH", "Select the intended GitHub account before creating or importing a repository.", null)
+            return arguments // Exact administrative approval binds the explicit destination fields.
+        }
         if (GitHubTargetPolicy.isAccountAction(action) || action == "read_saved_result") return arguments
         val requested = try {
             normalizeGitHubRepository(stringField(arguments, "owner"), stringField(arguments, "repo"))
@@ -77,10 +83,14 @@ internal class GitHubBoundRepositoryTool(
         }
         val owner = requested.first ?: repository.owner
         val repo = requested.second ?: repository.repo
+        val sourceRead = connectionMatches &&
+            GitHubTargetPolicy.isReadAction(action) &&
+            "$owner/$repo".lowercase(java.util.Locale.ROOT) in readSources
+        if (sourceRead) return GitHubActionIdentity.bind(arguments, GitHubRepositoryContext(owner, repo, ""))
         if (!connectionMatches || !owner.equals(repository.owner, true) || !repo.equals(repository.repo, true)) {
             throw Rejected(
                 "GITHUB_REPOSITORY_TARGET_MISMATCH",
-                "This task's evidence is bound to ${repository.fullName} and its selected connection. Select the intended repository and connection before starting dependent work. No repository operation was dispatched.",
+                "This task's evidence is bound to ${repository.fullName} and its selected connection. Use Change repository to select the verified intended destination and connection, then resume the saved request. Creation receipts and unfinished requirements remain retained; resolve_context cannot switch this task's destination. No repository operation was dispatched.",
                 "$owner/$repo"
             )
         }
@@ -104,6 +114,9 @@ internal class GitHubBoundRepositoryTool(
                     put("schema", "github.bound-target.v1")
                     put("error_code", code)
                     put("dispatched", false)
+                    put("failed_stage", "tool_precheck")
+                    put("dispatch_state", "PRECHECK_REJECTED")
+                    if (code == "GITHUB_REPOSITORY_TARGET_MISMATCH") put("recovery_actions", kotlinx.serialization.json.JsonArray(listOf(JsonPrimitive("CHANGE_REPOSITORY"))))
                     put("selected_repository", repository.fullName)
                     requested?.let { put("requested_repository", it) }
                     put("message", message.orEmpty())

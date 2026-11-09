@@ -9,6 +9,27 @@ import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+
+internal class GitHubToolContextBudgetException(val requiredSchemaTokens: Long, val availableSchemaTokens: Long) :
+    IllegalArgumentException(
+        "GITHUB_TOOL_CONTEXT_BUDGET: All authorized GitHub tools must remain visible in GitHub mode. Their schemas need approximately $requiredSchemaTokens tokens, but $availableSchemaTokens remain. Increase the context budget or reduce attached history and instructions before continuing; this provider request was not dispatched."
+    ) {
+    fun providerFailure() = ProviderEvent.Failed(
+        message.orEmpty(),
+        errorCode = "GITHUB_TOOL_CONTEXT_BUDGET",
+        failureDetails = buildJsonObject {
+            put("failed_stage", "provider_admission")
+            put("dispatched", false)
+            put("retryable", false)
+            put("required_schema_tokens", requiredSchemaTokens)
+            put("available_schema_tokens", availableSchemaTokens)
+        }
+    )
+}
+
+internal fun providerSchemaTokens(tool: AgentToolDefinition, githubMode: Boolean): Long = ProgressiveToolCatalog.schemaTokens(tool).toLong() + if (githubMode) 16 else 0
 
 /** Recheck warm as well as cold discoveries against the current request's remaining room. */
 internal fun fitProviderToolSchemas(definitions: List<AgentToolDefinition>, limits: AgentRunLimits, initialSchemaTokens: Long, replayTokens: Long): List<AgentToolDefinition> {
@@ -16,15 +37,20 @@ internal fun fitProviderToolSchemas(definitions: List<AgentToolDefinition>, limi
     if (limits.contextTokens == Int.MAX_VALUE) return visible
     val base = (limits.initialContextTokens.toLong() - initialSchemaTokens).coerceAtLeast(0)
     var remaining = (limits.contextTokens.toLong() - base - replayTokens - limits.finalResponseReserveTokens - minOf(256, limits.contextTokens / 16)).coerceAtLeast(0)
+    val github = if (limits.githubMode) visible.filter(ProgressiveToolCatalog::isGitHubTool) else emptyList()
+    val requiredSchemaTokens = github.sumOf { providerSchemaTokens(it, limits.githubMode) }
+    if (requiredSchemaTokens > remaining) throw GitHubToolContextBudgetException(requiredSchemaTokens, remaining)
+    remaining -= requiredSchemaTokens
+    val requiredNames = github.mapTo(hashSetOf()) { it.name }
     // Preserve a path to the rest of the authorized catalog when a large optional
     // schema consumes the remaining round budget. The returned order stays stable.
     val discovery = visible.firstOrNull { it.name == ProgressiveToolCatalog.NAME }
-    val discoveryFits = discovery != null && ProgressiveToolCatalog.schemaTokens(discovery) <= remaining
-    if (discoveryFits) remaining -= ProgressiveToolCatalog.schemaTokens(requireNotNull(discovery))
+    val discoveryFits = discovery != null && providerSchemaTokens(discovery, limits.githubMode) <= remaining
+    if (discoveryFits) remaining -= providerSchemaTokens(requireNotNull(discovery), limits.githubMode)
     val omitted = linkedMapOf<String, String>()
     val selected = visible.filter { tool ->
-        if (tool === discovery && discoveryFits) return@filter true
-        val cost = ProgressiveToolCatalog.schemaTokens(tool)
+        if (tool.name in requiredNames || tool === discovery && discoveryFits) return@filter true
+        val cost = providerSchemaTokens(tool, limits.githubMode)
         (cost <= remaining).also { fits ->
             if (fits) {
                 remaining -= cost
@@ -38,19 +64,35 @@ internal fun fitProviderToolSchemas(definitions: List<AgentToolDefinition>, limi
 }
 
 /** Use the resolver's catalog for both planning and execution, including telemetry-wrapped tools. */
-internal fun planAuthorizedToolContext(turns: List<ConversationTurn>, prompt: String, tools: List<ResolvedAgentTool>, limits: TokenBudgetSettings, externalTools: Boolean): ContextPlan {
+internal fun planAuthorizedToolContext(turns: List<ConversationTurn>, prompt: String, tools: List<ResolvedAgentTool>, limits: TokenBudgetSettings, externalTools: Boolean, githubMode: Boolean = false): ContextPlan {
     val task = turns.lastOrNull { it.isCurrentTurn }?.userMessage?.content.orEmpty()
+    val fullGitHubCatalog = githubMode || tools.any { it.progressiveCatalog?.githubMode == true }
     // Current user intent wins over repository keywords in memory or workspace instructions.
-    if (CurrentRequestContract.from(task).conversational) return ContextBudgetService.plan(turns, prompt, emptyList(), limits)
+    if (!fullGitHubCatalog && CurrentRequestContract.from(task).conversational) return ContextBudgetService.plan(turns, prompt, emptyList(), limits)
     val definitions = tools.map { it.tool.definition }
     val required = requiredToolSchemas(explicitlyRequiredToolNames(task, definitions.mapTo(hashSetOf()) { it.name }), tools)
-    val catalog = if (externalTools) tools.firstNotNullOfOrNull { it.progressiveCatalog } ?: if (limits.adaptiveToolCatalog) ProgressiveToolCatalog.create(definitions, turns.lastOrNull { it.isCurrentTurn }?.userMessage?.content.orEmpty()) else null else null
-    val advertised = (required + (catalog?.selected(definitions + catalog.definition) ?: definitions.filter { it.modelVisible })).distinctBy { it.name }
+    val catalog = if (externalTools) tools.firstNotNullOfOrNull { it.progressiveCatalog } ?: if (limits.adaptiveToolCatalog) ProgressiveToolCatalog.create(definitions, task, githubMode = fullGitHubCatalog) else null else null
+    val githubSchemas = if (fullGitHubCatalog) definitions.filter { it.modelVisible && ProgressiveToolCatalog.isGitHubTool(it) } else emptyList()
+    val advertised = (githubSchemas + required + (catalog?.selected(definitions + catalog.definition) ?: definitions.filter { it.modelVisible })).distinctBy { it.name }
     val requestedGitHubOperations = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.taskTools(task)
-    val requiredGitHubSchemas = advertised.filter { definition ->
-        dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(definition.name) in requestedGitHubOperations
+    val requiredGitHubSchemas = if (fullGitHubCatalog) {
+        githubSchemas
+    } else {
+        advertised.filter { definition ->
+            dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(definition.name) in requestedGitHubOperations
+        }
     }
-    val prioritized = (required + advertised.filter { it.name == ProgressiveToolCatalog.NAME } + requiredGitHubSchemas + advertised).distinctBy { it.name }
+    if (fullGitHubCatalog && githubSchemas.isNotEmpty()) {
+        val normalized = limits.normalized()
+        if (normalized.contextTokens != Int.MAX_VALUE) {
+            val output = normalized.outputTokens.takeIf { it > 0 } ?: minOf(4096, normalized.contextTokens / 4)
+            val currentCost = ContextBudgetService.breakdown(turns.filter { it.isCurrentTurn }, prompt, emptyList()).total
+            val available = (normalized.contextTokens.toLong() - output - minOf(8192, normalized.contextTokens / 8) - minOf(256, normalized.contextTokens / 16) - currentCost).coerceAtLeast(0)
+            val requiredTokens = githubSchemas.sumOf { providerSchemaTokens(it, true) }
+            if (requiredTokens > available) throw GitHubToolContextBudgetException(requiredTokens, available)
+        }
+    }
+    val prioritized = (githubSchemas + required + advertised.filter { it.name == ProgressiveToolCatalog.NAME } + requiredGitHubSchemas + advertised).distinctBy { it.name }
     val plan = ContextBudgetService.plan(turns, prompt, prioritized, limits)
     val omittedRequired = required.filterNot { wanted -> plan.tools.any { it.name == wanted.name } }
     if (omittedRequired.isNotEmpty()) {
@@ -60,6 +102,7 @@ internal fun planAuthorizedToolContext(turns: List<ConversationTurn>, prompt: St
     }
     val omittedRequiredGitHubSchemas = requiredGitHubSchemas.filterNot { required -> plan.tools.any { it.name == required.name } }
     if (omittedRequiredGitHubSchemas.isNotEmpty()) {
+        if (fullGitHubCatalog) throw GitHubToolContextBudgetException(githubSchemas.sumOf { providerSchemaTokens(it, true) }, plan.tools.filter(ProgressiveToolCatalog::isGitHubTool).sumOf { providerSchemaTokens(it, true) })
         val operations = omittedRequiredGitHubSchemas.mapNotNull { definition ->
             dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(definition.name)
         }.distinct()

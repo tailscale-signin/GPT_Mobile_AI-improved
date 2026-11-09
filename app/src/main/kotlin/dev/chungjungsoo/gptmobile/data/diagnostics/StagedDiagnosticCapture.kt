@@ -23,6 +23,8 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 
 /** Record producers must supply already-redacted values and checkBudget before loading each source page. */
+enum class DiagnosticStageContent { EXECUTION, CONFIGURATION }
+
 data class DiagnosticCaptureStage(
     val id: String,
     val fileName: String,
@@ -31,6 +33,7 @@ data class DiagnosticCaptureStage(
     val emptyReason: String = "NO_RETAINED_RECORDS",
     val resumableRecords: Boolean = false,
     val refreshOnResume: Boolean = false,
+    val content: DiagnosticStageContent = DiagnosticStageContent.EXECUTION,
     val capture: suspend (DiagnosticStageSink) -> Unit
 )
 
@@ -590,6 +593,8 @@ object StagedDiagnosticCapture {
                 "availability",
                 if (failure != null || omissions.isNotEmpty()) if (records == 0L) "UNAVAILABLE" else "PARTIAL" else if (sourceReference != null) {
                     "REFERENCED"
+                } else if (evidenceRecords == 0L && records > 0L) {
+                    if (stage.content == DiagnosticStageContent.CONFIGURATION) "CONFIGURATION_ONLY" else "METADATA_ONLY"
                 } else if (evidenceRecords == 0L) {
                     "EMPTY_RETAINED"
                 } else {
@@ -599,6 +604,8 @@ object StagedDiagnosticCapture {
             put("critical", stage.critical)
             put("records", records)
             put("evidenceRecords", evidenceRecords)
+            put("metadataRecords", records - evidenceRecords)
+            put("content", stage.content.name)
             put("omissions", JsonObject(omissions.mapValues { JsonPrimitive(it.value) }))
             put("bytes", bytes)
             put("sha256", summary.sha256)

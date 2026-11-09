@@ -12,7 +12,7 @@ import kotlinx.serialization.json.put
 internal object GitHubEvidenceProjection {
     private val identities = setOf(
         "id", "number", "sha", "commit_sha", "head_sha", "base_sha", "tree_sha", "source_sha", "expected_head_sha",
-        "stage_id", "task_id", "execution_id", "correlation_id", "run_id", "workflow_run_id", "workflow_id", "release_id", "pull_number",
+        "stage_id", "task_id", "engineering_task_id", "card_id", "approval_state", "user_input_required", "execution_id", "correlation_id", "run_id", "workflow_run_id", "workflow_id", "release_id", "pull_number",
         "status", "state", "conclusion", "success", "error", "error_code", "message", "committed", "published", "merged", "draft",
         "commit", "pull_request", "release", "dispatch_receipt", "workflow_run", "execution", "receipt", "head", "base", "result", "data", "verification",
         "accepted_mutations", "unknown_mutations", "dispatched", "head_ref", "head_branch", "source_head_sha",

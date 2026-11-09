@@ -279,6 +279,7 @@ class GatewayConversationRepository @Inject constructor(
         val fingerprint = gatewayIdentityKey(commandId, profileUid, endpoint.trimEnd('/'), selectedModel, chatId.toString(), userMessageId.toString(), assistantMessageId.toString(), runId)
         database.withTransaction {
             val run = requireNotNull(database.agentRunDao().getById(runId)) { "The original chat run is unavailable." }
+            check(dao.queuedDispatches().all { it.runId == runId }) { "The Gateway queue is waiting for its current job. This additional request was not dispatched." }
             val message = requireNotNull(dao.localMessage(assistantMessageId))
             check(dao.localChat(chatId)?.isTemporary == false && dao.localMessage(userMessageId)?.chatId == chatId) { "Temporary or missing turns cannot retain a server transcript." }
             check(run.chatId == chatId && run.userMessageId == userMessageId && run.assistantMessageId == assistantMessageId && run.profileUid == profileUid && run.modelSnapshot == selectedModel && run.status in setOf("RUNNING", "QUEUED") && message.currentRunId == runId && message.ownershipFence == run.ownershipFence) { "This turn was stopped or replaced before gateway admission." }
@@ -287,8 +288,21 @@ class GatewayConversationRepository @Inject constructor(
                 check(existing.fingerprint == fingerprint && existing.payload == payload) { "The frozen gateway command or account changed." }
             } else {
                 val createdAt = maxOf(System.currentTimeMillis(), (dao.latestSubmissionForRun(runId)?.createdAtMillis ?: 0) + 1)
-                dao.insertSubmission(GatewaySubmissionRecord(commandId, chatId, userMessageId, assistantMessageId, runId, profileUid, endpoint.trimEnd('/'), profileUid, fingerprint, payload, "PENDING_ORDINARY", createdAtMillis = createdAt))
+                dao.insertSubmission(GatewaySubmissionRecord(commandId, chatId, userMessageId, assistantMessageId, runId, profileUid, endpoint.trimEnd('/'), profileUid, fingerprint, payload, "RESERVED_ORDINARY", createdAtMillis = createdAt))
             }
+        }
+    }
+
+    /** Called only when local command preparation fails before HTTP is reachable. */
+    suspend fun ordinaryNotDispatched(commandId: String, runId: String) {
+        dao.markOrdinaryNotDispatched(commandId, runId)
+    }
+
+    suspend fun ordinaryDispatching(commandId: String, runId: String) {
+        dao.markOrdinaryDispatching(commandId, runId)
+        val run = database.agentRunDao().getById(runId)
+        check(run?.status == "RUNNING" && dao.submission(commandId)?.let { it.runId == runId && it.state in setOf("DISPATCHING_ORDINARY", "ACCEPTED") } == true) {
+            "The saved Gateway command no longer permits dispatch."
         }
     }
 
@@ -409,13 +423,13 @@ class GatewayConversationRepository @Inject constructor(
             check(dao.localMessage(userMessageId)?.chatId == chatId && dao.localMessage(assistantMessageId)?.chatId == chatId) { "The original conversation turn is unavailable." }
             val old = dao.submission(commandId)
             if (old != null) {
-                if (old.state == "PENDING_ORDINARY") {
+                if (old.state in setOf("RESERVED_ORDINARY", "PENDING_ORDINARY", "DISPATCHING_ORDINARY")) {
                     val expected = json.decodeFromString<GatewayOrdinaryReservation>(old.payload)
                     check(expected.gatewayId == gatewayId && expected.principalId == principalId) { "The admission receipt came from a different gateway or account." }
                 }
                 check(old.chatId == chatId && old.userMessageId == userMessageId && old.assistantMessageId == assistantMessageId && old.runId == runId && old.endpoint == endpoint.trimEnd('/')) { "The saved command is already associated with another turn." }
                 check(old.conversationKey == null || old.conversationKey == key) { "The gateway conversation identity changed." }
-                dao.saveSubmission(old.copy(state = "ACCEPTED", conversationKey = key))
+                dao.saveSubmission(old.copy(state = if (old.state == "SETTLED") "SETTLED" else "ACCEPTED", conversationKey = key))
             } else {
                 dao.saveSubmission(
                     GatewaySubmissionRecord(

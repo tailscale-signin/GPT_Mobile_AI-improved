@@ -23,6 +23,13 @@ internal object GitHubChecklistBudget {
 
     fun checkpoint(receipts: Map<String, JsonObject>, current: Int? = null, fixtureCalls: Int = FIXTURE_CALLS): JsonObject = buildJsonObject {
         val remaining = remaining(receipts, current)
+        val observed = receipts.values.toList().asReversed().firstNotNullOfOrNull { receipt ->
+            (receipt["tool_budget"] as? JsonObject)?.takeIf { (it["limit"] as? JsonPrimitive)?.intOrNull != null }
+        }
+        observed?.get("limit")?.let { put("effective_call_limit", it) }
+        observed?.get("configured")?.let { put("configured_call_limit", it) }
+        put("limit_source", if (observed != null) "RECORDED_EXECUTION_ALLOWANCE" else "NOT_RECORDED")
+        put("limit_rule", "Minimum of the profile/chat allowance, workflow/task policy and explicit request ceiling.")
         remaining?.let { put("remaining_calls", it) }
         put("remaining_known", remaining != null)
         put("verification_reserve", minOf(remaining ?: VERIFICATION_RESERVE, VERIFICATION_RESERVE))

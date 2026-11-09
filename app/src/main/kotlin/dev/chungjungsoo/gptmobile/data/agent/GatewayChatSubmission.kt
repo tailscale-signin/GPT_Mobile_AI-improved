@@ -36,7 +36,15 @@ class GatewayChatSubmission @Inject constructor(
     /** Null means this route has no compatible autonomous protocol, before any submission. */
     suspend fun submitIfSupported(request: AgentRunRequest): GatewayChatHandoff? {
         val tools = request.chatToolConfig
-        if (request.stage == null && tools?.combined == null && chats.researchPersistenceAllowed(request.chatId)) {
+        if (!chats.researchPersistenceAllowed(request.chatId)) return null
+        val features = settings.getFeatureSettings()
+        // Explicit Gateway chats use their own frozen inference destination. A GitHub
+        // engineering override cannot turn their queued ordinary turn into another job.
+        if (request.chatId in features.conversationGateway) {
+            conversations.conversationWriteBlocker(request.chatId)?.let { error(it) }
+            return null
+        }
+        if (request.stage == null && tools?.combined == null) {
             engineering.conversationWriteBlocker(request.chatId)?.let { error(it) }
         }
         if (tools?.combined != null ||
@@ -47,8 +55,7 @@ class GatewayChatSubmission @Inject constructor(
         ) {
             return null
         }
-        if (!chats.researchPersistenceAllowed(request.chatId)) return null
-        val preferences = settings.getFeatureSettings().githubProfileOverrides[request.platform.uid] ?: GitHubChatProfileOverride()
+        val preferences = features.githubProfileOverrides[request.platform.uid] ?: GitHubChatProfileOverride()
         if (!preferences.githubTools || tools?.allToolsDisabled == true) return null
         val user = requireNotNull(request.userMessages.lastOrNull()) { "The saved GitHub request is unavailable." }
         if (user.attachments.isEmpty()) {

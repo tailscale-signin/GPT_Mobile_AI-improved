@@ -29,6 +29,8 @@ class DiagnosticTimelineTest {
         assertEquals(JsonPrimitive("rendered_run_stream"), observation["measurementScope"])
         assertEquals(JsonPrimitive("COMPOSE_DRAW_CONTENT_RETURNED"), observation["observedBoundary"])
         assertEquals(JsonPrimitive("UNLINKED"), observation["invocationAssociation"])
+        assertEquals(JsonPrimitive("UNKNOWN"), observation["outputOrigin"])
+        assertEquals(JsonPrimitive(false), observation["providerLatencyCandidate"])
         assertEquals(JsonPrimitive("process"), observation["processSession"])
         assertEquals(JsonPrimitive(123_456_789L), observation["monotonicNanos"])
         assertEquals(JsonPrimitive(7L), observation["ownershipFence"])
@@ -36,6 +38,18 @@ class DiagnosticTimelineTest {
         assertEquals(JsonNull, observation["displayPresentationConfirmed"])
         assertFalse(observation.containsKey("invocationId"))
         assertFalse(observation.containsKey("elapsedMillis"))
+    }
+
+    @Test fun systemOutputOriginSurvivesExportWithoutBecomingAProviderLatencyCandidate() {
+        val event = RunDiagnosticEvent(
+            eventId = "error", processSession = "process", runId = "run", streamId = "process:run", sequence = 1,
+            capturedAtMillis = 123, kind = RunDiagnosticKind.FIRST_VISIBLE_TEXT, role = RunDiagnosticRole.UNKNOWN,
+            measured = true, outputOrigin = OutputOrigin.SYSTEM_ERROR
+        )
+        val observation = DiagnosticTimeline.journal(event)
+        assertEquals(JsonPrimitive("SYSTEM_ERROR"), observation["outputOrigin"])
+        assertEquals(JsonPrimitive("UNLINKED"), observation["invocationAssociation"])
+        assertEquals(JsonPrimitive(false), observation["providerLatencyCandidate"])
     }
 
     @Test fun runningChildOfPartialRunRequiresReconciliationWithoutInventingCompletion() {

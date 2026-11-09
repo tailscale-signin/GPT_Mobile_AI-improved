@@ -14,6 +14,44 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GatewayClientDiagnosticsTest {
+    @Test fun preparingHeadersDoesNotInventAPhysicalRequestOrTransportFailure() {
+        val original = LocalDiagnosticsPolicy.enabled
+        val config = ProviderRequestConfig(
+            "https://prepared-only.example/v1",
+            null,
+            extraHeaders = mapOf(
+                GatewayClientDiagnostics.CLIENT_HEADER to "{}",
+                "traceparent" to "00-${"a".repeat(32)}-${"b".repeat(16)}-01"
+            )
+        )
+        try {
+            LocalDiagnosticsPolicy.setEnabled(true)
+            val prepared = GatewayClientDiagnostics.preparationHeaders(config)
+            assertEquals(config.extraHeaders, prepared)
+            assertEquals(null, GatewayClientDiagnostics.failureFields(config, prepared, java.io.IOException("unsent")))
+            val dispatched = GatewayClientDiagnostics.requestHeaders(config)
+            assertTrue(GatewayClientDiagnostics.failureFields(config, dispatched, java.io.IOException("dispatched")) != null)
+            LocalDiagnosticsPolicy.setEnabled(false)
+            assertEquals(emptyMap<String, String>(), GatewayClientDiagnostics.preparationHeaders(config))
+        } finally {
+            LocalDiagnosticsPolicy.setEnabled(original)
+        }
+    }
+
+    @Test fun serverPhysicalRequestIdentityIsDistinctFromTheLogicalOperationDigestAndStrictlyValidated() {
+        val config = ProviderRequestConfig("https://physical-request.example/v1", null)
+        val headers = mapOf("X-Gateway-Request-ID" to "logical-original-command", "X-Gateway-HTTP-Request-ID" to "a".repeat(32))
+        val first = GatewayClientDiagnostics.responseFields(config, 503, headers::get)
+        val second = GatewayClientDiagnostics.responseFields(config, 503, (headers + ("X-Gateway-HTTP-Request-ID" to "b".repeat(32)))::get)
+        assertEquals("a".repeat(32), first["request_id"]?.jsonPrimitive?.content)
+        assertEquals("b".repeat(32), second["request_id"]?.jsonPrimitive?.content)
+        assertEquals(researchHash("logical-original-command"), first["operation_id"]?.jsonPrimitive?.content)
+        assertEquals(first["operation_id"], second["operation_id"])
+        val invalid = GatewayClientDiagnostics.responseFields(config, 503, (headers + ("X-Gateway-HTTP-Request-ID" to "private-host-and-secret"))::get)
+        assertEquals(researchHash("logical-original-command"), invalid["request_id"]?.jsonPrimitive?.content)
+        assertFalse(invalid.toString().contains("private-host"))
+    }
+
     @Test fun metadataContainsVersionedDigestsAndPlatformCountersButNoPersonalText() {
         val config = ProviderRequestConfig("https://private-route.example/v1", "private token", profileUid = "private profile", requestRole = "custom sensitive role")
         val encoded = GatewayClientDiagnostics.metadata(config, "private model", 36, 44, 9)
@@ -139,6 +177,10 @@ class GatewayClientDiagnosticsTest {
         assertEquals("NOT_REQUESTED", acknowledgment(plain, 200, emptyMap()))
         assertEquals("ACCEPTED", acknowledgment(requested, 500, mapOf("X-Gateway-Client-Diagnostics-Accepted" to "1")))
         assertEquals("NOT_CONFIRMED", acknowledgment(requested, 200, mapOf("X-Gateway-Client-Diagnostics-Accepted" to "0")))
+        assertEquals("CAPTURE_DISABLED", acknowledgment(requested, 200, mapOf("X-Gateway-Client-Diagnostics-Status" to "capture_disabled")))
+        assertEquals("INVALID_METADATA", acknowledgment(requested, 200, mapOf("X-Gateway-Client-Diagnostics-Status" to "invalid_metadata")))
+        assertEquals("NOT_CONFIRMED", acknowledgment(requested, 200, mapOf("X-Gateway-Debug-Enabled" to "false")))
+        assertEquals("NOT_REQUESTED", acknowledgment(plain, 200, mapOf("X-Gateway-Client-Diagnostics-Status" to "capture_disabled")))
         for ((code, status) in mapOf("remote_surface_not_admitted" to 403, "scope_not_granted" to 403, "transport_identity_required" to 401, "duplicate_admission_header" to 400, "unknown_job" to 404)) {
             val headers = mapOf("X-Gateway-Admission-Error" to code)
             assertEquals("REJECTED_BEFORE_PROCESSING", acknowledgment(requested, status, headers))

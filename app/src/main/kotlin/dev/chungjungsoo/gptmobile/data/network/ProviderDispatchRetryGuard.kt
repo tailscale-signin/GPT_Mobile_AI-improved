@@ -6,6 +6,7 @@ internal class ProviderDispatchRetryGuard(config: ProviderRequestConfig) {
         key.equals("X-Gateway-Allow-Local-Tools", ignoreCase = true) && !value.equals("false", ignoreCase = true)
     }
     private var dispatched = false
+    private var responseAccepted = false
 
     fun dispatched() {
         dispatched = true
@@ -13,9 +14,14 @@ internal class ProviderDispatchRetryGuard(config: ProviderRequestConfig) {
 
     val remoteOutcomeUnknown: Boolean get() = serverToolsAllowed && dispatched
 
+    /** An accepted stream is a logical continuation boundary, never another wire attempt. */
+    fun accepted() {
+        responseAccepted = true
+    }
+
     fun rejectedBeforeExecution() {
         dispatched = false
     }
 
-    fun mayRetry(hasPayload: Boolean): Boolean = !hasPayload && !remoteOutcomeUnknown
+    fun mayRetry(hasPayload: Boolean): Boolean = !hasPayload && !responseAccepted && !remoteOutcomeUnknown
 }

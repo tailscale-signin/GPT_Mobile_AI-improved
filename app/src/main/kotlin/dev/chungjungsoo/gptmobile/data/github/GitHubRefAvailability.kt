@@ -3,6 +3,8 @@ package dev.chungjungsoo.gptmobile.data.github
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
 import java.util.Locale
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
@@ -54,6 +56,13 @@ class GitHubRefAvailability(
                         "GITHUB_REPOSITORY_UNAVAILABLE",
                         buildJsonObject {
                             put("schema", "github.repository-admission.v1")
+                            put("code", "GITHUB_REPOSITORY_UNAVAILABLE")
+                            put("failed_stage", "repository_admission")
+                            put("dispatch_state", "PRECHECK_REJECTED")
+                            put("attempt_dispatch_state", "NOT_DISPATCHED")
+                            put("remote_acceptance", "NO")
+                            put("retryable", false)
+                            put("recovery_actions", JsonArray(listOf("REFRESH_REPOSITORY_ACCESS", "CHANGE_REPOSITORY").map(::JsonPrimitive)))
                             put("reason", "RECENT_REPOSITORY_LOOKUP_REJECTED")
                             put("repository", repository)
                             put("observed_http_status", observed.status)
@@ -91,6 +100,13 @@ class GitHubRefAvailability(
             "GITHUB_REF_UNAVAILABLE",
             buildJsonObject {
                 put("schema", "github.ref-admission.v1")
+                put("code", "GITHUB_REF_UNAVAILABLE")
+                put("failed_stage", "repository_admission")
+                put("dispatch_state", "PRECHECK_REJECTED")
+                put("attempt_dispatch_state", "NOT_DISPATCHED")
+                put("remote_acceptance", "NO")
+                put("retryable", false)
+                put("recovery_actions", JsonArray(listOf("REFRESH_REPOSITORY_ACCESS", "SELECT_REF").map(::JsonPrimitive)))
                 put("reason", "RECENT_REF_LOOKUP_REJECTED")
                 put("repository", ref.repository)
                 put("ref", URLDecoder.decode(ref.encoded, StandardCharsets.UTF_8.name()))

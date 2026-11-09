@@ -68,7 +68,7 @@ class LocalEndpointConnectionPolicyTest {
                     throw failure
                 }
             }
-            assertEquals(failure, result.exceptionOrNull())
+            assertFailurePreserved(failure, result.exceptionOrNull())
             assertEquals(1, attempts)
             assertEquals(1, evictions)
         }
@@ -96,8 +96,19 @@ class LocalEndpointConnectionPolicyTest {
                     throw failure
                 }
             }.exceptionOrNull()
-            assertEquals(failure, observed)
+            assertFailurePreserved(failure, observed)
             assertEquals(if (failure is EOFException) 2 else 1, attempts)
         }
+    }
+
+    private fun assertFailurePreserved(expected: Throwable, observed: Throwable?) {
+        assertEquals(expected.javaClass, observed?.javaClass)
+        assertEquals(expected.message, observed?.message)
+        // Coroutine stacktrace recovery may copy a failure across withContext,
+        // preserving the original as its cause instead of its object identity.
+        assertTrue(
+            "The propagated failure must retain its original cause",
+            generateSequence(observed) { it.cause?.takeUnless { cause -> cause === it } }.take(8).any { it === expected }
+        )
     }
 }

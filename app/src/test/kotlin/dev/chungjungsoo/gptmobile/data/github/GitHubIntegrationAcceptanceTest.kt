@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.github
 
+import dev.chungjungsoo.gptmobile.BuildConfig
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -190,7 +191,15 @@ class GitHubIntegrationAcceptanceTest {
         assertTrue(rendered.contains("CURRENT_DEVICE_EXECUTION"))
         assertTrue(rendered.contains("MOCKED"))
         assertTrue(rendered.contains("cleanup"))
-        assertFalse(rendered.contains("89"))
+        assertEquals(
+            "Recorded tool receipts: 5; dispatched tool calls: 3; recorded HTTP reads: unknown; mutation requests: unknown",
+            rendered.lineSequence().single { it.startsWith("Recorded tool receipts: ") }.substringBefore(". ")
+        )
+        // Build identities may contain any digits; counter assertions belong to their own metric lines.
+        assertEquals(
+            "| App source commit | ${BuildConfig.APP_COMMIT} |",
+            rendered.lineSequence().single { it.startsWith("| App source commit |") }
+        )
         val bounded = GitHubIntegrationReport.render(task, receipts(), tools, 2)
         assertTrue(bounded.contains("Budget remaining: 2"))
         assertTrue(bounded.contains("VERIFICATION_RESERVE_REACHED"))
@@ -207,9 +216,14 @@ class GitHubIntegrationAcceptanceTest {
         assertEquals(JsonPrimitive(1), state["inventory_pages_verified"])
         assertEquals(JsonPrimitive(false), state["complete"])
         val report = GitHubIntegrationReport.render(task, records, tools)
-        assertTrue(report.contains("Discovery: 1/1 retained calls succeeded; 1 version-bound pages verified"))
-        assertFalse(report.contains("87"))
-        assertFalse(report.contains("9 pages"))
+        assertEquals(
+            "Discovery: 1/1 retained calls succeeded; 1 version-bound pages verified",
+            report.lineSequence().single { it.startsWith("Discovery: ") }.substringBefore(". ")
+        )
+        assertEquals(
+            "Recorded tool receipts: 1; dispatched tool calls: 0; recorded HTTP reads: unknown; mutation requests: unknown",
+            report.lineSequence().single { it.startsWith("Recorded tool receipts: ") }.substringBefore(". ")
+        )
     }
 
     @Test fun staleCatalogOffersOneExactReadRestartWithoutAuthorityChanges() {

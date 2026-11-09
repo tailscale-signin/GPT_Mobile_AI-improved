@@ -25,4 +25,14 @@ class GitHubTaskAcceptanceScopeTest {
         assertTrue(runCatching { requireNativeGitHubTarget(true, 0) }.exceptionOrNull()?.message.orEmpty().startsWith("GITHUB_REPOSITORY_TARGET_REQUIRED"))
         assertTrue(runCatching { requireNativeGitHubTarget(true, 2) }.exceptionOrNull()?.message.orEmpty().startsWith("GITHUB_REPOSITORY_TARGET_AMBIGUOUS"))
     }
+
+    @Test fun repositoryLifecycleWorkDoesNotRequireTheDestinationToAlreadyExist() {
+        for (request in listOf("Create a private repository", "Fork the source repository", "Fork upstream/project", "Import a project into a new repository", "Clone upstream/project to the gateway")) {
+            assertTrue(request, requiresNativeGitHubAcceptance(request, true))
+            requireNativeGitHubTarget(true, 0, request)
+        }
+        assertFalse(requiresNativeGitHubAcceptance("Fork upstream/project", false))
+        assertTrue(runCatching { requireNativeGitHubTarget(true, 0, "Do not create a repository. Inspect the selected repository.") }.isFailure)
+        assertTrue(runCatching { requireNativeGitHubTarget(true, 0, "Read app.kt from the repository") }.isFailure)
+    }
 }

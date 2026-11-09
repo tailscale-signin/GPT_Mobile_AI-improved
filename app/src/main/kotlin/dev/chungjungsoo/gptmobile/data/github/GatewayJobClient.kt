@@ -6,6 +6,7 @@ import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import dev.chungjungsoo.gptmobile.data.network.boundedMetadata
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayClientDiagnostics
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewaySurfacePolicy
 import dev.chungjungsoo.gptmobile.data.network.gateway.gatewayClientExchange
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.timeout
@@ -39,6 +40,11 @@ class GatewayJobClient internal constructor(private val http: HttpClient, privat
         val diagnostic = GatewayClientDiagnostics.withHeaders(config, model = "", knownGateway = true)
         val endpoint = config.buildEndpoint("gateway/$path")
         val surface = surface(path)
+        if (surface == GatewayAdmissionSurface.CAPABILITIES) {
+            GatewaySurfacePolicy.shared.rememberedStatus(GatewaySurfacePolicy.identity(config), GatewaySurfacePolicy.Surface.CAPABILITIES)?.let { status ->
+                throw GatewayHistoryUnsupported(surface, status)
+            }
+        }
         val deadline = if (maxBytes > 2_000_000) 120_000L else 30_000L
         return try {
             // One retry owner and one total deadline, for these GETs only.
@@ -57,6 +63,9 @@ class GatewayJobClient internal constructor(private val http: HttpClient, privat
                             }
                         }.execute { response ->
                             GatewayClientDiagnostics.observe(diagnostic, response.status.value) { response.headers[it] }
+                            if (surface == GatewayAdmissionSurface.CAPABILITIES) {
+                                GatewaySurfacePolicy.shared.observe(GatewaySurfacePolicy.identity(config), GatewaySurfacePolicy.Surface.CAPABILITIES, response.status.value)
+                            }
                             if (!response.status.isSuccess()) {
                                 val code = safeGatewayAdmissionCode(response.headers["X-Gateway-Admission-Error"])
                                 val body = if (code == null) {
@@ -71,10 +80,13 @@ class GatewayJobClient internal constructor(private val http: HttpClient, privat
                                 } else {
                                     null
                                 }
-                                val failure = gatewayAdmissionFailure(response.status.value, surface, code, body)
+                                val directModelServer = response.headers[HttpHeaders.Server]?.substringBefore('/')?.equals("llama.cpp", ignoreCase = true) == true &&
+                                    response.headers["X-Gateway-Instance-ID"].isNullOrBlank() &&
+                                    GatewayClientDiagnostics.runtimeEpoch(config) == "unobserved"
+                                val failure = gatewayAdmissionFailure(response.status.value, surface, code, body, directModelServer)
                                 dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
                                     "Gateway",
-                                    "ADMISSION_READ · phase=${failure.phase} · surface=$surface · method=GET · responseHeadersReceived=true · httpStatus=${failure.httpStatus} · code=${failure.wireCode ?: failure.reason.name} · dependentDispatch=${failure.dispatchState}",
+                                    "ADMISSION_READ · phase=${failure.phase} · surface=$surface · method=GET · responseHeadersReceived=true · httpStatus=${failure.httpStatus} · responseService=${if (directModelServer) "LLAMA_CPP" else "UNVERIFIED"} · code=${failure.wireCode ?: failure.reason.name} · dependentDispatch=${failure.dispatchState}",
                                     "W"
                                 )
                                 throw failure
@@ -207,8 +219,8 @@ class GatewayJobClient internal constructor(private val http: HttpClient, privat
         }
     }
 
-    /** Explicit diagnostic: each read checks its own surface; generation Online grants none of them. */
-    internal suspend fun verifySavedWorkContract(config: ProviderRequestConfig, expectedSourceCommit: String? = null): GatewaySavedWorkContract {
+    /** Identity/capability preflight, optionally followed by each history surface for explicit diagnostics. */
+    internal suspend fun verifySavedWorkContract(config: ProviderRequestConfig, expectedSourceCommit: String? = null, verifyHistorySurfaces: Boolean = true): GatewaySavedWorkContract {
         require(expectedSourceCommit == null || expectedSourceCommit.matches(Regex("[a-f0-9]{40}")))
         var checkedSurface = GatewayAdmissionSurface.CAPABILITIES
         var source: GatewayAdmissionSource? = null
@@ -242,6 +254,9 @@ class GatewayJobClient internal constructor(private val http: HttpClient, privat
                 }
                 if (identity.gatewayId != declaredGateway || identity.principalId != declaredPrincipal || identity.instanceId != declaredInstance) {
                     throw GatewayAdmissionException(GatewayAdmissionReason.IDENTITY_MISMATCH, 200, null, checkedSurface)
+                }
+                if (!verifyHistorySurfaces) {
+                    return@withTimeout GatewaySavedWorkContract(identity, observedSource, expectedSourceCommit?.let { it == observedSource.sourceCommit }, readiness = GatewayActionReadinessEvidence(identity = GatewayActionReadiness.VERIFIED))
                 }
                 checkedSurface = GatewayAdmissionSurface.CONVERSATIONS
                 val conversationBody = read(config, "conversations?limit=1")

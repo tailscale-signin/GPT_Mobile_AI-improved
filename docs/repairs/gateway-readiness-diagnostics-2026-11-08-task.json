@@ -1,0 +1,49 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "293810dbc34ef93ee62521e2fd274681e10482ab",
+  "working_branch": "fix/gateway-readiness-diagnostics-2026-11-08",
+  "intent": "Implement the actionable fixes from the Android build 140 diagnostics and the 436-record gateway audit, preserve the exact selected model, and publish a reviewable branch with regression evidence. No merge or deployment is requested.",
+  "state": "IMPLEMENTED_HOST_VALIDATED_ANDROID_CI_REQUIRED",
+  "task_store": "engineering_agent_checkpoints",
+  "task_store_key": "fix/gateway-readiness-diagnostics-2026-11-08",
+  "scope": [
+    "Bounded model discovery and actionable backend/readiness failure observations",
+    "Failed capability caching, per-model concurrent probe sharing and safe recovery",
+    "True HTTP arrival/completion timing, physical request identity and route classification",
+    "Allowlisted failure evidence, build/configuration identity and bounded retained-evidence bundles with coverage manifests",
+    "Gateway-aware Android capability/readiness checks, safe read recovery and explicit engineering admission",
+    "Typed diagnostic normalization, incident/attempt accounting and known-zero pre-dispatch usage",
+    "Durable worker wakeup coalescing, bounded debug rendering and explicit tool discovery states"
+  ],
+  "qualification": "Restoring the user's backend process/address, confirming the installed model/template, and measuring physical-device frame performance require host/device evidence. This branch does not claim those outcomes from synthetic tests.",
+  "validation": {
+    "canonical_fast": "PASS: all fast-phase checks in the final canonical full run, including 404 host tests, policy/dependencies/secrets, generated inventory, regex/resources, icon and QNN provenance, and whitespace.",
+    "gateway": "PASS: 54 suites, 650 executed cases passed; one existing LAN-bind case skipped because the host has no bindable LAN IPv4 interface. Seven browser tests passed. Includes the 50,000-event durable capture stress case.",
+    "authentication": "PASS: 25 tests.",
+    "android_gateway_host": "PASS: 183 Kotlin 2.4.20 host tests using production gateway/admission/readiness code and explicit Android/service boundaries.",
+    "android_diagnostics_host": "PASS: 97 recorder/export/classification/projection cases and 6 round-accounting cases; explicit Android/persistence boundaries.",
+    "android_performance_host": "PASS: 16 coordinator/catalog cases and 35 production MCP manager/transport cases. Log paging cases are included in the diagnostics count.",
+    "kotlin_lint": "PASS: ktlint 1.3.1 checked all 77 changed Kotlin files after final integration formatting.",
+    "canonical_full": "HOST PHASES PASSED; Android phase blocked before compilation while downloading the pinned Gradle 9.8.0 distribution (java.net.SocketException: Network is unreachable). Local JDK is17 and Android SDK is absent; JDK21 download attempts returned HTTP403. No gate, checksum or memory budget was relaxed.",
+    "android": "Full build/Hilt/Compose/Room/WorkManager validation requires current-head Android CI. Consult this branch pull request for current checks.",
+    "physical_device": "Not measured; no backend-generation, GPU, OEM, frame-time or native-memory improvement claim."
+  },
+  "gateway_source_commit": "631486142646fdd6eee585eb8d598267232dd1ef",
+  "source_audits": {
+    "gateway_records": 436,
+    "android_physical_records": 4205,
+    "android_build": 140
+  },
+  "review": {
+    "status": "Independent cross-component review completed; concrete findings corrected and covered by behavior regressions.",
+    "corrections": [
+      "Backend transport recovery cannot be toggled by another selected model being absent.",
+      "Readiness exports retain independent storage, health and model causes plus explicit unknown values.",
+      "Causal response timestamps use actual body completion.",
+      "Gateway isolation reason/stage and earlier uncertain dispatch evidence remain intact.",
+      "Late catalog producers and finishing-window durable wakeups retain recovery."
+    ]
+  }
+}

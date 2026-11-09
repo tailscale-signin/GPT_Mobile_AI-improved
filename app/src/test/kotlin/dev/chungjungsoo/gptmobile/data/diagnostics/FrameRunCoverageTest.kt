@@ -28,4 +28,29 @@ class FrameRunCoverageTest {
         coverage.clear()
         assertFalse(coverage.truncated)
     }
+
+    @Test fun privacyTransitionAndClearDiscardThePreviousWindowBeforePublication() {
+        val coverage = FrameRunCoverage()
+        coverage.observe(mapOf("public-before" to "streaming"), 1)
+        coverage.observe(mapOf("private-run" to "streaming"), null)
+        assertTrue(coverage.snapshot(2).isEmpty())
+        coverage.observe(mapOf("public-after" to "streaming"), 2)
+        assertEquals(setOf("public-after"), coverage.snapshot(2).keys)
+        // A clear can occur without an intervening frame; publication still checks its epoch.
+        assertTrue(coverage.snapshot(3).isEmpty())
+    }
+
+    @Test fun privateAndStalePhaseProducersCannotEnterANewCapture() {
+        val phases = FrameRunPhases(maximumRuns = 2)
+        phases.observe("private-run", "streaming", null)
+        assertTrue(phases.snapshot(1).isEmpty())
+        phases.observe("public-run", "preparing", 1)
+        phases.clear()
+        phases.observe("public-run", "streaming", 2)
+        phases.observe("public-run", "old-phase", 1)
+        phases.observe("stale-run", "streaming", 1)
+        assertEquals(mapOf("public-run" to "streaming"), phases.snapshot(2))
+        phases.finished("public-run")
+        assertTrue(phases.snapshot(2).isEmpty())
+    }
 }

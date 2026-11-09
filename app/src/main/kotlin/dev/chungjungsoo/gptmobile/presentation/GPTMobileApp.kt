@@ -183,7 +183,7 @@ class GPTMobileApp :
                     kotlinx.coroutines.flow.combine(startup.settingRepository().observeFeatureSettings(), startup.settingRepository().observePlatformV2s()) { settings, profiles ->
                         dev.chungjungsoo.gptmobile.data.research.work.examinationConfigurationRevision(settings, profiles)
                     }.distinctUntilChanged().collect {
-                        dev.chungjungsoo.gptmobile.data.research.work.ResearchExaminationWorker.enqueue(this@GPTMobileApp, reconsider = true)
+                        dev.chungjungsoo.gptmobile.data.research.work.ResearchExaminationWorker.reconcile(this@GPTMobileApp, startup.researchArchiveRepository(), reconsider = true)
                     }
                 }
             }

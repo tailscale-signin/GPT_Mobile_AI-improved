@@ -21,6 +21,9 @@ data class RequestConstraints(
     val gatewayConversationId: String? = null,
     /** Complete the local turn/command reservation before a gateway model POST can begin. */
     val onGatewayCommandPrepared: (suspend (String) -> Unit)? = null,
+    val onGatewayCommandNotDispatched: (suspend (String) -> Unit)? = null,
+    val onGatewayCommandDispatching: (suspend (String) -> Unit)? = null,
+    val requireGatewayConversation: Boolean = false,
     val freshResponse: Boolean = false,
     val contextCeiling: Int? = null,
     val permissionRevision: String = "legacy-unverified",
@@ -55,6 +58,9 @@ data class RequestConstraints(
             gatewayConversationKey = gatewayConversationKey.takeIf { role == "primary" || role == "synthesis" },
             gatewayConversationId = gatewayConversationId.takeIf { role == "primary" || role == "synthesis" },
             onGatewayCommandPrepared = onGatewayCommandPrepared.takeIf { role == "primary" || role == "synthesis" },
+            onGatewayCommandNotDispatched = onGatewayCommandNotDispatched.takeIf { role == "primary" || role == "synthesis" },
+            onGatewayCommandDispatching = onGatewayCommandDispatching.takeIf { role == "primary" || role == "synthesis" },
+            requireGatewayConversation = requireGatewayConversation && role in setOf("primary", "synthesis"),
             maxOutputTokens = if (role == "github-review-preflight") minOf(maxOutputTokens ?: 512, 512) else maxOutputTokens,
             // A short helper is a preference, not a new strict Off requirement. Preserve the
             // user's explicit policy; the serializer chooses verified Off only for Auto helpers.

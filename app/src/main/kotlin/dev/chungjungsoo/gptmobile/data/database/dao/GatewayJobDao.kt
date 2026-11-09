@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
 import dev.chungjungsoo.gptmobile.data.database.entity.GatewayConversationRecord
@@ -37,14 +38,64 @@ interface GatewayJobDao {
     @Query("SELECT * FROM gateway_conversations WHERE localChatId=:chatId")
     suspend fun conversationsForChat(chatId: Int): List<GatewayConversationRecord>
 
+    @Query("SELECT * FROM gateway_conversations WHERE localChatId IS NOT NULL AND EXISTS (SELECT 1 FROM chats_v2 WHERE chat_id = gateway_conversations.localChatId)")
+    fun observeAttachedConversations(): Flow<List<GatewayConversationRecord>>
+
     @Query("SELECT * FROM gateway_conversations WHERE connectionProfileUid=:profileUid AND endpoint=:endpoint AND gatewayId=:gatewayId AND principalId=:principalId ORDER BY syncedAtMillis DESC, `key` LIMIT 100")
     suspend fun cachedConversations(profileUid: String, endpoint: String, gatewayId: String, principalId: String): List<GatewayConversationRecord>
 
     @Query("SELECT model FROM chat_platform_model_v2 WHERE chat_id=:chatId AND platform_uid=:profileUid")
     suspend fun selectedModel(chatId: Int, profileUid: String): String?
 
-    @Query("SELECT * FROM gateway_submissions WHERE chatId=:chatId ORDER BY createdAtMillis")
+    @Query("SELECT * FROM gateway_submissions WHERE chatId=:chatId AND state NOT LIKE 'LOCAL_%' ORDER BY createdAtMillis")
     suspend fun submissionsForChat(chatId: Int): List<GatewaySubmissionRecord>
+
+    @Query("SELECT * FROM gateway_submissions WHERE state IN ('LOCAL_QUEUE_ACTIVE','LOCAL_QUEUE_DELIVERY_PENDING') ORDER BY createdAtMillis, commandId")
+    fun observeQueuedDispatches(): Flow<List<GatewaySubmissionRecord>>
+
+    @Query("SELECT * FROM gateway_submissions WHERE state='LOCAL_QUEUE_ACTIVE' ORDER BY createdAtMillis, commandId")
+    suspend fun queuedDispatches(): List<GatewaySubmissionRecord>
+
+    @Query("SELECT * FROM gateway_submissions WHERE runId=:runId AND state NOT LIKE 'LOCAL_%' ORDER BY createdAtMillis, commandId")
+    suspend fun submissionsForRun(runId: String): List<GatewaySubmissionRecord>
+
+    @Query("UPDATE gateway_submissions SET state='REJECTED_NOT_DISPATCHED' WHERE commandId=:commandId AND runId=:runId AND state='RESERVED_ORDINARY'")
+    suspend fun markOrdinaryNotDispatched(commandId: String, runId: String): Int
+
+    @Query("UPDATE gateway_submissions SET state='DISPATCHING_ORDINARY' WHERE commandId=:commandId AND runId=:runId AND state IN ('RESERVED_ORDINARY','PENDING_ORDINARY') AND EXISTS (SELECT 1 FROM agent_runs r JOIN messages_v2 m ON m.message_id=r.assistant_message_id AND m.current_run_id=r.run_id AND m.ownership_fence=r.ownership_fence WHERE r.run_id=:runId AND r.status='RUNNING')")
+    suspend fun markOrdinaryDispatching(commandId: String, runId: String): Int
+
+    @Query("SELECT * FROM gateway_submissions WHERE state IN ('PENDING','DISPATCHING','OUTCOME_UNKNOWN','MIGRATED_REVIEW','RESERVED_ORDINARY','PENDING_ORDINARY','DISPATCHING_ORDINARY','ACCEPTED') ORDER BY createdAtMillis, commandId")
+    suspend fun unsettledSubmissions(): List<GatewaySubmissionRecord>
+
+    @Query("UPDATE gateway_submissions SET state='SETTLED' WHERE commandId=:commandId AND state=:expectedState")
+    suspend fun markSubmissionSettled(commandId: String, expectedState: String): Int
+
+    @Query("SELECT * FROM gateway_jobs ORDER BY observedAtMillis, `key`")
+    suspend fun cachedJobs(): List<GatewayJobRecord>
+
+    @Query("SELECT r.* FROM agent_runs r WHERE r.gateway_job_id IS NOT NULL AND r.status IN ('QUEUED','RUNNING','WAITING_PROVIDER_LIMIT','WAITING_REMOTE_JOB','INTERRUPTED','CANCELED','FAILED','PARTIAL','EVIDENCE_MISSING','BLOCKED') AND NOT EXISTS (SELECT 1 FROM gateway_submissions s WHERE s.runId=r.run_id AND s.state NOT LIKE 'LOCAL_%') AND NOT EXISTS (SELECT 1 FROM gateway_submissions proof WHERE proof.runId=r.run_id AND proof.state='LOCAL_REMOTE_TERMINAL' AND proof.payload=r.gateway_job_id) ORDER BY r.created_at, r.run_id")
+    suspend fun legacyUnsettledRuns(): List<AgentRun>
+
+    @Query("UPDATE gateway_submissions SET state=:state, receipt=:proof WHERE commandId=:commandId AND state='LOCAL_QUEUE_ACTIVE'")
+    suspend fun releaseQueuedDispatch(commandId: String, proof: String, state: String = "LOCAL_QUEUE_RELEASED"): Int
+
+    @Query("SELECT * FROM gateway_submissions WHERE state='LOCAL_QUEUE_DELIVERY_PENDING' AND (:chatId IS NULL OR chatId=:chatId) ORDER BY createdAtMillis, commandId")
+    suspend fun queuedDeliveries(chatId: Int? = null): List<GatewaySubmissionRecord>
+
+    @Query("UPDATE gateway_submissions SET state='LOCAL_QUEUE_RELEASED' WHERE commandId=:commandId AND state='LOCAL_QUEUE_DELIVERY_PENDING'")
+    suspend fun finishQueuedDelivery(commandId: String): Int
+
+    @Query("UPDATE gateway_submissions SET receipt='RESTORED_REMOTE_TERMINAL_VERIFIED' WHERE commandId=:commandId AND state='LOCAL_QUEUE_DELIVERY_PENDING' AND receipt='BACKUP_RESTORED'")
+    suspend fun reviewQueuedDelivery(commandId: String): Int
+
+    /** Explicit read-only review binds verified terminal work; it never queues inference. */
+    @Query("UPDATE agent_runs SET gateway_job_id=:jobId, gateway_base_url=:endpoint, status='INTERRUPTED', completed_at=NULL, terminal_error='GATEWAY_OUTCOME_UNKNOWN: USER_REVIEWED_RESTORED_REMOTE_TERMINAL' WHERE run_id=:runId AND ownership_fence=:fence AND EXISTS (SELECT 1 FROM gateway_submissions q WHERE q.runId=:runId AND q.state IN ('LOCAL_QUEUE_ACTIVE','LOCAL_QUEUE_DELIVERY_PENDING') AND q.receipt='BACKUP_RESTORED') AND EXISTS (SELECT 1 FROM messages_v2 m WHERE m.message_id=agent_runs.assistant_message_id AND m.current_run_id=:runId AND m.ownership_fence=:fence)")
+    suspend fun restoreReviewedQueuedDelivery(runId: String, fence: Long, jobId: String, endpoint: String): Int
+
+    /** Only a durable queue owner with no possible remote command can reclaim its original turn. */
+    @Query("UPDATE agent_runs SET status='QUEUED', completed_at=NULL, terminal_error=NULL WHERE run_id=:runId AND ownership_fence=:fence AND status='INTERRUPTED' AND gateway_job_id IS NULL AND COALESCE(terminal_error,'') != 'BACKUP_RESTORED' AND EXISTS (SELECT 1 FROM gateway_submissions q WHERE q.runId=:runId AND q.state='LOCAL_QUEUE_ACTIVE') AND NOT EXISTS (SELECT 1 FROM gateway_submissions s WHERE s.runId=:runId AND s.state NOT IN ('LOCAL_QUEUE_ACTIVE','LOCAL_QUEUE_RELEASED')) AND EXISTS (SELECT 1 FROM messages_v2 m WHERE m.message_id=agent_runs.assistant_message_id AND m.current_run_id=:runId AND m.ownership_fence=:fence)")
+    suspend fun restoreQueuedDispatch(runId: String, fence: Long): Int
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun saveConversation(conversation: GatewayConversationRecord)
@@ -124,10 +175,10 @@ interface GatewayJobDao {
     @Query("SELECT COUNT(*) FROM gateway_submissions WHERE chatId=:chatId AND executionProfileUid=:profileUid AND state='MIGRATED_REVIEW'")
     suspend fun migratedAdmissionCount(chatId: Int, profileUid: String): Int
 
-    @Query("SELECT * FROM gateway_submissions WHERE state='PENDING_ORDINARY' AND (:chatId IS NULL OR chatId=:chatId) ORDER BY createdAtMillis DESC")
+    @Query("SELECT * FROM gateway_submissions WHERE state IN ('RESERVED_ORDINARY','PENDING_ORDINARY','DISPATCHING_ORDINARY') AND (:chatId IS NULL OR chatId=:chatId) ORDER BY createdAtMillis DESC")
     suspend fun pendingOrdinary(chatId: Int? = null): List<GatewaySubmissionRecord>
 
-    @Query("SELECT * FROM gateway_submissions WHERE runId=:runId ORDER BY createdAtMillis DESC, commandId DESC LIMIT 1")
+    @Query("SELECT * FROM gateway_submissions WHERE runId=:runId AND state NOT LIKE 'LOCAL_%' ORDER BY createdAtMillis DESC, commandId DESC LIMIT 1")
     suspend fun latestSubmissionForRun(runId: String): GatewaySubmissionRecord?
 
     @Query("SELECT * FROM gateway_submissions WHERE conversationKey=:key AND userMessageId IS NOT NULL ORDER BY createdAtMillis LIMIT 1")

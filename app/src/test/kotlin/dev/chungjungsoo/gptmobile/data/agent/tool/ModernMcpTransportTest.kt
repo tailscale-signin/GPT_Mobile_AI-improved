@@ -287,6 +287,9 @@ class ModernMcpTransportTest {
             Rejection(HttpStatusCode.OK, """{"supportedVersions":[]}""", "PROTOCOL_VERSIONS_NONEMPTY_REQUIRED", "supportedVersions"),
             Rejection(HttpStatusCode.OK, """{"supportedVersions":["private-token"]}""", "PROTOCOL_VERSION_FORMAT_REQUIRED", "supportedVersions"),
             Rejection(HttpStatusCode.OK, """{"supportedVersions":["2099-01-01"]}""", "SUPPORTED_PROTOCOL_REQUIRED", "supportedVersions"),
+            Rejection(HttpStatusCode.OK, """{"supportedVersions":["2026-07-28"]}""", "CAPABILITIES_OBJECT_REQUIRED", "capabilities"),
+            Rejection(HttpStatusCode.OK, """{"supportedVersions":["2026-07-28"],"capabilities":[]}""", "CAPABILITIES_OBJECT_REQUIRED", "capabilities"),
+            Rejection(HttpStatusCode.OK, """{"supportedVersions":["2026-07-28"],"capabilities":{},"resultType":"input_required"}""", "DISCOVERY_COMPLETE_REQUIRED", "resultType"),
             Rejection(HttpStatusCode.BadRequest, """{"code":-32022,"message":"private-token","data":{"requested":"private-version","supported":["2025-06-18"]}}""", "REQUESTED_PROTOCOL_MATCH_REQUIRED", "error.data.requested"),
             Rejection(HttpStatusCode.BadRequest, """{"code":-32022,"message":"private-token","data":{"requested":"2026-07-28","supported":[]}}""", "PROTOCOL_VERSIONS_NONEMPTY_REQUIRED", "error.data.supported"),
             Rejection(HttpStatusCode.BadRequest, """{"code":-32602,"message":"private-token","data":{"private-field":"private-value"}}""", "REQUEST_PARAMETERS_ACCEPTANCE_REQUIRED", "params")

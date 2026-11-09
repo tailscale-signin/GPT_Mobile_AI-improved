@@ -188,6 +188,114 @@ class GitHubOwnedFixturesTest {
         }
     }
 
+    private fun awaiting(intent: JsonObject) = buildJsonObject {
+        put("engineering_task_id", "saved-approval")
+        put("status", "AWAITING_APPROVAL")
+        put("committed", false)
+        put("branch", branch)
+        put("expected_head_sha", intent.getValue("expected_head_sha"))
+    }
+
+    private fun approvalStatus(intent: JsonObject, state: String = "AWAITING_APPROVAL", cancelled: Boolean = false) = buildJsonObject {
+        put("engineering_task_id", "saved-approval")
+        put("state", state)
+        put("branch", branch)
+        put("publication_intent", intent)
+        put("cancelled_before_publication", cancelled)
+    }
+
+    @Test fun approvalAndFixtureSurviveRestartWithoutPublicationOrCleanup() = runBlocking {
+        val directory = Files.createTempDirectory("github-fixture-approval").toFile()
+        try {
+            val original = GitHubOwnedFixtures(GitHubRepositoryStateStore(directory), "task")
+            val remote = Remote()
+            val intent = args(origin, false)
+            original.register(root, creation(), created())
+            original.prepareCommit(root, intent)
+            original.awaitApproval(root, intent, awaiting(intent))
+            val restored = GitHubOwnedFixtures(GitHubRepositoryStateStore(directory), "task")
+            val status = restored.recoverApproval(root, approvalStatus(intent), remote::read, { remote.head == null }) { error("An active approval cannot reconcile or publish") }
+            assertEquals(JsonPrimitive("WAITING_FOR_APPROVAL"), status?.get("cleanup_status"))
+            assertEquals(JsonPrimitive("saved-approval"), status?.get("engineering_task_id"))
+            assertTrue(runCatching { remote.clean(restored, origin) }.exceptionOrNull()?.message.orEmpty().contains("WAITING_FOR_APPROVAL"))
+            assertEquals(0, remote.publications)
+            assertEquals(0, remote.deletes)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test fun approvedPublicationIsReadBackAfterRestartAndNeverPublishedAgain() = runBlocking {
+        val directory = Files.createTempDirectory("github-fixture-approved").toFile()
+        try {
+            val original = GitHubOwnedFixtures(GitHubRepositoryStateStore(directory), "task")
+            val remote = Remote()
+            val intent = args(origin, false)
+            original.register(root, creation(), created())
+            original.prepareCommit(root, intent)
+            original.awaitApproval(root, intent, awaiting(intent))
+            remote.publish(intent, first)
+            val restored = GitHubOwnedFixtures(GitHubRepositoryStateStore(directory), "task")
+            val proof = restored.recoverApproval(root, approvalStatus(intent, "MONITORING_CI"), remote::read, { remote.head == null }) { saved -> GitHubCommitReconciliation.recover(root, saved, request = remote::read) }
+            assertEquals(JsonPrimitive("PUBLISHED"), proof?.get("approval_state"))
+            assertEquals(JsonPrimitive(true), proof?.get("remote_state_verified"))
+            assertEquals(JsonPrimitive(first), proof?.get("sha"))
+            assertEquals(proof, restored.recoverApproval(root, approvalStatus(intent, "MONITORING_CI"), remote::read, { remote.head == null }) { error("Completed publication must not be reconciled twice") })
+            assertEquals(JsonPrimitive(true), remote.clean(restored, first)["absence_verified"])
+            assertEquals(1, remote.publications)
+            assertEquals(1, remote.deletes)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test fun cancelledApprovalRequiresUnchangedHeadThenRetainsCleanupUntilVerified() = runBlocking {
+        for (moved in listOf(false, true)) {
+            val directory = Files.createTempDirectory("github-fixture-cancelled").toFile()
+            try {
+                val original = GitHubOwnedFixtures(GitHubRepositoryStateStore(directory), "task")
+                val remote = Remote()
+                val intent = args(origin, false)
+                original.register(root, creation(), created())
+                original.prepareCommit(root, intent)
+                original.awaitApproval(root, intent, awaiting(intent))
+                if (moved) remote.publish(intent, first)
+                val restored = GitHubOwnedFixtures(GitHubRepositoryStateStore(directory), "task")
+                val status = approvalStatus(intent, "CANCELLED", cancelled = true)
+                val result = runCatching { restored.recoverApproval(root, status, remote::read, { remote.head == null }) { error("Prepublication cancellation cannot retry publication") } }
+                if (moved) {
+                    assertTrue(result.isFailure)
+                    assertEquals(0, remote.deletes)
+                } else {
+                    val cancelled = result.getOrThrow()
+                    assertEquals(JsonPrimitive("CANCELLED_BEFORE_PUBLICATION"), cancelled?.get("approval_state"))
+                    assertEquals(JsonPrimitive("PENDING"), cancelled?.get("cleanup_status"))
+                    assertEquals(cancelled, restored.recoverApproval(root, status, remote::read, { remote.head == null }) { error("Cancellation cannot restore a pending publication") })
+                    assertEquals(JsonPrimitive(true), remote.clean(restored, origin)["absence_verified"])
+                    assertEquals(0, remote.publications)
+                    assertEquals(1, remote.deletes)
+                }
+            } finally {
+                directory.deleteRecursively()
+            }
+        }
+    }
+
+    @Test fun legacyApprovalAdoptsOnlyTheExistingOwnedSyntheticIntent() = runBlocking {
+        val store = GitHubRepositoryStateStore()
+        val original = GitHubOwnedFixtures(store, "task")
+        val remote = Remote()
+        val intent = args(origin, false)
+        original.register(root, creation(), created())
+        val restored = GitHubOwnedFixtures(store, "task")
+        val status = restored.recoverApproval(root, approvalStatus(intent), remote::read, { remote.head == null }) { error("Waiting for native approval") }
+        assertEquals(JsonPrimitive("WAITING_FOR_APPROVAL"), status?.get("cleanup_status"))
+        assertEquals(0, remote.publications)
+        assertEquals(0, remote.deletes)
+        val foreign = JsonObject(approvalStatus(intent) + ("engineering_task_id" to JsonPrimitive("other-task")))
+        assertTrue(runCatching { restored.recoverApproval(root, foreign, remote::read, { false }) { null } }.isFailure)
+    }
+
     @Test fun lostContentReceiptUsesCompleteRemoteProofBeforeCleanupWithoutRepeatingPublication() = runBlocking {
         val directory = Files.createTempDirectory("github-fixture-pending").toFile()
         try {
@@ -200,6 +308,54 @@ class GitHubOwnedFixturesTest {
             assertEquals(JsonPrimitive(true), remote.clean(restored, first)["absence_verified"])
             assertEquals(1, remote.publications)
             assertEquals(1, remote.deletes)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test fun creationOnlyRecoveryReturnsPendingButCannotAuthorizeDeletionReconciliationAfterRestart() = runBlocking {
+        val directory = Files.createTempDirectory("github-fixture-before-delete").toFile()
+        try {
+            GitHubOwnedFixtures(GitHubRepositoryStateStore(directory), "task").register(root, creation(), created())
+            val restored = GitHubOwnedFixtures(GitHubRepositoryStateStore(directory), "task")
+            val recovery = buildJsonObject {
+                put("fixture_plan", GitHubOwnedFixtures.PLAN)
+                put("branch", branch)
+                put("base_sha", origin)
+                put("commit_sha", origin)
+            }
+            var reads = 0
+            var absenceProbes = 0
+            val status = restored.reconcile(
+                root,
+                recovery,
+                read = {
+                    reads++
+                    JsonObject(emptyMap())
+                },
+                expectedAbsence = {
+                    absenceProbes++
+                    true
+                },
+                approvalStatus = { error("Creation has no approval to recover") },
+                reconcile = { error("Creation has no publication to reconcile") }
+            )
+            assertEquals(JsonPrimitive("PENDING"), status["cleanup_status"])
+            assertFalse(status["deleted"] == JsonPrimitive(true))
+            assertFalse(status["absence_verified"] == JsonPrimitive(true))
+            val failure = runCatching {
+                restored.reconcileDeletion(root, recovery, read = {
+                    reads++
+                    JsonObject(emptyMap())
+                }, expectedAbsence = {
+                    absenceProbes++
+                    true
+                })
+            }.exceptionOrNull()
+            assertTrue(failure is IllegalArgumentException)
+            assertTrue(failure?.message.orEmpty().startsWith("FIXTURE_RECONCILE_REQUIRED:"))
+            assertEquals(0, reads)
+            assertEquals(0, absenceProbes)
         } finally {
             directory.deleteRecursively()
         }

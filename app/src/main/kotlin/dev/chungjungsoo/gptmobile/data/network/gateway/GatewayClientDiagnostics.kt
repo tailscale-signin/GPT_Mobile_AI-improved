@@ -15,7 +15,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
-internal enum class GatewayMetadataAcknowledgment { ACCEPTED, NOT_REQUESTED, REJECTED_BEFORE_PROCESSING, NOT_CONFIRMED }
+internal enum class GatewayMetadataAcknowledgment { ACCEPTED, NOT_REQUESTED, REJECTED_BEFORE_PROCESSING, NOT_CONFIRMED, CAPTURE_DISABLED, INVALID_METADATA }
 
 /** Opt-in allowlisted event metadata. Raw app logs, prompts, device identifiers and credentials are never uploaded. */
 internal object GatewayClientDiagnostics {
@@ -116,6 +116,10 @@ internal object GatewayClientDiagnostics {
     }
 
     private val captureAllowed: Boolean get() = LocalDiagnosticsPolicy.enabled && !AppLogRecorder.privateSessionActive
+
+    /** Negotiation prepares headers; it does not create a physical HTTP attempt. */
+    fun preparationHeaders(config: ProviderRequestConfig): Map<String, String> =
+        if (captureAllowed) config.extraHeaders else withoutDiagnosticHeaders(config.extraHeaders)
 
     /** Recheck at each physical dispatch; a request prepared before Debug was disabled must not upload metadata. */
     fun requestHeaders(config: ProviderRequestConfig, route: String = "other", method: String = "GET"): Map<String, String> {
@@ -256,12 +260,13 @@ internal object GatewayClientDiagnostics {
         val fields = responseFields(config, status, header)
         GatewayDiagnosticBridge.event(config, fields)
         val attributes = fields["bounded_attributes"] as JsonObject
-        AppLogRecorder.record("Gateway", "CLIENT_EXCHANGE · route=${routeIdentity(config)} · instance=${runtimeEpoch(config)} · http=$status · gatewayDebug=$debugEnabled · clientMetadataAcknowledgment=${attributes.diagnosticText("client_metadata_acknowledgment")} · admissionCode=${attributes.diagnosticText("gateway_admission_code") ?: "not_reported"} · requestDigest=${fields.diagnosticText("request_id") ?: "unavailable"}")
+        AppLogRecorder.record("Gateway", "CLIENT_EXCHANGE · route=${routeIdentity(config)} · instance=${runtimeEpoch(config)} · http=$status · gatewayDebug=$debugEnabled · clientMetadataAcknowledgment=${attributes.diagnosticText("client_metadata_acknowledgment")} · admissionCode=${attributes.diagnosticText("gateway_admission_code") ?: "not_reported"} · requestDigest=${fields.diagnosticText("operation_id") ?: fields.diagnosticText("request_id") ?: "unavailable"} · httpRequestId=${header("X-Gateway-HTTP-Request-ID")?.takeIf(instancePattern::matches) ?: "unavailable"}")
     }
 
     /** A missing acknowledgement is unknown; HTTP rejection alone proves no metadata-processing outcome. */
     internal fun responseFields(config: ProviderRequestConfig, status: Int, header: (String) -> String?): JsonObject {
         val requestDigest = header("X-Gateway-Request-ID")?.takeIf { it.length <= 128 }?.let(::researchHash) ?: "unavailable"
+        val physicalRequestId = header("X-Gateway-HTTP-Request-ID")?.takeIf(instancePattern::matches)
         val trace = tracePattern.matchEntire(header("traceparent").orEmpty())
         val attempt = header("X-Gateway-Client-Span-ID")?.let { span ->
             synchronized(lock) {
@@ -284,6 +289,8 @@ internal object GatewayClientDiagnostics {
             header("X-Gateway-Client-Diagnostics-Accepted") == "1" -> GatewayMetadataAcknowledgment.ACCEPTED
             !requested -> GatewayMetadataAcknowledgment.NOT_REQUESTED
             admissionRejected -> GatewayMetadataAcknowledgment.REJECTED_BEFORE_PROCESSING
+            header("X-Gateway-Client-Diagnostics-Status") == "capture_disabled" -> GatewayMetadataAcknowledgment.CAPTURE_DISABLED
+            header("X-Gateway-Client-Diagnostics-Status") == "invalid_metadata" -> GatewayMetadataAcknowledgment.INVALID_METADATA
             else -> GatewayMetadataAcknowledgment.NOT_CONFIRMED
         }
         return GatewayDiagnosticEvent.fields(
@@ -295,7 +302,8 @@ internal object GatewayClientDiagnostics {
                 put("category", "transport")
                 put("dispatch_state", "response_received")
                 put("retry_class", "unknown")
-                put("request_id", requestDigest)
+                put("request_id", physicalRequestId ?: requestDigest)
+                if (physicalRequestId != null) put("operation_id", requestDigest)
                 if (trace != null) {
                     put("trace_id", trace.groupValues[1])
                     put("parent_span_id", trace.groupValues[2])

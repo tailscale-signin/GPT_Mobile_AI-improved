@@ -113,7 +113,7 @@ data class AgentToolDefinition(
     }
 }
 
-enum class AgentToolCapability { WEB_SEARCH, PAGE_READER, USER_DECISION }
+enum class AgentToolCapability { WEB_SEARCH, PAGE_READER, USER_DECISION, GITHUB }
 
 data class AgentToolResult(
     val callId: String,
@@ -207,6 +207,9 @@ interface AgentProviderSession {
         tools: List<AgentToolDefinition>,
         exchanges: List<AgentToolExchange>
     ): Flow<ProviderEvent>
+
+    /** A bounded logical continuation gate; never dispatches a model request or replays a tool. */
+    suspend fun awaitRecoveryReady(maxWaitMillis: Long): Boolean = true
 
     /** Called only after runner recovery ends, with no pending calls. Must not dispatch operations. */
     fun retainedFailureResponse(failure: ProviderEvent.Failed): Flow<ProviderEvent> = kotlinx.coroutines.flow.flowOf(failure)

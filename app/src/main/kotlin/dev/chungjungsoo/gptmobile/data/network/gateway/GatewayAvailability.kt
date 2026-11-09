@@ -34,6 +34,9 @@ internal data class GatewayAvailability(
     val observedAtMillis: Long? = null,
     val observedAtElapsedMillis: Long? = null,
     val instanceId: String? = null,
+    /** Retained display evidence only; neither field grants current readiness. */
+    val lastObservedStatus: GatewayAvailabilityStatus? = null,
+    val lastObservedAtMillis: Long? = null,
     /** Server advertisement only. Saved-work actions verify their own route and identity. */
     val conversationSyncSupported: Boolean = false,
     val actionReadiness: GatewayActionReadinessEvidence = GatewayActionReadinessEvidence()
@@ -51,14 +54,22 @@ internal data class GatewayAvailability(
     internal fun fresh(now: Long): GatewayAvailability {
         if (observedAtElapsedMillis == null) return this
         return if (freshnessRemainingMillis(now) == 0L) {
-            copy(status = GatewayAvailabilityStatus.CHECKING)
+            copy(status = GatewayAvailabilityStatus.CHECKING, lastObservedStatus = lastObservedStatus ?: status, lastObservedAtMillis = lastObservedAtMillis ?: observedAtMillis)
         } else {
             this
         }
     }
+
+    internal fun unverified(status: GatewayAvailabilityStatus = GatewayAvailabilityStatus.CHECKING): GatewayAvailability = copy(
+        status = status,
+        observedAtElapsedMillis = null,
+        lastObservedStatus = lastObservedStatus ?: this.status.takeIf { observedAtMillis != null },
+        lastObservedAtMillis = lastObservedAtMillis ?: observedAtMillis
+    )
 }
 
 internal const val GATEWAY_AVAILABILITY_POLL_MILLIS = 10_000L
+internal const val GATEWAY_BACKGROUND_POLL_MILLIS = 180_000L
 internal const val GATEWAY_AVAILABILITY_FRESH_MILLIS = 20_000L
 
 internal data class GatewayAvailabilityTarget(

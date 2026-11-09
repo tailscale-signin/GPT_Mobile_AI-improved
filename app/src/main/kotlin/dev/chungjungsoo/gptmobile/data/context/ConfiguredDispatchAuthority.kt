@@ -134,6 +134,7 @@ internal object ConfiguredDispatchAuthority {
             put("delegation", Json.encodeToJsonElement(features.delegation))
             put("conversationDelegation", Json.encodeToJsonElement(chatId?.let { features.conversationDelegation[it] }))
             put("conversationResearch", Json.encodeToJsonElement(chatId?.let { features.conversationResearch[it]?.copy(crawlerProfileUid = null) }))
+            put("conversationGateway", Json.encodeToJsonElement(chatId?.let { features.conversationGateway[it] }))
             put("researchEnabled", features.researchFeature.enabled)
             put("researchReviewer", features.researchFeature.reviewerProfileUid)
             put("reasoning", Json.encodeToJsonElement(chatId?.let { features.conversationReasoning[it] }))

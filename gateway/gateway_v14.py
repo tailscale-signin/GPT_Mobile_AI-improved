@@ -20,6 +20,18 @@ config = Config.from_env()
 # Validate even direct gateway_v14 imports; do not trust a version label.
 manifest = validate_package(Path(__file__).parent)
 
+
+def build_identity():
+    build = {'sourceCommit': manifest['sourceCommit'], 'manifestVersion': 1, 'status': 'development'}
+    if getattr(sys, 'frozen', False):
+        packaged = json.loads((Path(__file__).parent / 'build-info.json').read_text(encoding='utf-8'))
+        if not re.fullmatch('[a-f0-9]{40}', packaged.get('sourceCommit', '')):
+            raise ValueError('Invalid build provenance')
+        build.update(packaged)
+        build['status'] = 'packaged'
+    return build
+
+
 import gateway_v13 as runtime
 from fastapi import FastAPI, Request
 from starlette.datastructures import Headers
@@ -41,6 +53,7 @@ from v14.service import ServiceState, LoadGuard
 from v14.activity import ActivityTracker, ActivityMiddleware, desktop_snapshot, client_snapshot
 from v14.mcp import install_mcp_resilience
 from v14.health import readiness, diagnostics
+from v14.backend_observation import model_response, backend_root
 from v14.debug import DebugLogStore, DebugMiddleware, lifecycle as debug_lifecycle, install_routes as install_debug_routes
 from v14.journal import backup_database
 from v14.engineering import EngineeringStore, EngineeringService, principal_authorized
@@ -52,7 +65,7 @@ from v14.conversations import admission_context, ConversationConflict, QueueFull
 from v14.job_catalog import install_routes as install_conversation_routes
 from v14.profile_metadata import profile_metadata
 from v14.conversation_policy import conversation_retention, verify_mutation_identity, MUTATION_IDENTITY_HEADERS, ORDINARY_RETENTION_POLICY
-from v14.execution_binding import ExecutionBindingError
+from v14.execution_binding import ExecutionBindingError, configured_route, fingerprint
 
 runtime.GATEWAY_VERSION = VERSION
 runtime.AUTO_MEMORY_RETRIEVE = False
@@ -95,6 +108,19 @@ install_graph_tool(runtime, engineering, lambda principal: principal_authorized(
 debug_log = DebugLogStore(os.getenv("GATEWAY_DEBUG_LOG") or str(Path(runtime.GATEWAY_JOB_DB_PATH).with_name("gateway-debug.jsonl")),
                           enabled=os.getenv("GATEWAY_DEBUG_MODE", "false").lower() == "true")
 runtime.gateway_debug = debug_log
+try:
+    diagnostic_route = configured_route(runtime, str(getattr(runtime, 'GATEWAY_INFERENCE_PROVIDER', None) or os.getenv('GATEWAY_INFERENCE_PROVIDER') or 'LLAMA').upper())
+except ExecutionBindingError:
+    diagnostic_route = {'runtime_config_revision': fingerprint({'invalid_backend': runtime.LLAMA_BASE}),
+                        'endpoint_identity': fingerprint(runtime.LLAMA_BASE), 'provider_kind': None}
+debug_log.configure_identity(gatewayVersion=VERSION, sourceCommit=build_identity()['sourceCommit'],
+                             buildStatus=build_identity()['status'],
+                             manifestDigest=hashlib.sha256((Path(__file__).parent / 'manifest-v14.json').read_bytes()).hexdigest(),
+                             instanceId=service.instance_id, backendType=diagnostic_route['provider_kind'],
+                             backendIdentity=diagnostic_route['endpoint_identity'],
+                             configurationFingerprint=fingerprint({'backend': diagnostic_route['runtime_config_revision'],
+                                                                   'mode': config.mode, 'durableJobs': runtime.GATEWAY_DURABLE_JOBS}),
+                             startupReason=os.getenv('GATEWAY_STARTUP_REASON', 'process_start'))
 app = FastAPI(title="Private Gateway 15", version=VERSION, lifespan=debug_lifecycle(debug_log, engineering.lifecycle(service.lifespan(runtime, config.shutdown_grace))),
               docs_url="/gateway/docs", openapi_url="/gateway/openapi.json")
 app.add_middleware(LoadGuard, config=config, state=service)
@@ -253,12 +279,7 @@ def cancel(job_id: str, request: Request):
 
 
 def capabilities(model=""):
-    build = {"sourceCommit": manifest["sourceCommit"], "manifestVersion": 1, "status": "development"}
-    if getattr(sys, 'frozen', False):
-        packaged_build = json.loads((Path(__file__).parent / 'build-info.json').read_text(encoding='utf-8'))
-        if not re.fullmatch('[a-f0-9]{40}', packaged_build.get('sourceCommit', '')):
-            raise ValueError('Invalid build provenance')
-        build.update(packaged_build)
+    build = build_identity()
     result = runtime.gateway_capabilities()
     diagnostic_snapshot = debug_log.snapshot()
     gateway_id = None
@@ -333,6 +354,13 @@ async def ready(model: str = ""):
     return JSONResponse(result, status_code=200 if result['ready'] else 503)
 
 
+@app.get('/models')
+@app.get('/v1/models')
+async def observed_models():
+    status, body = await asyncio.to_thread(model_response, runtime)
+    return JSONResponse(body, status_code=status, headers={'Cache-Control': 'no-store'})
+
+
 @app.get('/gateway/live')
 @app.get('/v1/gateway/live')
 def live():
@@ -371,8 +399,10 @@ def disabled_service_worker():
 
 
 @app.get("/gateway/admin/doctor")
-async def local_doctor():
-    return await asyncio.to_thread(doctor)
+async def local_doctor(model: str = ''):
+    if len(model) > 512:
+        return JSONResponse({'error': {'code': 'invalid_model_identifier'}}, status_code=400)
+    return await asyncio.to_thread(doctor, model)
 
 
 # New routes precede the retained catch-all UI proxy. Authentication is replaced
@@ -380,15 +410,25 @@ async def local_doctor():
 app.router.routes.extend(runtime.app.router.routes)
 
 
-def doctor():
+def doctor(model=''):
+    health = readiness(runtime, service, model)
     try:
-        probe = runtime.http_get(f"{runtime.LLAMA_BASE}/health", timeout=(2, 3))
-        backend = "ready" if probe.status_code == 200 else "unavailable"
-    except runtime.requests.RequestException:
-        backend = "unreachable"
+        target = backend_root(runtime)
+    except ExecutionBindingError:
+        target = None
+    selected = engineering.capabilities.selected_model(model) if model else None
     return {"version": VERSION, "manifest": "valid", "sourceCommit": manifest["sourceCommit"],
             "bindMode": config.mode, "apiKeyRequired": False, "memoryAuthority": "client",
-            "mcpFacade": "disabled", "modernMcp": "stdio-adapter", "backend": backend,
+            "mcpFacade": "disabled", "modernMcp": "stdio-adapter", "backend": health['checks']['backend'],
+            "configuredBackend": {'metadataBase': target, 'modelListPath': '/v1/models', 'healthPath': '/health'},
+            "selectedModel": selected, "readiness": health, "inferenceTested": False,
+            "nextSteps": [
+                'Run this doctor on the gateway host with --model and the exact selected model ID.',
+                'For connection refusal or timeout, check the configured backend listener, address, port and local firewall.',
+                'For denied metadata, authorize gateway-to-backend metadata access; keep remote gateway restrictions enabled.',
+                'For an advertised but unloaded llama.cpp router model, run prepare-model --model with that exact ID on the gateway host, then rerun doctor. This explicit command sends at most one load request and reconciles its outcome.',
+                'For invalid metadata or context, verify the backend version and expose the loaded model allocation.',
+                'Confirm readiness and verified selected-model metadata before a separate generation smoke test.'],
             "mcpTransportAdapters": capabilities()['mcpTransportAdapters'],
             "loadedModules": {"launcher": str(Path(__file__).with_name("gateway.py")), "composition": __file__, "runtime": runtime.__file__},
             "dependencies": {name: importlib.metadata.version(name) for name in ("fastapi", "uvicorn", "requests", "httpx")},
@@ -398,11 +438,18 @@ def doctor():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", nargs="?", choices=["serve", "doctor", "validate-config", "migrate-owner", "backup-journal"], default="serve")
+    parser.add_argument("command", nargs="?", choices=["serve", "doctor", "prepare-model", "validate-config", "migrate-owner", "backup-journal"], default="serve")
     parser.add_argument("--legacy-device")
     parser.add_argument("--principal")
     parser.add_argument('--output', help='New local SQLite snapshot path for backup-journal')
+    parser.add_argument('--model', default='', help='Exact selected model ID for doctor or the explicit prepare-model host action')
     args = parser.parse_args()
+    if args.command == 'prepare-model':
+        from v14.model_preparation import prepare_model
+        if not args.model or len(args.model) > 512 or args.model != args.model.strip() or any(ord(c) < 32 for c in args.model):
+            parser.error('prepare-model requires --model with one exact model identifier')
+        print(json.dumps(prepare_model(engineering.capabilities, args.model), indent=2))
+        return
     if args.command == 'backup-journal':
         if not args.output:
             parser.error('backup-journal requires --output')
@@ -418,7 +465,9 @@ def main():
         print(json.dumps({"ownershipRecordsMigrated": migrate_legacy_owner(runtime.device_store, args.legacy_device or "", args.principal or "")}))
         return
     if args.command in {"doctor", "validate-config"}:
-        result = doctor() if args.command == "doctor" else {"configuration": "valid", "manifest": "valid", "version": VERSION}
+        if len(args.model) > 512:
+            parser.error('--model must contain at most 512 characters')
+        result = doctor(args.model) if args.command == "doctor" else {"configuration": "valid", "manifest": "valid", "version": VERSION}
         print(json.dumps(result, indent=2))
         return
     import uvicorn

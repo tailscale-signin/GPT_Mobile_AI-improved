@@ -90,7 +90,8 @@ internal object DiagnosticTimeline {
         event.monotonicNanos?.let { put("monotonicNanos", it) }
         event.fence?.let { put("ownershipFence", it) }
         event.outputPartId?.let { put("outputPartId", it) }
-        drawScope(event.kind.name, event.measured, event.invocationId)
+        put("outputOrigin", event.outputOrigin.name)
+        drawScope(event.kind.name, event.measured, event.invocationId, event.outputOrigin.name)
     }
 
     /** Captured JSON is already redacted; select metadata without decoding payload receipts again. */
@@ -118,17 +119,21 @@ internal object DiagnosticTimeline {
             (row["monotonicNanos"] as? JsonPrimitive)?.longOrNull?.let { put("monotonicNanos", it) }
             (row["fence"] as? JsonPrimitive)?.longOrNull?.let { put("ownershipFence", it) }
             text("outputPartId")?.let { put("outputPartId", it) }
-            drawScope(kind, (row["measured"] as? JsonPrimitive)?.booleanOrNull, text("invocationId"))
+            val origin = text("outputOrigin")?.takeIf { name -> OutputOrigin.entries.any { it.name == name } } ?: OutputOrigin.UNKNOWN.name
+            put("outputOrigin", origin)
+            drawScope(kind, (row["measured"] as? JsonPrimitive)?.booleanOrNull, text("invocationId"), origin)
         }
     }
 
-    private fun JsonObjectBuilder.drawScope(kind: String, measured: Boolean?, invocationId: String?) {
+    private fun JsonObjectBuilder.drawScope(kind: String, measured: Boolean?, invocationId: String?, origin: String) {
         if (kind != "FIRST_VISIBLE_TEXT") return
         put("measurementScope", "rendered_run_stream")
         put("measured", measured?.let(::JsonPrimitive) ?: JsonNull)
         put("observedBoundary", if (measured == true) "COMPOSE_DRAW_CONTENT_RETURNED" else "LEGACY_DRAW_OBSERVATION")
         put("clockOrigin", "processSession_monotonicNanos")
         put("invocationAssociation", if (invocationId == null) "UNLINKED" else "EXPLICIT")
+        put("providerLatencyCandidate", measured == true && origin == OutputOrigin.MODEL_TEXT.name && invocationId != null)
+        put("providerLatencyRequires", "MATCHED_INVOCATION_STARTED_AND_FIRST_TEXT_IN_SAME_PROCESS")
         put("displayPresentationConfirmed", JsonNull)
     }
 }

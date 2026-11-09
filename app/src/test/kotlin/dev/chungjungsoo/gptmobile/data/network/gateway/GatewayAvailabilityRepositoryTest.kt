@@ -32,8 +32,219 @@ class GatewayAvailabilityRepositoryTest {
             GatewayCapabilities(gatewayVersion = "15.0.0", instanceId = instance),
             GatewayReadinessObservation(instance, modelAvailable == true && generationReady == true, generationReady, modelAvailable, draining, at)
         )
-    private fun TestScope.repository(epoch: () -> Long = { 0L }, process: (ProviderRequestConfig) -> String = { "unobserved" }, route: Flow<Boolean> = flowOf(true), wall: () -> Long = { testScheduler.currentTime }, source: GatewayAvailabilitySource) =
-        GatewayAvailabilityRepository(source, backgroundScope, { testScheduler.currentTime }, wall, epoch, process, route)
+    private fun TestScope.repository(epoch: () -> Long = { 0L }, process: (ProviderRequestConfig) -> String = { "unobserved" }, route: Flow<Boolean> = flowOf(true), routeChanges: Flow<Long> = flowOf(0L), wall: () -> Long = { testScheduler.currentTime }, source: GatewayAvailabilitySource) =
+        GatewayAvailabilityRepository(source, backgroundScope, { testScheduler.currentTime }, wall, epoch, process, route, routeChanges)
+
+    @Test fun backgroundMonitoringRetainsTheLastObservationButOnlyChecksEveryThreeMinutes() = runTest {
+        val starts = mutableListOf<Long>()
+        var current = GatewayAvailability()
+        val repository = repository { _, _, _ ->
+            starts += testScheduler.currentTime
+            ready(testScheduler.currentTime)
+        }
+        backgroundScope.launch { repository.observeBackground(listOf(target())).collect { current = it.getValue("a") } }
+        runCurrent()
+        assertTrue(current.isOnline)
+        advanceTimeBy(20_000)
+        runCurrent()
+        assertFalse(current.isOnline)
+        assertEquals(GatewayAvailabilityStatus.CHECKING, current.status)
+        assertEquals(GatewayAvailabilityStatus.ONLINE, current.lastObservedStatus)
+        assertEquals(0L, current.lastObservedAtMillis)
+        advanceTimeBy(159_999)
+        runCurrent()
+        assertEquals(listOf(0L), starts)
+        advanceTimeBy(1)
+        runCurrent()
+        assertEquals(listOf(0L, 180_000L), starts)
+        assertTrue(current.isOnline)
+        assertEquals(180_000L, current.lastObservedAtMillis)
+    }
+
+    @Test fun backgroundOwnersShareTheirScheduleAcrossDetachAndActiveOwnersTemporarilyAccelerateIt() = runTest {
+        val starts = mutableListOf<Long>()
+        val repository = repository { _, _, _ ->
+            starts += testScheduler.currentTime
+            ready(testScheduler.currentTime)
+        }
+        val first = backgroundScope.launch { repository.observeBackground(listOf(target())).collect() }
+        val second = backgroundScope.launch { repository.observeBackground(listOf(target("other"))).collect() }
+        runCurrent()
+        assertEquals(listOf(0L), starts)
+        advanceTimeBy(30_000)
+        first.cancelAndJoin()
+        second.cancelAndJoin()
+        backgroundScope.launch { repository.observeBackground(listOf(target())).collect() }
+        runCurrent()
+        assertEquals(listOf(0L), starts)
+        val active = backgroundScope.launch { repository.observe(listOf(target("queued"))).collect() }
+        runCurrent()
+        advanceTimeBy(1_000)
+        runCurrent()
+        assertEquals(listOf(0L, 31_000L), starts)
+        advanceTimeBy(9_000)
+        runCurrent()
+        assertEquals(listOf(0L, 31_000L, 40_000L), starts)
+        active.cancelAndJoin()
+        advanceTimeBy(179_999)
+        runCurrent()
+        assertEquals(3, starts.size)
+        advanceTimeBy(1)
+        runCurrent()
+        assertEquals(listOf(0L, 31_000L, 40_000L, 220_000L), starts)
+    }
+
+    @Test fun routeChangesCancelTheOldBackgroundReadAndImmediatelyRecheckWithoutWaitingForTheIdleInterval() = runTest {
+        val changes = MutableStateFlow(0L)
+        val refreshes = mutableListOf<Boolean>()
+        var cancelled = false
+        val repository = repository(routeChanges = changes) { _, _, refresh ->
+            refreshes += refresh
+            if (refreshes.size == 1) {
+                try {
+                    awaitCancellation()
+                } finally {
+                    cancelled = true
+                }
+            }
+            ready(testScheduler.currentTime)
+        }
+        var current = GatewayAvailability()
+        backgroundScope.launch { repository.observeBackground(listOf(target())).collect { current = it.getValue("a") } }
+        runCurrent()
+        changes.value++
+        runCurrent()
+        assertTrue(cancelled)
+        assertEquals(listOf(false, true), refreshes)
+        assertTrue(current.isOnline)
+    }
+
+    @Test fun backgroundFailureBackoffIsBoundedAndAnActiveQueueUsesTheActiveRetryPolicy() = runTest {
+        val starts = mutableListOf<Long>()
+        val repository = repository { _, _, _ ->
+            starts += testScheduler.currentTime
+            throw ConnectException("unavailable")
+        }
+        backgroundScope.launch { repository.observeBackground(listOf(target())).collect() }
+        runCurrent()
+        advanceTimeBy(540_000)
+        runCurrent()
+        assertEquals(listOf(0L, 180_000L, 540_000L), starts)
+        backgroundScope.launch { repository.observe(listOf(target("queued"))).collect() }
+        runCurrent()
+        advanceTimeBy(39_999)
+        runCurrent()
+        assertEquals(3, starts.size)
+        advanceTimeBy(1)
+        runCurrent()
+        assertEquals(580_000L, starts.last())
+    }
+
+    @Test fun routeLossKeepsDisplayHistoryButNeverLetsItQualifyTheNextQueuedDispatch() = runTest {
+        val route = MutableStateFlow(true)
+        val repository = repository(route = route) { _, _, _ -> ready(testScheduler.currentTime) }
+        var current = GatewayAvailability()
+        backgroundScope.launch { repository.observeBackground(listOf(target())).collect { current = it.getValue("a") } }
+        runCurrent()
+        route.value = false
+        runCurrent()
+        assertEquals(GatewayAvailabilityStatus.OFFLINE, current.status)
+        assertEquals(GatewayAvailabilityStatus.ONLINE, current.lastObservedStatus)
+        assertEquals(0L, current.lastObservedAtMillis)
+        assertFalse(current.isConnected)
+        assertFalse(current.isOnline)
+        assertEquals(null, current.observedAtElapsedMillis)
+    }
+
+    @Test fun repeatedConnectionFailureBacksOffAcrossObserversAndScreenReattachmentUntilNetworkRecovery() = runTest {
+        val starts = mutableListOf<Long>()
+        val route = MutableStateFlow(true)
+        var fail = true
+        val repository = repository(route = route) { _, _, _ ->
+            starts += testScheduler.currentTime
+            if (fail) throw ConnectException("unavailable")
+            ready(testScheduler.currentTime)
+        }
+        val first = backgroundScope.launch { repository.observe(listOf(target())).collect() }
+        val second = backgroundScope.launch { repository.observe(listOf(target("second"))).collect() }
+        runCurrent()
+        advanceTimeBy(30_000)
+        runCurrent()
+        assertEquals(listOf(0L, 10_000L, 30_000L), starts)
+        first.cancelAndJoin()
+        second.cancelAndJoin()
+        val reopened = backgroundScope.launch { repository.observe(listOf(target())).collect() }
+        runCurrent()
+        advanceTimeBy(39_999)
+        runCurrent()
+        assertEquals(3, starts.size)
+        advanceTimeBy(1)
+        runCurrent()
+        assertEquals(listOf(0L, 10_000L, 30_000L, 70_000L), starts)
+        fail = false
+        route.value = false
+        runCurrent()
+        route.value = true
+        runCurrent()
+        assertEquals(70_000L, starts.last())
+        assertEquals(5, starts.size)
+        advanceTimeBy(10_000)
+        runCurrent()
+        assertEquals(80_000L, starts.last())
+        reopened.cancelAndJoin()
+    }
+
+    @Test fun deniedReadinessWaitsForOneMinuteAndChangedEpochClearsTheHold() = runTest {
+        var calls = 0
+        var epoch = 0L
+        val repository = repository(epoch = { epoch }) { _, _, _ ->
+            calls++
+            throw GatewayDashboardAccessDenied()
+        }
+        backgroundScope.launch { repository.observe(listOf(target())).collect() }
+        runCurrent()
+        advanceTimeBy(59_000)
+        runCurrent()
+        assertEquals(1, calls)
+        epoch++
+        advanceTimeBy(1_000)
+        runCurrent()
+        assertEquals(2, calls)
+    }
+
+    @Test fun valid503ReadinessBacksOffWhileTheSameBackendFailurePersistsAndResetsForChangedReasonAndRecovery() = runTest {
+        val starts = mutableListOf<Long>()
+        var healthy = false
+        var reason = "BACKEND_GENERATION_UNAVAILABLE"
+        val repository = repository { _, model, _ ->
+            starts += testScheduler.currentTime
+            val document = kotlinx.serialization.json.Json.parseToJsonElement(
+                """{"schemaVersion":1,"instanceId":"${"a".repeat(32)}","ready":$healthy,"capabilities":{"modelAvailable":true,"generationReady":$healthy,"selectedModelDigest":"${dev.chungjungsoo.gptmobile.data.research.researchHash(model)}","reasonCode":"$reason","retryable":true,"observedAtMs":${testScheduler.currentTime},"observationAgeMs":0}}"""
+            ) as kotlinx.serialization.json.JsonObject
+            val readiness = parseGatewayReadiness(document, if (healthy) 200 else 503, model, testScheduler.currentTime, testScheduler.currentTime)
+            ready(testScheduler.currentTime).copy(readiness = readiness)
+        }
+        var current = GatewayAvailability()
+        backgroundScope.launch { repository.observe(listOf(target())).collect { current = it.getValue("a") } }
+        runCurrent()
+        assertEquals(GatewayAvailabilityStatus.NOT_READY, current.status)
+        advanceTimeBy(69_999)
+        runCurrent()
+        assertEquals(listOf(0L, 10_000L, 30_000L), starts)
+        assertFalse(current.isOnline)
+        reason = "BACKEND_CONNECTION_REFUSED"
+        advanceTimeBy(1)
+        runCurrent()
+        assertEquals(70_000L, starts.last())
+        healthy = true
+        advanceTimeBy(10_000)
+        runCurrent()
+        assertEquals(80_000L, starts.last())
+        assertTrue(current.isOnline)
+        advanceTimeBy(10_000)
+        runCurrent()
+        assertEquals(listOf(0L, 10_000L, 30_000L, 70_000L, 80_000L, 90_000L), starts)
+    }
 
     @Test fun generationOnlineAndAdvertisedHistoryDoNotVerifyAnyIndependentActionSurface() = runTest {
         val repository = repository { _, _, _ ->

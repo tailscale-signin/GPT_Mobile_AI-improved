@@ -18,6 +18,53 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubRefAvailabilityTest {
+    @Test fun repositoryPrecheckRetainsItsExactTargetAndRecoveryWithoutClearingOtherNegatives() {
+        val gate = GitHubRefAvailability(now = { 1000 }, cooldownMillis = 5000)
+        gate.failed("/repos/Owner/Repo", 404, "Not found")
+        gate.failed("/repos/owner/other", 404, "Not found")
+        gate.failed("/repos/owner/repo/branches/missing", 404, "Not found")
+        val failure = runCatching { gate.requireAvailable("/repos/owner/repo/commits/main") }.exceptionOrNull() as GitHubReadValidation
+        assertEquals("GITHUB_REPOSITORY_UNAVAILABLE", failure.code)
+        assertTrue(failure.message.orEmpty().startsWith("GITHUB_REPOSITORY_UNAVAILABLE:"))
+        assertEquals(JsonPrimitive("repository_admission"), failure.details["failed_stage"])
+        assertEquals(JsonPrimitive("PRECHECK_REJECTED"), failure.details["dispatch_state"])
+        assertEquals(JsonPrimitive("NO"), failure.details["remote_acceptance"])
+        assertEquals(JsonPrimitive(5000), failure.details["retry_after_ms"])
+        gate.revalidateRepository("/repos/owner/repo")
+        gate.requireAvailable("/repos/owner/repo/commits/main")
+        assertTrue(runCatching { gate.requireAvailable("/repos/owner/other") }.isFailure)
+        assertTrue(runCatching { gate.requireAvailable("/repos/owner/repo/branches/missing") }.isFailure)
+    }
+
+    @Test fun explicitRepositoryRefreshDoesOneFreshLookupAndLeavesAnotherTargetBlocked() = runTest {
+        var requests = 0
+        var available = false
+        val gate = GitHubRefAvailability()
+        gate.failed("/repos/owner/other", 404, "Not found")
+        val http = HttpClient(
+            MockEngine {
+                requests++
+                if (available) respond("""{"id":1,"full_name":"owner/repo","default_branch":"main"}""") else respond("""{"message":"Not found"}""", HttpStatusCode.NotFound)
+            }
+        )
+        try {
+            val client = GitHubWorkspaceClient("token", http, refAvailability = gate)
+            val args = buildJsonObject {
+                put("owner", "owner")
+                put("repo", "repo")
+            }
+            assertTrue(runCatching { client.execute("get_repository", args) }.isFailure)
+            assertTrue(runCatching { client.execute("get_repository", args) }.exceptionOrNull() is GitHubReadValidation)
+            assertEquals(1, requests)
+            available = true
+            client.execute("get_repository", JsonObject(args + ("refresh" to JsonPrimitive(true))))
+            assertEquals(2, requests)
+            assertTrue(runCatching { gate.requireAvailable("/repos/owner/other") }.isFailure)
+        } finally {
+            http.close()
+        }
+    }
+
     @Test fun unavailableRefBlocksDependentReadsWithoutChangingRepositoryOrRefKind() {
         val gate = GitHubRefAvailability()
         gate.failed("/repos/Owner/Repo/commits/missing%2Fbranch", 422, "No commit found for SHA")

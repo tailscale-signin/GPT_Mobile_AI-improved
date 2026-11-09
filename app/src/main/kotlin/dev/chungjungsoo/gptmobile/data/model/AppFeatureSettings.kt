@@ -86,6 +86,7 @@ data class AppFeatureSettings(
     val profileBehavior: Map<String, ProfileBehaviorSettings> = emptyMap(),
     val conversationResearch: Map<Int, MultiSearchResearchSelection> = emptyMap(),
     val conversationGitHub: Map<Int, dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext> = emptyMap(),
+    val conversationGateway: Map<Int, dev.chungjungsoo.gptmobile.data.queue.GatewayQueuedSelection> = emptyMap(),
     val githubMainProfiles: Map<String, String> = emptyMap(),
     val githubDefaultProfileUid: String? = null,
     val githubProfileOverrides: Map<String, dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride> = emptyMap(),

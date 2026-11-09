@@ -5,6 +5,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.chungjungsoo.gptmobile.data.database.entity.GatewayJobRecord
+import dev.chungjungsoo.gptmobile.data.github.GatewayAdmissionException
+import dev.chungjungsoo.gptmobile.data.github.GatewayAdmissionReason
+import dev.chungjungsoo.gptmobile.data.github.GatewayAdmissionRetryability
 import dev.chungjungsoo.gptmobile.data.github.GatewayConversationConflict
 import dev.chungjungsoo.gptmobile.data.github.GatewayConversationRepository
 import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringBinding
@@ -19,6 +22,7 @@ import dev.chungjungsoo.gptmobile.data.github.GatewayJobStopReview
 import dev.chungjungsoo.gptmobile.data.github.GatewayJobSummary
 import dev.chungjungsoo.gptmobile.data.github.gatewayIdentityKey
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
+import java.io.IOException
 import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -51,6 +55,10 @@ class GatewayJobsViewModel @Inject constructor(
     private var stopAction: Job? = null
     private var boundRoute: GatewayJobRoute? = null
     private var visibleEpoch = 0L
+    private var consecutiveCatalogFailures = 0
+    private var suspendedCatalogRoute: GatewayJobRoute? = null
+    private var suspendedCatalogMessage: String? = null
+    private var suspendedCatalogState = GatewayCatalogState.REPAIR_REQUIRED
 
     fun bind(profileUid: String?, force: Boolean = false) {
         if (!force && mutable.value.profileUid == profileUid && observer?.isActive == true) return
@@ -60,6 +68,7 @@ class GatewayJobsViewModel @Inject constructor(
         stopAction?.cancel()
         cachedRows = emptyList()
         boundRoute = null
+        consecutiveCatalogFailures = 0
         mutable.value = GatewayJobsState(profileUid = profileUid)
         if (profileUid == null) return
         observer = viewModelScope.launch(Dispatchers.IO) {
@@ -70,14 +79,21 @@ class GatewayJobsViewModel @Inject constructor(
                     stopAction?.cancel()
                     cachedRows = emptyList()
                     boundRoute = route
+                    consecutiveCatalogFailures = 0
                     mutable.value = GatewayJobsState(profileUid = profileUid)
-                    if (route == null) return@collectLatest
+                    if (route == null) {
+                        mutable.value = GatewayJobsState(profileUid = profileUid, automaticRefreshAllowed = false, catalogState = GatewayCatalogState.CONFIGURATION_REQUIRED, error = "Select the engineering gateway connection in GitHub settings. Model-server availability does not enable saved gateway jobs.")
+                        return@collectLatest
+                    }
                     val trusted = repository.cachedScope(route)
                     val profiles = settings.fetchPlatformV2s().associate { it.uid to it.name }
                     if (generation != epoch || binding != bindingGeneration) return@collectLatest
                     mutable.value = GatewayJobsState(
                         profileUid = profileUid,
                         configured = true,
+                        automaticRefreshAllowed = route != suspendedCatalogRoute,
+                        error = suspendedCatalogMessage.takeIf { route == suspendedCatalogRoute },
+                        catalogState = if (route == suspendedCatalogRoute) suspendedCatalogState else GatewayCatalogState.UNCHECKED,
                         profileNames = profiles,
                         connectionName = profiles[route.profileUid] ?: "Gateway",
                         gatewayId = trusted?.gatewayId,
@@ -109,7 +125,7 @@ class GatewayJobsViewModel @Inject constructor(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
-                if (binding == bindingGeneration) mutable.update { it.copy(error = failure.message) }
+                if (binding == bindingGeneration) mutable.update { it.copy(error = failure.message, automaticRefreshAllowed = false) }
             }
         }
     }
@@ -122,8 +138,15 @@ class GatewayJobsViewModel @Inject constructor(
             if (profileUid == null) return
             state.first { it.profileUid != profileUid || it.configured || it.error != null }
             while (visibility == visibleEpoch && mutable.value.profileUid == profileUid) {
-                refresh()
-                delay(5_000)
+                if (!mutable.value.automaticRefreshAllowed) {
+                    // A deterministic contract or account failure needs repair, not another GET.
+                    // An explicit refresh or a changed configuration can enable observation again.
+                    state.first { it.profileUid != profileUid || it.automaticRefreshAllowed }
+                    if (visibility != visibleEpoch || mutable.value.profileUid != profileUid) break
+                    delay(mutable.value.refreshDelayMillis)
+                }
+                refresh(automatic = true)
+                delay(mutable.value.refreshDelayMillis)
             }
         } finally {
             if (visibility == visibleEpoch) {
@@ -150,9 +173,15 @@ class GatewayJobsViewModel @Inject constructor(
         }
     }
 
-    suspend fun refresh(loadMore: Boolean = false, restart: Boolean = false) = refreshLock.withLock {
+    suspend fun refresh(loadMore: Boolean = false, restart: Boolean = false, automatic: Boolean = false) = refreshLock.withLock {
         val profileUid = mutable.value.profileUid ?: return@withLock
-        if (!mutable.value.configured || mutable.value.legacy) return@withLock
+        if (!mutable.value.configured || automatic && mutable.value.legacy) return@withLock
+        if (automatic && !mutable.value.automaticRefreshAllowed) return@withLock
+        if (!automatic) {
+            consecutiveCatalogFailures = 0
+            repository.invalidateSavedWorkContract()
+            mutable.update { it.copy(legacy = false, legacyDetail = null, opening = null) }
+        }
         val generation = epoch
         val cursor = if (loadMore) mutable.value.nextCursor ?: return@withLock else null
         mutable.update { it.copy(loading = true, refreshStartedAtMillis = System.currentTimeMillis()) }
@@ -168,6 +197,9 @@ class GatewayJobsViewModel @Inject constructor(
                 check(page.nextCursor != cursor || !page.hasMore) { "The gateway catalog cursor did not advance." }
                 check(page.gatewayId == mutable.value.gatewayId && page.principalId == mutable.value.principalId) { "The catalog account changed during pagination." }
             }
+            consecutiveCatalogFailures = 0
+            suspendedCatalogRoute = null
+            suspendedCatalogMessage = null
             mutable.update {
                 val reset = !it.loaded || restart || !loadMore && (!it.hasMore || page.complete)
                 val pageKeys = page.items.map { job -> gatewayIdentityKey(page.gatewayId, page.principalId, job.jobKind, job.jobId) }.toSet()
@@ -175,6 +207,8 @@ class GatewayJobsViewModel @Inject constructor(
                 val complete = if (reset || loadMore) page.complete else it.inventoryComplete
                 it.copy(
                     loading = false, error = null, legacy = false, loaded = true, counts = page.counts,
+                    automaticRefreshAllowed = true, refreshDelayMillis = 5_000,
+                    catalogState = GatewayCatalogState.CURRENT,
                     hasMore = if (reset || loadMore) page.hasMore else it.hasMore,
                     nextCursor = if (reset || loadMore) page.nextCursor else it.nextCursor, serverNow = page.serverNow,
                     inventoryComplete = complete, catalogKeys = keys,
@@ -197,9 +231,25 @@ class GatewayJobsViewModel @Inject constructor(
             throw cancelled
         } catch (unsupported: GatewayHistoryUnsupported) {
             val legacy = repository.legacyJobs(profileUid)
-            if (generation == epoch) mutable.update { it.copy(loading = false, loaded = true, error = unsupported.message, legacyRows = legacy.map { row -> GatewayJobRow(row, repository.summary(row)) }) }
+            if (generation == epoch) {
+                suspendedCatalogRoute = boundRoute
+                suspendedCatalogMessage = unsupported.message
+                suspendedCatalogState = GatewayCatalogState.UNSUPPORTED
+                mutable.update { it.copy(loading = false, loaded = true, error = unsupported.message, automaticRefreshAllowed = false, catalogState = GatewayCatalogState.UNSUPPORTED, legacyRows = legacy.map { row -> GatewayJobRow(row, repository.summary(row)) }) }
+            }
         } catch (failure: Exception) {
-            if (generation == epoch) mutable.update { it.copy(loading = false, error = failure.message ?: "Gateway history unavailable") }
+            if (generation == epoch) {
+                val retryable = if (failure is GatewayAdmissionException) failure.retryability == GatewayAdmissionRetryability.SAFE_READ else failure is IOException
+                val unsupported = failure is GatewayAdmissionException && failure.reason == GatewayAdmissionReason.UNSUPPORTED_CONTRACT
+                val legacy = if (unsupported) repository.legacyJobs(profileUid).map { row -> GatewayJobRow(row, repository.summary(row)) } else null
+                if (generation != epoch) return@withLock
+                suspendedCatalogRoute = if (retryable) null else boundRoute
+                suspendedCatalogMessage = if (retryable) null else failure.message ?: "Gateway history unavailable"
+                suspendedCatalogState = if (unsupported) GatewayCatalogState.UNSUPPORTED else GatewayCatalogState.REPAIR_REQUIRED
+                consecutiveCatalogFailures = (consecutiveCatalogFailures + 1).coerceAtMost(4)
+                val retryDelay = (5_000L * (1L shl consecutiveCatalogFailures)).coerceAtMost(60_000L)
+                mutable.update { it.copy(loading = false, error = failure.message ?: "Gateway history unavailable", automaticRefreshAllowed = retryable, refreshDelayMillis = retryDelay, catalogState = if (retryable) GatewayCatalogState.TRANSIENT_FAILURE else suspendedCatalogState, legacyRows = legacy ?: it.legacyRows) }
+            }
         }
     }
 
@@ -385,6 +435,8 @@ data class GatewayJobRow(val record: GatewayJobRecord, val summary: GatewayJobSu
 
 data class GatewayStopDraft(val row: GatewayJobRow, val review: GatewayJobStopReview? = null, val busy: Boolean = false, val result: GatewayJobStopResult? = null, val error: String? = null)
 
+enum class GatewayCatalogState { UNCHECKED, CURRENT, TRANSIENT_FAILURE, UNSUPPORTED, REPAIR_REQUIRED, CONFIGURATION_REQUIRED }
+
 data class GatewayJobsState(
     val profileUid: String? = null,
     val configured: Boolean = false,
@@ -393,6 +445,9 @@ data class GatewayJobsState(
     val rows: List<GatewayJobRow> = emptyList(),
     val loading: Boolean = false,
     val loaded: Boolean = false,
+    val automaticRefreshAllowed: Boolean = true,
+    val refreshDelayMillis: Long = 5_000,
+    val catalogState: GatewayCatalogState = GatewayCatalogState.UNCHECKED,
     val legacy: Boolean = false,
     val legacyRows: List<GatewayJobRow> = emptyList(),
     val error: String? = null,

@@ -77,4 +77,57 @@ class GitHubActivityLinesTest {
         assertEquals(listOf(first, second), gitHubActivityLines(listOf(first, second), "fix"))
         assertFalse(gitHubActivityLines(emptyList(), "fix").single().modelAuthored)
     }
+
+    @Test fun retainedPublicFindingsReplaceLaterGenericSummaryInThePrimaryView() {
+        val details = "## Findings\n\n- The staged patch is retained.\n- [Check details](https://github.com/owner/repo/actions/runs/1)\n\nApproval is still required."
+        val public = line(details).copy(modelAuthored = true, progressId = "saved-findings")
+        val generic = line("I have completed 5 repository operations. Reviewing the latest result and the next step. Next, I will review these results and continue the remaining requested work. Any remaining checks or blocked operations stay visible until their results can be verified.", true)
+        val waiting = line("Waiting for approval before committing.")
+        val history = listOf(public, generic, waiting, AssistantTimelineItem(AssistantTimelineItemType.TEXT, generic.content))
+        val primary = gitHubResponsePresentation(generic.content, history)
+        assertEquals(details, primary.text)
+        assertTrue(primary.progressOnly)
+        assertEquals(details, primary.timeline.single { it.type == AssistantTimelineItemType.TEXT }.content)
+        assertEquals("saved-findings", primary.timeline.last().progressId)
+        assertTrue(primary.timeline.any { it.content == waiting.content })
+        assertEquals(details, public.content)
+        assertTrue(history.any { it.content == generic.content })
+        assertTrue(history.any { it.content == details && !it.statusSummary })
+        // The exact historical ticker form remains recognizable when its original
+        // status-summary row was pruned; no broad prose heuristic is needed.
+        assertEquals(details, gitHubResponsePresentation(generic.content, history - generic).text)
+    }
+
+    @Test fun mainSummaryNeverPromotesReasoningToolBodiesOrPrivateDelegation() {
+        val public = line("The build log identifies the failing check.").copy(modelAuthored = true)
+        val privateItems = listOf(
+            public.copy(type = AssistantTimelineItemType.THINKING, content = "private reasoning"),
+            public.copy(type = AssistantTimelineItemType.TOOL, content = "raw tool result"),
+            public.copy(toolSequence = 1, content = "tool diagnostic"),
+            public.copy(progressCheckpoint = false, content = "internal notice"),
+            public.copy(delegationInvocationId = "private-review", content = "private review"),
+            public.copy(content = "<think>private inline reasoning</think>")
+        )
+        assertEquals(public.content, gitHubPublicSummary(listOf(public) + privateItems)?.content)
+        assertEquals(null, gitHubPublicSummary(privateItems))
+    }
+
+    @Test fun latestPublicSummaryKeepsItsFullSavedBodyAndUpdatesTheMainView() {
+        val earlier = line("Earlier findings").copy(modelAuthored = true)
+        val latest = line("## Latest findings\n\n" + "A retained observation.\n".repeat(200)).copy(modelAuthored = true)
+        val primary = gitHubResponsePresentation("", listOf(earlier, latest))
+        assertEquals(latest.content, primary.text)
+        assertEquals(latest.content, primary.timeline.single { it.type == AssistantTimelineItemType.TEXT }.content)
+        assertTrue(primary.progressOnly)
+    }
+
+    @Test fun substantiveAnswerKeepsPriorityAndGenericOnlyHistoryCannotInventOne() {
+        val public = line("I will inspect the workflow next.").copy(modelAuthored = true)
+        val report = "## Results\n\nNo failed runs were observed in the returned set."
+        val timeline = listOf(public, AssistantTimelineItem(AssistantTimelineItemType.TEXT, report))
+        assertEquals(GitHubResponsePresentation(report, timeline), gitHubResponsePresentation(report, timeline))
+        assertEquals(GitHubResponsePresentation("", timeline), gitHubResponsePresentation("", timeline))
+        val generic = line("Reviewing the latest result.", true)
+        assertEquals(GitHubResponsePresentation(generic.content, listOf(generic)), gitHubResponsePresentation(generic.content, listOf(generic)))
+    }
 }

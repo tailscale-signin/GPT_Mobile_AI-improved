@@ -16,8 +16,14 @@ data class ProviderRequestConfig(
     val gatewayConversationId: String? = null,
     /** Suspends until the exact command identity is durable locally; failures prevent dispatch. */
     val onGatewayCommandPrepared: (suspend (String) -> Unit)? = null,
+    /** Exact local proof when command reservation ends before any HTTP dispatch is possible. */
+    val onGatewayCommandNotDispatched: (suspend (String) -> Unit)? = null,
+    /** Monotonic command fence, committed immediately before HTTP becomes possible. */
+    val onGatewayCommandDispatching: (suspend (String) -> Unit)? = null,
     /** Set only by verified capability negotiation, never from the profile label. */
     val gatewayConversationSync: Boolean = false,
+    /** Explicit Gateway queue turns require a durable command before inference. */
+    val requireGatewayConversation: Boolean = false,
     val openRouterReceipt: dev.chungjungsoo.gptmobile.data.openrouter.account.OpenRouterReceiptContext? = null,
     val profileUid: String? = null,
     val profileRevision: String? = null,

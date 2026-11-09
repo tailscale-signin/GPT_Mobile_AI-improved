@@ -11,10 +11,12 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 
 @Serializable
-enum class ProviderFailureStage { GENERATION, CONTINUATION, REVIEW_COMPATIBILITY, ANSWER_REVIEW, CLAIM_VERIFICATION, DELIVERY }
+enum class ProviderFailureStage { ADMISSION, GENERATION, CONTINUATION, REVIEW_COMPATIBILITY, ANSWER_REVIEW, CLAIM_VERIFICATION, DELIVERY }
 
 @Serializable
 enum class ProviderResponseFormat { TEXT, GITHUB_REVIEW_V1, CLAIM_JSON }
@@ -36,14 +38,25 @@ data class ProviderFailureReceipt(
     val outputLimitReached: Boolean = false,
     val transportComplete: Boolean = false,
     val outputTokens: Int? = null,
-    val reasoningTokens: Int? = null
+    val reasoningTokens: Int? = null,
+    val dispatched: Boolean? = null,
+    val remoteAcceptance: dev.chungjungsoo.gptmobile.data.agent.RemoteRequestAcceptance = dev.chungjungsoo.gptmobile.data.agent.RemoteRequestAcceptance.UNKNOWN,
+    val generationCompleted: Boolean? = null,
+    val requestReplayAllowed: Boolean? = null,
+    val logicalContinuationAllowed: Boolean? = null,
+    val serverRequestId: String? = null,
+    val generationId: String? = null,
+    val causeTypes: List<String> = emptyList()
 ) {
     internal fun valid(): Boolean = provider in setOf("OPENAI", "ANTHROPIC", "GOOGLE", "GROQ", "OPENROUTER", "OLLAMA", "CUSTOM", "LITERT_LM", "LLAMA", "FREE", "NVIDIA") &&
         listOf(profileHash, modelHash).all { it.matches(Regex("[a-f0-9]{64}")) } &&
         errorCode in ERROR_CODES &&
         (httpStatus == null || httpStatus in 100..599) &&
         (outputTokens == null || outputTokens >= 0) &&
-        (reasoningTokens == null || reasoningTokens >= 0)
+        (reasoningTokens == null || reasoningTokens >= 0) &&
+        listOfNotNull(serverRequestId, generationId).all { dev.chungjungsoo.gptmobile.data.network.safeProviderRequestIdentity(it) != null } &&
+        causeTypes.size <= 16 &&
+        causeTypes.all { it.length <= 160 && it.matches(Regex("[A-Za-z0-9_.$]+")) }
 
     companion object {
         // Provider error strings are untrusted content, even when they look like an enum.
@@ -58,17 +71,22 @@ data class ProviderFailureReceipt(
             "GITHUB_OPERATION_BLOCKED", "GITHUB_RUN_INTERRUPTED", "GITHUB_TASK_INCOMPLETE", "GITHUB_UNEXPECTED_RESPONSE",
             "OUTPUT_CONTINUATION_BUDGET_EXHAUSTED", "OUTPUT_CONTINUATION_DISABLED", "OUTPUT_CONTINUATION_NO_PROGRESS",
             "OUTPUT_CONTINUATION_PENDING_TOOLS", "OUTPUT_CONTINUATION_UNAVAILABLE", "OUTPUT_PROTOCOL_INVALID",
-            "INVALID_ARGUMENTS", "TOOL_OUTCOME_UNKNOWN", "TOOL_PROTOCOL_INVALID_FRAME", "TOOL_UNAVAILABLE", "FINAL_RESPONSE_REQUIRED"
-        ) + dev.chungjungsoo.gptmobile.data.network.error.ProviderContractFailure.codes
+            "INVALID_ARGUMENTS", "TOOL_OUTCOME_UNKNOWN", "TOOL_PROTOCOL_INVALID_FRAME", "TOOL_UNAVAILABLE", "FINAL_RESPONSE_REQUIRED",
+            "WAITING_FOR_APPROVAL", "PROVIDER_INVOCATION_FAILED", "INCOMPLETE_PROVIDER_STREAM"
+        ) + dev.chungjungsoo.gptmobile.data.network.error.ProviderContractFailure.codes +
+            dev.chungjungsoo.gptmobile.data.network.NetworkFailureKind.entries.map { it.code } +
+            dev.chungjungsoo.gptmobile.data.github.GatewayAdmissionReason.entries.map { "GATEWAY_${it.name}" }
 
         fun from(profile: PlatformV2, role: String, failure: ProviderEvent.Failed, usage: ProviderEvent.Usage? = null): ProviderFailureReceipt {
             val status = ((failure.failureDetails?.get("http_status") as? JsonPrimitive)?.intOrNull ?: failure.errorCode?.toIntOrNull())?.takeIf { it in 100..599 }
             val code = failure.errorCode?.uppercase(java.util.Locale.ROOT)?.takeIf { it in ERROR_CODES } ?: if (status != null) "HTTP_ERROR" else "UNCLASSIFIED_PROVIDER_FAILURE"
             val failedStage = (failure.failureDetails?.get("failed_stage") as? JsonPrimitive)?.content
+            val classified = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.fromProvider(failure.message, failure.errorCode, failure.failureDetails)
             val stage = when {
+                classified.dispatched == false && failedStage in setOf("provider_admission", "connection_preflight", "backend_admission", "request_validation", "message_admission") -> ProviderFailureStage.ADMISSION
                 failedStage == "tool_continuation" -> ProviderFailureStage.CONTINUATION
                 failedStage == "gateway_recovery" -> ProviderFailureStage.DELIVERY
-                role.endsWith("-preflight") || code == "GITHUB_REVIEW_INCOMPATIBLE" -> ProviderFailureStage.REVIEW_COMPATIBILITY
+                role.endsWith("-preflight") || failedStage == "review_compatibility" || code == "GITHUB_REVIEW_INCOMPATIBLE" -> ProviderFailureStage.REVIEW_COMPATIBILITY
                 role.startsWith("github-review") || code.startsWith("GITHUB_REVIEW_") -> ProviderFailureStage.ANSWER_REVIEW
                 role == "github-claim-extraction" || code.startsWith("GITHUB_EVIDENCE_") || code.startsWith("GITHUB_EXTRACTION_") -> ProviderFailureStage.CLAIM_VERIFICATION
                 "continuation" in role -> ProviderFailureStage.CONTINUATION
@@ -93,7 +111,19 @@ data class ProviderFailureReceipt(
                 code, finish,
                 status,
                 finish == ProviderFinishCategory.LENGTH || code in setOf("OUTPUT_LIMIT", "OUTPUT_CONTINUATION_BUDGET_EXHAUSTED") || dev.chungjungsoo.gptmobile.data.agent.tool.isProviderOutputLimitFailure(failure.message),
-                failure.transportComplete, usage?.outputTokens?.takeIf { it >= 0 }, usage?.reasoningTokens?.takeIf { it >= 0 }
+                failure.transportComplete, usage?.outputTokens?.takeIf { it >= 0 }, usage?.reasoningTokens?.takeIf { it >= 0 },
+                dispatched = classified.dispatched,
+                remoteAcceptance = classified.remoteAcceptance,
+                generationCompleted = classified.generationCompleted,
+                requestReplayAllowed = classified.requestReplayAllowed,
+                logicalContinuationAllowed = if (classified.category in setOf("GATEWAY_OUTCOME_UNKNOWN", "TOOL_OUTCOME_UNKNOWN") || failure.failureDetails?.get("requires_reconciliation") == JsonPrimitive(true)) {
+                    false
+                } else {
+                    (failure.failureDetails?.get("logical_continuation_allowed") as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull
+                },
+                serverRequestId = classified.serverRequestId,
+                generationId = dev.chungjungsoo.gptmobile.data.network.safeProviderRequestIdentity((failure.failureDetails?.get("generation_id") as? JsonPrimitive)?.contentOrNull),
+                causeTypes = classified.causeTypes
             )
         }
     }

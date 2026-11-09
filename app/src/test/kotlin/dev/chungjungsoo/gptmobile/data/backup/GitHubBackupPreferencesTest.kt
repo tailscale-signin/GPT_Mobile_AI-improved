@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.backup
 import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringBinding
 import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringRequest
 import dev.chungjungsoo.gptmobile.data.model.ConversationCombinedSettings
+import dev.chungjungsoo.gptmobile.data.queue.GatewayQueuedSelection
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -66,5 +67,29 @@ class GitHubBackupPreferencesTest {
         assertNull(jobs.first().localUserMessageId)
         assertNull(jobs.first().localAssistantMessageId)
         assertNull(jobs.first().localRunId)
+    }
+
+    @Test fun gatewayChatSelectionRestoresOnlyToTheSameConversationIdentity() {
+        val selection = GatewayQueuedSelection("missing-original-profile", "original-model", "http://192.168.1.4:8090", "LLAMA", "a".repeat(64))
+        val saved = prefs(JsonObject(mapOf("conversationGateway" to JsonObject(mapOf("12" to Json.encodeToJsonElement(GatewayQueuedSelection.serializer(), selection))))).toString())
+        val current = prefs("""{"conversationIdentities":{"24":"identity","12":"unrelated"}}""")
+        val restored = GitHubBackupPreferences.restore(current, current, saved, snapshot, false, true, setOf(12, 24), emptySet(), emptySet())
+        val map = Json.parseToJsonElement(restored.values.single().value).jsonObject.getValue("conversationGateway").jsonObject
+        assertEquals(setOf("24"), map.keys)
+        assertEquals(selection, Json.decodeFromJsonElement(GatewayQueuedSelection.serializer(), map.getValue("24")))
+
+        val noIdentity = GitHubBackupPreferences.restore(current, current, saved, null, false, true, setOf(12, 24), emptySet(), emptySet())
+        assertTrue(Json.parseToJsonElement(noIdentity.values.single().value).jsonObject.getValue("conversationGateway").jsonObject.isEmpty())
+        val sanitized = PluginBackupPreferences.sanitizeAcademic(saved)
+        assertFalse(Json.parseToJsonElement(sanitized.values.single().value).jsonObject.containsKey("conversationGateway"))
+    }
+
+    @Test fun completeChatRestoreKeepsItsFrozenGatewaySelectionWithoutGrantingAReplacementProfile() {
+        val selection = GatewayQueuedSelection("missing-profile", "original-model", "http://192.168.1.4:8090", "LLAMA", "a".repeat(64))
+        val saved = prefs(JsonObject(mapOf("conversationGateway" to JsonObject(mapOf("12" to Json.encodeToJsonElement(GatewayQueuedSelection.serializer(), selection))))).toString())
+        val restored = GitHubBackupPreferences.restore(emptyMap(), emptyMap(), saved, snapshot, true, true, setOf(12), emptySet(), emptySet())
+        val map = Json.parseToJsonElement(restored.values.single().value).jsonObject.getValue("conversationGateway").jsonObject
+        assertEquals(selection, Json.decodeFromJsonElement(GatewayQueuedSelection.serializer(), map.getValue("12")))
+        assertEquals(setOf("12"), map.keys)
     }
 }

@@ -5,6 +5,51 @@ import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType
 import dev.chungjungsoo.gptmobile.data.github.GitHubProgressPresentation
 import java.util.Locale
 
+/** Only explicitly public prose can replace a generic activity summary, including retained messages. */
+internal fun gitHubPublicSummary(timeline: List<AssistantTimelineItem>): AssistantTimelineItem? =
+    timeline.asReversed().firstNotNullOfOrNull { item ->
+        if (item.type != AssistantTimelineItemType.NOTICE ||
+            !item.progressCheckpoint ||
+            !item.modelAuthored ||
+            item.delegationInvocationId != null ||
+            item.delegationProfile != null ||
+            item.delegatedTool ||
+            item.toolSequence != null ||
+            item.toolMetrics != null ||
+            item.recalledFacts.isNotEmpty()
+        ) {
+            null
+        } else {
+            val publicText = dev.chungjungsoo.gptmobile.data.conversation.AnswerProjection.text(item.content)
+            item.copy(content = publicText, statusSummary = true).takeIf { publicText.isNotBlank() }
+        }
+    }
+
+internal data class GitHubResponsePresentation(val text: String, val timeline: List<AssistantTimelineItem>, val progressOnly: Boolean = false)
+
+/** Reuse retained public prose in the normal answer renderer, without certifying it as a final answer. */
+internal fun gitHubResponsePresentation(text: String, timeline: List<AssistantTimelineItem>): GitHubResponsePresentation {
+    val unchanged = GitHubResponsePresentation(text, timeline)
+    val summary = gitHubPublicSummary(timeline) ?: return unchanged
+    fun generated(value: String): Boolean {
+        val normalized = value.replace(Regex("\\s+"), " ").trim()
+        if (timeline.any { it.statusSummary && !it.modelAuthored && it.content.replace(Regex("\\s+"), " ").trim() == normalized }) return true
+        // Older messages sometimes saved this exact ticker template as response
+        // text. Do not suppress arbitrary prose merely because it sounds vague.
+        return Regex("^I have (?:completed [0-9]+ repository operations\\.|received the request; no repository operation has completed yet\\.) ").containsMatchIn(normalized) &&
+            normalized.contains("Next, I will ") &&
+            normalized.endsWith("Any remaining checks or blocked operations stay visible until their results can be verified.")
+    }
+    if (dev.chungjungsoo.gptmobile.data.conversation.AnswerProjection.hasAnswer(text) && !generated(text)) return unchanged
+    if (timeline.any { it.type == AssistantTimelineItemType.TEXT && dev.chungjungsoo.gptmobile.data.conversation.AnswerProjection.hasAnswer(it.content) && !generated(it.content) }) return unchanged
+    return GitHubResponsePresentation(
+        summary.content,
+        timeline.filterNot { it.type == AssistantTimelineItemType.TEXT } +
+            summary.copy(type = AssistantTimelineItemType.TEXT, progressCheckpoint = false, statusSummary = false),
+        progressOnly = true
+    )
+}
+
 /** Repair ordering in retained timelines too: introduce the activity before any preview. */
 internal fun gitHubActivityLines(timeline: List<AssistantTimelineItem>, task: String, searchActive: Boolean = false): List<AssistantTimelineItem> {
     val previews = mutableSetOf<String>()

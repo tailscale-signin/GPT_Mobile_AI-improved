@@ -9,6 +9,7 @@ REQUIRED.update({'v14/journal.py', 'v14/service.py', 'v14/mcp.py', 'v14/health.p
 REQUIRED.update({'v14/evidence.py', 'v14/engineering_diagnostics.py'})
 REQUIRED.update({'v14/engineering_memory.py', 'v14/engineering_crypto.py'})
 REQUIRED.update({'v14/engineering_backup.py', 'v14/maintenance.py', 'v14/debug.py'})
+REQUIRED.add('v14/repository_lifecycle.py')
 
 
 def validate_package(root):

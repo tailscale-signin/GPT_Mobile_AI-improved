@@ -9,13 +9,19 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
 import dev.chungjungsoo.gptmobile.data.marketplace.MarketplacePackageStore
 import dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceRegistry
 import dev.chungjungsoo.gptmobile.data.marketplace.NativePluginInstallation
+import dev.chungjungsoo.gptmobile.data.permissions.ToolGrantRevocations
+import dev.chungjungsoo.gptmobile.data.permissions.ToolTrustStore
 import dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import java.io.IOException
+import java.util.concurrent.ConcurrentLinkedQueue
+import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -59,7 +65,7 @@ class MarketplaceViewModelTest {
         Dispatchers.resetMain()
     }
 
-    private fun model() = MarketplaceViewModel(store, registry, connections).also { viewModels.put("marketplace", it) }
+    private fun model() = MarketplaceViewModel(store, registry, connections, ioDispatcher = dispatcher).also { viewModels.put("marketplace", it) }
 
     @Test
     fun downloadInstallsNativeAdapterAndRemovalClearsRegistryAndPackage() = runTest(dispatcher) {
@@ -95,6 +101,63 @@ class MarketplaceViewModelTest {
 
         coVerify(exactly = 1) { connections.deleteConnection("owned") }
         coVerify(exactly = 0) { connections.deleteConnection("manual") }
+    }
+
+    @Test
+    fun removalDeniesImmediatelyAndAwaitsDurableRevocationBeforeDeletingConnections() = runTest(dispatcher) {
+        val owned = ToolConnection(
+            connectionUid = "owned", name = "Owned provider", alias = "owned_provider", type = ToolConnectionType.MCP,
+            endpointUrl = "https://example.test/mcp", authType = "NONE", secretRef = null, oauthClientId = null,
+            marketplaceOrigin = "MARKETPLACE", marketplaceProviderId = entry.id, marketplaceInstallationId = "install-1"
+        )
+        coEvery { connections.listConnections() } returns listOf(owned)
+        coEvery { store.downloadedIds() } returns setOf(entry.id)
+        val trust = mockk<ToolTrustStore>(relaxed = true)
+        every { trust.denyConnection(any()) } answers { ToolGrantRevocations.Ticket("connection:${firstArg<String>()}", 1) }
+        every { trust.revoke(entry.id, any(), release = false) } throws IOException("permission storage failed")
+        val ioDispatcher = PausedDispatcher()
+        val model = MarketplaceViewModel(store, registry, connections, toolTrust = trust, ioDispatcher = ioDispatcher)
+        viewModels.put("marketplace", model)
+        runCurrent()
+
+        try {
+            model.remove(entry)
+            verify(exactly = 1) { trust.denyConnection(entry.id) }
+            runCurrent()
+            verify(exactly = 0) { trust.revoke(any(), any(), release = false) }
+            coVerify(exactly = 1) { store.beginRemoval(entry) }
+            coVerify(exactly = 0) { connections.deleteConnection(any()) }
+            coVerify(exactly = 0) { store.remove(entry) }
+            assertTrue(entry.id in model.uiState.value.removingIds)
+
+            assertTrue(ioDispatcher.runNext())
+            runCurrent()
+            coVerify(exactly = 0) { connections.deleteConnection(any()) }
+            coVerify(exactly = 0) { store.remove(entry) }
+            coVerify(exactly = 0) { store.finishRemoval(entry) }
+            assertEquals(setOf(entry.id), model.uiState.value.downloadedIds)
+            assertTrue(entry.id in model.uiState.value.errors)
+            assertTrue(model.uiState.value.removingIds.isEmpty())
+
+            every { trust.revoke(entry.id, any(), release = false) } returns Unit
+            model.remove(entry)
+            runCurrent()
+            assertTrue(ioDispatcher.runNext())
+            runCurrent()
+            // The package grant is removed, but its owned connection's grant is still queued.
+            coVerify(exactly = 0) { connections.deleteConnection(any()) }
+            coVerify(exactly = 0) { store.finishRemoval(entry) }
+            assertTrue(entry.id in model.uiState.value.removingIds)
+            assertTrue(ioDispatcher.runNext())
+            runCurrent()
+            coVerify(exactly = 1) { connections.deleteConnection("owned") }
+            coVerify(exactly = 1) { store.finishRemoval(entry) }
+            assertTrue(model.uiState.value.downloadedIds.isEmpty())
+            assertTrue(model.uiState.value.errors.isEmpty())
+        } finally {
+            // A failing assertion must not strand a non-cancellable writer across fixtures.
+            repeat(4) { if (ioDispatcher.runNext()) runCurrent() }
+        }
     }
 
     @Test
@@ -198,7 +261,7 @@ class MarketplaceViewModelTest {
             persisted = firstArg<(dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings) -> dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings>()(persisted)
             persisted
         }
-        val model = MarketplaceViewModel(store, registry, connections, settings = settings)
+        val model = MarketplaceViewModel(store, registry, connections, settings = settings, ioDispatcher = dispatcher)
         viewModels.put("marketplace", model)
         model.setEnabled(entry, true)
         runCurrent()
@@ -213,7 +276,7 @@ class MarketplaceViewModelTest {
     fun failedRegistryValidationCannotChangeFeatureGates() = runTest(dispatcher) {
         val settings = mockk<dev.chungjungsoo.gptmobile.data.repository.SettingRepository>(relaxed = true)
         coEvery { registry.configuration(entry, false) } throws IllegalStateException("missing key")
-        val model = MarketplaceViewModel(store, registry, connections, settings = settings)
+        val model = MarketplaceViewModel(store, registry, connections, settings = settings, ioDispatcher = dispatcher)
         viewModels.put("marketplace", model)
         model.setEnabled(entry, true)
         runCurrent()
@@ -248,7 +311,7 @@ class MarketplaceViewModelTest {
         val resolver = mockk<AgentToolResolver>()
         coEvery { connections.getConnection("conn-1") } returns connection
         coEvery { resolver.discoverMcpTools(connection, forceRefresh = true) } returns emptyList()
-        val model = MarketplaceViewModel(store, registry, connections, agentToolResolver = resolver)
+        val model = MarketplaceViewModel(store, registry, connections, agentToolResolver = resolver, ioDispatcher = dispatcher)
         viewModels.put("marketplace", model)
 
         model.testConnection("conn-1")
@@ -277,7 +340,7 @@ class MarketplaceViewModelTest {
         val resolver = mockk<AgentToolResolver>()
         coEvery { connections.getConnection("conn-1") } returns connection
         coEvery { resolver.discoverMcpTools(connection, forceRefresh = true) } throws IOException("server echoed bearer-secret-123")
-        val model = MarketplaceViewModel(store, registry, connections, agentToolResolver = resolver)
+        val model = MarketplaceViewModel(store, registry, connections, agentToolResolver = resolver, ioDispatcher = dispatcher)
         viewModels.put("marketplace", model)
 
         model.testConnection("conn-1")
@@ -324,5 +387,18 @@ class MarketplaceViewModelTest {
 
         assertEquals(listOf(legacy), resolveMarketplaceConnections(preset, listOf(legacy)))
         assertTrue(resolveMarketplaceConnections(preset, listOf(unrelatedManual)).isEmpty())
+    }
+
+    private class PausedDispatcher : CoroutineDispatcher() {
+        private val actions = ConcurrentLinkedQueue<Runnable>()
+
+        override fun dispatch(context: CoroutineContext, block: Runnable) {
+            actions.add(block)
+        }
+
+        fun runNext(): Boolean = actions.poll()?.let {
+            it.run()
+            true
+        } ?: false
     }
 }

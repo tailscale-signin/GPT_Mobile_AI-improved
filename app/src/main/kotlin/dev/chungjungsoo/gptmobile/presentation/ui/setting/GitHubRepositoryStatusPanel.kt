@@ -155,18 +155,10 @@ internal fun GitHubRepositoryStatusPanel(connection: ToolConnection, selection: 
                                 Text("${row.status.replace('_', ' ')} · attempt ${row.attempt}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 if (row.steps.isNotBlank()) Text(row.steps, style = MaterialTheme.typography.bodySmall)
                             }
-                            row.started?.let { start ->
-                                Text(
-                                    if (row.completed != null) {
-                                        "Total ${githubElapsedTime(start, row.completed)}"
-                                    } else if (row.status in setOf("in_progress", "queued", "waiting", "pending", "requested")) {
-                                        githubElapsedTime(start, now)
-                                    } else {
-                                        "Total unavailable"
-                                    },
-                                    style = MaterialTheme.typography.labelSmall
-                                )
-                            }
+                            Text(
+                                dev.chungjungsoo.gptmobile.data.github.githubWorkflowDuration(row.started, row.completed, row.status, now),
+                                style = MaterialTheme.typography.labelSmall
+                            )
                         }
                         if (row.parentId == null) {
                             FlowRow {

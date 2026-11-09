@@ -37,14 +37,22 @@ import kotlinx.coroutines.launch
 
 @HiltViewModel
 class PluginConfigurationViewModel @Inject constructor(private val settings: SettingRepository, private val connections: ToolConnectionRepository, private val trust: dev.chungjungsoo.gptmobile.data.permissions.ToolTrustStore) : ViewModel() {
-    val grants = MutableStateFlow(trust.grants())
-    fun revoke(key: String) = launch {
-        trust.revokeGrant(key)
-        grants.value = trust.grants()
+    val grants = MutableStateFlow<List<Pair<String, String>>>(emptyList())
+    fun revoke(key: String): kotlinx.coroutines.Job {
+        val revocation = dev.chungjungsoo.gptmobile.data.permissions.ToolGrantPersistence.prepareGrantRevocation(trust, null, key, false)
+        return launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+            revocation.commit()
+            dev.chungjungsoo.gptmobile.data.permissions.ToolGrantPersistence.mutate { grants.value = trust.grants() }
+        }
     }
     val text = MutableStateFlow("")
     val notice = MutableStateFlow("")
     val preview = MutableStateFlow<PortablePluginConfiguration?>(null)
+    init {
+        launch {
+            dev.chungjungsoo.gptmobile.data.permissions.ToolGrantPersistence.mutate { grants.value = trust.grants() }
+        }
+    }
     fun export() = launch {
         text.value = PluginConfiguration.export(settings.getFeatureSettings().pluginExecution, connections.listConnections())
         notice.value = "Schema v1. Credentials, URL paths/queries, grants and active bindings are excluded."
@@ -60,7 +68,7 @@ class PluginConfigurationViewModel @Inject constructor(private val settings: Set
         notice.value = "${config.plugins.size} plugin configurations applied. Set up ${config.connections.size} listed connections in Plugins & remote MCP; re-enter endpoints and credentials there."
         preview.value = null
     }
-    private fun launch(block: suspend () -> Unit) = viewModelScope.launch {
+    private fun launch(start: kotlinx.coroutines.CoroutineStart = kotlinx.coroutines.CoroutineStart.DEFAULT, block: suspend () -> Unit) = viewModelScope.launch(start = start) {
         try {
             block()
         } catch (cancelled: CancellationException) {
@@ -106,7 +114,7 @@ fun PluginConfigurationPanel(model: PluginConfigurationViewModel = hiltViewModel
                     }
                 }
                 if (grants.isEmpty()) Text("No active remembered grants.")
-                Text("Tool catalog changes revoke remembered grants. One-hour grants are tied to a conversation, schema and supplied repository/action.", style = MaterialTheme.typography.bodySmall)
+                Text("One-hour grants are tied to a conversation, schema and supplied repository/action. Permanent grants stay active until revoked or the connection identity changes.", style = MaterialTheme.typography.bodySmall)
             }
         }
         preview?.let { config ->

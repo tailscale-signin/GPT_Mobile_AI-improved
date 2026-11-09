@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -32,6 +33,8 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
 import dev.chungjungsoo.gptmobile.data.model.collectReusableProfileLabels
 import dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.home.HomeScreen
+import dev.chungjungsoo.gptmobile.presentation.ui.home.HomeTab
+import dev.chungjungsoo.gptmobile.presentation.ui.home.HomeViewModel
 import dev.chungjungsoo.gptmobile.presentation.ui.home.MultiChatWorkspaceScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.home.NewChatProfileScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.home.NewChatTypeScreen
@@ -244,9 +247,16 @@ fun NavGraphBuilder.setupNavigation(
 }
 
 fun NavGraphBuilder.homeScreenNavigation(navController: NavHostController, onNewChatOrigin: (androidx.compose.ui.geometry.Offset) -> Unit = {}) {
-    composable(Route.CHAT_LIST) {
+    composable(Route.CHAT_LIST) { entry ->
+        val home: HomeViewModel = hiltViewModel()
+        val requestedTab by entry.savedStateHandle.getStateFlow("requested_home_tab", "").collectAsStateWithLifecycle()
+        LaunchedEffect(requestedTab) {
+            HomeTab.entries.firstOrNull { it.name == requestedTab }?.let(home::selectTab)
+            if (requestedTab.isNotBlank()) entry.savedStateHandle["requested_home_tab"] = ""
+        }
         HomeScreen(
             modifier = Modifier.captureHomeGlassBackdrop(),
+            homeViewModel = home,
             settingOnClick = { navController.navigate(Route.SETTING_ROUTE) },
             onExistingChatClick = { chatRoom, targetMessageId ->
                 val targetSuffix = if (targetMessageId != null) "&targetMessageId=$targetMessageId" else ""
@@ -268,10 +278,26 @@ fun NavGraphBuilder.homeScreenNavigation(navController: NavHostController, onNew
         )
     }
     composable(Route.GATEWAY_CONVERSATIONS) {
+        val returnHome: (HomeTab) -> Unit = { tab ->
+            val home = runCatching { navController.getBackStackEntry(Route.CHAT_LIST) }.getOrNull()
+            home?.savedStateHandle?.set("requested_home_tab", tab.name)
+            if (!navController.popBackStack(Route.CHAT_LIST, inclusive = false)) {
+                navController.navigate(Route.CHAT_LIST) { launchSingleTop = true }
+                navController.currentBackStackEntry?.savedStateHandle?.set("requested_home_tab", tab.name)
+            }
+        }
         dev.chungjungsoo.gptmobile.presentation.ui.home.GatewayConversationsScreen(
-            onBack = { navController.navigateUp() },
+            onBack = { returnHome(HomeTab.CHATS) },
+            onFavorites = { returnHome(HomeTab.FAVORITES) },
+            onSettings = { navController.navigate(Route.SETTING_ROUTE) },
+            onManageProfiles = { navController.navigate(Route.AI_PLATFORMS) },
+            onOpenLocalChat = { chat ->
+                navController.navigate("chat_room/${chat.id}?enabled=${android.net.Uri.encode(chat.enabledPlatform.joinToString(","))}&mode=${android.net.Uri.encode(chat.conversationMode)}") {
+                    launchSingleTop = true
+                }
+            },
             onOpenChat = { saved ->
-                navController.navigate("chat_room/${saved.chatId}?enabled=${android.net.Uri.encode(saved.profileUid)}") {
+                navController.navigate("chat_room/${saved.chatId}?enabled=${android.net.Uri.encode(saved.profileUid)}&mode=${android.net.Uri.encode(saved.conversationMode ?: ConversationMode.STANDARD)}") {
                     launchSingleTop = true
                 }
             }

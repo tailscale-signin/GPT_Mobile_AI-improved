@@ -16,6 +16,11 @@ internal fun classifyDiagnostic(level: String?, tag: String?, message: String): 
         // An attributed fatal event must never be downgraded by a vendor setting,
         // optional model feature, or benign platform phrase elsewhere in its stack.
         tag == "AppCrash" || "fatal exception" in text || level == "F" -> DiagnosticClassification("fatal", "critical", true)
+        tag == "ProcessExit" && Regex("(?:^| · )reasoncode=(?:4|5)(?: · |$)").containsMatchIn(text) ->
+            DiagnosticClassification("historical_process_crash", "error", true, "inspect_same_process_exit_and_crash_receipt")
+        tag == "ProcessExit" && Regex("(?:^| · )reasoncode=6(?: · |$)").containsMatchIn(text) ->
+            DiagnosticClassification("historical_anr", "warning", true, "inspect_same_process_anr_receipt")
+        tag == "ProcessExit" -> DiagnosticClassification("historical_process_exit", "info", false, "use_os_exit_reason_without_attributing_nearby_exceptions")
         tag == "VoiceRecognition" && Regex("(?:^| · )errorcode=speech_service_(?:start_failed|start_timeout|unavailable)(?: · |$)").containsMatchIn(text) ->
             DiagnosticClassification("speech_service_start", "warning", true, "check_service_availability_and_respect_binding_cooldown")
         tag == "VoiceRecognition" && Regex("^recognition_error=10(?: · |$)").containsMatchIn(text) && "failedstage=recognition" !in text ->
@@ -44,7 +49,7 @@ internal fun classifyDiagnostic(level: String?, tag: String?, message: String): 
         "strictmode" in text && ("diskreadviolation" in text || "diskwriteviolation" in text) -> DiagnosticClassification("main_thread_disk_io", "warning", true, "move_work_to_io")
         "method exceeds compiler instruction limit" in text || "method exceeds compiler" in text -> DiagnosticClassification("compiler_method_size", "warning", true, "split_coroutine_stages")
         text.startsWith("synthesis_quality") && ("missing_contribution_link" in text || "word_target_undershot" in text || "word_limit_exceeded" in text || "exact_word_count_unmet" in text) -> DiagnosticClassification("combined_contract", "warning", true, "retain_answer_and_review_quality")
-        text.startsWith("discovery_negotiation") && "outcome=legacy_fallback" in text -> DiagnosticClassification("compatibility_probe", "info", false)
+        text.startsWith("discovery_negotiation") && ("outcome=legacy_fallback" in text || "outcome=legacy_initialization_required" in text) -> DiagnosticClassification("compatibility_probe", "info", false)
         text.startsWith("gguf_template_metadata") || text.startsWith("gguf_template_compatible") -> DiagnosticClassification("model_compatibility", "info", false)
         text.startsWith("gguf_template_rejected") -> DiagnosticClassification("model_compatibility", "error", true, "choose_compatible_gguf_template")
         tag == "MCP" && text.startsWith("connect failed") -> DiagnosticClassification("mcp_connectivity", "error", true, "check_server_address_and_reachability")
@@ -76,6 +81,8 @@ internal fun classifyDiagnostic(level: String?, tag: String?, message: String): 
             DiagnosticClassification("platform_job_hint", "info", false)
         tag == "Android" && capturedTag == "libc" && text == "access denied finding property \"ro.hardware.chipname\"" ->
             DiagnosticClassification("platform_optional_property", "info", false)
+        tag == "Android" && capturedTag == "system" && text.startsWith("uncaught exception thrown by finalizer") ->
+            DiagnosticClassification("platform_finalizer_exception", "warning", true, "capture_complete_stack_and_os_exit_before_attributing_process_failure")
         "asus_leak_detect_proj" in text -> DiagnosticClassification(
             "protected_settings_access",
             if (level == "E") "error" else "warning",
@@ -99,7 +106,11 @@ internal fun classifyDiagnostic(level: String?, tag: String?, message: String): 
             capturedTag?.startsWith("adrenovk") == true &&
             ("shader compilation failed" in text || "pipeline create failed" in text) ->
             DiagnosticClassification("graphics_driver_failure", "warning", true)
-        text.startsWith("enrichment_waiting_") -> DiagnosticClassification("deferred_work", "info", false, "waiting")
+        text.startsWith("enrichment_waiting_") ||
+            text.startsWith("enrichment_deferred") ||
+            text.startsWith("enrichment_local_fallback") ||
+            text.startsWith("enrichment_lifecycle") &&
+            "deferred=true" in text -> DiagnosticClassification("deferred_work", "info", false, "waiting")
         text.startsWith("connectivity_recovered") -> DiagnosticClassification("recovery", "info", false, "response_observed_on_current_network")
         text.startsWith("search_index_ready") ||
             text.startsWith("refresh_ok") ||
@@ -108,12 +119,12 @@ internal fun classifyDiagnostic(level: String?, tag: String?, message: String): 
             DiagnosticClassification("recovery", "info", false, "reported_success")
         Regex("unexpected end of stream|broken pipe|unknownhostexception|unable to resolve host|connectexception|failed to connect|connect timeout", RegexOption.IGNORE_CASE).containsMatchIn(text) -> DiagnosticClassification("transport_availability", "warning", true, "bounded_route_recovery")
         level !in setOf("E", "W") && tag in setOf("Frame", "Rendering") && text.startsWith("frame_timing") ->
-            if (significantFrameWindow(message)) DiagnosticClassification("performance", "warning", true, "profile_main_thread_and_rendering") else DiagnosticClassification("performance_sample", "info", false)
+            if (significantFrameWindow(diagnosticEventMessage(message))) DiagnosticClassification("performance", "warning", true, "profile_main_thread_and_rendering") else DiagnosticClassification("performance_sample", "info", false)
         level == "E" -> DiagnosticClassification("error", "error", true)
         level == "W" -> DiagnosticClassification("warning", "warning", true)
-        Regex("(?:^| · )(?:error=true|status=FAILED|outcome=FAILED)(?: · |$)", RegexOption.IGNORE_CASE).containsMatchIn(message) ->
+        Regex("(?:^| · )(?:error=true|status=FAILED|outcome=FAILED)(?: · |$)", RegexOption.IGNORE_CASE).containsMatchIn(text) ->
             DiagnosticClassification("reported_failure", "error", true)
-        tag in setOf("Frame", "Rendering") && Regex("(?:slowFrames|jankyFrames|jankFrames)=[1-9]").containsMatchIn(message) ->
+        tag in setOf("Frame", "Rendering") && Regex("(?:slowFrames|jankyFrames|jankFrames)=[1-9]").containsMatchIn(diagnosticEventMessage(message)) ->
             DiagnosticClassification("performance", "warning", true)
         (capturedTag == "choreographer" || "choreographer" in text) && Regex("skipped [1-9][0-9]* frames").containsMatchIn(text) ->
             DiagnosticClassification("performance", "warning", true)
@@ -157,7 +168,13 @@ private fun diagnosticRecorderPayload(message: String): String = message.replace
 
 private val capturedAndroidPrefix = Regex("^[VDIWEF]/([^(:]+)(?:\\(\\s*([0-9]+)\\))?:\\s*")
 
-internal fun diagnosticEventMessage(message: String): String = diagnosticRecorderPayload(message).replace(capturedAndroidPrefix, "")
+internal fun diagnosticStructuredEvent(message: String): StructuredDiagnosticEvent? =
+    parseStructuredDiagnosticEvent(diagnosticRecorderPayload(message).replace(capturedAndroidPrefix, ""))
+
+internal fun diagnosticEventMessage(message: String): String {
+    val payload = diagnosticRecorderPayload(message).replace(capturedAndroidPrefix, "")
+    return parseStructuredDiagnosticEvent(payload)?.summary() ?: payload
+}
 
 /** Stable source identity includes the original Android tag and PID, never recorder severity. */
 internal fun diagnosticAndroidSource(message: String): String? = capturedAndroidPrefix.find(diagnosticRecorderPayload(message))?.let { match ->

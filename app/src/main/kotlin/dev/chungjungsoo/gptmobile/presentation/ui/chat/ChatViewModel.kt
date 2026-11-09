@@ -123,7 +123,8 @@ class ChatViewModel @Inject constructor(
     private val gitHubDecisions: dev.chungjungsoo.gptmobile.data.github.GitHubChatDecisions? = null,
     private val gitHubDecisionNotifications: dev.chungjungsoo.gptmobile.data.github.GitHubDecisionNotifications? = null,
     private val diagnosticDatabase: dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticDatabaseSource? = null,
-    private val reasoningCapabilities: dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityRepository? = null
+    private val reasoningCapabilities: dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityRepository? = null,
+    private val diagnosticWorkspace: dev.chungjungsoo.gptmobile.data.workspace.WorkspaceRepository? = null
 ) : ViewModel() {
     private val diagnosticPrivacyOwner = java.util.UUID.randomUUID().toString()
     private val visibleHistoryTurns = MutableStateFlow(if (savedStateHandle.get<Int>("targetMessageId") != null) Int.MAX_VALUE else 40)
@@ -361,6 +362,8 @@ class ChatViewModel @Inject constructor(
     private var gatewayAdmissionChecking = false
     private val _gatewayWriteBlocker = MutableStateFlow<String?>(null)
     val gatewayWriteBlocker = _gatewayWriteBlocker.asStateFlow()
+    private val _gatewayQueueState = MutableStateFlow<dev.chungjungsoo.gptmobile.data.queue.GatewayQueuedChatState?>(null)
+    val gatewayQueueState = _gatewayQueueState.asStateFlow()
 
     private val _availableChatTools = MutableStateFlow<List<AvailableChatTool>>(emptyList())
     val availableChatTools = _availableChatTools.asStateFlow()
@@ -587,6 +590,10 @@ class ChatViewModel @Inject constructor(
         }
         durablePromptQueue?.let { queue ->
             viewModelScope.launch {
+                kotlinx.coroutines.flow.combine(_chatRoom, queue.gatewayStates) { room, states -> states[room.id] }
+                    .collect { _gatewayQueueState.value = it }
+            }
+            viewModelScope.launch {
                 _chatRoom.collectLatest { room ->
                     if (room.id > 0) {
                         _disabledPlatformUids.value = queue.pausedProfiles(room.id)
@@ -637,9 +644,41 @@ class ChatViewModel @Inject constructor(
     }
 
     private suspend fun refreshGatewayWriteBlocker(chatId: Int): String? {
-        val blocker = if (chatId > 0 && !_chatRoom.value.isTemporary) agentRunCoordinator.gatewayConversationWriteBlocker(chatId) else null
+        val blocker = if (_chatRoom.value.id == chatId && _chatRoom.value.conversationMode == ConversationMode.GATEWAY) {
+            val selected = featureSettings.value.conversationGateway[chatId]
+            val profile = selected?.let { saved -> _platformsInApp.value.singleOrNull { it.uid == saved.profileUid } }
+            when {
+                selected == null || profile == null -> "The original Gateway profile binding is unavailable. The saved transcript remains readable; restore its original supported profile to queue new messages."
+                _chatRoom.value.isTemporary || _activePlatformUids.value != listOf(selected.profileUid) || _chatPlatformModels.value[selected.profileUid] != selected.model -> "Restore this saved Gateway chat's original participant and model before queueing new messages."
+                else -> selected.validate(profile)
+            }
+        } else if (chatId > 0 && !_chatRoom.value.isTemporary) {
+            agentRunCoordinator.gatewayConversationWriteBlocker(chatId)
+        } else {
+            null
+        }
         if (_chatRoom.value.id == chatId) _gatewayWriteBlocker.value = blocker
         return blocker
+    }
+
+    fun checkGatewayQueue() {
+        val chatId = _chatRoom.value.id
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                _attachmentNotice.value = durablePromptQueue?.checkGateway(chatId) ?: "Checking the saved Gateway job and queue."
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                _attachmentNotice.value = "The original Gateway job could not be checked. Its saved input and outcome fence are retained."
+            }
+        }
+    }
+
+    fun cancelUnsubmittedGateway() {
+        val chatId = _chatRoom.value.id
+        viewModelScope.launch(Dispatchers.IO) {
+            _attachmentNotice.value = if (durablePromptQueue?.cancelUnsubmittedGateway(chatId) == true) "The unsubmitted Gateway message was stopped." else "This message may already belong to a remote job. Use its existing Stop control and wait for the confirmed outcome."
+        }
     }
 
     fun addMessage(userMessage: MessageV2) {
@@ -714,12 +753,28 @@ class ChatViewModel @Inject constructor(
         }
         val acceptedProfiles = acceptedTools.combined?.requested?.participantUids ?: oneMessageUid?.let(::listOf) ?: _activePlatformUids.value
         val acceptedModels = acceptedTools.combined?.requested?.requestedModels ?: _chatPlatformModels.value
+        val gatewayQueued = _chatRoom.value.conversationMode == ConversationMode.GATEWAY
+        val gatewaySelection = if (gatewayQueued) featureSettings.value.conversationGateway[_chatRoom.value.id] else null
+        if (gatewayQueued) {
+            val profile = gatewaySelection?.let { saved -> _platformsInApp.value.singleOrNull { it.uid == saved.profileUid } }
+            val blocker = when {
+                durablePromptQueue == null || _chatRoom.value.isTemporary -> "A saved Gateway conversation is required to queue this message."
+                gatewaySelection == null || profile == null -> "The original Gateway profile selection is unavailable."
+                acceptedProfiles != listOf(gatewaySelection.profileUid) || acceptedModels[gatewaySelection.profileUid] != gatewaySelection.model -> "Restore this Gateway chat's original profile and model before sending."
+                else -> gatewaySelection.validate(profile)
+            }
+            if (blocker != null) {
+                _attachmentNotice.value = "$blocker Your draft is kept."
+                attempt.finish("GATEWAY_QUEUE_SELECTION_BLOCKED")
+                return
+            }
+        }
         val unavailable = if (acceptedTools.combined != null) emptyList() else _platformsInApp.value.filter { it.uid in acceptedProfiles && (acceptedTools.combined != null || it.uid !in _disabledPlatformUids.value) }.map { it.copy(model = acceptedModels[it.uid] ?: it.model) }.filter { rejectUnavailableFreeProfile(it) }
         if (unavailable.isNotEmpty()) {
             attempt.finish("PROFILE_UNAVAILABLE")
             return
         }
-        if (!reasoningAdmissionChecked && reasoningCapabilities != null) {
+        if (!gatewayQueued && !reasoningAdmissionChecked && reasoningCapabilities != null) {
             val selected = _platformsInApp.value.filter { it.enabled && it.uid in acceptedProfiles && (acceptedTools.combined != null || it.uid !in _disabledPlatformUids.value) }
                 .map { it.copy(model = acceptedModels[it.uid] ?: it.model) }
                 .filter { it.compatibleType == ClientType.LLAMA }
@@ -794,7 +849,7 @@ class ChatViewModel @Inject constructor(
         val gatewayTurn = !_chatRoom.value.isTemporary &&
             acceptedTools.combined == null &&
             dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.supportsSavedJobs(gatewayProfile)
-        if (!_chatRoom.value.isTemporary && _chatRoom.value.id > 0 && !gatewayAdmissionChecked) {
+        if (!gatewayQueued && !_chatRoom.value.isTemporary && _chatRoom.value.id > 0 && !gatewayAdmissionChecked) {
             if (gatewayAdmissionChecking) {
                 attempt.finish("GATEWAY_ADMISSION_CHECK_PENDING")
                 return
@@ -838,7 +893,7 @@ class ChatViewModel @Inject constructor(
             }
             return
         }
-        if (isGenerationBusy() || !hasUnpausedProfile() || _pendingPrompts.value.isNotEmpty()) {
+        if (gatewayQueued || isGenerationBusy() || !hasUnpausedProfile() || _pendingPrompts.value.isNotEmpty()) {
             if (durablePromptQueue != null) {
                 if (queueSubmissionPending) {
                     attempt.finish("QUEUE_SAVE_IN_PROGRESS")
@@ -862,14 +917,15 @@ class ChatViewModel @Inject constructor(
                                 acceptedProfiles,
                                 acceptedModels,
                                 acceptedTools,
-                                requestId = attempt.requestId
+                                requestId = attempt.requestId,
+                                gateway = gatewaySelection
                             )
                         )
                         attempt.finish("DURABLY_QUEUED")
                         if (nextMessageProfileUid.value == oneMessageUid) savedStateHandle["nextMessageProfileUid"] = null
                         if (question.text.toString() == questionText) question.clearText()
                         _selectedAttachments.update { current -> current.filterNot { it in snapshot } }
-                        _attachmentNotice.value = "Queued. Use the buttons beside the message to edit or stop it."
+                        _attachmentNotice.value = if (gatewayQueued) "Saved to the Gateway queue. It will start when the original Gateway is ready and the previous job has finished." else "Queued. Use the buttons beside the message to edit or stop it."
                     } catch (cancellation: CancellationException) {
                         attempt.finish("QUEUE_SAVE_CANCELLED")
                         throw cancellation
@@ -2807,6 +2863,7 @@ class ChatViewModel @Inject constructor(
             liveMessages = agentRunCoordinator.streamMessages.value.values.filter { it.chatId == room.id },
             database = source,
             research = researchSessionStore,
+            workspace = diagnosticWorkspace,
             reducedMemory = reduced,
             resume = resume,
             stillAuthorized = {
@@ -3917,6 +3974,9 @@ class ChatViewModel @Inject constructor(
 
     private fun checkAndGenerateAiTitle(runsById: Map<String, AgentRun>) {
         val room = _chatRoom.value
+        // Gateway queue acceptance already saves a local first-prompt title, including
+        // offline sends. An auxiliary title model must not bypass the serial job fence.
+        if (room.conversationMode == ConversationMode.GATEWAY) return
         val github = _chatToolConfig.value.github
         if (github != null && room.id > 0 && !room.isTitleCustomized && !autoTitleGenerationInFlight) {
             val firstPrompt = _groupedMessages.value.userMessages.firstOrNull()?.content

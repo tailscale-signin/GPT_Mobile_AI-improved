@@ -23,6 +23,65 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GatewayControlNegotiationTest {
+    @Test fun directRoutePreparationDoesNotClaimTransmissionAcceptanceOrEffectiveSettings() = runBlocking {
+        val records = mutableListOf<String>()
+        val config = ProviderRequestConfig("https://direct-controls-fixture.invalid/v1", null, providerType = "LLAMA", extraHeaders = mapOf("X-Gateway-Allow-Local-Tools" to "false", "X-Gateway-Cache-Reuse" to "1024"))
+        val prepared = GatewayControlNegotiation(Fake(), diagnostic = { records += it }).prepare(config)
+        assertEquals(mapOf("X-Gateway-Allow-Local-Tools" to "false"), prepared.extraHeaders)
+        val evidence = records.single()
+        assertTrue(evidence.contains("contract=UNSUPPORTED_GATEWAY_CONTRACT"))
+        assertTrue(evidence.contains("preparedForDispatch=[X-Gateway-Allow-Local-Tools]"))
+        assertTrue(evidence.contains("transmitted=Not measured"))
+        assertTrue(evidence.contains("serverAdvertised=[]"))
+        assertTrue(evidence.contains("serverAcknowledged=Not measured"))
+        assertTrue(evidence.contains("clientAllowed=[X-Gateway-Allow-Local-Tools, X-Gateway-Cache-Reuse]"))
+        assertTrue(evidence.contains("effective=Not measured"))
+        assertFalse(evidence.contains(" · accepted="))
+    }
+
+    @Test fun advertisedGatewayControlsStillNeedPerRequestConfirmation() = runBlocking {
+        val records = mutableListOf<String>()
+        val header = "X-Gateway-Cache-Reuse"
+        val capability = GatewayCapabilities(gatewayVersion = "15.0.0", acceptedRequestHeaders = listOf(header))
+        val config = ProviderRequestConfig("https://advertised-controls-fixture.invalid/v1", null, providerType = "LLAMA", extraHeaders = mapOf(header to "1024"))
+        assertEquals(config.extraHeaders, GatewayControlNegotiation(Fake(capability), diagnostic = { records += it }).prepare(config).extraHeaders)
+        assertTrue(records.single().contains("contract=GATEWAY_CONTRACT"))
+        assertTrue(records.single().contains("serverAdvertised=[$header]"))
+        assertTrue(records.single().contains("serverAcknowledged=Not measured"))
+    }
+
+    @Test fun missingIsolationRetainsItsSpecificBoundaryReason() = runBlocking {
+        val config = ProviderRequestConfig("https://unconfirmed-isolation.example/v1", null, providerType = "LLAMA", extraHeaders = mapOf("X-Gateway-Allow-Local-Tools" to "false"))
+        val dispatch = dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext(emptySet())
+        kotlinx.coroutines.withContext(dispatch) {
+            val failure = runCatching { GatewayControlNegotiation(Fake(GatewayCapabilities(gatewayVersion = "15.0.0"))).prepare(config) }.exceptionOrNull() as GatewayCapabilityDiscoveryException
+            assertEquals("GATEWAY_ISOLATION_UNAVAILABLE", failure.code)
+        }
+        assertEquals(dev.chungjungsoo.gptmobile.data.context.InferencePreflightReason.GATEWAY_ISOLATION_UNAVAILABLE, dispatch.preflightRejection?.reason)
+        assertEquals("connection_preflight", dispatch.preflightRejection?.failedStage)
+        assertTrue(dispatch.provenEntirelyUnsent())
+    }
+
+    @Test fun failedControlDiscoveryIsCachedPerIdentityAndMarksOnlyTheCurrentPreflightUnsent() = runBlocking {
+        var now = 0L
+        val failure = GatewayCapabilityDiscoveryException("GATEWAY_CAPABILITY_UNAVAILABLE: selected connection is unavailable")
+        val api = Fake().apply { this.failure = failure }
+        val negotiation = GatewayControlNegotiation(api) { now }
+        val config = ProviderRequestConfig("https://failed-negotiation.example/v1", "selected-account", providerType = "LLAMA")
+        val dispatch = dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext(emptySet(), "run", "invocation")
+        kotlinx.coroutines.withContext(dispatch) {
+            repeat(3) { assertSame(failure, runCatching { negotiation.prepare(config) }.exceptionOrNull()) }
+        }
+        assertEquals(1, api.probes)
+        assertTrue(dispatch.provenEntirelyUnsent())
+        assertEquals(dev.chungjungsoo.gptmobile.data.context.InferencePreflightReason.GATEWAY_CAPABILITY_UNAVAILABLE, dispatch.preflightRejection?.reason)
+        now = 15_000
+        assertSame(failure, runCatching { negotiation.prepare(config) }.exceptionOrNull())
+        assertEquals(2, api.probes)
+        assertSame(failure, runCatching { negotiation.prepare(config.copy(token = "different-account")) }.exceptionOrNull())
+        assertEquals(3, api.probes)
+    }
+
     @Test fun canonicalPayloadAndNegotiatedRetentionAgreeForVisibleAndPrivateTurns() = runBlocking {
         val header = "X-Gateway-Conversation-Retention"
         val capability = GatewayCapabilities(

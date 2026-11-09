@@ -48,14 +48,16 @@ class MemoryEnrichmentQueue @Inject constructor(
                 runtime.state,
                 WorkManager.getInstance(context).getWorkInfosByTagFlow("memory-enrichment"),
                 dev.chungjungsoo.gptmobile.data.localruntime.InferenceAdmission.availability,
-                dev.chungjungsoo.gptmobile.data.readiness.ReadinessWorkloadSignals.active
-            ) { state, infos, _, _ -> state to infos }.collect { (state, infos) ->
+                dev.chungjungsoo.gptmobile.data.readiness.ReadinessWorkloadSignals.active,
+                observeCooldownExpiry(context)
+            ) { state, infos, _, _, _ -> state to infos }.collect { (state, infos) ->
                 if (dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.enabled.value) {
                     infos.forEach { info ->
                         val outcome = info.outputData.getString("outcome") ?: info.progress.getString("outcome") ?: "PENDING"
-                        val key = "${info.state}:$outcome:${info.runAttemptCount}"
+                        val completed = info.outputData.getBoolean("enrichmentComplete", false)
+                        val key = "${info.state}:$outcome:${info.runAttemptCount}:$completed"
                         if (observedStates.put(info.id.toString(), key) != key) {
-                            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Memory", "ENRICHMENT_LIFECYCLE · work=${info.id} · workerState=${info.state} · outcome=$outcome · attempt=${info.runAttemptCount} · deferred=${outcome.startsWith("WAITING_")}")
+                            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Memory", "ENRICHMENT_LIFECYCLE · work=${info.id} · workerState=${info.state} · outcome=$outcome · attempt=${info.runAttemptCount} · deferred=${outcome.startsWith("WAITING_")} · enrichmentComplete=$completed · wakeTrigger=${info.outputData.getString("wakeTrigger") ?: "NOT_RECORDED"}")
                         }
                     }
                     observedStates.keys.retainAll(infos.map { it.id.toString() }.toSet())
@@ -176,17 +178,25 @@ class MemoryEnrichmentQueue @Inject constructor(
 
     companion object {
         private const val ENRICHMENT_VERSION = 2
+        private fun cooldownStore(context: Context) = context.getSharedPreferences("memory-enrichment-cooldown", Context.MODE_PRIVATE)
+        internal fun observeCooldownExpiry(context: Context): Flow<Unit> = callbackFlow<Unit> {
+            val store = cooldownStore(context)
+            val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> trySend(Unit) }
+            store.registerOnSharedPreferenceChangeListener(listener)
+            trySend(Unit)
+            awaitClose { store.unregisterOnSharedPreferenceChangeListener(listener) }
+        }.conflate().map { cooldownStore(context).getLong("until", 0L) }.withEnrichmentCooldownExpiry().flowOn(kotlinx.coroutines.Dispatchers.IO)
+
         internal fun runtimeCoolingDown(context: Context, runtime: LocalRuntime): Boolean {
-            val store = context.getSharedPreferences("memory-enrichment-cooldown", Context.MODE_PRIVATE)
+            val store = cooldownStore(context)
             return store.getString("runtime", null) == runtimeFingerprint(runtime) &&
                 System.currentTimeMillis() < store.getLong("until", 0L)
         }
-        internal fun coolDownRuntime(context: Context, runtime: LocalRuntime) {
-            context.getSharedPreferences("memory-enrichment-cooldown", Context.MODE_PRIVATE).edit()
+        internal fun coolDownRuntime(context: Context, runtime: LocalRuntime): Boolean =
+            cooldownStore(context).edit()
                 .putString("runtime", runtimeFingerprint(runtime))
                 .putLong("until", System.currentTimeMillis() + TimeUnit.MINUTES.toMillis(5))
-                .apply()
-        }
+                .commit()
         internal fun runtimeFingerprint(runtime: LocalRuntime): String = digest("${runtime.state.value.engineSpec}|${runtime.state.value.backend}|${dev.chungjungsoo.gptmobile.data.localmodel.LocalModelInstallationEpoch.current()}")
         internal fun uniqueName(id: Int, hash: String) = "memory-v$ENRICHMENT_VERSION-$id-$hash"
         internal fun completionKey(chatId: Int, hash: String) = "$chatId:v$ENRICHMENT_VERSION:$hash"
@@ -200,7 +210,7 @@ class MemoryEnrichmentQueue @Inject constructor(
         internal fun markCompleted(context: Context, data: androidx.work.Data) {
             val id = data.getInt("messageId", 0)
             val hash = data.getString("hash") ?: return
-            if (id > 0) completedStore(context).edit().putString(id.toString(), completionKey(data.getInt("chatId", 0), hash)).apply()
+            if (id > 0) check(completedStore(context).edit().putString(id.toString(), completionKey(data.getInt("chatId", 0), hash)).commit()) { "Cannot persist semantic enrichment receipt" }
         }
         internal fun waitingStore(context: Context) = context.getSharedPreferences("memory-enrichment-waiting", Context.MODE_PRIVATE)
         internal fun observeWaitingCount(context: Context): Flow<Int> = callbackFlow<Unit> {

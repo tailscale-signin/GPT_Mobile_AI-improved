@@ -20,14 +20,14 @@ internal object FrameTimingRecorder {
         while (screens.size > 16) screens.keys.minOrNull()?.let(screens::remove)
         return { screens.remove(id) }
     }
-    private val runPhases = java.util.concurrent.ConcurrentHashMap<String, String>()
+    private val runPhases = FrameRunPhases()
     fun phase(runId: String, phase: String) {
-        if (!AppLogRecorder.enabled.value) return
-        if (runPhases.size < 16 || runPhases.containsKey(runId.take(128))) runPhases[runId.take(128)] = phase.take(32)
+        runPhases.observe(runId, phase, AppLogRecorder.operationCaptureEpoch())
     }
     fun finished(runId: String) {
-        runPhases.remove(runId.take(128))
+        runPhases.finished(runId)
     }
+    internal fun clearRunHistory() = runPhases.clear()
 
     private val metricsHandler by lazy { Handler(HandlerThread("FrameDiagnostics").apply { start() }.looper) }
     private var active = java.lang.ref.WeakReference<Activity>(null)
@@ -75,6 +75,7 @@ internal object FrameTimingRecorder {
         val histogram = FrameDurationHistogram()
         val work = FrameWorkBreakdown()
         var lastReportMs = SystemClock.elapsedRealtime()
+        var operationWindowStartedNanos = System.nanoTime()
         val effects = FrameEffectsObservation(FrameEffectPressure.guard, lastReportMs)
         val display = activity.display
         var frameBudgetNs = FrameDeadlineBudget.fromRefreshRate(display?.refreshRate)
@@ -88,15 +89,22 @@ internal object FrameTimingRecorder {
             if (frames == 0) return
             val windowMs = nowMs - lastReportMs
             lastReportMs = nowMs
-            if (AppLogRecorder.enabled.value) {
+            val diagnosticCaptureEpoch = AppLogRecorder.operationCaptureEpoch()
+            if (diagnosticCaptureEpoch != null) {
+                val operationWindowEndedNanos = System.nanoTime()
+                val observedWindowStartNanos = operationWindowStartedNanos
+                val operations = CombinedOperationTrace.frameWindow(observedWindowStartNanos, operationWindowEndedNanos)
+                operationWindowStartedNanos = operationWindowEndedNanos
+                AppLogRecorder.recordCaptured(diagnosticCaptureEpoch, "Rendering", "FRAME_OPERATION_COVERAGE · coverageId=$coverageId · coverage=SAMPLED_INSTRUMENTED_OPERATIONS · minimumDurationNs=${CombinedOperationTrace.FRAME_SAMPLE_THRESHOLD_NANOS} · causalAttribution=false · truncated=${operations.truncated} · observed=${operations.samples.joinToString { "${it.operation}:${it.traceId}" }} · observedRuns=${operations.samples.mapNotNull { it.runId }.distinct().joinToString()} · windowStartMonoNs=$observedWindowStartNanos · windowEndMonoNs=$operationWindowEndedNanos")
                 val memory = AndroidDiagnosticExportMemory.sample()
                 val gcCount = previousMemory?.gcCount?.let { before -> memory.gcCount?.minus(before)?.takeIf { it >= 0 } }
                 val gcDurationMs = previousMemory?.gcTimeMillis?.let { before -> memory.gcTimeMillis?.minus(before)?.takeIf { it >= 0 } }
                 val refreshRateMillihz = display?.refreshRate?.takeIf { it.isFinite() && it > 0 }?.let { (it * 1000).toLong() }
-                AppLogRecorder.record("Rendering", "FRAME_TIMING · frames=$frames · jankFrames=$slow · droppedSamples=$dropped · windowMs=$windowMs · averageMs=${totalNs / frames / 1_000_000.0} · maxMs=${maximumNs / 1_000_000.0} · p50UpperMs=${histogram.percentileUpperMs(50)} · p95UpperMs=${histogram.percentileUpperMs(95)} · p99UpperMs=${histogram.percentileUpperMs(99)} · stallsOver100Ms=${histogram.stallsOver100Ms} · stallsOver500Ms=${histogram.stallsOver500Ms} · percentileOverflow=${histogram.overflow} · frameBudgetMs=${frameBudgetNs / 1_000_000.0} · minimumDeadlineNs=$minimumDeadlineNs · maximumDeadlineNs=$maximumDeadlineNs · fallbackDeadlines=$fallbackDeadlines · refreshRateMillihz=${refreshRateMillihz ?: "unavailable"} · buildVariant=${dev.chungjungsoo.gptmobile.BuildConfig.BUILD_TYPE} · phaseMaximumNs=${work.maximumNanos()} · slowFramePhaseTotalNs=${work.slowFrameNanos()} · phaseValuesMayOverlap=true · screen=${screens.maxByOrNull { it.key }?.value ?: activityName} · graphicsEffects=${RenderingEffectDiagnostics.snapshot()} · operation=${JavaHeapWorkGate.activeOperations} · javaHeapUsedBytes=${memory.javaUsedBytes} · javaHeapMaxBytes=${memory.javaMaxBytes} · nativeHeapBytes=${memory.nativeAllocatedBytes ?: "unavailable"} · gcCount=${gcCount ?: "unavailable"} · gcDurationMs=${gcDurationMs ?: "unavailable"} · gcCountersApproximate=true · coverageId=$coverageId · reportReason=$reason · sampledRuns=${runCoverage.snapshot().entries.joinToString { "${it.key}:${it.value}" }} · sampledRunsTruncated=${runCoverage.truncated} · activeRuns=${runPhases.entries.joinToString { "${it.key}:${it.value}" }}")
+                AppLogRecorder.recordCaptured(diagnosticCaptureEpoch, "Rendering", "FRAME_TIMING · frames=$frames · jankFrames=$slow · droppedSamples=$dropped · windowMs=$windowMs · averageMs=${totalNs / frames / 1_000_000.0} · maxMs=${maximumNs / 1_000_000.0} · p50UpperMs=${histogram.percentileUpperMs(50)} · p95UpperMs=${histogram.percentileUpperMs(95)} · p99UpperMs=${histogram.percentileUpperMs(99)} · stallsOver100Ms=${histogram.stallsOver100Ms} · stallsOver500Ms=${histogram.stallsOver500Ms} · percentileOverflow=${histogram.overflow} · frameBudgetMs=${frameBudgetNs / 1_000_000.0} · minimumDeadlineNs=$minimumDeadlineNs · maximumDeadlineNs=$maximumDeadlineNs · fallbackDeadlines=$fallbackDeadlines · refreshRateMillihz=${refreshRateMillihz ?: "unavailable"} · buildVariant=${dev.chungjungsoo.gptmobile.BuildConfig.BUILD_TYPE} · phaseMaximumNs=${work.maximumNanos()} · slowFramePhaseTotalNs=${work.slowFrameNanos()} · phaseValuesMayOverlap=true · screen=${screens.maxByOrNull { it.key }?.value ?: activityName} · graphicsEffects=${RenderingEffectDiagnostics.snapshot()} · operation=${JavaHeapWorkGate.activeOperations} · javaHeapUsedBytes=${memory.javaUsedBytes} · javaHeapMaxBytes=${memory.javaMaxBytes} · nativeHeapBytes=${memory.nativeAllocatedBytes ?: "unavailable"} · gcCount=${gcCount ?: "unavailable"} · gcDurationMs=${gcDurationMs ?: "unavailable"} · gcCountersApproximate=true · coverageId=$coverageId · reportReason=$reason · sampledRuns=${runCoverage.snapshot(diagnosticCaptureEpoch).entries.joinToString { "${it.key}:${it.value}" }} · sampledRunsTruncated=${runCoverage.truncated} · activeRuns=${runPhases.snapshot(diagnosticCaptureEpoch).entries.joinToString { "${it.key}:${it.value}" }}")
                 previousMemory = memory
             } else {
                 previousMemory = null
+                operationWindowStartedNanos = System.nanoTime()
             }
             histogram.clear()
             work.clear()
@@ -134,7 +142,8 @@ internal object FrameTimingRecorder {
             updateEffectRecovery()
             frames++
             totalObservedFrames++
-            runCoverage.observe(runPhases)
+            val captureEpoch = AppLogRecorder.operationCaptureEpoch()
+            runCoverage.observe(runPhases.snapshot(captureEpoch), captureEpoch)
             minimumDeadlineNs = minOf(minimumDeadlineNs, deadline)
             maximumDeadlineNs = maxOf(maximumDeadlineNs, deadline)
             if (observedDeadline == null) fallbackDeadlines++

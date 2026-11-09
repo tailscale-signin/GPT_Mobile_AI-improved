@@ -130,7 +130,11 @@ class MemoryEnrichmentWorker @AssistedInject constructor(
                     null
                 }
             }
-            if (reason == "INFERENCE_TIMEOUT") MemoryEnrichmentQueue.coolDownRuntime(applicationContext, runtime)
+            if (reason == "INFERENCE_TIMEOUT" && !MemoryEnrichmentQueue.coolDownRuntime(applicationContext, runtime)) {
+                // A failed durable cooldown must not turn a timeout into repeated inference.
+                MemoryEnrichmentQueue.markWaiting(applicationContext, inputData)
+                return outcome("FAILED", "COOLDOWN_PERSISTENCE_FAILED")
+            }
             if (writes == 0) reason = "PROCESSED_NO_NEW_FACTS"
             if (writes != null && writes > 0) reason = "ENRICHED_WITH_WRITES"
             finish(reason)
@@ -173,17 +177,18 @@ class MemoryEnrichmentWorker @AssistedInject constructor(
     }
 
     private fun outcome(status: String, reason: String): Result {
+        val receipt = MemoryEnrichmentOutcome(status, reason)
         if (status != "RETRY") failureAttempts.edit().remove(id.toString()).apply()
-        if (reason !in setOf("NO_LOADED_MODEL", "RUNTIME_BUSY", "LOCAL_FALLBACK_COMPLETED") && !reason.endsWith(":RETRIES_EXHAUSTED")) MemoryEnrichmentQueue.clearWaiting(applicationContext, inputData.getInt("messageId", 0))
+        // Commit completion before removing the durable wakeup. A process exit
+        // between these operations may cause reconciliation, never lost work.
+        if (receipt.enrichmentComplete) MemoryEnrichmentQueue.markCompleted(applicationContext, inputData)
+        if (!receipt.pendingSourceRequired) MemoryEnrichmentQueue.clearWaiting(applicationContext, inputData.getInt("messageId", 0))
         AppLogRecorder.record(
             "Memory",
-            "ENRICHMENT_$status · message=${inputData.getInt("messageId", 0)} · attempt=$runAttemptCount · reason=$reason",
+            "ENRICHMENT_$status · message=${inputData.getInt("messageId", 0)} · attempt=$runAttemptCount · reason=$reason · enrichmentComplete=${receipt.enrichmentComplete} · deferred=${receipt.deferred} · wakeTrigger=${receipt.wakeTrigger}",
             if (status == "FAILED" || (status == "RETRY" && reason !in setOf("NO_LOADED_MODEL", "RUNTIME_BUSY"))) "W" else "I"
         )
-        if (status in setOf("SUCCESS", "PROCESSED_NO_NEW_FACTS") || status == "SKIPPED" && reason in setOf("NO_ELIGIBLE_FACTS", "PROCESSED_NO_NEW_FACTS")) {
-            MemoryEnrichmentQueue.markCompleted(applicationContext, inputData)
-        }
-        val data = androidx.work.workDataOf("outcome" to status, "reason" to reason, "runtimeFingerprint" to inputData.getString("runtimeFingerprint"))
+        val data = androidx.work.workDataOf("outcome" to status, "reason" to reason, "runtimeFingerprint" to inputData.getString("runtimeFingerprint"), "enrichmentComplete" to receipt.enrichmentComplete, "deferred" to receipt.deferred, "wakeTrigger" to receipt.wakeTrigger)
         return when (status) {
             "RETRY" -> Result.retry()
             "FAILED" -> Result.failure(data)

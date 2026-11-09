@@ -67,13 +67,18 @@ class GitHubWorkspaceClient(
     private val legacyCredentialIdentities: List<String> = emptyList(),
     private val credentialProvider: (suspend () -> String)? = null,
     private val apiOrigins: GitHubApiOrigins = GitHubApiOrigins.GITHUB_COM,
-    refAvailability: GitHubRefAvailability? = null
+    refAvailability: GitHubRefAvailability? = null,
+    private val engineeringStatus: (suspend (String, String) -> JsonObject?)? = null,
+    private val repositoryGateway: (suspend (JsonObject) -> JsonObject)? = null,
+    private val sharedCredentialAdmission: Boolean = client === sharedClient
 ) {
     private val responseCache = responseCache ?: if (client === sharedClient) GitHubSessionCaches.forCredential(token, apiOrigins.hostIdentity) else GitHubResponseCache()
     private val rateLimits = rateLimits ?: if (client === sharedClient) GitHubSessionCaches.rateLimitsForCredential(token, apiOrigins.hostIdentity) else GitHubRateLimitManager()
     private val scheduler = scheduler ?: if (client === sharedClient) GitHubSessionCaches.schedulerForCredential(token, apiOrigins.hostIdentity) else GitHubRequestScheduler()
-    private val authenticationRejected = authenticationRejected ?: if (client === sharedClient) GitHubSessionCaches.authenticationForCredential(token, apiOrigins.hostIdentity) else java.util.concurrent.atomic.AtomicBoolean()
-    private val refAvailability = refAvailability ?: if (client === sharedClient) GitHubSessionCaches.refsForCredential(token, apiOrigins.hostIdentity) else GitHubRefAvailability()
+    private var authenticationRejected = authenticationRejected ?: if (sharedCredentialAdmission) GitHubSessionCaches.authenticationForCredential(token, apiOrigins.hostIdentity) else java.util.concurrent.atomic.AtomicBoolean()
+    private var refAvailability = refAvailability ?: if (sharedCredentialAdmission) GitHubSessionCaches.refsForCredential(token, apiOrigins.hostIdentity) else GitHubRefAvailability()
+    private val credentialLock = Any()
+    private fun requestCredential() = synchronized(credentialLock) { GitHubRequestCredential(token, authenticationRejected, refAvailability) }
 
     companion object {
         const val API_VERSION = "2026-03-10"
@@ -91,7 +96,7 @@ class GitHubWorkspaceClient(
             }
         }
         private val json = Json { ignoreUnknownKeys = true }
-        val readActions = GitHubInspection.actions + setOf(
+        val readActions = GitHubInspection.actions + (GitHubRepositoryLifecycle.actions - GitHubRepositoryLifecycle.writes) + setOf(
             "list_commits", "list_open_pull_requests", "get_commit_detail", "get_commit_status_summary",
             "get_account", "list_repositories", "list_installations", "list_installation_repositories", "get_repository", "list_branches", "browse_files",
             "read_code", "get_branch_head", "get_pull_request_files", "get_commit_checks", "compare_refs",
@@ -100,7 +105,7 @@ class GitHubWorkspaceClient(
             "list_releases", "get_release", "get_release_by_tag", "list_tags", "release_status", "get_pull_request_comments",
             "resolve_context", "task_context", "index_status", "build_index", "workflow_catalog", "search_repository", "read_ranges", "ci_failure_digest", "efficiency", "recovery_context"
         )
-        val writeActions = setOf(
+        val writeActions = GitHubRepositoryLifecycle.writes + setOf(
             "commit_files", "stage_patch", "commit_staged_patch",
             "create_tag", "create_issue", "update_issue", "delete_branch", "delete_fixture_branch",
             "create_release",
@@ -162,15 +167,18 @@ class GitHubWorkspaceClient(
 
     private suspend fun refreshCredential() {
         val refreshed = credentialProvider?.invoke() ?: return
-        if (refreshed != token) {
-            token = refreshed
-            responseCache.clear()
-            refAvailability.clear()
-            authenticationRejected.set(false)
+        synchronized(credentialLock) {
+            if (refreshed != token) {
+                token = refreshed
+                responseCache.clear()
+                refAvailability = if (sharedCredentialAdmission) GitHubSessionCaches.refsForCredential(refreshed, apiOrigins.hostIdentity) else GitHubRefAvailability()
+                authenticationRejected = if (sharedCredentialAdmission) GitHubSessionCaches.authenticationForCredential(refreshed, apiOrigins.hostIdentity) else java.util.concurrent.atomic.AtomicBoolean()
+            }
         }
     }
 
     suspend fun execute(action: String, args: JsonObject): JsonElement {
+        refreshCredential()
         val attempts = GitHubMutationAttempts(currentCoroutineContext()[GitHubMutationAttempts])
         return withContext(Invocation(GitHubRepositoryStateStore.digest("$action|${GitHubExecutionJournal.canonical(args)}")) + attempts) {
             try {
@@ -195,6 +203,50 @@ class GitHubWorkspaceClient(
         fun required(name: String): String = field(name).also { require(it.isNotBlank()) { "$name is required." } }
 
         if (action == "plan_change") return GitHubOperationPlanner.plan(field("query"))
+        if (action in GitHubRepositoryLifecycle.actions) {
+            // Repository creation has no existing-repository admission dependency.
+            // Retain exact payload fences across recovery turns in this conversation.
+            val scope = "$durableIdentity:$connectionUid:$conversationId:repository-lifecycle"
+            val journal = GitHubExecutionJournal(repositoryState, scope)
+            fun planKey(key: String) = "execution:" + GitHubRepositoryStateStore.digest("repository-plan:$key")
+            return GitHubRepositoryLifecycle(
+                read = { path ->
+                    // A retained create/fork receipt can precede repository visibility.
+                    // Explicit lifecycle verification rechecks only that exact target.
+                    if (Regex("/repos/[^/]+/[^/]+").matches(path)) refAvailability.revalidateRepository(path)
+                    requestUntracked(path, HttpMethod.Get, null, true, forceLiveRead = true).jsonObject
+                },
+                gateway = repositoryGateway?.let { transfer ->
+                    { payload ->
+                        if (payload["action"] == JsonPrimitive("repository_lifecycle_capabilities") || payload["action"] == JsonPrimitive("repository_lifecycle_status")) {
+                            transfer(payload)
+                        } else {
+                            val actor = requestUntracked("/user", HttpMethod.Get, null, true, forceLiveRead = true).jsonObject["id"]
+                            require((actor as? JsonPrimitive)?.content?.toLongOrNull()?.let { it > 0 } == true) { "Verify the selected GitHub account before starting a gateway repository transfer." }
+                            transfer(JsonObject(payload + ("expected_actor_id" to requireNotNull(actor))))
+                        }
+                    }
+                },
+                write = { method, path, body ->
+                    val identity = buildJsonObject {
+                        put("path", path)
+                        put("body", body)
+                    }
+                    val result = journal.run("http.$method", identity, singleHttpRequest = true) {
+                        requestUntracked(path, HttpMethod.parse(method), body, true)
+                    }.jsonObject
+                    if ((result["execution"] as? JsonObject)?.get("status") != JsonPrimitive("COMPLETED")) throw GitHubExecutionBlocked(result)
+                    result
+                },
+                loadPlan = { repositoryState.read(scope, planKey(it)) },
+                savePlan = { key, value ->
+                    repositoryState.update(scope, planKey(key)) { previous ->
+                        check(previous == null || previous == value) { "Import plan changed during recovery." }
+                        previous ?: value
+                    }
+                }
+            ).execute(action, args)
+        }
         if (action == "rate_limit_status") return rateLimitStatus()
         if (action == "efficiency") {
             return buildJsonObject {
@@ -239,7 +291,7 @@ class GitHubWorkspaceClient(
             val selectedRef = field("commit_sha").ifBlank { field("ref").ifBlank { field("branch").ifBlank { repositorySession.context()?.ref.orEmpty() } } }
             if (selectedRef.isNotBlank()) refAvailability.revalidate(root, selectedRef)
         }
-        if (action == "repository_details" && args["refresh"] == JsonPrimitive(true)) refAvailability.revalidateRepository(root)
+        if (action in setOf("repository_details", "get_repository") && args["refresh"] == JsonPrimitive(true)) refAvailability.revalidateRepository(root)
         if (action == "get_branch_head" && args["refresh"] == JsonPrimitive(true)) {
             refAvailability.revalidateBranch(root, required("branch"))
         }
@@ -257,12 +309,50 @@ class GitHubWorkspaceClient(
             return GitHubHeaderQuery.normalize(response, pullRequest, args)
         }
         val ref = field("commit_sha").ifBlank { field("ref").ifBlank { field("branch") } }
+        if (action == "recovery_context" && args["engineering_task_id"] != null) {
+            val id = field("engineering_task_id")
+            require(id.matches(Regex("[A-Za-z0-9_-]{1,128}"))) { "Use the exact engineering_task_id from the saved approval receipt." }
+            val status = requireNotNull(engineeringStatus?.invoke(root, id)) { "APPROVAL_STATE_UNAVAILABLE: The saved native approval could not be loaded. Keep its patch and fixture; no mutation was repeated." }
+            ownedFixtures.recoverApproval(
+                root,
+                status,
+                read = { requestUntracked(it, HttpMethod.Get, null, false, forceLiveRead = true) },
+                expectedAbsence = { requestUntracked(it, HttpMethod.Get, null, false, forceLiveRead = true, expectedOwnedRefAbsence = true) == JsonNull },
+                reconcile = { reconcileCommit(root, it, forceLiveRead = true) }
+            )?.let { return it }
+            val intent = requireNotNull(status["publication_intent"] as? JsonObject)
+            val waiting = status["state"] == JsonPrimitive("AWAITING_APPROVAL")
+            val cancelled = status["cancelled_before_publication"] == JsonPrimitive(true)
+            if (waiting || cancelled) {
+                return buildJsonObject {
+                    put("engineering_task_id", id)
+                    put("branch", intent.getValue("branch"))
+                    put("expected_head_sha", intent.getValue("expected_head_sha"))
+                    put("committed", false)
+                    put("remote_mutation_performed", false)
+                    put("status", if (waiting) "AWAITING_APPROVAL" else "CANCELLED")
+                    put("approval_state", if (waiting) "WAITING_FOR_APPROVAL" else "CANCELLED_BEFORE_PUBLICATION")
+                    put("user_input_required", waiting)
+                    put("card_id", "github-approval-$id")
+                }
+            }
+            val proof = requireNotNull(reconcileCommit(root, intent, forceLiveRead = true)) { "APPROVAL_PUBLICATION_UNCONFIRMED: The saved patch has no matching remote publication proof. Reconcile the existing native task; do not repeat its commit." }
+            return JsonObject(
+                proof + buildJsonObject {
+                    put("engineering_task_id", id)
+                    put("approval_state", "PUBLISHED")
+                    put("remote_state_verified", true)
+                }
+            )
+        }
         if (action == "recovery_context" && args["fixture_plan"] != null) {
-            return ownedFixtures.reconcileDeletion(
+            return ownedFixtures.reconcile(
                 root,
                 args,
                 read = { requestUntracked(it, HttpMethod.Get, null, false, forceLiveRead = true) },
-                expectedAbsence = { requestUntracked(it, HttpMethod.Get, null, false, forceLiveRead = true, expectedOwnedRefAbsence = true) == JsonNull }
+                expectedAbsence = { requestUntracked(it, HttpMethod.Get, null, false, forceLiveRead = true, expectedOwnedRefAbsence = true) == JsonNull },
+                approvalStatus = { id -> engineeringStatus?.invoke(root, id) },
+                reconcile = { reconcileCommit(root, it, forceLiveRead = true) }
             )
         }
         if (action in setOf("resolve_context", "task_context", "index_status", "build_index", "workflow_catalog", "search_repository", "read_ranges", "stage_patch", "commit_staged_patch", "changed_since", "recovery_context")) {
@@ -1152,7 +1242,10 @@ class GitHubWorkspaceClient(
         require(Regex("[a-fA-F0-9]{40}").matches(expected)) { "Read the branch head first and supply expected_head_sha." }
         val message = args["message"]?.jsonPrimitive?.content.orEmpty()
         require(message.isNotBlank() && message.length <= 4000) { "A commit message of at most 4,000 characters is required." }
-        engineeringPrepare?.let { return it(root, args) }
+        engineeringPrepare?.let { prepare ->
+            ownedFixtures.prepareCommit(root, args)
+            return prepare(root, args).also { ownedFixtures.awaitApproval(root, args, it) }
+        }
         require(token.isNotBlank()) { "Connect a GitHub account before committing." }
         val files = args["files"]?.jsonArray ?: error("files is required.")
         require(files.size in 1..20) { "Commit between 1 and 20 text files at a time." }
@@ -1778,8 +1871,9 @@ class GitHubWorkspaceClient(
         val expectedHead = args["expected_head_sha"]?.jsonPrimitive?.content.orEmpty()
         val head = run?.get("head_sha")?.jsonPrimitive?.content.orEmpty().ifBlank { resolvedJob["head_sha"]?.jsonPrimitive?.content.orEmpty() }
         require(expectedHead.isBlank() || expectedHead == head) { "CI evidence belongs to a different commit." }
-        val log = GitHubCiLogReader(client, token, scheduler, responseCache, requestPriority, authenticationRejected, apiOrigins).read("$root/actions/jobs/$resolvedJobId/logs", resolvedJob["status"]?.jsonPrimitive?.content == "completed")
-        val safeLog = dev.chungjungsoo.gptmobile.data.diagnostics.redactLogMessage(log.text).let { if (token.isNotBlank()) it.replace(token, "[REDACTED]") else it }
+        val credential = requestCredential()
+        val log = GitHubCiLogReader(client, credential.token, scheduler, responseCache, requestPriority, credential.authenticationRejected, apiOrigins).read("$root/actions/jobs/$resolvedJobId/logs", resolvedJob["status"]?.jsonPrimitive?.content == "completed")
+        val safeLog = dev.chungjungsoo.gptmobile.data.diagnostics.redactLogMessage(log.text).let { if (credential.token.isNotBlank()) it.replace(credential.token, "[REDACTED]") else it }
         val lines = safeLog.split('\n')
         val failure = Regex("error|failed|failure|exception|fatal|traceback|exit code", RegexOption.IGNORE_CASE)
         val allPositions = lines.indices.filter { failure.containsMatchIn(lines[it]) }
@@ -1912,12 +2006,13 @@ class GitHubWorkspaceClient(
 
     private suspend fun graphQlRequest(query: String, variables: JsonObject): JsonObject {
         refreshCredential()
-        require(token.isNotBlank()) { "A GitHub credential is required for GraphQL." }
-        if (authenticationRejected.get()) throw GitHubRequestRejected(0, "GitHub authentication was rejected (HTTP 401). Reconnect before retrying; no GraphQL request was dispatched.")
+        val credential = requestCredential()
+        require(credential.token.isNotBlank()) { "A GitHub credential is required for GraphQL." }
+        if (credential.authenticationRejected.get()) throw GitHubRequestRejected(0, "GitHub authentication was rejected (HTTP 401). Reconnect before retrying; no GraphQL request was dispatched.")
         return scheduler.execute(priority = requestPriority) {
             val readOnlyQuery = !query.trimStart().startsWith("mutation")
             try {
-                check(!authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
+                check(!credential.authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
                 rateLimits.requireAvailable("graphql")
             } catch (rejected: IllegalStateException) {
                 if (!readOnlyQuery) throw GitHubRequestRejected(0, rejected.message ?: "GraphQL admission failed before dispatch")
@@ -1931,7 +2026,7 @@ class GitHubWorkspaceClient(
                 header(HttpHeaders.Accept, "application/vnd.github+json")
                 header(HttpHeaders.UserAgent, "GPT-Mobile-App")
                 header("X-GitHub-Api-Version", API_VERSION)
-                header(HttpHeaders.Authorization, "Bearer $token")
+                header(HttpHeaders.Authorization, "Bearer ${credential.token}")
                 contentType(ContentType.Application.Json)
                 setBody(
                     buildJsonObject {
@@ -1945,7 +2040,7 @@ class GitHubWorkspaceClient(
             rateLimits.record(response.headers, response.status.value)
             val text = response.bodyAsText()
             if (response.status.value == 401) {
-                authenticationRejected.set(true)
+                credential.authenticationRejected.set(true)
                 responseCache.clear()
             }
             if (!response.status.isSuccess()) {
@@ -2362,11 +2457,12 @@ class GitHubWorkspaceClient(
         expectedOwnedRefAbsence: Boolean = false
     ): JsonElement {
         refreshCredential()
-        if (authenticated || method != HttpMethod.Get) require(token.isNotBlank()) { "A GitHub credential is required." }
-        check(!authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
+        val credential = requestCredential()
+        if (authenticated || method != HttpMethod.Get) require(credential.token.isNotBlank()) { "A GitHub credential is required." }
+        check(!credential.authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
         check(!expectedOwnedRefAbsence || method == HttpMethod.Get && forceLiveRead && Regex("/repos/[^/]+/[^/]+/git/ref/heads/[^?]+").matches(path))
-        if (method == HttpMethod.Get && !expectedOwnedRefAbsence) refAvailability.requireAvailable(path)
-        val cacheKey = "${apiOrigins.rest}:$durableIdentity:${GitHubRepositoryStateStore.digest(token)}:${method.value}:$path"
+        if (method == HttpMethod.Get && !expectedOwnedRefAbsence) credential.refAvailability.requireAvailable(path)
+        val cacheKey = "${apiOrigins.rest}:$durableIdentity:${GitHubRepositoryStateStore.digest(credential.token)}:${method.value}:$path"
         val cacheable = conditionalReads && method == HttpMethod.Get && path != "/rate_limit"
         val forceLive = forceLiveRead || kotlinx.coroutines.currentCoroutineContext()[GitHubDispatchAccounting]?.forceLiveReads == true
         val cached = if (cacheable && !forceLive) responseCache.get(cacheKey) else null
@@ -2384,7 +2480,10 @@ class GitHubWorkspaceClient(
         return GitHubReadRetry.run(readOnly = method == HttpMethod.Get) {
             scheduler.execute(if (method == HttpMethod.Get) cacheKey else null, priority = requestPriority) {
                 try {
-                    check(!authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
+                    check(!credential.authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
+                    // Queued reads may have passed their first check before another
+                    // request established a negative repository/ref observation.
+                    if (method == HttpMethod.Get && !expectedOwnedRefAbsence) credential.refAvailability.requireAvailable(path)
                     if (path != "/rate_limit") rateLimits.requireAvailable(if (path.startsWith("/search/")) "search" else "core")
                 } catch (rejected: IllegalStateException) {
                     if (method != HttpMethod.Get) throw GitHubRequestRejected(0, rejected.message ?: "Request admission failed before dispatch.")
@@ -2398,7 +2497,7 @@ class GitHubWorkspaceClient(
                     header(HttpHeaders.Accept, "application/vnd.github+json")
                     header(HttpHeaders.UserAgent, "GPT-Mobile-App")
                     header("X-GitHub-Api-Version", API_VERSION)
-                    if (token.isNotBlank()) header(HttpHeaders.Authorization, "Bearer $token")
+                    if (credential.token.isNotBlank()) header(HttpHeaders.Authorization, "Bearer ${credential.token}")
                     cached?.etag?.takeIf { it.isNotBlank() }?.let { header(HttpHeaders.IfNoneMatch, it) }
                     if (body != null) {
                         contentType(ContentType.Application.Json)
@@ -2417,7 +2516,7 @@ class GitHubWorkspaceClient(
                         header(HttpHeaders.Accept, "application/vnd.github+json")
                         header(HttpHeaders.UserAgent, "GPT-Mobile-App")
                         header("X-GitHub-Api-Version", API_VERSION)
-                        if (token.isNotBlank()) header(HttpHeaders.Authorization, "Bearer $token")
+                        if (credential.token.isNotBlank()) header(HttpHeaders.Authorization, "Bearer ${credential.token}")
                     }
                     GitHubDispatchAccounting.responded(false, response.status.value, recoveryObservationId, response.headers["X-GitHub-Request-Id"])
                     rateLimits.record(response.headers, response.status.value)
@@ -2438,11 +2537,11 @@ class GitHubWorkspaceClient(
                 if (!response.status.isSuccess()) {
                     if (method != HttpMethod.Get && response.status.value in 400..499 && response.status.value != 408) GitHubMutationAttempts.rejected()
                     if (response.status.value in setOf(401, 403)) responseCache.clear()
-                    if (response.status.value == 401) authenticationRejected.set(true)
+                    if (response.status.value == 401) credential.authenticationRejected.set(true)
                     val githubMessage = runCatching {
                         json.parseToJsonElement(text).jsonObject["message"]?.jsonPrimitive?.content
                     }.getOrNull()?.takeIf { it.isNotBlank() }
-                    if (method == HttpMethod.Get) refAvailability.failed(path, response.status.value, githubMessage.orEmpty())
+                    if (method == HttpMethod.Get) credential.refAvailability.failed(path, response.status.value, githubMessage.orEmpty())
                     val category = GitHubFailurePolicy.classify(response.status.value, githubMessage.orEmpty(), response.headers["X-RateLimit-Remaining"], response.headers["Retry-After"], response.headers["X-GitHub-SSO"])
                     if (category == "GITHUB_SECONDARY_RATE_LIMITED") rateLimits.cooldown(GitHubReadRetry.retryAfterMillis(response.headers["Retry-After"])?.let { it / 1000 + if (it % 1000 == 0L) 0 else 1 } ?: 60)
                     val details = buildList {
@@ -2486,7 +2585,7 @@ class GitHubWorkspaceClient(
                     )
                 }
                 val parsed = if (text.isBlank()) JsonObject(emptyMap()) else json.parseToJsonElement(text)
-                if (method == HttpMethod.Get) refAvailability.succeeded(path)
+                if (method == HttpMethod.Get) credential.refAvailability.succeeded(path)
                 if (method != HttpMethod.Get) responseCache.invalidateMutable(path.substringBefore("/git/").substringBefore("/pulls/").substringBefore("/releases"))
                 if (cacheable) responseCache.put(cacheKey, response.headers[HttpHeaders.ETag], parsed, immutablePath(path))
                 parsed

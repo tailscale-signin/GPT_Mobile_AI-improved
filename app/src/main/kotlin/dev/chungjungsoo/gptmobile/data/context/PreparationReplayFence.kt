@@ -8,6 +8,7 @@ import kotlin.coroutines.CoroutineContext
 internal class PreparationReplayFence : AbstractCoroutineContextElement(Key) {
     companion object Key : CoroutineContext.Key<PreparationReplayFence>
     private val attempted = AtomicBoolean(false)
+    val hasAttempted: Boolean get() = attempted.get()
     fun dispatched() {
         attempted.set(true)
     }

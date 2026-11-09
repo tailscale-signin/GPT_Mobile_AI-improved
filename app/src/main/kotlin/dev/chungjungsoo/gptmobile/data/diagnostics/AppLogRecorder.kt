@@ -64,6 +64,8 @@ object AppLogRecorder {
             privateSessions.add(owner)
             dev.chungjungsoo.gptmobile.data.network.gateway.GatewayClientDiagnostics.pause()
             captureEpoch.incrementAndGet()
+            CombinedOperationTrace.clearFrameHistory()
+            FrameTimingRecorder.clearRunHistory()
             process?.destroy()
             process = null
             reader?.cancel()
@@ -191,6 +193,8 @@ object AppLogRecorder {
             reader?.cancel()
             reader = null
             captureEpoch.incrementAndGet()
+            CombinedOperationTrace.clearFrameHistory()
+            FrameTimingRecorder.clearRunHistory()
             queue.clear()
             coalescer.clear()
             dev.chungjungsoo.gptmobile.data.agent.ToolCatalogDiagnostics.clear()
@@ -234,15 +238,30 @@ object AppLogRecorder {
         }
     }
 
-    fun record(tag: String, message: String, level: String = "I") {
-        if (!mutableEnabled.value || privateSessions.isNotEmpty()) return
+    internal fun operationCaptureEpoch(): Long? {
         val epoch = captureEpoch.get()
+        return epoch.takeIf { mutableEnabled.value && privateSessions.isEmpty() }
+    }
+
+    internal fun operationCaptureCurrent(epoch: Long): Boolean = mutableEnabled.value && privateSessions.isEmpty() && epoch == captureEpoch.get()
+
+    fun record(tag: String, message: String, level: String = "I") = recordCaptured(captureEpoch.get(), tag, message, level)
+
+    /** A long-running producer cannot publish old capture data after clear or a privacy transition. */
+    internal fun recordCaptured(epoch: Long, tag: String, message: String, level: String = "I") {
+        if (!operationCaptureCurrent(epoch)) return
         coalescer.accept(tag.take(64), diagnosticMessageForStorage(message), level).forEach { (eventTag, eventMessage, eventLevel) ->
             if (!mutableEnabled.value || privateSessions.isNotEmpty() || epoch != captureEpoch.get()) return@forEach
             val entry = AppLogEntry(System.currentTimeMillis(), eventLevel.take(1), eventTag, eventMessage)
             val characters = entry.message.length + entry.tag.length + entry.level.length + entry.processName.orEmpty().length + 256
             queue.offer(epoch to entry, characters, criticalDiagnosticRecord(entry.tag, entry.message, entry.level))
         }
+    }
+
+    /** Typed metadata follows the same opt-in, privacy, bounded-queue and durable export path. */
+    fun recordEvent(tag: String, eventName: String, fields: Map<String, Any?>, level: String = "I") {
+        if (!mutableEnabled.value || privateSessions.isNotEmpty()) return
+        record(tag, structuredDiagnosticEventMessage(eventName, fields), level)
     }
 
     /** IO-thread startup markers survive an abort before the async log queue drains. */
@@ -274,6 +293,8 @@ object AppLogRecorder {
                 synchronized(fileLock) {
                     // Invalidate producers that began sanitizing a record before this clear.
                     captureEpoch.incrementAndGet()
+                    CombinedOperationTrace.clearFrameHistory()
+                    FrameTimingRecorder.clearRunHistory()
                     queue.clear()
                     recent.clear()
                     recentCharacters = 0
@@ -390,26 +411,31 @@ object AppLogRecorder {
                     val incidents = DiagnosticIncidentTracker()
                     val duplicateReferences = DiagnosticExportDeduplicator()
                     target.bufferedWriter().use { output ->
-                        if (structured) output.appendLine(structuredDiagnosticLine("${Instant.now()} I/Export: version=${BuildConfig.VERSION_NAME} · build=${BuildConfig.VERSION_CODE} · package=${BuildConfig.APPLICATION_ID} · appCommit=${BuildConfig.APP_COMMIT} · variant=${BuildConfig.BUILD_TYPE} · droppedRecords=${droppedRecords.get()} · vendor_log_available=false · process=${Process.myPid()}"))
+                        val summary = if (structured) DiagnosticExportSummary() else null
+                        fun writeLine(line: String) {
+                            summary?.accept(line)
+                            output.appendLine(line)
+                        }
+                        if (structured) writeLine(structuredDiagnosticLine("${Instant.now()} I/Export: version=${BuildConfig.VERSION_NAME} · build=${BuildConfig.VERSION_CODE} · package=${BuildConfig.APPLICATION_ID} · appCommit=${BuildConfig.APP_COMMIT} · variant=${BuildConfig.BUILD_TYPE} · droppedRecords=${droppedRecords.get()} · vendor_log_available=false · process=${Process.myPid()}"))
                         val buildMetadata = "${Instant.now()} I/AndroidBuild: ${androidBuildDiagnostic()}"
-                        output.appendLine(if (structured) structuredDiagnosticLine(buildMetadata) else buildMetadata)
+                        writeLine(if (structured) structuredDiagnosticLine(buildMetadata) else buildMetadata)
                         historicalExitMetadata(context).forEach { line ->
-                            output.appendLine(if (structured) structuredDiagnosticLine(line, "android_exit_history", exportedAtMillis = exportedAt) else line)
+                            writeLine(if (structured) structuredDiagnosticLine(line, "android_exit_history", exportedAtMillis = exportedAt) else line)
                         }
                         val logAvailability = "${Instant.ofEpochMilli(snapshot.capturedAtMillis)} I/DiagnosticLogCapture: retainedRecords=${snapshot.recordCount} · retainedBytes=${snapshot.byteCount} · trackingEnabled=${snapshot.trackingEnabled} · omissionReason=${snapshot.omissionReason ?: "none"} · sourceFailures=${snapshot.sourceFailures.size} · droppedRecords=${snapshot.droppedRecords} · droppedCriticalRecords=${snapshot.droppedCriticalRecords} · duplicateTracking=BOUNDED_WINDOW"
-                        output.appendLine(if (structured) structuredDiagnosticLine(logAvailability) else logAvailability)
+                        writeLine(if (structured) structuredDiagnosticLine(logAvailability) else logAvailability)
                         val seen = BoundedDiagnosticIdentityWindow()
                         dev.chungjungsoo.gptmobile.data.free.FreeProviderDiagnostics.snapshot().forEach { failure ->
                             val line = providerFailureLine(failure)
                             val identity = diagnosticEventIdentity(line)
                             val association = incidents.accept(line, identity, null)
-                            output.appendLine(if (structured) structuredDiagnosticLine(line, "provider_failure", duplicate = !seen.add(identity), captureIdentity = identity, incidentId = association.id, incidentRoot = association.first, exportedAtMillis = exportedAt) else line)
+                            writeLine(if (structured) structuredDiagnosticLine(line, "provider_failure", duplicate = !seen.add(identity), captureIdentity = identity, incidentId = association.id, incidentRoot = association.first, exportedAtMillis = exportedAt) else line)
                         }
                         LocalRuntimeIncidentHistory.snapshot().forEach { incident ->
                             val line = runtimeIncidentLine(incident)
                             val identity = diagnosticEventIdentity(line)
                             val association = incidents.accept(line, identity, null)
-                            output.appendLine(if (structured) structuredDiagnosticLine(line, "runtime_incident_history", duplicate = !seen.add(identity), captureIdentity = identity, incidentId = association.id, incidentRoot = association.first, exportedAtMillis = exportedAt) else line)
+                            writeLine(if (structured) structuredDiagnosticLine(line, "runtime_incident_history", duplicate = !seen.add(identity), captureIdentity = identity, incidentId = association.id, incidentRoot = association.first, exportedAtMillis = exportedAt) else line)
                         }
                         snapshot.sources.forEach { sourceFile ->
                             val source = sourceFile.name
@@ -420,18 +446,19 @@ object AppLogRecorder {
                                     val incident = incidents.accept(line, record.identity, record.parent)
                                     if (structured) {
                                         val duplicate = duplicateReferences.accept(line, record.identity, source, index)
-                                        duplicate.batch?.let(output::appendLine)
+                                        duplicate.batch?.let(::writeLine)
                                         if (duplicate.duplicate) return@forEachIndexed
                                     }
-                                    output.appendLine(if (structured) structuredDiagnosticLine(line, source, record.duplicate, record.parent, record.sequence, record.identity, incident.id, incident.first, exportedAtMillis = exportedAt) else line)
+                                    writeLine(if (structured) structuredDiagnosticLine(line, source, record.duplicate, record.parent, record.sequence, record.identity, incident.id, incident.first, exportedAtMillis = exportedAt) else line)
                                 }
                             }
                         }
-                        if (structured) duplicateReferences.flush()?.let(output::appendLine)
+                        if (structured) duplicateReferences.flush()?.let(::writeLine)
                         if (seen.evictedRecords > 0) {
                             val limits = "${Instant.ofEpochMilli(exportedAt)} I/DiagnosticLogCapture: duplicateTracking=BOUNDED_WINDOW · identitiesEvicted=${seen.evictedRecords}"
-                            output.appendLine(if (structured) structuredDiagnosticLine(limits) else limits)
+                            writeLine(if (structured) structuredDiagnosticLine(limits) else limits)
                         }
+                        summary?.line(snapshot.recordCount)?.let(output::appendLine)
                     }
                 }
                 target
@@ -487,13 +514,8 @@ object AppLogRecorder {
                 listOf(prefix + "coverage=no_records · reason=unknown")
             } else {
                 exits.map { exit ->
-                    "${Instant.ofEpochMilli(exit.timestamp)} I/ProcessExit: coverage=available · exitTime=${exit.timestamp} · occurredAtMillis=${exit.timestamp} · processId=${exit.pid} · processName=${exit.processName?.takeIf { it == context.packageName || it.startsWith(context.packageName + ":") } ?: "unknown"} · workerExitConfirmed=true · workerExitEvidence=ANDROID_APPLICATION_EXIT_INFO · reasonCode=${exit.reason} · statusCode=${exit.status} · cause=${if (exit.reason == android.app.ApplicationExitInfo.REASON_SIGNALED) {
-                        "UNKNOWN_CAUSE"
-                    } else if (exit.reason == android.app.ApplicationExitInfo.REASON_LOW_MEMORY) {
-                        "OS_LOW_MEMORY"
-                    } else {
-                        "OS_REASON_CODE"
-                    }} · importance=${exit.importance} · pssKb=${exit.pss} · rssKb=${exit.rss}"
+                    val evidence = androidProcessExitEvidence(exit.reason)
+                    "${Instant.ofEpochMilli(exit.timestamp)} I/ProcessExit: coverage=available · exitTime=${exit.timestamp} · occurredAtMillis=${exit.timestamp} · processId=${exit.pid} · processName=${exit.processName?.takeIf { it == context.packageName || it.startsWith(context.packageName + ":") } ?: "unknown"} · workerExitConfirmed=true · workerExitEvidence=ANDROID_APPLICATION_EXIT_INFO · reasonCode=${exit.reason} · osExitReasonName=${evidence.name} · statusCode=${exit.status} · cause=${evidence.cause} · processCrashConfirmed=${evidence.crashConfirmed ?: "unknown"} · importance=${exit.importance} · pssKb=${exit.pss} · rssKb=${exit.rss}"
                 }
             }
         } catch (_: Exception) {

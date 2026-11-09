@@ -1,11 +1,47 @@
 package dev.chungjungsoo.gptmobile.data.diagnostics
 
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DiagnosticPrivacyTest {
+    @Test fun nestedPrivateArgumentsKeepExecutionReceiptAndFollowingFieldsStructured() {
+        val receipt = """{"phase":"REJECTED","original_arguments":{"query":"private-canary"},"tool_trace":{"call_id":"call-1","resolved_arguments":{"content":"private-canary"}},"mutation_requests":0,"requires_reconciliation":false}"""
+        val stored = diagnosticMessageForStorage("Finished · executionReceipt=$receipt · durationMs=42")
+        assertFalse(stored.contains("private-canary"))
+        val fields = Json.parseToJsonElement(structuredDiagnosticLine("2026-11-08T12:00:00Z W/Tool: $stored")).jsonObject.getValue("fields").jsonObject
+        val retained = fields.getValue("executionReceipt") as JsonObject
+        assertEquals("REJECTED", retained.getValue("phase").jsonPrimitive.content)
+        assertEquals("0", retained.getValue("mutation_requests").jsonPrimitive.content)
+        assertEquals("false", retained.getValue("requires_reconciliation").jsonPrimitive.content)
+        assertEquals("call-1", retained.getValue("tool_trace").jsonObject.getValue("call_id").jsonPrimitive.content)
+        assertEquals("42", fields.getValue("durationMs").jsonPrimitive.content)
+        assertEquals(stored, redactLogMessage(stored))
+    }
+
+    @Test fun credentialAndPathRedactionCannotConsumeJsonSiblings() {
+        val receipt = """{"phase":"REJECTED","headers":{"Authorization":"Bearer private-canary","x-request-id":"req-1"},"path":"/data/user/private-canary","endpoint":"https://example.org?q=private-canary","http_status":403}"""
+        val safe = redactLogMessage(receipt)
+        assertFalse(safe.contains("private-canary"))
+        val retained = Json.parseToJsonElement(safe).jsonObject
+        assertEquals("403", retained.getValue("http_status").jsonPrimitive.content)
+        assertEquals("req-1", retained.getValue("headers").jsonObject.getValue("x-request-id").jsonPrimitive.content)
+        assertEquals("[private-path]", retained.getValue("path").jsonPrimitive.content)
+    }
+
+    @Test fun malformedOrExcessivelyNestedPayloadsFailClosed() {
+        listOf(
+            "receipt={\"original_arguments\":{\"query\":\"private-canary",
+            "receipt=" + "{\"nested\":".repeat(40) + "{\"query\":\"private-canary\"}" + "}".repeat(40),
+            "query=private-canary {\"safe\":\"still-private-canary\"}"
+        ).forEach { assertFalse(redactLogMessage(it).contains("private-canary")) }
+    }
+
     @Test fun completeRequestMetricsSurviveWhilePromptTextRemainsPrivate() {
         val metrics = "FINAL_REQUEST · promptTokens=7620 · outputTokens=8192 · contextTokens=32768 · measurement=UTF8_ESTIMATE"
         assertEquals(metrics, redactDiagnosticPayload(metrics))

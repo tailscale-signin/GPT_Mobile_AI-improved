@@ -30,4 +30,12 @@ class GitHubChatMembershipTest {
         assertFalse(GitHubStatusRequest.matches("Fix status generation and create a PR"))
         assertFalse(GitHubStatusRequest.matches("Audit all features"))
     }
+
+    @Test fun gatewayRepositoryHistoryKeepsItsSerialQueueMarkerWhenWorkspaceMembershipRestores() {
+        val gateway = ChatRoomV2(id = 7, title = "Saved job", enabledPlatform = listOf("llama"), conversationMode = ConversationMode.GATEWAY)
+        val normalized = GitHubChatMembership.normalize(gateway, context)
+        assertEquals(ConversationMode.GATEWAY, normalized.conversationMode)
+        assertEquals(gateway.id, normalized.id)
+        assertEquals(listOf("llama"), normalized.activePlatform)
+    }
 }

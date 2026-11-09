@@ -109,6 +109,60 @@ class GitHubBoundRepositoryToolTest {
         assertEquals(JsonPrimitive("repository"), delegate.executed.last()["repo"])
     }
 
+    @Test fun suppliedUpstreamReadsKeepTheWriteDestinationAndExactRevisionSeparate() = runTest {
+        val delegate = RecordingTool("github__account")
+        val bound = GitHubBoundRepositoryTool(delegate, selected, readSources = setOf("upstream/project"))
+        val arguments = buildJsonObject {
+            put("action", "resolve_context")
+            put("repo", "https://github.com/upstream/project.git")
+            put("ref", "release/exact")
+            put("path", "app/src/Main.kt")
+        }
+        val read = bound.prepareExecution("upstream", arguments).invoke()
+        assertFalse(read.isError)
+        assertEquals(JsonPrimitive("upstream"), delegate.executed.single()["owner"])
+        assertEquals(JsonPrimitive("project"), delegate.executed.single()["repo"])
+        assertEquals(arguments["ref"], delegate.executed.single()["ref"])
+        assertEquals(arguments["path"], delegate.executed.single()["path"])
+        assertEquals(delegate.executed.single(), read.executionReceipt?.get("corrected_arguments"))
+        for (action in listOf("update_file", "commit_files", "create_branch")) {
+            val denied = bound.execute("upstream-write", JsonObject(arguments + ("action" to JsonPrimitive(action))))
+            assertEquals("GITHUB_REPOSITORY_TARGET_MISMATCH", denied.errorCode)
+            assertFalse(denied.dispatched)
+        }
+        bound.execute("destination", buildJsonObject { put("action", "commit_files") })
+        assertEquals(2, delegate.executed.size)
+        assertEquals(JsonPrimitive("selected"), delegate.executed.last()["owner"])
+        assertEquals(JsonPrimitive("repository"), delegate.executed.last()["repo"])
+    }
+
+    @Test fun sourceAndLifecycleOperationsStillRequireTheBoundConnection() = runTest {
+        for (name in listOf("github__account", "github_repository__account")) {
+            val delegate = RecordingTool(name)
+            val bound = GitHubBoundRepositoryTool(delegate, selected, connectionMatches = false, readSources = setOf("upstream/project"))
+            val arguments = if (name.startsWith("github_repository")) {
+                buildJsonObject {
+                    put("action", "create")
+                    put("destination_owner", "owner")
+                    put("destination_repo", "new-project")
+                    put("owner_type", "user")
+                    put("visibility", "private")
+                }
+            } else {
+                buildJsonObject {
+                    put("action", "get_file_contents")
+                    put("owner", "upstream")
+                    put("repo", "project")
+                }
+            }
+            val denied = bound.prepareExecution("wrong-account", arguments).invoke()
+            assertEquals("GITHUB_REPOSITORY_TARGET_MISMATCH", denied.errorCode)
+            assertFalse(denied.dispatched)
+            assertTrue(delegate.executed.isEmpty())
+            assertEquals(0, delegate.prepared)
+        }
+    }
+
     @Test fun wrongConnectionBlocksRepositoryWorkWhilePreservingAccountDiscovery() = runTest {
         val delegate = RecordingTool("github__other_account")
         val bound = GitHubBoundRepositoryTool(delegate, selected, connectionMatches = false)

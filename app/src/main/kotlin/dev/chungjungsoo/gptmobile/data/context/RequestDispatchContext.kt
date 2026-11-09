@@ -19,6 +19,8 @@ internal class RequestDispatchContext(private val candidates: Set<JsonObject>, p
     }
     val queueScope: String? get() = runId ?: invocationId
     val queueInvocationId: String? get() = invocationId
+    val diagnosticRunId: String? get() = runId
+    val diagnosticInvocationId: String? get() = invocationId
     private val physicalOrdinal = java.util.concurrent.atomic.AtomicLong()
     val receipts = CopyOnWriteArrayList<RequestAdmissionReceipt>()
     private val serializedSettings = CopyOnWriteArrayList<JsonObject>()
@@ -39,10 +41,21 @@ internal class RequestDispatchContext(private val candidates: Set<JsonObject>, p
 
     /** Call only from the local preflight that owns the no-inference boundary, never an error string. */
     fun rejectedBeforeInference(reason: InferencePreflightReason) {
-        preflightRejection = InferencePreflightRejection(reason)
-        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
+        val rejection = InferencePreflightRejection(reason)
+        preflightRejection = rejection
+        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.recordEvent(
             "Admission",
-            "INFERENCE_PRECHECK_REJECTED · runId=${runId ?: "unavailable"} · invocationId=${invocationId ?: "unavailable"} · reason=${reason.name} · phase=LOCAL_INFERENCE_ADMISSION · dispatched=NOT_DISPATCHED · retryable=false"
+            "INFERENCE_PRECHECK_REJECTED",
+            mapOf(
+                "runId" to runId,
+                "invocationId" to invocationId,
+                "errorCode" to reason.name,
+                "failedStage" to rejection.failedStage,
+                "failurePhase" to "LOCAL_INFERENCE_ADMISSION",
+                "dispatched" to false,
+                "dispatchState" to "PRECHECK_REJECTED",
+                "retryable" to false
+            )
         )
     }
 

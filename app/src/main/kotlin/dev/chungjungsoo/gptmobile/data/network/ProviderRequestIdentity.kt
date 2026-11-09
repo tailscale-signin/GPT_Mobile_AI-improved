@@ -8,4 +8,8 @@ internal fun providerRequestIdentity(header: (String) -> String?): String = sequ
     "Request-ID",
     "X-Generation-ID",
     "X-Gateway-Request-ID"
-).mapNotNull(header).firstOrNull { it.length in 1..160 && it.all { char -> char.isLetterOrDigit() || char in "._:-" } } ?: "unavailable"
+).mapNotNull { safeProviderRequestIdentity(header(it)) }.firstOrNull() ?: "unavailable"
+
+internal fun safeProviderRequestIdentity(value: String?): String? = value?.takeIf {
+    it.length in 1..160 && it.all { char -> char.isLetterOrDigit() || char in "._:-" }
+}

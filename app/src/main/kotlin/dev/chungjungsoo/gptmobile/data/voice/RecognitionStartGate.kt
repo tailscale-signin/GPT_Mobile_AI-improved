@@ -21,6 +21,7 @@ internal class RecognitionStartGate(private val now: () -> Long = { System.nanoT
     }
 
     @Synchronized fun succeeded(owner: String = "default") {
+        if (activeOwner != owner) return
         release(owner)
         throttles = 0
         bindingFailures = 0
@@ -28,7 +29,7 @@ internal class RecognitionStartGate(private val now: () -> Long = { System.nanoT
 
     /** A service that rejected binding must not be hammered by auto-continue or navigation. */
     @Synchronized fun bindingFailed(owner: String = "default") {
-        if (activeOwner != null && activeOwner != owner) return
+        if (activeOwner != owner) return
         release(owner)
         bindingFailures = (bindingFailures + 1).coerceAtMost(3)
         val delay = when (bindingFailures) {
@@ -40,7 +41,7 @@ internal class RecognitionStartGate(private val now: () -> Long = { System.nanoT
     }
 
     @Synchronized fun failed(tooManyRequests: Boolean, owner: String = "default") {
-        if (activeOwner != null && activeOwner != owner) return
+        if (activeOwner != owner) return
         release(owner)
         val delay = if (tooManyRequests) {
             throttles++

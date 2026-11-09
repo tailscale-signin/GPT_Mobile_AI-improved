@@ -1,10 +1,8 @@
 package dev.chungjungsoo.gptmobile.data.network.gateway
 
-import dev.chungjungsoo.gptmobile.BuildConfig
 import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogEntry
 import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
 import dev.chungjungsoo.gptmobile.data.diagnostics.LocalDiagnosticsPolicy
-import dev.chungjungsoo.gptmobile.data.diagnostics.classifyDiagnostic
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
@@ -26,8 +24,6 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
 
 /** Existing GatewayClientDiagnostics owns this bounded IO bridge; no raw AppLogEntry crosses the wire. */
 internal object GatewayDiagnosticBridge {
@@ -205,61 +201,7 @@ internal object GatewayDiagnosticBridge {
     fun appEvent(entry: AppLogEntry) {
         if (!allowed || System.currentTimeMillis() - activeAt > 5 * 60_000) return
         val route = synchronized(lock) { routes[active] } ?: return
-        if (entry.tag == "Gateway" && entry.message.startsWith("CLIENT_EXCHANGE")) return
-        val classification = classifyDiagnostic(entry.level, entry.tag, entry.message)
-        val stage = when (entry.tag) {
-            "Lifecycle", "Application", "AppCrash", "Diagnostics" -> "lifecycle"
-            "Frame", "Rendering", "ChatRendering" -> "renderer"
-            "Network", "Connectivity" -> "network"
-            "MCP", "Mcp", "McpRuntime" -> "mcp_call"
-            "Agent", "AgentRun", "Tool", "ToolExecution", "GitHub", "GitHubTool" -> "operation_dispatch"
-            else -> if (classification.severity in setOf("error", "critical", "warning")) "unknown" else return
-        }
-        val error = when {
-            classification.category in setOf("fatal", "memory_recovery") && entry.message.contains("memory", true) -> "JAVA_HEAP_PRESSURE"
-            classification.category in setOf("transport_availability", "network_callback_lifecycle") -> "TRANSPORT_FAILURE"
-            stage == "renderer" && classification.severity in setOf("error", "warning", "critical") -> "RENDERER_STALL"
-            classification.severity in setOf("error", "critical") -> "UNKNOWN_CAUSE"
-            else -> "NONE"
-        }
-        val projected = buildJsonObject {
-            put("stage", stage)
-            put("direction", "local")
-            put("owner", "android")
-            put("severity", classification.severity)
-            put("error_code", error)
-            put("dispatch_state", "unknown")
-            put("retry_class", "unknown")
-            put(
-                "category",
-                when (stage) {
-                    "renderer" -> "renderer"
-                    "network" -> "network"
-                    "mcp_call", "operation_dispatch" -> "tool"
-                    "lifecycle" -> "lifecycle"
-                    else -> "unknown"
-                }
-            )
-            // Raw messages never leave this callback. Only syntactically opaque domain IDs can correlate events.
-            val names = mapOf("runId" to "run_id", "jobId" to "job_id", "requestDigest" to "request_id", "operationId" to "operation_id", "toolCallId" to "tool_call_id", "bindingId" to "binding_id", "incidentId" to "incident_id")
-            names.forEach { (name, field) ->
-                Regex("(?:^|[ ·])${Regex.escape(name)}=([a-z0-9_-]{16,80})(?:[ ·]|$)").find(entry.message)?.groupValues?.get(1)?.let { put(field, it) }
-            }
-            put(
-                "bounded_attributes",
-                buildJsonObject {
-                    put("occurrence_count", 1)
-                    put("source_event_digest", GatewayDiagnosticEvent.digest(entry.eventId))
-                    put("vendor_log_available", false)
-                    put("app_version_code", BuildConfig.VERSION_CODE)
-                    put("app_revision", BuildConfig.APP_COMMIT)
-                    put("android_sdk", android.os.Build.VERSION.SDK_INT)
-                    listOf("slowFrames" to "slow_frames", "frameCount" to "frame_count", "droppedFrames" to "dropped_frames").forEach { (name, field) ->
-                        Regex("(?:^|[ ·])$name=([0-9]{1,12})(?:[ ·]|$)").find(entry.message)?.groupValues?.get(1)?.toLongOrNull()?.let { put(field, it) }
-                    }
-                }
-            )
-        }
+        val projected = gatewayAppDiagnosticProjection(entry) ?: return
         event(route.config, projected, entry.time)
     }
 

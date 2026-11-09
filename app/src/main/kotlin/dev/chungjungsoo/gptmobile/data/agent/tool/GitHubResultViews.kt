@@ -73,7 +73,8 @@ internal class GitHubResultViews(
             put("local_page_complete", true)
             put("data", displayBody)
             if (display != value) put("original_available_via_recovery", true)
-            put("recovery_call", savedCall(modelName, "$id:0:$RECOVERY_PAGE_BYTES"))
+            put("recovery_call", savedCall(modelName, "$id:0:${recoveryPageBytes(pageBytes)}"))
+            put("recovery_options", savedOptions(modelName, id, 0, pageBytes, MIN_RECOVERY_PAGE_BYTES))
             sourceRecovery?.let { put("source_recovery_call", it) }
             if (continuations.isNotEmpty()) {
                 put("remote_continuations", JsonArray(continuations))
@@ -93,7 +94,7 @@ internal class GitHubResultViews(
         // They are appended only after every data fragment; no remote record is discarded.
         val lastContinuations = if (continuations.toString().toByteArray().size <= pageBytes / 4) continuations else emptyList()
         try {
-            fragment("", body, buffer, minOf(pageBytes, RECOVERY_PAGE_BYTES))
+            fragment("", body, buffer, minOf(pageBytes, MIN_RECOVERY_PAGE_BYTES))
             if (lastContinuations.isEmpty()) {
                 continuations.forEach { continuation ->
                     buffer += buildJsonObject {
@@ -342,8 +343,10 @@ internal class GitHubResultViews(
     private fun authorize(entry: Entry, page: JsonObject) {
         // Only cursors actually emitted by this view may advance it. Source evidence
         // and a guessed fragment offset never grant pagination access.
-        listOf("recovery_call", "continuation_call").forEach { key ->
-            val arguments = ((page[key] as? JsonObject)?.get("arguments") as? JsonObject)
+        val recipes = listOfNotNull(page["recovery_call"] as? JsonObject, page["continuation_call"] as? JsonObject) +
+            listOf("recovery_options", "continuation_options").flatMap { key -> (page[key] as? JsonArray).orEmpty().filterIsInstance<JsonObject>() }
+        recipes.forEach { recipe ->
+            val arguments = recipe["arguments"] as? JsonObject
             (arguments?.get("view_cursor") as? JsonPrimitive)?.takeIf { it.isString }?.content?.let(entry.issuedCursors::add)
         }
     }
@@ -352,6 +355,12 @@ internal class GitHubResultViews(
         put("tool", modelName)
         put("arguments", buildJsonObject { put("view_cursor", cursor) })
     }
+
+    private fun savedOptions(modelName: String, id: String, offset: Int, maximum: Int, primary: Int) = JsonArray(
+        listOf(MIN_RECOVERY_PAGE_BYTES, 4096, 8192).filter { it <= maximum && it != primary }.map { bytes ->
+            savedCall(modelName, "$id:$offset:$bytes")
+        }
+    )
 
     private fun page(id: String, entry: Entry, offset: Int, modelName: String, pageBytes: Int = entry.pageBytes): JsonObject {
         val source = entry.compressedSource?.let { decodeSource(it, entry.sourceCharacters, requireNotNull(entry.sourceSha256)) }
@@ -388,13 +397,17 @@ internal class GitHubResultViews(
                 }
             )
             entry.sourceSha256?.let { put("source_sha256", it) }
-            put("recovery_call", savedCall(modelName, "$id:$offset:$RECOVERY_PAGE_BYTES"))
+            put("recovery_call", savedCall(modelName, "$id:$offset:${recoveryPageBytes(pageBytes)}"))
+            // Small-context pages keep their historical envelope. Larger pages
+            // issue exact alternatives so the runner can honor a later budget.
+            if (pageBytes >= 2048) put("recovery_options", savedOptions(modelName, id, offset, entry.pageBytes, MIN_RECOVERY_PAGE_BYTES))
             entry.sourceRecovery?.takeIf { it.toString().toByteArray().size <= pageBytes / 4 }?.let { put("source_recovery_call", it) }
             if (!complete) {
                 put(
                     "continuation_call",
-                    savedCall(modelName, "$id:$next" + if (pageBytes < entry.pageBytes) ":$pageBytes" else "")
+                    savedCall(modelName, "$id:$next:$pageBytes")
                 )
+                if (pageBytes >= 2048) put("continuation_options", savedOptions(modelName, id, next, entry.pageBytes, pageBytes))
             } else if (entry.continuations.isNotEmpty()) {
                 put("remote_continuations", JsonArray(entry.continuations))
                 if (entry.continuations.size == 1) put("continuation_call", entry.continuations.single().getValue("call"))
@@ -592,7 +605,8 @@ internal class GitHubResultViews(
                 put("local_page_complete", true)
                 put("original_available_via_recovery", true)
                 put("data", retainContinuations(display, "", operation, modelName, request, mutableListOf()))
-                put("recovery_call", savedCall(modelName, "$id:0:$RECOVERY_PAGE_BYTES"))
+                put("recovery_call", savedCall(modelName, "$id:0:${recoveryPageBytes(pageBytes)}"))
+                put("recovery_options", savedOptions(modelName, id, 0, pageBytes, MIN_RECOVERY_PAGE_BYTES))
                 if (continuations.isNotEmpty()) {
                     put("remote_continuations", JsonArray(continuations))
                     if (continuations.size == 1) put("continuation_call", continuations.single().getValue("call"))
@@ -763,7 +777,11 @@ internal class GitHubResultViews(
         private const val MAX_SOURCE_BYTES = 1024 * 1024
         private const val MAX_SERIALIZED_SOURCE_BYTES = 4 * 1024 * 1024
         private const val SOURCE_FRAGMENT_CHARACTERS = 48
-        private const val RECOVERY_PAGE_BYTES = 1536
+
+        // The default remains safe for the 512-token replay slice. Larger pages
+        // require an exact issued alternative selected against the actual budget.
+        private const val MIN_RECOVERY_PAGE_BYTES = 1536
+        private fun recoveryPageBytes(pageBytes: Int): Int = minOf(pageBytes, MIN_RECOVERY_PAGE_BYTES)
         private val METADATA = setOf("schema", "owner", "repo", "ref", "commit_sha", "tree_sha", "head_sha", "base_sha", "evidence_id", "complete", "status", "stage_id", "task_id", "execution_id", "id", "number", "sha", "html_url", "url", "run_id", "release_id", "pull_number")
         private val RECEIPTS = setOf("commit", "pull_request", "release", "workflow_run", "receipt", "expected_head_sha")
         val shared = GitHubResultViews()

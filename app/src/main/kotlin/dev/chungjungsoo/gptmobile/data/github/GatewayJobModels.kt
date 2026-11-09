@@ -167,10 +167,21 @@ data class GatewayConversationAttachment(
     val profileUid: String,
     val context: GitHubConversationContext?,
     val conversationKey: String,
-    val historyComplete: Boolean = true
+    val historyComplete: Boolean = true,
+    val conversationMode: String? = null
 )
 
-class GatewayHistoryUnsupported internal constructor(surface: GatewayAdmissionSurface = GatewayAdmissionSurface.CONVERSATIONS, httpStatus: Int? = null) : GatewayAdmissionException(GatewayAdmissionReason.UNSUPPORTED_CONTRACT, httpStatus, null, surface)
+class GatewayHistoryUnsupported internal constructor(
+    surface: GatewayAdmissionSurface = GatewayAdmissionSurface.CONVERSATIONS,
+    httpStatus: Int? = null,
+    val directModelServer: Boolean = false
+) : GatewayAdmissionException(GatewayAdmissionReason.UNSUPPORTED_CONTRACT, httpStatus, null, surface) {
+    override val message: String? get() = if (directModelServer) {
+        "GATEWAY_UNSUPPORTED_CONTRACT (HTTP $httpStatus): The selected address identifies itself as llama.cpp and does not expose gateway Jobs. Select the configured desktop gateway address, or repair the reverse-proxy gateway routes. Direct model availability does not verify saved-work support."
+    } else {
+        super.message
+    }
+}
 
 @Serializable
 data class GatewayCommandReceipt(

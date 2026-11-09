@@ -154,6 +154,7 @@ import dev.chungjungsoo.gptmobile.presentation.common.FadingModalBottomSheet as 
 import dev.chungjungsoo.gptmobile.presentation.common.GlassBackdropBox
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import dev.chungjungsoo.gptmobile.presentation.common.appOverlayTokens
+import dev.chungjungsoo.gptmobile.presentation.common.diagnosticFrameTiming
 import dev.chungjungsoo.gptmobile.presentation.common.glassBackdrop
 import dev.chungjungsoo.gptmobile.presentation.common.hasGlassBackdrop
 import dev.chungjungsoo.gptmobile.util.isAssistantErrorMessage
@@ -428,6 +429,7 @@ private fun ChatScreenContent(
     val availableChatTools by chatViewModel.availableChatTools.collectAsStateWithLifecycle()
     val chatToolConfig by chatViewModel.chatToolConfig.collectAsStateWithLifecycle()
     val gatewayWriteBlocker by chatViewModel.gatewayWriteBlocker.collectAsStateWithLifecycle()
+    val gatewayQueueState by chatViewModel.gatewayQueueState.collectAsStateWithLifecycle()
     val githubDecisions by chatViewModel.githubDecisions.collectAsStateWithLifecycle()
     val githubWaiting by chatViewModel.waitingGitHubDecisions.collectAsStateWithLifecycle()
     GitHubChatPresenceEffect(chatRoom.id.takeIf { chatToolConfig.github != null })
@@ -809,6 +811,7 @@ private fun ChatScreenContent(
     Scaffold(
         snackbarHost = { androidx.compose.material3.SnackbarHost(snackbarHost) },
         modifier = Modifier.then(backFade.modifier)
+            .diagnosticFrameTiming("Chat")
             .clickable(
                 indication = null,
                 interactionSource = remember { MutableInteractionSource() }
@@ -1057,6 +1060,30 @@ private fun ChatScreenContent(
                 gatewayWriteBlocker?.let { reason ->
                     item(key = "gateway-conversation-read-only") {
                         Text(reason, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+                gatewayQueueState?.let { queued ->
+                    item(key = "gateway-queue-state") {
+                        androidx.compose.material3.Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                            Column(Modifier.padding(16.dp)) {
+                                Text(
+                                    when (queued.state) {
+                                        dev.chungjungsoo.gptmobile.data.queue.GatewayQueuedState.QUEUED -> "Gateway message saved"
+                                        dev.chungjungsoo.gptmobile.data.queue.GatewayQueuedState.WAITING_FOR_GATEWAY -> "Waiting for Gateway"
+                                        dev.chungjungsoo.gptmobile.data.queue.GatewayQueuedState.RUNNING -> "Gateway work in progress"
+                                        dev.chungjungsoo.gptmobile.data.queue.GatewayQueuedState.RECONCILING -> "Checking the previous Gateway job"
+                                        dev.chungjungsoo.gptmobile.data.queue.GatewayQueuedState.BLOCKED -> "Gateway queue needs attention"
+                                    },
+                                    style = MaterialTheme.typography.titleSmall
+                                )
+                                queued.message?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                                if (queued.queuedCount > 0) Text("${queued.queuedCount} saved message${if (queued.queuedCount == 1) "" else "s"} waiting", style = MaterialTheme.typography.bodySmall)
+                                if (queued.state != dev.chungjungsoo.gptmobile.data.queue.GatewayQueuedState.RUNNING) {
+                                    TextButton(onClick = chatViewModel::checkGatewayQueue) { Text("Check saved jobs") }
+                                }
+                                if (queued.canCancelUnsubmitted) TextButton(onClick = chatViewModel::cancelUnsubmittedGateway) { Text("Stop unsubmitted message") }
+                            }
+                        }
                     }
                 }
                 if (chatToolConfig.github != null) {
@@ -1592,6 +1619,15 @@ internal fun ChatMessagePair(
             }
         }
     }
+    val githubTask = message.content.takeIf { LocalChatProgressInHeader.current && !hasCombinedTabs }
+    val readAssistantActionText: suspend () -> String = {
+        when {
+            selectedSourceReader != null -> selectedSourceReader.readAll()
+            githubTask != null && !combinedMode && selectedAssistantMessage?.effectiveCombinedManifest() == null ->
+                gitHubResponsePresentation(assistantContent, assistantTimeline).text
+            else -> selectedAssistantMessage?.let { resolveCombinedMessage(it).effectiveContent() } ?: assistantContent
+        }
+    }
     val readLifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current
     val readLifecycleState by readLifecycle.lifecycle.currentStateFlow.collectAsStateWithLifecycle()
     LaunchedEffect(replyRevision, replyVisible, selectedAssistantMessage, rawAssistantContent, readLifecycleState) {
@@ -1796,8 +1832,8 @@ internal fun ChatMessagePair(
                     isFavorite = selectedAssistantMessage?.isFavorite ?: false,
                     debugMode = debugMode,
                     showExecutionTrace = !isCombinedConversation,
-                    githubTask = message.content.takeIf { LocalChatProgressInHeader.current && !hasCombinedTabs },
-                    responseIcon = if (LocalChatProgressInHeader.current && !hasCombinedTabs) {
+                    githubTask = githubTask,
+                    responseIcon = if (githubTask != null) {
                         { GPTMobileIcon(loading = isResponseLoading, github = true) }
                     } else {
                         null
@@ -1867,10 +1903,10 @@ internal fun ChatMessagePair(
                     canShowPreviousRevision = canShowPreviousRevision,
                     canShowNextRevision = canShowNextRevision,
                     onCopyClick = {
-                        documentScope.launch { onCopyText(selectedSourceReader?.readAll() ?: selectedAssistantMessage?.let { resolveCombinedMessage(it).effectiveContent() } ?: assistantContent) }
+                        documentScope.launch { onCopyText(readAssistantActionText()) }
                     },
                     onSelectClick = {
-                        documentScope.launch { onSelectText(selectedSourceReader?.readAll() ?: selectedAssistantMessage?.let { resolveCombinedMessage(it).effectiveContent() } ?: assistantContent) }
+                        documentScope.launch { onSelectText(readAssistantActionText()) }
                     },
                     onRetryClick = {
                         if (needsAnswerCorrection) revisionTarget?.let { onReviseCombinedAnswer(messageIndex, it) } else onRetry(messageIndex, displayPlatformIndex)

@@ -12,6 +12,16 @@ import kotlinx.serialization.json.put
 /** Routine deferral is an inventory summary. Required-tool failures retain their warning receipts. */
 internal object ToolCatalogDiagnostics {
     private val window = Window()
+    private val admissions = AdmissionWindow()
+
+    /** Protected durable storage remains authoritative across process restarts. */
+    fun recordAdmission(snapshot: JsonObject) = synchronized(window) {
+        if (!AppLogRecorder.enabled.value || AppLogRecorder.privateSessionActive) {
+            admissions.clear()
+            return@synchronized
+        }
+        admissions.observe(snapshot)
+    }
 
     fun recordOmissions(stage: String, omissions: Map<String, String>, schemaAllowance: Long? = null, inventoryNames: Collection<String>? = null) {
         synchronized(window) {
@@ -23,12 +33,18 @@ internal object ToolCatalogDiagnostics {
         }
     }
 
-    fun clear() = window.clear()
+    fun clear() = synchronized(window) {
+        window.clear()
+        admissions.clear()
+    }
 
     /** Full retained details belong in the bounded export, not repeated lines in the recent-log ring. */
     fun snapshot(): List<JsonObject> = synchronized(window) {
         val available = AppLogRecorder.enabled.value && !AppLogRecorder.privateSessionActive
-        if (!available) window.clear()
+        if (!available) {
+            window.clear()
+            admissions.clear()
+        }
         listOf(
             buildJsonObject {
                 put("kind", "tool_catalog_snapshot_scope")
@@ -36,8 +52,30 @@ internal object ToolCatalogDiagnostics {
                 put("scope", "Latest observed input inventory and omissions per admission stage in this process. These are configuration observations, not task execution receipts or test coverage.")
                 put("maxStages", 16)
                 put("maxToolNamesPerStage", 512)
+                put("maxRunAdmissionSnapshots", 64)
             }
-        ) + window.snapshot()
+        ) + window.snapshot() + admissions.snapshot()
+    }
+
+    internal class AdmissionWindow(private val capacity: Int = 64) {
+        init {
+            require(capacity in 1..64)
+        }
+
+        private val rows = linkedMapOf<Pair<JsonPrimitive, JsonPrimitive>, JsonObject>()
+
+        fun observe(snapshot: JsonObject) {
+            if (snapshot["schema"] != JsonPrimitive("gptmobile.run-tool-admission.v1") || snapshot.toString().length > 256 * 1024) return
+            val run = snapshot["runId"] as? JsonPrimitive ?: return
+            val stage = snapshot["preparationStage"] as? JsonPrimitive ?: return
+            val key = run to stage
+            rows.remove(key)
+            rows[key] = snapshot
+            while (rows.size > capacity) rows.remove(rows.keys.first())
+        }
+
+        fun snapshot(): List<JsonObject> = rows.values.toList()
+        fun clear() = rows.clear()
     }
 
     internal class Window(private val maxStages: Int = 16, private val maxTools: Int = 512, private val now: () -> Long = System::currentTimeMillis) {

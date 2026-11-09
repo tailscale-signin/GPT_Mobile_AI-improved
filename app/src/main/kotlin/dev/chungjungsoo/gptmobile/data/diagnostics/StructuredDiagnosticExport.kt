@@ -37,10 +37,16 @@ internal fun structuredDiagnosticLine(
     val classification = classifyDiagnostic(match?.groupValues?.get(2), match?.groupValues?.get(3), message)
     val parsedFields = diagnosticFields(message)
     fun number(key: String) = (parsedFields[key] as? JsonPrimitive)?.longOrNull
-    fun text(key: String) = (parsedFields[key] as? JsonPrimitive)?.content?.takeUnless { it in setOf("unknown", "null", "none") }
+    fun text(key: String) = parsedFields.diagnosticText(key)
+    val eventMessage = diagnosticEventMessage(message)
+    val eventName = diagnosticStructuredEvent(message)?.name ?: eventMessage.substringBefore(" · ").trim().take(128)
+    val execution = diagnosticExecutionEvidence(parsedFields, eventName)
+    val correlation = diagnosticCorrelation(parsedFields, eventMessage, match?.groupValues?.get(3))
     val recordTime = match?.groupValues?.get(1)?.let { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() }
     val occurredAt = number("occurredAtMillis") ?: recordTime
     val historical = captureSource in setOf("runtime_incident_history", "android_exit_history", "provider_failure")
+    val historicalExit = captureSource == "android_exit_history" || match?.groupValues?.get(3) == "ProcessExit"
+    val exitEvidence = number("reasonCode")?.takeIf { historicalExit && it in 0..Int.MAX_VALUE.toLong() }?.toInt()?.let(::androidProcessExitEvidence)
     val capturedAt = number("capturedAtMillis") ?: recordTime.takeUnless { historical }
     val exitConfirmed = (parsedFields["workerExitConfirmed"] as? JsonPrimitive)?.booleanOrNull
         ?: (parsedFields["exitConfirmed"] as? JsonPrimitive)?.booleanOrNull
@@ -53,11 +59,13 @@ internal fun structuredDiagnosticLine(
         put("sequence", sequence)
         put("captureSource", captureSource)
         put("duplicate", duplicate)
+        put("observedFailure", !duplicate && match != null && classification.actionable)
         put("countAsIssue", !duplicate && incidentRoot && match != null && classification.actionable)
+        put("issueCountingUnit", "CORRELATED_INCIDENT")
         put(
             "classification",
             when {
-                !incidentRoot || match == null || duplicate -> "SYMPTOM"
+                match == null || duplicate || !incidentRoot && classification.actionable -> "SYMPTOM"
                 classification.actionable -> "OBSERVED_FAILURE"
                 classification.category in setOf("compatibility_probe", "model_compatibility", "connectivity_progress", "platform_job_hint", "deferred_work", "recovery") -> "EXPECTED_LIFECYCLE"
                 else -> "INFORMATIONAL"
@@ -66,10 +74,13 @@ internal fun structuredDiagnosticLine(
         put("causalAttribution", "UNVERIFIED")
         put("category", classification.category)
         put("severity", classification.severity)
-        put("stage", text("failedStage") ?: text("stage") ?: text("runtimeStage"))
-        put("errorCode", text("errorCode") ?: text("failureCode"))
-        put("dispatched", (parsedFields["dispatched"] as? JsonPrimitive)?.booleanOrNull)
-        put("dispatchState", text("dispatchState"))
+        put("stage", execution.stage)
+        put("errorCode", execution.errorCode)
+        put("dispatched", execution.dispatched)
+        put("dispatchState", execution.state)
+        put("runId", correlation.runId)
+        put("invocationId", correlation.invocationId)
+        put("causalIncidentId", text("causalIncidentId"))
         put("retryable", (parsedFields["retryable"] as? JsonPrimitive)?.booleanOrNull)
         put("recovery", classification.recovery)
         put("occurredAtMillis", occurredAt)
@@ -87,7 +98,9 @@ internal fun structuredDiagnosticLine(
         put("terminationRequested", (parsedFields["terminationRequested"] as? JsonPrimitive)?.booleanOrNull)
         put("workerExitConfirmed", exitConfirmed)
         put("workerExitEvidence", text("workerExitEvidence"))
-        put("osExitReason", text("osExitReason") ?: text("reasonCode"))
+        put("osExitReason", text("osExitReason") ?: text("reasonCode").takeIf { historicalExit })
+        put("osExitReasonName", text("osExitReasonName") ?: exitEvidence?.name)
+        put("processCrashConfirmed", (parsedFields["processCrashConfirmed"] as? JsonPrimitive)?.booleanOrNull ?: exitEvidence?.crashConfirmed)
         put("truncated", line.length > limit || sourceTruncated)
         put("truncatedAtSource", sourceTruncated)
         put("truncatedAtExport", line.length > limit)
@@ -95,9 +108,8 @@ internal fun structuredDiagnosticLine(
         put("retainedLength", safe.length)
         put("kind", if (match == null) "continuation" else "event")
         put("message", message)
-        val eventMessage = diagnosticEventMessage(message)
         val trace = runCatching { Json.parseToJsonElement(eventMessage) as? JsonObject }.getOrNull()?.takeIf { it["schema"] == JsonPrimitive("github.trace.v1") }
-        put("eventName", if (trace != null) "GITHUB_TOOL_COMPLETED" else eventMessage.substringBefore(" · ").trim().take(128))
+        put("eventName", if (trace != null) "GITHUB_TOOL_COMPLETED" else eventName)
         if (trace != null) put("trace", diagnosticJsonValue(trace))
         if (match != null) {
             put("timestamp", match.groupValues[1])
@@ -108,7 +120,7 @@ internal fun structuredDiagnosticLine(
     }.toString()
 }
 
-private fun diagnosticFields(message: String): JsonObject {
+internal fun diagnosticFields(message: String): JsonObject {
     // Embedded JSON can contain prose such as "error code=429". Only recognize
     // field separators outside JSON objects, arrays and quoted strings.
     val topLevel = BooleanArray(message.length)
@@ -134,13 +146,18 @@ private fun diagnosticFields(message: String): JsonObject {
         }
     }
     val fields = fieldPattern.findAll(message).filter { topLevel[it.groups[1]!!.range.first] }.toList()
+    val typed = diagnosticStructuredEvent(message)
+    val legacyReadiness = typed == null && diagnosticEventMessage(message).startsWith("LLAMA_READINESS ·")
     return buildJsonObject {
+        typed?.fields?.forEach { (key, value) -> put(key, diagnosticJsonValue(value)) }
         fields.take(64).forEachIndexed { index, field ->
             val key = field.groupValues[1]
             val end = fields.getOrNull(index + 1)?.range?.first ?: message.length
             // Payload redaction removes the following private field, including its
             // key. Its marker must not turn the preceding safe Boolean/number into prose.
-            val formattedValue = message.substring(field.range.last + 1, end).trim().removeSuffix("[private payload redacted]").trim().trimEnd('·').trim()
+            val formattedValue = message.substring(field.range.last + 1, end).trim().removeSuffix("[private payload redacted]").trim().trimEnd('·').trim().let {
+                if (legacyReadiness) it.removeSuffix(";").trimEnd() else it
+            }
             val value = if (key in setOf("eventId", "parentEventId", "monoNs", "bootMs", "processId", "processName")) formattedValue.takeWhile { !it.isWhitespace() && it != '·' } else formattedValue
             val nested = if (value.startsWith('{') || value.startsWith('[')) runCatching { Json.parseToJsonElement(value) }.getOrNull() else null
             when {

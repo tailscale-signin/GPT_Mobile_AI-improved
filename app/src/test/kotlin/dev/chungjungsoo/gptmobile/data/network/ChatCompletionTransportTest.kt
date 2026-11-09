@@ -44,7 +44,10 @@ class ChatCompletionTransportTest {
         "application/json",
         """{"choices":[{"message":{"content":"Answer."}}],"gateway_timing":{"measurement_scope":"physical_backend_request","backend_first_output_ms":10.5,"backend_first_reasoning_output_ms":10.5,"backend_first_visible_output_ms":100.0,"backend_completion_ms":150.0,"first_user_visible_text_ms":9999}}"""
     ) { api, config, _ ->
-        val timing = runBlocking { api.streamChatCompletion(request(false), 5, config).toList().single().gatewayTiming!! }
+        val chunks = runBlocking { api.streamChatCompletion(request(false), 5, config).toList() }
+        assertInitialChatHeaders(chunks, 200)
+        assertEquals(2, chunks.size)
+        val timing = chunks.single { it.gatewayTiming != null }.gatewayTiming!!
         assertEquals(10.5, timing.observedFields()["backend_first_output_ms"]!!, 0.01)
         assertFalse(timing.observedFields().containsKey("first_user_visible_text_ms"))
         assertTrue(timing.copy(measurementScope = "unverified").observedFields().isEmpty())
@@ -56,7 +59,10 @@ class ChatCompletionTransportTest {
         "application/json",
         """{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"gps-1","type":"function","function":{"name":"device_location","arguments":"{}"}}]},"finish_reason":"stop"}],"usage":{"prompt_tokens":12,"completion_tokens":8,"total_tokens":20}}"""
     ) { api, config, accept ->
-        val chunk = runBlocking { api.streamChatCompletion(request(stream = false), 5, config).toList().single() }
+        val chunks = runBlocking { api.streamChatCompletion(request(stream = false), 5, config).toList() }
+        assertInitialChatHeaders(chunks, 200)
+        assertEquals(2, chunks.size)
+        val chunk = chunks.single { it.choices != null }
         assertEquals("application/json", accept())
         assertEquals("gps-1", chunk.choices!!.single().effectiveDelta.toolCalls!!.single().id)
         assertEquals("job-1", chunk.gatewayMetadata?.jobId)
@@ -109,14 +115,14 @@ class ChatCompletionTransportTest {
             withResponse("text/event-stream", body, headers) { api, config, _ ->
                 val request = ResponsesRequest("selected-model", listOf(ResponseInputMessage("user", ResponseInputContent.text("Transport fixture request."))))
                 val events = runBlocking { api.streamResponses(request, 5, config).toList() }
+                assertInitialResponsesHeaders(events, 200)
                 assertEquals("Answer", events.filterIsInstance<OutputTextDeltaEvent>().single().delta)
-                val metadata = events.filterIsInstance<ResponseGatewayMetadataEvent>()
+                val metadata = events.filterIsInstance<ResponseGatewayMetadataEvent>().filter { it.metadata != null }
+                assertTrue(events.indexOf(metadata.single()) < events.indexOfFirst { it is OutputTextDeltaEvent })
                 if (gateway) {
-                    assertTrue(events.first() is ResponseGatewayMetadataEvent)
                     assertTrue(metadata.single().metadata?.transportVerified == true)
                     assertEquals("gateway-request", metadata.single().metadata?.requestId)
                 } else {
-                    assertTrue(events.first() is ResponseGatewayMetadataEvent)
                     assertFalse(metadata.single().metadata?.transportVerified == true)
                 }
             }
@@ -128,7 +134,10 @@ class ChatCompletionTransportTest {
         "application/json; charset=utf-8",
         """{"choices":[{"message":{"content":"Your location was retrieved.","reasoning_content":"Use the phone result."}}]}"""
     ) { api, config, _ ->
-        val choice = runBlocking { api.streamChatCompletion(request(), 5, config).toList().single().choices!!.single() }
+        val chunks = runBlocking { api.streamChatCompletion(request(), 5, config).toList() }
+        assertInitialChatHeaders(chunks, 200)
+        assertEquals(2, chunks.size)
+        val choice = chunks.single { it.choices != null }.choices!!.single()
         assertEquals("Your location was retrieved.", choice.effectiveDelta.content)
         assertEquals("Use the phone result.", choice.effectiveDelta.effectiveReasoning)
         assertEquals("stop", choice.finishReason)
@@ -140,13 +149,15 @@ class ChatCompletionTransportTest {
         listOf(false, true).forEach { done ->
             withResponse("text/event-stream", body + if (done) "data: [DONE]\n\n" else "") { api, config, _ ->
                 val chunks = runBlocking { api.streamChatCompletion(request(), 5, config).toList() }
+                assertInitialChatHeaders(chunks, 200)
                 assertEquals(done, chunks.any { it.streamFinished })
                 assertEquals(!done, chunks.any { it.error != null })
                 assertEquals(1, chunks.count { it.choices.orEmpty().any { choice -> !choice.effectiveDelta.toolCalls.isNullOrEmpty() } })
-                assertTrue(chunks.first().choices!!.single().effectiveDelta.toolCalls!!.isNotEmpty())
-                assertTrue(chunks.first().reasoningControlReceipt != null)
-                assertTrue(chunks.first().providerResponseTiming?.responseHeadersMs != null)
-                assertTrue(chunks.first().providerResponseTiming?.firstParsedPayloadMs != null)
+                val toolChunk = chunks.single { !it.choices.isNullOrEmpty() }
+                assertTrue(toolChunk.choices!!.single().effectiveDelta.toolCalls!!.isNotEmpty())
+                assertTrue(toolChunk.reasoningControlReceipt != null)
+                assertTrue(toolChunk.providerResponseTiming?.responseHeadersMs != null)
+                assertTrue(toolChunk.providerResponseTiming?.firstParsedPayloadMs != null)
             }
         }
     }
@@ -157,7 +168,10 @@ class ChatCompletionTransportTest {
         headers = emptyMap(),
         status = 400
     ) { api, config, _ ->
-        val chunk = runBlocking { api.streamChatCompletion(request(false), 5, config).toList().single() }
+        val chunks = runBlocking { api.streamChatCompletion(request(false), 5, config).toList() }
+        assertInitialChatHeaders(chunks, 400)
+        assertEquals(2, chunks.size)
+        val chunk = chunks.single { it.error != null }
         assertEquals("400", chunk.error?.code)
         assertTrue(chunk.reasoningControlReceipt != null)
         assertTrue(chunk.providerResponseTiming?.responseHeadersMs != null)
@@ -181,7 +195,10 @@ class ChatCompletionTransportTest {
         "application/json",
         """{"choices":[{"message":{"content":[{"type":"text","text":"PKG-"},{"type":"text","text":{"value":"a1b2c3d4"}}]}}],"timings":{"predicted_per_second":42.5}}"""
     ) { api, config, _ ->
-        val chunk = runBlocking { api.streamChatCompletion(request(), 5, config).toList().single() }
+        val chunks = runBlocking { api.streamChatCompletion(request(), 5, config).toList() }
+        assertInitialChatHeaders(chunks, 200)
+        assertEquals(2, chunks.size)
+        val chunk = chunks.single { it.choices != null }
         assertEquals("PKG-a1b2c3d4", chunk.choices!!.single().effectiveDelta.content)
         assertEquals(42.5, chunk.timings!!.decodeTokensPerSecond!!, .01)
     }

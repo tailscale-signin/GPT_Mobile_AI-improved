@@ -126,7 +126,7 @@ class GatewayEngineeringClientTest {
         }
     }
 
-    @Test fun engineeringAuthenticationFailureIsNotCachedAsUnsupportedOrRetried() = runTest {
+    @Test fun engineeringAuthenticationFailureIsCachedAsTypedRejectionUntilTheIdentityChanges() = runTest {
         var calls = 0
         http(
             MockEngine {
@@ -137,10 +137,65 @@ class GatewayEngineeringClientTest {
             val client = GatewayEngineeringClient(http)
             repeat(2) {
                 val message = runCatching { client.capabilities(config) }.exceptionOrNull()?.message.orEmpty()
-                assertTrue(message.contains("not authorized"))
+                assertTrue(message.contains("GATEWAY_HTTP_REJECTED"))
                 assertFalse(message.contains("private-source"))
             }
+            assertEquals(1, calls)
+            assertTrue(runCatching { client.capabilities(config.copy(token = "changed-account")) }.exceptionOrNull() is GatewayAdmissionException)
             assertEquals(2, calls)
+        }
+    }
+
+    @Test fun successfulHandshakeRetainsTheSpecificEngineeringPrerequisiteInsteadOfConnectionFailure() = runTest {
+        for ((checks, reason) in listOf(
+            "\"journal\":\"disabled\"" to GatewayAdmissionReason.ENGINEERING_STORAGE_DISABLED,
+            "\"journal\":\"unavailable\"" to GatewayAdmissionReason.ENGINEERING_STORAGE_UNAVAILABLE,
+            "\"host_github_connection\":\"missing\"" to GatewayAdmissionReason.ENGINEERING_GITHUB_REQUIRED,
+            "\"draining\":true" to GatewayAdmissionReason.ENGINEERING_DRAINING,
+            "\"worker\":\"unavailable\"" to GatewayAdmissionReason.ENGINEERING_WORKER_UNAVAILABLE
+        )) {
+            http(MockEngine { respond("""{"service":"engineering-gateway","protocol_version":1,"enabled":false,"principal_id":"owner","readiness":{"schema_version":1,"ready":false,"saved_results":true,"checks":{$checks}}}""") }).use { http ->
+                val client = GatewayEngineeringClient(http)
+                assertEquals("owner", client.principal(config, requireReady = false))
+                val failure = runCatching { client.principal(config) }.exceptionOrNull() as GatewayAdmissionException
+                assertEquals(reason, failure.reason)
+                assertEquals(200, failure.httpStatus)
+                assertEquals(GatewayAdmissionDispatchState.NOT_DISPATCHED, failure.dispatchState)
+                assertEquals("GATEWAY_${reason.name}", dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.classify(requireNotNull(failure.message)).category)
+            }
+        }
+    }
+
+    @Test fun oneStaleReadRetriesOnTheDedicatedPoolWhileMutatingPostsAreNeverReplayed() = runTest {
+        var reads = 0
+        var writes = 0
+        var evictions = 0
+        val readAttempts = mutableListOf<String?>()
+        http(
+            MockEngine { request ->
+                writes++
+                assertNull(request.headers["X-Gateway-Retry-Attempt"])
+                throw java.io.EOFException("closed before response")
+            }
+        ).use { write ->
+            http(
+                MockEngine { request ->
+                    reads++
+                    readAttempts += request.headers["X-Gateway-Retry-Attempt"]
+                    if (reads == 1) throw java.io.EOFException("closed before response")
+                    respond(Json.encodeToString(job))
+                }
+            ).use { read ->
+                val client = GatewayEngineeringClient(write, read) { evictions++ }
+                assertEquals(job.id, client.get(config, job.id, 0).id)
+                assertEquals(2, reads)
+                assertEquals(listOf("0", "1"), readAttempts)
+                assertEquals(1, evictions)
+                val payload = GatewayEngineeringRequest("owner/repo", "feature/job", "main", "Fix tests", "local", chatId = 4, requestId = "saved-before-dispatch")
+                assertTrue(runCatching { client.create(config, payload) }.exceptionOrNull() is java.io.EOFException)
+                assertEquals(1, writes)
+                assertEquals(2, reads)
+            }
         }
     }
 

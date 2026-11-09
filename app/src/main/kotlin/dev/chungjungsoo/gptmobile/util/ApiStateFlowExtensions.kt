@@ -299,6 +299,8 @@ private class StreamingMessageBuffer(
     private val content = StringBuilder()
     private val timeline = mutableListOf<AssistantTimelineItem>()
     private var githubProgress = false
+    private var githubRoundAwaitingAnswer = false
+    private val githubAnswerPrefix = StringBuilder()
     private var pendingTimelineIndex = -1
     private val pendingTimelineText = StringBuilder()
     private var responseSource: dev.chungjungsoo.gptmobile.data.database.entity.ResponseSource? = null
@@ -307,7 +309,7 @@ private class StreamingMessageBuffer(
     private var restoredOffset = 0
     private var contentSnapshot: String? = null
     private fun currentContent(): String = contentSnapshot ?: content.toString().also { contentSnapshot = it }
-    val hasResponse: Boolean get() = dev.chungjungsoo.gptmobile.data.conversation.AnswerProjection.hasAnswer(currentContent())
+    val hasResponse: Boolean get() = !githubRoundAwaitingAnswer && dev.chungjungsoo.gptmobile.data.conversation.AnswerProjection.hasAnswer(currentContent())
     private var lastPublishedAtNanos = 0L
     private var hasPublishedAnswer = false
     private var publishedThoughtLength = 0
@@ -374,6 +376,15 @@ private class StreamingMessageBuffer(
     fun beginGitHubRound() {
         flushTimelineText()
         githubProgress = true
+        // A continuation can stop before producing any replacement. Keep its
+        // already-public findings visible; a new round is not a new answer.
+        githubRoundAwaitingAnswer = true
+        githubAnswerPrefix.setLength(0)
+    }
+
+    private fun replaceGitHubRoundAnswer() {
+        if (!githubRoundAwaitingAnswer) return
+        flushTimelineText()
         for (index in timeline.indices) {
             val item = timeline[index]
             if (item.type == AssistantTimelineItemType.TEXT) {
@@ -382,6 +393,7 @@ private class StreamingMessageBuffer(
         }
         contentSnapshot = null
         content.setLength(0)
+        githubRoundAwaitingAnswer = false
         boundGitHubProgress()
         timelineVersion++
     }
@@ -431,8 +443,19 @@ private class StreamingMessageBuffer(
         }
     }
 
-    fun appendContent(chunk: String) {
+    fun appendContent(rawChunk: String) {
+        val chunk = if (githubRoundAwaitingAnswer) {
+            githubAnswerPrefix.append(rawChunk)
+            val pending = githubAnswerPrefix.toString()
+            val visible = dev.chungjungsoo.gptmobile.data.conversation.AnswerProjection.text(pending)
+            if (visible.isBlank() || "<think>".startsWith(visible.trimStart(), ignoreCase = true)) return
+            pending
+        } else {
+            rawChunk
+        }
         if (chunk.isNotEmpty()) {
+            replaceGitHubRoundAnswer()
+            githubAnswerPrefix.setLength(0)
             contentSnapshot = null
             content.append(chunk)
             var offset = 0
@@ -492,10 +515,13 @@ private class StreamingMessageBuffer(
             return
         }
         if (!modelAuthored && repeatsGitHubPreview(text)) return
-        val last = timeline.lastOrNull()
+        // A ticker summary can arrive between two chunks of the same public
+        // update. It must not split the user's explanation into separate tails.
+        val lastIndex = if (githubProgress && modelAuthored) timeline.indexOfLast { !it.statusSummary || it.modelAuthored } else timeline.lastIndex
+        val last = timeline.getOrNull(lastIndex)
         if (modelAuthored && last?.progressCheckpoint == true && (!githubProgress || last.modelAuthored) && !last.statusSummary) {
             val combined = (if (last.modelAuthored) last.content else "") + text
-            timeline[timeline.lastIndex] = last.copy(content = if (githubProgress) combined.takeLast(4000) else combined, modelAuthored = true)
+            timeline[lastIndex] = last.copy(content = if (githubProgress) combined.takeLast(4000) else combined, modelAuthored = true)
         } else {
             timeline += AssistantTimelineItem(
                 AssistantTimelineItemType.NOTICE,

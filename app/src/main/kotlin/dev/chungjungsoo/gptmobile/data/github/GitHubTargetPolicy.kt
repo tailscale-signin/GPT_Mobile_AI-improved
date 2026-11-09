@@ -13,8 +13,10 @@ import kotlinx.serialization.json.put
 internal class GitHubTargetPolicy(private val request: String?) {
     private val discovered = linkedSetOf<String>()
 
+    fun suppliedRead(action: String, target: String): Boolean = isReadAction(action) && explicitlySupplied(target)
+
     @Synchronized fun rejection(action: String, arguments: JsonObject, selected: GitHubRepositoryContext?): JsonObject? {
-        if (request == null || action in ACCOUNT_ACTIONS) return null
+        if (request == null || action in ACCOUNT_ACTIONS || action in GitHubRepositoryLifecycle.actions) return null
         val owner = arguments.text("owner")
         val repo = arguments.text("repo")
         val target = if (owner.isNotBlank() && repo.isNotBlank()) "$owner/$repo" else null
@@ -49,13 +51,28 @@ internal class GitHubTargetPolicy(private val request: String?) {
         while (discovered.size > 512) discovered.remove(discovered.first())
     }
 
-    private fun explicitlySupplied(target: String): Boolean =
-        Regex("(?<![A-Za-z0-9_.-])" + Regex.escape(target) + "(?:\\.git)?(?=$|[^A-Za-z0-9_.-])", RegexOption.IGNORE_CASE).containsMatchIn(request.orEmpty())
+    private fun explicitlySupplied(target: String): Boolean = target.lowercase(Locale.ROOT) in readSources(request.orEmpty())
 
     companion object {
         private val REPOSITORY_DISCOVERY = setOf("search_repositories", "list_repositories", "list_installation_repositories")
         private val ACCOUNT_ACTIONS = REPOSITORY_DISCOVERY + setOf("plan_change", "rate_limit_status", "efficiency", "get_account", "list_installations", "search_issues", "search_code")
         internal fun isAccountAction(action: String): Boolean = action in ACCOUNT_ACTIONS
+        internal fun isReadAction(action: String): Boolean = action in GitHubWorkspaceClient.readActions ||
+            action in setOf(
+                "get_file_contents", "get_issue", "get_pull_request", "list_pull_requests", "list_workflow_runs", "list_workflows",
+                "get_workflow_run", "list_workflow_jobs", "get_workflow_job", "list_workflow_artifacts", "get_job_logs"
+            )
+
+        /** Exact user-supplied repository references are read sources, never implicit write grants. */
+        internal fun readSources(request: String): Set<String> = sequenceOf(
+            // A GitHub URL may include /tree, /blob or an issue path after the repository.
+            Regex("(?<![A-Za-z0-9_./:-])https://github\\.com/([A-Za-z0-9][A-Za-z0-9-]{0,38})/([A-Za-z0-9_.-]+)(?![A-Za-z0-9_.-])", RegexOption.IGNORE_CASE),
+            // A bare owner/repo must be a complete token, never the prefix of a file path.
+            Regex("(?<![A-Za-z0-9_./:-])([A-Za-z0-9][A-Za-z0-9-]{0,38})/([A-Za-z0-9_.-]+)(?![A-Za-z0-9_./-])")
+        ).flatMap { it.findAll(request) }.mapNotNull { match ->
+            val parsed = runCatching { normalizeGitHubRepository(match.groupValues[1], match.groupValues[2]) }.getOrNull()
+            if (parsed?.first != null && parsed.second != null) "${parsed.first}/${parsed.second}".lowercase(Locale.ROOT) else null
+        }.take(32).toSet()
         private fun JsonObject.text(key: String) = (get(key) as? JsonPrimitive)?.contentOrNull.orEmpty()
     }
 }

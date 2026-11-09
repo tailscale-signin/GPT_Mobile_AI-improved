@@ -20,6 +20,20 @@ interface PendingPromptDao {
     @Transaction
     suspend fun enqueue(prompt: PendingPrompt) = insert(prompt.copy(position = nextPosition()))
 
+    /** The consumed row remains a durable fence, so process recreation cannot enqueue it twice. */
+    @Transaction
+    suspend fun enqueueOnce(prompt: PendingPrompt): Boolean {
+        val existing = get(prompt.id)
+        if (existing != null) {
+            require(existing.chatId == prompt.chatId && existing.text == prompt.text) { "The saved continuation identity belongs to a different request." }
+            // The first accepted profile/model/repository snapshot remains authoritative.
+            // A later UI refresh must neither replace it nor dispatch another turn.
+            return false
+        }
+        insert(prompt.copy(position = nextPosition()))
+        return true
+    }
+
     @Query("SELECT * FROM pending_prompts WHERE userMessageId IS NULL ORDER BY position, id")
     fun observePending(): Flow<List<PendingPrompt>>
 
@@ -89,7 +103,8 @@ interface PendingPromptDao {
         if (activeRunCount(pending.chatId) != 1 || isRunningTurn(runId, messageId) != 1) return false
         if (pending.paused || pending.text.isBlank() || pending.text.length > maxCharacters.coerceIn(0, 8000)) return false
         val payload = pending.details()
-        return payload.tools == tools &&
+        return payload.gateway == null &&
+            payload.tools == tools &&
             payload.attachments.isEmpty() &&
             !payload.localOnly &&
             !payload.requiresSpendAllowance &&

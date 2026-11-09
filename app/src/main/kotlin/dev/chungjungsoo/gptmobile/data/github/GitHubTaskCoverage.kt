@@ -55,6 +55,11 @@ internal object GitHubTaskCoverage {
                 listOf("run_id", "job_id", "workflow_id", "issue_number", "artifact_id").forEachIndexed { index, field -> if (key[index + 5].isNotBlank()) put(field, key[index + 5]) }
                 put("successful_observations", successful)
                 put("failed_observations", observations.size - successful)
+                val kinds = observations.groupingBy(GitHubExecutionLedger::observationKind).eachCount()
+                put("outcome_kinds", buildJsonObject { GitHubExecutionLedger.ObservationKind.entries.forEach { kind -> put(kind.name, kinds.getOrDefault(kind, 0)) } })
+                put("remote_completed", kinds.getOrDefault(GitHubExecutionLedger.ObservationKind.REMOTE_API_SUCCESS, 0) + kinds.getOrDefault(GitHubExecutionLedger.ObservationKind.MUTATION_COMPLETED, 0))
+                put("pending_approval", kinds.getOrDefault(GitHubExecutionLedger.ObservationKind.PENDING_APPROVAL, 0))
+                put("success_count_scope", "Tool outcome accepted; may be local, cached, suppressed or awaiting approval. Use outcome_kinds for execution semantics.")
                 put("error_codes", JsonArray(errors.map(::JsonPrimitive)))
                 put("receipt_ids", JsonArray(observations.mapNotNull { it["receipt_id"] }))
                 put(

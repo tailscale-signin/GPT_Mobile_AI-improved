@@ -86,7 +86,7 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
                 Text("Add a separate Llama or Ollama connection in Platforms using the desktop gateway address, then select it here.", style = MaterialTheme.typography.bodySmall)
             }
         }
-        GitHubProfileOverrides(state.profileSettings, state.profileUid != null, onSettings)
+        GitHubProfileOverrides(state.profileSettings, state.profileUid != null, state.profiles.firstOrNull { it.uid == state.profileUid }?.maxToolCalls, onSettings)
         GitHubWorkflowSettings(state.profileSettings.quickWorkflows, state.profileUid != null) {
             onSettings(state.profileSettings.copy(quickWorkflows = it))
         }
@@ -114,7 +114,7 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
 }
 
 @Composable
-private fun GitHubProfileOverrides(value: dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride, enabled: Boolean, onChange: (dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride) -> Unit) {
+private fun GitHubProfileOverrides(value: dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride, enabled: Boolean, configuredCallLimit: Int?, onChange: (dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride) -> Unit) {
     var menu by remember { mutableStateOf(false) }
     var workflowMenu by remember { mutableStateOf(false) }
     OutlinedCard(Modifier.fillMaxWidth()) {
@@ -134,7 +134,12 @@ private fun GitHubProfileOverrides(value: dev.chungjungsoo.gptmobile.data.github
                         })
                     }
                 }
-                Text("Heavy work is the default: up to 512 operations and 24 hours. Other workflows set smaller limits; your message defines the task. Engineering and provider limits still apply.", style = MaterialTheme.typography.bodySmall)
+                val preset = dev.chungjungsoo.gptmobile.data.github.GitHubWorkflowPreset.selected(value.workflowPreset)
+                val effective = configuredCallLimit?.let { dev.chungjungsoo.gptmobile.data.github.GitHubExecutionLimits.callLimit(preset.prompt(), it, preset) }
+                Text(
+                    if (effective == null) "Select a profile to see the workflow allowance. The preset ceiling is ${preset.toolCalls} tool calls." else "Workflow allowance: ${effective.description()}. Preset ceiling: ${preset.toolCalls}. Your task or chat allowance can lower this; the run records its accepted limit before starting.",
+                    style = MaterialTheme.typography.bodySmall
+                )
             }
             GitHubOverrideSwitch("Web search", "Search the web and read source pages.", value.webSearch, enabled) { onChange(value.copy(webSearch = it)) }
             GitHubOverrideSwitch("GitHub tools", "Use the connected repository and review changes before committing.", value.githubTools, enabled) { onChange(value.copy(githubTools = it)) }

@@ -20,35 +20,45 @@ internal data class AppLogProjection(
     val tags: List<String> = listOf("All tags"),
     val rows: List<AppLogRow> = emptyList(),
     val visibleEvents: Int = 0,
-    val visibleIssues: Int = 0
+    val visibleIssues: Int = 0,
+    val matchingRows: Int = 0,
+    val pageIndex: Int = 0,
+    val hasOlderRows: Boolean = false
 )
 
-internal fun projectAppLogs(entries: List<AppLogEntry>, groups: List<GroupedAppLog>, errorsOnly: Boolean, selectedTag: String, query: String): AppLogProjection {
-    val visible = groups.filter { group ->
+internal fun projectAppLogs(entries: List<AppLogEntry>, groups: List<GroupedAppLog>, errorsOnly: Boolean, selectedTag: String, query: String, pageIndex: Int = 0): AppLogProjection {
+    val matching = groups.filter { group ->
         (!errorsOnly || group.incidentIds.isNotEmpty()) &&
             group.rawDetails.any { entry ->
                 (selectedTag == "All tags" || entry.tag == selectedTag) &&
                     (entry.tag.contains(query, ignoreCase = true) || entry.message.contains(query, ignoreCase = true))
             }
-    }.takeLast(100)
+    }
+    val page = pageIndex.coerceIn(0, ((matching.size - 1) / 100).coerceAtLeast(0))
+    val visible = matching.asReversed().drop(page * 100).take(100)
     return AppLogProjection(
         totalEvents = entries.size,
         warningEvents = entries.count { it.level == "W" || it.level == "E" || it.level == "F" },
         errorEvents = entries.count { it.level == "E" || it.level == "F" },
         tags = listOf("All tags") + entries.map { it.tag }.distinct().sorted(),
-        rows = visible.asReversed().map { group ->
+        rows = visible.map { group ->
             val line = group.entry.line()
             AppLogRow(
                 // The representative may become an error later; the group's
                 // original event remains its identity as new records arrive.
                 key = group.rawDetails.firstOrNull()?.eventId ?: group.entry.eventId,
                 group = group,
-                preview = line.take(2000) + if (line.length > 2000) "\n… Open raw details for the full event." else "",
+                preview = line.take(2000) +
+                    (if (line.length > 2000) "\n… Open raw details for the full event." else "") +
+                    (if (group.repetitions > 1) "\n× ${group.repetitions} · last ${java.time.Instant.ofEpochMilli(group.lastTime)}" else ""),
                 severity = classifyDiagnostic(group.entry.level, group.entry.tag, group.entry.message).severity,
                 hasDetails = group.repetitions > 1 || line.length > 2000
             )
         },
         visibleEvents = visible.sumOf { it.repetitions },
-        visibleIssues = visible.flatMap { it.incidentIds }.distinct().size
+        visibleIssues = visible.flatMap { it.incidentIds }.distinct().size,
+        matchingRows = matching.size,
+        pageIndex = page,
+        hasOlderRows = (page + 1) * 100 < matching.size
     )
 }

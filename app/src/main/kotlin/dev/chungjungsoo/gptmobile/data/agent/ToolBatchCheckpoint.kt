@@ -178,8 +178,10 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
 
     suspend fun recoverySnapshot(objective: CheckpointRestoreObjective? = null): ToolBatchRecoverySnapshot {
         val started = System.nanoTime()
-        return locked {
-            val state = read()
+        // State and its entries are immutable. Restore/parse retained result bodies
+        // after releasing the file lock so another completed tool can checkpoint.
+        val state = locked { read() }
+        return withContext(Dispatchers.Default) {
             // Settled pending rows are receipts to replay to the model, never executable work.
             val pendingIds = state.pending.filter { state.entries.getValue(it).result == null }
             val pending = pendingIds.map { state.entries.getValue(it).call.event() }
@@ -250,44 +252,51 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
 
     suspend fun complete(call: ProviderEvent.ToolCall, result: AgentToolResult) = saveResult(call, result, claimed = false)
 
-    private suspend fun saveResult(call: ProviderEvent.ToolCall, result: AgentToolResult, claimed: Boolean) = locked {
-        val state = read()
-        val entry = requireNotNull(state.entries[call.callId])
-        require(entry.call.event() == call && result.callId == call.callId) { "Tool receipt does not match the checkpointed call." }
-        // A later deferred/suppressed replay must never replace the first receipt.
-        if (entry.result != null || (entry.started && !claimed)) return@locked
+    private suspend fun saveResult(call: ProviderEvent.ToolCall, result: AgentToolResult, claimed: Boolean) {
         // Replay is bounded separately from the authoritative Research/ToolEvent evidence stores.
-        val retained = ToolExchangeCompactor.compact(listOf(AgentToolExchange(listOf(call), listOf(result.copy(traceContent = null, retainedContent = null)))), 4096, 4096).single().results.single()
-        val content = retained.content
-        val body = when (content) {
-            is ToolResultContent.Json -> content.value.toString()
-            is ToolResultContent.Text -> content.text
-            is ToolResultContent.ResourceLinks -> content.links.joinToString("\n") { it.uri }
-        }
-        val saved = Result(body, content is ToolResultContent.Json, result.isError, result.dispatched, result.errorCode, result.toolCallBudgetExhausted, result.outputBudgetExhausted, result.executionReceipt)
-        val observed = if (!result.isError && result.dispatched && result.errorCode !in ToolResultEnvelope.unknownOutcomeCodes) result.executionReceipt else null
-        val operation = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(call.name)
-        val action = (call.arguments["action"] as? JsonPrimitive)?.content
-        val prSource = operation == "github_pr" || call.name == "github" && action in setOf("create_pull_request", "get_pull_request", "update_pull_request")
-        val payload = if (prSource) ToolResultEnvelope.element(result.content) as? JsonObject else null
-        val pr = (payload?.get("pull_request_number") as? JsonPrimitive)?.intOrNull
-            ?: ((payload?.get("pull_request") as? JsonObject)?.get("number") as? JsonPrimitive)?.intOrNull
-            ?: if (operation == "github_pr") (payload?.get("number") as? JsonPrimitive)?.intOrNull else null
-        val job = state.jobContext?.let { context ->
-            if (observed == null) {
-                context
-            } else {
-                context.copy(
-                    pullRequest = pr?.takeIf { it > 0 } ?: context.pullRequest,
-                    lastVerifiedReceipt = buildJsonObject {
-                        put("callId", call.callId)
-                        put("tool", call.name)
-                        put("execution", observed)
-                    }
-                )
+        // Compaction and JSON encoding depend only on this immutable result. They
+        // must not hold the dispatch/checkpoint mutex while other tools finish.
+        val saved = withContext(Dispatchers.Default) {
+            val retained = ToolExchangeCompactor.compact(listOf(AgentToolExchange(listOf(call), listOf(result.copy(traceContent = null, retainedContent = null)))), 4096, 4096).single().results.single()
+            val content = retained.content
+            val body = when (content) {
+                is ToolResultContent.Json -> content.value.toString()
+                is ToolResultContent.Text -> content.text
+                is ToolResultContent.ResourceLinks -> content.links.joinToString("\n") { it.uri }
             }
+            Result(body, content is ToolResultContent.Json, result.isError, result.dispatched, result.errorCode, result.toolCallBudgetExhausted, result.outputBudgetExhausted, result.executionReceipt)
         }
-        write(state.copy(entries = state.entries + (call.callId to entry.copy(result = saved)), jobContext = job))
+        locked {
+            val state = read()
+            val entry = requireNotNull(state.entries[call.callId])
+            require(entry.call.event() == call && result.callId == call.callId) { "Tool receipt does not match the checkpointed call." }
+            // Revalidate ownership after preparation. A concurrent receipt, deletion
+            // or unclaimed completion must never replace the first durable result.
+            if (entry.result != null || (entry.started && !claimed)) return@locked
+            val observed = if (!result.isError && result.dispatched && result.errorCode !in ToolResultEnvelope.unknownOutcomeCodes) result.executionReceipt else null
+            val operation = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(call.name)
+            val action = (call.arguments["action"] as? JsonPrimitive)?.content
+            val prSource = operation == "github_pr" || call.name == "github" && action in setOf("create_pull_request", "get_pull_request", "update_pull_request")
+            val payload = if (prSource) ToolResultEnvelope.element(result.content) as? JsonObject else null
+            val pr = (payload?.get("pull_request_number") as? JsonPrimitive)?.intOrNull
+                ?: ((payload?.get("pull_request") as? JsonObject)?.get("number") as? JsonPrimitive)?.intOrNull
+                ?: if (operation == "github_pr") (payload?.get("number") as? JsonPrimitive)?.intOrNull else null
+            val job = state.jobContext?.let { context ->
+                if (observed == null) {
+                    context
+                } else {
+                    context.copy(
+                        pullRequest = pr?.takeIf { it > 0 } ?: context.pullRequest,
+                        lastVerifiedReceipt = buildJsonObject {
+                            put("callId", call.callId)
+                            put("tool", call.name)
+                            put("execution", observed)
+                        }
+                    )
+                }
+            }
+            write(state.copy(entries = state.entries + (call.callId to entry.copy(result = saved)), jobContext = job))
+        }
     }
     suspend fun finish() = locked {
         val state = read()

@@ -69,7 +69,7 @@ internal fun GatewayJobsScreen(model: GatewayJobsViewModel, onOpenConversation: 
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text(stringResource(R.string.gateway_jobs_title), style = MaterialTheme.typography.titleLarge)
-                    TextButton(onClick = { model.requestRefresh() }, enabled = !state.loading && !state.legacy) { Text(stringResource(R.string.gateway_jobs_refresh)) }
+                    TextButton(onClick = { model.requestRefresh() }, enabled = !state.loading && state.configured) { Text(stringResource(R.string.gateway_jobs_refresh)) }
                 }
                 Text(state.connectionName, style = MaterialTheme.typography.labelLarge)
                 if (state.principalId == "network:shared") Text(stringResource(R.string.gateway_jobs_shared_scope), style = MaterialTheme.typography.bodySmall)
@@ -78,6 +78,7 @@ internal fun GatewayJobsScreen(model: GatewayJobsViewModel, onOpenConversation: 
                         state.legacy -> stringResource(R.string.gateway_jobs_legacy)
                         fresh -> stringResource(R.string.gateway_jobs_live)
                         state.syncedAtMillis > 0 -> stringResource(R.string.gateway_jobs_last_synced, java.time.Instant.ofEpochMilli(state.syncedAtMillis).toString())
+                        state.error != null -> stringResource(R.string.gateway_jobs_unavailable)
                         else -> stringResource(R.string.gateway_jobs_loading)
                     },
                     style = MaterialTheme.typography.bodySmall,

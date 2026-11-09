@@ -95,7 +95,11 @@ class StringListConverter {
 object ConversationMode {
     const val STANDARD = "STANDARD"
     const val COMBINED = "COMBINED"
+    const val GATEWAY = "GATEWAY"
 
-    fun normalize(value: String?): String =
-        if (value.equals(COMBINED, ignoreCase = true)) COMBINED else STANDARD
+    fun normalize(value: String?): String = when {
+        value.equals(COMBINED, ignoreCase = true) -> COMBINED
+        value.equals(GATEWAY, ignoreCase = true) -> GATEWAY
+        else -> STANDARD
+    }
 }

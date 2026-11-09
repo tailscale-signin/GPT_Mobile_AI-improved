@@ -31,9 +31,15 @@ class GitHubPublicAuthCoordinator internal constructor(
         val value = GitHubWorkspaceClient(token).execute("get_account", buildJsonObject {}).jsonObject
         Account(value.getValue("id").jsonPrimitive.content, value.getValue("login").jsonPrimitive.content, value["avatar_url"]?.jsonPrimitive?.content)
     },
-    private val deviceRefresh: suspend (String, String) -> GitHubOAuthCredential = { clientId, refreshToken -> GitHubDeviceAuthClient(http).refresh(clientId, refreshToken) }
+    private val deviceRefresh: suspend (String, String) -> GitHubOAuthCredential = { clientId, refreshToken -> GitHubDeviceAuthClient(http).refresh(clientId, refreshToken) },
+    private val activateWithRevokedGrants: suspend (String, suspend () -> Unit) -> Unit = { _, _ -> error("Tool permission revocation is unavailable; the replacement GitHub credential was not activated.") }
 ) {
-    @Inject constructor(connections: ToolConnectionRepository, vault: SecretVault) : this(connections, vault, GitHubPublicAuthConfiguration.project())
+    @Inject constructor(connections: ToolConnectionRepository, vault: SecretVault, trust: dev.chungjungsoo.gptmobile.data.permissions.ToolTrustStore, consent: dev.chungjungsoo.gptmobile.data.permissions.FreeModelToolConsentStore) : this(
+        connections,
+        vault,
+        GitHubPublicAuthConfiguration.project(),
+        activateWithRevokedGrants = { uid, activate -> dev.chungjungsoo.gptmobile.data.permissions.ToolGrantPersistence.prepareConnectionRevocation(trust, consent, uid).activate(activate) }
+    )
 
     @Serializable
     data class Account(val id: String, val login: String, val avatarUrl: String? = null)
@@ -256,7 +262,7 @@ class GitHubPublicAuthCoordinator internal constructor(
             }
             val account = observedAccount(liveConnection, rotated.accessToken)
             check(account.id == session.account.id) { "GitHub refresh changed account identity. Reconnect GitHub." }
-            save(liveConnection, rotated, account, session.clientId, session.refreshMethod)
+            save(liveConnection, rotated, account, session.clientId, session.refreshMethod, newAuthorization = false)
             GitHubSessionCaches.bind(rotated.accessToken, durableIdentity(liveConnection.connectionUid), GitHubApiOrigins.fromEndpoint(liveConnection.endpointUrl).hostIdentity)
             rotated.accessToken
         } catch (failure: Exception) {
@@ -270,18 +276,24 @@ class GitHubPublicAuthCoordinator internal constructor(
         }
     }
 
-    private suspend fun save(connection: ToolConnection, credential: GitHubOAuthCredential, account: Account, clientId: String = configuration.clientId, refreshMethod: String = "BROKER") = dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations.mutex.withLock {
+    private suspend fun save(connection: ToolConnection, credential: GitHubOAuthCredential, account: Account, clientId: String = configuration.clientId, refreshMethod: String = "BROKER", newAuthorization: Boolean = true) = dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations.mutex.withLock {
         check(connections.getConnection(connection.connectionUid)?.matchesAuthorizationSnapshot(connection) == true) { "GitHub connection changed before credentials could be saved. Reconnect." }
-        put(bindingReference(connection.connectionUid), account, Account.serializer())
-        val bytes = credential.accessToken.encodeToByteArray()
-        try {
-            connections.upsertConnection(connection.copy(oauthClientId = clientId), credential = bytes)
-        } finally {
-            bytes.fill(0)
+        val activate: suspend () -> Unit = {
+            check(connections.getConnection(connection.connectionUid)?.matchesAuthorizationSnapshot(connection) == true) { "GitHub connection changed while tool permissions were being revoked. Reconnect." }
+            put(bindingReference(connection.connectionUid), account, Account.serializer())
+            val bytes = credential.accessToken.encodeToByteArray()
+            try {
+                connections.upsertConnection(connection.copy(oauthClientId = clientId), credential = bytes)
+            } finally {
+                bytes.fill(0)
+            }
+            val previous = session(connection.connectionUid)
+            val oldPermission = kotlinx.serialization.json.JsonArray(listOf(previous?.fingerprint.orEmpty(), connection.authType, connection.toolPolicy, connection.approvedReadTools, connection.endpointUrl.orEmpty()).map { kotlinx.serialization.json.JsonPrimitive(it) }).toString()
+            put(sessionReference(connection.connectionUid), Session(account, fingerprint(credential.accessToken), clientId, credential.refreshToken, credential.expiresAt, credential.refreshExpiresAt, refreshMethod = refreshMethod, legacyFingerprint = previous?.legacyFingerprint ?: previous?.fingerprint, legacyConnectionUpdatedAt = previous?.legacyConnectionUpdatedAt ?: connection.updatedAt, legacyPermission = previous?.legacyPermission ?: oldPermission), Session.serializer())
         }
-        val previous = session(connection.connectionUid)
-        val oldPermission = kotlinx.serialization.json.JsonArray(listOf(previous?.fingerprint.orEmpty(), connection.authType, connection.toolPolicy, connection.approvedReadTools, connection.endpointUrl.orEmpty()).map { kotlinx.serialization.json.JsonPrimitive(it) }).toString()
-        put(sessionReference(connection.connectionUid), Session(account, fingerprint(credential.accessToken), clientId, credential.refreshToken, credential.expiresAt, credential.refreshExpiresAt, refreshMethod = refreshMethod, legacyFingerprint = previous?.legacyFingerprint ?: previous?.fingerprint, legacyConnectionUpdatedAt = previous?.legacyConnectionUpdatedAt ?: connection.updatedAt, legacyPermission = previous?.legacyPermission ?: oldPermission), Session.serializer())
+        // Browser, resumed and device-code sign-in share this complete activation fence.
+        // The same-account automatic refresh above preserves existing grants.
+        if (newAuthorization) activateWithRevokedGrants(connection.connectionUid, activate) else activate()
     }
 
     internal suspend fun durableIdentity(connectionUid: String): String {

@@ -35,12 +35,14 @@ internal object GitHubSelfTestReads {
         val failedRun = currentRuns.firstOrNull { it.text("status") == "completed" && it.text("conclusion") in setOf("failure", "timed_out") }
         val runId = run?.get("id")
         val logAttempts = observations.filter { it.text("tool").substringBefore("__") == "github_ci" && (it["arguments"] as? JsonObject)?.text("action") == "logs" }
-        val job = records("github_ci", "jobs", "jobs").firstOrNull { candidate ->
+        val jobs = records("github_ci", "jobs", "jobs").filter { candidate ->
             (runId == null || candidate["run_id"] == runId) &&
                 candidate.text("status") == "completed" &&
                 candidate.text("conclusion") !in setOf("skipped", "neutral", "cancelled") &&
+                (candidate["steps"] !is JsonArray || (candidate["steps"] as JsonArray).filterIsInstance<JsonObject>().any { it.text("status") == "completed" && it.text("conclusion") !in setOf("skipped", "neutral", "cancelled") }) &&
                 logAttempts.none { (it["arguments"] as? JsonObject)?.get("job_id") == candidate["id"] }
         }
+        val job = jobs.firstOrNull { it["steps"] is JsonArray } ?: jobs.firstOrNull()
         val pr = records("github_pr", "list", "pull_requests", "items").firstOrNull()
         val issue = records("github_issue", "list", "items", "issues").firstOrNull { "pull_request" !in it }
         val release = records("github_release", "list", "items", "releases").firstOrNull()

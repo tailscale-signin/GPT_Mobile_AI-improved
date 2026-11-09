@@ -11,6 +11,8 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
 import io.modelcontextprotocol.kotlin.sdk.types.Tool
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -115,5 +117,44 @@ class GitHubProviderPolicyTest {
                 GitHubProviderPolicy.acquireCatalog(official, setOf("get_file_contents"), true, true, cached = { emptyList() }, discover = { throw cancelled })
             }.exceptionOrNull()
         )
+    }
+
+    @Test fun deferredCatalogWaitsForASuspendingCacheReadWithoutStartingDiscovery() = runTest {
+        val remote = Tool("get_file_contents", inputSchema = ToolSchema())
+        val started = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val waiting = async {
+            GitHubProviderPolicy.acquireCatalog(official, setOf(remote.name), githubMode = false, cachedOnly = true, cached = {
+                started.complete(Unit)
+                release.await()
+                listOf(remote)
+            }, discover = { error("A cached-only lookup must not start discovery") })
+        }
+        started.await()
+        assertFalse(waiting.isCompleted)
+        release.complete(Unit)
+        assertEquals(listOf(remote), waiting.await())
+    }
+
+    @Test fun cancellingASuspendedCacheReadPropagatesWithoutDiscoveryOrPartialSuccess() = runTest {
+        val started = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        var returnedCatalog = false
+        val waiting = async {
+            GitHubProviderPolicy.acquireCatalog(pc, setOf("get_file_contents"), githubMode = true, cachedOnly = true, cached = {
+                started.complete(Unit)
+                release.await()
+                returnedCatalog = true
+                emptyList()
+            }, discover = { error("Cancellation must not fall back to discovery") })
+        }
+        started.await()
+        val cancelled = CancellationException("Stop cached catalog lookup")
+        waiting.cancel(cancelled)
+        val failure = runCatching { waiting.await() }.exceptionOrNull()
+        assertTrue(failure is CancellationException)
+        assertEquals(cancelled.message, failure?.message)
+        assertTrue(waiting.isCancelled)
+        assertFalse(returnedCatalog)
     }
 }

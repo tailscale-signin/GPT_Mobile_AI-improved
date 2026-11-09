@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "2b095fa6c0a2a171904639a37a94153387ff90ddda1016cf5c7c2dca6178aa48",
+  "source_digest": "e0e6fb7201d27d628cb37c51c88243c7a28bfc6c2bc0e1b77a8932681148a89d",
   "file_count": 2356,
   "indexed_line_count": 366833,
   "line_coverage_available": false,
@@ -2502,7 +2502,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubProviderPolicy.kt",
       "area_id": "agent_tools",
       "kind": "source",
-      "sha256": "04f6c3408f46e2c2f47ce2752413eeb630cb9fdf13cdc702beb6d8a5371d4657",
+      "sha256": "cfb921dfa388140498c7722db5fd2a0c4b6f1b7a9727d490f9b43cd4ee555d60",
       "indexed_lines": 86
     },
     {
@@ -9698,7 +9698,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ChatRepositoryImpl.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "beb2c0e977da54ae2e47a7cdd8e50745128d980bdebdd0eb99cba5617bb75605",
+      "sha256": "1ef106bfcc679ae6be57ffe5898b7d169605df89f7b134135da4b0d073ee8233",
       "indexed_lines": 7216
     },
     {

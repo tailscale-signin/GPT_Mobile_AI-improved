@@ -45,7 +45,7 @@ internal object GitHubProviderPolicy {
         selectedNames: Set<String>,
         githubMode: Boolean,
         cachedOnly: Boolean,
-        cached: () -> List<Tool>,
+        cached: suspend () -> List<Tool>,
         discover: suspend (awaitCompletion: Boolean) -> List<Tool>
     ): List<Tool> {
         val required = githubMode && isOfficialGitHub(connection)

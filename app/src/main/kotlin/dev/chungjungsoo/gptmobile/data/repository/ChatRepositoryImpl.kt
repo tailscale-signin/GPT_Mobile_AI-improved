@@ -2531,7 +2531,7 @@ class ChatRepositoryImpl(
         val detail = generateSequence(error) { it.cause?.takeUnless { cause -> cause === it } }.take(16)
             .filterIsInstance<Exception>().firstNotNullOfOrNull { dev.chungjungsoo.gptmobile.data.network.providerExceptionDetails(it, partialOutput = rebuildFence.hasAttempted) }
         if (detail != null) {
-            emit(ApiState.Error(detail.message.orEmpty(), errorCode = detail.code, taskOutcome = if (detail.failureDetails?.get("failed_stage") == JsonPrimitive("repository_admission")) "BLOCKED" else null, failureDetails = detail.failureDetails))
+            emit(ApiState.Error(detail.message.orEmpty(), errorCode = detail.code, taskOutcome = if (detail.failureDetails?.get("failed_stage") == kotlinx.serialization.json.JsonPrimitive("repository_admission")) "BLOCKED" else null, failureDetails = detail.failureDetails))
             return@catch
         }
         val classified = ErrorClassification.classify(error)

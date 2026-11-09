@@ -209,6 +209,36 @@ class GitHubAuditEvidenceTest {
         assertTrue(GitHubReviewComparison.matches(task))
     }
 
+    @Test fun quotedHistoricalBaselinesCannotSelectTheReviewComparison() {
+        val records = linkedMapOf("status" to status("main"), "prs" to noPulls())
+        val excerpts = listOf(
+            "\"Baseline: $base\"",
+            "```text\nBaseline: $base\n```",
+            "> Baseline: `$base`",
+            "`Baseline: $base`"
+        )
+        excerpts.forEach { excerpt ->
+            val plan = requireNotNull(GitHubReviewComparison.plan("$task\nHistorical excerpt:\n$excerpt", tools, records))
+            assertEquals(excerpt, JsonPrimitive("BASELINE_REQUIRED"), plan.checkpoint["state"])
+            assertFalse(excerpt, plan.checkpoint.containsKey("base_sha"))
+            assertNull(excerpt, plan.nextCall)
+        }
+    }
+
+    @Test fun explicitInlineShaBaselineSurvivesQuotedHistoricalInstructions() {
+        val historicalBase = "c".repeat(40)
+        val plan = requireNotNull(
+            GitHubReviewComparison.plan(
+                "$task\nHistorical excerpt: \"Baseline: $historicalBase\"\nBaseline: `$base`",
+                tools,
+                linkedMapOf("status" to status("main"))
+            )
+        )
+        assertEquals(JsonPrimitive("EXPLICIT_BASE_SHA"), plan.checkpoint["comparison_policy"])
+        assertEquals(JsonPrimitive(base), requireNotNull(plan.nextCall).arguments["base_sha"])
+        assertEquals(JsonPrimitive(head), requireNotNull(plan.nextCall).arguments["commit_sha"])
+    }
+
     @Test fun matchingPrPinsBothRevisionsAndCompletedComparisonIsReused() {
         val prs = receipt("prs", "github_pr", json("""{"action":"list"}"""), json("""{"items":[{"number":2,"head":{"sha":"$head"},"base":{"sha":"$base"}}],"has_more":false}"""))
         val records = linkedMapOf("status" to status(), "prs" to prs)

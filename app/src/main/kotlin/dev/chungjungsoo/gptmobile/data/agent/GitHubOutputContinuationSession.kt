@@ -96,7 +96,7 @@ internal class GitHubOutputContinuationSession(
         val handoff = previous?.takeIf {
             it["state"] in GitHubToolHandoff.states
         }
-        if (handoff != null && !handoffResolved(handoff, exchanges, reconciled)) {
+        if (handoff != null && !handoffResolved(handoff)) {
             emit(
                 ProviderEvent.Failed(
                     "OUTPUT_CONTINUATION_PENDING_TOOLS: ${GitHubToolHandoff.pending(handoff).size} saved invocation(s) still require a matching terminal receipt or outcome reconciliation. Completed actions were retained and were not dispatched again.",
@@ -370,24 +370,11 @@ internal class GitHubOutputContinuationSession(
         }
     }
 
-    private fun handoffResolved(checkpoint: JsonObject, exchanges: List<AgentToolExchange>, reconciled: Set<String>): Boolean {
-        val pending = (checkpoint["pending_calls"] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull } ?: return false
-        if (pending.isEmpty()) return checkpoint["state"] == JsonPrimitive("TOOL_RESULTS_READY")
-        val resolved = exchanges.flatMap { exchange ->
-            exchange.calls.filter { call ->
-                exchange.results.any { result ->
-                    result.callId == call.callId &&
-                        (
-                            result.callId in reconciled ||
-                                result.errorCode !in ToolResultEnvelope.unknownOutcomeCodes &&
-                                result.executionReceipt?.get("requires_reconciliation") != JsonPrimitive(true) &&
-                                !GatewayOutcomeRecovery.requiresReconciliation("", result.errorCode)
-                            )
-                }
-            }.map { it.originalInvocationFingerprint ?: callDigest(it) }
-        }.toSet()
-        return resolved.containsAll(pending)
-    }
+    // Reconciliation above considers both replay and durable receipts. Rechecking
+    // replay alone here would let stale success override an unknown durable effect.
+    private fun handoffResolved(checkpoint: JsonObject): Boolean =
+        checkpoint["state"] == JsonPrimitive("TOOL_RESULTS_READY") &&
+            (checkpoint["pending_calls"] as? JsonArray)?.isEmpty() == true
 
     private fun callDigest(call: ProviderEvent.ToolCall): String = ToolHandoffReceipt.fingerprint(call)
 }

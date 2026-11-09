@@ -82,7 +82,7 @@ internal fun mcpFailurePresentation(error: Throwable, health: McpConnectionHealt
         "DNS_FAILURE" -> "This MCP server's hostname could not be resolved. Check its configured address, DNS and VPN connection, then retry. Other connections and the saved catalogue remain available."
         "PROTOCOL_CONFIGURATION" -> "The MCP server's protocol response is invalid or unsupported. Check the server or bridge configuration, then reconnect. Automatic discovery is paused."
         "ENDPOINT_CONFIGURATION" -> "The MCP endpoint path or server configuration is invalid. Check the configured URL and running service, then reconnect. Automatic discovery is paused."
-        "LOCAL_VALIDATION" -> if (localFailure?.validationRule == "CREDENTIAL_REAUTHORIZATION_REQUIRED" || observedFailure?.lastValidationRule == "CREDENTIAL_REAUTHORIZATION_REQUIRED") {
+        "LOCAL_VALIDATION" -> if ((localFailure?.validationRule ?: observedFailure?.lastValidationRule) == "CREDENTIAL_REAUTHORIZATION_REQUIRED") {
             "Sign in again from Manage connection to renew this saved OAuth authorization, then reconnect. No MCP request was sent; retry alone cannot repair the credential."
         } else {
             "The saved MCP connection failed local validation. Correct the indicated connection setting, then retry. No MCP request was sent."

@@ -4,8 +4,12 @@ import dev.chungjungsoo.gptmobile.data.context.RouteCapabilityCache
 import dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withTimeout
 
 internal data class GatewayAvailabilityProbe(
     val capabilities: GatewayCapabilities?,
@@ -60,7 +64,14 @@ internal suspend fun gatewayAvailabilityProbe(
 ): GatewayAvailabilityProbe = coroutineScope {
     data class Observation<T>(val value: T?, val failure: GatewayAvailabilityFailure?, val checkedAt: Long)
     suspend fun <T> observe(read: suspend () -> T?): Observation<T> = try {
-        Observation(read(), null, now())
+        // Finish each read before the repository's outer eight-second deadline so
+        // a stalled transport or bounded retry cannot erase its completed sibling.
+        withTimeout(7_000) { Observation(read(), null, now()) }
+    } catch (_: TimeoutCancellationException) {
+        // Parent cancellation still owns the whole probe; only a read's own
+        // deadline becomes an independent metadata failure.
+        currentCoroutineContext().ensureActive()
+        Observation(null, GatewayAvailabilityFailure(GatewayAvailabilityStatus.CHECKING, "METADATA_DEADLINE_EXCEEDED"), now())
     } catch (cancelled: CancellationException) {
         throw cancelled
     } catch (failure: Exception) {

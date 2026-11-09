@@ -19,8 +19,14 @@ internal object GitHubReviewComparison {
     const val INSTRUCTION = "Branch review: establish exact base_sha and head_sha first. Use an observed matching PR base; otherwise resolve the default branch at a full SHA for a non-default selected branch. If the selected branch is the default branch and no baseline was supplied, ask which commit/tag to compare; never infer an empty diff by comparing the branch to itself. Call github_context action=changes with both pinned revisions, then read the relevant changed source at those revisions. Checks and branch inventories do not constitute a source review."
     data class Plan(val checkpoint: JsonObject, val nextCall: ProviderEvent.ToolCall?)
 
+    private fun request(task: String): String = GitHubTaskContinuity.request(task).replace(quotedMaterial) { quoted ->
+        // A SHA quoted by itself is a literal argument, while quoted instructions
+        // and attached code/logs must not select the review's baseline.
+        quoted.value.removeSurrounding("`").takeIf { sha.matches(it) } ?: " "
+    }.lineSequence().filterNot { it.trimStart().startsWith(">") }.joinToString("\n")
+
     fun matches(task: String): Boolean {
-        val request = GitHubTaskContinuity.request(task).replace(quotedMaterial, " ").lineSequence().filterNot { it.trimStart().startsWith(">") }.joinToString("\n")
+        val request = request(task)
         return "[github-workflow-preset:review_branch]" in request || Regex("(?i)\\breview\\b[^\\n.:;]{0,100}\\bbranch\\b").containsMatchIn(request)
     }
 
@@ -98,7 +104,7 @@ internal object GitHubReviewComparison {
         head = selected.text("commit_sha")
         val branch = selected.text("branch").ifBlank { context.text("workspace_branch").ifBlank { context.text("branch") } }
         val default = selected.text("default_branch").ifBlank { (selected["repository"] as? JsonObject)?.text("default_branch").orEmpty() }
-        base = explicitBase.find(GitHubTaskContinuity.request(task))?.groupValues?.get(1).orEmpty()
+        base = explicitBase.find(request(task))?.groupValues?.get(1).orEmpty()
         if (base.isNotBlank()) policy = "EXPLICIT_BASE_SHA"
         if (base.isBlank()) {
             val pulls = eligible.filter { operation(it) == "github_pr" && args(it).text("action") in setOf("list", "headers", "context") }

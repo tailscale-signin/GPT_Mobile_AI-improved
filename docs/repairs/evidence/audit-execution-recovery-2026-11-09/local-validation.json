@@ -25,7 +25,7 @@
       "failed": 0,
       "scope": "Kotlin/JUnit native GitHub facade, fixtures, disk restart, comparison, evidence and acceptance; remote service ports",
       "evidence_file": "github-evidence.log",
-      "evidence_sha256": "f3e5c37b2699b53d3e1050ead56080a2b1c8f2dd15b15cb3af2626393efb5000"
+      "evidence_sha256": "8c163740b73cc5dc63a0a1bd441364d0a53cda6600332f3420aa91b2b2f38597"
     },
     {
       "id": "mcp",
@@ -55,7 +55,7 @@
       "failed": 0,
       "scope": "Kotlin/JUnit Android gateway client availability, retry and diagnostic boundaries",
       "evidence_file": "gateway-android-client.log",
-      "evidence_sha256": "52a9bde03f580138626c0affce5509652c3fe29b83f48bd49192da44adc00f2d"
+      "evidence_sha256": "5c12e80b26e7558f4918a41e818e41990e5d6e364bf48813fa7a0cbea3c22965"
     },
     {
       "id": "recorder-export",
@@ -65,7 +65,7 @@
       "failed": 0,
       "scope": "Kotlin/JUnit recorder, export snapshot, privacy and classification boundaries",
       "evidence_file": "recorder-export.log",
-      "evidence_sha256": "a31b141c94d09e6598c1ea064f3676060a65fc7af2f1c43194be06d42667efdc"
+      "evidence_sha256": "3c404a72d91ac17a4de1fe01acc7c4c68c755022c9055c4db2c818ba6f7ecc0e"
     },
     {
       "id": "presentation-diagnostics",
@@ -75,7 +75,7 @@
       "failed": 0,
       "scope": "Kotlin/JUnit presentation logic, acceptance export, recovery and watch policy; no Compose execution",
       "evidence_file": "presentation-diagnostics.log",
-      "evidence_sha256": "e3ec42ad395d7de4e79d27128a2a9ae226fab4963437cadab0e1c9b5a18e0d24"
+      "evidence_sha256": "5f54201406120b9efd620fb2096f9e2ffaf5ff9636821080da58100ec761c877"
     },
     {
       "id": "journal",
@@ -85,7 +85,7 @@
       "failed": 0,
       "scope": "Kotlin/JUnit journal capture, multi-run boundaries, privacy and sequence coverage",
       "evidence_file": "journal.log",
-      "evidence_sha256": "11cb4ba7c61f119ad307d642a9df950098b2c5a7b5257c05e5ad63994c116b25"
+      "evidence_sha256": "f914d31f45a462b042c279faedd980f07fe4f8dcdcab350e965bfb4fe1a26c7c"
     },
     {
       "id": "fast-gate",
@@ -383,5 +383,7 @@
   "performance": {
     "status": "NOT_MEASURED",
     "scope": "Host capture-boundary tests do not establish production jank, allocation, export-duration, or WorkManager scheduler improvements."
-  }
+  },
+  "validated_snapshot_commit": "901e3eb8184fa2721e8ccd7255b21e2636677833",
+  "evidence_log_normalization": "Removed empty trailing lines from five logs during publication recovery; test output content and source manifest are unchanged. Evidence hashes below identify the normalized logs."
 }

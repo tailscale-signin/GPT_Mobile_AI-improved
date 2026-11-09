@@ -25,6 +25,60 @@ import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class GatewayAvailabilityRepositoryTest {
+    @Test fun stalledReadinessCannotEraseCompletedCapabilitiesAtTheSharedProbeDeadline() = runTest {
+        var current = GatewayAvailability()
+        var readinessCancelled = false
+        val repository = repository { _, _, _ ->
+            gatewayAvailabilityProbe(
+                readCapabilities = { GatewayCapabilities(gatewayVersion = "15.0.0", instanceId = "a".repeat(32)) },
+                readReadiness = {
+                    try {
+                        awaitCancellation()
+                    } finally {
+                        readinessCancelled = true
+                    }
+                },
+                now = { testScheduler.currentTime }
+            )
+        }
+        backgroundScope.launch { repository.observe(listOf(target())).collect { current = it.getValue("a") } }
+        runCurrent()
+        advanceTimeBy(8_000)
+        runCurrent()
+        assertTrue(readinessCancelled)
+        assertEquals(GatewayAvailabilityStatus.NOT_READY, current.status)
+        assertTrue(current.isConnected)
+        assertFalse(current.isOnline)
+        assertEquals("gateway_readiness", current.failedPhase)
+        assertEquals("METADATA_DEADLINE_EXCEEDED", current.readinessFailureCode)
+        assertEquals(null, current.capabilitiesFailureCode)
+        assertEquals(0L, current.capabilitiesCheckedAtMillis)
+        assertEquals(0L, current.lastReachableAtMillis)
+        assertEquals(7_000L, current.readinessCheckedAtMillis)
+    }
+
+    @Test fun aCapabilityReadDeadlineRetainsReadinessButNeverGrantsOnline() = runTest {
+        val readiness = requireNotNull(ready(0).readiness)
+        val probe = gatewayAvailabilityProbe(
+            readCapabilities = { withTimeout(100) { awaitCancellation() } },
+            readReadiness = { readiness },
+            now = { testScheduler.currentTime }
+        )
+        assertEquals(readiness, probe.readiness)
+        assertEquals(null, probe.capabilities)
+        assertEquals("METADATA_DEADLINE_EXCEEDED", probe.capabilitiesFailure?.reasonCode)
+        assertEquals(null, probe.readinessFailure)
+        assertEquals(100L, probe.capabilitiesCheckedAtMillis)
+        assertEquals(0L, probe.readinessCheckedAtMillis)
+        var current = GatewayAvailability()
+        val repository = repository { _, _, _ -> probe }
+        backgroundScope.launch { repository.observe(listOf(target())).collect { current = it.getValue("a") } }
+        runCurrent()
+        assertEquals(GatewayAvailabilityStatus.CHECKING, current.status)
+        assertFalse(current.isOnline)
+        assertEquals("gateway_capabilities", current.failedPhase)
+    }
+
     @Test fun cachedCapabilityMetadataCannotRefreshTheLastReachableTimestamp() = runTest {
         var current = GatewayAvailability()
         val repository = repository { _, _, _ ->

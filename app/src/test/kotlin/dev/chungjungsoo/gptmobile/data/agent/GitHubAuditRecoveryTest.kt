@@ -207,6 +207,36 @@ class GitHubAuditRecoveryTest {
         }
     }
 
+    @Test fun continuationCannotOverrideDurableUnknownWithSuccessfulReplay() = runBlocking {
+        val call = call("remote-write")
+        var checkpoint: JsonObject? = null
+        GitHubOutputContinuationSession(provider(call, ProviderEvent.Completed), saveCheckpoint = { checkpoint = it }) { _, _, _ -> error("Unexpected continuation") }
+            .streamRound(listOf(tool), emptyList()).toList()
+        val batch = ToolBatchCheckpoint(null, "task")
+        batch.enqueue(listOf(call))
+        batch.complete(call, AgentToolResult(call.callId, ToolResultContent.Text("Outcome unknown"), true, errorCode = "TOOL_OUTCOME_UNKNOWN"))
+        var modelRequests = 0
+        val selected = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                modelRequests++
+                emit(ProviderEvent.TextDelta("Must not run"))
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val staleReplay = AgentToolExchange(listOf(call), listOf(AgentToolResult(call.callId, ToolResultContent.Text("Old display success"), false)))
+        val events = GitHubOutputContinuationSession(
+            selected,
+            durableToolReceipts = batch::handoffReceipts,
+            readCheckpoint = { checkpoint },
+            saveCheckpoint = { checkpoint = it }
+        ) { _, _, _ -> selected }.streamRound(listOf(tool), listOf(staleReplay)).toList()
+        assertEquals(0, modelRequests)
+        assertEquals("OUTPUT_CONTINUATION_PENDING_TOOLS", (events.single() as ProviderEvent.Failed).errorCode)
+        assertEquals(JsonPrimitive("TOOL_HANDOFF"), checkpoint?.get("state"))
+        assertEquals(JsonPrimitive(false), checkpoint?.get("resume_allowed"))
+        assertEquals(1, (checkpoint?.get("pending_calls") as JsonArray).size)
+    }
+
     @Test fun publicProgressAppearsDuringToolRoundWithInvocationIdentity() = runBlocking {
         val model = OutputLineage(OutputOrigin.MODEL_TEXT, "invocation-1")
         val notices = mutableListOf<Pair<String, OutputLineage>>()

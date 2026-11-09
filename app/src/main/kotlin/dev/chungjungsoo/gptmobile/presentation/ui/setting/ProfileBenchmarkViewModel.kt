@@ -7,8 +7,9 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditOptions
+import dev.chungjungsoo.gptmobile.data.audit.AppAuditPlanEntry
+import dev.chungjungsoo.gptmobile.data.audit.AppAuditSelectedModelServices
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditSourceInventory
-import dev.chungjungsoo.gptmobile.data.audit.appAuditGatewayProfileEligible
 import dev.chungjungsoo.gptmobile.data.audit.writeAppAuditExport
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkBatch
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkExecutionCoordinator
@@ -67,7 +68,8 @@ class ProfileBenchmarkViewModel @Inject constructor(
     runDao: AgentRunDao,
     persistenceDao: AgentPersistenceDao,
     savedState: SavedStateHandle,
-    @param:ApplicationContext private val context: Context
+    @param:ApplicationContext private val context: Context,
+    private val auditModels: AppAuditSelectedModelServices
 ) : ViewModel() {
     val profiles = settings.observePlatformV2s().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     private val selectedUid = MutableStateFlow(savedState.get<String>("profileUid").orEmpty())
@@ -83,7 +85,7 @@ class ProfileBenchmarkViewModel @Inject constructor(
     internal val backendComparisons = history.map { dev.chungjungsoo.gptmobile.data.benchmark.benchmarkComparisonMatrix(it) }
         .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     val benchmarkSession = execution.sessionId
-    val auditGatewayCandidates = profiles.map { list -> list.filter(::appAuditGatewayProfileEligible) }
+    val auditModelCandidates = profiles.map { list -> list.filter { it.enabled && it.model.isNotBlank() } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     private val mutableAuditLabelWarning = MutableStateFlow<String?>(null)
     val auditLabelWarning = mutableAuditLabelWarning.asStateFlow()
@@ -211,6 +213,29 @@ class ProfileBenchmarkViewModel @Inject constructor(
 
     fun select(profile: PlatformV2) {
         if (!execution.isRunning) selectedUid.value = profile.uid
+    }
+
+    /** Preparing a historical target only changes the reviewed queue selection; Run owns inference. */
+    internal fun prepareAuditModelBenchmark(entry: AppAuditPlanEntry, onPrepared: () -> Unit) {
+        if (execution.isRunning || !mutableReady.value) return
+        viewModelScope.launch {
+            val uid = try {
+                withContext(Dispatchers.IO) { appAuditBenchmarkProfileUid(entry, auditModels::target) }
+            } catch (failure: Exception) {
+                if (failure is CancellationException) throw failure
+                null
+            }
+            if (execution.isRunning || !mutableReady.value) return@launch
+            val current = profiles.value.singleOrNull { it.uid == uid }
+            if (uid == null || current == null || !current.enabled || current.model.isBlank()) {
+                mutableError.value = "This audit's saved model configuration is unavailable or has changed. Review the intended profile and start a fresh audit before preparing its benchmark."
+                return@launch
+            }
+            selectedUid.value = uid
+            selectedBenchmarkUids.value = setOf(uid)
+            mutableError.value = null
+            onPrepared()
+        }
     }
 
     fun toggleBenchmarkProfile(profile: PlatformV2) {

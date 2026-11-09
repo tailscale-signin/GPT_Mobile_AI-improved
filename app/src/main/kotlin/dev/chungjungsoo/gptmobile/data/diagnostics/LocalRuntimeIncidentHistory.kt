@@ -105,7 +105,8 @@ internal data class RuntimeIncidentCapture(val availability: String, val capture
         put("capturedAtMillis", capturedAtMillis)
         put("retainedRecords", records.size)
         put("persistenceFailures", persistenceFailures)
-        put("scope", "Retained device/process incident history; empty retained history does not establish zero incidents during the entire session.")
+        put("scope", "Retained local model runtime, native operation and worker termination history; application crashes are captured separately in critical-app-logs.jsonl. Empty runtime history does not establish an absence of app crashes or other session failures.")
+        put("applicationCrashEvidence", "critical-app-logs.jsonl")
     }
 }
 

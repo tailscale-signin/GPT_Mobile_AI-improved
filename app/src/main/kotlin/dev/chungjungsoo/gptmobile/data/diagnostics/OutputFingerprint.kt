@@ -10,7 +10,7 @@ enum class OutputTraceBoundary { PROVIDER_VISIBLE, REDUCER, COMMITTED, RENDER_IN
 enum class OutputTextRepresentation { VISIBLE_UTF8, DISPLAY_FILTERED_MARKDOWN_UTF8, MATH_PLACEHOLDER_MARKDOWN_UTF8 }
 
 @Serializable
-enum class OutputOrigin { MODEL_TEXT, SYSTEM_ERROR, PROGRESS_NOTICE, UNKNOWN }
+enum class OutputOrigin { MODEL_TEXT, SYSTEM_ERROR, PROGRESS_NOTICE, APPLICATION_REPORT, RETAINED_CONTENT, UNKNOWN }
 
 data class OutputLineage(val origin: OutputOrigin = OutputOrigin.UNKNOWN, val invocationId: String? = null)
 

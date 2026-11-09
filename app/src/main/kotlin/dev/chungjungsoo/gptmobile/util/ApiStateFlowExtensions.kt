@@ -5,6 +5,11 @@ import dev.chungjungsoo.gptmobile.data.database.entity.AssistantRevision
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType
 import dev.chungjungsoo.gptmobile.data.database.entity.resetActiveRevision
+import dev.chungjungsoo.gptmobile.data.diagnostics.FirstOutputPublication
+import dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage
+import dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineageAccumulator
+import dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin
+import dev.chungjungsoo.gptmobile.data.diagnostics.OutputPublicationTracker
 import dev.chungjungsoo.gptmobile.data.dto.ApiState
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.GatewayProgress
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalInferencePhase
@@ -89,9 +94,10 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
     onCombinedAnswer: suspend (String, String, List<AssistantTimelineItem>) -> Boolean = { _, _, _ -> false },
     nanoTimeProvider: () -> Long = System::nanoTime,
     publishIntervalMillis: Long = STANDARD_STREAM_PUBLISH_INTERVAL_MILLIS,
-    restoredTimeline: List<AssistantTimelineItem> = emptyList()
+    restoredTimeline: List<AssistantTimelineItem> = emptyList(),
+    onOutputPublication: suspend (content: String, lineage: OutputLineage, first: List<FirstOutputPublication>) -> Unit = { _, _, _ -> }
 ): ApiStateFlowOutcome {
-    val buffer = StreamingMessageBuffer(nanoTimeProvider, publishIntervalMillis, restoredTimeline)
+    val buffer = StreamingMessageBuffer(nanoTimeProvider, publishIntervalMillis, restoredTimeline, onOutputPublication)
     var isCompletedSuccessfully = false
     var pendingCombinedAnswer: ApiState.CombinedAnswer? = null
     suspend fun publishCombined(chunk: ApiState.CombinedAnswer) {
@@ -163,6 +169,7 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
                 }
 
                 is ApiState.ProgressCheckpoint -> {
+                    buffer.observeProgress(chunk.text, chunk.invocationId)
                     buffer.appendProgress(chunk.text, chunk.modelAuthored)
                     if (chunk.modelAuthored) buffer.publishIfDue(onUpdate) else buffer.publishNow(onUpdate)
                 }
@@ -173,6 +180,7 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
                 }
 
                 is ApiState.ActivitySummary -> {
+                    buffer.observeProgress(chunk.text)
                     buffer.updateActivitySummary(chunk)
                     buffer.publishNow(onUpdate)
                 }
@@ -188,7 +196,7 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
                 }
 
                 is ApiState.Success -> {
-                    buffer.appendContent(chunk.textChunk)
+                    buffer.appendContent(chunk.textChunk, chunk.lineage)
                     buffer.publishIfDue(onUpdate)
                 }
 
@@ -204,6 +212,7 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
 
                 is ApiState.Notice -> {
                     if (chunk.persistent || chunk.researchDelivery != null || chunk.personalData.isNotEmpty()) {
+                        buffer.observeProgress(chunk.message)
                         buffer.appendNotice(chunk.message, chunk.researchDelivery, chunk.personalData)
                     }
                     if (chunk.message.isNotBlank()) onNotice(chunk.message, chunk.persistent)
@@ -219,6 +228,10 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
 
                 is ApiState.GatewayProgressChanged -> {
                     onGatewayProgress?.invoke(chunk.progress)
+                    if (onGatewayProgress != null) {
+                        buffer.observeProgress(chunk.progress.message.orEmpty())
+                        buffer.publishOutputMilestones()
+                    }
                 }
 
                 ApiState.Done -> {
@@ -228,6 +241,7 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
                 }
 
                 is ApiState.Error -> {
+                    buffer.observeSystemError(chunk.message, chunk.invocationId)
                     pendingCombinedAnswer = null
                     providerLimit = chunk.providerLimit
                     errorCode = chunk.errorCode
@@ -293,10 +307,14 @@ private fun Flow<ApiState>.withPublicationTicks(intervalMillis: Long): Flow<Publ
 private class StreamingMessageBuffer(
     private val nanoTimeProvider: () -> Long,
     private val publishIntervalMillis: Long,
-    restoredTimeline: List<AssistantTimelineItem>
+    restoredTimeline: List<AssistantTimelineItem>,
+    private val onOutputPublication: suspend (String, OutputLineage, List<FirstOutputPublication>) -> Unit
 ) {
     private val thoughts = StringBuilder()
     private val content = StringBuilder()
+    private val contentLineage = OutputLineageAccumulator()
+    private val githubPrefixLineage = OutputLineageAccumulator()
+    private val outputPublications = OutputPublicationTracker()
     private val timeline = mutableListOf<AssistantTimelineItem>()
     private var githubProgress = false
     private var githubRoundAwaitingAnswer = false
@@ -316,6 +334,19 @@ private class StreamingMessageBuffer(
     private var publishedContentLength = 0
     private var timelineVersion = 0
     private var publishedTimelineVersion = 0
+
+    fun observeProgress(text: String, invocationId: String? = null) {
+        if (text.isNotBlank()) outputPublications.observe(OutputLineage(OutputOrigin.PROGRESS_NOTICE, invocationId), text.length)
+    }
+
+    fun observeSystemError(text: String, invocationId: String?) {
+        if (text.isNotBlank()) outputPublications.observe(OutputLineage(OutputOrigin.SYSTEM_ERROR, invocationId), text.length)
+    }
+
+    suspend fun publishOutputMilestones() {
+        val first = outputPublications.drain(dev.chungjungsoo.gptmobile.data.diagnostics.OutputPublicationKind.FIRST_PROGRESS)
+        if (first.isNotEmpty()) onOutputPublication("", OutputLineage(), first)
+    }
 
     fun finishAssist(completed: Boolean, error: String?) {
         val hasCompletedTask = timeline.any { it.assistDiagnostic?.execution == dev.chungjungsoo.gptmobile.data.assist.AssistExecution.COMPLETED }
@@ -380,6 +411,7 @@ private class StreamingMessageBuffer(
         // already-public findings visible; a new round is not a new answer.
         githubRoundAwaitingAnswer = true
         githubAnswerPrefix.setLength(0)
+        githubPrefixLineage.reset()
     }
 
     private fun replaceGitHubRoundAnswer() {
@@ -393,6 +425,7 @@ private class StreamingMessageBuffer(
         }
         contentSnapshot = null
         content.setLength(0)
+        contentLineage.reset()
         githubRoundAwaitingAnswer = false
         boundGitHubProgress()
         timelineVersion++
@@ -443,7 +476,9 @@ private class StreamingMessageBuffer(
         }
     }
 
-    fun appendContent(rawChunk: String) {
+    fun appendContent(rawChunk: String, lineage: OutputLineage = OutputLineage()) {
+        if (rawChunk.isNotEmpty() && githubRoundAwaitingAnswer) githubPrefixLineage.append(lineage)
+        val effectiveLineage = if (githubRoundAwaitingAnswer) githubPrefixLineage.lineage else lineage
         val chunk = if (githubRoundAwaitingAnswer) {
             githubAnswerPrefix.append(rawChunk)
             val pending = githubAnswerPrefix.toString()
@@ -458,6 +493,8 @@ private class StreamingMessageBuffer(
             githubAnswerPrefix.setLength(0)
             contentSnapshot = null
             content.append(chunk)
+            contentLineage.append(effectiveLineage)
+            if (dev.chungjungsoo.gptmobile.data.conversation.AnswerProjection.text(chunk).isNotBlank()) outputPublications.observe(effectiveLineage, chunk.length)
             var offset = 0
             while (offset < chunk.length && restoredIndex < restoredText.size) {
                 val prior = restoredText[restoredIndex]
@@ -604,6 +641,7 @@ private class StreamingMessageBuffer(
         flushTimelineText()
         contentSnapshot = null
         content.setLength(0)
+        contentLineage.reset()
         pendingTimelineIndex = -1
         pendingTimelineText.setLength(0)
         timeline.removeAll { it.type == AssistantTimelineItemType.TEXT }
@@ -631,6 +669,7 @@ private class StreamingMessageBuffer(
         flushTimelineText()
         contentSnapshot = null
         content.setLength(0)
+        contentLineage.reset()
         pendingTimelineIndex = -1
         pendingTimelineText.setLength(0)
         restoredIndex = restoredText.size
@@ -681,6 +720,7 @@ private class StreamingMessageBuffer(
         publishedAtNanos: Long
     ) {
         flushTimelineText()
+        onOutputPublication(currentContent(), contentLineage.lineage, outputPublications.drain())
         onUpdate(currentContent(), thoughts.toString(), timeline.toList())
         hasPublishedAnswer = hasPublishedAnswer || hasResponse
         publishedContentLength = content.length

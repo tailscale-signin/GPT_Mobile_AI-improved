@@ -24,7 +24,7 @@ internal object GatewayReadinessFailure {
     )
     private val upstreamCodes = setOf("model_not_loaded", "model_loading", "model_not_found", "invalid_model", "invalid_request", "invalid_request_error", "not_supported", "permission_denied", "unauthorized", "internal_error", "server_error")
     private val upstreamTypes = setOf("invalid_request_error", "authentication_error", "permission_error", "not_found_error", "server_error", "unavailable_error", "not_supported_error")
-    private val upstreamMessages = setOf("MODEL_NOT_LOADED", "MODEL_LOADING", "MODEL_NOT_FOUND", "MODEL_LOAD_FAILED", "INVALID_API_KEY", "ENDPOINT_DISABLED")
+    private val upstreamMessages = setOf("MODEL_NOT_LOADED", "MODEL_LOADING", "MODEL_NOT_FOUND", "MODEL_LOAD_FAILED", "MODEL_SELECTOR_REQUIRED", "INVALID_API_KEY", "ENDPOINT_DISABLED")
 
     fun reasonCode(value: String?): String? = value?.takeIf { it in reasonCodes }
     fun failureCode(value: String?): String? = value?.takeIf { it in failureCodes }

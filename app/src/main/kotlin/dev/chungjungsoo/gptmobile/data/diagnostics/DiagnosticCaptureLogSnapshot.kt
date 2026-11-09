@@ -61,15 +61,16 @@ internal object DiagnosticCaptureLogSnapshot {
                     val destination = File(directory, source.name)
                     val part = File(directory, "${source.name}.partial")
                     var records = 0L
+                    var bytes = 0L
                     try {
                         FileOutputStream(part).use { output ->
                             val writer = BufferedWriter(OutputStreamWriter(output, Charsets.UTF_8), 4096)
                             lines(source.file, guardedRead) { line ->
                                 val redacted = redactLine(line) { reason -> failures.putIfAbsent(source.name, reason) } ?: return@lines
                                 require(redacted.length <= MAX_LINE_CHARACTERS && '\n' !in redacted && '\r' !in redacted)
+                                bytes += redacted.toByteArray(Charsets.UTF_8).size + 1
+                                if (bytes > MAX_SOURCE_BYTES) throw IOException("LOG_SNAPSHOT_BYTE_LIMIT")
                                 writer.append(redacted).append('\n')
-                                writer.flush()
-                                if (output.channel.position() > MAX_SOURCE_BYTES) throw IOException("LOG_SNAPSHOT_BYTE_LIMIT")
                                 records++
                             }
                             writer.flush()
@@ -180,7 +181,7 @@ internal object DiagnosticCaptureLogSnapshot {
                 for (index in 0 until size) {
                     val character = buffer[index]
                     if (character == '\n') {
-                        consume(line.toString().removeSuffix("\r"))
+                        consume(redactLogMessage(line.toString().removeSuffix("\r")))
                         line.setLength(0)
                     } else {
                         if (line.length >= MAX_LINE_CHARACTERS) throw IOException("LOG_SNAPSHOT_LINE_LIMIT")
@@ -188,7 +189,7 @@ internal object DiagnosticCaptureLogSnapshot {
                     }
                 }
             }
-            if (line.isNotEmpty()) consume(line.toString().removeSuffix("\r"))
+            if (line.isNotEmpty()) consume(redactLogMessage(line.toString().removeSuffix("\r")))
         }
     }
 

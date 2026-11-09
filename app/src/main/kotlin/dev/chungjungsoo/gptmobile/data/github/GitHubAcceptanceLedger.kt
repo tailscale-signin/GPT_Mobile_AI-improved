@@ -32,6 +32,8 @@ internal object GitHubAcceptanceLedger {
                 if (kind == "REQUIREMENT") put("category", GitHubAcceptanceDiagnostics.category(row.text("requirement")))
                 put("required", !excluded)
                 put("state", state(row.text("acceptance_state").ifBlank { row.text("status") }).name)
+                GitHubCriterionBlocker.from(row.text("blocker_code"))?.let { put("blocker_code", it.name) }
+                (row["attempted"] as? JsonPrimitive)?.content?.toIntOrNull()?.let { put("attempted", it > 0) }
                 put("reason", row.text("acceptance").ifBlank { row.text("blocker").ifBlank { row.text("reason").ifBlank { row.text("next_action") } } })
                 put(
                     "receipt_ids",
@@ -63,8 +65,9 @@ internal object GitHubAcceptanceLedger {
         val requirements = value["requirements"] as? JsonArray ?: JsonArray(emptyList())
         val capabilities = value["capabilities"] as? JsonArray ?: (value["test_checklist"] as? JsonObject)?.get("capabilities") as? JsonArray ?: JsonArray(emptyList())
         val ledger = snapshot(requirements, capabilities, value.text("request_digest").takeIf(String::isNotBlank))
-        val diagnostics = GitHubAcceptanceDiagnostics.snapshot(ledger, receipts)
-        return JsonObject(value + ("acceptance_ledger" to JsonObject(ledger + ("diagnostic_projection" to diagnostics))))
+        val pages = GitHubAcceptanceDiagnostics.pages(ledger, receipts)
+        val diagnostics = pages.firstOrNull() ?: GitHubAcceptanceDiagnostics.snapshot(ledger, receipts)
+        return JsonObject(value + ("acceptance_ledger" to JsonObject(ledger + mapOf("diagnostic_projection" to diagnostics, "diagnostic_pages" to JsonArray(pages)))))
     }
 
     private fun JsonObject.text(key: String) = (get(key) as? JsonPrimitive)?.contentOrNull.orEmpty()

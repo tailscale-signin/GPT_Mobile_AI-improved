@@ -21,33 +21,34 @@ private val privateHeader = Regex("(?i)(?<![A-Za-z0-9_-])(authorization|proxy-au
 private val authorizationValue = Regex("(?i)(bearer|basic)\\s+[a-z0-9._~+/=-]+")
 private val secretValue = Regex("(?i)([\\\"]?(?:api_?key|access_?token|refresh_?token|password|client_?secret)[\\\"]?\\s*[:=]\\s*[\\\"]?)[^\\\"\\s,}]+")
 private val tokenValue = Regex("\\b(?:sk-|hf_|ghp_|github_pat_)[A-Za-z0-9_-]{8,}")
-private val chatCollection = Regex("""(?i)(?:^|\s)D/chats\b|\bchats\s*[:=]""")
-private val privateDataClasses = listOf("ChatRoomV2", "MessageV2", "PlatformV2").map { it to Regex("""\b$it\([^\r\n)]*\)""") }
+private val chatCollection = Regex("""(?i)(?<!\S)[VDIWEF]/chats\b|\bchats\s*[:=]""")
+private val privateDataClass = Regex("""\b(ChatRoomV2|MessageV2|PlatformV2)\(""")
 
 /** Redact values in complete JSON trees so safe execution receipts keep their structure. */
 internal fun redactDiagnosticPayload(message: String): String = redactDiagnosticSegments(message, credentials = false)
 
-private fun redactDiagnosticSegments(message: String, credentials: Boolean): String = message.lineSequence().joinToString("\n") { line ->
+private fun redactDiagnosticSegments(message: String, credentials: Boolean): String =
     buildString {
         var offset = 0
-        while (offset < line.length) {
-            val start = line.indexOfAny(charArrayOf('{', '['), offset)
-            val prefixEnd = if (start < 0) line.length else start
-            val prefix = line.substring(offset, prefixEnd)
+        // Redact a complete payload before splitting it into persisted physical lines.
+        // A multiline JSON string/object or unstructured prompt has one privacy boundary.
+        while (offset < message.length) {
+            val start = message.indexOfAny(charArrayOf('{', '['), offset)
+            val prefixEnd = if (start < 0) message.length else start
+            val prefix = message.substring(offset, prefixEnd)
             append(redactDiagnosticText(prefix, credentials))
             // An unstructured payload has no trustworthy end boundary.
-            if (start < 0 || sensitivePayload.containsMatchIn(prefix)) break
-            val end = diagnosticJsonEnd(line, start)
-            val value = end?.let { runCatching { Json.parseToJsonElement(line.substring(start, it)) }.getOrNull() }
+            if (start < 0 || sensitivePayload.containsMatchIn(prefix) || credentials && (chatCollection.containsMatchIn(prefix) || privateDataClass.containsMatchIn(prefix))) break
+            val end = diagnosticJsonEnd(message, start)
+            val value = end?.let { runCatching { Json.parseToJsonElement(message.substring(start, it)) }.getOrNull() }
             if (value == null) {
-                append(redactDiagnosticText(line.substring(start), credentials))
+                append(redactDiagnosticText(message.substring(start), credentials))
                 break
             }
             append(redactDiagnosticTree(value, credentials))
             offset = requireNotNull(end)
         }
     }
-}
 
 /** Bound scanning before parsing, including malformed or deeply nested logcat payloads. */
 private fun diagnosticJsonEnd(line: String, start: Int): Int? {
@@ -92,12 +93,25 @@ private fun redactDiagnosticTree(value: JsonElement, credentials: Boolean): Json
 
 private fun redactDiagnosticText(message: String, credentials: Boolean): String {
     val start = sensitivePayload.find(message)?.range?.first
-    val safe = if (start == null) message else message.take(start) + "[private payload redacted]"
+    var safe = if (start == null) message else message.take(start) + "[private payload redacted]"
+    if (credentials) {
+        chatCollection.find(safe)?.let { match ->
+            // Logcat repeats the tag on every physical line; middle fragments do
+            // not have a data-class header and stay private after file rotation.
+            safe = safe.take(match.range.first) + "D/chats: [redacted chat collection]"
+        }
+        privateDataClass.find(safe)?.let { match ->
+            // Free-form values may contain nested parentheses and newlines, so
+            // a data-class dump has no trustworthy closing delimiter.
+            safe = safe.take(match.range.first) + "${match.groupValues[1]}([redacted])"
+        }
+    }
     val payloadSafe = safe.replace(queryString, "$1?[redacted]")
     return if (credentials) redactDiagnosticCredentials(payloadSafe) else payloadSafe
 }
 
-internal fun diagnosticMessageForStorage(message: String): String {
+internal fun diagnosticMessageForStorage(message: String, tag: String? = null): String {
+    if (tag.equals("chats", ignoreCase = true)) return "[redacted chat collection]"
     // Redact complete lines only. Cutting a raw header/key/token in half before redaction
     // could expose a secret fragment; running every regex over a huge input exhausts heap.
     val source = if (message.length <= 16 * 1024) {
@@ -114,26 +128,12 @@ internal fun diagnosticMessageForStorage(message: String): String {
     return safe
 }
 
-internal fun redactLogMessage(message: String): String {
-    if (
-        "ChatRoomV2(" in message &&
-        chatCollection.containsMatchIn(message)
-    ) {
-        return "D/chats: [redacted chat collection]"
-    }
-    return redactDiagnosticSegments(message, credentials = true)
-}
+internal fun redactLogMessage(message: String): String = redactDiagnosticSegments(message, credentials = true)
 
 private fun redactDiagnosticCredentials(message: String): String {
     var text = DiagnosticRedactor.redact(message)
     text = text.replace(privatePath, "[private-path]")
     text = text.replace(privateAddress, "[private-address]")
-    // Android Log.d calls from legacy/UI code may stringify entire Room/domain objects.
-    // Keep diagnostics useful without exporting conversation titles, profile UUIDs,
-    // message text or timestamps embedded in those data-class dumps.
-    privateDataClasses.forEach { (type, pattern) ->
-        text = text.replace(pattern, "$type([redacted])")
-    }
     // Match complete quoted keys as well as raw headers; keep JSON siblings and
     // escaping valid so safe provider records remain structurally exportable.
     text = text.replace(quotedSecret) { match -> "${match.groupValues[1]}\"[redacted]\"" }

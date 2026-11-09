@@ -27,6 +27,8 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionAuthType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus
+import dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage
+import dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin
 import dev.chungjungsoo.gptmobile.data.dto.ApiState
 import dev.chungjungsoo.gptmobile.data.dto.anthropic.request.MessageRequest
 import dev.chungjungsoo.gptmobile.data.dto.anthropic.response.MessageResponseChunk
@@ -1102,7 +1104,7 @@ class ChatRepositoryImplTest {
             listOf(
                 ApiState.Loading,
                 ApiState.Thinking("Plan"),
-                ApiState.Success("Answer"),
+                ApiState.Success("Answer", OutputLineage(OutputOrigin.MODEL_TEXT)),
                 ApiState.Done
             ),
             states
@@ -1178,7 +1180,7 @@ class ChatRepositoryImplTest {
                 ApiState.PhaseChanged(LocalInferencePhase.LOADING),
                 ApiState.Notice(LiteRtLmAdapter.DEFAULT_LOADING_MODEL),
                 ApiState.Thinking("plan"),
-                ApiState.Success("hello"),
+                ApiState.Success("hello", OutputLineage(OutputOrigin.MODEL_TEXT)),
                 ApiState.Done
             ),
             states
@@ -1250,10 +1252,10 @@ class ChatRepositoryImplTest {
                 ApiState.PhaseChanged(LocalInferencePhase.INSPECTING),
                 ApiState.PhaseChanged(LocalInferencePhase.LOADING),
                 ApiState.Notice(LiteRtLmAdapter.DEFAULT_LOADING_MODEL),
-                ApiState.Success("before"),
+                ApiState.Success("before", OutputLineage(OutputOrigin.MODEL_TEXT)),
                 ApiState.ToolCall(toolSequence = 0),
                 ApiState.ToolCall(toolSequence = 0),
-                ApiState.Success("after"),
+                ApiState.Success("after", OutputLineage(OutputOrigin.MODEL_TEXT)),
                 ApiState.Done
             ),
             states.map { if (it is ApiState.ToolCall) it.copy(metrics = null) else it }
@@ -1400,7 +1402,7 @@ class ChatRepositoryImplTest {
             listOf(
                 ApiState.Loading,
                 ApiState.Thinking("Secret"),
-                ApiState.Success("Visible"),
+                ApiState.Success("Visible", OutputLineage(OutputOrigin.MODEL_TEXT)),
                 ApiState.Done
             ),
             states
@@ -1580,7 +1582,7 @@ class ChatRepositoryImplTest {
             runId = "test-run"
         ).toList().filterNot { it is ApiState.AssistStatus || it is ApiState.GatewayProgressChanged || it is ApiState.ProgressCheckpoint || (it is ApiState.Notice && (it.message.startsWith("Context estimate:") || it.message.startsWith("Context: no app-imposed limit."))) }
 
-        assertEquals(listOf(ApiState.Loading, ApiState.Success("Answer"), ApiState.Done), states)
+        assertEquals(listOf(ApiState.Loading, ApiState.Success("Answer", OutputLineage(OutputOrigin.MODEL_TEXT)), ApiState.Done), states)
         assertEquals(1, openAIAPI.streamChatCompletionCalls)
     }
 
@@ -1651,10 +1653,10 @@ class ChatRepositoryImplTest {
         assertEquals(
             listOf(
                 ApiState.Loading,
-                ApiState.Success("before"),
+                ApiState.Success("before", OutputLineage(OutputOrigin.MODEL_TEXT)),
                 ApiState.ToolCall(toolSequence = 0),
                 ApiState.ToolCall(toolSequence = 0),
-                ApiState.Success("after"),
+                ApiState.Success("after", OutputLineage(OutputOrigin.MODEL_TEXT)),
                 ApiState.Done
             ),
             states.map { if (it is ApiState.ToolCall) it.copy(metrics = null) else it }

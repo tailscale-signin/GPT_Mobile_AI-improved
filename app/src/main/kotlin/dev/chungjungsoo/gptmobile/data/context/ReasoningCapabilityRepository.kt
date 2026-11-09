@@ -146,7 +146,18 @@ class ReasoningCapabilityRepository internal constructor(
             // An access/transport failure does not qualify either route.
             gateway.getCapabilities(config, forceRefresh = true)?.let { GatewayClientDiagnostics.observeInstance(config, it.instanceId) }
             val snapshot = capacity.discover(config, profile.model)
-                ?: return ReasoningCapabilityProbe(false, safeReasonCode = "REASONING_CAPABILITY_UNVERIFIED", detailMessage = capacity.metadataFailure(config, profile.model)?.message)
+            if (snapshot == null) {
+                // A known gateway owns its exact-model metadata. Keep its
+                // actionable blocker when the user rechecks the failed request;
+                // direct /props failure storage is intentionally empty on this route.
+                val gatewayFailure = capacity.gatewayObservation(config, profile.model)
+                return ReasoningCapabilityProbe(
+                    false,
+                    runtimeRevision = gatewayFailure?.instanceId,
+                    safeReasonCode = gatewayFailure?.reasonCode ?: gatewayFailure?.failureCode ?: "REASONING_CAPABILITY_UNVERIFIED",
+                    detailMessage = gatewayFailure?.blockingSummary() ?: capacity.metadataFailure(config, profile.model)?.message
+                )
+            }
             val verified = snapshot.provenance == CapacityProvenance.VERIFIED_ROUTE &&
                 snapshot.fingerprint.requestedModel == profile.model &&
                 snapshot.fingerprint.resolvedModel == profile.model &&

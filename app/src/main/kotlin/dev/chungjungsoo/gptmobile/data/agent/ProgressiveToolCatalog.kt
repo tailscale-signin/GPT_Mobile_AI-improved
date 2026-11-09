@@ -29,6 +29,8 @@ class ProgressiveToolCatalog(
     private val schemaAllowance get() = if (advanced) MAX_SCHEMA_TOKEN_ALLOWANCE else SCHEMA_TOKEN_ALLOWANCE
     private val taskText = task
     private val candidates = definitions.filter { it.modelVisible }.associateBy { it.name }.toMutableMap()
+    private data class ExecutionBinding(val source: AgentToolDefinition, val executable: AgentToolDefinition)
+    private val executionBindings = mutableMapOf<String, ExecutionBinding>()
     private val deferredEngineering = setOf("github_write", "github_commit", "github_stage_patch", "github_release", "github_watch_checks")
     private val taskRequired = definitions.filter { definition ->
         !conversational &&
@@ -176,6 +178,34 @@ class ProgressiveToolCatalog(
         return (githubNames + active + NAME).distinct().mapNotNull(definitions::get)
     }
 
+    /** Reflect trusted execution wrappers without adding names or changing discovery selection. */
+    @Synchronized
+    internal fun bindExecutionContracts(definitions: Collection<AgentToolDefinition>) {
+        definitions.filter { it.modelVisible && it.name != NAME }.forEach { definition ->
+            val existing = candidates[definition.name] ?: return@forEach
+            val source = executionBindings[definition.name]?.source ?: existing
+            executionBindings[definition.name] = ExecutionBinding(source, definition)
+            candidates[definition.name] = definition
+        }
+    }
+
+    private fun acquiredDefinition(definition: AgentToolDefinition): AgentToolDefinition {
+        val binding = executionBindings[definition.name] ?: return definition
+        val source = binding.source
+        if (contractFingerprint(source) == contractFingerprint(definition) &&
+            source.capabilities == definition.capabilities &&
+            source.dependsOn == definition.dependsOn &&
+            source.workflowLinks == definition.workflowLinks &&
+            source.modelVisible == definition.modelVisible
+        ) {
+            return binding.executable
+        }
+        // A new remote contract needs fresh execution binding. Do not conceal a
+        // changed schema behind an earlier local recovery wrapper.
+        executionBindings.remove(definition.name)
+        return definition
+    }
+
     /** The caller must authorize and bind a new tool before registering its exact schema. */
     @Synchronized
     internal fun admitAuthorizedTool(definition: AgentToolDefinition): Boolean {
@@ -260,7 +290,7 @@ class ProgressiveToolCatalog(
                     }
                     if (acquired.isNotEmpty()) {
                         synchronized(this) {
-                            acquired.forEach { candidates[it.name] = it }
+                            acquired.forEach { candidates[it.name] = acquiredDefinition(it) }
                             if (githubUpfront) active.addAll(acquired.filter(::isGitHubTool).map { it.name })
                         }
                         if (acquiredQueryKeys.size >= 128) acquiredQueryKeys.clear()

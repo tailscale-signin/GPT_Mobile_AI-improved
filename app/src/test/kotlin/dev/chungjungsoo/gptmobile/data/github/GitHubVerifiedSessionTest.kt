@@ -12,6 +12,8 @@ import dev.chungjungsoo.gptmobile.data.agent.GitHubTaskRecovery
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.context.TextTokenEstimate
+import dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage
+import dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.collect
@@ -140,7 +142,7 @@ class GitHubVerifiedSessionTest {
         for (task in listOf("hi", "Hello!", " hey ", "GitHub workspace: o/r\nBranch: main\n\nhello")) {
             val gate = GitHubVerifiedSession(source, GitHubEvidenceBook("b", "o/r", "main", emptySet()), task, { 8000 }, { error("No extraction") }, { error("No repository claims") }, {})
             val events = gate.streamRound(listOf(AgentToolDefinition("github_context", "Status", JsonObject(emptyMap()))), emptyList()).toList()
-            assertEquals(listOf(ProviderEvent.TextDelta("Hello! How can I help?"), ProviderEvent.Completed), events)
+            assertEquals(listOf(ProviderEvent.TextDelta("Hello! How can I help?", OutputLineage(OutputOrigin.APPLICATION_REPORT)), ProviderEvent.Completed), events)
         }
     }
 
@@ -182,8 +184,27 @@ class GitHubVerifiedSessionTest {
         assertTrue(report.toString().contains("original_failure"))
     }
 
+    @Test fun absentIntegrationCatalogStopsBeforeProviderDenialCanBeDispatched() = runTest {
+        val task = "Test GitHub tools and report."
+        val book = GitHubEvidenceBook("b", "o/r", "main", emptySet())
+        val provider = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = error("No provider request can repair an absent tool catalog")
+        }
+        val gate = GitHubVerifiedSession(provider, book, task, { 8192 }, { error("No verifier without operation evidence") }, {}, {})
+        val events = AgentRunner(AgentRunLimits(githubTask = true)).run(gate, emptyList()).toList()
+        val visible = events.filterIsInstance<AgentRunEvent.Provider>().map { it.event }
+        val terminal = visible.filterIsInstance<ProviderEvent.Failed>().single()
+        assertEquals("BLOCKED", terminal.taskOutcome)
+        assertEquals("REQUIRED_TOOL_CAPABILITY_UNAVAILABLE", terminal.errorCode)
+        assertEquals(JsonPrimitive(false), terminal.failureDetails?.get("dispatched"))
+        assertEquals(JsonPrimitive(false), terminal.failureDetails?.get("retryable"))
+        assertTrue(book.snapshot().first.isEmpty())
+        assertTrue(visible.filterIsInstance<ProviderEvent.TextDelta>().single().text.contains("Recorded tool receipts: 0; dispatched tool calls: 0"))
+        assertFalse(visible.any { it is ProviderEvent.Completed || it is ProviderEvent.ToolCall })
+    }
+
     @Test fun providerDenialRetainsPendingAcceptanceWithoutClaimingPartialVerification() = runTest {
-        for (task in listOf("Test GitHub tools and report.", "Inspect the repository")) {
+        for (task in listOf("Inspect the repository", "Explain the repository issues")) {
             var rounds = 0
             val savedCheckpoints = mutableListOf<JsonObject>()
             val failure = ProviderEvent.Failed(
@@ -220,6 +241,28 @@ class GitHubVerifiedSessionTest {
             assertTrue(status.contains("No tool result was delivered"))
             assertFalse(visible.any { it is ProviderEvent.Completed })
         }
+    }
+
+    @Test fun integrationRecoveryPreservesAnAlreadyObservedProviderDenial() = runTest {
+        val provider = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = error("Retained failure delivery must not dispatch a provider request")
+        }
+        val gate = GitHubVerifiedSession(
+            provider,
+            GitHubEvidenceBook("b", "o/r", "main", emptySet()),
+            "Test GitHub tools and report.",
+            { 8192 },
+            { error("A provider denial must not open a verifier") },
+            {},
+            {}
+        )
+        val failure = ProviderEvent.Failed(
+            "HTTP 402: provider budget restriction",
+            errorCode = "PAYMENT_REQUIRED",
+            failureDetails = JsonObject(mapOf("status" to JsonPrimitive(402))),
+            invocationId = "denied-integration-invocation"
+        )
+        assertEquals(listOf(failure), gate.retainedFailureResponse(failure).toList())
     }
 
     @Test fun untrustedToolOutputCannotTurnAProviderDenialIntoAVerificationReport() = runBlocking {
@@ -279,7 +322,7 @@ class GitHubVerifiedSessionTest {
         assertTrue(events.filterIsInstance<ProviderEvent.TextDelta>().isEmpty())
     }
 
-    @Test fun testingReportsUseReceiptsWithoutAnotherModelAndKeepTaskPartial() = runBlocking {
+    @Test fun testingReportsKeepSavedReceiptsWhileBlockingMissingExecutableTools() = runBlocking {
         val book = GitHubEvidenceBook("binding", "o/r", "main", setOf("github_read"), now = { 1000L })
         val call = ProviderEvent.ToolCall("read", "github_read", Json.parseToJsonElement("""{"commit_sha":"${"a".repeat(40)}","ranges":[{"path":"Test.kt","start_line":1,"end_line":5}]}""") as JsonObject)
         book.observe(call, AgentToolResult("read", ToolResultContent.Text("test source"), false))
@@ -298,7 +341,11 @@ class GitHubVerifiedSessionTest {
         assertTrue(text.contains("partial acceptance"))
         assertTrue(text.contains("github_read / source read"))
         assertFalse(text.contains("all tests passed"))
-        assertEquals("PARTIAL", (events.last() as ProviderEvent.Failed).taskOutcome)
+        val terminal = events.last() as ProviderEvent.Failed
+        assertEquals("BLOCKED", terminal.taskOutcome)
+        assertEquals("REQUIRED_TOOL_CAPABILITY_UNAVAILABLE", terminal.errorCode)
+        assertEquals(JsonPrimitive(false), terminal.failureDetails?.get("dispatched"))
+        assertEquals(1, book.snapshot().first.size)
     }
 
     @Test fun offlineProviderKeepsItsConnectionErrorInsteadOfBecomingAVerificationError() = kotlinx.coroutines.runBlocking {

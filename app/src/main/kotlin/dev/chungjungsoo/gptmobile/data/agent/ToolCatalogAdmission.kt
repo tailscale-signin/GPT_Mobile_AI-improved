@@ -64,17 +64,32 @@ internal fun fitProviderToolSchemas(definitions: List<AgentToolDefinition>, limi
 }
 
 /** Use the resolver's catalog for both planning and execution, including telemetry-wrapped tools. */
-internal fun planAuthorizedToolContext(turns: List<ConversationTurn>, prompt: String, tools: List<ResolvedAgentTool>, limits: TokenBudgetSettings, externalTools: Boolean, githubMode: Boolean = false): ContextPlan {
-    val task = turns.lastOrNull { it.isCurrentTurn }?.userMessage?.content.orEmpty()
+internal fun planAuthorizedToolContext(
+    turns: List<ConversationTurn>,
+    prompt: String,
+    tools: List<ResolvedAgentTool>,
+    limits: TokenBudgetSettings,
+    externalTools: Boolean,
+    githubMode: Boolean = false,
+    requestedTask: String? = null,
+    requireToolExecution: Boolean = true
+): ContextPlan {
+    // Saved receipts and prepared evidence can contain tool names and imperatives.
+    // They remain context, never new requirements attributed to the user.
+    val task = requestedTask ?: turns.lastOrNull { it.isCurrentTurn }?.userMessage?.content.orEmpty()
     val fullGitHubCatalog = githubMode || tools.any { it.progressiveCatalog?.githubMode == true }
     // Current user intent wins over repository keywords in memory or workspace instructions.
     if (!fullGitHubCatalog && CurrentRequestContract.from(task).conversational) return ContextBudgetService.plan(turns, prompt, emptyList(), limits)
     val definitions = tools.map { it.tool.definition }
-    val required = requiredToolSchemas(explicitlyRequiredToolNames(task, definitions.mapTo(hashSetOf()) { it.name }), tools)
+    val required = if (requireToolExecution) {
+        requiredToolSchemas(explicitlyRequiredToolNames(task, definitions.mapTo(hashSetOf()) { it.name }), tools)
+    } else {
+        emptyList()
+    }
     val catalog = if (externalTools) tools.firstNotNullOfOrNull { it.progressiveCatalog } ?: if (limits.adaptiveToolCatalog) ProgressiveToolCatalog.create(definitions, task, githubMode = fullGitHubCatalog) else null else null
     val githubSchemas = if (fullGitHubCatalog) definitions.filter { it.modelVisible && ProgressiveToolCatalog.isGitHubTool(it) } else emptyList()
     val advertised = (githubSchemas + required + (catalog?.selected(definitions + catalog.definition) ?: definitions.filter { it.modelVisible })).distinctBy { it.name }
-    val requestedGitHubOperations = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.taskTools(task)
+    val requestedGitHubOperations = if (requireToolExecution) dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.taskTools(task) else emptySet()
     val requiredGitHubSchemas = if (fullGitHubCatalog) {
         githubSchemas
     } else {

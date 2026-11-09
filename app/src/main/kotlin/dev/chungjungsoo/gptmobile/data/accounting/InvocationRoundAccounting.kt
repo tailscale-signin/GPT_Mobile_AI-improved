@@ -141,12 +141,16 @@ internal class InvocationRoundAccounting(
         (inputCounter.value ?: 0) == 0L &&
         (outputCounter.value ?: 0) == 0L
 
+    private val visibleLineage = dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineageAccumulator()
+
     fun observe(event: ProviderEvent) {
         when (event) {
             is ProviderEvent.TextDelta -> {
-                if (first == null && event.text.isNotEmpty()) {
+                if (event.lineage.origin in setOf(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.SYSTEM_ERROR, dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.PROGRESS_NOTICE, dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.APPLICATION_REPORT, dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.RETAINED_CONTENT)) return
+                if (event.text.isNotEmpty()) visibleLineage.append(event.lineage)
+                if (first == null && event.text.isNotEmpty() && event.lineage.origin == dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.MODEL_TEXT) {
                     first = (System.nanoTime() - started) / 1_000_000
-                    dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(parentRunId, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.FIRST_TEXT, role = dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticRole.from(kind), invocationId = record.id, elapsedMillis = first)
+                    dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(parentRunId, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.FIRST_TEXT, role = dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticRole.from(kind), invocationId = record.id, elapsedMillis = first, outputOrigin = dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.MODEL_TEXT)
                 }
                 val size = event.text.toByteArray().size
                 visibleFingerprint?.append(event.text)
@@ -286,7 +290,7 @@ internal class InvocationRoundAccounting(
         visibleFingerprint?.snapshot()?.let { fingerprint ->
             visibleBytes = fingerprint.utf8Bytes
             generatedBytes = visibleBytes + reasoningBytes
-            dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(parentRunId, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.OUTPUT_CHECKPOINT, invocationId = record.id, outputBoundary = dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceBoundary.PROVIDER_VISIBLE, outputRepresentation = dev.chungjungsoo.gptmobile.data.diagnostics.OutputTextRepresentation.VISIBLE_UTF8, outputFingerprint = fingerprint)
+            dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(parentRunId, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.OUTPUT_CHECKPOINT, invocationId = record.id, outputBoundary = dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceBoundary.PROVIDER_VISIBLE, outputRepresentation = dev.chungjungsoo.gptmobile.data.diagnostics.OutputTextRepresentation.VISIBLE_UTF8, outputFingerprint = fingerprint, outputOrigin = visibleLineage.lineage.origin)
         }
         val unsent = dispatch.provenUnsentAttemptIds()
         unsent.forEach { combinedAccounting?.notDispatched(it) }

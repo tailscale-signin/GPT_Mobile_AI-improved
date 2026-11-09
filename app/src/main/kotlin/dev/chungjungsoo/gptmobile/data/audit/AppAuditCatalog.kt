@@ -46,8 +46,10 @@ class AppAuditCatalog @Inject constructor(sources: Set<@JvmSuppressWildcards App
         }
         require(proposed.map { it.id }.distinct().size == proposed.size)
         require(proposed.size <= 4_096)
-        val covered = proposed.flatMap { it.sourceAreaIds }.toSet()
-        val inventoryEntries = AppAuditSourceInventory.areas.filter { it.id !in covered }.map { area ->
+        // A narrow configuration/contract check does not replace the area's
+        // execution suite (notably Compose rendering and database recovery).
+        val suitesPlanned = proposed.filter { it.evidenceKind == AppAuditEvidenceKind.EXTERNAL_SUITE }.flatMap { it.sourceAreaIds }.toSet()
+        val inventoryEntries = AppAuditSourceInventory.areas.filter { it.id !in suitesPlanned }.map { area ->
             AppAuditPlanEntry(
                 id = "source-area:${area.id}",
                 sourceId = "source-inventory",
@@ -61,7 +63,19 @@ class AppAuditCatalog @Inject constructor(sources: Set<@JvmSuppressWildcards App
                 reasonCode = "EXTERNAL_HARNESS_REQUIRED"
             )
         }
-        val plan = proposed + inventoryEntries
+        val deviceMeasurement = AppAuditPlanEntry(
+            id = "source-inventory:device-performance",
+            sourceId = "source-inventory",
+            probeId = "device-performance",
+            componentId = "android_shell",
+            label = "Device rendering and resource measurements",
+            sourceAreaIds = listOf("android_shell", "chat_ui", "local_inference", "native_bridge"),
+            evidenceKind = AppAuditEvidenceKind.DEVICE_MEASUREMENT,
+            safetyClass = AppAuditSafetyClass.EXTERNAL_ONLY,
+            prerequisite = AppAuditPrerequisite.EXTERNAL_HARNESS_REQUIRED,
+            reasonCode = "DEVICE_MEASUREMENT_REQUIRED"
+        )
+        val plan = proposed + inventoryEntries + deviceMeasurement
         require(plan.size <= 4_096 && proposed.flatMap { it.sourceAreaIds }.all { id -> AppAuditSourceInventory.areas.any { it.id == id } })
         return AppAuditRun(
             id = id,

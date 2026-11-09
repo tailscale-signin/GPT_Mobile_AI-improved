@@ -11,6 +11,7 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentProviderSession
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
+import dev.chungjungsoo.gptmobile.data.agent.withInvocationLineage
 import dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2
 import dev.chungjungsoo.gptmobile.data.diagnostics.LocalDiagnosticsPolicy
 import javax.inject.Inject
@@ -219,7 +220,7 @@ class InvocationLedger @Inject constructor(
                 if (kind in setOf("benchmark", "github-progress-summary")) {
                     emit(ProviderEvent.Failed("${error.message} No model request was sent.", errorCode = "POLICY_BLOCKED"))
                 } else {
-                    emit(ProviderEvent.TextDelta("\n\n${error.message} No model request was sent."))
+                    emit(ProviderEvent.TextDelta("\n\n${error.message} No model request was sent.", dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.SYSTEM_ERROR)))
                     emit(ProviderEvent.Completed)
                 }
                 return@flow
@@ -229,7 +230,7 @@ class InvocationLedger @Inject constructor(
                 } else if (combined != null) {
                     emit(ProviderEvent.Failed("The accepted Combined turn reached its configured total token ceiling before dispatch. Completed evidence is retained."))
                 } else {
-                    emit(ProviderEvent.TextDelta("\n\nThe response reached its total token allowance. I have paused further model and tool work. Would you like to continue in a new response?"))
+                    emit(ProviderEvent.TextDelta("\n\nThe response reached its total token allowance. I have paused further model and tool work. Would you like to continue in a new response?", dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.SYSTEM_ERROR)))
                     emit(ProviderEvent.Completed)
                 }
                 return@flow
@@ -245,7 +246,7 @@ class InvocationLedger @Inject constructor(
             val round = InvocationRoundAccounting(record, price, dispatch, combinedAccounting, dao, retainAccounting, liveRequests, researchTrace, turnKey)
             try {
                 session.streamRound(tools, exchanges).flowOn(dispatch + (combinedAccounting ?: kotlin.coroutines.EmptyCoroutineContext)).collect { event ->
-                    val observed = round.preservePreflightFailure(event)
+                    val observed = round.preservePreflightFailure(event).withInvocationLineage(record.id)
                     round.observe(observed)
                     emit(observed)
                 }

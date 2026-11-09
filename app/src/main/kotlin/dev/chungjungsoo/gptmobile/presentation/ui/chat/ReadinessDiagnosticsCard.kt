@@ -51,6 +51,8 @@ internal fun ReadinessDiagnosticsCard(runId: String?, running: Boolean) {
                 dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.SYSTEM_ERROR -> "App error"
                 dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.PROGRESS_NOTICE -> "Progress notice"
                 dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.MODEL_TEXT -> "Model text"
+                dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.APPLICATION_REPORT -> "App report"
+                dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.RETAINED_CONTENT -> "Saved content"
                 dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.UNKNOWN -> "Output of unverified origin"
             }
             Text("$origin drawn. Provider-to-draw latency is unmeasured without matching model invocation evidence.", style = MaterialTheme.typography.bodySmall)

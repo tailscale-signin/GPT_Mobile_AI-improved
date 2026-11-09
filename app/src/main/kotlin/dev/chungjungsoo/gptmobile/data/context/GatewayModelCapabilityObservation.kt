@@ -73,11 +73,13 @@ internal data class GatewayModelCapabilityObservation(
 
     /** Fixed summaries keep the actual preflight blocker visible without upstream text. */
     fun blockingSummary(): String? = when {
+        reasonCode == "BACKEND_METADATA_DENIED" || upstreamStatus in setOf(401, 403) -> "The gateway could not read the configured backend's model metadata. Repair gateway-to-backend authorization, then recheck this profile."
         reasonCode == "SELECTED_MODEL_LOADING" || modelState == "LOADING" -> "The exact selected model is loading on the gateway host. Recheck this profile when loading finishes."
         reasonCode == "SELECTED_MODEL_NOT_LOADED" || modelState in setOf("UNLOADED", "SLEEPING") -> "The exact selected model is advertised but not loaded. On the gateway host, run prepare-model --model with that exact ID, then recheck this profile."
-        dependency == "backend_properties" && upstreamStatus in 400..499 -> "Backend properties validation returned HTTP $upstreamStatus. Check the exact model, backend version and properties route on the gateway host. Catalogue membership alone does not verify a loaded model."
-        reasonCode == "BACKEND_METADATA_DENIED" -> "The gateway could not read the configured backend's model metadata. Repair gateway-to-backend authorization, then recheck this profile."
         reasonCode == "SELECTED_MODEL_NOT_AVAILABLE" -> "The exact selected model is absent from the configured backend catalogue. Restore that model on the gateway host, then recheck this profile."
+        upstreamMessageCode == "MODEL_SELECTOR_REQUIRED" -> "The backend did not receive the exact model selector. On the gateway host, run doctor --model with that exact ID and check that any backend proxy preserves the model query parameter."
+        reasonCode == "BACKEND_ROUTE_UNSUPPORTED" -> "The configured backend does not expose the required model metadata route. Check its server version and metadata route on the gateway host, then recheck this profile."
+        dependency == "backend_properties" && upstreamStatus in 400..499 -> "Backend properties validation returned HTTP $upstreamStatus. On the gateway host, run doctor --model with the exact model ID to inspect the backend rejection. Catalogue membership alone does not verify a loaded model."
         else -> null
     }
 

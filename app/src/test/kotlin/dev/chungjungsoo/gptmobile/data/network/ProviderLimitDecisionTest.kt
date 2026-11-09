@@ -38,6 +38,39 @@ class ProviderLimitDecisionTest {
         assertNull(providerLimitDecision(config, "model", receivedPayload = false, IllegalStateException("Rate limited until tomorrow")))
     }
 
+    @Test fun paidOpenRouterRejectionRetainsResponseDeadlineAndExactSelectedRoute() {
+        val paid = ProviderRequestConfig("https://openrouter.ai/api/v1", "credential", profileUid = "saved", providerType = "OPENROUTER", lockedModel = "selected")
+        val failure = ProviderHttpFailure(429, 2_000, knownNotAccepted = true, observedAtMillis = 10_000)
+        val decision = requireNotNull(providerLimitDecision(paid, "selected", false, failure))
+        assertEquals(12_000L, decision.retryAt)
+        assertEquals("OPENROUTER", decision.provider)
+        assertEquals("saved", decision.profileUid)
+        assertEquals("selected", decision.model)
+        assertEquals(429, decision.httpStatus)
+        assertTrue(decision.knownNotAccepted)
+        assertNull(decision.authority)
+        assertNull(providerLimitDecision(paid, "different-model", false, failure))
+    }
+
+    @Test fun credentialCooldownIsSharedAcrossProfilesWithoutPersistingCredentials() {
+        val paid = ProviderRequestConfig("https://openrouter.ai/api/v1", "private-credential", profileUid = "one")
+        val failure = ProviderHttpFailure(429, 2_000, knownNotAccepted = true, observedAtMillis = 10_000)
+        val first = requireNotNull(providerLimitDecision(paid, "one-model", false, failure))
+        val other = requireNotNull(providerLimitDecision(paid.copy(profileUid = "two"), "two-model", false, failure))
+        assertEquals(first.scope, other.scope)
+        assertFalse(first.scope.contains("private-credential"))
+        assertFalse(first.scope.contains("openrouter.ai"))
+        assertFalse(first.scope == providerLimitDecision(paid.copy(token = "different"), "one-model", false, failure)!!.scope)
+    }
+
+    @Test fun uncertainOrNonRateLimitFailuresCannotCreateAPaidProviderWait() {
+        val paid = ProviderRequestConfig("https://openrouter.ai/api/v1", "credential", profileUid = "saved")
+        assertNull(providerLimitDecision(paid, "selected", false, ProviderHttpFailure(429, 2_000)))
+        assertNull(providerLimitDecision(paid, "selected", false, ProviderHttpFailure(503, 2_000, knownNotAccepted = true)))
+        assertNull(providerLimitDecision(paid, "selected", false, IllegalStateException("HTTP 429 Retry-After 2")))
+        assertFalse(providerLimitDecision(paid, "selected", true, ProviderHttpFailure(429, 2_000, knownNotAccepted = true))!!.knownNotAccepted)
+    }
+
     @Test fun onlyAnUnacceptedExplicitContinuationCarriesItsSavedPrefix() {
         val digest = "a".repeat(64)
         val failure = FreeAiRateLimitException(FreeAiProvider.LLM7, 60, retryAt = 60_123L)

@@ -67,4 +67,36 @@ class GatewayModelCapabilityObservationTest {
         assertNull(observation.blockingSummary())
         assertFalse(observation.failureFields().toString().contains("private"))
     }
+
+    @Test fun actionablePropertiesFailuresTakePriorityOverGenericHttpGuidance() {
+        for ((reason, status, expected) in listOf(
+            Triple("BACKEND_METADATA_DENIED", 403, "authorization"),
+            Triple("SELECTED_MODEL_NOT_AVAILABLE", 404, "exact selected model is absent"),
+            Triple("BACKEND_ROUTE_UNSUPPORTED", 404, "required model metadata route")
+        )) {
+            val observation = parseGatewayModelObservation(
+                envelope(""""reasonCode":"$reason","dependency":"backend_properties","upstreamStatus":$status"""),
+                config,
+                "selected",
+                100
+            )
+            assertTrue(requireNotNull(observation.blockingSummary()).contains(expected))
+            assertFalse(requireNotNull(observation.blockingSummary()).contains("validation returned"))
+            assertNull(observation.capacity)
+            assertNull(observation.reasoningControl)
+        }
+    }
+
+    @Test fun missingModelSelectorIsAConfigurationBlockWithoutInferringLoadState() {
+        val observation = parseGatewayModelObservation(
+            envelope(""""reasonCode":"BACKEND_CONFIGURATION_INVALID","dependency":"backend_properties","upstreamStatus":400,"upstreamMessageCode":"MODEL_SELECTOR_REQUIRED""""),
+            config,
+            "selected",
+            100
+        )
+        assertNull(observation.modelLoaded)
+        assertTrue(requireNotNull(observation.blockingSummary()).contains("model query parameter"))
+        assertEquals(JsonPrimitive("MODEL_SELECTOR_REQUIRED"), observation.failureFields()["gateway_upstream_message_code"])
+        assertNull(observation.capacity)
+    }
 }

@@ -345,22 +345,22 @@ class AppAuditPluginServicesTest {
     }
 
     @Test
-    fun permanentMcpGatePreservesCodeWithoutDiscoveryRepairOrNetworkBudget() = runBlocking {
+    fun authenticationGatePreservesCodeWithoutDiscoveryRepairOrNetworkBudget() = runBlocking {
         val setup = Setup()
         setup.configure(listOf(connection()))
         every { setup.mcp.healthSnapshot(any()) } returns McpConnectionHealth(
-            state = McpConnectionHealthState.UNREACHABLE,
+            state = McpConnectionHealthState.AUTHENTICATION_REQUIRED,
             lastFailureAtMs = 1,
             nextRetryAtMs = Long.MAX_VALUE,
-            lastErrorCode = "MCP_PROTOCOL_VERSION_UNSUPPORTED",
+            lastErrorCode = "MCP_AUTHENTICATION_REQUIRED",
             lastError = "PRIVATE_SERVER_VALUE",
-            connectionHealth = ConnectionHealth.HTTP_ERROR
+            connectionHealth = ConnectionHealth.AUTHENTICATION_FAILED
         )
         var markers = 0
         val entry = setup.source.plan(AppAuditOptions(allowNetworkReads = true)).single { it.probeId == AppAuditPluginProbeSource.MCP_DISCOVERY }
         val result = setup.source.execute(entry, context { markers++ })
         assertEquals(AppAuditOutcome.BLOCKED, result.outcome)
-        assertEquals("MCP_PROTOCOL_VERSION_UNSUPPORTED", result.reasonCode)
+        assertEquals("MCP_AUTHENTICATION_REQUIRED", result.reasonCode)
         assertEquals(false, result.retryable)
         assertEquals(AppAuditObservationSource.CACHE, result.observationSource)
         assertEquals(AppAuditDispatchEvidence.NOT_DISPATCHED, result.dispatchEvidence)
@@ -426,11 +426,17 @@ class AppAuditPluginServicesTest {
                 val profile = profile()
                 coEvery { setup.settings.fetchPlatformV2s() } returns listOf(profile, profile.copy(uid = "other", apiUrl = "http://127.0.0.1:9999/v1"))
                 val entry = setup.source.plan(AppAuditOptions(true, listOf(profile.uid))).single { it.probeId == AppAuditPluginProbeSource.GATEWAY_CAPABILITIES }
+                val before = System.currentTimeMillis()
                 val result = setup.source.execute(entry, context())
                 assertEquals(AppAuditOutcome.PASS, result.outcome)
                 assertEquals("GATEWAY_CAPABILITY_VERIFIED", result.reasonCode)
                 assertEquals(AppAuditDispatchEvidence.CONFIRMED, result.dispatchEvidence)
                 assertEquals(AppAuditEvidenceKind.LIVE_METADATA, result.evidenceKind)
+                assertEquals(entry.configurationRevision, result.configurationRevision)
+                assertTrue(requireNotNull(result.observedAtEpochMs) >= before)
+                assertEquals(AppAuditRemoteIdentitySource.DECLARED_CAPABILITIES, result.remoteIdentity?.source)
+                assertEquals("15.0.0", result.remoteIdentity?.version)
+                assertEquals("0".repeat(40), result.remoteIdentity?.sourceCommit)
                 assertEquals(1, calls)
                 assertFalse(result.toString().contains("private-credential"))
             }
@@ -438,13 +444,14 @@ class AppAuditPluginServicesTest {
     }
 
     @Test
-    fun removedOrIneligibleSelectionCannotChooseAnotherProfile() = runBlocking {
+    fun nonGatewayModelSelectionsDoNotCreateGatewayChecksAndOldGatewayPlansCannotChooseAnotherProfile() = runBlocking {
         val setup = Setup()
+        coEvery { setup.settings.fetchPlatformV2s() } returns listOf(profile())
+        val frozen = setup.source.plan(AppAuditOptions(true, listOf("selected"))).single { it.probeId == AppAuditPluginProbeSource.GATEWAY_CAPABILITIES }
         coEvery { setup.settings.fetchPlatformV2s() } returns listOf(profile().copy(uid = "other"), profile().copy(uid = "cloud", apiUrl = "https://cloud.example/v1"))
         val entries = setup.source.plan(AppAuditOptions(true, listOf("missing", "cloud"))).filter { it.probeId == AppAuditPluginProbeSource.GATEWAY_CAPABILITIES }
-        assertEquals(2, entries.size)
-        assertEquals(setOf("GATEWAY_PROFILE_UNAVAILABLE", "GATEWAY_PROFILE_UNSUPPORTED"), entries.map { it.reasonCode }.toSet())
-        entries.forEach { assertEquals(AppAuditOutcome.UNAVAILABLE, setup.source.execute(it, context()).outcome) }
+        assertTrue(entries.isEmpty())
+        assertEquals("PLUGIN_CONFIGURATION_CHANGED", setup.source.execute(frozen, context()).reasonCode)
         confirmVerified(setup.gateway)
     }
 
@@ -526,6 +533,11 @@ class AppAuditPluginServicesTest {
             val entry = setup.source.plan(AppAuditOptions(true, listOf(profile.uid))).single { it.probeId == AppAuditPluginProbeSource.GATEWAY_CAPABILITIES }
             val result = setup.source.execute(entry, context())
             assertEquals(AppAuditOutcome.FAIL, result.outcome)
+            assertEquals(AppAuditDispatchEvidence.CONFIRMED, result.dispatchEvidence)
+            assertEquals(403, result.httpStatus)
+            assertEquals(entry.configurationRevision, result.configurationRevision)
+            assertTrue(requireNotNull(result.observedAtEpochMs) > 0)
+            assertNull(result.remoteIdentity)
             assertEquals(2, calls)
             assertTrue(runCatching { gateway.getCapabilities(config) }.exceptionOrNull() is GatewayCapabilityDiscoveryException)
             assertEquals("A fresh authentication failure cannot restore a previous unsupported-route shortcut", 3, calls)
@@ -564,32 +576,95 @@ class AppAuditPluginServicesTest {
     }
 
     @Test
-    fun cachedProtocolFailureRetainsOriginalTimeRevisionAndSafeDetailWithoutAnotherDispatch() = runBlocking {
+    fun explicitNetworkAuditRechecksCachedSchemaAndDiscovery404WithoutWeakeningValidation() = runBlocking {
+        for ((code, status, rule, field) in listOf(
+            listOf("MCP_DISCOVERY_SCHEMA_INVALID", "200", "PROTOCOL_VERSIONS_ARRAY_REQUIRED", "supportedVersions"),
+            listOf("MCP_DISCOVERY_CONFIGURATION", "404", "DISCOVERY_REQUEST_ACCEPTANCE_REQUIRED", "server_discover")
+        )) {
+            val setup = Setup()
+            val connection = connection()
+            setup.configure(listOf(connection))
+            val entry = setup.source.plan(AppAuditOptions(true)).single { it.probeId == AppAuditPluginProbeSource.MCP_DISCOVERY }
+            var health = McpConnectionHealth(
+                state = McpConnectionHealthState.UNREACHABLE, lastFailureAtMs = 7, nextRetryAtMs = Long.MAX_VALUE,
+                lastErrorCode = code, lastError = "PRIVATE_SERVER_VALUE",
+                failedStage = "protocol_negotiation", failureConfigurationRevision = entry.configurationRevision,
+                lastHttpStatus = status.toInt(), lastValidationRule = rule, lastValidationField = field, lastDispatchEvidence = "CONFIRMED"
+            )
+            every { setup.mcp.healthSnapshot(connection.connectionUid) } answers { health }
+            var markers = 0
+            coEvery { setup.resolver.discoverMcpTools(connection, forceRefresh = true, awaitCompletion = true) } coAnswers {
+                assertEquals(1, markers)
+                health = health.copy(lastFailureAtMs = System.currentTimeMillis())
+                throw McpProtocolConfigurationException(code, "PRIVATE_SERVER_VALUE", status.toInt(), rule, field)
+            }
+            val before = System.currentTimeMillis()
+            val observation = setup.source.execute(entry, context { markers++ })
+            assertEquals(AppAuditOutcome.FAIL, observation.outcome)
+            assertEquals(code, observation.reasonCode)
+            assertEquals(AppAuditObservationSource.LIVE, observation.observationSource)
+            assertEquals(AppAuditDispatchEvidence.CONFIRMED, observation.dispatchEvidence)
+            assertTrue(requireNotNull(observation.observedAtEpochMs) >= before)
+            assertEquals(entry.configurationRevision, observation.configurationRevision)
+            assertEquals("protocol_negotiation", observation.failurePhase)
+            assertEquals("PROTOCOL_CONFIGURATION", observation.failureCategory)
+            assertEquals(rule, observation.validationRule)
+            assertEquals(field, observation.validationField)
+            assertEquals(status.toInt(), observation.httpStatus)
+            assertEquals(false, observation.retryable)
+            assertFalse(observation.toString().contains("PRIVATE_SERVER_VALUE"))
+            assertEquals(1, markers)
+            coVerify(exactly = 1) { setup.resolver.discoverMcpTools(connection, forceRefresh = true, awaitCompletion = true) }
+            confirmVerified(setup.resolver)
+        }
+    }
+
+    @Test
+    fun authenticationAppearingAtAdmissionCannotBeBypassedByContractRecheck() = runBlocking {
         val setup = Setup()
         val connection = connection()
         setup.configure(listOf(connection))
         val entry = setup.source.plan(AppAuditOptions(true)).single { it.probeId == AppAuditPluginProbeSource.MCP_DISCOVERY }
-        every { setup.mcp.healthSnapshot(connection.connectionUid) } returns McpConnectionHealth(
-            state = McpConnectionHealthState.UNREACHABLE, lastFailureAtMs = 7, nextRetryAtMs = Long.MAX_VALUE,
-            lastErrorCode = "MCP_DISCOVERY_SCHEMA_INVALID", lastError = "PRIVATE_SERVER_VALUE",
-            failedStage = "protocol_negotiation", failureConfigurationRevision = entry.configurationRevision,
-            lastHttpStatus = 200, lastValidationRule = "PROTOCOL_VERSIONS_ARRAY_REQUIRED", lastValidationField = "supportedVersions", lastDispatchEvidence = "CONFIRMED"
+        var health = McpConnectionHealth(
+            state = McpConnectionHealthState.UNREACHABLE,
+            lastFailureAtMs = 7,
+            nextRetryAtMs = Long.MAX_VALUE,
+            lastErrorCode = "MCP_DISCOVERY_CONFIGURATION",
+            failureConfigurationRevision = entry.configurationRevision
         )
-        repeat(2) {
-            val observation = setup.source.execute(entry, context { error("Cached block must not request network admission") })
-            assertEquals(AppAuditObservationSource.CACHE, observation.observationSource)
-            assertEquals(AppAuditDispatchEvidence.NOT_DISPATCHED, observation.dispatchEvidence)
-            assertEquals(7L, observation.observedAtEpochMs)
-            assertEquals(entry.configurationRevision, observation.configurationRevision)
-            assertEquals("protocol_negotiation", observation.failurePhase)
-            assertEquals("PROTOCOL_CONFIGURATION", observation.failureCategory)
-            assertEquals("PROTOCOL_VERSIONS_ARRAY_REQUIRED", observation.validationRule)
-            assertEquals("supportedVersions", observation.validationField)
-            assertEquals(200, observation.httpStatus)
-            assertEquals(false, observation.retryable)
-            assertFalse(observation.toString().contains("PRIVATE_SERVER_VALUE"))
-        }
+        every { setup.mcp.healthSnapshot(connection.connectionUid) } answers { health }
+        val observation = setup.source.execute(
+            entry,
+            context {
+                health = health.copy(state = McpConnectionHealthState.AUTHENTICATION_REQUIRED, lastErrorCode = "MCP_AUTHENTICATION_REQUIRED", lastHttpStatus = 401)
+            }
+        )
+        assertEquals(AppAuditOutcome.BLOCKED, observation.outcome)
+        assertEquals("MCP_AUTHENTICATION_REQUIRED", observation.reasonCode)
+        assertEquals(AppAuditObservationSource.CACHE, observation.observationSource)
+        assertEquals(AppAuditDispatchEvidence.NOT_DISPATCHED, observation.dispatchEvidence)
+        assertEquals(7L, observation.observedAtEpochMs)
         confirmVerified(setup.resolver)
+    }
+
+    @Test
+    fun repairedContractCanRecoverThroughOneExplicitFreshAuditRead() = runBlocking {
+        val setup = Setup()
+        val connection = connection()
+        setup.configure(listOf(connection))
+        every { setup.mcp.healthSnapshot(connection.connectionUid) } returns McpConnectionHealth(
+            state = McpConnectionHealthState.UNREACHABLE,
+            lastFailureAtMs = 7,
+            nextRetryAtMs = Long.MAX_VALUE,
+            lastErrorCode = "MCP_PROTOCOL_VERSION_UNSUPPORTED"
+        )
+        coEvery { setup.resolver.discoverMcpTools(connection, forceRefresh = true, awaitCompletion = true) } returns emptyList()
+        val entry = setup.source.plan(AppAuditOptions(true)).single { it.probeId == AppAuditPluginProbeSource.MCP_DISCOVERY }
+        val observation = setup.source.execute(entry, context())
+        assertEquals(AppAuditOutcome.PASS, observation.outcome)
+        assertEquals(AppAuditObservationSource.LIVE, observation.observationSource)
+        assertEquals(AppAuditDispatchEvidence.CONFIRMED, observation.dispatchEvidence)
+        coVerify(exactly = 1) { setup.resolver.discoverMcpTools(connection, forceRefresh = true, awaitCompletion = true) }
     }
 
     @Test

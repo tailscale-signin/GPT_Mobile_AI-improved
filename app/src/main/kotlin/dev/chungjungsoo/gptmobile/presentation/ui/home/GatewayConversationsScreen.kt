@@ -106,7 +106,7 @@ internal fun GatewayConversationsScreen(
         }
     }
     Scaffold(
-        modifier = Modifier.diagnosticFrameTiming("Gateway chats").nestedScroll(scrollBehavior.nestedScrollConnection),
+        modifier = Modifier.diagnosticFrameTiming("GatewayChats").nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             HomeTopBar(
                 chatListState = listState,

@@ -19,7 +19,8 @@ internal object GitHubRunAcceptance {
         val requiredCriteria: Int,
         val verifiedCriteria: Int,
         val unresolvedOutcomes: Int,
-        val diagnostics: JsonObject? = null
+        val diagnostics: JsonObject? = null,
+        val diagnosticPages: List<JsonObject> = emptyList()
     )
 
     data class CommitEvidence(val expected: Boolean, val acceptance: Assessment?)
@@ -98,6 +99,9 @@ internal object GitHubRunAcceptance {
             val diagnostics = (acceptance?.get("diagnostic_projection") as? JsonObject)?.takeIf(GitHubAcceptanceDiagnostics::valid)
                 ?: GitHubAcceptanceDiagnostics.snapshot(acceptance ?: JsonObject(emptyMap()))
             put("diagnostic_projection", diagnostics)
+            val pages = (acceptance?.get("diagnostic_pages") as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
+                .takeIf { GitHubAcceptanceDiagnostics.validPages(it) && it.first().text("criteria_sha256") == diagnostics.text("criteria_sha256") }
+            if (pages != null) put("diagnostic_pages", JsonArray(pages))
         }
     }
 
@@ -127,18 +131,25 @@ internal object GitHubRunAcceptance {
                     ) -> "PARTIAL"
             else -> recorded
         }
-        return Assessment(state, key(runId, fence), required, verified, unresolved, (value["diagnostic_projection"] as? JsonObject)?.takeIf(GitHubAcceptanceDiagnostics::valid))
+        val diagnostics = (value["diagnostic_projection"] as? JsonObject)?.takeIf(GitHubAcceptanceDiagnostics::valid)
+        val pages = (value["diagnostic_pages"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
+            .takeIf { GitHubAcceptanceDiagnostics.validPages(it) && it.first().text("criteria_sha256") == diagnostics?.text("criteria_sha256") }.orEmpty()
+        return Assessment(state, key(runId, fence), required, verified, unresolved, diagnostics, pages)
     }
 
     /** One bounded record per criterion preserves readable blockers when the surrounding log is truncated. */
     fun diagnosticLines(assessment: Assessment): List<String> {
         val projection = assessment.diagnostics?.takeIf(GitHubAcceptanceDiagnostics::valid) ?: return listOf("schema=github.acceptance-diagnostics.v1 · status=NOT_RETAINED · required=${assessment.requiredCriteria} · verified=${assessment.verifiedCriteria}")
         val digest = projection.text("criteria_sha256")
+        val pages = assessment.diagnosticPages.takeIf { GitHubAcceptanceDiagnostics.validPages(it) && it.first().text("criteria_sha256") == digest }
+        val rows = (pages ?: listOf(projection)).flatMap { (it["criteria"] as JsonArray).filterIsInstance<JsonObject>() }
+        val total = projection.number("criterion_count") ?: rows.size
         return buildList {
-            add("schema=github.acceptance-diagnostics.v1 · total=${projection["criterion_count"]} · included=${projection["included_count"]} · omitted=${projection["omitted_count"]} · criteria_sha256=$digest")
-            (projection["criteria"] as JsonArray).filterIsInstance<JsonObject>().forEach { row ->
+            add("schema=github.acceptance-diagnostics.v1 · verification=${assessment.verification} · total=$total · included=${rows.size} · omitted=${total - rows.size} · pages=${pages?.size ?: 1} · criteria_sha256=$digest")
+            rows.sortedBy { if (it["required"] == JsonPrimitive(true) && it.text("state") != "PASS") 0 else 1 }.forEach { row ->
                 val counts = (row["evidence_class_counts"] as JsonObject).filterValues { (it as? JsonPrimitive)?.intOrNull?.let { count -> count > 0 } == true }
-                add("criterion=${row["ordinal"]} · id_sha256=${row.text("id_sha256")} · kind=${row.text("kind")} · category=${row.text("category")} · label=${row.text("label")} · operation=${row.text("operation").ifBlank { "NOT_APPLICABLE" }} · required=${row["required"]} · state=${row.text("state")} · blocker=${row.text("blocker")} · next_action=${row.text("next_action")} · evidence_count=${row["evidence_receipt_count"]} · evidence_classes=${JsonObject(counts)} · criterion_sha256=${GitHubEvidenceBook.digest(row.toString())} · criteria_sha256=$digest")
+                val operation = row.text("operation").ifBlank { if (row.text("category") == "API_OPERATION") "UNRESOLVED_OPERATION" else "NOT_APPLICABLE" }
+                add("criterion=${row["ordinal"]} · id_sha256=${row.text("id_sha256")} · kind=${row.text("kind")} · category=${row.text("category")} · label=${row.text("label")} · operation=$operation · required=${row["required"]} · applicability=${row.text("applicability").ifBlank { "NOT_RECORDED" }} · authorization=${row.text("authorization").ifBlank { "UNKNOWN" }} · availability=${row.text("availability").ifBlank { "UNKNOWN" }} · attempted=${row["attempted"] ?: "NOT_RECORDED"} · state=${row.text("state")} · blocker=${row.text("blocker")} · next_action=${row.text("next_action")} · evidence_count=${row["evidence_receipt_count"]} · evidence_classes=${JsonObject(counts)} · criterion_sha256=${GitHubEvidenceBook.digest(row.toString())} · criteria_sha256=$digest")
             }
         }
     }

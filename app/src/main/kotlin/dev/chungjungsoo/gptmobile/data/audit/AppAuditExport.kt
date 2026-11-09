@@ -197,6 +197,7 @@ suspend fun writeAppAuditExport(output: OutputStream, batch: BenchmarkBatch, sou
                     put("validationField", safeAuditDiagnosticField(observation.validationField))
                     put("observedAtEpochMs", observation.observedAtEpochMs?.nonnegative() ?: JsonNull)
                     put("configurationRevision", safeAuditConfigurationRevision(observation.configurationRevision))
+                    put("remoteServiceIdentity", appAuditRemoteIdentityJson(observation.remoteIdentity) ?: JsonNull)
                     put(
                         "metrics",
                         JsonArray(
@@ -376,11 +377,11 @@ private fun safeDigest(value: String?): String? = value?.takeIf { it.matches(Reg
 private fun Long.nonnegative(): JsonElement = takeIf { it >= 0 }?.let(::JsonPrimitive) ?: JsonNull
 private fun safeRunId(value: String): String = value.takeIf { it.matches(Regex("[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}")) } ?: "audit-${appAuditTargetDigest(value)}"
 private fun safeArea(value: String): String = value.takeIf { id -> AppAuditSourceInventory.areas.any { it.id == id } } ?: "unknown_source_area"
-private fun safeSource(value: String): String = value.takeIf { it in setOf("local-contracts", "plugins", "source-inventory", "behavior", "appearance", "research_contract", "memory_contract") } ?: "unknown_source"
+private fun safeSource(value: String): String = value.takeIf { it in setOf("local-contracts", "plugins", "source-inventory", "behavior", "appearance", "research_contract", "memory_contract", "selected_models") } ?: "unknown_source"
 private fun safeProbe(value: String): String = value.takeIf { it in AUDIT_LABELS } ?: "unknown_probe"
 private fun safeAuditLabel(probe: String): String = AUDIT_LABELS[probe] ?: "Unrecognized audit check"
 private fun safeComponent(value: String): String = value.takeIf {
-    it in setOf("mcp_connection", "configured_connection", "gateway_connection", "plugins", "local-contracts") ||
+    it in setOf("mcp_connection", "configured_connection", "gateway_connection", "selected_model", "plugins", "local-contracts") ||
         safeArea(it) == it ||
         dev.chungjungsoo.gptmobile.data.model.ToolServiceCatalog.integrated.any { service -> service.id == it } ||
         dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplaceCatalog.packages.any { entry -> "marketplace:${entry.id}" == it }
@@ -388,14 +389,14 @@ private fun safeComponent(value: String): String = value.takeIf {
 
 internal fun safeAuditReason(value: String): String = value.takeIf { it in AUDIT_REASONS } ?: "UNKNOWN_REASON"
 
-private val AUDIT_LABELS = AppAuditPluginProbeSource.labels + mapOf(
+private val AUDIT_LABELS = AppAuditPluginProbeSource.labels + AppAuditSelectedModelProbeSource.labels + mapOf(
     "calculator" to "Calculator arithmetic and argument validation", "date-clock" to "Date tool with a fixed leap-day clock",
     "text-slice" to "Bounded text slices and invalid ranges", "selected-routing" to "Selected-profile routing and pressure refusal",
     "usage-accounting" to "Token counter and exact cost arithmetic", "dispatch-receipts" to "Unknown outcomes remain distinct from rejection",
     "diagnostic-redaction" to "Diagnostic credential redaction", "research-identity" to "Research URL and DOI identity normalization",
     "gateway-feature-types" to "Gateway feature flags accept only JSON true", "github-ref-admission" to "GitHub exact-ref rejection and recovery",
     "audit-result-codec" to "Audit evidence JSON round trip", "external-coverage" to "External execution coverage required",
-    "inventory-unavailable" to "Component inventory unavailable",
+    "inventory-unavailable" to "Component inventory unavailable", "device-performance" to "Device rendering and resource measurements",
     "budget_precheck_v1" to "Argument admission and shared tool budget",
     "authorization_denial_v1" to "Denied tool authority dispatches no work",
     "unknown_receipt_v1" to "Unknown tool outcome requires reconciliation",
@@ -409,14 +410,14 @@ private val AUDIT_LABELS = AppAuditPluginProbeSource.labels + mapOf(
     "memory_graph_v1" to "Knowledge graph extraction and bounded recall"
 )
 private val AUDIT_STAGES = AppAuditPluginProbeSource.stages + setOf("admission", "execution", "interruption", "validation", "fixture")
-private val AUDIT_REASONS = AppAuditPluginProbeSource.reasonCodes + setOf(
+private val AUDIT_REASONS = AppAuditPluginProbeSource.reasonCodes + AppAuditSelectedModelProbeSource.reasonCodes + setOf(
     "AUDIT_VERSION_CHANGED", "INVALID_COVERAGE_CLAIM", "AUDIT_SOURCE_CHANGED", "AUDIT_MANIFEST_CHANGED", "INVALID_AUDIT_MANIFEST",
     "INVALID_AUDIT_RECEIPTS", "INVALID_AUDIT_BUDGET", "RUN_BUDGET_EXHAUSTED", "RUN_DEADLINE_EXCEEDED", "NOT_SELECTED", "NOT_CONFIGURED",
     "UNSUPPORTED", "PERMISSION_REQUIRED", "EXTERNAL_HARNESS_REQUIRED", "MODEL_EXECUTION_NOT_SELECTED", "NETWORK_READS_DISABLED",
     "NETWORK_BUDGET_EXHAUSTED", "PROBE_SOURCE_UNAVAILABLE", "INVENTORY_UNAVAILABLE", "DISPATCH_NOT_ALLOWED", "PROBE_TIMEOUT",
     "CHILD_OPERATION_ABORTED", "PROBE_FAILED", "PROBE_EVIDENCE_MISMATCH", "DISPATCH_RECEIPT_MISSING", "DISPATCH_CONFIRMATION_MISSING", "CONFIGURATION_CHANGED", "USER_STOP",
     "SERVICE_INTERRUPTION", "PROCESS_INTERRUPTION", "STORAGE_CHECKPOINT_FAILED", "FIXTURE_PASSED", "FIXTURE_FAILED", "FIXTURE_CHANGED", "UNKNOWN_LOCAL_FIXTURE",
-    "PROBE_CONTRACT_INVALID", "DISPATCH_POLICY_CHANGED", "POLICY_STALE", "AUDIT_PROBE_CHANGED", "LOCAL_CONTRACT_PASSED", "LOCAL_CONTRACT_FAILED"
+    "PROBE_CONTRACT_INVALID", "DISPATCH_POLICY_CHANGED", "POLICY_STALE", "AUDIT_PROBE_CHANGED", "LOCAL_CONTRACT_PASSED", "LOCAL_CONTRACT_FAILED", "DEVICE_MEASUREMENT_REQUIRED"
 )
 
 private const val MAX_EXPORT_CHECKS = 4096

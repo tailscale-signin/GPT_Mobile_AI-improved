@@ -141,6 +141,44 @@ class AndroidVoiceAudioTest {
         verify(engine, org.mockito.Mockito.never()).stop()
     }
 
+    @Test fun unrelatedUtteranceCallbacksCannotChangePlaybackOrLeakTheirIdentifier() {
+        val context = RuntimeEnvironment.getApplication()
+        var initialized: TextToSpeech.OnInitListener? = null
+        val engine = mock(TextToSpeech::class.java)
+        val records = mutableListOf<String>()
+        val failures = mutableListOf<String>()
+        var completions = 0
+        val audio = AndroidVoiceAudio(context, java.util.concurrent.Executor { it.run() }, { _, callback ->
+            initialized = callback
+            engine
+        }, AndroidRecognitionService(context), RecognitionStartGate { 0L }) { _, message, _ -> records += message }
+        audio.allowOnlineSpeech = true
+        try {
+            audio.speak("Current reply", { completions++ }, failures::add)
+            requireNotNull(initialized).onInit(TextToSpeech.SUCCESS)
+            val main = shadowOf(Looper.getMainLooper())
+            main.idle()
+            val listener = ArgumentCaptor.forClass(UtteranceProgressListener::class.java)
+            verify(engine).setOnUtteranceProgressListener(listener.capture())
+            listener.value.onStart("private-other-utterance")
+            listener.value.onDone("private-other-utterance")
+            @Suppress("DEPRECATION")
+            listener.value.onError("private-other-utterance")
+            main.idle()
+            assertTrue(records.none { it.contains("private-other-utterance") })
+            assertEquals(0, completions)
+            assertTrue(failures.isEmpty())
+            verify(engine, org.mockito.Mockito.never()).shutdown()
+            val utterance = ArgumentCaptor.forClass(String::class.java)
+            verify(engine).speak(eq<CharSequence>("Current reply"), eq(TextToSpeech.QUEUE_ADD), isNull(), utterance.capture())
+            listener.value.onDone(utterance.value)
+            main.idle()
+            assertEquals(1, completions)
+        } finally {
+            audio.close()
+        }
+    }
+
     @Test fun completedCallbackCannotIdleLaterPlayback() {
         var initialized: TextToSpeech.OnInitListener? = null
         val engine = mock(TextToSpeech::class.java)

@@ -148,7 +148,7 @@ class ProviderEventAssemblerTest {
         assertTrue(interrupted.finish().isEmpty())
         val prose = "Testing device_location() {\"permission_status\":\"granted\"}"
         assertEquals(
-            listOf(ProviderEvent.TextDelta(prose), ProviderEvent.Usage(finishReason = "stop")),
+            listOf(ProviderEvent.TextDelta(prose, dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.MODEL_TEXT)), ProviderEvent.Usage(finishReason = "stop")),
             interrupted.accept(prose, null, null, "stop")
         )
     }

@@ -90,8 +90,8 @@ class GitHubAcceptanceDiagnosticsTest {
         assertTrue(lines[1].contains("FIXTURE_PROOF_INCOMPLETE"))
         assertTrue(lines[1].contains("MOCKED\":1"))
         assertTrue(lines[1].contains("HISTORICAL_CI_OBSERVATION\":1"))
-        assertTrue(lines[2].contains("state=PASS"))
-        assertTrue(lines[3].contains("DEVICE_EXECUTION_NOT_OBSERVED"))
+        assertTrue(lines[2].contains("DEVICE_EXECUTION_NOT_OBSERVED"))
+        assertTrue(lines[3].contains("state=PASS"))
         assertTrue(lines.all { it.length <= 2000 })
         val exported = lines.joinToString("\n")
         for (private in listOf("private-owner", "private-repo", "private-fixture-id", "private-evidence-id", "secret-token")) assertFalse(private, exported.contains(private))
@@ -111,6 +111,75 @@ class GitHubAcceptanceDiagnosticsTest {
         val rows = projection.getValue("criteria") as JsonArray
         val changed = JsonArray(listOf(JsonObject(rows.first().jsonObject + ("required" to JsonPrimitive("secret-token")))) + rows.drop(1))
         assertFalse(GitHubAcceptanceDiagnostics.valid(JsonObject(projection + mapOf("criteria" to changed, "included_sha256" to JsonPrimitive(GitHubEvidenceBook.digest(changed.toString()))))))
+    }
+
+    @Test fun fullPagedExportRecoversEveryCriterionBeyondTheSmallPromptProjection() {
+        val requirements = JsonArray((1..145).map { requirement("criterion-$it", "Private criterion $it", if (it == 1) "PASS" else "NOT_TESTED") })
+        val report = GitHubAcceptanceLedger.attach(buildJsonObject { put("requirements", requirements) })
+        val ledger = report.getValue("acceptance_ledger").jsonObject
+        val pages = (ledger.getValue("diagnostic_pages") as JsonArray).map { it.jsonObject }
+        assertEquals(listOf(64, 64, 17), pages.map { (it["criteria"] as JsonArray).size })
+        assertTrue(GitHubAcceptanceDiagnostics.validPages(pages))
+        assertFalse(GitHubAcceptanceDiagnostics.validPages(pages.dropLast(1)))
+        assertFalse(GitHubAcceptanceDiagnostics.validPages(pages.reversed()))
+        assertFalse(GitHubAcceptanceDiagnostics.validPages(pages + pages.last()))
+        val captured = GitHubRunAcceptance.capture(report, "run", 1, 1, 1)
+        val assessment = requireNotNull(GitHubRunAcceptance.assess(captured, "run", 1, 1, 1, "partial"))
+        val lines = GitHubRunAcceptance.diagnosticLines(assessment)
+        assertEquals(146, lines.size)
+        assertTrue(lines.first().contains("included=145 · omitted=0 · pages=3"))
+        assertTrue(lines[1].contains("criterion=2 ·"))
+        assertTrue(lines.last().contains("criterion=1 ·"))
+        assertEquals((1..145).toSet(), lines.drop(1).map { it.substringAfter("criterion=").substringBefore(" ·").toInt() }.toSet())
+        assertFalse(lines.joinToString().contains("Private criterion"))
+    }
+
+    @Test fun capabilityDiagnosticsPreserveOperationAndSpecificPrerequisiteWithoutExportingPrivateProse() {
+        val capabilities = JsonArray(
+            listOf(
+                buildJsonObject {
+                    put("id", "github_decide__private:default")
+                    put("status", "BLOCKED")
+                    put("blocker_code", "USER_DECISION_REQUIRED")
+                    put("blocker", "private decision text")
+                },
+                buildJsonObject {
+                    put("id", "github_issue:get")
+                    put("status", "BLOCKED")
+                    put("blocker_code", "ISSUE_ID_REQUIRED")
+                    put(
+                        "readiness",
+                        buildJsonObject {
+                            put("authorization", "AUTHORIZED")
+                            put("availability", "UNKNOWN")
+                        }
+                    )
+                },
+                buildJsonObject {
+                    put("id", "github_commit:branch")
+                    put("status", "NOT_REQUESTED")
+                    put("blocker_code", "OUT_OF_SCOPE")
+                },
+                buildJsonObject {
+                    put("id", "PRIVATE_UNKNOWN_OPERATION")
+                    put("status", "BLOCKED")
+                }
+            )
+        )
+        val ledger = GitHubAcceptanceLedger.snapshot(capabilities = capabilities)
+        val projection = GitHubAcceptanceDiagnostics.snapshot(ledger)
+        assertTrue(GitHubAcceptanceDiagnostics.valid(projection))
+        val rows = (projection["criteria"] as JsonArray).map { it.jsonObject }
+        assertEquals(JsonPrimitive("github_decide:default"), rows[0]["operation"])
+        assertEquals(JsonPrimitive("USER_DECISION_REQUIRED"), rows[0]["blocker"])
+        assertEquals(JsonPrimitive("ISSUE_ID_REQUIRED"), rows[1]["blocker"])
+        assertEquals(JsonPrimitive("READ_ISSUE_INVENTORY_AND_SELECT_OBSERVED_ISSUE"), rows[1]["next_action"])
+        assertEquals(JsonPrimitive("AUTHORIZED"), rows[1]["authorization"])
+        assertEquals(JsonPrimitive("EXCLUDED"), rows[2]["applicability"])
+        assertEquals(JsonPrimitive("UNRESOLVED"), rows[3]["operation_identity"])
+        assertEquals(JsonPrimitive("OPERATION_IDENTITY_REQUIRED"), rows[3]["blocker"])
+        assertFalse(projection.toString().contains("private"))
+        assertFalse(projection.toString().contains("PRIVATE_UNKNOWN_OPERATION"))
     }
 
     @Test fun resumedPromptUsesOnlyUnverifiedCriteriaWhileRetainingPastOperationEvidence() {

@@ -1,15 +1,25 @@
 package dev.chungjungsoo.gptmobile.data.github
 
+import dev.chungjungsoo.gptmobile.data.agent.AgentTool
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
+import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
+import dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog
+import dev.chungjungsoo.gptmobile.data.agent.ResponseRecoveryContext
 import dev.chungjungsoo.gptmobile.data.agent.ToolContractFingerprint
+import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubCatalogRecoveryTest {
@@ -62,6 +72,84 @@ class GitHubCatalogRecoveryTest {
         val tools = listOf(discovery, tool("new head and progress"))
         assertEquals(JsonPrimitive(true), GitHubAuthorizedCatalog.snapshot(receipts, tools)["complete"])
         assertNull(GitHubAuthorizedCatalog.next(tools, receipts))
+    }
+
+    @Test fun malformedRemoteContractFieldsNeverEnterMismatchDiagnostics() {
+        val definition = tool("Read")
+        val original = receipt(definition, true)
+        val result = original.getValue("result").jsonObject
+        val entry = result.getValue("authorized_inventory").jsonArray.single().jsonObject
+        val privateMarker = "PRIVATE_REMOTE_MARKER_DO_NOT_EXPORT"
+        val invalidEntry = JsonObject(
+            entry + mapOf(
+                "semantic_schema_fingerprint" to JsonPrimitive("$privateMarker-schema"),
+                "invocation_contract_version" to JsonPrimitive("$privateMarker-version")
+            )
+        )
+        val invalid = JsonObject(original + ("result" to JsonObject(result + ("authorized_inventory" to JsonArray(listOf(invalidEntry))))))
+        val snapshot = GitHubAuthorizedCatalog.snapshot(mapOf("catalog" to invalid), listOf(discovery, definition))
+        assertEquals(JsonPrimitive("CATALOG_CONTRACT_CHANGED"), snapshot["blocker"])
+        assertFalse(snapshot.toString().contains(privateMarker))
+        val change = snapshot.getValue("contract_changes").jsonArray.single().jsonObject
+        assertEquals(JsonPrimitive("INVALID"), change["observed_schema_fingerprint"])
+        assertEquals(JsonPrimitive("INVALID"), change["observed_contract_version"])
+        assertEquals(JsonPrimitive(true), change["schema_fingerprint_invalid"])
+        assertEquals(JsonPrimitive(true), change["contract_version_invalid"])
+    }
+
+    @Test fun recoveryWrappedExecutionContractMatchesActualDiscoveryWithoutAddingAuthorization() = runBlocking {
+        val source = object : AgentTool {
+            override val definition = tool("Source schema")
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult = error("Schema discovery must not execute repository work")
+        }
+        val recovery = ResponseRecoveryContext(emptyList(), emptyList(), emptyList(), rootWorkId = "task")
+        val wrapped = recovery.reuseCompletedTool(source, source.definition.name, "github-connection")
+        assertTrue(wrapped.definition.inputSchema.getValue("properties").jsonObject.containsKey("_recovery_effect_id"))
+        val catalog = ProgressiveToolCatalog(listOf(source.definition), "test all tools", githubMode = true)
+        suspend fun observations(directory: ProgressiveToolCatalog, id: String): Map<String, JsonObject> {
+            val result = directory.execute(id, JsonObject(emptyMap()))
+            return mapOf(
+                id to buildJsonObject {
+                    put("tool", directory.definition.name)
+                    put("call_id", id)
+                    put("receipt_id", id)
+                    put("binding", "task")
+                    put("repository", "owner/repo")
+                    put("trusted", true)
+                    put("success", !result.isError)
+                    put("arguments", JsonObject(emptyMap()))
+                    put("result", (result.content as ToolResultContent.Json).value)
+                }
+            )
+        }
+        val tools = listOf(catalog.definition, wrapped.definition)
+        val before = GitHubAuthorizedCatalog.snapshot(observations(catalog, "before"), tools)
+        assertEquals(JsonPrimitive("CATALOG_CONTRACT_CHANGED"), before["blocker"])
+        val change = before.getValue("contract_changes").jsonArray.single().jsonObject
+        assertEquals(JsonPrimitive(source.definition.name), change["name"])
+        assertEquals(JsonPrimitive(ToolContractFingerprint.schema(wrapped.definition.inputSchema)), change["expected_schema_fingerprint"])
+
+        val unauthorized = source.definition.copy(name = "github_unassigned")
+        catalog.bindExecutionContracts(listOf(wrapped.definition, unauthorized))
+        val after = GitHubAuthorizedCatalog.snapshot(observations(catalog, "after"), tools)
+        assertEquals(JsonPrimitive(true), after["complete"])
+        assertEquals(JsonArray(listOf(JsonPrimitive(source.definition.name))), after["observed_names"])
+
+        var acquired = source.definition
+        var coldCalls = 0
+        val cold = ProgressiveToolCatalog(listOf(source.definition), "test all tools", acquireCold = { _, _ ->
+            coldCalls++
+            listOf(acquired)
+        }, githubMode = true)
+        cold.bindExecutionContracts(listOf(wrapped.definition))
+        assertEquals(JsonPrimitive(true), GitHubAuthorizedCatalog.snapshot(observations(cold, "cold"), tools)["complete"])
+        assertEquals(1, coldCalls)
+
+        // A genuine new source contract must not be hidden by the old recovery binding.
+        acquired = tool("Changed source schema", writable = true)
+        cold.execute("refresh-source", buildJsonObject { put("query", "new contract") })
+        assertEquals(2, coldCalls)
+        assertEquals(JsonPrimitive("CATALOG_CONTRACT_CHANGED"), GitHubAuthorizedCatalog.snapshot(observations(cold, "changed"), tools)["blocker"])
     }
 
     @Test fun legacyOrChangedContractRefreshesOnceWithoutErasingCompatibleReceipts() {

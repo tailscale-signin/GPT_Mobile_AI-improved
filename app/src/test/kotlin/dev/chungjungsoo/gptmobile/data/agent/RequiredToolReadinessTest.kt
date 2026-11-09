@@ -18,12 +18,14 @@ class RequiredToolReadinessTest {
         }
         return ResolvedAgentTool(tool, null, null, name, name, nativeGitHub = native, nativeGitHubAuthenticated = authenticated)
     }
-    private fun plan(task: String, tools: List<ResolvedAgentTool>) = planAuthorizedToolContext(
+    private fun plan(task: String, tools: List<ResolvedAgentTool>, requestedTask: String? = null, requireToolExecution: Boolean = true) = planAuthorizedToolContext(
         listOf(ConversationTurn(MessageV2(content = task, platformType = null), null, true)),
         "Use the selected tools.",
         tools,
         TokenBudgetSettings(contextTokens = 4096, outputTokens = 1024),
-        true
+        true,
+        requestedTask = requestedTask,
+        requireToolExecution = requireToolExecution
     )
 
     @Test fun anExplicitRequiredToolMustExistBeforeGeneration() {
@@ -47,6 +49,35 @@ class RequiredToolReadinessTest {
         val directory = ResolvedAgentTool(catalog, null, null, catalog.definition.name, catalog.definition.name, progressiveCatalog = catalog)
         val planned = plan("Use github_commit.", listOf(commit, directory))
         assertTrue(planned.tools.any { it.name == "github_commit" })
+    }
+
+    @Test fun retainedReceiptsDoNotBecomeNewUserToolRequirements() {
+        val requested = "Continue the integration test from its saved checkpoint."
+        val context = "$requested\n\nSaved evidence: github_context__github_api completed; call github_commit__old_connection for the previous task."
+        val result = plan(context, listOf(resolved("read_recovery_context")), requestedTask = requested)
+        assertEquals(context, result.turns.single().userMessage.content)
+        assertEquals(listOf("read_recovery_context"), result.tools.map { it.name })
+    }
+
+    @Test fun evidenceOnlyReportingDoesNotReopenCompletedOperationAdmission() {
+        val request = "Call github_context__github_api."
+        val result = plan(
+            "$request\n\nSaved result: repository checked. The tool budget is exhausted.",
+            emptyList(),
+            requestedTask = request,
+            requireToolExecution = false
+        )
+        assertTrue(result.tools.isEmpty())
+        assertTrue(result.authorizedTools.isEmpty())
+        assertTrue(result.turns.single().userMessage.content.contains("budget is exhausted"))
+    }
+
+    @Test fun authoritativeUserRequirementStillBlocksMissingToolBeforeExecution() {
+        val request = "Use github_context__github_api."
+        val failure = runCatching {
+            plan("$request\n\nSaved evidence says the tool is available.", emptyList(), requestedTask = request)
+        }.exceptionOrNull()
+        assertEquals("CAPABILITY_UNAVAILABLE", (failure as? RequiredToolReadinessFailure)?.reasonCode)
     }
 
     @Test fun explanationsAndNegativeInstructionsDoNotCreateExecutionRequirements() {

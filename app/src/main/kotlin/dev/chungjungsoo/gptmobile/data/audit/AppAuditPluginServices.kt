@@ -4,6 +4,7 @@ import dev.chungjungsoo.gptmobile.data.agent.tool.AgentToolResolver
 import dev.chungjungsoo.gptmobile.data.agent.tool.McpBackoffException
 import dev.chungjungsoo.gptmobile.data.agent.tool.McpClientManager
 import dev.chungjungsoo.gptmobile.data.agent.tool.McpConnectionHealth
+import dev.chungjungsoo.gptmobile.data.agent.tool.McpConnectionHealthState
 import dev.chungjungsoo.gptmobile.data.agent.tool.mcpConfigurationRevision
 import dev.chungjungsoo.gptmobile.data.agent.tool.mcpFailurePresentation
 import dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplaceCatalog
@@ -30,6 +31,8 @@ import dev.chungjungsoo.gptmobile.data.security.SecretVault
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 
 /** Reuse the app's explicit private-gateway eligibility, without port or name guesses. */
 fun appAuditGatewayProfileEligible(profile: PlatformV2): Boolean = GitHubAutonomousEngineeringPolicy.supportsSavedJobs(profile)
@@ -140,7 +143,11 @@ internal class AppAuditPluginServices @Inject constructor(
             selectedProfileIds.distinct().sorted().forEach { uid ->
                 val profile = profiles.singleOrNull { it.uid == uid }
                 val eligible = profile?.let(::appAuditGatewayProfileEligible) == true
+                if (targetKey == null && !eligible) return@forEach
                 val credentialIdentity = if (eligible) gatewayCredentialIdentity(requireNotNull(profile)) else "not-selected"
+                // Credential plaintext is never serialized or hashed into an audit record.
+                val fingerprint = appAuditTargetDigest("${profile?.copy(token = null)}:$credentialIdentity")
+                val configurationRevision = appAuditConfigurationRevision(fingerprint)
                 add(
                     AppAuditPluginTarget(
                         AppAuditPluginProbeSource.GATEWAY_TARGET_PREFIX + uid,
@@ -148,14 +155,14 @@ internal class AppAuditPluginServices @Inject constructor(
                         "gateway_connection",
                         eligible && credentialIdentity != null,
                         eligible,
-                        // Credential plaintext is never serialized or hashed into an audit record.
-                        appAuditTargetDigest("${profile?.copy(token = null)}:$credentialIdentity"),
+                        fingerprint,
                         unavailableReason = when {
                             profile == null -> "GATEWAY_PROFILE_UNAVAILABLE"
                             !eligible -> "GATEWAY_PROFILE_UNSUPPORTED"
                             else -> "PLUGIN_CREDENTIAL_IDENTITY_UNAVAILABLE"
                         },
-                        liveRead = if (eligible) ({ capabilities(requireNotNull(profile)) }) else null
+                        liveRead = if (eligible) ({ capabilities(requireNotNull(profile), configurationRevision) }) else null,
+                        configurationRevision = configurationRevision
                     )
                 )
             }
@@ -184,6 +191,16 @@ internal class AppAuditPluginServices @Inject constructor(
         // A retained failure for a different saved configuration cannot veto a new plan.
         // Legacy health has no revision proof: preserve its original time and unknown revision.
         if (previous.failureConfigurationRevision != null && configurationRevision != null && previous.failureConfigurationRevision != configurationRevision) return null
+        // An explicitly selected audit read may recheck a repaired remote contract once
+        // under the runner/client budgets. Credentials, TLS and recovery timers retain
+        // their gates; the fresh request still performs the complete protocol validation.
+        if (previous.lastErrorCode in FRESH_CONTRACT_RECHECK_CODES &&
+            previous.state != McpConnectionHealthState.AUTHENTICATION_REQUIRED &&
+            previous.connectionHealth !in setOf(ConnectionHealth.AUTHENTICATION_FAILED, ConnectionHealth.TLS_FAILED) &&
+            previous.lastHttpStatus !in setOf(401, 403)
+        ) {
+            return null
+        }
         val retryAt = previous.nextRetryAtMs
         if (retryAt != null && retryAt > System.currentTimeMillis()) {
             val presentation = mcpFailurePresentation(McpBackoffException(connection.connectionUid, retryAt), previous)
@@ -266,7 +283,7 @@ internal class AppAuditPluginServices @Inject constructor(
         }
     }
 
-    private suspend fun capabilities(profile: PlatformV2): AppAuditObservation = try {
+    private suspend fun capabilities(profile: PlatformV2, configurationRevision: String?): AppAuditObservation = try {
         val capability = gateway.getCapabilities(
             ProviderRequestConfig(profile.apiUrl, profile.token, profileUid = profile.uid, requestRole = "app-audit"),
             forceRefresh = true
@@ -278,15 +295,31 @@ internal class AppAuditPluginServices @Inject constructor(
             evidenceKind = AppAuditEvidenceKind.LIVE_METADATA,
             observationSource = AppAuditObservationSource.LIVE,
             dispatchEvidence = AppAuditDispatchEvidence.CONFIRMED,
-            metrics = capability?.let { listOf(AppAuditMetric(AppAuditMetricName.RESULT_COUNT, 1.0)) }.orEmpty()
+            metrics = capability?.let { listOf(AppAuditMetric(AppAuditMetricName.RESULT_COUNT, 1.0)) }.orEmpty(),
+            observedAtEpochMs = System.currentTimeMillis(),
+            configurationRevision = configurationRevision,
+            remoteIdentity = capability?.let {
+                fun buildText(key: String) = (it.build?.get(key) as? JsonPrimitive)?.takeIf { value -> value.isString }?.contentOrNull
+                safeAuditRemoteIdentity(
+                    AppAuditRemoteIdentity(
+                        version = it.gatewayVersion ?: it.version,
+                        instanceId = it.instanceId,
+                        sourceCommit = buildText("sourceCommit"),
+                        buildStatus = buildText("status")
+                    )
+                )
+            }
         )
     } catch (cancelled: CancellationException) {
         throw cancelled
     } catch (failure: Exception) {
         val health = LocalServiceHealth.classify(failure)
-        val decodeReason = (failure as? GatewayCapabilityDiscoveryException)?.decodeReason?.takeIf { it in AppAuditPluginProbeSource.gatewayDecodeReasons }
+        val discoveryFailure = failure as? GatewayCapabilityDiscoveryException
+        val httpStatus = discoveryFailure?.httpStatus?.takeIf { it in 100..599 }
+        val decodeReason = discoveryFailure?.decodeReason?.takeIf { it in AppAuditPluginProbeSource.gatewayDecodeReasons }
         val code = when {
             decodeReason != null -> "GATEWAY_CAPABILITY_DECODE_$decodeReason"
+            httpStatus in setOf(401, 403) -> "AUTHENTICATION_FAILED"
             health == ConnectionHealth.TLS_FAILED -> "TLS_FAILURE"
             health.name in AppAuditPluginProbeSource.reasonCodes -> health.name
             else -> "GATEWAY_CAPABILITY_UNAVAILABLE"
@@ -297,8 +330,11 @@ internal class AppAuditPluginServices @Inject constructor(
             stage = "gateway_capabilities",
             evidenceKind = AppAuditEvidenceKind.LIVE_METADATA,
             observationSource = AppAuditObservationSource.LIVE,
-            dispatchEvidence = if (decodeReason != null) AppAuditDispatchEvidence.CONFIRMED else AppAuditDispatchEvidence.UNKNOWN,
-            retryable = if (health in setOf(ConnectionHealth.TLS_FAILED, ConnectionHealth.AUTHENTICATION_FAILED)) false else null
+            dispatchEvidence = if (decodeReason != null || httpStatus != null) AppAuditDispatchEvidence.CONFIRMED else AppAuditDispatchEvidence.UNKNOWN,
+            retryable = if (httpStatus in setOf(401, 403) || health in setOf(ConnectionHealth.TLS_FAILED, ConnectionHealth.AUTHENTICATION_FAILED)) false else null,
+            httpStatus = httpStatus,
+            observedAtEpochMs = System.currentTimeMillis(),
+            configurationRevision = configurationRevision
         )
     }
 
@@ -312,5 +348,9 @@ internal class AppAuditPluginServices @Inject constructor(
 
     private companion object {
         val RECORD_REVISION = Regex("[a-f0-9]{64}")
+        val FRESH_CONTRACT_RECHECK_CODES = setOf(
+            "MCP_PROTOCOL_VERSION_UNSUPPORTED", "MCP_INITIALIZATION_SCHEMA_INVALID", "MCP_DISCOVERY_SCHEMA_INVALID", "MCP_DISCOVERY_CONFIGURATION",
+            "MCP_CATALOG_SCHEMA_INVALID", "MCP_CATALOG_LIMIT_EXCEEDED", "MCP_RESPONSE_ID_MISMATCH", "MCP_RESPONSE_SCHEMA_INVALID", "MCP_ENDPOINT_CONFIGURATION"
+        )
     }
 }

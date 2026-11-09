@@ -21,6 +21,7 @@ class ToolProgressTracker {
 class PublicProgressParser {
     private var pending = ""
     private var inside = false
+    val hasPendingText: Boolean get() = pending.isNotEmpty()
 
     fun reset() {
         pending = ""

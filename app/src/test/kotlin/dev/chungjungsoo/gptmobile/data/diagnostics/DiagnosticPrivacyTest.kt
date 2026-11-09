@@ -10,6 +10,60 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DiagnosticPrivacyTest {
+    @Test fun multilinePayloadIsRedactedBeforeAnyPhysicalLineIsStored() {
+        val payload = """{"status":"FAILED",
+            "arguments":{"query":"first-line\nmiddle-private-canary\nlast-line"},
+            "dispatched":false} """.trim()
+        val safe = diagnosticMessageForStorage(payload)
+        assertFalse(safe.contains("middle-private-canary"))
+        assertEquals("FAILED", Json.parseToJsonElement(safe).jsonObject.getValue("status").jsonPrimitive.content)
+        assertEquals("false", Json.parseToJsonElement(safe).jsonObject.getValue("dispatched").jsonPrimitive.content)
+        assertFalse(diagnosticMessageForStorage("prompt=first-private-canary\nmiddle-private-canary\nlast-private-canary").contains("private-canary"))
+        assertFalse(diagnosticMessageForStorage("MessageV2(content=first\nmiddle-private-canary\nlast)").contains("private-canary"))
+        val embedded = Json.parseToJsonElement(redactLogMessage("""{"failure":"PlatformV2(name=private-canary)","dispatched":false}""")).jsonObject
+        assertEquals("false", embedded.getValue("dispatched").jsonPrimitive.content)
+        assertFalse(embedded.toString().contains("private-canary"))
+    }
+
+    @Test fun everyChatLogcatFragmentIsPrivateEvenWithoutACollectionHeader() {
+        listOf(
+            "D/chats(42): [ChatRoomV2(title=first-private-canary,",
+            "D/chats ( 42): middle-private-canary",
+            "D/chats(42): last-private-canary)]"
+        ).forEachIndexed { index, fragment ->
+            val stored = diagnosticMessageForStorage(fragment)
+            assertFalse(stored.contains("private-canary"))
+            val legacy = "2026-11-09T03:37:41Z D/Android: eventId=chat-$index · $fragment"
+            val exported = structuredDiagnosticLine(legacy)
+            assertFalse(exported.contains("private-canary"))
+            assertTrue(exported.contains("chat-$index"))
+        }
+        assertFalse(diagnosticMessageForStorage("unlabelled-middle-private-canary", tag = "chats").contains("private-canary"))
+    }
+
+    @Test fun capturedRotatedAndCriticalFilesAreSanitizedBeforeTheirSnapshotsAreExposed() {
+        val directory = java.nio.file.Files.createTempDirectory("diagnostic-private-fragments").toFile()
+        try {
+            val sources = listOf("current.log", "previous.log", "critical.log", "critical-previous.log").map { name ->
+                val original = java.io.File(directory, name).apply {
+                    writeText("2026-11-09T03:37:41Z D/Android: D/chats(42): middle-private-canary\n2026-11-09T03:37:42Z I/Runtime: retainedMetadata=42\n")
+                }
+                DiagnosticLogFiles.copyTail(original, java.io.File(directory, "$name.snapshot"), 4096)
+            }
+            val snapshot = DiagnosticLogSnapshot(sources, 1, true, 0)
+            val plain = java.io.StringWriter().also { snapshot.writeTo(it) }.toString()
+            assertFalse(plain.contains("private-canary"))
+            assertEquals(4, plain.lineSequence().count { it.contains("retainedMetadata=42") })
+            sources.forEach { source ->
+                assertFalse(source.file.readText().contains("private-canary"))
+                assertEquals(source.file.length(), source.byteCount)
+                source.file.forEachLine { assertFalse(structuredDiagnosticLine(it).contains("private-canary")) }
+            }
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
     @Test fun nestedPrivateArgumentsKeepExecutionReceiptAndFollowingFieldsStructured() {
         val receipt = """{"phase":"REJECTED","original_arguments":{"query":"private-canary"},"tool_trace":{"call_id":"call-1","resolved_arguments":{"content":"private-canary"}},"mutation_requests":0,"requires_reconciliation":false}"""
         val stored = diagnosticMessageForStorage("Finished · executionReceipt=$receipt · durationMs=42")

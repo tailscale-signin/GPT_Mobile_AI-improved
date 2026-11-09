@@ -14,6 +14,8 @@ import dev.chungjungsoo.gptmobile.data.context.ConversationTurn
 import dev.chungjungsoo.gptmobile.data.context.LocalContextPlanner
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveContent
+import dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage
+import dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin
 import dev.chungjungsoo.gptmobile.data.localmodel.LocalModelCompatibility
 import dev.chungjungsoo.gptmobile.data.localmodel.LocalModelPackages
 import dev.chungjungsoo.gptmobile.data.localmodel.resolveLocalModelSelection
@@ -836,11 +838,11 @@ class LiteRtLmAdapter(
                                                                 val visible = fallbackOutput.accept(event.text)
                                                                 if (visible.isNotEmpty() && !awaitingToolRepair) {
                                                                     assistantReply.append(visible)
-                                                                    send(ProviderEvent.TextDelta(visible))
+                                                                    send(ProviderEvent.TextDelta(visible, OutputLineage(OutputOrigin.MODEL_TEXT)))
                                                                 }
                                                             } else {
                                                                 assistantReply.append(event.text)
-                                                                send(ProviderEvent.TextDelta(event.text))
+                                                                send(ProviderEvent.TextDelta(event.text, OutputLineage(OutputOrigin.MODEL_TEXT)))
                                                             }
                                                         }
 
@@ -864,7 +866,7 @@ class LiteRtLmAdapter(
                                                                 val retained = fallbackOutput.buffered()
                                                                 if (!awaitingToolRepair && textToolFallbackEnabled && LocalPromptToolBridge.parseResult(retained, runToolsByName.keys, allowBareCalls = usePromptToolBridge) is PromptToolParseResult.NoCall && retained.isNotEmpty()) {
                                                                     assistantReply.append(retained)
-                                                                    send(ProviderEvent.TextDelta(retained))
+                                                                    send(ProviderEvent.TextDelta(retained, OutputLineage(OutputOrigin.MODEL_TEXT)))
                                                                 }
                                                                 failed = true
                                                                 send(ProviderEvent.Failed(event.message))
@@ -878,7 +880,7 @@ class LiteRtLmAdapter(
                                             val progressClosure = fallbackOutput.progressClosure()
                                             if (!awaitingToolRepair && progressClosure.isNotEmpty()) {
                                                 assistantReply.append(progressClosure)
-                                                send(ProviderEvent.TextDelta(progressClosure))
+                                                send(ProviderEvent.TextDelta(progressClosure, OutputLineage(OutputOrigin.APPLICATION_REPORT)))
                                             }
                                             if (templateFailure == null) {
                                                 if (!failed && textToolFallbackEnabled) {
@@ -971,7 +973,7 @@ class LiteRtLmAdapter(
                                                         "LOCAL_TOOL_BRIDGE_FINISHED · registered=${runToolsByName.size} · promptCalls=$promptToolCallCount · nativeToolsUsed=$nativeToolsUsed · parse=no_call"
                                                     )
                                                     assistantReply.append(buffered)
-                                                    if (buffered.isNotEmpty()) send(ProviderEvent.TextDelta(buffered))
+                                                    if (buffered.isNotEmpty()) send(ProviderEvent.TextDelta(buffered, OutputLineage(OutputOrigin.MODEL_TEXT)))
                                                 }
                                                 break
                                             }
@@ -1018,7 +1020,7 @@ class LiteRtLmAdapter(
                                             when (event) {
                                                 is LocalRuntimeEvent.TextDelta -> {
                                                     assistantReply.append(event.text)
-                                                    send(ProviderEvent.TextDelta(event.text))
+                                                    send(ProviderEvent.TextDelta(event.text, OutputLineage(OutputOrigin.MODEL_TEXT)))
                                                 }
                                                 is LocalRuntimeEvent.ThinkingDelta -> send(ProviderEvent.ThinkingDelta(event.text))
                                                 is LocalRuntimeEvent.Error -> {

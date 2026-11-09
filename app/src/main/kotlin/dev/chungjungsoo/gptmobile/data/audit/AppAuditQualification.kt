@@ -56,21 +56,58 @@ internal fun appAuditQualificationPlan(
                 gaps.map { entry ->
                     val target = entry.targetId
                     val configuration = run.plan.singleOrNull {
-                        it.sourceId == AppAuditPluginProbeSource.SOURCE_ID && it.probeId == AppAuditPluginProbeSource.CONFIGURATION && it.targetId == target
+                        it.probeId in setOf(AppAuditPluginProbeSource.CONFIGURATION, AppAuditSelectedModelProbeSource.CONFIGURATION) && it.targetId == target
                     }.takeIf { target != null }
+                    val discoveryTarget = target?.takeIf { it.startsWith(AppAuditSelectedModelProbeSource.TARGET_PREFIX) }
+                        ?.let { AppAuditPluginProbeSource.GATEWAY_TARGET_PREFIX + it.removePrefix(AppAuditSelectedModelProbeSource.TARGET_PREFIX) } ?: target
+                    val discovery = run.plan.singleOrNull {
+                        it.sourceId == AppAuditPluginProbeSource.SOURCE_ID &&
+                            it.targetId == discoveryTarget &&
+                            it.probeId in setOf(AppAuditPluginProbeSource.MCP_DISCOVERY, AppAuditPluginProbeSource.GATEWAY_CAPABILITIES)
+                    }.takeIf { discoveryTarget != null }
+                    val configurationResult = configuration?.id?.let(results::get)
+                    val discoveryResult = discovery?.id?.let(results::get)
+                    val configurationReadiness = when {
+                        configuration == null -> "NOT_PLANNED"
+                        configurationResult?.observation?.configChanged == true -> "CONFIGURATION_CHANGED"
+                        configurationResult?.outcome == AppAuditOutcome.PASS -> "READY"
+                        else -> configurationResult?.outcome?.name ?: "CHECK_REQUIRED"
+                    }
+                    val credentialBlocked = discoveryResult?.observation?.let {
+                        it.validationRule == "CREDENTIAL_REAUTHORIZATION_REQUIRED" ||
+                            it.failureCategory == "AUTHENTICATION_REQUIRED" ||
+                            it.reasonCode.startsWith("MCP_LOCAL_CREDENTIAL_") ||
+                            it.reasonCode in setOf("MCP_AUTHENTICATION_REQUIRED", "AUTHENTICATION_FAILED")
+                    } == true
+                    val discoveryReadiness = when {
+                        discovery == null -> if (entry.sourceAreaIds.contains("mcp_plugins") && entry.evidenceKind == AppAuditEvidenceKind.TOOL_EXECUTION) "CHECK_REQUIRED" else "NOT_REQUIRED"
+                        discoveryResult?.observation?.configChanged == true -> "CONFIGURATION_CHANGED"
+                        discoveryResult == null -> "CHECK_REQUIRED"
+                        discoveryResult.outcome != AppAuditOutcome.PASS -> discoveryResult.outcome.name
+                        discoveryResult.observationSource == AppAuditObservationSource.CACHE -> "FRESH_CHECK_REQUIRED"
+                        discoveryResult.observationSource != AppAuditObservationSource.LIVE || discoveryResult.dispatchEvidence != AppAuditDispatchEvidence.CONFIRMED -> "CHECK_REQUIRED"
+                        discoveryResult.observation.configurationRevision != discovery.configurationRevision || discoveryResult.observation.observedAtEpochMs == null -> "OBSERVATION_IDENTITY_REQUIRED"
+                        else -> "VERIFIED"
+                    }
+                    val blockedChecks = buildList {
+                        if (configurationReadiness != "READY") configuration?.id?.let(::add)
+                        if (discoveryReadiness !in setOf("NOT_REQUIRED", "VERIFIED")) discovery?.id?.let(::add)
+                    }
                     val revision = safeAuditConfigurationRevision(entry.configurationRevision)
                     val family = qualificationFamily(entry)
                     val readiness = when {
                         !buildBound -> "BUILD_IDENTITY_UNAVAILABLE"
                         configuration?.prerequisite in setOf(AppAuditPrerequisite.NOT_CONFIGURED, AppAuditPrerequisite.UNSUPPORTED) -> "CONFIGURATION_REQUIRED"
                         configuration?.prerequisite == AppAuditPrerequisite.PERMISSION_REQUIRED -> "ENABLE_PERMISSION_REQUIRED"
-                        entry.evidenceKind == AppAuditEvidenceKind.TOOL_EXECUTION && revision == null -> "CONFIGURATION_IDENTITY_UNAVAILABLE"
-                        entry.evidenceKind == AppAuditEvidenceKind.TOOL_EXECUTION && (configuration == null || results[configuration.id]?.outcome != AppAuditOutcome.PASS || results[configuration.id]?.observation?.configChanged == true) -> "CONFIGURATION_CHECK_REQUIRED"
+                        entry.evidenceKind in TARGET_EXECUTION_KINDS && revision == null -> "CONFIGURATION_IDENTITY_UNAVAILABLE"
+                        entry.evidenceKind in TARGET_EXECUTION_KINDS && configurationReadiness != "READY" -> "CONFIGURATION_CHECK_REQUIRED"
+                        entry.evidenceKind in TARGET_EXECUTION_KINDS && credentialBlocked -> "CREDENTIAL_REAUTHORIZATION_REQUIRED"
+                        entry.evidenceKind in TARGET_EXECUTION_KINDS && discoveryReadiness !in setOf("NOT_REQUIRED", "VERIFIED") -> "DISCOVERY_RECHECK_REQUIRED"
                         entry.evidenceKind == AppAuditEvidenceKind.TOOL_EXECUTION -> "TARGET_FIXTURE_REQUIRED"
                         entry.evidenceKind == AppAuditEvidenceKind.MODEL_EXECUTION -> "MODEL_BENCHMARK_REQUIRED"
                         else -> "EXTERNAL_HARNESS_REQUIRED"
                     }
-                    val binding = runBinding?.takeIf { entry.evidenceKind != AppAuditEvidenceKind.TOOL_EXECUTION || revision != null }?.let {
+                    val binding = runBinding?.takeIf { entry.evidenceKind !in TARGET_EXECUTION_KINDS || revision != null }?.let {
                         appAuditHash("$it\n${entry.id}\n${entry.evidenceKind}\n${entry.configFingerprint}\n$revision\n${entry.fixtureHash}")
                     }
                     buildJsonObject {
@@ -82,13 +119,48 @@ internal fun appAuditQualificationPlan(
                         put("readiness", readiness)
                         put("qualificationBinding", binding)
                         put("configurationRevision", revision)
-                        put("remoteServiceIdentity", if (entry.sourceAreaIds.any { it in REMOTE_SOURCE_AREAS }) "NOT_OBSERVED_BY_THIS_AUDIT" else "NOT_APPLICABLE_TO_THIS_PLAN")
+                        val remoteObservation = appAuditRemoteIdentityJson(discoveryResult?.observation?.remoteIdentity)
+                        put(
+                            "remoteServiceIdentity",
+                            if (remoteObservation != null) {
+                                "DECLARED_CAPABILITIES"
+                            } else if (entry.sourceAreaIds.any { it in REMOTE_SOURCE_AREAS }) {
+                                "NOT_OBSERVED_BY_THIS_AUDIT"
+                            } else {
+                                "NOT_APPLICABLE_TO_THIS_PLAN"
+                            }
+                        )
+                        put("remoteServiceObservation", remoteObservation ?: JsonNull)
                         put("configurationCheckId", configuration?.id?.let(checkIds::get)?.takeIf { it.matches(Regex("check-[1-9][0-9]*")) })
                         put("configurationPrerequisite", configuration?.prerequisite?.name)
+                        put("configurationReadiness", configurationReadiness)
+                        put(
+                            "credentialReadiness",
+                            if (credentialBlocked) {
+                                "REAUTHORIZATION_REQUIRED"
+                            } else if (discoveryReadiness == "VERIFIED") {
+                                "METADATA_CHECK_PASSED"
+                            } else {
+                                "NOT_VERIFIED"
+                            }
+                        )
+                        put("discoveryCheckId", discovery?.id?.let(checkIds::get)?.takeIf { it.matches(Regex("check-[1-9][0-9]*")) })
+                        put("discoveryReadiness", discoveryReadiness)
+                        put("blockingCheckIds", JsonArray(blockedChecks.mapNotNull(checkIds::get).filter { it.matches(Regex("check-[1-9][0-9]*")) }.map(::JsonPrimitive)))
+                        put(
+                            "nextAction",
+                            when (readiness) {
+                                "CREDENTIAL_REAUTHORIZATION_REQUIRED" -> "REAUTHORIZE_SAVED_CONNECTION_THEN_RECHECK"
+                                "DISCOVERY_RECHECK_REQUIRED" -> "RECHECK_SAVED_CONNECTION_THEN_RUN_NAMED_FIXTURE"
+                                "MODEL_BENCHMARK_REQUIRED" -> "PREPARE_EXACT_SELECTED_PROFILE_BENCHMARK"
+                                else -> "REVIEW_REQUIRED_HARNESS"
+                            }
+                        )
                         put("currentOutcome", results[entry.id]?.outcome?.name ?: "PENDING")
                         put("defaultMaxToolCalls", if (entry.evidenceKind == AppAuditEvidenceKind.TOOL_EXECUTION) JsonPrimitive(1) else JsonNull)
                         put("perFixtureTimeoutMs", run.limits.perProbeTimeoutMs)
                         put("requirements", JsonArray(qualificationRequirements(entry, family).map(::JsonPrimitive)))
+                        put("namedHarnesses", JsonArray(qualificationHarnesses(family).map(::JsonPrimitive)))
                     }
                 }
             )
@@ -124,7 +196,14 @@ private fun qualificationRequirements(entry: AppAuditPlanEntry, family: String):
             addAll(listOf("EXACT_CONFIGURATION", "NAMED_TOOL_AND_SCHEMA", "READ_ONLY_OR_OWNED_FIXTURE", "DISPATCH_RECEIPT", "VALIDATION_AND_DENIAL", "CANCELLATION_AND_RECOVERY", "OWNED_FIXTURE_CLEANUP"))
             if (entry.sourceAreaIds.any { it in REMOTE_SOURCE_AREAS }) add("REMOTE_SERVICE_OBSERVATION")
         }
-        AppAuditEvidenceKind.MODEL_EXECUTION -> addAll(listOf("EXACT_CONFIGURATION", "MODEL_BENCHMARK", "REMOTE_SERVICE_OBSERVATION"))
+        AppAuditEvidenceKind.MODEL_EXECUTION -> {
+            addAll(listOf("EXACT_CONFIGURATION", "MODEL_BENCHMARK"))
+            if (entry.sourceAreaIds.contains("local_inference")) {
+                addAll(listOf("DEVICE_AND_APK_IDENTITY", "NATIVE_RUNTIME_MEASUREMENT"))
+            } else {
+                add("REMOTE_SERVICE_OBSERVATION")
+            }
+        }
         else -> {
             add("CANCELLATION_AND_RECOVERY")
             when (family) {
@@ -132,7 +211,7 @@ private fun qualificationRequirements(entry: AppAuditPlanEntry, family: String):
                 "DEVICE_RENDERING_ACCESSIBILITY_SUITE" -> addAll(listOf("DEVICE_AND_APK_IDENTITY", "RENDERING_AND_ACCESSIBILITY"))
                 "DATABASE_MIGRATION_RECOVERY_SUITE" -> add("DATABASE_RECOVERY")
                 "VOICE_MEDIA_PERMISSION_SUITE" -> addAll(listOf("DEVICE_AND_APK_IDENTITY", "MEDIA_PERMISSIONS"))
-                "NATIVE_RUNTIME_DEVICE_SUITE", "DEVICE_MEASUREMENT_SUITE" -> addAll(listOf("DEVICE_AND_APK_IDENTITY", "NATIVE_RUNTIME_MEASUREMENT"))
+                "NATIVE_RUNTIME_DEVICE_SUITE", "DEVICE_MEASUREMENT_SUITE" -> addAll(listOf("DEVICE_AND_APK_IDENTITY", "NATIVE_RUNTIME_MEASUREMENT", "FRAME_TIMING_AND_MEMORY"))
                 "GATEWAY_SERVICE_SUITE" -> addAll(listOf("SERVICE_BUILD_IDENTITY", "REMOTE_SERVICE_OBSERVATION", "NETWORK_PROTOCOL_AUTHORIZATION", "MODEL_BENCHMARK"))
                 "AUTHENTICATION_SERVICE_SUITE", "EXTERNAL_INTEGRATION_SUITE" -> addAll(listOf("SERVICE_BUILD_IDENTITY", "REMOTE_SERVICE_OBSERVATION", "NETWORK_PROTOCOL_AUTHORIZATION"))
                 "PROVIDER_STREAMING_CONTRACT_SUITE" -> addAll(listOf("PROVIDER_STREAMING_CONTRACT", "MODEL_BENCHMARK", "REMOTE_SERVICE_OBSERVATION"))
@@ -144,8 +223,19 @@ private fun qualificationRequirements(entry: AppAuditPlanEntry, family: String):
     }
 }
 
+private fun qualificationHarnesses(family: String): List<String> = when (family) {
+    "DEVICE_RENDERING_ACCESSIBILITY_SUITE" -> listOf("dev.chungjungsoo.gptmobile.presentation.ui.chat.GitHubPromptMotionInstrumentedTest", "dev.chungjungsoo.gptmobile.presentation.common.DiagnosticFrameTimingTest", "dev.chungjungsoo.gptmobile.presentation.ui.setting.GitHubWorkspaceFilesTest")
+    "DATABASE_MIGRATION_RECOVERY_SUITE" -> listOf("dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2MigrationsTest", "dev.chungjungsoo.gptmobile.data.database.GatewayJobPersistenceTest", "dev.chungjungsoo.gptmobile.data.database.GatewayJobsMigrationTest")
+    "MODEL_GENERATION_BENCHMARK" -> listOf("APP_SELECTED_PROFILE_BENCHMARK_QUEUE")
+    "DEVICE_MEASUREMENT_SUITE" -> listOf("scripts/qualify_device_performance.py")
+    "GATEWAY_SERVICE_SUITE" -> listOf("gateway/check_gateway.py", "gateway/tests/test_gateway_model_preparation.py")
+    "TARGET_TOOL_EXECUTION" -> listOf("EXPLICITLY_NAMED_TARGET_FIXTURE_REQUIRED")
+    else -> emptyList()
+}
+
 private val REMOTE_SOURCE_AREAS = setOf("mcp_plugins", "marketplace_plugins", "gateway_client", "model_providers", "gateway_software", "authentication_service", "external_integrations")
 private val QUALIFICATION_EVIDENCE_KINDS = setOf(AppAuditEvidenceKind.TOOL_EXECUTION, AppAuditEvidenceKind.MODEL_EXECUTION, AppAuditEvidenceKind.DEVICE_MEASUREMENT, AppAuditEvidenceKind.EXTERNAL_SUITE)
+private val TARGET_EXECUTION_KINDS = setOf(AppAuditEvidenceKind.TOOL_EXECUTION, AppAuditEvidenceKind.MODEL_EXECUTION)
 private val QUALIFICATION_REQUIREMENTS = linkedMapOf(
     "EXACT_BUILD_AND_PLAN" to "Record the app commit, version, variant, source inventory digest, catalog hash, run binding and check qualification binding exactly as exported. Do not reuse evidence from another build or accepted plan.",
     "EXPLICIT_AUTHORIZATION" to "Select the intended saved target and approve the named fixture or harness scope. This manifest grants no tool execution or mutation authority.",
@@ -165,6 +255,7 @@ private val QUALIFICATION_REQUIREMENTS = linkedMapOf(
     "DEVICE_AND_APK_IDENTITY" to "Install the exact APK and record its digest, app build, OS/API, ABI and relevant device or emulator capabilities. Do not infer a physical device result from host unit tests.",
     "ANDROID_LIFECYCLE" to "Exercise foreground/background transitions, process interruption and restoration on the exact APK, checking durable state, cancellation and duplicate-work prevention.",
     "RENDERING_AND_ACCESSIBILITY" to "Run the named Compose/device interactions, rendering and accessibility checks, including focus/IME transitions, semantics and relevant screen configurations.",
+    "FRAME_TIMING_AND_MEMORY" to "Run the exact APK on the identified device under a declared workload. Retain frame durations, dropped frames, Java/native memory observations and collection timestamps. Report unavailable counters explicitly; host tests do not measure phone performance.",
     "DATABASE_RECOVERY" to "Run supported schema migrations and isolated interrupted-write or process-recovery fixtures, checking data integrity and bounded recovery without the user's live database.",
     "MEDIA_PERMISSIONS" to "Test microphone/media permission grant, denial and revocation plus lifecycle cancellation using controlled fixtures on the intended device.",
     "NATIVE_RUNTIME_MEASUREMENT" to "Measure the named native/runtime behavior on supported hardware with the exact binary, model/backend and limits. Record observed backend use, failures and resource measurements.",

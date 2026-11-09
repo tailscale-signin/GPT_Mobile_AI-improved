@@ -335,6 +335,28 @@ class AppAuditExportTest {
         }
     }
 
+    @Test
+    fun remoteCapabilityIdentityExportsOnlyDeclaredAllowlistedMetadata() = runBlocking {
+        val entry = entry().copy(probeId = AppAuditPluginProbeSource.GATEWAY_CAPABILITIES, componentId = "gateway_connection")
+        val known = result(entry.id, AppAuditOutcome.PASS, "GATEWAY_CAPABILITY_VERIFIED").let {
+            it.copy(observation = it.observation.copy(remoteIdentity = AppAuditRemoteIdentity(version = "15.0.0", instanceId = "d".repeat(32), sourceCommit = "e".repeat(40), buildStatus = "development")))
+        }
+        val saved = export(batch(run(listOf(entry)).copy(results = listOf(known))))
+        val identity = saved["results"]!!.jsonArray.single().jsonObject["remoteServiceIdentity"]!!.jsonObject
+        assertEquals("GATEWAY", identity["service"]!!.jsonPrimitive.content)
+        assertEquals("DECLARED_CAPABILITIES", identity["source"]!!.jsonPrimitive.content)
+        assertEquals("15.0.0", identity["version"]!!.jsonPrimitive.content)
+        assertEquals("d".repeat(32), identity["instanceId"]!!.jsonPrimitive.content)
+        assertEquals("e".repeat(40), identity["sourceCommit"]!!.jsonPrimitive.content)
+        assertTrue(identity["meaning"]!!.jsonPrimitive.content.contains("not independently verified"))
+        assertEquals(false, saved["sourceCoverage"]!!.jsonObject["lineCoverageAvailable"]!!.jsonPrimitive.boolean)
+        val private = "PRIVATE_REMOTE_BODY"
+        val poisoned = known.copy(observation = known.observation.copy(remoteIdentity = AppAuditRemoteIdentity(version = private, instanceId = private, sourceCommit = private, buildStatus = private)))
+        val sanitized = export(batch(run(listOf(entry)).copy(results = listOf(poisoned))))
+        assertFalse(sanitized.toString().contains(private))
+        assertEquals(JsonNull, sanitized["results"]!!.jsonArray.single().jsonObject["remoteServiceIdentity"])
+    }
+
     private fun entry(id: String = "entry") = AppAuditPlanEntry(
         id, "plugins", AppAuditPluginProbeSource.MCP_DISCOVERY, "mcp_connection", "MCP discovery",
         targetId = "private-target", sourceAreaIds = listOf("mcp_plugins"), evidenceKind = AppAuditEvidenceKind.LIVE_METADATA,

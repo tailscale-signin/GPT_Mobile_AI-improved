@@ -29,7 +29,7 @@ class ChatCompletionsEventAssembler {
         rejected?.let { throw it }
         val events = mutableListOf<ProviderEvent>()
         reasoning?.takeIf { it.isNotEmpty() }?.let { events += ProviderEvent.ThinkingDelta(it) }
-        content?.takeIf { it.isNotEmpty() }?.let { events += ProviderEvent.TextDelta(it) }
+        content?.takeIf { it.isNotEmpty() }?.let { events += ProviderEvent.TextDelta(it, dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.MODEL_TEXT)) }
         toolCalls.orEmpty().forEach { delta ->
             require(choiceIndex >= 0 && delta.index >= 0) { "TOOL_STREAM_INVALID: negative choice/tool index; dispatched=false" }
             val key = choiceIndex to delta.index

@@ -6,6 +6,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ResilientStreamingClientTest {
+    @Test fun provider429HonorsRetryAfterAndStopsAfterThreeInteractiveAttempts() = kotlinx.coroutines.test.runTest {
+        var attempts = 0
+        val waits = mutableListOf<Long>()
+        val failure = runCatching {
+            ResilientStreamingClient.executeWithRetry(
+                ResilientStreamingClient.RetryConfig(maxAttempts = 3, initialDelayMs = 250, maxDelayMs = 1000, jitterRatio = 0.0),
+                onRetry = { _, wait, _ -> waits += wait }
+            ) {
+                attempts++
+                throw ProviderHttpFailure(429, 2_000, knownNotAccepted = true)
+            }
+        }.exceptionOrNull()
+        org.junit.Assert.assertEquals(3, attempts)
+        org.junit.Assert.assertEquals(listOf(5_000L, 10_000L), waits)
+        assertTrue(failure is ProviderHttpFailure)
+    }
+
     @Test fun deterministicTemplateFailuresNeverDispatchASecondAttempt() = kotlinx.coroutines.test.runTest {
         for (message in listOf("HTTP 500: Jinja Exception: System message must be at the beginning", "HTTP 502: backend_template_invalid", "HTTP 409: client_tool_results_required", "HTTP 404: gateway_job_unavailable", "HTTP 422: unsupported_instruction_content", "HTTP 422: invalid_tool_history", "HTTP 409: client_tool_result_identity_mismatch", "HTTP 502: completion_repair_budget_unavailable", "HTTP 502: completion_repair_usage_unavailable")) {
             var attempts = 0

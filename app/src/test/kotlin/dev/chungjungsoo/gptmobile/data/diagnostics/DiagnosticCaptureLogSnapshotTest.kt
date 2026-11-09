@@ -12,6 +12,47 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DiagnosticCaptureLogSnapshotTest {
+    @Test fun frozenChatFragmentsAreRedactedBeforeCallerSpecificCredentialFiltering() = temporary { root ->
+        runBlocking {
+            val snapshot = DiagnosticCaptureLogSnapshot.open(root, {}, { text, _ ->
+                assertFalse(text.contains("middle-private-canary"))
+                text
+            }, { directory ->
+                directory.mkdirs()
+                val source = File(directory, "critical.log").apply {
+                    writeText("2026-11-09T03:37:41Z E/Android: D/chats(42): middle-private-canary\n")
+                }
+                DiagnosticLogSnapshot(listOf(DiagnosticLogSource("critical.log", source, 1, source.length())), 123, true, 0, snapshotDirectory = directory)
+            })
+            assertEquals(1L, snapshot.recordCount)
+            assertTrue(root.walkTopDown().filter(File::isFile).none { "middle-private-canary" in it.readText() })
+            val resumed = DiagnosticCaptureLogSnapshot.open(root, {}, { _, _ -> error("Do not recapture") }, { error("Do not recapture") })
+            val lines = mutableListOf<String>()
+            DiagnosticCaptureLogSnapshot.lines(resumed.sources.single().file, {}, lines::add)
+            assertEquals(1, lines.size)
+            assertFalse(lines.single().contains("middle-private-canary"))
+        }
+    }
+
+    @Test fun bufferedFrozenLogCountsUtf8BytesAndKeepsItsOriginalByteLimit() = temporary { root ->
+        runBlocking {
+            suspend fun capture(session: File, rows: Int): DiagnosticLogSnapshot = DiagnosticCaptureLogSnapshot.open(session, {}, { text, _ -> text }, { directory ->
+                directory.mkdirs()
+                val source = File(directory, "critical.log").apply {
+                    bufferedWriter().use { writer -> repeat(rows) { writer.appendLine("界".repeat(16 * 1024)) } }
+                }
+                DiagnosticLogSnapshot(listOf(DiagnosticLogSource("critical.log", source, rows.toLong(), source.length())), 1, true, 0, snapshotDirectory = directory)
+            })
+            val retained = capture(File(root, "bounded"), 4)
+            assertEquals(4L * (3 * 16 * 1024 + 1), retained.byteCount)
+            assertEquals(retained.byteCount, retained.sources.single().file.length())
+            val exceeded = capture(File(root, "exceeded"), 90)
+            assertEquals(0L, exceeded.recordCount)
+            assertEquals("SOURCE_READ_FAILED", exceeded.sourceFailures["critical.log"])
+            assertTrue(File(root, "exceeded").walkTopDown().none { it.isFile && it.length() > 4L * 1024 * 1024 })
+        }
+    }
+
     @Test fun frozenSnapshotIsRedactedAndSurvivesOriginalRingRemoval() = temporary { root ->
         runBlocking {
             var captures = 0

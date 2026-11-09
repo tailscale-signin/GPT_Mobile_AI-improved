@@ -10,11 +10,35 @@ import kotlinx.serialization.json.put
 
 /** Keep executable continuation arguments intact when replaying a large GitHub result. */
 internal object GitHubReplayRecovery {
+    /** Keep the recovery allowance and consumed pages outside the evictable provider replay. */
+    class State(calls: Collection<ProviderEvent.ToolCall> = emptyList()) {
+        private val automaticCalls = mutableSetOf<String>()
+        private val readPages = mutableSetOf<String>()
+
+        init {
+            record(calls)
+        }
+
+        fun record(calls: Collection<ProviderEvent.ToolCall>) {
+            calls.forEach { call ->
+                if (call.callId.startsWith("saved-result-consume-")) automaticCalls += call.callId
+                (call.arguments["view_cursor"] as? JsonPrimitive)?.takeIf { it.isString }?.content?.let { cursor ->
+                    readPages += pageKey(call.name, cursor)
+                }
+            }
+        }
+
+        fun exhausted() = automaticCalls.size >= 32
+        fun hasRead(name: String, cursor: String) = pageKey(name, cursor) in readPages
+
+        private fun pageKey(name: String, cursor: String) = "$name:${cursor.split(':').take(2).joinToString(":")}"
+    }
+
     /** Consume only an exact local read cursor issued by native replay recovery. */
-    fun nextSavedRead(exchanges: List<AgentToolExchange>, tools: Collection<AgentToolDefinition>, maxReplayResultTokens: Int = 512): ProviderEvent.ToolCall? {
+    fun nextSavedRead(exchanges: List<AgentToolExchange>, tools: Collection<AgentToolDefinition>, maxReplayResultTokens: Int = 512, state: State? = null): ProviderEvent.ToolCall? {
         val calls = exchanges.flatMap { it.calls }
         val maximumBytes = (maxReplayResultTokens.toLong().coerceAtLeast(0) * 3).coerceAtMost(8192).toInt()
-        if (calls.count { it.callId.startsWith("saved-result-consume-") } >= 32) return null
+        if (state?.exhausted() == true || calls.count { it.callId.startsWith("saved-result-consume-") } >= 32) return null
         val recoverySources = exchanges.flatMap { exchange ->
             exchange.results.mapNotNull { result ->
                 val call = exchange.calls.firstOrNull { it.callId == result.callId } ?: return@mapNotNull null
@@ -50,6 +74,7 @@ internal object GitHubReplayRecovery {
                     if (arguments.keys != setOf("view_cursor") || ':' !in cursor || name != issuer.name || GitHubOperationTool.operationName(name) == null) continue
                     val tool = tools.firstOrNull { it.name == name && it.modelVisible } ?: continue
                     if (ToolArgumentValidator.errors(arguments, tool.inputSchema).isNotEmpty() ||
+                        state?.hasRead(name, cursor) == true ||
                         calls.any {
                             val prior = (it.arguments["view_cursor"] as? JsonPrimitive)?.takeIf { value -> value.isString }?.content
                             it.name == name && prior?.split(':')?.take(2) == cursor.split(':').take(2)

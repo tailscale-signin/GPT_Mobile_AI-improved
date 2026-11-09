@@ -829,7 +829,7 @@ class ToolConnectionsViewModelTest {
     }
 
     @Test
-    fun `blank credential is cleared when saved metadata changes`() = runTest {
+    fun `blank credential is cleared when saved metadata changes`() = runBlocking {
         val dao = FakeToolConnectionDao()
         val vault = FakeSecretVault()
         val networkClient = NetworkClient(CIO)
@@ -850,27 +850,34 @@ class ToolConnectionsViewModelTest {
         vault.put("connection_search-1", "old-key".encodeToByteArray())
         val viewModel = ToolConnectionsViewModel(dao, vault, coordinator, manager, fakeSettingRepository())
 
-        viewModel.saveConnection(
-            existing = existing,
-            provider = ToolConnectionsViewModel.providers.first { it.type == ToolConnectionType.PERPLEXITY },
-            name = "Search",
-            alias = "search",
-            endpointUrl = "",
-            authType = ToolConnectionAuthType.BEARER,
-            credential = " ",
-            oauthClientId = "",
-            allowCleartext = false,
-            clearCredential = false
-        )
+        val saved = CompletableDeferred<Unit>()
+        try {
+            viewModel.saveConnection(
+                existing = existing,
+                provider = ToolConnectionsViewModel.providers.first { it.type == ToolConnectionType.PERPLEXITY },
+                name = "Search",
+                alias = "search",
+                endpointUrl = "",
+                authType = ToolConnectionAuthType.BEARER,
+                credential = " ",
+                oauthClientId = "",
+                allowCleartext = false,
+                clearCredential = false,
+                onSuccess = { saved.complete(Unit) }
+            )
 
-        assertNull(dao.getConnection("search-1")!!.secretRef)
-        assertNull(vault.read("connection_search-1"))
-        manager.closeAll()
-        networkClient().close()
+            withTimeout(5000) { saved.await() }
+            assertNull(dao.getConnection("search-1")!!.secretRef)
+            assertNull(vault.read("connection_search-1"))
+        } finally {
+            viewModel.viewModelScope.cancel()
+            manager.closeAll()
+            networkClient().close()
+        }
     }
 
     @Test
-    fun `explicit credential clear removes saved secret without replacement`() = runTest {
+    fun `explicit credential clear removes saved secret without replacement`() = runBlocking {
         val dao = FakeToolConnectionDao()
         val vault = FakeSecretVault()
         val networkClient = NetworkClient(CIO)
@@ -891,27 +898,34 @@ class ToolConnectionsViewModelTest {
         vault.put("connection_search-clear", "saved-secret".encodeToByteArray())
         val viewModel = ToolConnectionsViewModel(dao, vault, coordinator, manager, fakeSettingRepository())
 
-        viewModel.saveConnection(
-            existing = existing,
-            provider = ToolConnectionsViewModel.providers.first { it.type == ToolConnectionType.FIRECRAWL },
-            name = "Search",
-            alias = "search",
-            endpointUrl = "",
-            authType = ToolConnectionAuthType.BEARER,
-            credential = "",
-            oauthClientId = "",
-            allowCleartext = false,
-            clearCredential = true
-        )
+        val saved = CompletableDeferred<Unit>()
+        try {
+            viewModel.saveConnection(
+                existing = existing,
+                provider = ToolConnectionsViewModel.providers.first { it.type == ToolConnectionType.FIRECRAWL },
+                name = "Search",
+                alias = "search",
+                endpointUrl = "",
+                authType = ToolConnectionAuthType.BEARER,
+                credential = "",
+                oauthClientId = "",
+                allowCleartext = false,
+                clearCredential = true,
+                onSuccess = { saved.complete(Unit) }
+            )
 
-        assertNull(dao.getConnection("search-clear")!!.secretRef)
-        assertNull(vault.read("connection_search-clear"))
-        manager.closeAll()
-        networkClient().close()
+            withTimeout(5000) { saved.await() }
+            assertNull(dao.getConnection("search-clear")!!.secretRef)
+            assertNull(vault.read("connection_search-clear"))
+        } finally {
+            viewModel.viewModelScope.cancel()
+            manager.closeAll()
+            networkClient().close()
+        }
     }
 
     @Test
-    fun `explicit MCP bearer clear removes saved token`() = runTest {
+    fun `explicit MCP bearer clear removes saved token`() = runBlocking {
         val dao = FakeToolConnectionDao()
         val vault = FakeSecretVault()
         val networkClient = NetworkClient(CIO)
@@ -932,23 +946,30 @@ class ToolConnectionsViewModelTest {
         vault.put("connection_mcp-clear", "saved-token".encodeToByteArray())
         val viewModel = ToolConnectionsViewModel(dao, vault, coordinator, manager, fakeSettingRepository())
 
-        viewModel.saveConnection(
-            existing = existing,
-            provider = ToolConnectionsViewModel.providers.first { it.type == ToolConnectionType.MCP },
-            name = "MCP",
-            alias = "mcp",
-            endpointUrl = "https://example.com/mcp",
-            authType = ToolConnectionAuthType.BEARER,
-            credential = "",
-            oauthClientId = "",
-            allowCleartext = false,
-            clearCredential = true
-        )
+        val saved = CompletableDeferred<Unit>()
+        try {
+            viewModel.saveConnection(
+                existing = existing,
+                provider = ToolConnectionsViewModel.providers.first { it.type == ToolConnectionType.MCP },
+                name = "MCP",
+                alias = "mcp",
+                endpointUrl = "https://example.com/mcp",
+                authType = ToolConnectionAuthType.BEARER,
+                credential = "",
+                oauthClientId = "",
+                allowCleartext = false,
+                clearCredential = true,
+                onSuccess = { saved.complete(Unit) }
+            )
 
-        assertNull(dao.getConnection("mcp-clear")!!.secretRef)
-        assertNull(vault.read("connection_mcp-clear"))
-        manager.closeAll()
-        networkClient().close()
+            withTimeout(5000) { saved.await() }
+            assertNull(dao.getConnection("mcp-clear")!!.secretRef)
+            assertNull(vault.read("connection_mcp-clear"))
+        } finally {
+            viewModel.viewModelScope.cancel()
+            manager.closeAll()
+            networkClient().close()
+        }
     }
 
     @Test

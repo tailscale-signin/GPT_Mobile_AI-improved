@@ -10,7 +10,9 @@ import dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceRegistry
 import dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -51,7 +53,8 @@ class MarketplaceViewModel @Inject constructor(
     private val freeConsent: dev.chungjungsoo.gptmobile.data.permissions.FreeModelToolConsentStore? = null,
     private val settings: dev.chungjungsoo.gptmobile.data.repository.SettingRepository? = null,
     private val agentToolResolver: dev.chungjungsoo.gptmobile.data.agent.tool.AgentToolResolver? = null,
-    private val marketplaceSaves: dev.chungjungsoo.gptmobile.data.universalmarketplace.MarketplaceSavesRepository? = null
+    private val marketplaceSaves: dev.chungjungsoo.gptmobile.data.universalmarketplace.MarketplaceSavesRepository? = null,
+    @dev.chungjungsoo.gptmobile.di.IoDispatcher private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) : ViewModel() {
     private val _uninstallRequest = MutableStateFlow<GitHubMarketplacePackage?>(null)
     val uninstallRequest = _uninstallRequest.asStateFlow()
@@ -239,20 +242,20 @@ class MarketplaceViewModel @Inject constructor(
                         }
                         store.beginRemoval(entry)
                         if (NativeMarketplaceCatalog.supports(entry)) registry.uninstall(entry)
-                        requireNotNull(entryRevocation).commit()
+                        requireNotNull(entryRevocation).commit(ioDispatcher)
                         // A marketplace-created MCP registration is owned by its persisted provider identity;
                         // similarly named user-created connections are never removed as a side effect.
                         val ownedConnections = connections.listConnections()
                             .filter { it.marketplaceOrigin == "MARKETPLACE" && it.marketplaceProviderId == entry.id }
                         ownedConnections.forEach { owned ->
-                            dev.chungjungsoo.gptmobile.data.permissions.ToolGrantPersistence.prepareConnectionRevocation(toolTrust, freeConsent, owned.connectionUid).commit()
+                            dev.chungjungsoo.gptmobile.data.permissions.ToolGrantPersistence.prepareConnectionRevocation(toolTrust, freeConsent, owned.connectionUid).commit(ioDispatcher)
                             connections.deleteConnection(owned.connectionUid)
                         }
                         store.remove(entry)
                         if (entry.provider == "openstreetmap") {
                             dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplaceCatalog.legacyPackages.forEach { legacy ->
                                 store.remove(legacy)
-                                dev.chungjungsoo.gptmobile.data.permissions.ToolGrantPersistence.prepareConnectionRevocation(toolTrust, freeConsent, legacy.id).commit()
+                                dev.chungjungsoo.gptmobile.data.permissions.ToolGrantPersistence.prepareConnectionRevocation(toolTrust, freeConsent, legacy.id).commit(ioDispatcher)
                             }
                         }
                         store.finishRemoval(entry)

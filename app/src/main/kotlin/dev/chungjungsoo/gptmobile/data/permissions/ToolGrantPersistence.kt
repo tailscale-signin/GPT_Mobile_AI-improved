@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.permissions
 
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.sync.Mutex
@@ -10,7 +11,9 @@ import kotlinx.coroutines.withContext
 internal object ToolGrantPersistence {
     private val mutations = Mutex()
 
-    suspend fun <T> mutate(block: () -> T): T = withContext(Dispatchers.IO) {
+    suspend fun <T> mutate(block: () -> T): T = mutate(Dispatchers.IO, block)
+
+    private suspend fun <T> mutate(dispatcher: CoroutineDispatcher, block: () -> T): T = withContext(dispatcher) {
         mutations.withLock { block() }
     }
 
@@ -65,8 +68,8 @@ internal object ToolGrantPersistence {
 
     class Revocation internal constructor(internal val persist: () -> Unit, internal val release: () -> Unit = {}) {
         /** Once denied, finish the durable revocation even if its screen closes. */
-        suspend fun commit() = withContext(NonCancellable) {
-            mutate {
+        suspend fun commit(ioDispatcher: CoroutineDispatcher = Dispatchers.IO) = withContext(NonCancellable) {
+            mutate(ioDispatcher) {
                 persist()
                 release()
             }

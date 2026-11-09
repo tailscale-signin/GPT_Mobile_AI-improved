@@ -4674,6 +4674,30 @@ class ChatRepositoryImpl(
         )
     }
 
+    /** Keep inline catalog collection work out of the large Android response continuation. */
+    private fun primaryToolCatalog(
+        effectiveTools: List<ResolvedAgentTool>,
+        runnerTools: List<dev.chungjungsoo.gptmobile.data.agent.AgentTool>,
+        session: AgentProviderSession,
+        settings: dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings,
+        latestUser: MessageV2?,
+        contextPlan: dev.chungjungsoo.gptmobile.data.context.ContextPlan,
+        githubMode: Boolean
+    ): dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog? =
+        effectiveTools.firstNotNullOfOrNull { it.progressiveCatalog } ?: if (settings.adaptiveToolCatalog && !session.handlesToolsInternally) {
+            dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog.create(runnerTools.map { it.definition }, latestUser?.content.orEmpty(), contextPlan.tools.mapTo(HashSet()) { it.name }, githubMode = githubMode)
+        } else {
+            null
+        }
+
+    private fun recordPrimaryToolCatalog(
+        catalog: dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog?,
+        runnerTools: List<dev.chungjungsoo.gptmobile.data.agent.AgentTool>,
+        executableTools: List<dev.chungjungsoo.gptmobile.data.agent.AgentTool>
+    ) {
+        if (catalog != null) AppLogRecorder.record("ToolCatalog", "PROGRESSIVE_CATALOG · authorized=${runnerTools.size} · initiallyAdvertised=${catalog.selected(executableTools.map { it.definition }).size} · discovery=true · permissionExpansion=false")
+    }
+
     private fun streamPrimaryAnswer(
         platform: PlatformV2,
         requestPlatform: PlatformV2,
@@ -5336,11 +5360,7 @@ class ChatRepositoryImpl(
             effectiveTools.map(::bindGitHubTarget)
         }
 
-        val catalog = effectiveTools.firstNotNullOfOrNull { it.progressiveCatalog } ?: if (budgetSettings.adaptiveToolCatalog && !groundedSession.handlesToolsInternally) {
-            dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog.create(runnerTools.map { it.definition }, latestUser?.content.orEmpty(), contextPlan.tools.mapTo(HashSet()) { it.name }, githubMode = chatToolConfig?.github != null)
-        } else {
-            null
-        }
+        val catalog = primaryToolCatalog(effectiveTools, runnerTools, groundedSession, budgetSettings, latestUser, contextPlan, chatToolConfig?.github != null)
         val initiallySelectedSession = catalog?.let { groundedSession.withToolCatalog(it) } ?: groundedSession
         val (githubEffectiveTask, verifiedEvidence) = prepareGitHubTaskEvidence(
             platform, latestUser, runId, turnKey, chatToolConfig?.github,
@@ -5606,7 +5626,7 @@ class ChatRepositoryImpl(
             verifiedSession
         }
         val executableTools = dev.chungjungsoo.gptmobile.data.agent.appendBudgetedCatalog(runnerTools, catalog)
-        if (catalog != null) AppLogRecorder.record("ToolCatalog", "PROGRESSIVE_CATALOG · authorized=${runnerTools.size} · initiallyAdvertised=${catalog.selected(executableTools.map { it.definition }).size} · discovery=true · permissionExpansion=false")
+        recordPrimaryToolCatalog(catalog, runnerTools, executableTools)
 
         val agentEvents = streamPrimaryAnswerRunner(
             platform, latestUser, chatToolConfig, contextPlan, limits, budgetSettings, customRunner,

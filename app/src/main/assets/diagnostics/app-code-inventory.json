@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "e0e6fb7201d27d628cb37c51c88243c7a28bfc6c2bc0e1b77a8932681148a89d",
+  "source_digest": "4904872fff1ef698790ddee35048e17390cc0b88f7d4a8db62a2fb00df37c235",
   "file_count": 2356,
-  "indexed_line_count": 366833,
+  "indexed_line_count": 366859,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -40,7 +40,7 @@
       "id": "chat_ui",
       "label": "Chat, rendering and interaction",
       "file_count": 503,
-      "indexed_line_count": 88281
+      "indexed_line_count": 88284
     },
     {
       "id": "accessibility_and_localization",
@@ -52,7 +52,7 @@
       "id": "agent_execution",
       "label": "Agent execution and recovery",
       "file_count": 206,
-      "indexed_line_count": 33468
+      "indexed_line_count": 33488
     },
     {
       "id": "agent_tools",
@@ -142,7 +142,7 @@
       "id": "auth_and_security",
       "label": "Permissions, privacy and credentials",
       "file_count": 20,
-      "indexed_line_count": 1935
+      "indexed_line_count": 1938
     },
     {
       "id": "voice_and_media",
@@ -9320,8 +9320,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/permissions/ToolGrantPersistence.kt",
       "area_id": "auth_and_security",
       "kind": "source",
-      "sha256": "6887df67f3c6a23d4bdacedcfac2d7bbfc9fe70f0a19ef5c65d3f506f0da6b86",
-      "indexed_lines": 82
+      "sha256": "30f1e887b65aecd6a781aa4e465114d39da4e4a30b6468e45b1adffe23167067",
+      "indexed_lines": 85
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/permissions/ToolGrantRevocations.kt",
@@ -9698,8 +9698,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ChatRepositoryImpl.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "1ef106bfcc679ae6be57ffe5898b7d169605df89f7b134135da4b0d073ee8233",
-      "indexed_lines": 7216
+      "sha256": "cf264e62b57edc1c6b6bb27076ee9831cf312ca381c87ef175b52e9ab7229c4d",
+      "indexed_lines": 7236
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/CombinedSettingsSaveJournal.kt",
@@ -12792,8 +12792,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/mcp/MarketplaceViewModel.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "39a5114a2f1b30424af0bdf96684f1cb8312ab403b3e63e2ec8dd232e6f2cd36",
-      "indexed_lines": 333
+      "sha256": "ec289642c4fa5c059a5d353229004562b0a6410e916b6da7f05c572107048731",
+      "indexed_lines": 336
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/mcp/McpBrandAssets.kt",

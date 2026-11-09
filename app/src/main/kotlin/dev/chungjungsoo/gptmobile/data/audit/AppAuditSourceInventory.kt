@@ -9,15 +9,15 @@ data class AppAuditSourceArea(val id: String, val label: String, val fileCount: 
 object AppAuditSourceInventory {
     val schemaVersion: Int = 1
     val assetPath: String = "diagnostics/app-code-inventory.json"
-    val sourceDigest: String = "e0e6fb7201d27d628cb37c51c88243c7a28bfc6c2bc0e1b77a8932681148a89d"
+    val sourceDigest: String = "4904872fff1ef698790ddee35048e17390cc0b88f7d4a8db62a2fb00df37c235"
     val fileCount: Int = 2356
-    val lineCount: Int = 366833
+    val lineCount: Int = 366859
     val lineCoverageAvailable: Boolean = false
     val areas: List<AppAuditSourceArea> = listOf(
         AppAuditSourceArea("android_shell", "Android application and lifecycle", 71, 7829),
-        AppAuditSourceArea("chat_ui", "Chat, rendering and interaction", 503, 88281),
+        AppAuditSourceArea("chat_ui", "Chat, rendering and interaction", 503, 88284),
         AppAuditSourceArea("accessibility_and_localization", "Accessibility, themes and UI resources", 197, 9129),
-        AppAuditSourceArea("agent_execution", "Agent execution and recovery", 206, 33468),
+        AppAuditSourceArea("agent_execution", "Agent execution and recovery", 206, 33488),
         AppAuditSourceArea("agent_tools", "Built-in tool routing and execution", 99, 21340),
         AppAuditSourceArea("mcp_plugins", "MCP connections and tool catalogues", 29, 4244),
         AppAuditSourceArea("marketplace_plugins", "Plugin marketplace", 13, 1732),
@@ -32,7 +32,7 @@ object AppAuditSourceInventory {
         AppAuditSourceArea("persistence", "Databases, backup and storage", 108, 14338),
         AppAuditSourceArea("diagnostics_and_export", "Diagnostics, statistics and sharing", 67, 7377),
         AppAuditSourceArea("benchmark", "Benchmarks and app audit", 99, 14577),
-        AppAuditSourceArea("auth_and_security", "Permissions, privacy and credentials", 20, 1935),
+        AppAuditSourceArea("auth_and_security", "Permissions, privacy and credentials", 20, 1938),
         AppAuditSourceArea("voice_and_media", "Voice and media", 7, 1256),
         AppAuditSourceArea("portable_domain", "Portable domain contracts", 2, 68),
         AppAuditSourceArea("native_bridge", "Native runtime bridge and policies", 39, 4075),

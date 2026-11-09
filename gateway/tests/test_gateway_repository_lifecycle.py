@@ -160,7 +160,8 @@ class RepositoryLifecycleTests(unittest.TestCase):
 
     def add_lfs_pointer(self, contents=b'fixture asset contents\n'):
         oid = hashlib.sha256(contents).hexdigest()
-        (self.source / 'asset.bin').write_text('version https://git-lfs.github.com/spec/v1\noid sha256:' + oid + '\nsize ' + str(len(contents)) + '\n')
+        # Keep the canonical fixture bytes independent of Windows text newline translation.
+        (self.source / 'asset.bin').write_bytes(('version https://git-lfs.github.com/spec/v1\noid sha256:' + oid + '\nsize ' + str(len(contents)) + '\n').encode('ascii'))
         git(self.source, 'add', 'asset.bin')
         git(self.source, 'commit', '-m', 'LFS pointer')
         self.lifecycle.source_sha = git(self.source, 'rev-parse', 'HEAD').decode().strip()

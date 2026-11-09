@@ -156,6 +156,14 @@
       "scope": "Actual approval manager, trust stores and native facade mapping; exact one-time lifecycle decisions, persistent-grant exclusion, native provenance, non-lifecycle administrative denial, live account/generation/profile/plugin changes, cancellation and known-unsent claim cleanup",
       "boundaries": "Controlled Android/storage ports; full Compose/application/device gate remains separate",
       "tested_local_commit": "e6b4158ee219a38d7a18f43fcf8243004643ad8d"
+    },
+    "gateway_windows_lfs_fixture": {
+      "lifecycle_tests_passed": 31,
+      "windows_text_translation_core_tests_passed": 28,
+      "failed": 0,
+      "scope": "Canonical ASCII pointer bytes avoid Windows text-mode CRLF expansion before the explicit CRLF test; production pointer validation unchanged",
+      "original_failure_head": "f76ef961e1bd083912c72cb452be1bce00748a8a",
+      "qualification": "Full exact-head Windows matrix remains a CI gate"
     }
   },
   "qualification": "Physical PC routing/model availability and Android device performance must be reported separately from source changes and host/CI regression evidence.",

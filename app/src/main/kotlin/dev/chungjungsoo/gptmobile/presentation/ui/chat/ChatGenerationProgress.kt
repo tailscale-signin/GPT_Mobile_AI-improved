@@ -30,6 +30,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import kotlinx.coroutines.delay
 
 internal val LocalChatProgressInHeader = staticCompositionLocalOf { false }
+internal val LocalGitHubApprovalPending = staticCompositionLocalOf { false }
 
 /** One presentation and activity resolver for chat bubbles and the pinned GitHub header. */
 @Composable
@@ -77,24 +78,20 @@ internal fun ChatGenerationProgress(
 private fun GenerationStatusText(toolEvents: List<ToolEvent>, timeline: List<AssistantTimelineItem>, statusOverride: String?, textSizeIncrease: Int, startedAtMillis: Long?, completedAtMillis: Long?, animate: Boolean = true) {
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var dots by remember { mutableIntStateOf(1) }
-    var phase by remember { mutableIntStateOf(0) }
     val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
     LaunchedEffect(lifecycle, animate, startedAtMillis) {
         lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
             now = System.currentTimeMillis()
             if (!animate) return@repeatOnLifecycle
-            var ticks = 0
             while (true) {
                 delay(500)
                 now = System.currentTimeMillis()
                 dots = dots % 3 + 1
-                ticks++
-                if (ticks % 10 == 0) phase++
             }
         }
     }
 
-    val base = remember(phase, toolEvents, timeline, statusOverride) {
+    val base = remember(toolEvents, timeline, statusOverride) {
         statusOverride ?: generationActivityLabel(toolEvents, timeline)
     }
     val style = MaterialTheme.typography.labelSmall.let { it.copy(fontSize = (it.fontSize.value + textSizeIncrease).sp) }
@@ -127,10 +124,11 @@ internal fun generationActivityLabel(toolEvents: List<ToolEvent>, timeline: List
         it.status == dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus.RUNNING ||
             it.status == dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus.PENDING
     }
-    // Refresh from actual activity every five seconds, rather than inventing work phases.
+    // Only changed observations invalidate this label; the visual timer and dots
+    // do not need to rescan retained history.
     val activity = timeline.lastOrNull { it.type == AssistantTimelineItemType.TEXT || it.type == AssistantTimelineItemType.THINKING }
-    val checkpoint = timeline.lastOrNull { it.statusSummary }?.content
-        ?: timeline.lastOrNull { it.progressCheckpoint && it.modelAuthored }?.content
+    val checkpoint = gitHubPublicSummary(timeline)?.content
+        ?: timeline.lastOrNull { it.statusSummary }?.content
     return runningTool?.let { smartToolVerb(it.toolName) } ?: checkpoint ?: when (activity?.type) {
         AssistantTimelineItemType.TEXT -> "Writing"
         AssistantTimelineItemType.THINKING -> "Thinking"

@@ -13,8 +13,8 @@ import kotlinx.serialization.json.put
 
 /** A bounded projection of durable receipts; model completion never substitutes for acceptance. */
 internal object GitHubExecutionLedger {
-    enum class ReceiptState { PRECHECK_REJECTED, DISPATCHED, WAITING_FOR_APPROVAL, COMPLETED, FAILED, UNKNOWN_OUTCOME }
-    enum class ObservationKind { REMOTE_API_SUCCESS, MUTATION_COMPLETED, CACHE_HIT, LOCAL_RESULT, SUPPRESSED, PENDING_APPROVAL, PRECHECK_REJECTED, FAILED, UNKNOWN_OUTCOME }
+    enum class ReceiptState { PRECHECK_REJECTED, DISPATCHED, PROPOSAL_PREPARED, WAITING_FOR_APPROVAL, COMPLETED, FAILED, UNKNOWN_OUTCOME }
+    enum class ObservationKind { REMOTE_API_SUCCESS, MUTATION_COMPLETED, MUTATION_ACCEPTED, MUTATION_VERIFIED, PROPOSAL_PREPARED, CACHE_HIT, LOCAL_RESULT, SUPPRESSED, PENDING_APPROVAL, PRECHECK_REJECTED, FAILED, UNKNOWN_OUTCOME }
     private data class ReconciliationKey(
         val binding: String,
         val tool: String,
@@ -30,13 +30,15 @@ internal object GitHubExecutionLedger {
         val phase = execution?.text("phase").orEmpty().uppercase()
         val outcome = execution?.text("outcome").orEmpty().uppercase()
         val unknown = (execution?.get("unknown_mutations") as? JsonPrimitive)?.longOrNull ?: 0
+        val operationOutcome = GitHubOperationOutcome.snapshot(receipt)
         return when {
             unknown > 0 ||
                 phase in setOf("UNKNOWN_OUTCOME", "OUTCOME_UNKNOWN", "RECONCILIATION_REQUIRED") ||
                 outcome in setOf("UNKNOWN", "UNKNOWN_OUTCOME") ||
                 receipt.text("error_code") in ToolResultEnvelope.unknownOutcomeCodes ||
                 receipt.text("error_code") in setOf("GATEWAY_OUTCOME_UNKNOWN", "GATEWAY_TOOL_OUTCOME_UNKNOWN", "REMOTE_OUTCOME_UNKNOWN") -> ReceiptState.UNKNOWN_OUTCOME
-            GitHubPendingApproval.taskId(receipt) != null -> ReceiptState.WAITING_FOR_APPROVAL
+            GitHubPendingApproval.taskId(receipt) != null || operationOutcome["approval_pending"] == JsonPrimitive(true) -> ReceiptState.WAITING_FOR_APPROVAL
+            operationOutcome["proposal_prepared"] == JsonPrimitive(true) -> ReceiptState.PROPOSAL_PREPARED
             receipt["success"] == JsonPrimitive(true) ||
                 receipt.text("error_code") == "RETAINED_RESULT_CAPACITY" &&
                 execution?.get("upstream_completed") == JsonPrimitive(true) &&
@@ -55,11 +57,13 @@ internal object GitHubExecutionLedger {
         return when {
             state == ReceiptState.UNKNOWN_OUTCOME -> ObservationKind.UNKNOWN_OUTCOME
             state == ReceiptState.WAITING_FOR_APPROVAL -> ObservationKind.PENDING_APPROVAL
+            state == ReceiptState.PROPOSAL_PREPARED -> ObservationKind.PROPOSAL_PREPARED
             root?.text("schema") == "github.repeat.v1" -> ObservationKind.SUPPRESSED
             state == ReceiptState.PRECHECK_REJECTED -> ObservationKind.PRECHECK_REJECTED
             state != ReceiptState.COMPLETED -> ObservationKind.FAILED
             receipt["shared_result"] == JsonPrimitive(true) || GitHubEvidenceOrigin.of(receipt) == "CACHED" -> ObservationKind.CACHE_HIT
-            (execution?.get("accepted_mutations") as? JsonPrimitive)?.longOrNull?.let { it > 0 } == true -> ObservationKind.MUTATION_COMPLETED
+            receipt["remote_mutation"] == JsonPrimitive(true) && GitHubOperationOutcome.snapshot(receipt)["remote_outcome_verified"] == JsonPrimitive(true) -> ObservationKind.MUTATION_VERIFIED
+            (execution?.get("accepted_mutations") as? JsonPrimitive)?.longOrNull?.let { it > 0 } == true -> ObservationKind.MUTATION_ACCEPTED
             GitHubEvidenceOrigin.of(receipt) == "LIVE" -> ObservationKind.REMOTE_API_SUCCESS
             else -> ObservationKind.LOCAL_RESULT
         }

@@ -139,17 +139,41 @@ internal object GitHubRunAcceptance {
 
     /** One bounded record per criterion preserves readable blockers when the surrounding log is truncated. */
     fun diagnosticLines(assessment: Assessment): List<String> {
-        val projection = assessment.diagnostics?.takeIf(GitHubAcceptanceDiagnostics::valid) ?: return listOf("schema=github.acceptance-diagnostics.v1 · status=NOT_RETAINED · required=${assessment.requiredCriteria} · verified=${assessment.verifiedCriteria}")
+        val projection = assessment.diagnostics?.takeIf(GitHubAcceptanceDiagnostics::valid) ?: return listOf(
+            buildJsonObject {
+                put("schema", "github.acceptance-summary.v1")
+                put("status", "NOT_RETAINED")
+                put("required", assessment.requiredCriteria)
+                put("verified", assessment.verifiedCriteria)
+            }.toString()
+        )
         val digest = projection.text("criteria_sha256")
         val pages = assessment.diagnosticPages.takeIf { GitHubAcceptanceDiagnostics.validPages(it) && it.first().text("criteria_sha256") == digest }
         val rows = (pages ?: listOf(projection)).flatMap { (it["criteria"] as JsonArray).filterIsInstance<JsonObject>() }
         val total = projection.number("criterion_count") ?: rows.size
         return buildList {
-            add("schema=github.acceptance-diagnostics.v1 · verification=${assessment.verification} · total=$total · included=${rows.size} · omitted=${total - rows.size} · pages=${pages?.size ?: 1} · criteria_sha256=$digest")
+            add(
+                buildJsonObject {
+                    put("schema", "github.acceptance-summary.v1")
+                    put("verification", assessment.verification)
+                    put("total", total)
+                    put("included", rows.size)
+                    put("omitted", total - rows.size)
+                    put("pages", pages?.size ?: 1)
+                    put("criteria_sha256", digest)
+                    put("scope", "REQUEST_ACCEPTANCE")
+                }.toString()
+            )
             rows.sortedBy { if (it["required"] == JsonPrimitive(true) && it.text("state") != "PASS") 0 else 1 }.forEach { row ->
-                val counts = (row["evidence_class_counts"] as JsonObject).filterValues { (it as? JsonPrimitive)?.intOrNull?.let { count -> count > 0 } == true }
-                val operation = row.text("operation").ifBlank { if (row.text("category") == "API_OPERATION") "UNRESOLVED_OPERATION" else "NOT_APPLICABLE" }
-                add("criterion=${row["ordinal"]} · id_sha256=${row.text("id_sha256")} · kind=${row.text("kind")} · category=${row.text("category")} · label=${row.text("label")} · operation=$operation · required=${row["required"]} · applicability=${row.text("applicability").ifBlank { "NOT_RECORDED" }} · authorization=${row.text("authorization").ifBlank { "UNKNOWN" }} · availability=${row.text("availability").ifBlank { "UNKNOWN" }} · attempted=${row["attempted"] ?: "NOT_RECORDED"} · state=${row.text("state")} · blocker=${row.text("blocker")} · next_action=${row.text("next_action")} · evidence_count=${row["evidence_receipt_count"]} · evidence_classes=${JsonObject(counts)} · criterion_sha256=${GitHubEvidenceBook.digest(row.toString())} · criteria_sha256=$digest")
+                add(
+                    buildJsonObject {
+                        put("schema", "github.acceptance-criterion.v1")
+                        put("criterion", row)
+                        put("criterion_sha256", GitHubEvidenceBook.digest(row.toString()))
+                        put("criteria_sha256", digest)
+                        put("scope", if (row.text("kind") == "CAPABILITY") "INTEGRATION_CAPABILITY" else "TASK_REQUIREMENT")
+                    }.toString()
+                )
             }
         }
     }

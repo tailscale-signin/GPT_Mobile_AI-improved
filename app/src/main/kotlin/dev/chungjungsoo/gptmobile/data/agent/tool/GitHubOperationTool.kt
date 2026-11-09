@@ -945,7 +945,7 @@ internal class GitHubOperationTool(
                     properties["per_page"] = integer(1, 100, default = 30)
                 }
                 "github_issue" -> {
-                    properties["action"] = choice("list", "headers", "context", "comments", "history", "create", "update")
+                    properties["action"] = JsonObject(choice("list", "headers", "context", "comments", "history", "create", "update") + ("description" to JsonPrimitive("Use list to discover issues. headers/context/comments/history read one observed issue and require issue_number; state=open alone is a list filter.")))
                     properties["issue_number"] = buildJsonObject {
                         put("type", "integer")
                         put("minimum", 1)
@@ -971,7 +971,7 @@ internal class GitHubOperationTool(
                 "github_pr" -> "Canonical pull-request tool (also known as github_pull_request). Start with {\"action\":\"list\"} when the PR number is unknown. For one known PR use {\"action\":\"context\",\"pull_number\":<observed positive number>}. Use list to discover pull_number. Prefer headers for title/state/head/base only; it uses a minimal API field selection with no bodies or threads. Use context for files/checks and include_health=true for merge readiness. Use github_watch_checks once for ongoing CI; do not repeatedly poll from the model. Writes require the current expected head SHA."
                 "github_ci" -> "For repository summaries, inspect the selected branch/head and recent relevant runs; traverse full history only when requested. Discover workflows, then runs (100/page), then jobs using run_id. job/logs require job_id; artifacts requires run_id. status inspects run_id/job_id or selected commit/ref checks. Empty collections are valid. definitions reads pinned YAML outlines. Logs use start_line/end_line/start_offset continuations. dispatch requires a discovered workflow_id and explicit ref; a run_id is not a workflow_id. rerun/rerun_failed_jobs retries failed jobs only; rerun_all retries the full completed run. Never cancel an active run to force a retry. Follow continuation_call exactly."
                 "github_watch_checks" -> "Watch pr_number and/or run_id at its exact head. Omit wait_timeout_seconds for background updates in a saved chat; supply 1..30 for bounded inline reads and polling, returning an observed outcome or pending timeout without creating a subscription. Optional follow_pr=true follows new PR revisions."
-                "github_issue" -> "List issues (PRs excluded). Prefer headers for title/state/updated_at without bodies or comments; use context/comments/history only when those details are needed. Create/update requires exact approval; update needs expected_updated_at. Timeline is not a full body-edit history."
+                "github_issue" -> "Discover issues with action=list and optional state=open (PRs excluded). action=headers reads ONE observed issue and requires issue_number; it is not an inventory or listing action. After listing, use headers for title/state/updated_at, or context/comments/history when needed. Create/update requires exact approval; update needs expected_updated_at. Timeline is not a full body-edit history."
                 else -> "Inspect release notes (detail), tags/annotations (tag), paginated tags/list, create_tag or explicitly publish the selected release."
             } + when (operation) {
                 // The shared GitHub tool instruction already requires verbatim continuation_call.

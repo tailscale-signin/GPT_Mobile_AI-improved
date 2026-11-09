@@ -22,6 +22,7 @@ class PublicProgressParser {
     private var pending = ""
     private var inside = false
     val hasPendingText: Boolean get() = pending.isNotEmpty()
+    val insideProgress: Boolean get() = inside
 
     fun reset() {
         pending = ""

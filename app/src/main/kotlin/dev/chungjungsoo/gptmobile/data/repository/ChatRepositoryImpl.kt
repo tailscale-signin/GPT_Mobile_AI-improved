@@ -4629,7 +4629,8 @@ class ChatRepositoryImpl(
         resumeToolBudget: Boolean,
         toolCallsAlreadyUsed: Int?,
         reviewEvidence: dev.chungjungsoo.gptmobile.data.github.GitHubReviewEvidence?,
-        verifiedEvidence: dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook?
+        verifiedEvidence: dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook?,
+        outputContinuation: dev.chungjungsoo.gptmobile.data.agent.GitHubOutputContinuationSession?
     ): dev.chungjungsoo.gptmobile.data.agent.AgentRunner {
         val githubTask = verifiedEvidence != null || chatToolConfig?.github != null
         val remainingTaskMillis = verifiedEvidence?.remainingTaskMillis()
@@ -4686,7 +4687,8 @@ class ChatRepositoryImpl(
                 }
             } else {
                 null
-            }
+            },
+            onToolResultCommitted = outputContinuation?.let { continuation -> { call, result -> continuation.observeToolResult(call, result) } }
         )
     }
 
@@ -5491,6 +5493,19 @@ class ChatRepositoryImpl(
                         (receipts[id]?.get("call_id") as? kotlinx.serialization.json.JsonPrimitive)?.content
                     }
                 },
+                durableToolReceipts = { fingerprints ->
+                    dispatchAuthority.validate()
+                    check(validateSavedEvidence())
+                    dev.chungjungsoo.gptmobile.data.agent.ToolBatchCheckpoint.forTurn(
+                        context.filesDir,
+                        latestUser.chatId,
+                        "${latestUser.chatId}:${toolBudgetSourceMessageId ?: latestUser.id}:${platform.uid}:${dispatchAuthority.revision}",
+                        persistent = agentPersistenceDao.getChatRoom(latestUser.chatId)?.isTemporary == false
+                    ).handoffReceipts(fingerprints)
+                },
+                publishProgress = { text, lineage ->
+                    send(ApiState.ProgressCheckpoint(text, modelAuthored = true, invocationId = lineage.invocationId))
+                },
                 readCheckpoint = {
                     dispatchAuthority.validate()
                     check(validateSavedEvidence())
@@ -5704,7 +5719,8 @@ class ChatRepositoryImpl(
             platform, latestUser, chatToolConfig, contextPlan, limits, budgetSettings, customRunner,
             delegationSettings, effectiveTools, githubEffectiveTask, resolvedOutputCap, reservedFinalToolCalls,
             toolBudgetSourceMessageId, dispatchAuthority, catalog, retryUndispatchedBudgetFailures,
-            resumeToolBudget, toolCallsAlreadyUsed, reviewEvidence, verifiedEvidence
+            resumeToolBudget, toolCallsAlreadyUsed, reviewEvidence, verifiedEvidence,
+            githubContinuedSession as? dev.chungjungsoo.gptmobile.data.agent.GitHubOutputContinuationSession
         ).run(advertisedSession, executableTools, dynamicTools = { effectiveTools.flatMap { it.dynamicTools?.invoke().orEmpty() }.map(::bindGitHubTarget) }, selectDefinitions = { definitions -> catalog?.selected(definitions) ?: definitions })
         try {
             streamAgentEvents(agentEvents, platform, runId, resolvedTools.size, trace, chatToolConfig?.combined != null, resolvedOutputCap, dispatchAuthority, githubChat = chatToolConfig?.github != null).collect { send(it) }

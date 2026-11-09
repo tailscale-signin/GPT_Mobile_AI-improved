@@ -213,9 +213,9 @@ fun HomeScreen(
     val lifecycleState by lifecycleOwner.lifecycle.currentStateFlow.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
-    val selectedChatCount = chatListState.selectedChats.count { it }
-    val selectedChat = chatListState.chats.filterIndexed { index, _ -> chatListState.selectedChats.getOrElse(index) { false } }.singleOrNull()
-    val selectedRooms = chatListState.chats.filter { it.id in chatListState.selectedChatIds }
+    val selectedRooms = remember(chatListState.chats, chatListState.selectedChatIds) { chatListState.chats.filter { it.id in chatListState.selectedChatIds } }
+    val selectedChatCount = selectedRooms.size
+    val selectedChat = selectedRooms.singleOrNull()
     val duplicatedChatMessage = stringResource(R.string.duplicated_chat)
     val deletedChatsMessage = stringResource(R.string.deleted_chats, selectedChatCount)
     val archiveSnackbarState = remember { SnackbarHostState() }

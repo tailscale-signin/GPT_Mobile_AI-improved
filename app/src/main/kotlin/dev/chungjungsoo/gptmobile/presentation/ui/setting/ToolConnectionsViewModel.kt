@@ -522,7 +522,12 @@ class ToolConnectionsViewModel @Inject constructor(
                             discardMcpProbe(probe)
                             return@launch
                         }
-                        val health = runCatching { resolver.discoverMcpTools(connection, forceRefresh = force, awaitCompletion = true) }
+                        val health = runCatching {
+                            val trigger = if (force) dev.chungjungsoo.gptmobile.data.agent.tool.McpDiscoveryTrigger.USER_RECONNECT else dev.chungjungsoo.gptmobile.data.agent.tool.McpDiscoveryTrigger.AUTOMATIC_HEALTH
+                            kotlinx.coroutines.withContext(dev.chungjungsoo.gptmobile.data.agent.tool.McpDiscoveryContext(trigger)) {
+                                resolver.discoverMcpTools(connection, forceRefresh = force, awaitCompletion = true)
+                            }
+                        }
                             .fold(
                                 onSuccess = { tools ->
                                     if (tools.isEmpty()) {

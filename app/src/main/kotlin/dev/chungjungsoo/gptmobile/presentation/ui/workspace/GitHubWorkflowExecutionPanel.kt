@@ -35,11 +35,12 @@ internal fun GitHubWorkflowExecutionPanel(
     state: GitHubProgrammerState,
     onRecovery: (GitHubRecoveryRequest) -> Unit,
     onExport: () -> Unit,
-    model: GitHubWorkflowViewModel = hiltViewModel()
+    model: GitHubWorkflowViewModel = hiltViewModel(),
+    approvalPending: Boolean = false
 ) {
     LaunchedEffect(state.chatId) { model.bind(state.chatId) }
     val evidence by model.evidence.collectAsStateWithLifecycle()
-    GitHubWorkflowExecutionContent(state, evidence, onRecovery, onExport)
+    GitHubWorkflowExecutionContent(state, evidence, onRecovery, onExport, approvalPending)
 }
 
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
@@ -48,7 +49,8 @@ internal fun GitHubWorkflowExecutionContent(
     state: GitHubProgrammerState,
     evidence: GitHubWorkflowEvidence,
     onRecovery: (GitHubRecoveryRequest) -> Unit,
-    onExport: () -> Unit
+    onExport: () -> Unit,
+    approvalPending: Boolean = false
 ) {
     val latestMessageRun = state.messages.lastOrNull { it.currentRunId != null }?.currentRunId
     val run = state.runs.firstOrNull { it.runId == latestMessageRun }
@@ -76,13 +78,27 @@ internal fun GitHubWorkflowExecutionContent(
                     Text("${group.label}: ${group.observed} operations · ${group.completed} completed · ${group.failed} failed", style = MaterialTheme.typography.bodySmall)
                 }
                 if (!snapshot.eventWindowComplete) Text("Activity shows ${snapshot.observedOperations} of ${state.eventCountsByRun[snapshot.runId] ?: 0} recorded operations for this run.", style = MaterialTheme.typography.bodySmall)
-                if (snapshot.recovery.isNotEmpty() || snapshot.failureCategory != null) Text(snapshot.recoveryExplanation, style = MaterialTheme.typography.bodySmall)
+                if (approvalPending) {
+                    Text("Review the existing proposed changes card in Chat before continuing this work.", style = MaterialTheme.typography.bodySmall)
+                } else if (snapshot.recovery.isNotEmpty() || snapshot.failureCategory != null) {
+                    Text(snapshot.recoveryExplanation, style = MaterialTheme.typography.bodySmall)
+                }
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     snapshot.recovery.forEach { action ->
                         OutlinedButton(
                             onClick = { state.chatId?.let { onRecovery(GitHubRecoveryRequest(it, snapshot.runId, action)) } },
-                            enabled = state.chatId != null && state.approvals.isEmpty() && !state.submitting && state.pending.isEmpty()
-                        ) { Text(if (action == TaskRecoveryAction.CONTINUE_RUN) "Resume" else "Retry failed stage") }
+                            enabled = state.chatId != null && !approvalPending && state.approvals.isEmpty() && !state.submitting && state.pending.isEmpty()
+                        ) {
+                            Text(
+                                if (action == TaskRecoveryAction.CONTINUE_RUN && snapshot.reconciliationRequired) {
+                                    "Reconcile saved results"
+                                } else if (action == TaskRecoveryAction.CONTINUE_RUN) {
+                                    "Resume"
+                                } else {
+                                    "Retry failed stage"
+                                }
+                            )
+                        }
                     }
                     TextButton(onClick = { details = true }) { Text("View details") }
                 }

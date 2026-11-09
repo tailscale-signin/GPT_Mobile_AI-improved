@@ -125,7 +125,9 @@ class GitHubApprovalRecoveryTest {
             put("execution", buildJsonObject { put("accepted_mutations", acceptedMutations) })
         }
         assertEquals(GitHubExecutionLedger.ObservationKind.REMOTE_API_SUCCESS, GitHubExecutionLedger.observationKind(observation("LIVE")))
-        assertEquals(GitHubExecutionLedger.ObservationKind.MUTATION_COMPLETED, GitHubExecutionLedger.observationKind(observation("LIVE", acceptedMutations = 1)))
+        assertEquals(GitHubExecutionLedger.ObservationKind.MUTATION_ACCEPTED, GitHubExecutionLedger.observationKind(observation("LIVE", acceptedMutations = 1)))
+        val verifiedMutation = JsonObject(observation("LIVE", buildJsonObject { put("receipt_verified", true) }, acceptedMutations = 1) + ("remote_mutation" to JsonPrimitive(true)))
+        assertEquals(GitHubExecutionLedger.ObservationKind.MUTATION_VERIFIED, GitHubExecutionLedger.observationKind(verifiedMutation))
         assertEquals(GitHubExecutionLedger.ObservationKind.CACHE_HIT, GitHubExecutionLedger.observationKind(observation("CACHED")))
         assertEquals(GitHubExecutionLedger.ObservationKind.LOCAL_RESULT, GitHubExecutionLedger.observationKind(observation("LOCAL")))
         assertEquals(GitHubExecutionLedger.ObservationKind.SUPPRESSED, GitHubExecutionLedger.observationKind(observation("LOCAL", buildJsonObject { put("schema", "github.repeat.v1") })))

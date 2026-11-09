@@ -228,7 +228,9 @@ internal class AppAuditPluginServices @Inject constructor(
         recoveryBlock(connection, configurationRevision)?.let { return it }
         val startedAt = System.currentTimeMillis()
         return try {
-            val tools = resolver.discoverMcpTools(connection, forceRefresh = true, awaitCompletion = true)
+            val tools = kotlinx.coroutines.withContext(dev.chungjungsoo.gptmobile.data.agent.tool.McpDiscoveryContext(dev.chungjungsoo.gptmobile.data.agent.tool.McpDiscoveryTrigger.AUDIT_REFRESH)) {
+                resolver.discoverMcpTools(connection, forceRefresh = true, awaitCompletion = true)
+            }
             val stableRevision = configurationRevision?.takeIf { it == mcpConfigurationRevision(connection, secretVault) }
             AppAuditObservation(
                 AppAuditOutcome.PASS,

@@ -84,7 +84,7 @@ data class ProviderFailureReceipt(
             val classified = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.fromProvider(failure.message, failure.errorCode, failure.failureDetails)
             val stage = when {
                 classified.dispatched == false && failedStage in setOf("provider_admission", "connection_preflight", "backend_admission", "request_validation", "message_admission") -> ProviderFailureStage.ADMISSION
-                failedStage == "tool_continuation" -> ProviderFailureStage.CONTINUATION
+                failedStage in setOf("tool_continuation", "tool_reconciliation") || code == "OUTPUT_CONTINUATION_PENDING_TOOLS" -> ProviderFailureStage.CONTINUATION
                 failedStage == "gateway_recovery" -> ProviderFailureStage.DELIVERY
                 role.endsWith("-preflight") || failedStage == "review_compatibility" || code == "GITHUB_REVIEW_INCOMPATIBLE" -> ProviderFailureStage.REVIEW_COMPATIBILITY
                 role.startsWith("github-review") || code.startsWith("GITHUB_REVIEW_") -> ProviderFailureStage.ANSWER_REVIEW

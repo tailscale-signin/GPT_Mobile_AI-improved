@@ -64,6 +64,7 @@ internal class GitHubResultViews(
         if (bytes > MAX_SOURCE_BYTES) return compressed(scope, upstream, operation, modelName, value, request, pageBytes, display)
         val continuations = mutableListOf<JsonObject>()
         val body = retainContinuations(value, "", operation, modelName, request, continuations)
+        val summary = (value as? JsonObject)?.let { dev.chungjungsoo.gptmobile.data.github.GitHubSemanticSummary.from(operation, request, it) }
         val displayBody = if (display == value) body else retainContinuations(display, "", operation, modelName, request, mutableListOf())
         val id = UUID.randomUUID().toString()
         val sourceRecovery = immutableRecovery(operation, modelName, request, value)
@@ -72,6 +73,7 @@ internal class GitHubResultViews(
             put("operation", operation)
             put("local_page_complete", true)
             put("data", displayBody)
+            summary?.let { put("semantic_summary", it) }
             if (display != value) put("original_available_via_recovery", true)
             put("recovery_call", savedCall(modelName, "$id:0:${recoveryPageBytes(pageBytes)}"))
             put("recovery_options", savedOptions(modelName, id, 0, pageBytes, MIN_RECOVERY_PAGE_BYTES))
@@ -123,16 +125,15 @@ internal class GitHubResultViews(
             authorize(entry, small)
             return upstream.copy(
                 content = ToolResultContent.Json(small),
-                executionReceipt = if (upstream.retainedContent == null) {
-                    upstream.executionReceipt
-                } else {
-                    JsonObject(
-                        upstream.executionReceipt.orEmpty() + buildJsonObject {
+                executionReceipt = JsonObject(
+                    upstream.executionReceipt.orEmpty() + buildJsonObject {
+                        summary?.let { put("semantic_summary", it) }
+                        if (upstream.retainedContent != null) {
                             put("retained_original_complete", true)
                             put("retained_remote_continuations", JsonArray(continuations))
                         }
-                    )
-                }
+                    }
+                )
             )
         }
         val first = page(id, entry, 0, modelName)
@@ -144,6 +145,7 @@ internal class GitHubResultViews(
         val completeRecipes = continuations.size <= 128 && retainedRecipes.toString().encodeToByteArray().size <= 64 * 1024
         val receipt = JsonObject(
             upstream.executionReceipt.orEmpty() + buildJsonObject {
+                summary?.let { put("semantic_summary", it) }
                 put("retained_original_complete", completeRecipes)
                 if (completeRecipes) put("retained_remote_continuations", retainedRecipes)
             }

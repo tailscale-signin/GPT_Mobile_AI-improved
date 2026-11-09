@@ -35,10 +35,11 @@ internal fun diagnosticExecutionEvidence(fields: JsonObject, eventName: String):
     }
     val failed = fields.diagnosticText("status") in setOf("FAILED", "PARTIAL", "BLOCKED", "EVIDENCE_MISSING", "NOT_DISPATCHED")
     val reasonIsFailure = eventName in setOf("INFERENCE_PRECHECK_REJECTED", "INVOCATION_FAILED") || eventName == "RUN_TERMINAL" && failed
-    val code = fields.diagnosticText("errorCode") ?: fields.diagnosticText("failureCode")
+    val code = fields.diagnosticText("errorCode") ?: fields.diagnosticText("error_code") ?: fields.diagnosticText("failureCode")
         ?: fields.diagnosticText("reason").takeIf { reasonIsFailure }
         ?: fields.diagnosticText("code").takeIf { eventName == "ADMISSION_READ" }
         ?: fields.diagnosticText("admissionCode").takeIf { eventName == "CLIENT_EXCHANGE" }
+        ?: fields.diagnosticText("transport").takeIf { eventName == "CLIENT_EXCHANGE" }
         ?: receipt?.diagnosticText("reasonCode")
     return DiagnosticExecutionEvidence(
         errorCode = code,
@@ -56,7 +57,7 @@ internal fun diagnosticCorrelation(fields: JsonObject, eventMessage: String, tag
     fun id(value: String?) = value?.takeIf(diagnosticIdentifier::matches)
     val receipt = fields["receipt"] as? JsonObject
     return DiagnosticCorrelation(
-        runId = id(fields.diagnosticText("runId") ?: fields.diagnosticText("parentRunId") ?: fields.diagnosticText("run")),
+        runId = id(fields.diagnosticText("runId") ?: fields.diagnosticText("run_id") ?: fields.diagnosticText("parentRunId") ?: fields.diagnosticText("run")),
         invocationId = id(
             fields.diagnosticText("invocationId") ?: fields.diagnosticText("invocation_id") ?: receipt?.diagnosticText("invocationId")
                 ?: modelInvocationLabel.find(eventMessage)?.groupValues?.get(1).takeIf { tag == "Model" }

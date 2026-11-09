@@ -1726,6 +1726,7 @@ class GitHubTool(
         val existingText = existingResponse.bodyAsText()
         if (existingResponse.status.isSuccess()) return existingBranchResult(callId, branch, sha, jsonParser.parseToJsonElement(existingText).jsonObject, arguments)
         if (existingResponse.status.value != 404) return classifyGitHubHttpFailure(callId, "create_branch", arguments, existingResponse, existingText)
+        workspaceClient.prepareFixtureCreation(JsonObject(arguments + mapOf("branch" to JsonPrimitive(branch), "base" to JsonPrimitive(base))))
         val response = writeGitHubApi(
             "$BASE_URL/repos/$owner/$repo/git/refs",
             HttpMethod.Post,

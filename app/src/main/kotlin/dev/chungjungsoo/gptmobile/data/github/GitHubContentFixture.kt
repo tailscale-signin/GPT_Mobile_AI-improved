@@ -142,8 +142,20 @@ internal object GitHubContentFixture {
         it.modelVisible && it.name.substringBefore("__") == recipe.tool && ToolArgumentValidator.errors(recipe.arguments, it.inputSchema).isEmpty()
     }
 
-    fun available(tools: List<AgentToolDefinition>, branch: String, source: String, sha: String): Boolean =
-        (listOf(creation(branch, source, sha), write(branch, sha), stage(branch, sha), commit(branch, sha, "fixture-stage"), cleanup(branch, sha, sha)) + evidence(branch, sha, sha, false)).all { tool(it, tools) != null }
+    fun available(tools: List<AgentToolDefinition>, branch: String, source: String, sha: String): Boolean {
+        val recovery = Recipe(
+            "github_context",
+            buildJsonObject {
+                put("action", "recovery")
+                put("fixture_plan", GitHubOwnedFixtures.PLAN)
+                put("branch", branch)
+                put("base_sha", sha)
+                put("commit_sha", sha)
+                put("verify_live", true)
+            }
+        )
+        return (listOf(creation(branch, source, sha), write(branch, sha), stage(branch, sha), commit(branch, sha, "fixture-stage"), cleanup(branch, sha, sha), recovery) + evidence(branch, sha, sha, false)).all { tool(it, tools) != null }
+    }
 
     private fun prior(recipe: Recipe, observations: List<JsonObject>): JsonObject? {
         val matching = observations.filter { GitHubActionIdentity.matches(recipe.tool, recipe.arguments, it) }
@@ -366,6 +378,38 @@ internal object GitHubContentFixture {
             put("ownership_verified", ownership)
             put("content_verified", complete)
             put("final_state_verified", cleaned)
+            put("purpose", "BOUNDED_SYNTHETIC_CONTENT_INTEGRATION_TEST")
+            put("owner_task_binding", creation["binding"] ?: JsonPrimitive("unknown"))
+            put(
+                "lifecycle_state",
+                if (cleaned) {
+                    "REMOVED_VERIFIED"
+                } else if (ownership && approvals.isNotEmpty()) {
+                    "DELIBERATELY_RETAINED"
+                } else {
+                    "CLEANUP_PENDING"
+                }
+            )
+            put(
+                "lifecycle_reason",
+                when {
+                    cleaned -> "REMOTE_REF_ABSENCE_VERIFIED"
+                    !ownership -> "OWNERSHIP_NOT_ESTABLISHED"
+                    approvals.isNotEmpty() -> "EXACT_PATCH_APPROVAL_PENDING"
+                    cleanup != null -> "CLEANUP_ATTEMPT_NOT_VERIFIED"
+                    else -> "LIFECYCLE_IN_PROGRESS_OR_INTERRUPTED"
+                }
+            )
+            put(
+                "next_action",
+                if (cleaned) {
+                    "NONE"
+                } else if (approvals.isNotEmpty()) {
+                    "APPROVE_OR_CANCEL_EXISTING_PATCH"
+                } else {
+                    "RECONCILE_OWNED_HEAD_THEN_AUTHORIZED_CLEANUP"
+                }
+            )
             put(
                 "cleanup_status",
                 if (!ownership) {

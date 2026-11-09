@@ -12,6 +12,21 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class BoundedDiagnosticPendingQueueTest {
+    @Test fun exportSnapshotPreservesTheLiveConsumersOrderAndDoesNotStealOrDuplicateQueuedRecords() {
+        val queue = BoundedDiagnosticPendingQueue<String>()
+        queue.offer("ordinary-first", 100, false)
+        queue.offer("critical", 100, true)
+        queue.offer("ordinary-second", 100, false)
+        val captured = queue.snapshot()
+        assertEquals(listOf("critical", "ordinary-first", "ordinary-second"), captured)
+        assertEquals(3, queue.size)
+        assertEquals("critical", queue.poll())
+        queue.offer("later", 100, false)
+        assertEquals(listOf("ordinary-first", "ordinary-second", "later"), queue.drainBatch())
+        assertEquals(listOf("critical", "ordinary-first", "ordinary-second"), captured)
+        assertEquals(0, queue.size)
+    }
+
     @Test fun ordinaryBurstCannotEvictCriticalEvidenceAndOverflowCountsEveryLoss() {
         var ordinaryDrops = 0
         var criticalDrops = 0

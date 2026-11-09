@@ -331,73 +331,102 @@ object AppLogRecorder {
         check(directory.mkdirs() || directory.isDirectory)
         val snapshotDirectory = File(directory, "log-snapshot-${java.util.UUID.randomUUID()}")
         check(snapshotDirectory.mkdir())
+        val opened = mutableListOf<DiagnosticLogFiles.FrozenSource>()
         try {
-            synchronized(fileLock) snapshot@{
+            val failures = mutableMapOf<String, String>()
+            val boundary = synchronized(fileLock) {
+                val epoch = captureEpoch.get()
+                val enabled = mutableEnabled.value
                 if (privateSessions.isNotEmpty()) {
-                    return@snapshot DiagnosticLogSnapshot(
-                        emptyList(),
-                        capturedAt,
-                        mutableEnabled.value,
-                        droppedRecords.get(),
-                        "PRIVATE_SESSION",
-                        snapshotDirectory = snapshotDirectory,
-                        droppedCriticalRecords = droppedCriticalRecords.get()
-                    )
+                    return@synchronized LogCaptureBoundary(epoch, enabled, droppedRecords.get(), droppedCriticalRecords.get(), emptyList())
                 }
-                val failures = mutableMapOf<String, String>()
-                if (mutableEnabled.value) {
+                // Flush only coalesced metadata into the existing bounded queue. The
+                // writer keeps ownership of those records; export never fsyncs it.
+                if (enabled) {
                     coalescer.drain().forEach { (tag, message, level) ->
-                        runCatching { persistEntry(AppLogEntry(System.currentTimeMillis(), level, tag, message)) }
-                            .onFailure {
-                                failures["pending-records"] = "SOURCE_WRITE_FAILED"
-                                mutableError.value = "Unable to save logs. Check available storage."
-                            }
+                        val entry = AppLogEntry(System.currentTimeMillis(), level, tag, message)
+                        queue.offer(epoch to entry, message.length + tag.length + 256, criticalDiagnosticRecord(tag, message, level))
                     }
-                    var drained = 0
-                    while (drained++ < QUEUE_RECORD_LIMIT) {
-                        val pending = queue.poll() ?: break
-                        if (pending.first == captureEpoch.get()) {
-                            runCatching { persistEntry(pending.second) }
-                                .onFailure {
-                                    failures["pending-records"] = "SOURCE_WRITE_FAILED"
-                                    mutableError.value = "Unable to save logs. Check available storage."
-                                }
+                }
+                listOf("critical-previous.log", "critical.log", "previous.log", "current.log").forEach { name ->
+                    val source = File(owner.filesDir, "diagnostics/$name")
+                    if (source.isFile) {
+                        try {
+                            opened += DiagnosticLogFiles.freeze(source)
+                        } catch (_: java.io.IOException) {
+                            failures[name] = "SOURCE_READ_FAILED"
                         }
                     }
                 }
-                val sources = listOf("critical-previous.log", "critical.log", "previous.log", "current.log").mapNotNull { name ->
-                    val source = File(owner.filesDir, "diagnostics/$name")
-                    if (!source.isFile) return@mapNotNull null
-                    val target = File(snapshotDirectory, name)
-                    val limit = when {
-                        name.startsWith("critical") -> DiagnosticLogFiles.CRITICAL_FILE_BYTES
-                        reducedMemory -> DiagnosticLogFiles.REDUCED_RECENT_FILE_BYTES
-                        else -> DiagnosticLogFiles.RECENT_FILE_BYTES
-                    }
-                    try {
-                        DiagnosticLogFiles.copyTail(source, target, limit)
-                    } catch (_: java.io.IOException) {
-                        target.delete()
-                        failures[name] = "SOURCE_READ_FAILED"
-                        null
-                    }
-                }
-                val omission = if (sources.any { it.recordCount > 0 }) {
-                    null
-                } else if (failures.isNotEmpty()) {
-                    failures.values.first()
-                } else if (!mutableEnabled.value) {
-                    "TRACKING_DISABLED_NO_RETAINED_LOGS"
-                } else {
-                    "NO_RETAINED_LOGS"
-                }
-                DiagnosticLogSnapshot(sources, capturedAt, mutableEnabled.value, droppedRecords.get(), omission, failures, snapshotDirectory, droppedCriticalRecords = droppedCriticalRecords.get())
+                LogCaptureBoundary(epoch, enabled, droppedRecords.get(), droppedCriticalRecords.get(), queue.snapshot().filter { it.first == epoch }.map { it.second })
             }
+            fun requireCurrentCapture() {
+                check(boundary.epoch == captureEpoch.get() && privateSessions.isEmpty()) { "DIAGNOSTIC_CAPTURE_REVOKED" }
+            }
+            requireCurrentCapture()
+            val sources = opened.mapNotNull { source ->
+                requireCurrentCapture()
+                val target = File(snapshotDirectory, source.name)
+                val limit = when {
+                    source.name.startsWith("critical") -> DiagnosticLogFiles.CRITICAL_FILE_BYTES
+                    reducedMemory -> DiagnosticLogFiles.REDUCED_RECENT_FILE_BYTES
+                    else -> DiagnosticLogFiles.RECENT_FILE_BYTES
+                }
+                try {
+                    DiagnosticLogFiles.copyTail(source, target, limit)
+                } catch (_: java.io.IOException) {
+                    target.delete()
+                    failures[source.name] = "SOURCE_READ_FAILED"
+                    null
+                }
+            }.toMutableList()
+            // Pending records were frozen with the disk lengths. Later appends
+            // cannot enter those prefixes, so adding them here neither loses nor
+            // duplicates the live writer's queued work.
+            for (critical in listOf(true, false)) {
+                val pending = boundary.pending.filter { !critical || criticalDiagnosticRecord(it.tag, it.message, it.level) }
+                if (pending.isEmpty()) continue
+                requireCurrentCapture()
+                val name = if (critical) "critical.log" else "current.log"
+                val index = sources.indexOfFirst { it.name == name }
+                val previous = sources.getOrNull(index)
+                val target = File(snapshotDirectory, name)
+                try {
+                    var records = 0L
+                    java.io.FileOutputStream(target, true).bufferedWriter(Charsets.UTF_8).use { writer ->
+                        pending.forEach { entry ->
+                            requireCurrentCapture()
+                            entry.line().lineSequence().forEach { line ->
+                                writer.append(redactLogMessage(line)).append('\n')
+                                records++
+                            }
+                        }
+                    }
+                    val updated = DiagnosticLogSource(name, target, (previous?.recordCount ?: 0) + records, target.length(), previous?.skippedSourceBytes ?: 0, previous?.truncatedRecords ?: 0)
+                    if (index < 0) sources += updated else sources[index] = updated
+                } catch (_: java.io.IOException) {
+                    target.delete()
+                    if (index >= 0) sources.removeAt(index)
+                    failures["pending-records"] = "SOURCE_WRITE_FAILED"
+                }
+            }
+            requireCurrentCapture()
+            val omission = when {
+                sources.any { it.recordCount > 0 } -> null
+                failures.isNotEmpty() -> failures.values.first()
+                !boundary.enabled -> "TRACKING_DISABLED_NO_RETAINED_LOGS"
+                else -> "NO_RETAINED_LOGS"
+            }
+            DiagnosticLogSnapshot(sources, capturedAt, boundary.enabled, boundary.dropped, omission, failures, snapshotDirectory, droppedCriticalRecords = boundary.droppedCritical)
         } catch (failure: Throwable) {
             snapshotDirectory.deleteRecursively()
             throw failure
+        } finally {
+            opened.forEach { runCatching { it.close() } }
         }
     }
+
+    private data class LogCaptureBoundary(val epoch: Long, val enabled: Boolean, val dropped: Long, val droppedCritical: Long, val pending: List<AppLogEntry>)
 
     /** Only one app-log conversion runs at a time; histories remain on disk throughout. */
     fun export(structured: Boolean = false): File? = DiagnosticExportGate.acquire().use {
@@ -443,13 +472,13 @@ object AppLogRecorder {
                             val line = providerFailureLine(failure)
                             val identity = diagnosticEventIdentity(line)
                             val association = incidents.accept(line, identity, null)
-                            writeLine(if (structured) structuredDiagnosticLine(line, "provider_failure", duplicate = !seen.add(identity), captureIdentity = identity, incidentId = association.id, incidentRoot = association.first, exportedAtMillis = exportedAt) else line)
+                            writeLine(if (structured) structuredDiagnosticLine(line, "provider_failure", duplicate = !seen.add(identity), captureIdentity = identity, incidentId = association.id, incidentRoot = association.first, exportedAtMillis = exportedAt, incidentOutcome = association.outcome) else line)
                         }
                         LocalRuntimeIncidentHistory.snapshot().forEach { incident ->
                             val line = runtimeIncidentLine(incident)
                             val identity = diagnosticEventIdentity(line)
                             val association = incidents.accept(line, identity, null)
-                            writeLine(if (structured) structuredDiagnosticLine(line, "runtime_incident_history", duplicate = !seen.add(identity), captureIdentity = identity, incidentId = association.id, incidentRoot = association.first, exportedAtMillis = exportedAt) else line)
+                            writeLine(if (structured) structuredDiagnosticLine(line, "runtime_incident_history", duplicate = !seen.add(identity), captureIdentity = identity, incidentId = association.id, incidentRoot = association.first, exportedAtMillis = exportedAt, incidentOutcome = association.outcome) else line)
                         }
                         snapshot.sources.forEach { sourceFile ->
                             val source = sourceFile.name
@@ -463,7 +492,7 @@ object AppLogRecorder {
                                         duplicate.batch?.let(::writeLine)
                                         if (duplicate.duplicate) return@forEachIndexed
                                     }
-                                    writeLine(if (structured) structuredDiagnosticLine(line, source, record.duplicate, record.parent, record.sequence, record.identity, incident.id, incident.first, exportedAtMillis = exportedAt) else line)
+                                    writeLine(if (structured) structuredDiagnosticLine(line, source, record.duplicate, record.parent, record.sequence, record.identity, incident.id, incident.first, exportedAtMillis = exportedAt, incidentOutcome = incident.outcome) else line)
                                 }
                             }
                         }

@@ -24,7 +24,6 @@ import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticValueProjector
 import dev.chungjungsoo.gptmobile.data.diagnostics.LocalRuntimeIncidentHistory
 import dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics
 import dev.chungjungsoo.gptmobile.data.diagnostics.StagedDiagnosticCapture
-import dev.chungjungsoo.gptmobile.data.diagnostics.redactChatDebugData
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
 import dev.chungjungsoo.gptmobile.data.research.ResearchSessionStore
@@ -86,7 +85,7 @@ internal suspend fun writeStagedChatDiagnostics(
         // A single measured source row may exceed one JSONL record; redact it once, then chunk.
         val maximumSourceCharacters = if (reducedMemory) 256 * 1024 else 1024 * 1024
         val json = Json { encodeDefaults = true }
-        val credentials = profiles.mapNotNull { it.token }
+        val redactor = dev.chungjungsoo.gptmobile.data.diagnostics.ChatDebugRedactor(profiles.mapNotNull { it.token })
         val logs = mutableMapOf<Boolean, DiagnosticLogSnapshot>()
         var publishedFile: File? = null
         fun authorized() {
@@ -99,7 +98,7 @@ internal suspend fun writeStagedChatDiagnostics(
                 checkBudget()
                 // Database cells already share one bounded projector. Do not parse or expand them again.
                 val bounded = if (projected) value else DiagnosticValueProjector(maximumSourceCharacters) { omit(it) }.element(value)
-                val redacted = redactChatDebugData(bounded, credentials).toString()
+                val redacted = redactor.redact(bounded).toString()
                 if (redacted.length <= maximumCharacters / 2) {
                     record(redacted, evidence)
                 } else {
@@ -121,7 +120,7 @@ internal suspend fun writeStagedChatDiagnostics(
                     if (bounded is JsonPrimitive && bounded.content.startsWith("[diagnostic value omitted:")) {
                         null
                     } else {
-                        val redacted = redactChatDebugData(bounded, credentials)
+                        val redacted = redactor.redact(bounded)
                         if (redacted is JsonPrimitive && redacted.isString) redacted.content else redacted.toString()
                     }
                 },
@@ -289,6 +288,7 @@ internal suspend fun writeStagedChatDiagnostics(
             if (journal == null) {
                 sink.omit("RUN_JOURNAL_UNAVAILABLE")
             } else {
+                val runIds = linkedSetOf<String>()
                 database.capture(room.id, "run_index", maximumCharacters, {
                     authorized()
                     sink.checkBudget()
@@ -298,23 +298,29 @@ internal suspend fun writeStagedChatDiagnostics(
                         if (runId == null) {
                             sink.omit("RUN_JOURNAL_ID_UNAVAILABLE")
                         } else {
-                            val coverage = journal.stream(runId, {
-                                authorized()
-                                sink.checkBudget()
-                            }) { sink.emit(json.encodeToJsonElement(it)) }
-                            sink.emit(
-                                buildJsonObject {
-                                    put("kind", "journal_coverage")
-                                    put("runId", runId)
-                                    (json.encodeToJsonElement(coverage) as JsonObject).forEach { (key, value) -> put(key, value) }
-                                },
-                                evidence = false
-                            )
-                            if (coverage.missingBatches > 0 || coverage.missingSequences > 0 || coverage.storageFailed || coverage.unreadableCheckpoints > 0) sink.omit("RUN_JOURNAL_COVERAGE_GAPS")
-                            if (coverage.unknownTailStreams > 0) sink.omit("LEGACY_JOURNAL_TAIL_UNKNOWN")
+                            runIds += runId
                         }
                     }
                 }, { sink.omit(it) })
+                journal.streamRuns(
+                    runIds,
+                    beforeRead = {
+                        authorized()
+                        sink.checkBudget()
+                    },
+                    consume = { sink.emit(json.encodeToJsonElement(it)) }
+                ) { runId, coverage ->
+                    sink.emit(
+                        buildJsonObject {
+                            put("kind", "journal_coverage")
+                            put("runId", runId)
+                            (json.encodeToJsonElement(coverage) as JsonObject).forEach { (key, value) -> put(key, value) }
+                        },
+                        evidence = false
+                    )
+                    if (coverage.missingBatches > 0 || coverage.missingSequences > 0 || coverage.storageFailed || coverage.unreadableCheckpoints > 0) sink.omit("RUN_JOURNAL_COVERAGE_GAPS")
+                    if (coverage.unknownTailStreams > 0) sink.omit("LEGACY_JOURNAL_TAIL_UNKNOWN")
+                }
             }
         }
         stages += DiagnosticCaptureStage("timeline", "timeline.jsonl", refreshOnResume = true) { sink ->

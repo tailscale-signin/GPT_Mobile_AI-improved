@@ -6,6 +6,30 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DiagnosticIncidentTrackerTest {
+    @Test fun gatewayRetryAttemptsAndFinalMetadataOutcomeHaveOneIncidentWithoutErasingTheObservedFailure() {
+        val id = "a".repeat(32)
+        val rows = listOf(
+            "2026-11-09T12:00:00Z I/Gateway: CLIENT_EXCHANGE · incident_id=$id · transport=STREAM_INTERRUPTED · retry_attempt=0",
+            "2026-11-09T12:00:01Z I/Gateway: CLIENT_EXCHANGE · incident_id=$id · transport=CONNECT_TIMEOUT · retry_attempt=1",
+            "2026-11-09T12:00:02Z I/Gateway: METADATA_READ_OUTCOME · incident_id=$id · operation_id=$id · outcome=COMPLETED · retry_attempt=1 · selectedModelReadiness=not_inferred"
+        )
+        val tracker = DiagnosticIncidentTracker()
+        rows.forEachIndexed { index, line -> tracker.index(line, "event-$index", null) }
+        tracker.finishIndex()
+        val associations = rows.mapIndexed { index, line -> tracker.accept(line, "event-$index", null) }
+        assertEquals(listOf(id), associations.map { it.id }.distinct())
+        assertEquals(listOf(true, false, false), associations.map { it.first })
+        assertTrue(associations.all { it.outcome == "RECOVERED_METADATA_READ" })
+        val record = kotlinx.serialization.json.Json.parseToJsonElement(structuredDiagnosticLine(rows.first(), incidentId = id, incidentRoot = true, incidentOutcome = associations.first().outcome)) as kotlinx.serialization.json.JsonObject
+        assertEquals(kotlinx.serialization.json.JsonPrimitive(true), record["observedFailure"])
+        assertEquals(kotlinx.serialization.json.JsonPrimitive(true), record["countAsIssue"])
+        assertEquals(kotlinx.serialization.json.JsonPrimitive(false), record["unresolvedIssue"])
+        assertEquals(kotlinx.serialization.json.JsonPrimitive("RECOVERED_METADATA_READ"), record["incidentOutcome"])
+        val other = tracker.accept(rows.first().replace(id, "b".repeat(32)), "different-read", null)
+        assertTrue(other.first)
+        assertEquals(null, other.outcome)
+    }
+
     @Test fun androidFinalizerHeaderAndFrameworkStackCountAsOneIncidentWithoutSuppressingIt() {
         val tracker = DiagnosticIncidentTracker()
         val header = tracker.accept("2026-11-05T00:00:00Z E/Android: E/System (42): Uncaught exception thrown by finalizer", "header", null)

@@ -42,6 +42,9 @@ internal object GitHubReplayRecovery {
         val recoverySources = exchanges.flatMap { exchange ->
             exchange.results.mapNotNull { result ->
                 val call = exchange.calls.firstOrNull { it.callId == result.callId } ?: return@mapNotNull null
+                // The evidence observer has saved the complete source before this
+                // replay is built. Display fragments are not additional evidence.
+                if (result.executionReceipt?.get("retained_original_complete") == JsonPrimitive(true)) return@mapNotNull null
                 val source = envelope(result.content) ?: return@mapNotNull null
                 if (result.isError ||
                     source["schema"] != JsonPrimitive("github.repeat.v1") &&
@@ -98,7 +101,7 @@ internal object GitHubReplayRecovery {
 
     fun compact(content: ToolResultContent, maxChars: Int, consumed: Boolean = false): ToolResultContent? {
         val source = envelope(content) ?: return null
-        val controls = source.filterKeys { it in setOf("schema", "operation", "status", "local_page_complete", "continuation_call", "continuation_options", "remote_continuations", "correction_call", "source_recovery_call", "previous_call_id", "metadata", "recovery_required", "agent_instruction", "reason") }
+        val controls = source.filterKeys { it in setOf("schema", "operation", "status", "local_page_complete", "continuation_call", "continuation_options", "remote_continuations", "correction_call", "source_recovery_call", "previous_call_id", "metadata", "recovery_required", "agent_instruction", "reason", "semantic_summary", "retained_original_complete", "source_result_sha256", "receipt_reference") }
         val result = controls.toMutableMap()
         result["replay_compacted"] = JsonPrimitive(true)
         result["previously_delivered"] = JsonPrimitive(consumed)
@@ -114,6 +117,16 @@ internal object GitHubReplayRecovery {
         }
         // Optional larger pages must not crowd out the small, exact recovery call.
         if (JsonObject(result).toString().length > maxChars) result.remove("continuation_options")
+        if (JsonObject(result).toString().length > maxChars && consumed && source["semantic_summary"] is JsonObject) {
+            val summary = buildJsonObject {
+                put("schema", "github.evidence-summary.v1")
+                source["operation"]?.let { put("operation", it) }
+                put("semantic_summary", requireNotNull(source["semantic_summary"]))
+                source["receipt_reference"]?.let { put("receipt_reference", it) }
+                put("previously_delivered", true)
+            }
+            if (summary.toString().length <= maxChars) return ToolResultContent.Json(summary)
+        }
         // Never splice the middle of a cursor or a JSON argument object.
         if (JsonObject(result).toString().length > maxChars) {
             return ToolResultContent.Text("GitHub result omitted from replay: its continuation exceeds the available replay budget. Do not invent a cursor or repeat a mutation; inspect retained evidence or request a narrower immutable read.")
@@ -142,6 +155,8 @@ internal object GitHubReplayRecovery {
                     put("status", "ALREADY_COMPLETED")
                     put("message", message)
                     put("previous_call_id", previous.callId)
+                    (previous.executionReceipt?.get("semantic_summary") ?: original?.get("semantic_summary"))?.let { put("semantic_summary", it) }
+                    previous.executionReceipt?.get("retained_original_complete")?.let { put("retained_original_complete", it) }
                     original?.get("continuation_call")?.let { put("continuation_call", it) }
                     original?.get("remote_continuations")?.let { put("remote_continuations", it) }
                     original?.get("recovery_call")?.let { put("recovery_call", it) }
@@ -154,7 +169,8 @@ internal object GitHubReplayRecovery {
             ),
             isError = false,
             dispatched = false,
-            sharedResult = true
+            sharedResult = true,
+            executionReceipt = previous.executionReceipt
         )
     }
 

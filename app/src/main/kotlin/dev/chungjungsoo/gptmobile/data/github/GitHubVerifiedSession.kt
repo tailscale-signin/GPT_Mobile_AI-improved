@@ -59,7 +59,7 @@ internal class GitHubVerifiedSession(
     private suspend fun retainProgress(tools: List<AgentToolDefinition>, failure: ProviderEvent.Failed? = null) {
         try {
             withContext(computationDispatcher) {
-                evidence.retainProgress(task, authorizedTools.ifEmpty { tools }, failure?.let { it.errorCode ?: "MODEL_GENERATION_FAILED" }, failure)
+                evidence.retainProgress(task, authorizedTools.ifEmpty { tools }, failure?.let { it.errorCode ?: "MODEL_GENERATION_FAILED" }, failure, remainingToolCalls())
             }
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -268,6 +268,15 @@ internal class GitHubVerifiedSession(
             // establish test execution that the receipts do not contain.
             emitAll(publish(null))
             return@flow
+        }
+        if (GitHubReviewComparison.matches(task) && remainingToolCalls()?.let { it > 0 } != false) {
+            val comparison = withContext(computationDispatcher) { GitHubReviewComparison.plan(task, tools, evidence.snapshot().first) }
+            comparison?.nextCall?.let { next ->
+                progress("Resolving exact review comparison revisions")
+                emit(next)
+                emit(ProviderEvent.Completed)
+                return@flow
+            }
         }
         var round = collectDraft(delegate, tools, exchanges)
         val retained = evidence.snapshot().first

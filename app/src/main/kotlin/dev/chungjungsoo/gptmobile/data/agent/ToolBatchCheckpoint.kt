@@ -62,7 +62,7 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
         fun event() = ProviderEvent.ToolCall(id, name, arguments, originalInvocationFingerprint)
     }
 
-    @Serializable private data class Result(val body: String, val json: Boolean, val error: Boolean, val dispatched: Boolean, val code: String?, val callLimit: Boolean, val outputLimit: Boolean, val execution: JsonObject? = null) {
+    @Serializable private data class Result(val body: String, val json: Boolean, val error: Boolean, val dispatched: Boolean, val code: String?, val callLimit: Boolean, val outputLimit: Boolean, val execution: JsonObject? = null, val sourceResultSha256: String? = null, val projectionSha256: String? = null) {
         fun restore(id: String) = AgentContractValidation.receipt(id, AgentToolResult(id, if (json) ToolResultContent.Json(Json.parseToJsonElement(body)) else ToolResultContent.Text(body), error, sharedResult = true, dispatched = dispatched, errorCode = code, toolCallBudgetExhausted = callLimit, outputBudgetExhausted = outputLimit, executionReceipt = execution))
     }
 
@@ -139,6 +139,27 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
     suspend fun pending(): List<ProviderEvent.ToolCall> = locked {
         val state = read()
         state.pending.map { state.entries.getValue(it).call.event() }
+    }
+
+    /** Resolve exact handoff identities without parsing or replaying retained payload bodies. */
+    internal suspend fun handoffReceipts(fingerprints: Set<String>): List<ToolHandoffReceipt> = locked {
+        read().entries.values.mapNotNull { entry ->
+            val fingerprint = ToolHandoffReceipt.fingerprint(entry.call.event())
+            if (fingerprint !in fingerprints) return@mapNotNull null
+            val result = entry.result ?: return@mapNotNull null
+            ToolHandoffReceipt(
+                entry.call.id,
+                fingerprint,
+                result.sourceResultSha256,
+                result.projectionSha256 ?: dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest(result.body),
+                result.dispatched,
+                result.code,
+                result.code in ToolResultEnvelope.unknownOutcomeCodes ||
+                    result.execution?.get("requires_reconciliation") == JsonPrimitive(true) ||
+                    GatewayOutcomeRecovery.requiresReconciliation("", result.code),
+                "TOOL_BATCH_CHECKPOINT"
+            )
+        }
     }
 
     suspend fun markConsumed(ids: Set<String>) = locked {
@@ -264,7 +285,12 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
                 is ToolResultContent.Text -> content.text
                 is ToolResultContent.ResourceLinks -> content.links.joinToString("\n") { it.uri }
             }
-            Result(body, content is ToolResultContent.Json, result.isError, result.dispatched, result.errorCode, result.toolCallBudgetExhausted, result.outputBudgetExhausted, result.executionReceipt)
+            Result(
+                body, content is ToolResultContent.Json, result.isError, result.dispatched, result.errorCode,
+                result.toolCallBudgetExhausted, result.outputBudgetExhausted, result.executionReceipt,
+                ToolHandoffReceipt.sourceHash(result),
+                dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest(body)
+            )
         }
         locked {
             val state = read()

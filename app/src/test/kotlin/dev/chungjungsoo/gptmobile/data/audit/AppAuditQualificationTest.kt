@@ -4,6 +4,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
@@ -16,6 +17,41 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AppAuditQualificationTest {
+    @Test fun everyInventoriedAreaHasConcreteCandidateSuitesWithoutPromotingUntestedCoverage() {
+        val original = fixture(0, 0)
+        val template = original.plan.first()
+        val run = original.copy(
+            plan = AppAuditSourceInventory.areas.map { area ->
+                template.copy(id = "source-area:${area.id}", componentId = area.id, sourceAreaIds = listOf(area.id))
+            }
+        )
+        val score = appAuditScore(run)
+        val summary = appAuditSummary(run)
+        val plan = qualification(run)
+        val checks = plan["checks"]!!.jsonArray.map { it.jsonObject }
+        assertEquals(AppAuditSourceInventory.areas.size, checks.size)
+        assertTrue(checks.all { it["namedHarnesses"]!!.jsonArray.isNotEmpty() })
+        assertTrue(checks.all { it["namedHarnessesScope"]!!.jsonPrimitive.content.contains("neither verifies the entire source area") })
+        assertTrue(checks.all { it["currentOutcome"]!!.jsonPrimitive.content == "PENDING" })
+        assertEquals(score, appAuditScore(run))
+        assertEquals(summary, appAuditSummary(run))
+        assertFalse(plan["importsPromoteAuditScore"]!!.jsonPrimitive.boolean)
+        val residual = checks.single { it["sourceAreaIds"]!!.jsonArray.contains(JsonPrimitive("other_production")) }
+        assertTrue(residual["requirements"]!!.jsonArray.contains(JsonPrimitive("RESIDUAL_SOURCE_CASES")))
+    }
+
+    @Test fun missingOrDisabledTargetsGetSpecificActionsWithoutChangingTheAcceptedPlan() {
+        val missing = fixture(1, 0)
+        val before = Json.encodeToString(missing)
+        val missingTarget = qualification(missing)["checks"]!!.jsonArray.first().jsonObject
+        assertEquals("CONFIGURE_EXACT_TARGET_THEN_START_NEW_AUDIT", missingTarget["nextAction"]!!.jsonPrimitive.content)
+        assertEquals(before, Json.encodeToString(missing))
+        val disabled = missing.copy(plan = missing.plan.map { if (it.probeId == AppAuditPluginProbeSource.CONFIGURATION) it.copy(prerequisite = AppAuditPrerequisite.PERMISSION_REQUIRED) else it })
+        val disabledTarget = qualification(disabled)["checks"]!!.jsonArray.first().jsonObject
+        assertEquals("REVIEW_OPTIONAL_PLUGIN_PERMISSION_THEN_START_NEW_AUDIT", disabledTarget["nextAction"]!!.jsonPrimitive.content)
+        assertEquals(AppAuditPrerequisite.PERMISSION_REQUIRED, disabled.plan.first().prerequisite)
+    }
+
     @Test
     fun manifestAccountsForConfiguredAndMissingTargetsAndExternalSuitesWithoutGrantingExecution() {
         val run = fixture()

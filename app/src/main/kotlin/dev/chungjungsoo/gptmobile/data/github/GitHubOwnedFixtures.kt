@@ -28,6 +28,43 @@ internal class GitHubOwnedFixtures(private val store: GitHubRepositoryStateStore
         }
     }
 
+    /** Save a cleanup obligation before creation escapes; intent alone never proves ownership. */
+    suspend fun prepareCreation(root: String, arguments: JsonObject) {
+        if (arguments.text("fixture_plan") != PLAN) return
+        val branch = arguments.text("branch")
+        val origin = arguments.text("expected_head_sha")
+        val source = arguments.text("base").ifBlank { arguments.text("from_branch") }
+        require(branchPattern.matches(branch) && source.isNotBlank() && source != branch && origin.sha() && arguments["select_created_branch"] == JsonPrimitive(false)) {
+            "The fixture lifecycle must identify its dedicated branch, source head and cleanup scope before creation."
+        }
+        store.update(scope, key(root, branch)) { previous ->
+            if (previous != null && previous.text("status") != "COMPLETED") {
+                require(previous.text("origin_head_sha") == origin && previous.text("source_branch") == source && previous.text("repository") == root.lowercase()) { "Another fixture intent owns this name; reconcile it before creating resources." }
+                require(previous["ownership_verified"] != JsonPrimitive(true)) { "An owned fixture already has a lifecycle. Reconcile its missing ref or cleanup; do not recreate it." }
+                previous
+            } else {
+                buildJsonObject {
+                    put("schema_version", 2)
+                    put("fixture_plan", PLAN)
+                    put("repository", root.lowercase())
+                    put("branch", branch)
+                    put("source_branch", source)
+                    put("origin_head_sha", origin)
+                    put("head_sha", origin)
+                    put("owner_scope_sha256", GitHubRepositoryStateStore.digest(scope))
+                    put("purpose", "BOUNDED_SYNTHETIC_CONTENT_INTEGRATION_TEST")
+                    put("ownership_verified", false)
+                    put("status", "CREATION_PENDING")
+                    put("lifecycle_state", "CLEANUP_PENDING")
+                    put("lifecycle_reason", "CREATION_OUTCOME_NOT_YET_RECONCILED")
+                    put("cleanup_obligation", "RECONCILE_OWNERSHIP_THEN_VERIFY_ABSENCE")
+                    put("approval_policy", "EXACT_PATCH_APPROVAL_RECHECKED_BEFORE_PUBLICATION")
+                    put("commits", JsonArray(emptyList()))
+                }
+            }
+        }
+    }
+
     suspend fun register(root: String, arguments: JsonObject, receipt: JsonObject): JsonObject {
         if (arguments.text("fixture_plan") != PLAN) return receipt
         val branch = arguments.text("branch")
@@ -44,7 +81,19 @@ internal class GitHubOwnedFixtures(private val store: GitHubRepositoryStateStore
                 require(previous.text("repository") == root.lowercase() && previous.text("branch") == branch && previous.text("origin_head_sha") == origin && previous.text("source_branch") == source) {
                     "Fixture ownership changed; inspect the existing durable record."
                 }
-                previous
+                if (previous["ownership_verified"] == JsonPrimitive(true)) {
+                    previous
+                } else {
+                    JsonObject(
+                        previous + mapOf(
+                            "ownership_verified" to JsonPrimitive(true),
+                            "status" to JsonPrimitive("RUNNING"),
+                            "lifecycle_state" to JsonPrimitive("CLEANUP_PENDING"),
+                            "lifecycle_reason" to JsonPrimitive("LIFECYCLE_IN_PROGRESS"),
+                            "cleanup_obligation" to JsonPrimitive("DURABLE_UNTIL_VERIFIED_ABSENT")
+                        )
+                    )
+                }
             } else {
                 buildJsonObject {
                     put("schema_version", 1)
@@ -56,6 +105,11 @@ internal class GitHubOwnedFixtures(private val store: GitHubRepositoryStateStore
                     put("head_sha", origin)
                     put("ownership_verified", true)
                     put("status", "RUNNING")
+                    put("owner_scope_sha256", GitHubRepositoryStateStore.digest(scope))
+                    put("purpose", "BOUNDED_SYNTHETIC_CONTENT_INTEGRATION_TEST")
+                    put("lifecycle_state", "CLEANUP_PENDING")
+                    put("lifecycle_reason", "LIFECYCLE_IN_PROGRESS")
+                    put("cleanup_obligation", "DURABLE_UNTIL_VERIFIED_ABSENT")
                     put("commits", JsonArray(emptyList()))
                 }
             }
@@ -68,6 +122,7 @@ internal class GitHubOwnedFixtures(private val store: GitHubRepositoryStateStore
         val branch = arguments.text("branch")
         if (!branchPattern.matches(branch)) return
         val retained = saved(root, branch) ?: return
+        require(retained["ownership_verified"] == JsonPrimitive(true)) { "FIXTURE_OWNERSHIP_UNAVAILABLE: A creation intent cannot authorize content publication." }
         val commits = (retained["commits"] as? JsonArray).orEmpty()
         val revised = commits.isNotEmpty()
         require(retained["cleanup_started"] != JsonPrimitive(true) && retained.text("status") != "COMPLETED" && commits.size < 2) { "The owned fixture is already complete or being cleaned." }
@@ -100,7 +155,7 @@ internal class GitHubOwnedFixtures(private val store: GitHubRepositoryStateStore
         store.update(scope, key(root, branch)) { current ->
             require(current?.get("pending_commit") == pending && current.text("head_sha") == pending.text("expected_head_sha")) { "Fixture changed while recording its publication." }
             val committed = JsonObject(pending + mapOf("sha" to receipt.getValue("sha"), "tree_sha" to receipt.getValue("tree_sha")))
-            JsonObject((current - "pending_commit" - "pending_approval") + mapOf("head_sha" to receipt.getValue("sha"), "commits" to JsonArray((current["commits"] as? JsonArray).orEmpty() + committed), "last_publication" to receipt))
+            JsonObject((current - "pending_commit" - "pending_approval") + mapOf("head_sha" to receipt.getValue("sha"), "commits" to JsonArray((current["commits"] as? JsonArray).orEmpty() + committed), "last_publication" to receipt, "lifecycle_state" to JsonPrimitive("CLEANUP_PENDING"), "lifecycle_reason" to JsonPrimitive("PUBLICATION_VERIFIED_CONTINUE_LIFECYCLE")))
         }
     }
 
@@ -112,7 +167,7 @@ internal class GitHubOwnedFixtures(private val store: GitHubRepositoryStateStore
         store.update(scope, key(root, branch)) { current ->
             val pending = current?.get("pending_commit") as? JsonObject
             require(pending != null && pending.text("expected_head_sha") == arguments.text("expected_head_sha"))
-            JsonObject(current + ("pending_approval" to receipt))
+            JsonObject(current + mapOf("pending_approval" to receipt, "lifecycle_state" to JsonPrimitive("DELIBERATELY_RETAINED"), "lifecycle_reason" to JsonPrimitive("EXACT_PATCH_APPROVAL_PENDING")))
         }
     }
 
@@ -177,6 +232,9 @@ internal class GitHubOwnedFixtures(private val store: GitHubRepositoryStateStore
         val branch = arguments.text("branch")
         val retained = requireNotNull(saved(root, branch)) { "FIXTURE_OWNERSHIP_UNAVAILABLE: No owned fixture is recorded for this task." }
         require(arguments.text("fixture_plan") == PLAN && branchPattern.matches(branch) && arguments.text("base_sha") == retained.text("origin_head_sha")) { "Fixture recovery must use its exact recorded origin and branch." }
+        if (retained["ownership_verified"] != JsonPrimitive(true)) {
+            return JsonObject(retained + mapOf("cleanup_status" to JsonPrimitive("OWNERSHIP_NOT_ESTABLISHED"), "next_action" to JsonPrimitive("RECONCILE_CREATION_RECEIPT")))
+        }
         if (retained["cleanup_started"] == JsonPrimitive(true)) return reconcileDeletion(root, arguments, read, expectedAbsence)
         val pending = retained["pending_commit"] as? JsonObject
         val approval = retained["pending_approval"] as? JsonObject
@@ -192,7 +250,7 @@ internal class GitHubOwnedFixtures(private val store: GitHubRepositoryStateStore
         require(arguments.text("commit_sha") in setOf(pending.text("expected_head_sha"), retained.text("head_sha"))) { "Fixture recovery head differs from the retained publication intent." }
         val id = approval?.text("engineering_task_id")
         val status = id?.let { approvalStatus(it) }
-        if (status?.text("state") == "AWAITING_APPROVAL") return JsonObject(requireNotNull(approval) + ("cleanup_status" to JsonPrimitive("WAITING_FOR_APPROVAL")))
+        if (status?.text("state") == "AWAITING_APPROVAL") return JsonObject(requireNotNull(approval) + mapOf("cleanup_status" to JsonPrimitive("WAITING_FOR_APPROVAL"), "lifecycle_state" to JsonPrimitive("DELIBERATELY_RETAINED"), "lifecycle_reason" to JsonPrimitive("EXACT_PATCH_APPROVAL_PENDING"), "next_action" to JsonPrimitive("APPROVE_OR_CANCEL_EXISTING_PATCH")))
         if (status?.get("cancelled_before_publication") == JsonPrimitive(true)) {
             val ref = read("$root/git/ref/heads/${GitHubWorkspaceClient.segment(branch)}") as? JsonObject
             require((ref?.get("object") as? JsonObject)?.text("sha") == pending.text("expected_head_sha")) { "Fixture changed after cancellation; its publication must be reconciled before cleanup." }
@@ -207,7 +265,7 @@ internal class GitHubOwnedFixtures(private val store: GitHubRepositoryStateStore
             }
             store.update(scope, key(root, branch)) { current ->
                 require(current?.get("pending_commit") == pending && current["pending_approval"] == approval)
-                JsonObject((current - "pending_commit" - "pending_approval") + ("cancelled_approval" to cancelled))
+                JsonObject((current - "pending_commit" - "pending_approval") + mapOf("cancelled_approval" to cancelled, "lifecycle_state" to JsonPrimitive("CLEANUP_PENDING"), "lifecycle_reason" to JsonPrimitive("CANCELLED_BEFORE_PUBLICATION")))
             }
             return cancelled
         }
@@ -336,7 +394,7 @@ internal class GitHubOwnedFixtures(private val store: GitHubRepositoryStateStore
         require(parent == expected && currentHead() == expected) { "Fixture head changed or contains an unowned commit." }
         store.update(scope, key(root, branch)) { current ->
             require(current == retained) { "Fixture state changed before cleanup; inspect the durable receipt." }
-            JsonObject(current + mapOf("cleanup_started" to JsonPrimitive(true), "status" to JsonPrimitive("DELETE_PENDING")))
+            JsonObject(current + mapOf("cleanup_started" to JsonPrimitive(true), "status" to JsonPrimitive("DELETE_PENDING"), "lifecycle_state" to JsonPrimitive("CLEANUP_PENDING"), "lifecycle_reason" to JsonPrimitive("DELETE_OUTCOME_REQUIRES_ABSENCE_VERIFICATION")))
         }
         // GitHub REST deletion has no atomic SHA lease. Recheck above, retain
         // the intent before dispatch, and never retry an uncertain deletion.
@@ -350,7 +408,7 @@ internal class GitHubOwnedFixtures(private val store: GitHubRepositoryStateStore
         val receipt = cleanupReceipt(retained, absent = true, reconciled = reconciled)
         store.update(scope, key(root, branch)) { current ->
             require(current?.text("origin_head_sha") == retained.text("origin_head_sha") && current.text("head_sha") == retained.text("head_sha") && current["cleanup_started"] == JsonPrimitive(true))
-            JsonObject(current + mapOf("status" to JsonPrimitive("COMPLETED"), "cleanup_receipt" to receipt))
+            JsonObject(current + mapOf("status" to JsonPrimitive("COMPLETED"), "cleanup_receipt" to receipt, "lifecycle_state" to JsonPrimitive("REMOVED_VERIFIED"), "lifecycle_reason" to JsonPrimitive("REMOTE_REF_ABSENCE_VERIFIED"), "cleanup_obligation" to JsonPrimitive("VERIFIED_ABSENT")))
         }
         return receipt
     }
@@ -367,6 +425,8 @@ internal class GitHubOwnedFixtures(private val store: GitHubRepositoryStateStore
         put("reconciled", reconciled)
         put("verification_status", if (absent) "VERIFIED_ABSENT" else "REF_STILL_PRESENT")
         put("deletion_state", if (absent) "COMPLETED" else "PENDING_VERIFICATION")
+        put("lifecycle_state", if (absent) "REMOVED_VERIFIED" else "CLEANUP_PENDING")
+        put("lifecycle_reason", if (absent) "REMOTE_REF_ABSENCE_VERIFIED" else "REMOTE_REF_STILL_PRESENT")
         put("atomic_head_precondition", false)
         put("mutation_scope", "Only the recorded synthetic file and its owned disposable branch; no merge, force push or unrelated deletion.")
     }

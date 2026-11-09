@@ -16,6 +16,21 @@ class GitHubWorkflowPresentationTest {
     private fun event(id: String, arguments: String = "{}", status: String = ToolEventStatus.COMPLETED, name: String = "github_read", error: String? = null, runId: String = "run") =
         ToolEvent(id, runId, id.hashCode(), id, null, null, name, name, arguments, null, null, status, status == ToolEventStatus.FAILED, error = error)
 
+    @Test fun reconciliationAndApprovalBlockersExplainTheirActualPrerequisites() {
+        val handoff = GitHubWorkflowPresentation.snapshot(run(AgentRunStatus.BLOCKED).copy(terminalError = "OUTPUT_CONTINUATION_PENDING_TOOLS"), emptyList(), true)
+        assertEquals("Receipt reconciliation required", handoff.phase)
+        assertTrue(handoff.recoveryExplanation.contains("completed tool receipts are retained"))
+        assertFalse(handoff.recoveryExplanation.contains("Update the blocked configuration"))
+        assertTrue(handoff.reconciliationRequired)
+        assertEquals(listOf(TaskRecoveryAction.CONTINUE_RUN), handoff.recovery)
+        assertFalse(TaskRecoveryAction.RETRY_FAILED_STAGE in handoff.recovery)
+        val approval = GitHubWorkflowPresentation.snapshot(run(AgentRunStatus.BLOCKED).copy(terminalError = "WAITING_FOR_APPROVAL"), emptyList(), true)
+        assertEquals("Approval required", approval.phase)
+        assertTrue(approval.recoveryExplanation.contains("existing proposed changes card"))
+        assertFalse(approval.reconciliationRequired)
+        assertTrue(approval.recovery.isEmpty())
+    }
+
     @Test fun successfulApiCallsDoNotVerifyAcceptance() {
         val view = GitHubWorkflowPresentation.snapshot(run(), listOf(event("one")), true)
         assertEquals("Answer ready", view.phase)

@@ -14,6 +14,23 @@ import org.junit.Test
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class LocalEndpointConnectionPolicyTest {
+    @Test fun socketAbortAndItsSingleRetryShareOneReadIdentityWhileLaterPollsStayDistinct() = runTest {
+        val attempts = mutableListOf<LocalMetadataReadAttempt>()
+        val result = LocalEndpointConnectionPolicy.probe("http://127.0.0.1:29780/ready") {
+            attempts += requireNotNull(kotlinx.coroutines.currentCoroutineContext()[LocalMetadataReadAttempt])
+            if (attempts.size == 1) throw java.net.SocketException("Software caused connection abort")
+            "ready"
+        }
+        assertEquals("ready", result)
+        assertEquals(listOf(0, 1), attempts.map { it.ordinal })
+        assertEquals(attempts[0].readId, attempts[1].readId)
+        assertTrue(attempts[0].readId.matches(Regex("[a-f0-9]{32}")))
+        val next = LocalEndpointConnectionPolicy.probe("http://127.0.0.1:29780/ready") {
+            requireNotNull(kotlinx.coroutines.currentCoroutineContext()[LocalMetadataReadAttempt]).readId
+        }
+        assertFalse(attempts[0].readId == next)
+    }
+
     @Test fun callerThreadNeverClosesStaleSocketsAndRetryReturnsToItsOriginalContext() {
         val executor = java.util.concurrent.Executors.newSingleThreadExecutor { task -> Thread(task, "fixture-ui-main") }
         executor.asCoroutineDispatcher().use { main ->

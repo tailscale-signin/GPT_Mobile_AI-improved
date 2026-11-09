@@ -14,6 +14,34 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProviderInterruptionReceiptTest {
+    @Test fun completedProviderWithPendingReconciliationIsNotClassifiedAsDeliveryOrTransportFailure() {
+        for (stage in listOf("tool_reconciliation", "stage_not_recorded")) {
+            val failure = ProviderEvent.Failed(
+                "Completed provider output is waiting for durable tool receipts.",
+                errorCode = "OUTPUT_CONTINUATION_PENDING_TOOLS",
+                transportComplete = true,
+                failureDetails = buildJsonObject {
+                    put("failed_stage", stage)
+                    put("generation_completed", true)
+                    put("dispatched", true)
+                    put("remote_acceptance", "YES")
+                    put("requires_reconciliation", true)
+                    put("request_replay_allowed", false)
+                    put("logical_continuation_allowed", false)
+                }
+            )
+            val receipt = ProviderFailureReceipt.from(PlatformV2(uid = "profile", name = "Selected", model = "chosen-model"), "github-delivery", failure, ProviderEvent.Usage(finishReason = "tool_calls"))
+            assertTrue(receipt.valid())
+            assertEquals(ProviderFailureStage.CONTINUATION, receipt.stage)
+            assertEquals("OUTPUT_CONTINUATION_PENDING_TOOLS", receipt.errorCode)
+            assertTrue(receipt.transportComplete)
+            assertEquals(true, receipt.generationCompleted)
+            assertEquals(ProviderFinishCategory.TOOL_CALLS, receipt.finishReason)
+            assertEquals(false, receipt.requestReplayAllowed)
+            assertEquals(false, receipt.logicalContinuationAllowed)
+        }
+    }
+
     @Test fun acceptedUnknownToolOutcomeRetainsItsIdentityWithoutReopeningEitherRetryPath() {
         for (code in listOf("GATEWAY_OUTCOME_UNKNOWN", "TOOL_OUTCOME_UNKNOWN")) {
             val details = buildJsonObject {

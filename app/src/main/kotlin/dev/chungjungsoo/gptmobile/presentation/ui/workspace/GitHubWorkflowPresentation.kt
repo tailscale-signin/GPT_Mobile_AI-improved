@@ -45,7 +45,8 @@ internal data class GitHubWorkflowSnapshot(
     val verificationAvailable: Boolean,
     val failureCategory: String?,
     val recovery: List<TaskRecoveryAction>,
-    val recoveryExplanation: String
+    val recoveryExplanation: String,
+    val reconciliationRequired: Boolean = false
 )
 
 /** Presentation uses persisted verifier output. API success never becomes acceptance evidence. */
@@ -122,36 +123,44 @@ internal object GitHubWorkflowPresentation {
                 it.error?.contains("GATEWAY_OUTCOME_UNKNOWN") == true || jsonObject(it.result)?.text("error_code") == "GATEWAY_OUTCOME_UNKNOWN"
             }
         val recoverable = run.status in terminal && (run.status != AgentRunStatus.COMPLETED || acceptance != GitHubAcceptanceStatus.PASS)
+        val reconcileReceipts = failure.category == "OUTPUT_CONTINUATION_PENDING_TOOLS"
         val recovery = buildList {
-            if (recoverable && !deterministic && !waiting && !unreconciledGateway) add(TaskRecoveryAction.CONTINUE_RUN)
+            if (recoverable && (!deterministic || reconcileReceipts) && !waiting && !unreconciledGateway) add(TaskRecoveryAction.CONTINUE_RUN)
             if (recoverable && !deterministic && !waiting && !unknown && !unreconciledGateway && run.status == AgentRunStatus.FAILED) add(TaskRecoveryAction.RETRY_FAILED_STAGE)
         }
         return GitHubWorkflowSnapshot(
             run.runId,
-            when (run.status) {
-                AgentRunStatus.COMPLETED -> "Answer ready"
-                AgentRunStatus.QUEUED -> "Queued"
-                AgentRunStatus.RUNNING -> "Working"
-                AgentRunStatus.FAILED -> "Execution failed"
-                AgentRunStatus.CANCELED -> "Stopped"
-                AgentRunStatus.INTERRUPTED -> "Interrupted"
-                AgentRunStatus.PARTIAL -> "Partially complete"
-                AgentRunStatus.EVIDENCE_MISSING -> "Evidence unavailable"
-                AgentRunStatus.BLOCKED -> "Blocked"
-                else -> if (run.status.startsWith("WAITING_")) "Waiting" else "Status unavailable"
+            when {
+                failure.category == "OUTPUT_CONTINUATION_PENDING_TOOLS" -> "Receipt reconciliation required"
+                failure.category == "WAITING_FOR_APPROVAL" -> "Approval required"
+                else -> when (run.status) {
+                    AgentRunStatus.COMPLETED -> "Answer ready"
+                    AgentRunStatus.QUEUED -> "Queued"
+                    AgentRunStatus.RUNNING -> "Working"
+                    AgentRunStatus.FAILED -> "Execution failed"
+                    AgentRunStatus.CANCELED -> "Stopped"
+                    AgentRunStatus.INTERRUPTED -> "Interrupted"
+                    AgentRunStatus.PARTIAL -> "Partially complete"
+                    AgentRunStatus.EVIDENCE_MISSING -> "Evidence unavailable"
+                    AgentRunStatus.BLOCKED -> "Blocked"
+                    else -> if (run.status.startsWith("WAITING_")) "Waiting" else "Status unavailable"
+                }
             },
             acceptance, criteria, groups(observed), capabilities(verification), observed.size, eventWindowComplete,
             if (evidenceReadFailed) false else retained, verification != null,
             failureCategory,
             recovery,
             when {
+                failure.category == "WAITING_FOR_APPROVAL" -> "Review the existing proposed changes card in Chat to approve or reject the saved patch. Repeating preparation does not resolve its approval."
+                reconcileReceipts -> "The model response and completed tool receipts are retained. Reconcile saved results to continue from the first unfinished step. If a matching terminal receipt is missing, the app reports that dependency; operations with unknown outcomes remain pending."
                 !recoverable -> "Recovery is available after an interrupted or incomplete run."
                 unreconciledGateway -> "The gateway outcome is unknown and no saved job can be reconciled. Inspect the remote operation before continuing; Resume and Retry are unavailable to prevent repeating a possible mutation."
                 deterministic -> "Update the blocked configuration, authorization or request first, then continue the saved request in Chat. Details retain the recorded failure."
                 waiting -> "The recorded service limit is still blocking recovery. Review the retry time or connection status before continuing in Chat."
                 unknown -> "Resume checks saved outcomes before continuing. An unfinished operation or incomplete activity history prevents direct retry."
                 else -> "Recovery continues this saved request and preserves its completed operation receipts."
-            }
+            },
+            reconciliationRequired = reconcileReceipts
         )
     }
 

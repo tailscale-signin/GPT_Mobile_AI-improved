@@ -14,7 +14,7 @@ import kotlinx.serialization.json.put
 
 internal class GitHubToolContextBudgetException(val requiredSchemaTokens: Long, val availableSchemaTokens: Long) :
     IllegalArgumentException(
-        "GITHUB_TOOL_CONTEXT_BUDGET: All authorized GitHub tools must remain visible in GitHub mode. Their schemas need approximately $requiredSchemaTokens tokens, but $availableSchemaTokens remain. Increase the context budget or reduce attached history and instructions before continuing; this provider request was not dispatched."
+        "GITHUB_TOOL_CONTEXT_BUDGET: Required GitHub and recovery schemas need approximately $requiredSchemaTokens tokens, but $availableSchemaTokens remain. Increase the context budget or reduce attached history and instructions before continuing; this provider request was not dispatched."
     ) {
     fun providerFailure() = ProviderEvent.Failed(
         message.orEmpty(),
@@ -37,7 +37,12 @@ internal fun fitProviderToolSchemas(definitions: List<AgentToolDefinition>, limi
     if (limits.contextTokens == Int.MAX_VALUE) return visible
     val base = (limits.initialContextTokens.toLong() - initialSchemaTokens).coerceAtLeast(0)
     var remaining = (limits.contextTokens.toLong() - base - replayTokens - limits.finalResponseReserveTokens - minOf(256, limits.contextTokens / 16)).coerceAtLeast(0)
-    val github = if (limits.githubMode) visible.filter(ProgressiveToolCatalog::isGitHubTool) else emptyList()
+    val github = visible.filter {
+        limits.githubMode &&
+            ProgressiveToolCatalog.isGitHubTool(it) ||
+            (limits.githubMode || limits.githubTask) &&
+            it.name == "read_recovery_context"
+    }
     val requiredSchemaTokens = github.sumOf { providerSchemaTokens(it, limits.githubMode) }
     if (requiredSchemaTokens > remaining) throw GitHubToolContextBudgetException(requiredSchemaTokens, remaining)
     remaining -= requiredSchemaTokens
@@ -81,11 +86,14 @@ internal fun planAuthorizedToolContext(
     // Current user intent wins over repository keywords in memory or workspace instructions.
     if (!fullGitHubCatalog && CurrentRequestContract.from(task).conversational) return ContextBudgetService.plan(turns, prompt, emptyList(), limits)
     val definitions = tools.map { it.tool.definition }
-    val required = if (requireToolExecution) {
-        requiredToolSchemas(explicitlyRequiredToolNames(task, definitions.mapTo(hashSetOf()) { it.name }), tools)
-    } else {
-        emptyList()
-    }
+    val recovery = definitions.filter { it.modelVisible && it.name == "read_recovery_context" }
+    val required = (
+        if (requireToolExecution) {
+            requiredToolSchemas(explicitlyRequiredToolNames(task, definitions.mapTo(hashSetOf()) { it.name }), tools)
+        } else {
+            emptyList()
+        } + recovery
+        ).distinctBy { it.name }
     val catalog = if (externalTools) tools.firstNotNullOfOrNull { it.progressiveCatalog } ?: if (limits.adaptiveToolCatalog) ProgressiveToolCatalog.create(definitions, task, githubMode = fullGitHubCatalog) else null else null
     val githubSchemas = if (fullGitHubCatalog) definitions.filter { it.modelVisible && ProgressiveToolCatalog.isGitHubTool(it) } else emptyList()
     val advertised = (githubSchemas + required + (catalog?.selected(definitions + catalog.definition) ?: definitions.filter { it.modelVisible })).distinctBy { it.name }

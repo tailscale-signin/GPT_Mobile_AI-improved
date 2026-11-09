@@ -1,0 +1,46 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "7db0c735f9e86eaece24513fbaf5c0a624f13822",
+  "working_branch": "fix/audit-execution-recovery-2026-11-09",
+  "intent": "Implement the user-requested 24 archive findings, 18 process-log findings and the complete app audit remediation: reconcile durable handoffs, resume useful work, reuse compact evidence, scope verification to the request, unify budgets and failure receipts, improve connector compatibility and actionable qualification, and reduce diagnostic/UI overhead with truthful validation.",
+  "state": "IMPLEMENTED_HOST_VALIDATED_PUBLICATION_PENDING",
+  "task_store": "engineering_agent_checkpoints",
+  "task_store_key": "audit-execution-recovery-2026-11-09",
+  "source_evidence": {
+    "app_audit": "app-audit-1794249031624.json",
+    "audit_run_id": "7a752aec-c8ab-4a47-9263-7121fa5d8f67",
+    "diagnostic_report": "User-supplied 24-finding analysis of chat 13, build 141, 2026-11-09",
+    "source_commit": "7db0c735f9e86eaece24513fbaf5c0a624f13822",
+    "process_log_report": "User-supplied 18-finding analysis of app-diagnostics-9079842559889739562.jsonl (4,282 records)"
+  },
+  "scope": [
+    "A01-A02 durable completed-receipt reconciliation and productive retry",
+    "A03-A05 complete original reuse, compact status and semantic replay compaction",
+    "A06-A09 task-specific acceptance, authoritative call budget, exact comparison policy and issue action recovery",
+    "A10-A12 selected-model progress, useful partial evidence and honest unknown protection",
+    "B13-B16 canonical failure/recovery state, admitted recovery reader, source/projection hash identity and runtime binding reasons",
+    "C17-C20 transient gateway/DNS health, explicit MCP compatibility and credential repair",
+    "D21-D22 stable UI rendering and bounded diagnostic capture",
+    "E23-E24 unchanged-approval recovery and identifiable background watches/refreshes",
+    "App audit exact failure actions, truthful score/coverage and concrete qualification harnesses",
+    "Process04-05 fixture lifecycle, explicit proposal/remote-dispatch/accepted/verified operation states",
+    "Process07 schema allowance scope and directly admitted recovery reader",
+    "Process13-18 recorder/export lock contention, typed criterion export, correlated socket-abort incidents"
+  ],
+  "validation": {
+    "status": "HOST_CHECKS_PASS_ANDROID_AND_LIVE_QUALIFICATION_PENDING",
+    "local_receipt": "docs/repairs/evidence/audit-execution-recovery-2026-11-09/local-validation.json",
+    "canonical_fast_gate": "PASS",
+    "changed_kotlin_formatting": "PASS: 117 files, ktlint 1.3.1",
+    "android_build": "BLOCKED_ENVIRONMENT: Gradle 9.8.0 distribution unavailable; required JDK 21 and Android SDK 37 absent",
+    "live_connector_and_device_tests": "NOT_RUN"
+  },
+  "boundaries": [
+    "Do not enable disabled or absent optional plugins without setup intent.",
+    "Do not treat unknown mutation outcomes as permission to replay writes.",
+    "Keep live account, real service, Android device and host regression evidence distinct.",
+    "Do not mark unexecuted source suites or physical performance as verified."
+  ]
+}

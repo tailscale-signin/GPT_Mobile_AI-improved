@@ -203,6 +203,11 @@ class ChatViewModel @Inject constructor(
         mcpInteractions?.respond(id, value)
     }
     val pendingToolApprovals get() = toolApprovals?.pending ?: flowOf(emptyList())
+    private var gitHubApprovalPending = false
+
+    internal fun bindGitHubApprovalPending(pending: Boolean) {
+        gitHubApprovalPending = pending
+    }
     data class FreeToolConsentRequest(
         val profileUid: String,
         val profileName: String,
@@ -2268,6 +2273,10 @@ class ChatViewModel @Inject constructor(
         val userMessage = _groupedMessages.value.userMessages.getOrNull(turnIndex) ?: return
         val previousRun = currentAssistantMessage.currentRunId?.let { _agentRunsById.value[it] }
         val failureDetails = previousRun?.terminalError ?: currentAssistantMessage.timeline.lastOrNull { it.runError != null }?.runError
+        gitHubApprovalRetryBlock(failureDetails, gitHubApprovalPending)?.let {
+            _attachmentNotice.value = it
+            return
+        }
         val recoveryKind = failureDetails?.let { profileRecoveryKind(dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.classify(it).category, it) } ?: ProfileRecoveryKind.NONE
         if (recoveryKind != ProfileRecoveryKind.NONE && (recoveryKind != ProfileRecoveryKind.REASONING || !permitsReasoningRecovery(turnIndex, platformIndex, currentAssistantMessage.currentRunId))) {
             _attachmentNotice.value = when (recoveryKind) {

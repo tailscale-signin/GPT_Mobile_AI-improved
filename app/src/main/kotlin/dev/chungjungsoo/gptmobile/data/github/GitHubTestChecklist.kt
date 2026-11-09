@@ -349,6 +349,7 @@ internal object GitHubTestChecklist {
         val allTrusted = trusted(receipts)
         val pendingApprovals = GitHubPendingApproval.snapshot(receipts).filterIsInstance<JsonObject>()
         val active = catalog(tools)
+        val integrationCoverage = integration(task)
         val union = (
             active + historical.filter { (it.text("tool").startsWith("github_") || it.text("tool").substringBefore("__") == "repository_graph") && (it["arguments"] as? JsonObject)?.containsKey("view_cursor") != true }.map {
                 val name = it.text("tool").substringBefore("__")
@@ -371,11 +372,16 @@ internal object GitHubTestChecklist {
                         null
                     } else if (GitHubPendingApproval.taskId(receipt) != null) {
                         GitHubPendingApproval.publication(receipt, allTrusted)
+                    } else if ((capability.tool != "github_stage_patch" || (receipt["arguments"] as? JsonObject)?.get("commit_immediately") == JsonPrimitive(true)) && GitHubOperationOutcome.snapshot(receipt)["proposal_prepared"] == JsonPrimitive(true)) {
+                        null
                     } else {
                         receipt
                     }
                 }.distinct()
-                val waitingApproval = eligible.any { receipt -> GitHubPendingApproval.taskId(receipt)?.let { id -> pendingApprovals.any { it.text("engineering_task_id") == id } } == true }
+                val waitingApproval = eligible.any { receipt ->
+                    GitHubPendingApproval.taskId(receipt)?.let { id -> pendingApprovals.any { it.text("engineering_task_id") == id } }
+                        ?: (GitHubOperationOutcome.snapshot(receipt)["approval_pending"] == JsonPrimitive(true))
+                }
                 val failures = observed.filter { it["success"] != JsonPrimitive(true) }
                 val latest = eligible.lastOrNull()
                 val immediatePublication = capability.tool == "github_stage_patch" && (latest?.get("arguments") as? JsonObject)?.get("commit_immediately") == JsonPrimitive(true)
@@ -445,6 +451,8 @@ internal object GitHubTestChecklist {
                 buildJsonObject {
                     put("id", "${capability.tool}:${capability.action}")
                     put("scope", capability.scope)
+                    put("required", integrationCoverage && !excluded && !notRequested)
+                    put("acceptance_role", if (integrationCoverage) "INTEGRATION_COVERAGE" else "DIAGNOSTIC_ONLY")
                     put("status", status)
                     put("acceptance_state", GitHubAcceptanceLedger.state(status).name)
                     blockerCode?.let { put("blocker_code", it.name) }
@@ -591,8 +599,23 @@ internal object GitHubTestChecklist {
         put("request_digest", GitHubEvidenceBook.digest(task))
         val capabilities = rows(receipts, tools, task)
         put("capabilities", capabilities)
-        val requirements = if (integration(task)) GitHubIntegrationAcceptance.requirements(task, receipts, tools) else JsonArray(emptyList())
+        val requirements = if (integration(task)) {
+            GitHubIntegrationAcceptance.requirements(task, receipts, tools)
+        } else {
+            JsonArray(
+                GitHubRequestCompletion.requirements(task).map { requirement ->
+                    buildJsonObject {
+                        put("id", GitHubRequestCompletion.id(requirement))
+                        put("requirement", requirement)
+                        put("required", true)
+                        put("acceptance_state", "NOT_TESTED")
+                        put("acceptance", "Verify the requested output against matching receipts; unrelated API capabilities are diagnostic inventory only.")
+                    }
+                }
+            )
+        }
         put("requirements", requirements)
+        GitHubReviewComparison.plan(task, tools, receipts)?.let { put("review_comparison", it.checkpoint) }
         put("remaining_requirements", JsonArray(requirements.filter { (it as JsonObject)["acceptance_state"] != JsonPrimitive("PASS") }))
         put("authorized_catalog", GitHubAuthorizedCatalog.snapshot(receipts, tools))
         put("runtime_binding", GitHubIntegrationAcceptance.binding(receipts.values))
@@ -602,7 +625,7 @@ internal object GitHubTestChecklist {
             "resume_plan",
             buildJsonObject {
                 put("source", "Trusted receipts revalidated against the current authorization catalog")
-                put("pending_capabilities", JsonArray(capabilities.filter { (it as JsonObject).text("status") !in setOf("PASSED", "RECOVERED", "OUT_OF_SCOPE", "NOT_REQUESTED") }))
+                put("pending_capabilities", JsonArray(capabilities.filter { (it as JsonObject)["required"] == JsonPrimitive(true) && it.text("status") !in setOf("PASSED", "RECOVERED", "OUT_OF_SCOPE", "NOT_REQUESTED") }))
                 put("cleanup_first", false)
                 put("cleanup_policy", "Finish required live existence reads before teardown; preserve cleanup reserve and reconcile exact owned-ref absence without repeating deletion.")
                 put("mutation_retry_policy", "Reconcile failed or uncertain writes; never replay a completed mutation or repeat a write to recover its response.")
@@ -611,7 +634,12 @@ internal object GitHubTestChecklist {
         put("acceptance_ledger", GitHubAcceptanceLedger.snapshot(requirements = requirements, capabilities = capabilities, requestDigest = GitHubEvidenceBook.digest(task)))
         put("coverage_source", if (tools.isEmpty()) "BASELINE_CATALOG" else "AUTHORIZED_TOOL_ACTION_SCHEMAS")
         put("pagination_policy", "Reuse complete persisted originals and their exact remote recipes; consume display fragments only when no complete original was retained; up to 32 definition pages per revision independently of two remote inventory samples, or eight while locating an issue dependency, unless complete inventory is explicitly requested; restore retained pages locally before one bounded read-only source recovery")
-        put("acceptance", JsonArray(listOf("Each requested capability has a result or explicit untested/blocker reason", "Every claim cites matching branch/PR/SHA receipts", "Complete durable sources or required local fragments, and remote pages, consumed or explicitly pending", "Application test results bound to newly executed runs at tested SHA", "Coverage, measured score or limitation, failures and solutions retained", "Authorized isolated write fixtures verified and cleaned up").map(::JsonPrimitive)))
+        val acceptance = if (integration(task)) {
+            listOf("Each requested capability has a result or explicit untested/blocker reason", "Every claim cites matching branch/PR/SHA receipts", "Complete durable sources or required local fragments, and remote pages, consumed or explicitly pending", "Application test results bound to newly executed runs at tested SHA", "Coverage, measured score or limitation, failures and solutions retained", "Authorized isolated write fixtures verified and cleaned up")
+        } else {
+            listOf("Only the user's requested outputs are required acceptance criteria", "Every claim cites matching branch/PR/SHA receipts", "Read-only reviews require exact comparison revisions and relevant source reads, not unrelated mutation fixtures", "Unverified outputs and pending remote pages remain explicit")
+        }
+        put("acceptance", JsonArray(acceptance.map(::JsonPrimitive)))
         put("pending_pages", JsonArray(pendingPages(receipts)))
         put("pagination_resume", paginationResume(task, receipts, tools, remainingToolCalls))
         put("fixtures", GitHubSelfTestFixtures.checkpoint(receipts))

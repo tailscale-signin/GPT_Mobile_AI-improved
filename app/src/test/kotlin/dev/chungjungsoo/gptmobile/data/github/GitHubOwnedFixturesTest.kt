@@ -59,6 +59,32 @@ class GitHubOwnedFixturesTest {
         put("remote_state_verified", true)
     }
 
+    @Test fun creationIntentSurvivesRestartWithoutGrantingOwnershipOrCleanup() = runBlocking {
+        val directory = Files.createTempDirectory("github-fixture-intent").toFile()
+        try {
+            val firstStore = GitHubRepositoryStateStore(directory)
+            GitHubOwnedFixtures(firstStore, "task").prepareCreation(root, creation())
+            val store = GitHubRepositoryStateStore(directory)
+            val restored = GitHubOwnedFixtures(store, "task")
+            val key = "fixture:" + GitHubRepositoryStateStore.digest("$root|$branch")
+            val intent = requireNotNull(store.read("task", key))
+            assertEquals(JsonPrimitive("CREATION_PENDING"), intent["status"])
+            assertEquals(JsonPrimitive("CLEANUP_PENDING"), intent["lifecycle_state"])
+            assertEquals(JsonPrimitive(false), intent["ownership_verified"])
+            assertTrue(runCatching { restored.prepareCommit(root, args(origin, false)) }.isFailure)
+            val remote = Remote()
+            assertTrue(runCatching { remote.clean(restored, origin) }.isFailure)
+            assertEquals(0, remote.deletes)
+            restored.register(root, creation(), created())
+            assertEquals(JsonPrimitive(true), store.read("task", key)?.get("ownership_verified"))
+            remote.clean(restored, origin)
+            assertEquals(1, remote.deletes)
+            assertEquals(JsonPrimitive("REMOVED_VERIFIED"), store.read("task", key)?.get("lifecycle_state"))
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
     private inner class Remote {
         var head: String? = origin
         var deletes = 0
@@ -216,6 +242,8 @@ class GitHubOwnedFixturesTest {
             val restored = GitHubOwnedFixtures(GitHubRepositoryStateStore(directory), "task")
             val status = restored.recoverApproval(root, approvalStatus(intent), remote::read, { remote.head == null }) { error("An active approval cannot reconcile or publish") }
             assertEquals(JsonPrimitive("WAITING_FOR_APPROVAL"), status?.get("cleanup_status"))
+            assertEquals(JsonPrimitive("DELIBERATELY_RETAINED"), status?.get("lifecycle_state"))
+            assertEquals(JsonPrimitive("APPROVE_OR_CANCEL_EXISTING_PATCH"), status?.get("next_action"))
             assertEquals(JsonPrimitive("saved-approval"), status?.get("engineering_task_id"))
             assertTrue(runCatching { remote.clean(restored, origin) }.exceptionOrNull()?.message.orEmpty().contains("WAITING_FOR_APPROVAL"))
             assertEquals(0, remote.publications)

@@ -143,7 +143,13 @@ class AgentToolResolver @Inject constructor(
                 )
             }
         ) { current, refreshed ->
-            mcpClientManager.listTools(current, forceRefresh || refreshed, awaitCompletion, passiveBackoff && !refreshed)
+            if (refreshed) {
+                kotlinx.coroutines.withContext(McpDiscoveryContext(McpDiscoveryTrigger.OAUTH_REFRESH)) {
+                    mcpClientManager.listTools(current, true, awaitCompletion, false)
+                }
+            } else {
+                mcpClientManager.listTools(current, forceRefresh, awaitCompletion, passiveBackoff)
+            }
         }
     }
 

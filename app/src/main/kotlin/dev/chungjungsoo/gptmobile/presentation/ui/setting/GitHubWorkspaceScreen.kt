@@ -144,6 +144,8 @@ fun GitHubWorkspaceScreen(
         if (state.uiReady && !state.setupRequired && commandContext != null && programmerState.draftLoaded && programmerState.chatId == null) programmer.ensureConversation()
     }
     val commitReview: dev.chungjungsoo.gptmobile.presentation.ui.workspace.GitHubReviewViewModel = hiltViewModel()
+    val pendingCommit by commitReview.pendingEngineeringTask.collectAsStateWithLifecycle()
+    val savedEngineeringTasks by commitReview.engineeringTasks.collectAsStateWithLifecycle()
     val publishedContinuations by commitReview.publishedContinuations.collectAsStateWithLifecycle()
     LaunchedEffect(commandContext) {
         commitReview.restrictTo(commandContext)
@@ -355,7 +357,8 @@ fun GitHubWorkspaceScreen(
                                                 recoveryRequest = recoveryRequest,
                                                 onRecoveryHandled = { recoveryRequest = null },
                                                 exportRequested = exportChatId == chatId,
-                                                onExportHandled = { exportChatId = null }
+                                                onExportHandled = { exportChatId = null },
+                                                approvalPending = savedEngineeringTasks.any { it.taskId == pendingCommit && it.state == "AWAITING_APPROVAL" }
                                             )
                                         }
                                     } else {
@@ -491,7 +494,8 @@ fun GitHubWorkspaceScreen(
                                             onExport = {
                                                 exportChatId = visibleProgrammer.chatId
                                                 tab = 3
-                                            }
+                                            },
+                                            approvalPending = savedEngineeringTasks.any { it.taskId == pendingCommit && it.state == "AWAITING_APPROVAL" }
                                         )
                                         visibleProgrammer.chatId?.let { GitHubChatChecks(it, expanded = true) }
                                     }

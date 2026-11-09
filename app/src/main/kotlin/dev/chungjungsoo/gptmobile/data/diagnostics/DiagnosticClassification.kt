@@ -113,12 +113,16 @@ internal fun classifyDiagnostic(level: String?, tag: String?, message: String): 
             text.startsWith("enrichment_lifecycle") &&
             "deferred=true" in text -> DiagnosticClassification("deferred_work", "info", false, "waiting")
         text.startsWith("connectivity_recovered") -> DiagnosticClassification("recovery", "info", false, "response_observed_on_current_network")
+        tag == "Gateway" && text.startsWith("metadata_read_outcome") && "outcome=completed" in text ->
+            DiagnosticClassification("recovery", "info", false, "metadata_read_completed_model_readiness_not_inferred")
+        tag == "Gateway" && text.startsWith("client_exchange") && Regex("(?:^| · )transport=(?:connect_timeout|read_timeout|stream_interrupted|stream_idle_timeout|connection_aborted|dns_failed|dns_failure|route_unavailable|connection_refused|connection_reset)(?: · |$)").containsMatchIn(text) ->
+            DiagnosticClassification("transport_availability", "warning", true, "correlate_metadata_read_attempts_and_final_outcome")
         text.startsWith("search_index_ready") ||
             text.startsWith("refresh_ok") ||
             text.startsWith("enrichment_success") ||
             text.startsWith("connected") ->
             DiagnosticClassification("recovery", "info", false, "reported_success")
-        Regex("unexpected end of stream|broken pipe|unknownhostexception|unable to resolve host|connectexception|failed to connect|connect timeout", RegexOption.IGNORE_CASE).containsMatchIn(text) -> DiagnosticClassification("transport_availability", "warning", true, "bounded_route_recovery")
+        Regex("unexpected end of stream|broken pipe|unknownhostexception|unable to resolve host|connectexception|failed to connect|connect timeout|socketexception.*(?:abort|closed|reset)|socket abort|connection abort|connection reset", RegexOption.IGNORE_CASE).containsMatchIn(text) -> DiagnosticClassification("transport_availability", "warning", true, "bounded_route_recovery")
         level !in setOf("E", "W") && tag in setOf("Frame", "Rendering") && text.startsWith("frame_timing") ->
             if (significantFrameWindow(diagnosticEventMessage(message))) DiagnosticClassification("performance", "warning", true, "profile_main_thread_and_rendering") else DiagnosticClassification("performance_sample", "info", false)
         level == "E" -> DiagnosticClassification("error", "error", true)

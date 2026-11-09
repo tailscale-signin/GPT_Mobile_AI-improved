@@ -11,6 +11,53 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class RunDiagnosticJournalTest {
+    @Test fun multiRunExportIndexesStorageOnceAndKeepsOneFrozenBoundaryAcrossLaterWrites() = runTest {
+        val vault = MemoryVault()
+        val journal = RunDiagnosticJournal(vault, backgroundScope).apply { enabled = true }
+        for (run in listOf("first", "second", "unselected")) {
+            journal.setRunPrivacy(run, false)
+            repeat(40) { journal.record(run, RunDiagnosticKind.REQUEST_SERIALIZED) }
+        }
+        runCurrent()
+        vault.referenceCount = 0
+        val events = mutableListOf<RunDiagnosticEvent>()
+        val coverages = linkedMapOf<String, RunJournalExportCoverage>()
+        var advanced = false
+        journal.streamRuns(linkedSetOf("first", "second"), {}, { event ->
+            events += event
+            if (!advanced) {
+                advanced = true
+                journal.record("second", RunDiagnosticKind.REQUEST_SERIALIZED)
+                runCurrent()
+            }
+        }) { run, coverage -> coverages[run] = coverage }
+        assertEquals(1, vault.referenceCount)
+        assertEquals(setOf("first", "second"), events.map { it.runId }.toSet())
+        assertEquals((1L..40L).toList(), events.filter { it.runId == "first" }.map { it.sequence })
+        assertEquals((1L..40L).toList(), events.filter { it.runId == "second" }.map { it.sequence })
+        assertTrue(coverages.values.all { it.eventCount == 40L && it.missingSequences == 0L && it.missingBatches == 0 })
+        assertEquals(1, coverages.values.sumOf { it.referenceEnumerations ?: 0 })
+        assertEquals(1, coverages.values.map { it.capturedAtMillis }.distinct().size)
+        val next = mutableListOf<Long>()
+        journal.stream("second", {}) { next += it.sequence }
+        assertEquals((1L..41L).toList(), next)
+    }
+
+    @Test fun multiRunExportDoesNotPublishALaterRunAfterPrivacyRevokesTheFrozenCapture() = runTest {
+        val journal = RunDiagnosticJournal(MemoryVault(), backgroundScope).apply { enabled = true }
+        for (run in listOf("first", "second")) {
+            journal.setRunPrivacy(run, false)
+            journal.record(run, RunDiagnosticKind.REQUEST_SERIALIZED)
+        }
+        runCurrent()
+        val retained = mutableListOf<String>()
+        val failure = runCatching {
+            journal.streamRuns(linkedSetOf("first", "second"), {}, { retained += it.runId }) { _, _ -> journal.privateSession = true }
+        }.exceptionOrNull()
+        assertEquals("JOURNAL_CAPTURE_REVOKED", failure?.message)
+        assertEquals(listOf("first"), retained)
+    }
+
     @Test fun precheckFailureIsSystemOutputAtCommitRenderAndDrawWithoutAProviderInvocation() = runTest {
         val vault = MemoryVault()
         val journal = RunDiagnosticJournal(vault, backgroundScope).apply {
@@ -451,6 +498,10 @@ class RunDiagnosticJournalTest {
         override suspend fun delete(secretRef: String) {
             rows.remove(secretRef)
         }
-        override suspend fun references() = rows.keys.toSet()
+        var referenceCount = 0
+        override suspend fun references(): Set<String> {
+            referenceCount++
+            return rows.keys.toSet()
+        }
     }
 }

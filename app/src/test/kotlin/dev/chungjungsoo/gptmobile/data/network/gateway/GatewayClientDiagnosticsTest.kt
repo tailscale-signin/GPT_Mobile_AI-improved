@@ -14,6 +14,54 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GatewayClientDiagnosticsTest {
+    @Test fun abortedReadAndRetryTimeoutRetainPhysicalFailuresUnderOneLogicalIncident() {
+        val original = LocalDiagnosticsPolicy.enabled
+        val config = ProviderRequestConfig("https://retry.example/v1", null, extraHeaders = mapOf(GatewayClientDiagnostics.CLIENT_HEADER to "{}"))
+        try {
+            LocalDiagnosticsPolicy.setEnabled(true)
+            val readId = "c".repeat(32)
+            val dispatchedNetwork = dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.networkEpoch
+            val first = GatewayClientDiagnostics.requestHeaders(config, "readiness", metadataReadId = readId, metadataReadAttempt = 0)
+            val second = GatewayClientDiagnostics.requestHeaders(config, "readiness", metadataReadId = readId, metadataReadAttempt = 1)
+            dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.networkChanged()
+            val aborted = requireNotNull(GatewayClientDiagnostics.failureFields(config, first, java.net.SocketException("Software caused connection abort"), "readiness", safeRead = true))
+            val timeout = requireNotNull(GatewayClientDiagnostics.failureFields(config, second, java.net.SocketTimeoutException("private address"), "readiness", safeRead = true))
+            assertEquals("TRANSPORT_FAILURE", aborted.diagnosticText("error_code"))
+            assertEquals("TIMEOUT", timeout.diagnosticText("error_code"))
+            assertEquals(readId, aborted.diagnosticText("incident_id"))
+            assertEquals(readId, timeout.diagnosticText("incident_id"))
+            assertEquals(readId, aborted.diagnosticText("operation_id"))
+            assertNotEquals(aborted.diagnosticText("parent_span_id"), timeout.diagnosticText("parent_span_id"))
+            assertEquals(0L, (aborted["bounded_attributes"] as JsonObject).diagnosticLong("retry_attempt"))
+            assertEquals(1L, (timeout["bounded_attributes"] as JsonObject).diagnosticLong("retry_attempt"))
+            assertEquals(dispatchedNetwork, (aborted["bounded_attributes"] as JsonObject).diagnosticLong("network_epoch"))
+            assertFalse(timeout.toString().contains("private"))
+            assertEquals("safe_read", timeout.diagnosticText("retry_class"))
+            val recoveredRead = "d".repeat(32)
+            val failedAttempt = GatewayClientDiagnostics.requestHeaders(config, "readiness", metadataReadId = recoveredRead, metadataReadAttempt = 0)
+            GatewayClientDiagnostics.failureFields(config, failedAttempt, java.net.SocketException("Software caused connection abort"), "readiness", true)
+            val recoveredAttempt = GatewayClientDiagnostics.requestHeaders(config, "readiness", metadataReadId = recoveredRead, metadataReadAttempt = 1)
+            assertEquals(null, GatewayClientDiagnostics.metadataReadCompletionFields(config, recoveredAttempt))
+            val recoveredHeaders = mapOf("X-Gateway-Client-Span-ID" to requireNotNull(recoveredAttempt["traceparent"]).split('-')[2])
+            GatewayClientDiagnostics.responseFields(config, 200, recoveredHeaders::get)
+            val completed = requireNotNull(GatewayClientDiagnostics.metadataReadCompletionFields(config, recoveredAttempt))
+            assertEquals(recoveredRead, completed.diagnosticText("incident_id"))
+            assertEquals("operation_reconciliation", completed.diagnosticText("stage"))
+            assertEquals("NONE", completed.diagnosticText("error_code"))
+            assertEquals("response_received", completed.diagnosticText("dispatch_state"))
+            assertEquals("true", (completed["bounded_attributes"] as JsonObject)["response_body_completed"]?.jsonPrimitive?.content)
+            assertFalse(completed.toString().contains("generation_ready"))
+            GatewayClientDiagnostics.finished(recoveredAttempt)
+            val rejected = GatewayClientDiagnostics.requestHeaders(config, "readiness", metadataReadId = "e".repeat(32), metadataReadAttempt = 1)
+            val rejectedHeaders = mapOf("X-Gateway-Client-Span-ID" to requireNotNull(rejected["traceparent"]).split('-')[2])
+            GatewayClientDiagnostics.responseFields(config, 503, rejectedHeaders::get)
+            assertEquals(null, GatewayClientDiagnostics.metadataReadCompletionFields(config, rejected))
+            GatewayClientDiagnostics.finished(rejected)
+        } finally {
+            LocalDiagnosticsPolicy.setEnabled(original)
+        }
+    }
+
     @Test fun preparingHeadersDoesNotInventAPhysicalRequestOrTransportFailure() {
         val original = LocalDiagnosticsPolicy.enabled
         val config = ProviderRequestConfig(

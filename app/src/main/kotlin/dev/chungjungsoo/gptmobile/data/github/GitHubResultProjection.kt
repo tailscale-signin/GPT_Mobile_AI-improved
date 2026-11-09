@@ -63,12 +63,40 @@ internal object GitHubResultProjection {
         }
         if (request["response_detail"] == JsonPrimitive("full") || (request["action"] as? JsonPrimitive)?.content !in actions[operation].orEmpty()) return source
         var omitted = 0
+        fun check(value: JsonObject): JsonObject = buildJsonObject {
+            // Check-run REST objects repeat the producer, repository and owner for
+            // every run. These are display metadata, not eighteen independent
+            // pieces of evidence. Keep the immutable producer identity for
+            // distinguishing checks with the same name.
+            setOf("id", "name", "status", "conclusion", "started_at", "completed_at").forEach { key -> value[key]?.let { put(key, it) } }
+            (value["html_url"] ?: value["details_url"])?.let { put("html_url", it) }
+            (value["app"] as? JsonObject)?.get("id")?.let { put("app", buildJsonObject { put("id", it) }) }
+            if (value["required_verified"] == JsonPrimitive(true)) {
+                value["required"]?.let { put("required", it) }
+                put("required_verified", true)
+            }
+            val conclusion = (value["conclusion"] as? JsonPrimitive)?.content
+            if (conclusion in setOf("failure", "timed_out", "cancelled", "action_required", "startup_failure", "stale")) {
+                val output = value["output"] as? JsonObject
+                val failure = listOfNotNull(output?.get("title"), output?.get("summary"))
+                    .mapNotNull { (it as? JsonPrimitive)?.takeIf(JsonPrimitive::isString)?.content }
+                    .joinToString(" — ").trim()
+                if (failure.isNotEmpty()) put("failure_summary", failure.take(256))
+            }
+        }
+        fun status(value: JsonObject): JsonObject = JsonObject(value.filterKeys { it in setOf("id", "context", "state", "target_url", "description", "created_at", "updated_at") })
         fun visit(value: JsonElement): JsonElement = when (value) {
             is JsonObject -> JsonObject(
                 value.mapNotNull { (key, child) ->
                     if (key in noise) {
                         omitted++
                         null
+                    } else if (key == "check_runs" && child is JsonArray) {
+                        omitted += child.size
+                        key to JsonArray(child.map { if (it is JsonObject) check(it) else it })
+                    } else if (key == "statuses" && child is JsonArray) {
+                        omitted += child.size
+                        key to JsonArray(child.map { if (it is JsonObject) status(it) else it })
                     } else {
                         key to visit(child)
                     }
@@ -110,7 +138,7 @@ internal object GitHubResultProjection {
             compact + (
                 "projection" to buildJsonObject {
                     put("omitted_metadata_fields", omitted)
-                    put("detail", "Operational fields preserved. Request response_detail=full with the same selectors for omitted metadata; original evidence is retained.")
+                    put("detail", "Check identities, states, URLs, timestamps and brief failure summaries are preserved. Requiredness is shown only when verified. Complete original evidence is retained; display metadata does not require pagination. Request response_detail=full for original detail.")
                 }
                 )
         )

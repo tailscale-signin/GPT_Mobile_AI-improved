@@ -59,15 +59,18 @@ internal object GitHubTaskLifecycle {
         val classification = ProfileFailureRecord.fromProvider(failure.message, failure.errorCode, failure.failureDetails)
         val details = failure.failureDetails.orEmpty()
         val review = failure.errorCode?.startsWith("GITHUB_REVIEW_") == true || classification.phase == "answer_review"
-        return buildJsonObject {
+        val outcome = buildJsonObject {
+            put("schema", "github.failure-outcome.v1")
             put("failure_code", failure.errorCode ?: classification.category)
             put("failure_domain", if (classification.isTaskVerification) "TASK_VERIFICATION" else "EXECUTION")
+            put("failure_scope", "CURRENT_STAGE")
             if (classification.isTaskVerification) put("continuation_required", true)
             put("failed_stage", details["failed_stage"] ?: JsonPrimitive(if (review) "answer_review" else classification.phase.ifBlank { "stage_not_recorded" }))
             details["dispatched"]?.let { put("failed_stage_dispatched", it) }
                 ?: classification.dispatched?.let { put("failed_stage_dispatched", it) }
-            put("retryable_without_new_input", failure.taskOutcome !in setOf("BLOCKED", "CONFIGURATION_INVALIDATED") && classification.retryAllowed)
+            put("retryable_without_new_input", details["retryable_without_new_input"] != JsonPrimitive(false) && failure.taskOutcome !in setOf("BLOCKED", "CONFIGURATION_INVALIDATED") && classification.retryAllowed)
             put("remote_acceptance", classification.remoteAcceptance.name)
+            put("remote_acceptance_scope", "CURRENT_STAGE_ONLY_PRIOR_RECEIPTS_UNCHANGED")
             classification.serverRequestId?.let { put("server_request_id", it) }
             classification.generationCompleted?.let { put("generation_completed", it) }
             classification.requestReplayAllowed?.let { put("request_replay_allowed", it) }
@@ -82,6 +85,18 @@ internal object GitHubTaskLifecycle {
             details["resume_required"]?.let { put("resume_required", it) }
             details["missing_requirements"]?.let { put("missing_requirements", it) }
             details["corrective_actions"]?.let { put("corrective_actions", it) }
+            listOf(
+                "stop_reason", "next_action", "resume_allowed", "resume_kind", "user_input_required", "requires_reconciliation",
+                "pending_invocation_fingerprints", "continuations_used", "continuation_limit", "rounds_used", "round_limit",
+                "tool_calls_used", "tool_call_limit", "tool_calls_remaining", "execution_state"
+            ).forEach { key -> details[key]?.let { put(key, it) } }
+            if (failure.errorCode == "OUTPUT_CONTINUATION_PENDING_TOOLS") {
+                put("execution_state", "WAITING_FOR_RECEIPT_RECONCILIATION")
+                put("next_action", "RECONCILE_TOOL_RECEIPTS")
+                put("resume_allowed", false)
+                put("retryable_without_new_input", false)
+            }
         }
+        return JsonObject(outcome + ("failure_outcome" to outcome))
     }
 }

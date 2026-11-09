@@ -24,6 +24,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 data class AgentRunLimits(
@@ -71,7 +72,8 @@ class AgentRunner(
     private val retryUndispatchedBudgetFailures: Boolean = false,
     private val onToolResult: (suspend (ProviderEvent.ToolCall, AgentToolResult) -> Unit)? = null,
     private val resumeToolBudget: Boolean = false,
-    private val initialToolCallCountOverride: Int? = null
+    private val initialToolCallCountOverride: Int? = null,
+    private val onToolResultCommitted: (suspend (ProviderEvent.ToolCall, AgentToolResult) -> Unit)? = null
 ) {
     private val replayRenderCache = ToolExchangeCompactor.RenderCache()
 
@@ -344,6 +346,7 @@ class AgentRunner(
                     val result = exchange.results.single()
                     val restored = try {
                         onToolResult?.invoke(call, result)
+                        onToolResultCommitted?.invoke(call, result)
                         result
                     } catch (cancelled: CancellationException) {
                         throw cancelled
@@ -409,7 +412,27 @@ class AgentRunner(
                     executableToolByName = emptyMap()
                     emit(AgentRunEvent.Notice(ROUND_LIMIT_FINAL_RESPONSE_NOTICE, persistent = false))
                 } else {
-                    finishFromRetained(session, ProviderEvent.Failed("Agent could not finalize after ${limits.maxRounds} model/tool rounds.", errorCode = "FINAL_RESPONSE_REQUIRED"), exchanges.isNotEmpty())
+                    finishFromRetained(
+                        session,
+                        ProviderEvent.Failed(
+                            "Agent could not finalize after ${limits.maxRounds} model/tool rounds and its reserved synthesis attempt. Completed receipts remain retained.",
+                            errorCode = "FINAL_RESPONSE_REQUIRED",
+                            taskOutcome = "BLOCKED",
+                            failureDetails = buildJsonObject {
+                                put("failed_stage", "final_synthesis")
+                                put("stop_reason", "MODEL_TOOL_ROUND_LIMIT")
+                                put("rounds_used", rounds)
+                                put("round_limit", limits.maxRounds)
+                                put("tool_calls_used", toolCallCount)
+                                put("tool_call_limit", executionToolCallLimit)
+                                put("tool_calls_remaining", (executionToolCallLimit.toLong() - toolCallCount).coerceAtLeast(0))
+                                put("next_action", "RESUME_SYNTHESIS_FROM_RETAINED_EVIDENCE")
+                                put("dispatched", false)
+                                put("retryable", false)
+                            }
+                        ),
+                        exchanges.isNotEmpty()
+                    )
                     return false
                 }
             }
@@ -786,6 +809,7 @@ class AgentRunner(
         healthCatalog?.recordObservation(call.name, result)
         val observed = try {
             onToolResult?.invoke(call, result)
+            onToolResultCommitted?.invoke(call, result)
             result
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -1136,6 +1160,8 @@ class AgentRunner(
         calls.zip(allResults).forEach { (call, result) ->
             if (call.callId !in publishedCallIds) {
                 onToolResult?.invoke(call, result)
+                // Deferred/precheck results were committed before finishBatch.
+                onToolResultCommitted?.invoke(call, result)
                 emit(AgentRunEvent.ToolFinished(call, result))
             }
         }
@@ -1725,6 +1751,7 @@ class AgentRunner(
                 }
             }
             val receipt = ToolFailureMetadata.receipt(AgentContractValidation.receipt(call.callId, result), call.name, replaySafe = replayableRead)
+                .let { if (limits.githubTask) ToolHandoffReceipt.identifySource(it) else it }
             observedReceipt = receipt
             onToolResult?.invoke(call, receipt)
             ToolObservationRetention.bound(if (tool.managesExecutionBudget) receipt else receipt.copy(content = boundContent(receipt.content)))

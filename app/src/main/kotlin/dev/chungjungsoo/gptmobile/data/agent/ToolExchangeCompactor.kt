@@ -142,9 +142,12 @@ internal object ToolExchangeCompactor {
                 val duplicate = lastOccurrence[fingerprints[index]] != index
                 val maxChars = resultBudgets[index] * CHARS_PER_TOKEN
                 val raw by lazy(LazyThreadSafetyMode.NONE) { renderCache?.render(result.content) ?: render(result.content) }
+                val semantic by lazy(LazyThreadSafetyMode.NONE) { semanticContent(result) }
                 when {
                     duplicate -> result.copy(content = ToolResultContent.Text(DUPLICATE_RESULT))
-                    resultBudgets[index] == 0 -> result.copy(content = ToolResultContent.Text(OMITTED_RESULT))
+                    resultBudgets[index] == 0 -> result.copy(content = semantic ?: ToolResultContent.Text(OMITTED_RESULT))
+                    result.executionReceipt?.get("retained_original_complete") == JsonPrimitive(true) && raw.length > maxChars && semantic != null && render(requireNotNull(semantic)).length <= maxChars ->
+                        result.copy(content = requireNotNull(semantic))
                     GitHubReplayRecovery.envelope(result.content) != null ->
                         if (raw.length <= maxChars) result else result.copy(content = GitHubReplayRecovery.compact(result.content, maxChars, result.callId in consumedCallIds) ?: result.content)
                     result.isError && exchangeIndex < exchanges.lastIndex ->
@@ -162,6 +165,22 @@ internal object ToolExchangeCompactor {
         // call/result pairs newest-first and evict older pairs. This makes maxReplayTokens
         // an actual upper bound instead of a warning threshold.
         return if (estimateTokens(compacted, renderCache) <= hardBudget) compacted else hardBound(compacted, hardBudget, renderCache)
+    }
+
+    /** Small immutable facts survive projection; the hard bound below still governs replay size. */
+    private fun semanticContent(result: AgentToolResult): ToolResultContent? {
+        val source = GitHubReplayRecovery.envelope(result.content)
+        val summary = (result.executionReceipt?.get("semantic_summary") ?: source?.get("semantic_summary")) as? JsonObject ?: return null
+        if (summary.toString().length > 2400) return null
+        return ToolResultContent.Json(
+            buildJsonObject {
+                put("schema", JsonPrimitive("github.evidence-summary.v1"))
+                put("semantic_summary", summary)
+                put("receipt_reference", JsonPrimitive("tool-batch/${result.callId}"))
+                put("previously_delivered", JsonPrimitive(true))
+                result.executionReceipt?.get("retained_original_complete")?.let { put("retained_original_complete", it) }
+            }
+        )
     }
 
     private fun recoveryPage(content: ToolResultContent): JsonObject? =
@@ -205,9 +224,13 @@ internal object ToolExchangeCompactor {
                 if (cost > remaining) {
                     // Arguments and consumed payload are no longer needed to execute the call;
                     // preserving the id/name/result pairing is sufficient for provider replay.
-                    keptCall = call.copy(arguments = buildJsonObject { })
-                    keptResult = result.copy(content = ToolResultContent.Text(OMITTED_RESULT))
+                    keptCall = call.copy(arguments = buildJsonObject { }, originalInvocationFingerprint = ToolHandoffReceipt.fingerprint(call))
+                    keptResult = result.copy(content = semanticContent(result) ?: ToolResultContent.Text(OMITTED_RESULT))
                     cost = estimateTokens(listOf(AgentToolExchange(listOf(keptCall), listOf(keptResult))), renderCache)
+                    if (cost > remaining) {
+                        keptResult = result.copy(content = ToolResultContent.Text(OMITTED_RESULT))
+                        cost = estimateTokens(listOf(AgentToolExchange(listOf(keptCall), listOf(keptResult))), renderCache)
+                    }
                 }
                 if (cost <= remaining) {
                     keptPairs += keptCall to keptResult

@@ -80,6 +80,8 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
         val discovered = try {
             val response = rpcWithStatus(config, "server/discover", JsonObject(emptyMap()))
             val discovery = response.result
+            val connectionHash = java.security.MessageDigest.getInstance("SHA-256").digest(config.connectionUid.toByteArray(Charsets.UTF_8)).take(8).joinToString("") { "%02x".format(it) }
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("MCP", "DISCOVERY_RESPONSE_SHAPE · connectionHash=$connectionHash · httpStatus=${response.httpStatus} · ${mcpDiscoveryResponseShape(discovery)}")
             val versions = discoveryVersions(discovery["supportedVersions"], "supportedVersions", response.httpStatus)
             when {
                 VERSION in versions -> {
@@ -120,11 +122,12 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
                 }
                 error.status !in setOf(401, 403, 408, 429) && (error.status in 400..499 || error.code in MODERN_VALIDATION_ERRORS) && !error.quotaFailure -> {
                     val (rule, field) = when (error.code) {
+                        -32601 -> "DISCOVERY_METHOD_SUPPORTED_REQUIRED" to "server_discover"
                         -32020 -> "REQUEST_METADATA_ACCEPTANCE_REQUIRED" to "request_metadata"
                         -32021 -> "CLIENT_CAPABILITY_REQUIRED" to "client_capabilities"
                         -32602 -> "REQUEST_PARAMETERS_ACCEPTANCE_REQUIRED" to "params"
                         -32700 -> "REQUEST_JSON_ACCEPTANCE_REQUIRED" to "request"
-                        else -> "DISCOVERY_REQUEST_ACCEPTANCE_REQUIRED" to "server_discover"
+                        else -> if (error.status == 404) "ENDPOINT_ROUTE_REQUIRED" to "endpoint" else "DISCOVERY_REQUEST_ACCEPTANCE_REQUIRED" to "server_discover"
                     }
                     throw McpProtocolConfigurationException("MCP_DISCOVERY_CONFIGURATION", error.message.orEmpty(), error.status, rule, field)
                 }
@@ -432,7 +435,8 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
                 val code = (error?.get("code") as? JsonPrimitive)?.intOrNull
                 val guidance = when {
                     response.status.value in setOf(401, 403) -> "Reconnect or update the MCP credential in Manage connection."
-                    response.status.value == 404 -> "Check the MCP endpoint path and server process."
+                    response.status.value == 404 && code == -32601 -> "The endpoint answered JSON-RPC but does not implement $method. Check which MCP protocol the bridge actually supports. A recognized modern unknown-method error cannot select legacy initialization automatically; repair the bridge's protocol negotiation, then reconnect."
+                    response.status.value == 404 -> "No supported MCP response was returned at this path. Check the endpoint URL and running service, then reconnect. This does not establish which protocol the server implements."
                     code == -32020 -> "The server rejected request metadata headers; check protocol compatibility and proxy header forwarding."
                     code == -32021 -> "The server requires a client capability this app has not enabled."
                     code == -32022 -> "The server rejected the requested protocol version."
@@ -544,7 +548,7 @@ private fun discoveryVersions(value: JsonElement?, field: String, httpStatus: In
         else -> null
     }
     if (invalidRule != null) {
-        throw McpProtocolConfigurationException("MCP_DISCOVERY_SCHEMA_INVALID", "MCP discovery must provide a nonempty supported protocol version list in $field. Update the server or bridge response.", httpStatus, invalidRule, field)
+        throw McpProtocolConfigurationException("MCP_DISCOVERY_SCHEMA_INVALID", "MCP discovery must provide a nonempty array of implemented protocol revisions in $field. Repair or update the server/bridge; do not add a revision it does not implement. A successful HTTP response with invalid discovery metadata cannot select legacy initialization. After repair, reconnect to verify negotiation and tools/list.", httpStatus, invalidRule, field)
     }
     return (value as JsonArray).map { version ->
         if (version !is JsonPrimitive || !version.isString || !Regex("[0-9]{4}-[0-9]{2}-[0-9]{2}").matches(version.content)) {

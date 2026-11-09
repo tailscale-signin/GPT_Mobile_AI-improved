@@ -14,6 +14,7 @@ internal fun Flow<AgentRunEvent>.withGitHubTerminalDelivery(enabled: Boolean): F
         var visible = false
         var terminal = false
         val receipts = linkedSetOf<String>()
+        val observations = linkedMapOf<String, kotlinx.serialization.json.JsonObject>()
         var successfulDispatch = false
         suspend fun finish(failure: ProviderEvent.Failed) {
             if (terminal) return
@@ -26,11 +27,18 @@ internal fun Flow<AgentRunEvent>.withGitHubTerminalDelivery(enabled: Boolean): F
                 } else {
                     "${receipts.size} tool result(s) were observed; they do not establish that the requested work is complete."
                 }
+                val established = dev.chungjungsoo.gptmobile.data.github.GitHubPartialReport.render(observations.values)
+                val stage = (failure.failureDetails?.get("failed_stage") as? kotlinx.serialization.json.JsonPrimitive)?.content
+                    ?.takeIf { it.matches(Regex("[a-z_]{1,64}")) }
+                val nextAction = (failure.failureDetails?.get("next_action") as? kotlinx.serialization.json.JsonPrimitive)?.content
+                    ?.takeIf { it.matches(Regex("[A-Z_]{1,96}")) }
                 emit(
                     AgentRunEvent.Provider(
                         ProviderEvent.TextDelta(
                             "The GitHub task stopped before a verified final result was available.\n\n" +
-                                "$evidence\n\nStatus: ${if (successfulDispatch) "PARTIAL" else "BLOCKED"}. Recorded failure: `$reason`. " +
+                                (if (established.isEmpty()) "$evidence\n\n" else "$established\n\n") +
+                                "Status: ${if (successfulDispatch) "PARTIAL" else "BLOCKED"}. Recorded failure: `$reason`. " +
+                                stage?.let { "Stopped during `$it`. " }.orEmpty() + nextAction?.let { "Next required step: `$it`. " }.orEmpty() +
                                 "Review the failure details before resuming. Completed actions must be reconciled, and uncertain writes must not be repeated.",
                             dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.SYSTEM_ERROR, failure.invocationId)
                         )
@@ -59,6 +67,10 @@ internal fun Flow<AgentRunEvent>.withGitHubTerminalDelivery(enabled: Boolean): F
             when (event) {
                 is AgentRunEvent.ToolFinished -> {
                     receipts += event.call.callId
+                    dev.chungjungsoo.gptmobile.data.github.GitHubPartialReport.observe(event.call, event.result)?.let { summary ->
+                        observations[event.call.callId] = summary
+                        while (observations.size > 128) observations.remove(observations.keys.first())
+                    }
                     successfulDispatch = successfulDispatch || event.result.dispatched && !event.result.isError
                     emit(event)
                 }

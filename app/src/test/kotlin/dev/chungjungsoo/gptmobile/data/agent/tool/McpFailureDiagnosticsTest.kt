@@ -95,7 +95,8 @@ class McpFailureDiagnosticsTest {
             assertEquals(200, manager.healthSnapshot(config.connectionUid).lastHttpStatus)
             val presented = mcpFailurePresentation(requireNotNull(first), manager.healthSnapshot(config.connectionUid))
             assertEquals("outcome=PROTOCOL_CONFIGURATION · errorCode=MCP_DISCOVERY_SCHEMA_INVALID · retryable=false", presented.diagnosticSummary)
-            assertTrue(presented.message.contains("supported protocol version list"))
+            assertTrue(presented.message.contains("nonempty array of implemented protocol revisions"))
+            assertTrue(presented.message.contains("tools/list"))
             assertFalse(presented.waitingForRecovery)
 
             valid = true

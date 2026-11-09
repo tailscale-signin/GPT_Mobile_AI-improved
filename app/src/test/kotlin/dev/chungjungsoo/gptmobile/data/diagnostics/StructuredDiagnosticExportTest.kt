@@ -8,6 +8,14 @@ import org.junit.Assert.assertFalse
 import org.junit.Test
 
 class StructuredDiagnosticExportTest {
+    @Test fun socketAbortAtInformationalLogLevelRemainsAnObservedTransportFailure() {
+        val record = Json.parseToJsonElement(structuredDiagnosticLine("2026-11-09T12:00:00Z I/Network: HTTP FAILED: java.net.SocketException: Software caused connection abort")).jsonObject
+        assertEquals("transport_availability", record.getValue("category").jsonPrimitive.content)
+        assertEquals("true", record.getValue("observedFailure").jsonPrimitive.content)
+        assertEquals("true", record.getValue("countAsIssue").jsonPrimitive.content)
+        assertEquals("UNVERIFIED", record.getValue("causalAttribution").jsonPrimitive.content)
+    }
+
     @Test fun observedFailureIsNeverPresentedAsAVerifiedRootCause() {
         val record = Json.parseToJsonElement(structuredDiagnosticLine("2026-11-02T12:00:00Z E/Tool: Tool failed · errorCode=SAVED_VIEW_UNAVAILABLE")).jsonObject
         assertEquals("OBSERVED_FAILURE", record.getValue("classification").jsonPrimitive.content)

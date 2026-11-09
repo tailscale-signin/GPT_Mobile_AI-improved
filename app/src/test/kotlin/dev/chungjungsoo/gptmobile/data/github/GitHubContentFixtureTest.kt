@@ -37,7 +37,7 @@ class GitHubContentFixtureTest {
         }
     )
     private val tools = listOf(
-        tool("github_context", "status", "changes", "branch", "branch_dependencies"),
+        tool("github_context", "status", "changes", "branch", "branch_dependencies", "recovery"),
         tool("github_commit", "branch", "commit_staged_patch", "delete_fixture_branch", "delete_branch"),
         tool("github_write", "commit"),
         tool("github_stage_patch"),
@@ -513,6 +513,8 @@ class GitHubContentFixtureTest {
     @Test fun undiscoveredOrRevokedCleanupNeverPermitsContentFixtureCreation() {
         val noCleanup = tools.map { if (it.name == "github_commit") tool("github_commit", "branch", "commit_staged_patch") else it }
         assertNull(GitHubSelfTestFixtures.next("test all tools", noCleanup, initial()))
+        val noRecovery = tools.map { if (it.name == "github_context") tool("github_context", "status", "changes", "branch", "branch_dependencies") else it }
+        assertFalse(GitHubContentFixture.available(noRecovery, branch, "main", origin))
         assertNull(GitHubSelfTestFixtures.next("test all tools read-only", tools, initial()))
         assertNotNull(GitHubSelfTestFixtures.prerequisite("github_pr", "comment"))
         assertFalse(GitHubSelfTestFixtures.supports("github_pr", "comment"))

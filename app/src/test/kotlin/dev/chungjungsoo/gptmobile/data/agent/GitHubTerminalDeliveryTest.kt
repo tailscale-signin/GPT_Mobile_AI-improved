@@ -6,7 +6,9 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -14,6 +16,43 @@ import org.junit.Test
 
 class GitHubTerminalDeliveryTest {
     private fun provider(event: ProviderEvent) = AgentRunEvent.Provider(event)
+
+    @Test fun interruptedTaskPublishesObservedFactsAndItsExactRecoveryStep() = runTest {
+        val call = ProviderEvent.ToolCall(
+            "pr-list",
+            "github_pr",
+            buildJsonObject {
+                put("action", "list")
+                put("state", "open")
+            }
+        )
+        val result = AgentToolResult(
+            call.callId,
+            ToolResultContent.Json(
+                buildJsonObject {
+                    put("items", JsonArray(emptyList()))
+                    put("has_more", false)
+                    put("page", 1)
+                }
+            ),
+            false
+        )
+        val failure = ProviderEvent.Failed(
+            "Saved batch needs reconciliation",
+            errorCode = "OUTPUT_CONTINUATION_PENDING_TOOLS",
+            failureDetails = buildJsonObject {
+                put("failed_stage", "tool_reconciliation")
+                put("next_action", "RECONCILE_TOOL_RECEIPTS")
+            }
+        )
+        val events = flowOf(AgentRunEvent.ToolFinished(call, result), provider(failure)).withGitHubTerminalDelivery(true).toList()
+        val text = events.filterIsInstance<AgentRunEvent.Provider>().map { it.event }.filterIsInstance<ProviderEvent.TextDelta>().single().text
+        assertTrue(text.contains("Open pull requests observed: 0 (complete captured list)"))
+        assertTrue(text.contains("pr-list"))
+        assertTrue(text.contains("tool_reconciliation"))
+        assertTrue(text.contains("RECONCILE_TOOL_RECEIPTS"))
+        assertTrue(text.contains("do not establish completion"))
+    }
 
     @Test fun failureWithoutTextProducesOneVisibleIncompleteResponseAndPreservesCause() = runTest {
         val failure = ProviderEvent.Failed("Llama is offline", errorCode = "LOCAL_SERVICE_UNREACHABLE")

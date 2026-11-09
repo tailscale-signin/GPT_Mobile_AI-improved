@@ -66,13 +66,17 @@ internal object ToolArgumentValidator {
     }
 
     private fun discoveryCorrection(toolName: String, arguments: JsonObject, schema: JsonObject): JsonObject? {
-        if (toolName.substringBefore("__") != "github_pr" || "view_cursor" in arguments) return null
+        val operation = toolName.substringBefore("__")
+        if (operation !in setOf("github_pr", "github_issue") || "view_cursor" in arguments) return null
+        val issue = operation == "github_issue"
+        val numberKey = if (issue) "issue_number" else "pull_number"
         val action = (arguments["action"] as? JsonPrimitive)?.content ?: "context"
-        if (action !in setOf("headers", "context", "comments", "reviews") || "pull_number" in arguments) return null
-        val aliases = listOf("pr_number", "number", "pull_request_number").filter { it in arguments }
+        val readActions = if (issue) setOf("headers", "context", "comments", "history") else setOf("headers", "context", "comments", "reviews")
+        if (action !in readActions || numberKey in arguments) return null
+        val aliases = (if (issue) listOf("number") else listOf("pr_number", "number", "pull_request_number")).filter { it in arguments }
         if (aliases.size == 1) {
             val alias = aliases.single()
-            val proposal = JsonObject(arguments - alias + ("pull_number" to arguments.getValue(alias)))
+            val proposal = JsonObject(arguments - alias + (numberKey to arguments.getValue(alias)))
             if (errors(proposal, schema).isEmpty()) return proposal
         }
         // Preserve an explicit complete repository. An incomplete selector must be repaired first.
@@ -81,6 +85,7 @@ internal object ToolArgumentValidator {
         if ((owner == null) != (repo == null)) return null
         val proposal = buildJsonObject {
             put("action", "list")
+            if (issue) arguments["state"]?.let { put("state", it) }
             if (owner != null && repo != null) {
                 put("owner", owner)
                 put("repo", repo)

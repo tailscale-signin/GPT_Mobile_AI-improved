@@ -1678,7 +1678,8 @@ internal fun ChatMessagePair(
     }
     val isResponseLoading = if (hasCombinedTabs) isCurrentPlatformLoading else shouldShowAssistantResponseProgress(isCurrentPlatformLoading, activeAgentRun != null, agentRun?.status)
     val responseFailure = visibleResponseFailure(assistantTimeline.lastOrNull { it.runError != null }?.runError, agentRun?.terminalError, agentRun?.status)
-    val reviewRetryBlock = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.reviewRetryBlock(responseFailure)
+    val approvalRetryBlock = gitHubApprovalRetryBlock(responseFailure, LocalGitHubApprovalPending.current)
+    val reviewRetryBlock = approvalRetryBlock ?: dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.reviewRetryBlock(responseFailure)
     val responseRecoveryKind = responseFailure?.let { profileRecoveryKind(dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.classify(it).category, it) } ?: ProfileRecoveryKind.NONE
     StableChatResponseViewport(contentKey = if (isCombinedConversation) "combined" else selectedPlatformUid, reservedHeight = reservedTurnHeight) {
         Column(
@@ -1927,7 +1928,9 @@ internal fun ChatMessagePair(
                 responseFailure?.let { error ->
                     Column(Modifier.fillMaxWidth().padding(12.dp)) {
                         Text(
-                            if (agentRun?.status == AgentRunStatus.PARTIAL) {
+                            if (approvalRetryBlock != null) {
+                                "Approval required"
+                            } else if (agentRun?.status == AgentRunStatus.PARTIAL) {
                                 "Work remaining"
                             } else if (agentRun?.status == AgentRunStatus.EVIDENCE_MISSING) {
                                 "Evidence needed"
@@ -1942,9 +1945,9 @@ internal fun ChatMessagePair(
                         if (error.contains("QUEUE_") && selectedRunId != null) TextButton(onClick = { onCheckQueuedRun(selectedRunId) }) { Text(stringResource(R.string.audit_check_status)) }
                         if (!hasCombinedTabs) {
                             reviewRetryBlock?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-                            if (responseRecoveryKind == ProfileRecoveryKind.NONE) {
+                            if (responseRecoveryKind == ProfileRecoveryKind.NONE && approvalRetryBlock == null) {
                                 TextButton(onClick = { onRetry(messageIndex, displayPlatformIndex) }, enabled = isIdle && canUseChat && reviewRetryBlock == null) { Text(stringResource(R.string.audit_generate_again)) }
-                            } else {
+                            } else if (responseRecoveryKind != ProfileRecoveryKind.NONE) {
                                 ProfileRecoveryActions(
                                     kind = responseRecoveryKind,
                                     profileName = enabledPlatformLookup[selectedPlatformUid]?.name ?: "Saved profile",

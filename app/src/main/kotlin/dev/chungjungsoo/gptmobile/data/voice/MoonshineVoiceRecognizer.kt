@@ -336,7 +336,7 @@ internal interface LocalVoiceCapture {
 private class LocalVoiceCaptureException(message: String) : IOException(message)
 
 /** Capture release is owned by the recording thread; stop only unblocks capture. No PCM is persisted. */
-private class AndroidVoiceCapture(context: Context) : LocalVoiceCapture {
+private class AndroidVoiceCapture(private val context: Context) : LocalVoiceCapture {
     private val lock = Any()
     private val manager = context.getSystemService(AudioManager::class.java)
     private var recorder: AudioRecord? = null
@@ -350,6 +350,10 @@ private class AndroidVoiceCapture(context: Context) : LocalVoiceCapture {
 
     override fun start() = synchronized(lock) {
         if (stopped) return@synchronized
+        // Model loading can outlive the earlier UI permission check.
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            throw SecurityException("Microphone permission was revoked before capture started.")
+        }
         val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE)
             .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ASSISTANT).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
             .setOnAudioFocusChangeListener { change ->

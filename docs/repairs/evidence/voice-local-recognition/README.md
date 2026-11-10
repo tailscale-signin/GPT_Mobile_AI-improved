@@ -7,6 +7,7 @@ The manifest captures SHA256 hashes for all 26 production and test files before 
 ## Files
 
 - `all-voice-tests.log`: final combined JUnit output, including `OK (101 tests)`.
+- `all-voice-compile.log`: empty because compilation emitted no errors or warnings.
 - `all-voice-validation-receipt.json`: result counts, execution boundary, and unchanged-source check.
 - `all-voice-tested-sources.json`: repository-relative source paths and hashes, test class names, and the upstream Moonshine AAR SHA256.
 
@@ -16,4 +17,4 @@ Compilation used the actual upstream `ai.moonshine:moonshine-voice:0.1.5` AAR's 
 
 The Moonshine recognizer tests inject fake native decoders and fake microphone capture. Model-store tests use controlled download fixtures. The tests cover application lifecycle, routing, model integrity and installation, bounded audio queues, cancellation, and recovery; they do not execute Moonshine native inference or validate physical microphone behavior, real model accuracy, ASUS device performance, or network model downloads. This is focused JVM/Robolectric verification, not a complete APK/Compose build or physical-device acceptance.
 
-No production or test files were changed, and no tests were rerun, when preserving this final evidence.
+The final combined suite was rerun after adding the microphone capture-time `RECORD_AUDIO` permission recheck. This validates compilation against the real Android and AndroidX APIs and the existing 101 regression tests; it does not establish physical-device permission-revocation behavior. The 26 source hashes were rechecked after that run and matched before these final artifacts were preserved.

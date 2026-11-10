@@ -13,7 +13,8 @@
     "source_hashes": "all-voice-tested-sources.json",
     "receipt": "all-voice-validation-receipt.json",
     "log": "all-voice-tests.log",
-    "scope": "JVM + Robolectric; real Android and Moonshine Java API artifacts; injected native decoder and microphone capture; AppLogRecorder no-op boundary"
+    "scope": "JVM + Robolectric; real Android and Moonshine Java API artifacts; injected native decoder and microphone capture; AppLogRecorder no-op boundary",
+    "compile_log": "all-voice-compile.log"
   },
   "canonical_fast_gate": {
     "command": "bash scripts/validate-local.sh fast",
@@ -23,8 +24,8 @@
     "regex_dynamic_patterns_skipped": 73,
     "resource_xml_files": 34,
     "scope": "Host repository policy, contracts, dependency catalog, schemas, secret scan, Python tests, Android regex, resources and diff whitespace",
-    "log": "combined-fast.log",
-    "execution": "Rerun successfully after incorporating publication parent"
+    "log": "capture-permission-fast.log",
+    "execution": "446 tests passed after capture-start permission recheck; previous combined and compile-unblock runs retained separately."
   },
   "formatting": {
     "ktlint_version": "1.3.1",
@@ -91,5 +92,7 @@
     ]
   },
   "publication_parent": "e2b20da51e00e18f11cdb117847819bd98c9e409",
-  "reconciliation": "Preserved concurrent Gateway 16 update. Only the two generated audit inventory files conflicted; regenerated from the combined source tree. All 26 focused voice source/test hashes remain unchanged."
+  "reconciliation": "Initial publication preserved concurrent Gateway16 changes and regenerated audit inventory. The later capture-start permission recheck changed one voice production file; the complete 101-test voice harness was rerun and all 26 current hashes matched its new compile snapshot.",
+  "latest_validation_parent": "0b314deb1903a30a9afc62da73652c63b419b1a5",
+  "capture_permission": "Recheck RECORD_AUDIO immediately before focus and recorder creation, after model loading. Existing SecurityException cleanup handles revocation races; no permission warning suppression."
 }

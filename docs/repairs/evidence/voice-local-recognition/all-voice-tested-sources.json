@@ -3,7 +3,7 @@
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidRecognitionService.kt": "f271f7f7ccc3d5b71aba7efec37685979209c6aed168db94d9082889778d9195",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidVoiceAudio.kt": "b1de2bac20b68398341adca0153b3270500b00387d14fc2b28e3767ea0ed7783",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/LocalVoiceModelStore.kt": "830c43995adcf296473dc8b43e5e5bf96261cf48e8971eaf3fa044788ff5585d",
-    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/MoonshineVoiceRecognizer.kt": "3e75ea73f4f6eb13516f30fa92230923224b2bafd1adf67bb92b6b665516c284",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/MoonshineVoiceRecognizer.kt": "309449b3eac703a9dc5eeb486af9c2c2ccad8226bdbbd7152d1bf67812ac3fdf",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/RecognitionStartGate.kt": "863ff9eb3462cf4e38be4c3be662a8612fe9a6a364cd25d1b7f30f766f34e8a2",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/SpeechEngineState.kt": "c4e5e07a2f361754ee9cd9131ccf54f3d0f1386a81a685700f0be9ab24dbfcb4",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceMicrophoneLease.kt": "f155f67ec279b551d8bdf003aee023d583b230a399f686e1d8ec1cc72bfe6740",

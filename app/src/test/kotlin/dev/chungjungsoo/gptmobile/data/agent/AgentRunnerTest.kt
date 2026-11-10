@@ -1370,11 +1370,11 @@ class AgentRunnerTest {
             limits = AgentRunLimits(runTimeoutMillis = 0L, githubTask = true)
         ).run(session, emptyList()).toList()
 
-        val failure = (events.single() as AgentRunEvent.Provider).event as ProviderEvent.Failed
-        assertEquals("RUN_DEADLINE_REACHED", failure.errorCode)
-        assertEquals("PARTIAL", failure.taskOutcome)
+        val failure = events.filterIsInstance<AgentRunEvent.Provider>().map { it.event }.filterIsInstance<ProviderEvent.Failed>().single()
+        assertEquals("GITHUB_TASK_INCOMPLETE", failure.errorCode)
+        assertEquals("BLOCKED", failure.taskOutcome)
         assertEquals(JsonPrimitive(false), failure.failureDetails?.get("dispatched"))
-        assertEquals(JsonPrimitive(true), failure.failureDetails?.get("budget_exhausted"))
+        assertEquals(JsonPrimitive("ACCEPTED_TASK_DEADLINE_REACHED"), failure.failureDetails?.get("stop_reason"))
     }
 
     @Test

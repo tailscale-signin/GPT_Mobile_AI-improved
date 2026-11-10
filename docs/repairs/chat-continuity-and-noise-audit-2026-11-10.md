@@ -1,5 +1,7 @@
 # Chat continuity, GitHub completion and UI-noise remediation
 
+Follow-up: [retained-response delivery and full issue inventory](chat-continuity-design-2026-11-10.md) extends this initial patch. Expired GitHub tasks now deliver saved reports with an application-budget blocker, preserve explicit report/diagnostic requests, and retain the primary cause in persisted state. The original five-second attempt remains removed.
+
 **Evidence:** partial-diagnostics-df07af46-3d8f-4204-9eb4-a32dc4669741, archive part 1, captured 2026-11-10, app 0.9.66.7 (141), app commit 7eceaa54dde4d77100898a7ac09e5d2688a65f96.
 
 ## Evidence boundaries

@@ -2103,11 +2103,12 @@ internal fun ChatBottomAutoScroller(
         snapshotFlow {
             val info = listState.layoutInfo
             // The final item is a fixed-height bottom anchor. Follow growth in
-            // measured message rows too, without reacting to their scroll offsets.
+            // measured message rows and composer/keyboard viewport changes too,
+            // without reacting to their scroll offsets or individual text tokens.
             Triple(
                 info.totalItemsCount,
                 info.visibleItemsInfo.map { it.index to it.size },
-                if (githubMotion) Triple(info.viewportSize.height, info.beforeContentPadding, info.afterContentPadding) else null
+                Triple(info.viewportSize.height, info.beforeContentPadding, info.afterContentPadding)
             )
         }.distinctUntilChanged().conflate().collect { (totalItems, _, _) ->
             // Coalesce on the UI frame clock so layout, animation and Compose

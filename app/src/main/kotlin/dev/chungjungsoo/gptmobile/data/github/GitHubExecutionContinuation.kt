@@ -113,7 +113,7 @@ internal object GitHubExecutionContinuation {
             detail != null -> detail
             ledger?.get("recovery") == JsonPrimitive("RECONCILE_REMOTE_OUTCOME") -> "Check the saved remote operation before continuing; its outcome is still unconfirmed."
             failures.isNotEmpty() -> GitHubVerificationRecovery.advice(failures)
-            else -> "The model stopped before completing the remaining criteria. Resume the saved task to continue from its verified work; completed actions stay recorded."
+            else -> "Some required checks still need evidence. Review the remaining requirements before continuing; completed actions are saved."
         }
     }
 

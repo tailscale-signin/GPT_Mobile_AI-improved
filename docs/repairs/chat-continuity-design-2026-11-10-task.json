@@ -1,0 +1,29 @@
+{
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "7db0c735f9e86eaece24513fbaf5c0a624f13822",
+  "working_branch": "fix/audit-execution-recovery-2026-11-09",
+  "start_sha": "71d8001fbe62451cf0a1af4a4f77fda06153311f",
+  "pr": 816,
+  "intent": "Audit the supplied df07af46 diagnostic archive, remove non-actionable chat status prose, and repair avoidable response interruptions while preserving accepted task budgets, saved evidence and write authorization.",
+  "state": "HOST_CHECKS_PASSED_KOTLIN_ANDROID_NOT_EXECUTED",
+  "capture": {
+    "app_version": "0.9.66.7",
+    "app_build": 141,
+    "app_commit": "7eceaa54dde4d77100898a7ac09e5d2688a65f96",
+    "repository_commit": "7db0c735f9e86eaece24513fbaf5c0a624f13822",
+    "integrity": "All 20 section hashes, all 1681 chunk hashes and all 65 reconstructed record hashes validated; capture lacks retained application logs."
+  },
+  "constraints": [
+    "Keep memory maintenance silent without removing cache cleanup",
+    "Do not replay approved commits or other uncertain writes",
+    "Never renew accepted budgets implicitly on Continue",
+    "Keep response rendering and saved-result delivery distinct from work admission",
+    "Preserve current Gateway 16, local voice and previous continuation fixes",
+    "Report host validation separately from Android and device qualification"
+  ],
+  "evidence": "docs/repairs/evidence/chat-continuity-design-2026-11-10/validation.json",
+  "implementation": "docs/repairs/chat-continuity-design-2026-11-10.md",
+  "integration_parent_sha": "233f0538e79f3a283fad5c40d085868e60044bff",
+  "concurrent_update": "Preserved overlapping chat cleanup and release-scope update; extended expired-task guard with retained delivery and aligned its existing regression."
+}

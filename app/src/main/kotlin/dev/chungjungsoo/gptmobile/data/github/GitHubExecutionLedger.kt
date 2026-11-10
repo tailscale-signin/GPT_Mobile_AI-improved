@@ -93,6 +93,9 @@ internal object GitHubExecutionLedger {
         val code = checkpoint.text("failure_code").ifBlank { checkpoint.text("verification_failure") }
         val failedStage = checkpoint.text("failed_stage")
         val outcome = checkpoint.text("task_outcome")
+        val originalFailure = checkpoint["original_failure"] as? JsonObject
+        val failureIsPrimary = originalFailure != null && originalFailure.text("code") !in setOf("WAITING_FOR_APPROVAL", "APPROVAL_REQUIRED", "USER_INPUT_REQUIRED", "REVIEW_INPUT_REQUIRED")
+        val deadlineReached = originalFailure?.text("stop_reason") == "ACCEPTED_TASK_DEADLINE_REACHED"
         val reviewFailure = code.startsWith("GITHUB_REVIEW_") ||
             code.startsWith("GITHUB_EXTRACTION_") ||
             failedStage in setOf("answer_review", "claim_extraction") ||
@@ -106,6 +109,7 @@ internal object GitHubExecutionLedger {
         }
         val requestedTask = when {
             completed -> "VERIFIED_COMPLETE"
+            failureIsPrimary -> if (outcome in setOf("BLOCKED", "CONFIGURATION_INVALIDATED")) "BLOCKED" else "INCOMPLETE"
             pendingApprovals.isNotEmpty() -> "WAITING_FOR_APPROVAL"
             outcome in setOf("BLOCKED", "CONFIGURATION_INVALIDATED") -> "BLOCKED"
             checkpoint.text("phase") == "IN_PROGRESS" -> "IN_PROGRESS"
@@ -113,6 +117,10 @@ internal object GitHubExecutionLedger {
         }
         val recovery = when {
             unresolved > 0 -> "RECONCILE_REMOTE_OUTCOME"
+            deadlineReached -> "NEW_TASK_REQUIRED"
+            failureIsPrimary && outcome == "CONFIGURATION_INVALIDATED" -> "RESTORE_AUTHORIZED_CONFIGURATION"
+            failureIsPrimary && reviewFailure -> "RESUME_VERIFICATION"
+            failureIsPrimary -> "INSPECT_EXECUTION_FAILURE"
             pendingApprovals.isNotEmpty() -> "WAITING_FOR_APPROVAL"
             code in setOf("APPROVAL_REQUIRED", "USER_INPUT_REQUIRED", "REVIEW_INPUT_REQUIRED") -> "USER_INPUT_REQUIRED"
             outcome == "CONFIGURATION_INVALIDATED" || code in setOf("DISPATCH_POLICY_CHANGED", "PERMISSION_DENIED", "PERMISSION_REVOKED", "AUTH_REQUIRED", "AUTH_FAILED", "AUTH_FAILURE") -> "RESTORE_AUTHORIZED_CONFIGURATION"
@@ -164,8 +172,8 @@ internal object GitHubExecutionLedger {
                 }
             )
             put("recovery", recovery)
-            put("user_input_required", pendingApprovals.isNotEmpty() || recovery == "USER_INPUT_REQUIRED")
-            if (pendingApprovals.isNotEmpty()) put("retryable_without_new_input", false) else (checkpoint["retryable_without_new_input"] as? JsonPrimitive)?.booleanOrNull?.let { put("retryable_without_new_input", it) }
+            put("user_input_required", pendingApprovals.isNotEmpty() || deadlineReached || recovery == "USER_INPUT_REQUIRED")
+            if (pendingApprovals.isNotEmpty() || deadlineReached) put("retryable_without_new_input", false) else (checkpoint["retryable_without_new_input"] as? JsonPrimitive)?.booleanOrNull?.let { put("retryable_without_new_input", it) }
         }
         val limitation = if (unresolved > 0) {
             buildJsonObject {
@@ -174,6 +182,20 @@ internal object GitHubExecutionLedger {
                 put("resume_required", true)
                 put("task_outcome", if (outcome in setOf("BLOCKED", "CONFIGURATION_INVALIDATED")) outcome else "PARTIAL")
                 put("task_state", if (outcome in setOf("BLOCKED", "CONFIGURATION_INVALIDATED")) "BLOCKED" else "PARTIAL")
+                put("blocking_condition", "RECONCILE_REMOTE_OUTCOME")
+                put("pending_approvals", pendingApprovals)
+            }
+        } else if (failureIsPrimary) {
+            buildJsonObject {
+                put("completion_verified", false)
+                put("partial", true)
+                put("resume_required", true)
+                put("task_outcome", outcome.takeIf { it in setOf("BLOCKED", "CONFIGURATION_INVALIDATED", "FAILED") } ?: "PARTIAL")
+                put("task_state", if (outcome == "CONFIGURATION_INVALIDATED") "BLOCKED" else outcome.takeIf { it in setOf("BLOCKED", "FAILED") } ?: "PARTIAL")
+                put("blocking_condition", if (deadlineReached) "ACCEPTED_TASK_DEADLINE_REACHED" else code.ifBlank { "EXECUTION_FAILURE" })
+                put("pending_approvals", pendingApprovals)
+                put("user_input_required", pendingApprovals.isNotEmpty() || deadlineReached)
+                if (pendingApprovals.isNotEmpty() || deadlineReached) put("retryable_without_new_input", false)
             }
         } else if (pendingApprovals.isNotEmpty()) {
             buildJsonObject {

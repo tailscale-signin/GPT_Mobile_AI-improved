@@ -74,7 +74,8 @@ class AgentRunner(
     private val resumeToolBudget: Boolean = false,
     private val initialToolCallCountOverride: Int? = null,
     private val onToolResultCommitted: (suspend (ProviderEvent.ToolCall, AgentToolResult) -> Unit)? = null,
-    private val onToolResultsRestored: (suspend (List<AgentToolExchange>) -> Unit)? = null
+    private val onToolResultsRestored: (suspend (List<AgentToolExchange>) -> Unit)? = null,
+    private val remainingTaskMillis: (suspend () -> Long?)? = null
 ) {
     private val replayRenderCache = ToolExchangeCompactor.RenderCache()
 
@@ -82,23 +83,28 @@ class AgentRunner(
         ToolExchangeCompactor.compact(exchanges, maxReplayTokens, maxResultTokens, consumedCallIds, replayRenderCache)
 
     fun run(session: AgentProviderSession, tools: List<AgentTool>, dynamicTools: () -> List<AgentTool> = { emptyList() }, selectDefinitions: (List<AgentToolDefinition>) -> List<AgentToolDefinition> = { it }): Flow<AgentRunEvent> = flow {
-        // The saved GitHub task deadline is authoritative across continuations.
-        // Never disguise exhausted time as a fresh five-second generation attempt.
-        if (limits.runTimeoutMillis <= 0L) {
-            emit(
-                AgentRunEvent.Provider(
-                    ProviderEvent.Failed(
-                        "The accepted task time budget has ended. Completed work is saved; increase the budget before continuing.",
-                        errorCode = "RUN_DEADLINE_REACHED",
-                        taskOutcome = "PARTIAL",
-                        failureDetails = buildJsonObject {
-                            put("failed_stage", "admission")
-                            put("dispatched", false)
-                            put("budget_exhausted", true)
-                        }
+        if (minOf(limits.runTimeoutMillis, remainingTaskMillis?.invoke() ?: Long.MAX_VALUE) <= 0L) {
+            // An expired accepted task may deliver retained evidence, but must not
+            // restore queued calls or start the model loop. Delivery remains
+            // cancellable and is not charged a fabricated five-second work budget.
+            if (limits.githubTask) {
+                deliverExpiredTask(session)
+            } else {
+                emit(
+                    AgentRunEvent.Provider(
+                        ProviderEvent.Failed(
+                            "The accepted task time budget has ended. Completed work is saved; increase the budget before continuing.",
+                            errorCode = "RUN_DEADLINE_REACHED",
+                            taskOutcome = "PARTIAL",
+                            failureDetails = buildJsonObject {
+                                put("failed_stage", "admission")
+                                put("dispatched", false)
+                                put("budget_exhausted", true)
+                            }
+                        )
                     )
                 )
-            )
+            }
             return@flow
         }
         if (tools.isNotEmpty() && !session.handlesToolsInternally && limits.maxReplayTokens <= 0) {
@@ -134,8 +140,13 @@ class AgentRunner(
         var toolMayHaveExecuted = (recovery?.dispatchedCount ?: 0) > 0
         var retriedWithoutTools = false
 
-        val finishedInTime = if (limits.runTimeoutMillis < Long.MAX_VALUE) {
-            withTimeoutOrNull(limits.runTimeoutMillis) {
+        val runTimeoutMillis = minOf(limits.runTimeoutMillis, remainingTaskMillis?.invoke() ?: Long.MAX_VALUE)
+        if (limits.githubTask && runTimeoutMillis <= 0L) {
+            deliverExpiredTask(session)
+            return@flow
+        }
+        val finishedInTime = if (runTimeoutMillis < Long.MAX_VALUE) {
+            withTimeoutOrNull(runTimeoutMillis) {
                 executeLoop(guardedSession, toolByName, executableToolByName, exposedDefinitions, exchanges, rounds, toolCallCount, toolMayHaveExecuted, retriedWithoutTools, recovery, dynamicTools, selectDefinitions)
             }
         } else {
@@ -145,9 +156,9 @@ class AgentRunner(
 
         if (finishedInTime == null) {
             if (limits.githubTask && exchanges.isNotEmpty()) {
-                finishFromRetained(guardedSession, ProviderEvent.Failed("Agent run timed out after ${limits.runTimeoutMillis} ms. Completed receipts are retained; unfinished work can be resumed.", errorCode = "RUN_DEADLINE_REACHED"), true)
+                finishFromRetained(guardedSession, ProviderEvent.Failed("Agent run timed out after $runTimeoutMillis ms. Completed receipts are retained; unfinished work can be resumed.", errorCode = "RUN_DEADLINE_REACHED"), true)
             } else {
-                emit(failed("Agent run timed out after ${limits.runTimeoutMillis} ms."))
+                emit(failed("Agent run timed out after $runTimeoutMillis ms."))
             }
         }
     }.withGitHubTerminalDelivery(limits.githubTask && limits.combined == null)
@@ -554,6 +565,14 @@ class AgentRunner(
             }
         } else {
             emit(AgentRunEvent.Provider(failure))
+        }
+    }
+
+    private suspend fun kotlinx.coroutines.flow.FlowCollector<AgentRunEvent>.deliverExpiredTask(session: AgentProviderSession) {
+        // A diagnostic reply may complete, but it cannot finish the original
+        // execution checkpoint or discard its outstanding cleanup obligations.
+        session.retainedFailureResponse(dev.chungjungsoo.gptmobile.data.github.GitHubExecutionLimits.expiredTaskFailure()).collect {
+            emit(AgentRunEvent.Provider(it))
         }
     }
 

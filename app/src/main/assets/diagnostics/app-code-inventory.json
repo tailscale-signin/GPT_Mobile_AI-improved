@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "312f8a61a3c3a3416d4244055a870f9d07340d5e8536b9e89e7cbfa7fda1dee7",
+  "source_digest": "b7f9882b73c1a1a47bdfe632b1825c65c407e442c03a220d7ca1e2a1603ebb36",
   "file_count": 2409,
-  "indexed_line_count": 375328,
+  "indexed_line_count": 375439,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -40,7 +40,7 @@
       "id": "chat_ui",
       "label": "Chat, rendering and interaction",
       "file_count": 510,
-      "indexed_line_count": 89412
+      "indexed_line_count": 89415
     },
     {
       "id": "accessibility_and_localization",
@@ -52,7 +52,7 @@
       "id": "agent_execution",
       "label": "Agent execution and recovery",
       "file_count": 209,
-      "indexed_line_count": 34207
+      "indexed_line_count": 34254
     },
     {
       "id": "agent_tools",
@@ -106,7 +106,7 @@
       "id": "github",
       "label": "GitHub and engineering workspace",
       "file_count": 196,
-      "indexed_line_count": 30146
+      "indexed_line_count": 30207
     },
     {
       "id": "research",
@@ -801,8 +801,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "41717e694135810b0bfa528dc252a6ce055565f46edbee900e028dafe8e8ad40",
-      "indexed_lines": 1900
+      "sha256": "173ea6094128322cf0b0516e393299f9a572a59f539b47c3c7b86f150b0c931a",
+      "indexed_lines": 1919
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AnswerSegmentChain.kt",
@@ -1599,8 +1599,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubTerminalDelivery.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "138c3e9c0256fd5961e376727681798b102f50651fdf3d5e58b6650bce813d87",
-      "indexed_lines": 100
+      "sha256": "b6caa0c0f0385dc63320a3d9bbee2f2cd5421b7dc8e1c57db21e478413c6c54d",
+      "indexed_lines": 127
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubToolHandoff.kt",
@@ -6450,7 +6450,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubExecutionContinuation.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "689958b00c3a00adce14bef45fe075c7877e13c109a11fd75ca9557e0f1f42d4",
+      "sha256": "1b44e1c93c44026100ff37d940754852c611a65a941d52b4de054a699656fd1b",
       "indexed_lines": 121
     },
     {
@@ -6464,15 +6464,15 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubExecutionLedger.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "3f3186ecd1b9094127e7cf63a2d9a997162b3abcef472881cef549bc1c593c34",
-      "indexed_lines": 289
+      "sha256": "acf738e856079fb736ec4e705b3f0dd8f33fc425ec495a86e87f18f06c6044d5",
+      "indexed_lines": 311
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubExecutionLimits.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "88907321d6b49fd0968c12787c0a98247907236dc84ddeba76094a54b4ae76b1",
-      "indexed_lines": 53
+      "sha256": "4568ba703461bc33966bd5be980831bcc8c72c7d04e50efd9e241789c7f25527",
+      "indexed_lines": 70
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubFailurePolicy.kt",
@@ -7003,8 +7003,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSession.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "92f8bf388b66a0bfc40621fd110f57d98d9c16377673b58edd765fc33d7be234",
-      "indexed_lines": 810
+      "sha256": "1dd218093aac972b57816a02d9709a4abb0be12a693119f29e39d47f4fe4c11d",
+      "indexed_lines": 832
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWatchBackoff.kt",
@@ -9943,8 +9943,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ChatRepositoryImpl.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "ae1db88106311d4677141f3d1f8f7b9618b558d2f43f026e55cb5da0301540e3",
-      "indexed_lines": 7371
+      "sha256": "4f0705d710d20b9e6d7e93fec7dbee1555c7eaf3813a21f856116b73b42d1c22",
+      "indexed_lines": 7372
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/CombinedSettingsSaveJournal.kt",
@@ -11938,8 +11938,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatGenerationProgress.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "cb16344d13c0ad23635ac390e6b9362cff4db311b6ca1d91042e4f07fba2b796",
-      "indexed_lines": 139
+      "sha256": "0b24d6ae477532f4f4589484dac5ebcad0945fd4ee11be5b464ebcb76b2255ee",
+      "indexed_lines": 141
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatInteractionSurface.kt",
@@ -11973,7 +11973,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatMemoryStatus.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "7212647d3953f1b5e33fb8b9ee0de9a8c55f9d32951df90b0c19da10ad82d7e8",
+      "sha256": "7300cdc16b358c402df1475459c2361e5474a5558a29c42d350933aba57b1e3e",
       "indexed_lines": 43
     },
     {
@@ -12022,8 +12022,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatScreen.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "8cf674861234158d1d088bc2a94a0d20c9c7f21d4c2a60ee010d7e6e76df3a89",
-      "indexed_lines": 2849
+      "sha256": "20b60e3fc3ec92296a6921971e5ff7818d54f12b64cccbfbd90b80e45a9c65cc",
+      "indexed_lines": 2850
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatSourceBrand.kt",

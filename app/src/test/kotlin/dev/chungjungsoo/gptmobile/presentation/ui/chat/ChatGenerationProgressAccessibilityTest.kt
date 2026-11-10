@@ -12,6 +12,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -24,7 +25,7 @@ import org.robolectric.annotation.Config
 class ChatGenerationProgressAccessibilityTest {
     @get:Rule val compose = createComposeRule()
 
-    @Test fun statusAnnouncementStaysStableWhileDotsAnimateAndUpdatesWithActivity() {
+    @Test fun statusAnnouncementStaysStableWhileProgressAnimatesAndUpdatesWithActivity() {
         var status by mutableStateOf("Checking workflows")
         compose.mainClock.autoAdvance = false
         compose.setContent {
@@ -46,6 +47,7 @@ class ChatGenerationProgressAccessibilityTest {
             MaterialTheme { ChatGenerationProgress(emptyList(), emptyList(), statusOverride = "Status: Checking workflows · 12s elapsed", active = active, startedAtMillis = 1000, githubPresentation = true) }
         }
         compose.mainClock.advanceTimeBy(16)
+        compose.onNodeWithText("Running on this device").assertDoesNotExist()
         compose.onNodeWithContentDescription("Checking workflows").assertExists()
         compose.onNodeWithTag("github_loading_total_time").assertExists()
         compose.onNodeWithTag("github_loading_bar").assertExists()

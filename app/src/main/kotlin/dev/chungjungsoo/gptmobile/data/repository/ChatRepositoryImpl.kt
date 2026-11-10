@@ -4699,7 +4699,8 @@ class ChatRepositoryImpl(
                     verifiedEvidence?.observe(call, result)
                 }
                 outputContinuation?.restoreToolResults(exchanges)
-            }
+            },
+            remainingTaskMillis = verifiedEvidence?.let { it::remainingTaskMillis }
         )
     }
 

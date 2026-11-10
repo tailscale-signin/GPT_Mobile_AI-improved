@@ -225,17 +225,25 @@ class GitHubChatScrollMotionTest {
         }
     }
 
-    @Test fun paddingGrowthAloneKeepsTheGitHubFooterAtTheTrueBottom() {
+    @Test fun viewportChangesKeepTheGitHubFooterAtTheBottomOnlyWhileFollowing() = assertViewportChangesRespectFollowIntent(githubMotion = true)
+
+    @Test fun viewportChangesKeepTheOrdinaryChatFooterAtTheBottomOnlyWhileFollowing() = assertViewportChangesRespectFollowIntent(githubMotion = false)
+
+    private fun assertViewportChangesRespectFollowIntent(githubMotion: Boolean) {
         lateinit var state: LazyListState
+        lateinit var scope: CoroutineScope
         var bottomPadding by mutableStateOf(60.dp)
+        var viewportHeight by mutableStateOf(300.dp)
+        var following by mutableStateOf(true)
         compose.setContent {
             state = rememberLazyListState()
-            Box(Modifier.size(320.dp, 300.dp)) {
+            scope = rememberCoroutineScope()
+            Box(Modifier.size(320.dp, viewportHeight)) {
                 LazyColumn(state = state, contentPadding = PaddingValues(top = 20.dp, bottom = bottomPadding)) {
                     item { Spacer(Modifier.height(600.dp)) }
                     item(key = "chat-bottom-anchor") { Spacer(Modifier.height(1.dp)) }
                 }
-                ChatBottomAutoScroller(state, isEnabled = true, githubMotion = true)
+                ChatBottomAutoScroller(state, isEnabled = following, githubMotion = githubMotion)
             }
         }
         compose.waitForIdle()
@@ -249,6 +257,26 @@ class GitHubChatScrollMotionTest {
         compose.runOnIdle {
             assertFalse(state.canScrollForward)
             assertEquals("chat-bottom-anchor", state.layoutInfo.visibleItemsInfo.last().key)
+            // Keyboard/viewport changes need the same follow behavior without row growth.
+            viewportHeight = 240.dp
+        }
+        compose.waitForIdle()
+        compose.runOnIdle {
+            assertFalse(state.canScrollForward)
+            following = false
+        }
+        compose.waitForIdle()
+        compose.runOnIdle { scope.launch { state.scrollToItem(0, 80) } }
+        compose.waitForIdle()
+        val readingPosition = compose.runOnIdle { state.firstVisibleItemIndex to state.firstVisibleItemScrollOffset }
+        compose.runOnIdle {
+            bottomPadding = 140.dp
+            viewportHeight = 200.dp
+        }
+        compose.waitForIdle()
+        compose.runOnIdle {
+            assertEquals("Viewport changes must preserve a detached reading position", readingPosition, state.firstVisibleItemIndex to state.firstVisibleItemScrollOffset)
+            assertTrue(state.canScrollForward)
         }
     }
 }

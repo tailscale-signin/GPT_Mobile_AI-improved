@@ -12,7 +12,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
-/** Monitor memory and trim disposable formatting caches without interrupting the conversation. */
+/** Cache maintenance has no chat layout or accessibility announcement. */
 @Composable
 internal fun ChatMemoryStatus() {
     val context = LocalContext.current.applicationContext

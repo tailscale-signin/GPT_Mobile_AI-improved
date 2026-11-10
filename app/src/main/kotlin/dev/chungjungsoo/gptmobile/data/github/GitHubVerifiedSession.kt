@@ -113,17 +113,7 @@ internal class GitHubVerifiedSession(
                 publish(
                     null,
                     failureCode = "GITHUB_TASK_INCOMPLETE",
-                    originalFailure = ProviderEvent.Failed(
-                        "The accepted task time budget is exhausted. Completed receipts and cleanup obligations are retained. No new model or tool operation was dispatched; a continuation cannot reset this deadline.",
-                        errorCode = "GITHUB_TASK_INCOMPLETE",
-                        taskOutcome = "BLOCKED",
-                        failureDetails = buildJsonObject {
-                            put("failed_stage", "task_budget")
-                            put("stop_reason", "ACCEPTED_TASK_DEADLINE_REACHED")
-                            put("dispatched", false)
-                            put("retryable", false)
-                        }
-                    )
+                    originalFailure = GitHubExecutionLimits.expiredTaskFailure()
                 )
             )
             return@flow
@@ -432,6 +422,19 @@ internal class GitHubVerifiedSession(
     }
 
     override fun retainedFailureResponse(failure: ProviderEvent.Failed): Flow<ProviderEvent> = flow {
+        if (failure.failureDetails?.get("stop_reason") == kotlinx.serialization.json.JsonPrimitive("ACCEPTED_TASK_DEADLINE_REACHED")) {
+            if (GitHubTaskContinuity.diagnostic(currentRequest)) {
+                validatePublication()
+                val (receipts, _) = evidence.snapshot()
+                emit(ProviderEvent.TextDelta(GitHubTaskContinuity.explain(evidence.diagnostic(), receipts), dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.APPLICATION_REPORT)))
+                emit(ProviderEvent.Completed)
+                return@flow
+            }
+            if (GitHubTaskContinuity.reportOnly(currentRequest)) {
+                emitAll(deliverRetainedReport())
+                return@flow
+            }
+        }
         if (failure.errorCode == "DISPATCH_POLICY_CHANGED" || failure.message.startsWith("DISPATCH_POLICY_CHANGED:")) {
             emit(failure.copy(errorCode = "DISPATCH_POLICY_CHANGED", taskOutcome = "CONFIGURATION_INVALIDATED"))
         } else if (dev.chungjungsoo.gptmobile.data.agent.GitHubTaskRecovery.isConnectionUnavailable(failure.message)) {
@@ -539,7 +542,16 @@ internal class GitHubVerifiedSession(
                     put("verification_elapsed_ms", ((System.nanoTime() - verificationStarted) / 1_000_000).coerceAtLeast(0))
                     put("verification_measurement", "Observed answer verification and rendering, including claim extraction when used")
                     originalFailure?.let { failure ->
-                        GitHubTaskLifecycle.failureMetadata(failure).forEach { (key, value) -> put(key, value) }
+                        GitHubTaskLifecycle.failureMetadata(failure).filterKeys { it != "stop_reason" }.forEach { (key, value) -> put(key, value) }
+                        put(
+                            "stop_reason",
+                            buildJsonObject {
+                                put("code", failure.failureDetails?.get("stop_reason") as? kotlinx.serialization.json.JsonPrimitive ?: kotlinx.serialization.json.JsonPrimitive(failure.errorCode ?: "RECORDED_EXECUTION_FAILURE"))
+                                put("detail", failure.message)
+                                put("source", "RECORDED_EXECUTION_FAILURE")
+                                remainingToolCalls()?.let { put("remaining_tool_calls", it) }
+                            }
+                        )
                         put(
                             "original_failure",
                             buildJsonObject {
@@ -581,7 +593,10 @@ internal class GitHubVerifiedSession(
                 }
             )
             evidence.retainVerdict(effectiveReport)
-            val cause = originalFailure?.let { "**Task interrupted:** ${it.message}\n\n" }.orEmpty()
+            val cause = originalFailure?.let {
+                val heading = if (it.failureDetails?.get("stop_reason") == kotlinx.serialization.json.JsonPrimitive("ACCEPTED_TASK_DEADLINE_REACHED")) "Time limit reached" else "Task paused"
+                "**$heading.** ${it.message}\n\n"
+            }.orEmpty()
             val failures = if (GitHubTaskCoverage.boundedDiagnostic(task)) withContext(computationDispatcher) { GitHubFailureSummary.render(receipts) } else ""
             val retentionNotice = if (retention["saved_view_retention_complete"] == kotlinx.serialization.json.JsonPrimitive(false)) {
                 "\n\n**Evidence retention incomplete:** Some saved result pages could not be durably retained. Accepted operation receipts remain recorded. Recover and persist the same captured result; do not repeat a mutation to regenerate its output."
@@ -593,8 +608,12 @@ internal class GitHubVerifiedSession(
             } else {
                 ""
             }
-            val approvalNotice = if (executionLedger?.get("recovery") == kotlinx.serialization.json.JsonPrimitive("WAITING_FOR_APPROVAL")) {
-                "**Waiting for approval.** Open the existing **Approve & Commit** card and review its saved patch. The commit has not been published. Another Continue cannot replace this approval; its fixture and completed results are preserved.\n\n"
+            val approvalNotice = if ((executionLedger?.get("pending_approvals") as? JsonArray)?.isNotEmpty() == true) {
+                if (originalFailure != null) {
+                    "A saved approval is still unresolved in this checkpoint. Check its current state before approving or repeating a change.\n\n"
+                } else {
+                    "**Review needed.** Open the saved **Approve & Commit** card to review the change.\n\n"
+                }
             } else {
                 ""
             }
@@ -675,23 +694,26 @@ internal class GitHubVerifiedSession(
         val unresolved = ((delivered["execution_ledger"] as? JsonObject)?.get("unresolved_remote_outcomes") as? kotlinx.serialization.json.JsonPrimitive)?.content?.toIntOrNull()?.let { it > 0 } == true
         val extractionCode = (delivered["failure_code"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.takeUnless { it == "null" }
         val waitingApproval = (delivered["execution_ledger"] as? JsonObject)?.get("recovery") == kotlinx.serialization.json.JsonPrimitive("WAITING_FOR_APPROVAL")
+        val approvalIsPrimary = waitingApproval && originalFailure == null && !unresolved
         if (partial || delivered["completion_verified"] != kotlinx.serialization.json.JsonPrimitive(true)) {
             lifecycle(dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.VERIFICATION_REJECTED)
             emit(
                 ProviderEvent.Failed(
-                    if (waitingApproval) "Review the saved patch in the approval card at the bottom of this conversation to continue." else originalFailure?.message ?: GitHubExecutionContinuation.incompleteMessage(delivered, evidence.snapshot().first),
+                    if (approvalIsPrimary) "Review the saved change to continue." else originalFailure?.message ?: GitHubExecutionContinuation.incompleteMessage(delivered, evidence.snapshot().first),
                     errorCode = if (unresolved) {
                         "RECONCILIATION_REQUIRED"
-                    } else if (waitingApproval) {
+                    } else if (originalFailure != null) {
+                        originalFailure.errorCode ?: failureCode ?: "GITHUB_TASK_INCOMPLETE"
+                    } else if (approvalIsPrimary) {
                         "WAITING_FOR_APPROVAL"
                     } else {
                         failureCode ?: extractionCode ?: (delivered["verification_failure"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: "GITHUB_TASK_INCOMPLETE"
                     },
                     transportComplete = true,
-                    providerLimit = originalFailure?.providerLimit?.takeUnless { unresolved || waitingApproval },
+                    providerLimit = originalFailure?.providerLimit?.takeUnless { unresolved },
                     invocationId = originalFailure?.invocationId,
-                    taskOutcome = if (waitingApproval || originalFailure?.taskOutcome == "BLOCKED") "BLOCKED" else "PARTIAL",
-                    failureDetails = if (waitingApproval) {
+                    taskOutcome = if (approvalIsPrimary || originalFailure?.taskOutcome == "BLOCKED") "BLOCKED" else "PARTIAL",
+                    failureDetails = if (approvalIsPrimary) {
                         buildJsonObject {
                             put("failed_stage", "approval")
                             put("failure_domain", "APPROVAL")

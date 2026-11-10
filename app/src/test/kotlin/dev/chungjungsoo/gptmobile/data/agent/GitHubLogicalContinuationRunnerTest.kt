@@ -1,9 +1,14 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -17,6 +22,56 @@ import org.junit.Test
 /** Exercises the runner's retry decision and the durable generation boundary together. */
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class GitHubLogicalContinuationRunnerTest {
+    @Test fun expiredTaskDeliversSavedResultsWithoutRestoringQueuedWritesOrFiveSecondTimeout() = runTest {
+        val checkpoint = ToolBatchCheckpoint(null, "expired-task")
+        checkpoint.enqueue(listOf(ProviderEvent.ToolCall("queued-write", "github_write", JsonObject(emptyMap()))))
+        val tool = object : AgentTool {
+            override val definition = AgentToolDefinition("github_write", "Publish the accepted patch", JsonObject(emptyMap()))
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult = error("An expired task cannot dispatch a queued write")
+        }
+        val session = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = error("An expired task cannot open another round")
+            override fun retainedFailureResponse(failure: ProviderEvent.Failed) = flow {
+                assertEquals(JsonPrimitive("ACCEPTED_TASK_DEADLINE_REACHED"), failure.failureDetails?.get("stop_reason"))
+                delay(6_000L)
+                emit(ProviderEvent.TextDelta("Saved results are retained."))
+                emit(failure.copy(transportComplete = true))
+            }
+        }
+        val events = AgentRunner(
+            AgentRunLimits(githubTask = true, runTimeoutMillis = 60_000),
+            checkpoint = checkpoint,
+            onToolResultsRestored = { error("No checkpoint work should be restored") },
+            remainingTaskMillis = { 0L }
+        ).run(session, listOf(tool)).toList()
+        assertEquals(6_000L, testScheduler.currentTime)
+        assertTrue(events.none { it is AgentRunEvent.ToolStarted || it is AgentRunEvent.ToolFinished || it is AgentRunEvent.ToolResultsRestored })
+        val providerEvents = events.filterIsInstance<AgentRunEvent.Provider>().map { it.event }
+        assertEquals(listOf("Saved results are retained."), providerEvents.filterIsInstance<ProviderEvent.TextDelta>().map { it.text })
+        assertEquals("GITHUB_TASK_INCOMPLETE", providerEvents.filterIsInstance<ProviderEvent.Failed>().single().errorCode)
+        val recovery = checkpoint.recoverySnapshot()
+        assertEquals(1, recovery.queuedCount)
+        assertEquals(0, recovery.dispatchedCount)
+    }
+
+    @Test fun expiredTaskReportDeliveryStillHonorsUserCancellation() = runTest {
+        val started = CompletableDeferred<Unit>()
+        val events = mutableListOf<AgentRunEvent>()
+        val session = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = error("No work may start")
+            override fun retainedFailureResponse(failure: ProviderEvent.Failed) = flow<ProviderEvent> {
+                started.complete(Unit)
+                awaitCancellation()
+            }
+        }
+        val job = launch {
+            AgentRunner(AgentRunLimits(githubTask = true, runTimeoutMillis = 0)).run(session, emptyList()).collect { events += it }
+        }
+        started.await()
+        job.cancelAndJoin()
+        assertTrue(events.isEmpty())
+    }
+
     @Test fun bulkRestorationDoesNotEmitFreshResultsOrSpendRemainingBudget() = runTest {
         val checkpoint = ToolBatchCheckpoint(null, "same-task")
         repeat(75) { index ->

@@ -2302,7 +2302,7 @@ class ChatViewModel @Inject constructor(
         val recoveryKind = failureDetails?.let { profileRecoveryKind(recordedFailure?.category ?: ProfileFailureRecord.classify(it).category, it) } ?: ProfileRecoveryKind.NONE
         if (recoveryKind != ProfileRecoveryKind.NONE && (!recoveryKind.requiresModelRecheck || !permitsReasoningRecovery(turnIndex, platformIndex, currentAssistantMessage.currentRunId))) {
             _attachmentNotice.value = when (recoveryKind) {
-                ProfileRecoveryKind.REASONING -> "Recheck support for this exact model and reasoning setting before retrying. Explicit Off has not changed."
+                ProfileRecoveryKind.REASONING -> "Recheck support for this exact model and reasoning setting before retrying, or start a new request with the current settings. Explicit Off has not changed."
                 ProfileRecoveryKind.MODEL -> "Recheck the selected model before retrying."
                 ProfileRecoveryKind.BILLING -> "Restore this profile’s provider credits and start a new request. Other replies are saved."
                 else -> "Change the rejected configuration and start a new request. Saved replies and tool results remain."

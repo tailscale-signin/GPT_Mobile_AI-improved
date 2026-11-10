@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "fd345eaa677bcbe0a445340dadf1ca783ff8b07ccf46d54543da7dcf9ab57abb",
+  "source_digest": "460765cce1f6c7b88a6754e457d8b69ba5efa116bda3cb0a20c9dbfc169beaf7",
   "file_count": 2417,
-  "indexed_line_count": 377462,
+  "indexed_line_count": 377471,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -52,7 +52,7 @@
       "id": "agent_execution",
       "label": "Agent execution and recovery",
       "file_count": 209,
-      "indexed_line_count": 34374
+      "indexed_line_count": 34383
     },
     {
       "id": "agent_tools",
@@ -864,8 +864,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedAnswerMapping.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "fdb25a1af275dd5604167a6d8dd8561d595d6b4064b196d897e24a7023394b6a",
-      "indexed_lines": 337
+      "sha256": "a8a774496e6379361da08465dd87133c7a5a54737b2fa0e23ac34bae360cf302",
+      "indexed_lines": 346
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedAnswerPolicy.kt",
@@ -2509,7 +2509,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubOperationTool.kt",
       "area_id": "agent_tools",
       "kind": "source",
-      "sha256": "4c2e54d7cbb2730f981c5a3e1d131440720c285b6afd6fdf03d43ca70ae68b61",
+      "sha256": "a685901adadf66bce386c50b513983fabdf091f4bf80628bff675c1810f23c55",
       "indexed_lines": 1017
     },
     {
@@ -12092,7 +12092,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatViewModel.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "6a539ab5bc2d44994603e275e6998db17c4c6ecde1b60b705c59f53629046329",
+      "sha256": "f7b3e8cd0993b59128c8399d63a50f9267379a621f7ed21772cbcaeabb2f6b94",
       "indexed_lines": 4504
     },
     {

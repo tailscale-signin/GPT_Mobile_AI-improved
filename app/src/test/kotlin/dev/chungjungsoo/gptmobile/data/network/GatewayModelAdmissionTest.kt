@@ -49,8 +49,9 @@ class GatewayModelAdmissionTest {
                         1024
                     )
                 }.exceptionOrNull()
-                org.junit.Assert.assertTrue(error is dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityUnavailableException)
+                org.junit.Assert.assertTrue(error is dev.chungjungsoo.gptmobile.data.context.SelectedModelUnavailableException)
                 val failure = requireNotNull(providerExceptionDetails(requireNotNull(error) as Exception, partialOutput = false))
+                assertEquals("SELECTED_MODEL_NOT_LOADED", failure.code)
                 assertEquals(JsonPrimitive(400), failure.failureDetails?.get("gateway_upstream_status"))
                 assertEquals(JsonPrimitive("NOT_DISPATCHED"), failure.failureDetails?.get("attempt_dispatch_state"))
                 assertEquals(dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF, selected.reasoningMode)

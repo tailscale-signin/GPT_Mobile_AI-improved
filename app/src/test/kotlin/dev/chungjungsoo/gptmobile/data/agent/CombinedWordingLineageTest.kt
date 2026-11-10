@@ -20,13 +20,26 @@ class CombinedWordingLineageTest {
         assertNotEquals(first.corpusDigest, ancestry.corpusDigest)
     }
 
-    @Test fun excessiveLinkExpansionKeepsItsUnevaluatedStatusAndReusesTheCompletedMap() {
+    @Test fun repeatedDisjointPassagesRetainEveryProvenLinkAndReuseTheCompletedMap() {
         val text = "The city approved the river restoration project in 2024."
         val answer = List(1100) { text }.joinToString("\n\n")
         val source = CombinedModelResponse("bounded-profile", "Bounded", content = text)
         val mapping = CombinedAnswerMappings.get(answer, listOf(source))
+        assertTrue(mapping.evaluated)
+        assertEquals(1100, mapping.links.size)
+        assertTrue(mapping.links.all { it.profileUids == setOf("bounded-profile") })
+        assertTrue(mapping.matches(answer))
+        assertSame(mapping, CombinedAnswerMappings.get(answer, listOf(source)))
+    }
+
+    @Test fun excessiveProvenanceExpansionKeepsCheckedLinksAndAnUnevaluatedRemainder() {
+        val text = "The city approved the river restoration project in 2024."
+        val answer = List(1100) { text }.joinToString("\n\n")
+        val source = CombinedModelResponse("many-occurrences", "Occurrences", content = List(1000) { text }.joinToString("\n\n"))
+        val mapping = CombinedAnswerMappings.get(answer, listOf(source))
         assertFalse(mapping.evaluated)
-        assertTrue(mapping.links.isEmpty())
+        assertTrue(mapping.links.isNotEmpty())
+        assertTrue(mapping.links.size < 1100)
         assertTrue(mapping.matches(answer))
         assertSame(mapping, CombinedAnswerMappings.get(answer, listOf(source)))
     }

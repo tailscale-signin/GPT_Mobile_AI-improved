@@ -191,26 +191,35 @@ internal object CombinedAnswerMappings {
         }
 
         val boundaries = ranges.flatMap { listOf(it.first.startUtf16, it.first.endUtf16) }.distinct().sorted()
-        val canLink = boundaries.size.toLong() * ranges.size <= MAX_COMPARISONS
-        val links = if (!canLink) {
-            emptyList()
-        } else {
-            boundaries.zipWithNext().mapNotNull { (start, end) ->
-                val owners = ranges.filter { it.first.startUtf16 <= start && it.first.endUtf16 >= end }.map { it.second }
-                if (owners.isEmpty() || !CombinedSourceClaims.material(answer.substring(start, end)) && cellRanges.none { it.startUtf16 == start && it.endUtf16 == end }) {
-                    null
-                } else {
-                    CombinedPassageLink(
-                        start,
-                        end,
-                        researchHash(answer.substring(start, end)),
-                        owners.flatMapTo(linkedSetOf()) { it.profileUids },
-                        owners.flatMapTo(linkedSetOf()) { it.aliases + it.canonicalId }
-                    )
-                }
+        val ordered = ranges.sortedBy { it.first.startUtf16 }
+        val active = mutableListOf<Pair<CombinedCoverageLink, CombinedMappedClaim>>()
+        val links = mutableListOf<CombinedPassageLink>()
+        var nextRange = 0
+        var linkWork = 0L
+        // Sweep only overlapping ranges. Repeated disjoint paragraphs must not
+        // lose their proven attribution through a quadratic all-range scan.
+        for ((start, end) in boundaries.zipWithNext()) {
+            active.removeAll { it.first.endUtf16 <= start }
+            while (nextRange < ordered.size && ordered[nextRange].first.startUtf16 <= start) {
+                active += ordered[nextRange++]
+            }
+            linkWork += active.sumOf { 1L + it.second.profileUids.size + it.second.aliases.size }
+            if (linkWork > MAX_COMPARISONS) {
+                evaluated = false
+                break
+            }
+            val owners = active.map { it.second }
+            if (owners.isNotEmpty() && (CombinedSourceClaims.material(answer.substring(start, end)) || cellRanges.any { it.startUtf16 == start && it.endUtf16 == end })) {
+                links += CombinedPassageLink(
+                    start,
+                    end,
+                    researchHash(answer.substring(start, end)),
+                    owners.flatMapTo(linkedSetOf()) { it.profileUids },
+                    owners.flatMapTo(linkedSetOf()) { it.aliases + it.canonicalId }
+                )
             }
         }
-        val result = CombinedAnswerMapping(version = 2, answerDigest = key.answer, corpusDigest = key.corpus, evaluated = evaluated && canLink, claims = claims, links = links)
+        val result = CombinedAnswerMapping(version = 2, answerDigest = key.answer, corpusDigest = key.corpus, evaluated = evaluated, claims = claims, links = links)
         if (answer.length.toLong() + sources.sumOf { it.content.length.toLong() } <= 262_144L) {
             synchronized(cache) {
                 cache[key] = result

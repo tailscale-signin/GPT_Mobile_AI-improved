@@ -3,9 +3,10 @@ package dev.chungjungsoo.gptmobile.presentation.ui.voice
 import ai.moonshine.voice.JNI
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.ui.test.assertDoesNotExist
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -53,7 +54,7 @@ class LocalVoicePluginInstrumentedTest {
             state.value = LocalVoiceModelState(LocalVoiceModelStatus.READY)
         }
         compose.onNodeWithText("Installed · Recognition works offline").assertIsDisplayed()
-        compose.onNodeWithTag("download_local_voice").assertDoesNotExist()
+        compose.onAllNodesWithTag("download_local_voice").assertCountEquals(0)
         compose.onNodeWithText("Remove speech model").assertIsDisplayed().performClick()
         compose.runOnIdle { assertEquals(1, removed) }
     }

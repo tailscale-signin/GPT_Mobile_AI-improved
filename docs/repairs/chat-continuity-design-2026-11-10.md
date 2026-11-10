@@ -2,6 +2,8 @@
 
 Repository: `tailscale-signin/GPT_Mobile_AI-improved`. PR: #816. Working branch: `fix/audit-execution-recovery-2026-11-09`. This change starts at `71d8001fbe62451cf0a1af4a4f77fda06153311f` and preserves the previous Gateway 16, local voice and GitHub acceptance work. Before publication it was reconciled with concurrent head `233f0538e79f3a283fad5c40d085868e60044bff`, retaining its overlapping cleanup and release-scope changes.
 
+The implementation was published as `b57f33f7150ca81e3f1314cb7ac9dd0f7a70b8e4`. Follow-up `945ae844a76bff69c23a5758280435a25667e73c` also delivers retained results when the accepted deadline expires during an active model round. Formatting commit `a255e9b0451d0cc3ebeb23e30fc7b61e40ea94cf` exactly matches the locally prepared correction and refreshed inventory; both concurrent updates are preserved.
+
 ## Delivered changes
 
 - Remove the routine execution-location sentence from the chat progress header. Detailed execution ownership remains available in the Gateway panel.
@@ -64,6 +66,8 @@ All 109 acceptance entries are retained across both diagnostic pages; the 64-ent
 Behavior regressions were added or extended for expired-task delivery beyond five seconds, queued-write exclusion, cancellation, report-only and diagnostic delivery after expiry, persisted failure/approval precedence, provider rate limits and uncertain-write precedence, and viewport/composer changes in both chat modes.
 
 Kotlin/Robolectric and full Android tests did not execute locally. The required Gradle 9.8.0 distribution could not be downloaded (`Network is unreachable`), and no Android SDK or usable Kotlin/Gradle cache is installed. The 448 host checks do not compile these Kotlin changes. Exact-head Android CI and a fresh device run remain required for runtime qualification.
+
+CI on `b57f33f` reported 13 formatting violations in `GitHubTerminalDelivery.kt` and `GitHubTaskTrustTest.kt`. The correction changes only whitespace in those two files and refreshes the generated source inventory. The corrected source passed the canonical fast and release-scope checks locally. The diagnostic CI preflight passed on `a255e9b0` ([job 129869510922](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/42827732223/job/129869510922)); Android qualification was still running at that observation.
 
 The implementation follows Kotlin's cooperative cancellation contract: retained delivery stays cancellable rather than using `NonCancellable`. Routine cache cleanup remains in place, consistent with Android memory-management guidance.
 

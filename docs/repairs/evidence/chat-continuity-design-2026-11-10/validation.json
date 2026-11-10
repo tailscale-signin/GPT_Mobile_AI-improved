@@ -1,14 +1,14 @@
 {
   "repository": "tailscale-signin/GPT_Mobile_AI-improved",
   "branch": "fix/audit-execution-recovery-2026-11-09",
-  "parent_sha": "233f0538e79f3a283fad5c40d085868e60044bff",
+  "parent_sha": "a255e9b0451d0cc3ebeb23e30fc7b61e40ea94cf",
   "status": "HOST_CHECKS_PASSED_KOTLIN_ANDROID_NOT_EXECUTED",
   "checks": {
     "canonical_fast": {
       "command": "bash scripts/validate-local.sh fast",
       "passed": 448,
       "failed": 0,
-      "log_sha256": "b5984f5c2c71d67f2ab1f4970a078dceb2f8430daff2b99b6b2141e31849461e"
+      "log_sha256": "24610354b7f15aa998f774e10b25c189663d5120c4472ee0c95884ae25b5b1a5"
     },
     "diff_check": {
       "command": "git diff --check",
@@ -23,31 +23,44 @@
       "status": "PASSED",
       "qualification": "scoped",
       "log_sha256": "9211e913e6b4fa1f10ae2b4866aee198e98707013ad8cec6919dd92f1e04bc01"
+    },
+    "ci_formatting_followup": {
+      "original_head": "b57f33f7150ca81e3f1314cb7ac9dd0f7a70b8e4",
+      "original_job": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/42826762564/job/129865998718",
+      "original_result": "13 formatting violations in two changed Kotlin files",
+      "repair": "Whitespace-only correction; generated source inventory refreshed",
+      "status": "DIAGNOSTIC_PREFLIGHT_PASSED_OTHER_CI_PENDING",
+      "repair_commit": "a255e9b0451d0cc3ebeb23e30fc7b61e40ea94cf"
+    },
+    "ci_diagnostic_preflight": {
+      "head": "a255e9b0451d0cc3ebeb23e30fc7b61e40ea94cf",
+      "status": "PASSED",
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/42827732223/job/129869510922"
     }
   },
   "source_sha256": {
-    "app/src/main/assets/diagnostics/app-code-inventory.json": "0224395ed75fa240b7267b5d62503d7697715ceb57902eea1a588b5cf0b90d4e",
-    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt": "173ea6094128322cf0b0516e393299f9a572a59f539b47c3c7b86f150b0c931a",
-    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubTerminalDelivery.kt": "b6caa0c0f0385dc63320a3d9bbee2f2cd5421b7dc8e1c57db21e478413c6c54d",
-    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditSourceInventory.kt": "132800c8238f62abb96b8de8bf976674863b8af668d1dc77ef9841e743f2e4bd",
+    "app/src/main/assets/diagnostics/app-code-inventory.json": "34d79927d9c076e1b40ef92adb861a6f4c6eaf3b6207984d137670aab503acba",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt": "e4bfdca4a265d229274c080c1a72af2c9d594fec6a4e1f80125b10a9326c8f30",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubTerminalDelivery.kt": "ac5eda0923c1a6f280898754bfd94a47253af8efbe08626fc08869b4880d6202",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditSourceInventory.kt": "05708fe18cbf4ae74baae6c024b1687434abc3cf90c45c4cbedac84ba63f688e",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubExecutionContinuation.kt": "1b44e1c93c44026100ff37d940754852c611a65a941d52b4de054a699656fd1b",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubExecutionLedger.kt": "acf738e856079fb736ec4e705b3f0dd8f33fc425ec495a86e87f18f06c6044d5",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubExecutionLimits.kt": "4568ba703461bc33966bd5be980831bcc8c72c7d04e50efd9e241789c7f25527",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSession.kt": "1dd218093aac972b57816a02d9709a4abb0be12a693119f29e39d47f4fe4c11d",
-    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ChatRepositoryImpl.kt": "4f0705d710d20b9e6d7e93fec7dbee1555c7eaf3813a21f856116b73b42d1c22",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ChatRepositoryImpl.kt": "26f1f70fc923052f37e45a3a4505dafc699c208f3038639e2c05ceba0af8f7ce",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatGenerationProgress.kt": "0b24d6ae477532f4f4589484dac5ebcad0945fd4ee11be5b464ebcb76b2255ee",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatMemoryStatus.kt": "7300cdc16b358c402df1475459c2361e5474a5558a29c42d350933aba57b1e3e",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatScreen.kt": "20b60e3fc3ec92296a6921971e5ff7818d54f12b64cccbfbd90b80e45a9c65cc",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunnerTest.kt": "d693c143243b797a54f204abed90672b933891615e92be6b6a9d1d69758f262e",
-    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubLogicalContinuationRunnerTest.kt": "bf8a96bc1700212ec593149fdf6ffc68610347aed680e09c1af3bd7ecbac9c2d",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubLogicalContinuationRunnerTest.kt": "b0846669df637b0ab8782336eb4102c980fb9861b28e152bf2670232824c9a55",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubTerminalDeliveryTest.kt": "1d353e8098f348208cbcf5f05427f31a9b22799ce2900ce37482c3dccd06119f",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubApprovalRecoveryTest.kt": "305a04975e0754164a8350e0616e95a189b5eee7187154d24fe3d9a911468d1a",
-    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTaskTrustTest.kt": "60fda6c70277bd8b1b0da1957cbc824399597c021c96d3abed1c79bf0cb8c1dd",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTaskTrustTest.kt": "8cc652d69711527ebfc5ecdb2f69354b146bc8b5a4044ff11a49d61bbbc352b9",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatGenerationProgressAccessibilityTest.kt": "721473252a097483c2a10ef0b947dae2013b13655665800724e7761aca096e94",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubChatScrollMotionTest.kt": "5394df95afb879be408399c28741f8929710b27d8cce40dd1292c572ce9781b8",
     "docs/repairs/chat-continuity-and-noise-audit-2026-11-10.md": "401afab2c89ea0a9ecc0440a050d4d77467e1262420561f670691028a12bb3a7",
-    "docs/repairs/chat-continuity-design-2026-11-10-task.json": "76c14e73b93fc672fe8ad327fdb751f1e289a9abab8bf4789f5a99ba94c38205",
-    "docs/repairs/chat-continuity-design-2026-11-10.md": "c4847f7c145c15d1974ce11488ebc187c4d2d7cd74ca69c5b8182db148b36fad",
+    "docs/repairs/chat-continuity-design-2026-11-10-task.json": "27b0a51401599901e85f536ef5668a339f3c6841b2a7fa7c556e24072979a283",
+    "docs/repairs/chat-continuity-design-2026-11-10.md": "d92c04c416f7b1ebf83d34375c89634bf94cbc841c563cb7f71e2e95519fdaf6",
     "release-scope.json": "63693c35b9ea98a741c0754b8f4bb2b836af2fd21245abe199fc19caa45d8610"
   },
   "limits": [
@@ -56,5 +69,6 @@
     "No device, microphone, remote model, live fixture cleanup or fresh integration acceptance is claimed.",
     "The diagnostic capture predates these changes; current runtime qualification requires a new build."
   ],
-  "original_review_base": "71d8001fbe62451cf0a1af4a4f77fda06153311f"
+  "original_review_base": "71d8001fbe62451cf0a1af4a4f77fda06153311f",
+  "implementation_commit": "b57f33f7150ca81e3f1314cb7ac9dd0f7a70b8e4"
 }

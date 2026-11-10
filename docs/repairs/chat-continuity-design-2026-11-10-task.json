@@ -24,6 +24,8 @@
   ],
   "evidence": "docs/repairs/evidence/chat-continuity-design-2026-11-10/validation.json",
   "implementation": "docs/repairs/chat-continuity-design-2026-11-10.md",
-  "integration_parent_sha": "233f0538e79f3a283fad5c40d085868e60044bff",
-  "concurrent_update": "Preserved overlapping chat cleanup and release-scope update; extended expired-task guard with retained delivery and aligned its existing regression."
+  "integration_parent_sha": "a255e9b0451d0cc3ebeb23e30fc7b61e40ea94cf",
+  "concurrent_update": "Preserved overlapping chat cleanup, release-scope updates, and active-round accepted-deadline retained delivery. Follow-up resolves CI formatting findings without changing the affected Kotlin behavior.",
+  "implementation_commit": "b57f33f7150ca81e3f1314cb7ac9dd0f7a70b8e4",
+  "formatting_commit": "a255e9b0451d0cc3ebeb23e30fc7b61e40ea94cf"
 }

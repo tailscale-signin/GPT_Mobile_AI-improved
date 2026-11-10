@@ -5,6 +5,11 @@
       <verify-signatures>false</verify-signatures>
    </configuration>
    <components>
+      <component group="com.k2fsa.sherpa.onnx" name="sherpa-onnx-static-link-onnxruntime" version="2.0.1">
+         <artifact name="sherpa-onnx-static-link-onnxruntime-2.0.1.aar">
+            <sha256 value="07e042d97f3a6bd5b7fe74d4eef0513dc01a714b16c15a903250095aba43a575" origin="Verified against the upstream GitHub release asset digest"/>
+         </artifact>
+      </component>
       <component group="ai.moonshine" name="moonshine-voice" version="0.1.5">
          <artifact name="moonshine-voice-0.1.5.aar">
             <sha256 value="ee2d95c21150683c743db8f3aef66281fd5408bcefc94be3ca1d2545ada1f571" origin="Verified against Maven Central publisher SHA-256 and Gradle module metadata"/>

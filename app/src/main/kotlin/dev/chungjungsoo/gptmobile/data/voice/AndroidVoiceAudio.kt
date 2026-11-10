@@ -425,13 +425,24 @@ class AndroidVoiceAudio internal constructor(
         }
     }
 
-    override fun speak(text: String, complete: () -> Unit, error: (String) -> Unit) {
+    internal fun playbackAttributes() = AudioAttributes.Builder()
+        .setUsage(if (routeMode != null) AudioAttributes.USAGE_VOICE_COMMUNICATION else AudioAttributes.USAGE_ASSISTANT)
+        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+        .build()
+
+    override fun speak(text: String, complete: () -> Unit, error: (String) -> Unit) =
+        speak(text, allowOnlineSpeech, complete, error)
+
+    internal fun speakOffline(text: String, complete: () -> Unit, error: (String) -> Unit) =
+        speak(text, false, complete, error)
+
+    private fun speak(text: String, online: Boolean, complete: () -> Unit, error: (String) -> Unit) {
         stop()
         if (closed) return
         val ticket = generation
         playbackError = error
         val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
-            .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ASSISTANT).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
+            .setAudioAttributes(playbackAttributes())
             .setOnAudioFocusChangeListener({ change ->
                 if (change < 0 && !closed && ticket == generation) {
                     stop()
@@ -457,7 +468,7 @@ class AndroidVoiceAudio internal constructor(
                 }
             }
         }
-        val config = SpeechConfiguration(languageTag, selectedVoice, allowOnlineSpeech, speechRate.coerceIn(.5f, 2f), routeMode != null)
+        val config = SpeechConfiguration(languageTag, selectedVoice, online, speechRate.coerceIn(.5f, 2f), routeMode != null)
         val play: () -> Unit = play@{
             val engine = tts?.takeIf { speechReady } ?: return@play
             val engineVersion = speechGeneration

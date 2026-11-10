@@ -57,6 +57,30 @@ class LocalVoiceModelStoreTest {
         assertEquals(LocalVoiceModelStatus.NOT_INSTALLED, store.state.value.status)
     }
 
+    @Test fun archiveCannotPublishUntilTheExpandedFilesVerify() = runBlocking {
+        val expanded = asset.copy(name = "voice.onnx", urls = emptyList())
+        for (correct in listOf(false, true)) {
+            val store = LocalVoiceModelStore(
+                files.newFolder(),
+                listOf(asset),
+                expandedAssets = listOf(expanded),
+                expandArchive = { directory ->
+                    File(directory, asset.name).delete()
+                    File(directory, expanded.name).writeBytes(if (correct) contents else ByteArray(contents.size))
+                }
+            ) {
+                object : LocalVoiceAssetSource {
+                    override fun open(url: String) = LocalVoiceAssetStream(ByteArrayInputStream(contents), asset.bytes)
+                    override fun cancel() = Unit
+                }
+            }
+            store.install()
+            assertEquals(correct, store.isInstalled())
+            assertEquals(correct, store.verifyInstalledFiles())
+            assertFalse(File(store.modelDirectory(), asset.name).exists())
+        }
+    }
+
     @Test fun removalWaitsForMappedModelUseAndBlocksNewUseAfterRemoval() = runBlocking {
         val store = store { ByteArrayInputStream(contents) }
         store.install()

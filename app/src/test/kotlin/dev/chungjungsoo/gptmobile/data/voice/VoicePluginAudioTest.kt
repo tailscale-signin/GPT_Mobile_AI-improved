@@ -47,6 +47,26 @@ class VoicePluginAudioTest {
         }
     }
 
+    private class LocalOutput : KokoroOutput {
+        var voice: KokoroVoice? = null
+        var onError: ((String, Boolean) -> Unit)? = null
+        var onComplete: (() -> Unit)? = null
+        var stopped = 0
+        var closed = 0
+
+        override fun speak(text: String, voice: KokoroVoice, complete: () -> Unit, error: (String, Boolean) -> Unit) {
+            this.voice = voice
+            onComplete = complete
+            onError = error
+        }
+        override fun stop() {
+            stopped++
+        }
+        override fun close() {
+            closed++
+        }
+    }
+
     private val system = SystemAudio()
     private val local = LocalInput()
     private var retired = 0
@@ -157,4 +177,54 @@ class VoicePluginAudioTest {
         assertEquals(VoiceRecognitionBackend.LOCAL_MOONSHINE, VoiceRecognitionBackend.fromSaved("uninstalled"))
         assertEquals(VoiceRecognitionBackend.ANDROID_SPEECH_SERVICE, VoiceRecognitionBackend.fromSaved("ANDROID_SPEECH_SERVICE"))
     }
+
+    @Test fun kokoroUsesTheExistingPlaybackEntryAndFallsBackOnlyBeforeAudio() {
+        val output = LocalOutput()
+        val fallback = mutableListOf<String>()
+        val failures = mutableListOf<String>()
+        val plugin = kokoroPlugin(output, fallback)
+        plugin.speak("first chunk", {}, failures::add)
+        assertEquals(KokoroVoice.EMMA, output.voice)
+        assertTrue(system.spoken.isEmpty())
+        requireNotNull(output.onError)("Model missing", true)
+        assertEquals(listOf("first chunk"), fallback)
+
+        plugin.speak("second chunk", {}, failures::add)
+        requireNotNull(output.onError)("Playback interrupted", false)
+        assertEquals(listOf("Playback interrupted"), failures)
+        assertEquals(listOf("first chunk"), fallback)
+    }
+
+    @Test fun stoppedKokoroCallbacksCannotRestartPlaybackOrContinueTheQueue() {
+        val output = LocalOutput()
+        val fallback = mutableListOf<String>()
+        val plugin = kokoroPlugin(output, fallback)
+        var completed = 0
+        plugin.speak("cancel this", { completed++ }, {})
+        val oldCompletion = requireNotNull(output.onComplete)
+        val oldFailure = requireNotNull(output.onError)
+        plugin.stop()
+        oldCompletion()
+        oldFailure("Cancelled", true)
+        assertEquals(0, completed)
+        assertTrue(fallback.isEmpty())
+        assertTrue(output.stopped > 0)
+        plugin.close()
+        plugin.close()
+        assertEquals(1, output.closed)
+    }
+
+    @Test fun unsupportedLocaleUsesOnlyTheOfflineFallback() {
+        local.languageTag = "fr-CA"
+        val output = LocalOutput()
+        val fallback = mutableListOf<String>()
+        kokoroPlugin(output, fallback).speak("Bonjour", {}, {})
+        assertEquals(null, output.voice)
+        assertEquals(listOf("Bonjour"), fallback)
+        assertTrue(system.spoken.isEmpty())
+    }
+
+    private fun kokoroPlugin(output: LocalOutput, fallback: MutableList<String>) =
+        VoicePluginAudio(system, local, output, { text, _, _ -> fallback += text }) { retired++ }
+            .apply { kokoroVoice = KokoroVoice.EMMA }
 }

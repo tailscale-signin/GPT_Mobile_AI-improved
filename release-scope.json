@@ -70,7 +70,8 @@
     "Unify GitHub questions, choices and approvals at the conversation bottom; add 1.5-second relative bottom following and gateway conversation activity icons with lifecycle and reduced-motion handling.",
     "Include PR #816 audit, repository graph and selected-profile recovery repairs and the local Moonshine voice plugin with microphone-permission rechecks and retained model/runtime provenance.",
     "Repair GitHub catalog and approval proof acceptance, bulk receipt restoration, scoped test admission, typed terminal causes, source-bound release attestation receipts and bounded diagnostic collection/storage; preserve Gateway 16 and local voice.",
-    "Recover proven-unsent GitHub fixture cleanup and interrupted reads, retain dispatch and export timing evidence, improve MCP protocol and credential handling, and stabilize chat scrolling and GitHub reply delivery."
+    "Recover proven-unsent GitHub fixture cleanup and interrupted reads, retain dispatch and export timing evidence, improve MCP protocol and credential handling, and stabilize chat scrolling and GitHub reply delivery.",
+    "Add optional offline Kokoro-82M v1.0 INT8 spoken replies, verified model downloads, English text normalization, cancellation and installed Android voice fallback."
   ],
   "limitations": [
     "Android GPU qualification requires compatible-device receipts for actual offload, prefill, decode, repeated requests and cancel/recovery; host tests do not establish those results.",
@@ -163,6 +164,7 @@
     "app/src/benchmark/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/benchmark/GatewayReconnectBenchmarkFixture.kt",
     "app/src/main/AndroidManifest.xml",
     "app/src/main/assets/diagnostics/app-code-inventory.json",
+    "app/src/main/assets/licenses/kokoro-sherpa-onnx-NOTICES.txt",
     "app/src/main/assets/licenses/moonshine-voice-0.1.5-LICENSE.txt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/accounting/InvocationLedger.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/accounting/InvocationReplayBudget.kt",
@@ -677,6 +679,9 @@
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/security/SecretVault.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidRecognitionService.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidVoiceAudio.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroModelPack.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroSpeechText.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroVoiceOutput.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/LocalVoiceModelStore.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/MoonshineVoiceRecognizer.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/RecognitionStartGate.kt",
@@ -835,6 +840,7 @@
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ToolConnectionsScreen.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ToolConnectionsViewModel.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setup/SetupViewModelV2.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/KokoroPlaybackCard.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/LocalVoiceSetupCard.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceChatScreen.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceNavigation.kt",
@@ -1321,6 +1327,7 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidSpeechCatalogRecoveryTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidSpeechQualificationTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidVoiceAudioTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroSpeechTextTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/LocalVoiceModelStoreTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/MoonshineVoiceRecognizerTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/RecognitionStartGateTest.kt",
@@ -1976,6 +1983,7 @@
     "mcp/amazon/bridge.mjs",
     "mcp/amazon/bridge.test.mjs",
     "mcp/legacy-discovery.mjs",
-    "mcp/research/bridge.mjs"
+    "mcp/research/bridge.mjs",
+    "settings.gradle.kts"
   ]
 }

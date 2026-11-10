@@ -96,6 +96,12 @@
 -keep class ai.moonshine.voice.SpeakerSpan { *; }
 -keep class ai.moonshine.voice.WordTiming { *; }
 
+# Sherpa-ONNX looks up the native TTS API and its Kotlin config fields by name.
+-keep class com.k2fsa.sherpa.onnx.OfflineTts { *; }
+-keep class com.k2fsa.sherpa.onnx.OfflineTts*Config { *; }
+-keep class com.k2fsa.sherpa.onnx.GeneratedAudio { *; }
+-keep class com.k2fsa.sherpa.onnx.GenerationConfig { *; }
+
 # -------------------------------------------------------------
 # Hilt / Dagger & WorkManager
 # -------------------------------------------------------------

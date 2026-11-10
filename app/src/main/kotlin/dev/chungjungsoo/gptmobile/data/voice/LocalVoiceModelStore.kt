@@ -37,17 +37,19 @@ data class LocalVoiceModelState(
 class LocalVoiceModelStore internal constructor(
     private val root: File,
     private val assets: List<LocalVoiceAsset>,
+    private val expandedAssets: List<LocalVoiceAsset> = assets,
+    private val expandArchive: (suspend (File) -> Unit)? = null,
+    private val revision: String = MODEL_REVISION,
     private val sourceFactory: () -> LocalVoiceAssetSource
 ) {
     constructor(context: Context) : this(
         File(context.applicationContext.noBackupFilesDir, "voice-models/moonshine-tiny-en-20260821"),
         MODEL_ASSETS,
-        ::HttpsVoiceAssetSource
+        sourceFactory = ::HttpsVoiceAssetSource
     )
 
-    private class Shared {
+    private class Shared(val state: MutableStateFlow<LocalVoiceModelState>) {
         val mutex = Mutex()
-        val state = MutableStateFlow(LocalVoiceModelState())
         var users = 0
         var removalPending = false
 
@@ -56,17 +58,18 @@ class LocalVoiceModelStore internal constructor(
         @Volatile var source: LocalVoiceAssetSource? = null
     }
 
-    private val shared = stores.getOrPut(root.absolutePath) { Shared() }
-    val state: StateFlow<LocalVoiceModelState> = shared.state.asStateFlow()
     private val totalBytes = assets.sumOf { it.bytes }
+    private val shared = stores.getOrPut(root.absolutePath) { Shared(MutableStateFlow(LocalVoiceModelState(totalBytes = totalBytes))) }
+    val state: StateFlow<LocalVoiceModelState> = shared.state.asStateFlow()
     private val installed = File(root, "ready")
+    private val staging = File(root, "installing")
 
     fun modelDirectory(): File = installed
     fun isInstalled(): Boolean = state.value.status == LocalVoiceModelStatus.READY
 
     /** Held through decoder release so remove cannot unlink a model while JNI maps its files. */
     internal fun acquireUse(): Boolean = synchronized(shared) {
-        if (shared.removalPending) {
+        if (shared.removalPending || shared.installJob?.isActive == true) {
             false
         } else if (!verifyInstalledFiles()) {
             shared.state.value = LocalVoiceModelState(
@@ -85,6 +88,7 @@ class LocalVoiceModelStore internal constructor(
 
     suspend fun refresh() = withContext(Dispatchers.IO) {
         shared.mutex.withLock {
+            if (expandArchive != null) staging.deleteRecursively()
             val ready = verifyInstalledFiles()
             shared.state.value = LocalVoiceModelState(
                 status = if (ready) LocalVoiceModelStatus.READY else LocalVoiceModelStatus.NOT_INSTALLED,
@@ -96,19 +100,20 @@ class LocalVoiceModelStore internal constructor(
 
     /** Also called on the recognition worker before JNI sees any file. Never performs network IO. */
     internal fun verifyInstalledFiles(): Boolean = try {
-        File(installed, "verified").isFile &&
-            assets.all { asset ->
-                val file = File(installed, asset.name)
-                file.isFile && file.length() == asset.bytes && digest(file) == asset.sha256
-            }
+        val marker = File(installed, "verified")
+        marker.isFile && marker.readText() == revision && verifyFiles(installed)
     } catch (_: IOException) {
         false
+    }
+
+    private fun verifyFiles(directory: File): Boolean = expandedAssets.all { asset ->
+        val file = File(directory, asset.name)
+        file.isFile && file.length() == asset.bytes && digest(file) == asset.sha256
     }
 
     suspend fun install() = withContext(Dispatchers.IO) {
         // Multiple screens share one installer and its progress. A second tap never queues a download.
         if (!shared.mutex.tryLock()) return@withContext
-        val staging = File(root, "installing")
         try {
             if (verifyInstalledFiles()) {
                 shared.state.value = LocalVoiceModelState(LocalVoiceModelStatus.READY, totalBytes, totalBytes)
@@ -120,8 +125,9 @@ class LocalVoiceModelStore internal constructor(
             shared.installJob = currentCoroutineContext().job
             shared.state.value = LocalVoiceModelState(LocalVoiceModelStatus.DOWNLOADING, totalBytes = totalBytes)
             check(root.isDirectory || root.mkdirs()) { "Could not create local speech storage." }
-            check(root.usableSpace >= totalBytes + 16L * 1024 * 1024) { "Free at least 65 MB to install local speech." }
             if (staging.exists() && !staging.deleteRecursively()) throw IOException("Could not reset incomplete speech download.")
+            val spaceNeeded = totalBytes + (if (expandArchive != null) expandedAssets.sumOf { it.bytes } else 0) + 16L * 1024 * 1024
+            check(root.usableSpace >= spaceNeeded) { "Free at least ${(spaceNeeded + 1_048_575) / 1_048_576} MiB to install local speech." }
             check(staging.mkdirs()) { "Could not prepare local speech storage." }
             val source = sourceFactory().also { shared.source = it }
             var complete = 0L
@@ -148,7 +154,12 @@ class LocalVoiceModelStore internal constructor(
                 complete += asset.bytes
             }
             currentCoroutineContext().ensureActive()
-            File(staging, "verified").writeText(MODEL_REVISION)
+            if (expandArchive != null) {
+                expandArchive.invoke(staging)
+                check(verifyFiles(staging)) { "The extracted speech files could not be verified." }
+            }
+            currentCoroutineContext().ensureActive()
+            File(staging, "verified").writeText(revision)
             // Only a fully validated directory is published. A partial model can never look ready.
             synchronized(shared) {
                 check(shared.users == 0) { "Local speech is still releasing its model. Try again shortly." }
@@ -293,7 +304,7 @@ internal class LocalVoiceAssetStream(val input: InputStream, val bytes: Long, pr
     }
 }
 
-private class HttpsVoiceAssetSource : LocalVoiceAssetSource {
+internal class HttpsVoiceAssetSource : LocalVoiceAssetSource {
     @Volatile private var connection: HttpURLConnection? = null
 
     @Volatile private var cancelled = false

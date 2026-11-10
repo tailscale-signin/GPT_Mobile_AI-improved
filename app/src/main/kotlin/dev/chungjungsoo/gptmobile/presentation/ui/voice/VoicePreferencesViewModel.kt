@@ -5,6 +5,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import dev.chungjungsoo.gptmobile.data.voice.KokoroModelPack
+import dev.chungjungsoo.gptmobile.data.voice.KokoroVoice
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelStore
 import dev.chungjungsoo.gptmobile.data.voice.VoicePreferenceWriter
 import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionBackend
@@ -24,7 +26,8 @@ internal data class VoicePreferences(
     val automatic: Boolean = false,
     val rate: Float = 1f,
     val voice: String = "",
-    val recognitionBackend: VoiceRecognitionBackend = VoiceRecognitionBackend.LOCAL_MOONSHINE
+    val recognitionBackend: VoiceRecognitionBackend = VoiceRecognitionBackend.LOCAL_MOONSHINE,
+    val kokoroVoice: KokoroVoice? = null
 )
 
 /** No preference open/read/write may block composition or microphone startup. */
@@ -32,7 +35,9 @@ internal data class VoicePreferences(
 internal class VoicePreferencesViewModel @Inject constructor(@ApplicationContext private val context: Context) : ViewModel() {
     val localModels = LocalVoiceModelStore(context)
     val localModelState = localModels.state
+    val kokoroModels = KokoroModelPack.store(context)
     private var modelInstall: Job? = null
+    private var kokoroInstall: Job? = null
     private val _preferences = MutableStateFlow<VoicePreferences?>(null)
     val preferences = _preferences.asStateFlow()
     private val writer = VoicePreferenceWriter<VoicePreferences>(viewModelScope) { value ->
@@ -42,7 +47,8 @@ internal class VoicePreferencesViewModel @Inject constructor(@ApplicationContext
                 .putBoolean("captions", value.captions).putBoolean("review", value.review)
                 .putBoolean("automatic", value.automatic).putFloat("rate", value.rate)
                 .putString("voice", value.voice)
-                .putString("recognition_backend", value.recognitionBackend.name).apply()
+                .putString("recognition_backend", value.recognitionBackend.name)
+                .putString("kokoro_voice", value.kokoroVoice?.name).apply()
         }
     }
 
@@ -59,7 +65,8 @@ internal class VoicePreferencesViewModel @Inject constructor(@ApplicationContext
                     automatic = saved.getBoolean("automatic", false),
                     rate = saved.getFloat("rate", 1f).takeIf { it.isFinite() }?.coerceIn(.5f, 2f) ?: 1f,
                     voice = saved.getString("voice", "").orEmpty(),
-                    recognitionBackend = VoiceRecognitionBackend.fromSaved(saved.getString("recognition_backend", null))
+                    recognitionBackend = VoiceRecognitionBackend.fromSaved(saved.getString("recognition_backend", null)),
+                    kokoroVoice = KokoroVoice.fromSaved(saved.getString("kokoro_voice", null))
                 )
             }
             _preferences.compareAndSet(null, loaded)
@@ -85,8 +92,23 @@ internal class VoicePreferencesViewModel @Inject constructor(@ApplicationContext
         viewModelScope.launch { localModels.remove() }
     }
 
+    fun installKokoroModel() {
+        if (kokoroInstall?.isActive == true) return
+        kokoroInstall = viewModelScope.launch { kokoroModels.install() }
+    }
+
+    fun cancelKokoroInstall() {
+        kokoroModels.cancelInstall()
+        kokoroInstall?.cancel()
+    }
+
+    fun removeKokoroModel() {
+        viewModelScope.launch { kokoroModels.remove() }
+    }
+
     override fun onCleared() {
         localModels.cancelInstall()
+        kokoroModels.cancelInstall()
         super.onCleared()
     }
 }

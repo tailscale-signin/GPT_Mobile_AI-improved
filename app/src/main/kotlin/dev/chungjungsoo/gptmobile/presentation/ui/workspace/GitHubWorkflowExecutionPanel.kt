@@ -61,16 +61,19 @@ internal fun GitHubWorkflowExecutionContent(
     var details by remember(run?.runId) { mutableStateOf(false) }
     Surface(modifier = Modifier.fillMaxWidth().testTag("github-workflow-execution"), shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Workflow execution", style = MaterialTheme.typography.titleMedium)
+            Text("Activity", style = MaterialTheme.typography.titleMedium)
             if (snapshot == null) {
                 Text("Send a request in Chat to track its execution and acceptance evidence.", style = MaterialTheme.typography.bodyMedium)
             } else {
-                Text("${snapshot.phase} · Acceptance: ${snapshot.acceptance.label}", style = MaterialTheme.typography.bodyLarge, color = acceptanceColor(snapshot.acceptance))
+                Text(snapshot.phase, style = MaterialTheme.typography.titleSmall)
+                Text("Acceptance: ${snapshot.acceptance.label}", style = MaterialTheme.typography.bodyMedium, color = acceptanceColor(snapshot.acceptance))
                 Text(
                     GitHubAcceptanceStatus.entries.joinToString(" · ") { status -> "${snapshot.criteria.count { it.status == status }} ${status.label.lowercase()}" },
                     style = MaterialTheme.typography.bodySmall
                 )
-                snapshot.criteria.take(3).forEach { criterion ->
+                val unfinished = snapshot.criteria.filter { it.status != GitHubAcceptanceStatus.PASS }
+                val preview = (unfinished + snapshot.criteria.filter { it.status == GitHubAcceptanceStatus.PASS }).take(3)
+                preview.forEach { criterion ->
                     Text("${criterion.status.label}: ${criterion.requirement}", style = MaterialTheme.typography.bodyMedium, color = acceptanceColor(criterion.status), maxLines = 3)
                 }
                 if (snapshot.criteria.size > 3) Text("${snapshot.criteria.size - 3} more criteria in Details", style = MaterialTheme.typography.bodySmall)

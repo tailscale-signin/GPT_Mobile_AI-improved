@@ -63,6 +63,21 @@ class GitHubWorkflowPresentationTest {
         assertEquals(listOf(GitHubAcceptanceStatus.FAIL, GitHubAcceptanceStatus.NOT_TESTED), view.criteria.map { it.status })
     }
 
+    @Test fun legacyAcceptanceStateOverridesOperationStatus() {
+        val verdict = Json.parseToJsonElement("""{"evidence_retention_complete":true,"requirements":[{"requirement":"Verify cleanup","status":"PASSED","acceptance_state":"BLOCKED"}]}""") as kotlinx.serialization.json.JsonObject
+        val view = GitHubWorkflowPresentation.snapshot(run(), emptyList(), true, verdict)
+        assertEquals(GitHubAcceptanceStatus.BLOCKED, view.criteria.single().status)
+        assertEquals(GitHubAcceptanceStatus.BLOCKED, view.acceptance)
+    }
+
+    @Test fun savedPendingApprovalSuppressesRecoveryWithoutTerminalError() {
+        val verdict = Json.parseToJsonElement("""{"execution_ledger":{"pending_approvals":[{"engineering_task_id":"task"}]}}""") as kotlinx.serialization.json.JsonObject
+        val view = GitHubWorkflowPresentation.snapshot(run(AgentRunStatus.PARTIAL), emptyList(), true, verdict)
+        assertEquals("Approval required", view.phase)
+        assertTrue(view.recovery.isEmpty())
+        assertTrue(view.recoveryExplanation.contains("existing proposed changes card"))
+    }
+
     @Test fun paginationGroupsPreserveResourceAndQueryBoundaries() {
         val events = listOf(
             event("1", """{"action":"issues","repo":"a","page":1}"""),

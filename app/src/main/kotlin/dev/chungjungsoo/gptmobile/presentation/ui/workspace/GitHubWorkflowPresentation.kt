@@ -70,7 +70,7 @@ internal object GitHubWorkflowPresentation {
         val criteria = requirements.orEmpty().mapNotNull { it as? JsonObject }.map { requirement ->
             GitHubAcceptanceItem(
                 requirement.text(if (ledger != null) "criterion" else "requirement") ?: "Requested work",
-                when (requirement.text(if (ledger != null) "state" else "status")) {
+                when (if (ledger != null) requirement.text("state") else requirement.text("acceptance_state") ?: requirement.text("status")) {
                     "PASS", "PASSED" -> if (retained == true && !evidenceReadFailed) GitHubAcceptanceStatus.PASS else GitHubAcceptanceStatus.BLOCKED
                     "FAIL", "FAILED" -> GitHubAcceptanceStatus.FAIL
                     "BLOCKED" -> GitHubAcceptanceStatus.BLOCKED
@@ -105,6 +105,9 @@ internal object GitHubWorkflowPresentation {
             ?: observed.lastOrNull { it.isError || it.status == ToolEventStatus.FAILED }?.let { typedFailure(it.error) ?: jsonObject(it.result)?.text("error_code") }
         val failureText = listOfNotNull(run.terminalError, failureCategory).joinToString(" ")
         val failure = ProfileFailureRecord.classify(failureText, nowMillis = nowMillis)
+        val pendingApproval = failure.category == "WAITING_FOR_APPROVAL" ||
+            ((verification?.get("execution_ledger") as? JsonObject)?.get("pending_approvals") as? JsonArray)?.isNotEmpty() == true ||
+            (verification?.get("pending_approvals") as? JsonArray)?.isNotEmpty() == true
         val deterministic = !failure.retryAllowed ||
             failureCategory?.let { category ->
                 category.startsWith("PRECHECK") ||
@@ -125,14 +128,14 @@ internal object GitHubWorkflowPresentation {
         val recoverable = run.status in terminal && (run.status != AgentRunStatus.COMPLETED || acceptance != GitHubAcceptanceStatus.PASS)
         val reconcileReceipts = failure.category == "OUTPUT_CONTINUATION_PENDING_TOOLS"
         val recovery = buildList {
-            if (recoverable && (!deterministic || reconcileReceipts) && !waiting && !unreconciledGateway) add(TaskRecoveryAction.CONTINUE_RUN)
-            if (recoverable && !deterministic && !waiting && !unknown && !unreconciledGateway && run.status == AgentRunStatus.FAILED) add(TaskRecoveryAction.RETRY_FAILED_STAGE)
+            if (recoverable && !pendingApproval && (!deterministic || reconcileReceipts) && !waiting && !unreconciledGateway) add(TaskRecoveryAction.CONTINUE_RUN)
+            if (recoverable && !pendingApproval && !deterministic && !waiting && !unknown && !unreconciledGateway && run.status == AgentRunStatus.FAILED) add(TaskRecoveryAction.RETRY_FAILED_STAGE)
         }
         return GitHubWorkflowSnapshot(
             run.runId,
             when {
+                pendingApproval -> "Approval required"
                 failure.category == "OUTPUT_CONTINUATION_PENDING_TOOLS" -> "Receipt reconciliation required"
-                failure.category == "WAITING_FOR_APPROVAL" -> "Approval required"
                 else -> when (run.status) {
                     AgentRunStatus.COMPLETED -> "Answer ready"
                     AgentRunStatus.QUEUED -> "Queued"
@@ -151,7 +154,7 @@ internal object GitHubWorkflowPresentation {
             failureCategory,
             recovery,
             when {
-                failure.category == "WAITING_FOR_APPROVAL" -> "Review the existing proposed changes card in Chat to approve or reject the saved patch. Repeating preparation does not resolve its approval."
+                pendingApproval -> "Review the existing proposed changes card in Chat to approve or reject the saved patch. Repeating preparation does not resolve its approval."
                 reconcileReceipts -> "The model response and completed tool receipts are retained. Reconcile saved results to continue from the first unfinished step. If a matching terminal receipt is missing, the app reports that dependency; operations with unknown outcomes remain pending."
                 !recoverable -> "Recovery is available after an interrupted or incomplete run."
                 unreconciledGateway -> "The gateway outcome is unknown and no saved job can be reconciled. Inspect the remote operation before continuing; Resume and Retry are unavailable to prevent repeating a possible mutation."

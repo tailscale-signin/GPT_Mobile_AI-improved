@@ -5130,209 +5130,212 @@ class ChatRepositoryImpl(
                 openPrimarySession(continuationPlan.turns, continuationTrigger.name.lowercase() + "_continuation", textOnly = true, passOutputTokens = continuationPlan.outputTokens, continuationPrefixDigest = dev.chungjungsoo.gptmobile.data.research.researchHash(draft))
             }
         }
-        val initialSession = if (comprehensiveEditorial) {
-            val frozen = requireNotNull(frozenResume) { "Combined delivery requires the frozen input snapshot." }
-            suspend fun openReplacement(repair: dev.chungjungsoo.gptmobile.data.agent.CombinedRepairRequest): AgentProviderSession {
-                val replacementPrompt = dev.chungjungsoo.gptmobile.data.agent.buildCombinedReplacementPrompt(
-                    originalRequest = frozen.userMessage.content,
-                    draft = repair.draft,
-                    answerContract = repair.answerContract,
-                    failedChecks = repair.failedChecks,
-                    evidence = repair.evidence,
-                    missingClaims = repair.missingClaims,
-                    frozenEnvelope = if (repair.failedChecks.any { it.startsWith("TASK_") || it.startsWith("WORD_TARGET_UNDERSHOT") }) {
-                        dev.chungjungsoo.gptmobile.presentation.ui.chat.combinedSynthesisPrompt(frozen.userMessage.content, frozen.sources, evidence = repair.evidence, turnContext = frozen.turnContext, combined = frozen.combined, answerContract = repair.answerContract, deliveryProtocol = frozen.deliveryProtocol, targetRevisionId = repair.targetRevisionId, inventoryExpansion = 1)
-                    } else {
-                        frozen.prompt
-                    },
-                    previousRevisionId = repair.revisionId,
-                    targetRevisionId = repair.targetRevisionId
-                )
-                val repairTurns = listOf(ConversationTurn(frozen.userMessage.copy(content = replacementPrompt), null, true))
-                val workId = "repair:${repair.revisionId}:${dev.chungjungsoo.gptmobile.data.research.researchHash(repair.failedChecks.joinToString())}"
-                val repairContext = frozen.combined?.forRole(dev.chungjungsoo.gptmobile.data.agent.CombinedRunRole.REPAIR, platform.uid, workId)
-                val admitted = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.planFullInputOrMultipass(repairTurns, requestPlatform.systemPrompt.orEmpty(), limits, repairContext)
-                repairContext?.let { execution ->
-                    val reason = when {
-                        repair.failedChecks.any { it.contains("CONFLICT") || it.contains("MISMATCH") || it.contains("CAUSAL") || it.contains("NULL_OR_UNESTABLISHED") } -> "MATERIAL_CONTRADICTION"
-                        repair.answerContract.violations(repair.draft).isNotEmpty() -> "ANSWER_CONTRACT_FAILURE"
-                        else -> "REQUIRED_COVERAGE_GAP"
-                    }
-                    combinedBudgets.open(execution).authorizeRequiredWork(
-                        dev.chungjungsoo.gptmobile.data.agent.CombinedWorkItem(workId, dev.chungjungsoo.gptmobile.data.agent.CombinedRunRole.REPAIR, reason = reason),
-                        dev.chungjungsoo.gptmobile.data.agent.CombinedResourceQuota(
-                            admitted.promptTokens.toLong(),
-                            execution.plan?.finalOutputTokens?.toLong() ?: 2500L
-                        ),
-                        reason
-                    )
-                }
-                val replacementFinalTurns = AtomicReference<List<ConversationTurn>?>(null)
-                val replacementSession = admitted.multipass?.let { plan ->
-                    openCombinedMultipassSession(
-                        plan, platform, requestPlatform.systemPrompt.orEmpty(), limits, runId, frozen.userMessage.chatId,
-                        "${platform.uid}:${dev.chungjungsoo.gptmobile.data.benchmark.benchmarkConfigKey(platform)}:${dispatchAuthority.revision}",
-                        repairContext,
-                        onFinalContext = { replacementFinalTurns.set(it) },
-                        validateAccess = {
-                            dispatchAuthority.validate()
-                            if (!validateSavedEvidence()) throw dev.chungjungsoo.gptmobile.data.agent.SavedEvidenceAccessDenied()
-                            factVault?.validateRecall(recalled, latestUser?.chatId ?: 0, platform.isPrivateDestination())
-                        },
-                        open = { turns, kind, cap, execution -> openPrimarySession(turns, "combined_repair_$kind", textOnly = true, passOutputTokens = cap, combinedOverride = execution) }
-                    )
-                } ?: openPrimarySession(admitted.turns, "combined_coverage_repair", textOnly = true, combinedOverride = repairContext)
-                val repaired = if (frozen.deliveryProtocol == "PASSAGES_V3") {
-                    val successor = frozen.copy(
-                        snapshotId = java.util.UUID.randomUUID().toString(),
-                        predecessorSnapshotId = frozen.snapshotId,
-                        inputDigest = "",
-                        prompt = replacementPrompt,
+        suspend fun prepareInitialSession(): AgentProviderSession {
+            return if (comprehensiveEditorial) {
+                val frozen = requireNotNull(frozenResume) { "Combined delivery requires the frozen input snapshot." }
+                suspend fun openReplacement(repair: dev.chungjungsoo.gptmobile.data.agent.CombinedRepairRequest): AgentProviderSession {
+                    val replacementPrompt = dev.chungjungsoo.gptmobile.data.agent.buildCombinedReplacementPrompt(
+                        originalRequest = frozen.userMessage.content,
+                        draft = repair.draft,
+                        answerContract = repair.answerContract,
+                        failedChecks = repair.failedChecks,
                         evidence = repair.evidence,
-                        combined = repairContext,
-                        revisionId = repair.targetRevisionId,
-                        resumeFromRunId = null,
-                        deliveryResumeFromRevisionId = null,
-                        committedPrefix = ""
-                    ).seal()
-                    recordRecovery(replacementSession, successor, repair.targetRevisionId, false, { replacementFinalTurns.get() ?: admitted.turns }, "structured_repair_continuation", repairContext)
-                } else {
-                    dev.chungjungsoo.gptmobile.data.agent.OutputLimitRecoverySession(
-                        replacementSession,
-                        maxContinuations = continuationLimit,
-                        recoverTransientFailures = admitted.multipass == null,
-                        allowInternalToolRecovery = true,
-                        continueEmptyOutput = true,
-                        effectiveOutputCap = resolvedOutputCap,
-                        maxAnswerCharacters = budgetSettings.responseCharacterLimit,
-                        combined = repairContext
-                    ) { partial, _ ->
-                        val turns = dev.chungjungsoo.gptmobile.data.queue.appendFollowUpContext(
-                            replacementFinalTurns.get() ?: admitted.turns,
-                            "Continue this replacement from its exact stopping point. Finish the requested scope in the frozen delivery protocol, preserve local qualifiers, and execute no tools.",
-                            partial,
-                            emptyList()
-                        )
-                        val continuation = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.planFullInput(turns, requestPlatform.systemPrompt.orEmpty(), limits)
-                        openPrimarySession(continuation.turns, "combined_coverage_repair_continuation", textOnly = true, combinedOverride = repairContext)
-                    }
-                }
-                return object : AgentProviderSession by repaired {
-                    override fun streamRound(tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition>, exchanges: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange>): Flow<ProviderEvent> =
-                        repaired.streamRound(tools, exchanges).let { stream ->
-                            var completed = false
-                            var failed = false
-                            stream.onEach { event ->
-                                if (event is ProviderEvent.Failed) failed = true
-                                if (event == ProviderEvent.Completed) completed = true
-                            }.onCompletion { cause ->
-                                if (cause == null && completed && !failed && repairContext != null) combinedBudgets.open(repairContext).completeWork(workId)
-                            }
-                        }
-                }
-            }
-            dev.chungjungsoo.gptmobile.data.agent.CombinedDeliverySession(
-                continuedSession,
-                frozen.sources,
-                localConversationAnswer = conversational?.answer,
-                maxCharacters = budgetSettings.responseCharacterLimit.takeIf { it > 0 } ?: 1_048_576,
-                committedPrefix = restoredDraft,
-                preserveSourceContent = runCatching {
-                    (kotlinx.serialization.json.Json.parseToJsonElement(frozen.prompt) as? kotlinx.serialization.json.JsonObject)?.get("source_preservation")?.toString() == "\"FULL_SPANS_V1\""
-                }.getOrDefault(false),
-                originalRequest = frozen.userMessage.content,
-                outputTokenAllowance = frozen.writerRequestPlan?.effectiveOutputTokens,
-                onStage = { phase -> frozen.combined?.let { combinedBudgets.open(it).recordDeliveryPhase(phase) } },
-                evidence = combinedRecoveryEvidence(frozen, runId) {
-                    dispatchAuthority.validate()
-                    if (!validateSavedEvidence()) throw dev.chungjungsoo.gptmobile.data.agent.SavedEvidenceAccessDenied()
-                    factVault?.validateRecall(recalled, latestUser?.chatId ?: 0, platform.isPrivateDestination())
-                },
-                turnContext = frozen.turnContext,
-                structured = frozen.deliveryProtocol in setOf("PASSAGES_V2", "PASSAGES_V3") && restoredDraft.isEmpty(),
-                recordProtocol = frozen.deliveryProtocol == "PASSAGES_V3",
-                combined = frozen.combined,
-                answerContract = frozen.answerContract,
-                revisionId = frozen.liveRevisionId(runId),
-                researchObligations = dev.chungjungsoo.gptmobile.data.agent.CombinedResearchObligation.fromPrompt(frozen.prompt),
-                layoutContract = dev.chungjungsoo.gptmobile.data.agent.CombinedLayoutContract.fromPrompt(frozen.prompt),
-                verify = { verification ->
-                    try {
-                        verifyCombinedEvidence(frozen, verification, runId, traceSequences) { send(it) }
-                    } catch (cancelled: CancellationException) {
-                        throw cancelled
-                    } catch (error: Exception) {
-                        AppLogRecorder.record("Combined", "VERIFICATION_UNAVAILABLE · runId=$runId · reason=${error.javaClass.simpleName}", "W")
-                        null
-                    }
-                },
-                replace = { candidate ->
-                    val handoff = ApiState.CombinedReplacement(candidate)
-                    send(handoff)
-                    handoff.acknowledgement.await()
-                },
-                repairDraft = ::openReplacement,
-                validateAccess = {
-                    dispatchAuthority.validate()
-                    if (!validateSavedEvidence()) throw dev.chungjungsoo.gptmobile.data.agent.SavedEvidenceAccessDenied()
-                    factVault?.validateRecall(recalled, latestUser?.chatId ?: 0, platform.isPrivateDestination())
-                },
-                onCoverage = { result, repaired ->
-                    AppLogRecorder.record("Combined", "CONTENT_COVERAGE · runId=$runId · units=${result.total} · missing=${result.missing.size} · repaired=$repaired · semanticCoverageVerified=false")
-                }
-            ) { draft, missing ->
-                openReplacement(
-                    dev.chungjungsoo.gptmobile.data.agent.CombinedRepairRequest(
-                        draft,
-                        frozen.answerContract ?: dev.chungjungsoo.gptmobile.data.agent.CombinedAnswerPolicy.from(frozen.userMessage.content),
-                        emptyList(),
-                        frozen.evidence,
-                        missing.map { it.text },
-                        frozen.liveRevisionId(runId),
-                        frozen.combined
+                        missingClaims = repair.missingClaims,
+                        frozenEnvelope = if (repair.failedChecks.any { it.startsWith("TASK_") || it.startsWith("WORD_TARGET_UNDERSHOT") }) {
+                            dev.chungjungsoo.gptmobile.presentation.ui.chat.combinedSynthesisPrompt(frozen.userMessage.content, frozen.sources, evidence = repair.evidence, turnContext = frozen.turnContext, combined = frozen.combined, answerContract = repair.answerContract, deliveryProtocol = frozen.deliveryProtocol, targetRevisionId = repair.targetRevisionId, inventoryExpansion = 1)
+                        } else {
+                            frozen.prompt
+                        },
+                        previousRevisionId = repair.revisionId,
+                        targetRevisionId = repair.targetRevisionId
                     )
-                )
-            }
-        } else if (chatToolConfig?.combined == null && chatToolConfig?.research?.researchToggle != true) {
-            dev.chungjungsoo.gptmobile.data.agent.AnswerValidationSession(
-                continuedSession,
-                latestUser?.content.orEmpty(),
-                maximumCharacters = budgetSettings.responseCharacterLimit,
-                save = { draft, satisfied -> checkpoint?.save(draft, 0, resolvedOutputCap, if (satisfied) "COMPLETED" else "PARTIAL") },
-                // GitHub verification owns publication and buffers this session's draft.
-                // A private rewrite must never replace the unrelated database message.
-                replaceDraft = if (chatToolConfig?.github != null) {
-                    null
-                } else {
-                    { digest, text ->
+                    val repairTurns = listOf(ConversationTurn(frozen.userMessage.copy(content = replacementPrompt), null, true))
+                    val workId = "repair:${repair.revisionId}:${dev.chungjungsoo.gptmobile.data.research.researchHash(repair.failedChecks.joinToString())}"
+                    val repairContext = frozen.combined?.forRole(dev.chungjungsoo.gptmobile.data.agent.CombinedRunRole.REPAIR, platform.uid, workId)
+                    val admitted = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.planFullInputOrMultipass(repairTurns, requestPlatform.systemPrompt.orEmpty(), limits, repairContext)
+                    repairContext?.let { execution ->
+                        val reason = when {
+                            repair.failedChecks.any { it.contains("CONFLICT") || it.contains("MISMATCH") || it.contains("CAUSAL") || it.contains("NULL_OR_UNESTABLISHED") } -> "MATERIAL_CONTRADICTION"
+                            repair.answerContract.violations(repair.draft).isNotEmpty() -> "ANSWER_CONTRACT_FAILURE"
+                            else -> "REQUIRED_COVERAGE_GAP"
+                        }
+                        combinedBudgets.open(execution).authorizeRequiredWork(
+                            dev.chungjungsoo.gptmobile.data.agent.CombinedWorkItem(workId, dev.chungjungsoo.gptmobile.data.agent.CombinedRunRole.REPAIR, reason = reason),
+                            dev.chungjungsoo.gptmobile.data.agent.CombinedResourceQuota(
+                                admitted.promptTokens.toLong(),
+                                execution.plan?.finalOutputTokens?.toLong() ?: 2500L
+                            ),
+                            reason
+                        )
+                    }
+                    val replacementFinalTurns = AtomicReference<List<ConversationTurn>?>(null)
+                    val replacementSession = admitted.multipass?.let { plan ->
+                        openCombinedMultipassSession(
+                            plan, platform, requestPlatform.systemPrompt.orEmpty(), limits, runId, frozen.userMessage.chatId,
+                            "${platform.uid}:${dev.chungjungsoo.gptmobile.data.benchmark.benchmarkConfigKey(platform)}:${dispatchAuthority.revision}",
+                            repairContext,
+                            onFinalContext = { replacementFinalTurns.set(it) },
+                            validateAccess = {
+                                dispatchAuthority.validate()
+                                if (!validateSavedEvidence()) throw dev.chungjungsoo.gptmobile.data.agent.SavedEvidenceAccessDenied()
+                                factVault?.validateRecall(recalled, latestUser?.chatId ?: 0, platform.isPrivateDestination())
+                            },
+                            open = { turns, kind, cap, execution -> openPrimarySession(turns, "combined_repair_$kind", textOnly = true, passOutputTokens = cap, combinedOverride = execution) }
+                        )
+                    } ?: openPrimarySession(admitted.turns, "combined_coverage_repair", textOnly = true, combinedOverride = repairContext)
+                    val repaired = if (frozen.deliveryProtocol == "PASSAGES_V3") {
+                        val successor = frozen.copy(
+                            snapshotId = java.util.UUID.randomUUID().toString(),
+                            predecessorSnapshotId = frozen.snapshotId,
+                            inputDigest = "",
+                            prompt = replacementPrompt,
+                            evidence = repair.evidence,
+                            combined = repairContext,
+                            revisionId = repair.targetRevisionId,
+                            resumeFromRunId = null,
+                            deliveryResumeFromRevisionId = null,
+                            committedPrefix = ""
+                        ).seal()
+                        recordRecovery(replacementSession, successor, repair.targetRevisionId, false, { replacementFinalTurns.get() ?: admitted.turns }, "structured_repair_continuation", repairContext)
+                    } else {
+                        dev.chungjungsoo.gptmobile.data.agent.OutputLimitRecoverySession(
+                            replacementSession,
+                            maxContinuations = continuationLimit,
+                            recoverTransientFailures = admitted.multipass == null,
+                            allowInternalToolRecovery = true,
+                            continueEmptyOutput = true,
+                            effectiveOutputCap = resolvedOutputCap,
+                            maxAnswerCharacters = budgetSettings.responseCharacterLimit,
+                            combined = repairContext
+                        ) { partial, _ ->
+                            val turns = dev.chungjungsoo.gptmobile.data.queue.appendFollowUpContext(
+                                replacementFinalTurns.get() ?: admitted.turns,
+                                "Continue this replacement from its exact stopping point. Finish the requested scope in the frozen delivery protocol, preserve local qualifiers, and execute no tools.",
+                                partial,
+                                emptyList()
+                            )
+                            val continuation = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.planFullInput(turns, requestPlatform.systemPrompt.orEmpty(), limits)
+                            openPrimarySession(continuation.turns, "combined_coverage_repair_continuation", textOnly = true, combinedOverride = repairContext)
+                        }
+                    }
+                    return object : AgentProviderSession by repaired {
+                        override fun streamRound(tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition>, exchanges: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange>): Flow<ProviderEvent> =
+                            repaired.streamRound(tools, exchanges).let { stream ->
+                                var completed = false
+                                var failed = false
+                                stream.onEach { event ->
+                                    if (event is ProviderEvent.Failed) failed = true
+                                    if (event == ProviderEvent.Completed) completed = true
+                                }.onCompletion { cause ->
+                                    if (cause == null && completed && !failed && repairContext != null) combinedBudgets.open(repairContext).completeWork(workId)
+                                }
+                            }
+                    }
+                }
+                dev.chungjungsoo.gptmobile.data.agent.CombinedDeliverySession(
+                    continuedSession,
+                    frozen.sources,
+                    localConversationAnswer = conversational?.answer,
+                    maxCharacters = budgetSettings.responseCharacterLimit.takeIf { it > 0 } ?: 1_048_576,
+                    committedPrefix = restoredDraft,
+                    preserveSourceContent = runCatching {
+                        (kotlinx.serialization.json.Json.parseToJsonElement(frozen.prompt) as? kotlinx.serialization.json.JsonObject)?.get("source_preservation")?.toString() == "\"FULL_SPANS_V1\""
+                    }.getOrDefault(false),
+                    originalRequest = frozen.userMessage.content,
+                    outputTokenAllowance = frozen.writerRequestPlan?.effectiveOutputTokens,
+                    onStage = { phase -> frozen.combined?.let { combinedBudgets.open(it).recordDeliveryPhase(phase) } },
+                    evidence = combinedRecoveryEvidence(frozen, runId) {
                         dispatchAuthority.validate()
-                        val handoff = ApiState.ResearchReplacement(digest, text)
+                        if (!validateSavedEvidence()) throw dev.chungjungsoo.gptmobile.data.agent.SavedEvidenceAccessDenied()
+                        factVault?.validateRecall(recalled, latestUser?.chatId ?: 0, platform.isPrivateDestination())
+                    },
+                    turnContext = frozen.turnContext,
+                    structured = frozen.deliveryProtocol in setOf("PASSAGES_V2", "PASSAGES_V3") && restoredDraft.isEmpty(),
+                    recordProtocol = frozen.deliveryProtocol == "PASSAGES_V3",
+                    combined = frozen.combined,
+                    answerContract = frozen.answerContract,
+                    revisionId = frozen.liveRevisionId(runId),
+                    researchObligations = dev.chungjungsoo.gptmobile.data.agent.CombinedResearchObligation.fromPrompt(frozen.prompt),
+                    layoutContract = dev.chungjungsoo.gptmobile.data.agent.CombinedLayoutContract.fromPrompt(frozen.prompt),
+                    verify = { verification ->
+                        try {
+                            verifyCombinedEvidence(frozen, verification, runId, traceSequences) { send(it) }
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (error: Exception) {
+                            AppLogRecorder.record("Combined", "VERIFICATION_UNAVAILABLE · runId=$runId · reason=${error.javaClass.simpleName}", "W")
+                            null
+                        }
+                    },
+                    replace = { candidate ->
+                        val handoff = ApiState.CombinedReplacement(candidate)
                         send(handoff)
                         handoff.acknowledgement.await()
+                    },
+                    repairDraft = ::openReplacement,
+                    validateAccess = {
+                        dispatchAuthority.validate()
+                        if (!validateSavedEvidence()) throw dev.chungjungsoo.gptmobile.data.agent.SavedEvidenceAccessDenied()
+                        factVault?.validateRecall(recalled, latestUser?.chatId ?: 0, platform.isPrivateDestination())
+                    },
+                    onCoverage = { result, repaired ->
+                        AppLogRecorder.record("Combined", "CONTENT_COVERAGE · runId=$runId · units=${result.total} · missing=${result.missing.size} · repaired=$repaired · semanticCoverageVerified=false")
                     }
+                ) { draft, missing ->
+                    openReplacement(
+                        dev.chungjungsoo.gptmobile.data.agent.CombinedRepairRequest(
+                            draft,
+                            frozen.answerContract ?: dev.chungjungsoo.gptmobile.data.agent.CombinedAnswerPolicy.from(frozen.userMessage.content),
+                            emptyList(),
+                            frozen.evidence,
+                            missing.map { it.text },
+                            frozen.liveRevisionId(runId),
+                            frozen.combined
+                        )
+                    )
                 }
-            ) { draft, failures, exchanges ->
-                dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(runId, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.ANSWER_REWRITE)
-                val tailRepair = dev.chungjungsoo.gptmobile.data.agent.AnswerTailRepair.plan(draft, failures)
-                val instruction = if (tailRepair == null) {
-                    "Rewrite the complete answer to satisfy the current request. Replace the draft in full; do not append a continuation. Correct these checks: ${failures.joinToString()}. Preserve supported facts and completed evidence, remove repetition, and finish the answer. Do not repeat any tool action."
-                } else {
-                    "Repair only the unfinished final paragraph below. Return that complete paragraph and any remaining required prose; the application preserves earlier completed paragraphs verbatim. Do not restate earlier sections, repeat tools, or add unsupported facts. Finish this tail directly with minimal reasoning. The preceding preserved ending is context only, not text to repeat:\n${tailRepair.precedingContext}"
+            } else if (chatToolConfig?.combined == null && chatToolConfig?.research?.researchToggle != true) {
+                dev.chungjungsoo.gptmobile.data.agent.AnswerValidationSession(
+                    continuedSession,
+                    latestUser?.content.orEmpty(),
+                    maximumCharacters = budgetSettings.responseCharacterLimit,
+                    save = { draft, satisfied -> checkpoint?.save(draft, 0, resolvedOutputCap, if (satisfied) "COMPLETED" else "PARTIAL") },
+                    // GitHub verification owns publication and buffers this session's draft.
+                    // A private rewrite must never replace the unrelated database message.
+                    replaceDraft = if (chatToolConfig?.github != null) {
+                        null
+                    } else {
+                        { digest, text ->
+                            dispatchAuthority.validate()
+                            val handoff = ApiState.ResearchReplacement(digest, text)
+                            send(handoff)
+                            handoff.acknowledgement.await()
+                        }
+                    }
+                ) { draft, failures, exchanges ->
+                    dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(runId, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.ANSWER_REWRITE)
+                    val tailRepair = dev.chungjungsoo.gptmobile.data.agent.AnswerTailRepair.plan(draft, failures)
+                    val instruction = if (tailRepair == null) {
+                        "Rewrite the complete answer to satisfy the current request. Replace the draft in full; do not append a continuation. Correct these checks: ${failures.joinToString()}. Preserve supported facts and completed evidence, remove repetition, and finish the answer. Do not repeat any tool action."
+                    } else {
+                        "Repair only the unfinished final paragraph below. Return that complete paragraph and any remaining required prose; the application preserves earlier completed paragraphs verbatim. Do not restate earlier sections, repeat tools, or add unsupported facts. Finish this tail directly with minimal reasoning. The preceding preserved ending is context only, not text to repeat:\n${tailRepair.precedingContext}"
+                    }
+                    val turns = dev.chungjungsoo.gptmobile.data.queue.appendFollowUpContext(
+                        contextPlan.turns,
+                        instruction,
+                        tailRepair?.unfinishedTail ?: draft,
+                        exchanges,
+                        replaceAnswer = true
+                    )
+                    val admitted = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.plan(turns, requestPlatform.systemPrompt.orEmpty(), emptyList(), limits)
+                    val repairSession = openPrimarySession(admitted.turns, "answer_contract_rewrite", textOnly = true, extraInstruction = "Write the answer directly. Do not spend the output allowance on analysis.")
+                    tailRepair?.session(repairSession) ?: repairSession
                 }
-                val turns = dev.chungjungsoo.gptmobile.data.queue.appendFollowUpContext(
-                    contextPlan.turns,
-                    instruction,
-                    tailRepair?.unfinishedTail ?: draft,
-                    exchanges,
-                    replaceAnswer = true
-                )
-                val admitted = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.plan(turns, requestPlatform.systemPrompt.orEmpty(), emptyList(), limits)
-                val repairSession = openPrimarySession(admitted.turns, "answer_contract_rewrite", textOnly = true, extraInstruction = "Write the answer directly. Do not spend the output allowance on analysis.")
-                tailRepair?.session(repairSession) ?: repairSession
+            } else {
+                continuedSession
             }
-        } else {
-            continuedSession
         }
+        val initialSession = prepareInitialSession()
         suspend fun openResearchDelivery(
             instruction: String,
             textOnly: Boolean,
@@ -5453,277 +5456,286 @@ class ChatRepositoryImpl(
             authorizedEvidenceTools, evidenceCatalog, dispatchAuthority, originalUserRequest, acceptanceRequest, requiresNativeAcceptance,
             toolBudgetSourceMessageId, customRunner.limits.maxToolCalls, validateSavedEvidence
         )
-        val selectedSession = if (verifiedEvidence != null &&
-            latestUser != null &&
-            !localResearch &&
-            chatToolConfig?.research?.researchToggle != true &&
-            chatToolConfig?.combined == null &&
-            dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.continuation(originalUserRequest) &&
-            !dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.diagnostic(originalUserRequest) &&
-            !dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.reportOnly(originalUserRequest)
-        ) {
-            val ledgerPrompt = dev.chungjungsoo.gptmobile.data.github.GitHubExecutionContinuation.prompt(
-                verifiedEvidence.acceptedTaskRequest() ?: githubEffectiveTask,
-                originalUserRequest,
-                verifiedEvidence.snapshot().first,
-                verifiedEvidence.diagnostic(),
-                corrective = false
-            )
-            val resumedTurns = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.planFullInput(
-                listOf(ConversationTurn(latestUser.copy(content = ledgerPrompt, attachments = emptyList()), null, true)),
-                requestPlatform.systemPrompt.orEmpty(),
-                limits.copy(outputTokens = resolvedOutputCap)
-            ).turns
-            val resumed = openPrimarySession(resumedTurns, "github-task-resume", textOnly = false)
-            catalog?.let { resumed.withToolCatalog(it) } ?: resumed
-        } else {
-            initiallySelectedSession
-        }
-        val githubContinuedSession = if (verifiedEvidence != null && latestUser != null) {
-            val checkpointKey = "github-output:${verifiedEvidence.checkpointBinding()}"
-            dev.chungjungsoo.gptmobile.data.agent.GitHubOutputContinuationSession(
-                selectedSession,
-                maxCharacters = budgetSettings.responseCharacterLimit.takeIf { it > 0 }?.coerceAtMost(1_048_576) ?: 1_048_576,
-                continuationRevision = dev.chungjungsoo.gptmobile.data.research.researchHash("${platform.uid}:${platform.model}:${platform.apiUrl}:${dispatchAuthority.revision}:${limits.contextTokens}:$resolvedOutputCap"),
-                recoveryRevision = runId,
-                checkpointContext = buildJsonObject {
-                    put("profile_uid", platform.uid)
-                    put("provider", platform.compatibleType.name)
-                    put("model", platform.model)
-                    put("task_binding", verifiedEvidence.checkpointBinding())
-                    put("accepted_task", verifiedEvidence.acceptedTaskRequest() ?: githubEffectiveTask)
-                    chatToolConfig?.github?.let {
-                        put("repository", "${it.owner}/${it.repo}")
-                        put("selected_ref", it.ref)
-                        put("captured_head_sha", it.commitSha)
-                    }
-                },
-                awaitConnectivity = { maximumWait -> dev.chungjungsoo.gptmobile.data.network.ProviderConnectivityPreflight.awaitUsableForContinuation(platform.apiUrl, maximumWait) },
-                reconciledCallIds = {
-                    val receipts = verifiedEvidence.snapshot().first
-                    dev.chungjungsoo.gptmobile.data.github.GitHubExecutionLedger.reconciledReceiptIds(receipts).mapNotNullTo(mutableSetOf()) { id ->
-                        (receipts[id]?.get("call_id") as? kotlinx.serialization.json.JsonPrimitive)?.content
-                    }
-                },
-                durableToolReceipts = { fingerprints ->
-                    dispatchAuthority.validate()
-                    check(validateSavedEvidence())
-                    dev.chungjungsoo.gptmobile.data.agent.ToolBatchCheckpoint.forTurn(
-                        context.filesDir,
-                        latestUser.chatId,
-                        "${latestUser.chatId}:${toolBudgetSourceMessageId ?: latestUser.id}:${platform.uid}:${dispatchAuthority.revision}",
-                        persistent = agentPersistenceDao.getChatRoom(latestUser.chatId)?.isTemporary == false
-                    ).handoffReceipts(fingerprints)
-                },
-                publishProgress = { text, lineage ->
-                    send(ApiState.ProgressCheckpoint(text, modelAuthored = true, invocationId = lineage.invocationId))
-                },
-                readCheckpoint = {
-                    dispatchAuthority.validate()
-                    check(validateSavedEvidence())
-                    workspace?.protectedSynthesisCheckpoint(checkpointKey)
-                },
-                saveCheckpoint = { value ->
-                    dispatchAuthority.validate()
-                    check(validateSavedEvidence())
-                    val store = checkNotNull(workspace) { "GITHUB_EVIDENCE_RETENTION_INCOMPLETE: The continuation checkpoint store is unavailable; no new generation was dispatched." }
-                    store.saveProtectedSynthesisCheckpoint(checkpointKey, latestUser.chatId, runId, value)
-                    check(store.protectedSynthesisCheckpoint(checkpointKey) == value) { "GITHUB_EVIDENCE_RETENTION_INCOMPLETE: The continuation boundary could not be verified after saving." }
-                }
-            ) { draft, exchanges, tools ->
-                val selected = catalog?.selected(tools) ?: tools
-                val continuation = dev.chungjungsoo.gptmobile.data.agent.planResponseContinuation(
-                    contextPlan.turns,
-                    requestPlatform.systemPrompt.orEmpty(),
-                    limits.copy(outputTokens = resolvedOutputCap),
-                    draft,
-                    "Continue the saved GitHub draft from its stopping point. Do not repeat text or completed operations. If repository work is unfinished, use the authorized tools and retained receipts; a finished model response does not establish task completion.",
-                    exchanges,
-                    advertisedTools = selected
+        data class GitHubAnswerSessions(
+            val advertisedSession: AgentProviderSession,
+            val reviewEvidence: dev.chungjungsoo.gptmobile.data.github.GitHubReviewEvidence?,
+            val outputContinuation: dev.chungjungsoo.gptmobile.data.agent.GitHubOutputContinuationSession?
+        )
+        suspend fun prepareGitHubAnswerSessions(): GitHubAnswerSessions {
+            val selectedSession = if (verifiedEvidence != null &&
+                latestUser != null &&
+                !localResearch &&
+                chatToolConfig?.research?.researchToggle != true &&
+                chatToolConfig?.combined == null &&
+                dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.continuation(originalUserRequest) &&
+                !dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.diagnostic(originalUserRequest) &&
+                !dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.reportOnly(originalUserRequest)
+            ) {
+                val ledgerPrompt = dev.chungjungsoo.gptmobile.data.github.GitHubExecutionContinuation.prompt(
+                    verifiedEvidence.acceptedTaskRequest() ?: githubEffectiveTask,
+                    originalUserRequest,
+                    verifiedEvidence.snapshot().first,
+                    verifiedEvidence.diagnostic(),
+                    corrective = false
                 )
-                val reopened = openPrimarySession(continuation.turns, "github-output-continuation", textOnly = selected.isEmpty(), passOutputTokens = continuation.outputTokens, continuationPrefixDigest = dev.chungjungsoo.gptmobile.data.research.researchHash(draft))
-                catalog?.let { reopened.withToolCatalog(it) } ?: reopened
+                val resumedTurns = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.planFullInput(
+                    listOf(ConversationTurn(latestUser.copy(content = ledgerPrompt, attachments = emptyList()), null, true)),
+                    requestPlatform.systemPrompt.orEmpty(),
+                    limits.copy(outputTokens = resolvedOutputCap)
+                ).turns
+                val resumed = openPrimarySession(resumedTurns, "github-task-resume", textOnly = false)
+                catalog?.let { resumed.withToolCatalog(it) } ?: resumed
+            } else {
+                initiallySelectedSession
             }
-        } else {
-            selectedSession
-        }
-        val reviewEvidence = if (chatToolConfig?.github != null && platform.compatibleType == ClientType.LLAMA && !dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.isGreeting(githubEffectiveTask) && !dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.matches(githubEffectiveTask) && !dev.chungjungsoo.gptmobile.data.github.GitHubTaskCoverage.matches(githubEffectiveTask)) {
-            dev.chungjungsoo.gptmobile.data.github.GitHubReviewEvidence().also { review ->
-                verifiedEvidence?.let { retained ->
-                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
-                        review.restoreValidated(retained.checkpointBinding(), retained.snapshot().first)
+            val githubContinuedSession = if (verifiedEvidence != null && latestUser != null) {
+                val checkpointKey = "github-output:${verifiedEvidence.checkpointBinding()}"
+                dev.chungjungsoo.gptmobile.data.agent.GitHubOutputContinuationSession(
+                    selectedSession,
+                    maxCharacters = budgetSettings.responseCharacterLimit.takeIf { it > 0 }?.coerceAtMost(1_048_576) ?: 1_048_576,
+                    continuationRevision = dev.chungjungsoo.gptmobile.data.research.researchHash("${platform.uid}:${platform.model}:${platform.apiUrl}:${dispatchAuthority.revision}:${limits.contextTokens}:$resolvedOutputCap"),
+                    recoveryRevision = runId,
+                    checkpointContext = buildJsonObject {
+                        put("profile_uid", platform.uid)
+                        put("provider", platform.compatibleType.name)
+                        put("model", platform.model)
+                        put("task_binding", verifiedEvidence.checkpointBinding())
+                        put("accepted_task", verifiedEvidence.acceptedTaskRequest() ?: githubEffectiveTask)
+                        chatToolConfig?.github?.let {
+                            put("repository", "${it.owner}/${it.repo}")
+                            put("selected_ref", it.ref)
+                            put("captured_head_sha", it.commitSha)
+                        }
+                    },
+                    awaitConnectivity = { maximumWait -> dev.chungjungsoo.gptmobile.data.network.ProviderConnectivityPreflight.awaitUsableForContinuation(platform.apiUrl, maximumWait) },
+                    reconciledCallIds = {
+                        val receipts = verifiedEvidence.snapshot().first
+                        dev.chungjungsoo.gptmobile.data.github.GitHubExecutionLedger.reconciledReceiptIds(receipts).mapNotNullTo(mutableSetOf()) { id ->
+                            (receipts[id]?.get("call_id") as? kotlinx.serialization.json.JsonPrimitive)?.content
+                        }
+                    },
+                    durableToolReceipts = { fingerprints ->
+                        dispatchAuthority.validate()
+                        check(validateSavedEvidence())
+                        dev.chungjungsoo.gptmobile.data.agent.ToolBatchCheckpoint.forTurn(
+                            context.filesDir,
+                            latestUser.chatId,
+                            "${latestUser.chatId}:${toolBudgetSourceMessageId ?: latestUser.id}:${platform.uid}:${dispatchAuthority.revision}",
+                            persistent = agentPersistenceDao.getChatRoom(latestUser.chatId)?.isTemporary == false
+                        ).handoffReceipts(fingerprints)
+                    },
+                    publishProgress = { text, lineage ->
+                        send(ApiState.ProgressCheckpoint(text, modelAuthored = true, invocationId = lineage.invocationId))
+                    },
+                    readCheckpoint = {
+                        dispatchAuthority.validate()
+                        check(validateSavedEvidence())
+                        workspace?.protectedSynthesisCheckpoint(checkpointKey)
+                    },
+                    saveCheckpoint = { value ->
+                        dispatchAuthority.validate()
+                        check(validateSavedEvidence())
+                        val store = checkNotNull(workspace) { "GITHUB_EVIDENCE_RETENTION_INCOMPLETE: The continuation checkpoint store is unavailable; no new generation was dispatched." }
+                        store.saveProtectedSynthesisCheckpoint(checkpointKey, latestUser.chatId, runId, value)
+                        check(store.protectedSynthesisCheckpoint(checkpointKey) == value) { "GITHUB_EVIDENCE_RETENTION_INCOMPLETE: The continuation boundary could not be verified after saving." }
+                    }
+                ) { draft, exchanges, tools ->
+                    val selected = catalog?.selected(tools) ?: tools
+                    val continuation = dev.chungjungsoo.gptmobile.data.agent.planResponseContinuation(
+                        contextPlan.turns,
+                        requestPlatform.systemPrompt.orEmpty(),
+                        limits.copy(outputTokens = resolvedOutputCap),
+                        draft,
+                        "Continue the saved GitHub draft from its stopping point. Do not repeat text or completed operations. If repository work is unfinished, use the authorized tools and retained receipts; a finished model response does not establish task completion.",
+                        exchanges,
+                        advertisedTools = selected
+                    )
+                    val reopened = openPrimarySession(continuation.turns, "github-output-continuation", textOnly = selected.isEmpty(), passOutputTokens = continuation.outputTokens, continuationPrefixDigest = dev.chungjungsoo.gptmobile.data.research.researchHash(draft))
+                    catalog?.let { reopened.withToolCatalog(it) } ?: reopened
+                }
+            } else {
+                selectedSession
+            }
+            val reviewEvidence = if (chatToolConfig?.github != null && platform.compatibleType == ClientType.LLAMA && !dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.isGreeting(githubEffectiveTask) && !dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.matches(githubEffectiveTask) && !dev.chungjungsoo.gptmobile.data.github.GitHubTaskCoverage.matches(githubEffectiveTask)) {
+                dev.chungjungsoo.gptmobile.data.github.GitHubReviewEvidence().also { review ->
+                    verifiedEvidence?.let { retained ->
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                            review.restoreValidated(retained.checkpointBinding(), retained.snapshot().first)
+                        }
                     }
                 }
+            } else {
+                null
             }
-        } else {
-            null
-        }
-        fun githubStageBudget(role: String) = dev.chungjungsoo.gptmobile.data.github.GitHubStageBudget.resolve(minOf(limits.contextTokens, observedRequestContext.get() ?: 32_768), resolvedOutputCap, role)
-        fun reviewOutputTokens(): Int = githubStageBudget("github-review").output
-        fun reviewInputLimit(): Int = githubStageBudget("github-review").input
-        suspend fun measureReview(prompt: String): Int = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
-            val system = dev.chungjungsoo.gptmobile.data.github.GitHubReviewedSession.INSTRUCTION
-            dev.chungjungsoo.gptmobile.data.context.TextTokenEstimate.estimate(
-                buildJsonObject {
-                    put("model", platform.model)
-                    put(
-                        "messages",
-                        kotlinx.serialization.json.JsonArray(
-                            listOf(
-                                buildJsonObject {
-                                    put("role", "system")
-                                    put("content", system)
-                                },
-                                buildJsonObject {
-                                    put("role", "user")
-                                    put("content", prompt)
-                                }
+            fun githubStageBudget(role: String) = dev.chungjungsoo.gptmobile.data.github.GitHubStageBudget.resolve(minOf(limits.contextTokens, observedRequestContext.get() ?: 32_768), resolvedOutputCap, role)
+            fun reviewOutputTokens(): Int = githubStageBudget("github-review").output
+            fun reviewInputLimit(): Int = githubStageBudget("github-review").input
+            suspend fun measureReview(prompt: String): Int = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                val system = dev.chungjungsoo.gptmobile.data.github.GitHubReviewedSession.INSTRUCTION
+                dev.chungjungsoo.gptmobile.data.context.TextTokenEstimate.estimate(
+                    buildJsonObject {
+                        put("model", platform.model)
+                        put(
+                            "messages",
+                            kotlinx.serialization.json.JsonArray(
+                                listOf(
+                                    buildJsonObject {
+                                        put("role", "system")
+                                        put("content", system)
+                                    },
+                                    buildJsonObject {
+                                        put("role", "user")
+                                        put("content", prompt)
+                                    }
+                                )
                             )
                         )
-                    )
-                    put("response_format", dev.chungjungsoo.gptmobile.data.github.GitHubReviewSchema.format)
-                }.toString()
-            )
-        }
-        var githubReviewCheckpoint: dev.chungjungsoo.gptmobile.data.github.GitHubReviewCheckpoint? = null
-        val reviewedSession = if (reviewEvidence != null) {
-            val reviewUser = requireNotNull(latestUser) { "GITHUB_REVIEW_REQUIRED: The original task is missing; no answer can be published." }
-            dev.chungjungsoo.gptmobile.data.github.GitHubReviewedSession(
-                githubContinuedSession,
-                reviewEvidence,
-                githubEffectiveTask,
-                inputTokenLimit = reviewInputLimit(),
-                currentInputLimit = ::reviewInputLimit,
-                inputLimitForPass = { githubStageBudget(it).input },
-                measureInput = ::measureReview,
-                reviewerRevision = dev.chungjungsoo.gptmobile.data.research.researchHash("${dev.chungjungsoo.gptmobile.data.github.GitHubReviewSchema.VERSION}:${platform.uid}:${platform.model}:${platform.apiUrl}:${dispatchAuthority.revision}:${dev.chungjungsoo.gptmobile.data.network.gateway.GatewayClientDiagnostics.profileCapabilityEpoch(platform.uid, platform.apiUrl)}:${reviewOutputTokens()}:$resolvedOutputCap"),
-                compatibility = githubReviewCompatibility,
-                checkpoint = workspace?.let { store ->
-                    val github = requireNotNull(chatToolConfig?.github)
-                    val legacyBinding = dev.chungjungsoo.gptmobile.data.research.researchHash("${reviewUser.chatId}:${reviewUser.id}:${platform.uid}:${github.connectionUid}:${github.owner}/${github.repo}:${github.ref}:${dispatchAuthority.revision}")
-                    val binding = verifiedEvidence?.checkpointBinding() ?: legacyBinding
-                    dev.chungjungsoo.gptmobile.data.github.GitHubReviewCheckpoint(
-                        githubEffectiveTask,
-                        read = { id ->
-                            dispatchAuthority.validate()
-                            check(validateSavedEvidence())
-                            store.protectedSynthesisCheckpoint("github-review:$binding:$id") ?: store.protectedSynthesisCheckpoint("github-review:$legacyBinding:$id")
-                        },
-                        write = { id, value ->
-                            dispatchAuthority.validate()
-                            check(validateSavedEvidence())
-                            store.saveProtectedSynthesisCheckpoint("github-review:$binding:$id", reviewUser.chatId, runId, value)
-                        }
-                    ).also { githubReviewCheckpoint = it }
-                },
-                openReview = { prompt, kind ->
-                    openPrimarySession(
-                        listOf(ConversationTurn(reviewUser.copy(content = prompt, attachments = emptyList()), null, true)),
-                        kind = kind,
-                        textOnly = true,
-                        passOutputTokens = githubStageBudget(kind).output.takeIf { it > 0 } ?: error("GITHUB_REVIEW_CAPACITY: No output allowance remains for the selected profile."),
-                        extraInstruction = dev.chungjungsoo.gptmobile.data.github.GitHubReviewedSession.INSTRUCTION
-                    )
-                },
-                progress = { send(ApiState.ProgressCheckpoint(it)) },
-                guardDraft = dev.chungjungsoo.gptmobile.data.agent.GenerationSafety(budgetSettings.responseCharacterLimit, budgetSettings.repetitionGuardEnabled)::apply,
-                validatePublication = {
-                    dispatchAuthority.validate()
-                    check(validateSavedEvidence()) { "Saved evidence permission changed during review." }
-                    factVault?.validateRecall(recalled, reviewUser.chatId, platform.isPrivateDestination())
-                }
-            )
-        } else {
-            githubContinuedSession
-        }
-        val verifiedSession = if (verifiedEvidence != null) {
-            val user = requireNotNull(latestUser)
-            dev.chungjungsoo.gptmobile.data.github.GitHubVerifiedSession(
-                delegate = reviewedSession,
-                evidence = verifiedEvidence,
-                task = githubEffectiveTask,
-                remainingToolCalls = remainingToolCalls,
-                currentRequest = originalUserRequest,
-                openExecutionContinuation = { prompt ->
-                    val continuation = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.planFullInput(
-                        listOf(ConversationTurn(user.copy(content = prompt, attachments = emptyList()), null, true)),
-                        requestPlatform.systemPrompt.orEmpty(),
-                        limits.copy(outputTokens = resolvedOutputCap)
-                    )
-                    openPrimarySession(continuation.turns, "github-execution-continuation", textOnly = false)
-                },
-                authorizedTools = (authorizedEvidenceTools.map { it.tool.definition } + listOfNotNull(evidenceCatalog?.definition)).filter { it.modelVisible }.distinctBy { it.name },
-                inputLimit = { (githubStageBudget("github-claim-extraction").input - dev.chungjungsoo.gptmobile.data.context.TextTokenEstimate.estimate(dev.chungjungsoo.gptmobile.data.github.GitHubEvidencePolicy.INSTRUCTION)).coerceAtLeast(0) },
-                openVerifier = { prompt ->
-                    openPrimarySession(
-                        listOf(ConversationTurn(user.copy(content = prompt, attachments = emptyList()), null, true)),
-                        kind = "github-claim-extraction",
-                        textOnly = true,
-                        passOutputTokens = githubStageBudget("github-claim-extraction").output.takeIf { it > 0 } ?: error("GITHUB_EVIDENCE_CAPACITY: No claim-rendering allowance remains."),
-                        extraInstruction = dev.chungjungsoo.gptmobile.data.github.GitHubEvidencePolicy.INSTRUCTION
-                    )
-                },
-                validatePublication = {
-                    dispatchAuthority.validate()
-                    check(validateSavedEvidence()) { "Saved evidence permission changed during verification" }
-                    factVault?.validateRecall(recalled, user.chatId, platform.isPrivateDestination())
-                },
-                progress = { send(ApiState.ProgressCheckpoint(it)) },
-                privateReviewCandidate = { reviewEvidence?.privateCandidate() },
-                lifecycle = { dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(runId, it) },
-                resumeCommitSha = dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.publishedCommit(originalUserRequest),
-                resumeRequestKey = "${user.chatId}:${user.id}",
-                gatewayDiagnostic = gatewayDiagnostics?.let { diagnostics ->
-                    { diagnostics.run(platform.uid, "${user.chatId}:${user.id}") { send(ApiState.ProgressCheckpoint(it)) } }
-                },
-                onPublication = { report ->
-                    retainGitHubRunAcceptance(runId, report)
-                    if (report["completion_verified"] == kotlinx.serialization.json.JsonPrimitive(true) || report["verification_failure"] == kotlinx.serialization.json.JsonPrimitive("GITHUB_TASK_INCOMPLETE")) {
-                        // Delivered claims or identified execution gaps can advance the task. A failed
-                        // extraction keeps the reviewed draft so recovery repeats only verification.
-                        githubReviewCheckpoint?.completed()
+                        put("response_format", dev.chungjungsoo.gptmobile.data.github.GitHubReviewSchema.format)
+                    }.toString()
+                )
+            }
+            var githubReviewCheckpoint: dev.chungjungsoo.gptmobile.data.github.GitHubReviewCheckpoint? = null
+            val reviewedSession = if (reviewEvidence != null) {
+                val reviewUser = requireNotNull(latestUser) { "GITHUB_REVIEW_REQUIRED: The original task is missing; no answer can be published." }
+                dev.chungjungsoo.gptmobile.data.github.GitHubReviewedSession(
+                    githubContinuedSession,
+                    reviewEvidence,
+                    githubEffectiveTask,
+                    inputTokenLimit = reviewInputLimit(),
+                    currentInputLimit = ::reviewInputLimit,
+                    inputLimitForPass = { githubStageBudget(it).input },
+                    measureInput = ::measureReview,
+                    reviewerRevision = dev.chungjungsoo.gptmobile.data.research.researchHash("${dev.chungjungsoo.gptmobile.data.github.GitHubReviewSchema.VERSION}:${platform.uid}:${platform.model}:${platform.apiUrl}:${dispatchAuthority.revision}:${dev.chungjungsoo.gptmobile.data.network.gateway.GatewayClientDiagnostics.profileCapabilityEpoch(platform.uid, platform.apiUrl)}:${reviewOutputTokens()}:$resolvedOutputCap"),
+                    compatibility = githubReviewCompatibility,
+                    checkpoint = workspace?.let { store ->
+                        val github = requireNotNull(chatToolConfig?.github)
+                        val legacyBinding = dev.chungjungsoo.gptmobile.data.research.researchHash("${reviewUser.chatId}:${reviewUser.id}:${platform.uid}:${github.connectionUid}:${github.owner}/${github.repo}:${github.ref}:${dispatchAuthority.revision}")
+                        val binding = verifiedEvidence?.checkpointBinding() ?: legacyBinding
+                        dev.chungjungsoo.gptmobile.data.github.GitHubReviewCheckpoint(
+                            githubEffectiveTask,
+                            read = { id ->
+                                dispatchAuthority.validate()
+                                check(validateSavedEvidence())
+                                store.protectedSynthesisCheckpoint("github-review:$binding:$id") ?: store.protectedSynthesisCheckpoint("github-review:$legacyBinding:$id")
+                            },
+                            write = { id, value ->
+                                dispatchAuthority.validate()
+                                check(validateSavedEvidence())
+                                store.saveProtectedSynthesisCheckpoint("github-review:$binding:$id", reviewUser.chatId, runId, value)
+                            }
+                        ).also { githubReviewCheckpoint = it }
+                    },
+                    openReview = { prompt, kind ->
+                        openPrimarySession(
+                            listOf(ConversationTurn(reviewUser.copy(content = prompt, attachments = emptyList()), null, true)),
+                            kind = kind,
+                            textOnly = true,
+                            passOutputTokens = githubStageBudget(kind).output.takeIf { it > 0 } ?: error("GITHUB_REVIEW_CAPACITY: No output allowance remains for the selected profile."),
+                            extraInstruction = dev.chungjungsoo.gptmobile.data.github.GitHubReviewedSession.INSTRUCTION
+                        )
+                    },
+                    progress = { send(ApiState.ProgressCheckpoint(it)) },
+                    guardDraft = dev.chungjungsoo.gptmobile.data.agent.GenerationSafety(budgetSettings.responseCharacterLimit, budgetSettings.repetitionGuardEnabled)::apply,
+                    validatePublication = {
+                        dispatchAuthority.validate()
+                        check(validateSavedEvidence()) { "Saved evidence permission changed during review." }
+                        factVault?.validateRecall(recalled, reviewUser.chatId, platform.isPrivateDestination())
                     }
-                }
-            )
-        } else {
-            reviewedSession
+                )
+            } else {
+                githubContinuedSession
+            }
+            val verifiedSession = if (verifiedEvidence != null) {
+                val user = requireNotNull(latestUser)
+                dev.chungjungsoo.gptmobile.data.github.GitHubVerifiedSession(
+                    delegate = reviewedSession,
+                    evidence = verifiedEvidence,
+                    task = githubEffectiveTask,
+                    remainingToolCalls = remainingToolCalls,
+                    currentRequest = originalUserRequest,
+                    openExecutionContinuation = { prompt ->
+                        val continuation = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.planFullInput(
+                            listOf(ConversationTurn(user.copy(content = prompt, attachments = emptyList()), null, true)),
+                            requestPlatform.systemPrompt.orEmpty(),
+                            limits.copy(outputTokens = resolvedOutputCap)
+                        )
+                        openPrimarySession(continuation.turns, "github-execution-continuation", textOnly = false)
+                    },
+                    authorizedTools = (authorizedEvidenceTools.map { it.tool.definition } + listOfNotNull(evidenceCatalog?.definition)).filter { it.modelVisible }.distinctBy { it.name },
+                    inputLimit = { (githubStageBudget("github-claim-extraction").input - dev.chungjungsoo.gptmobile.data.context.TextTokenEstimate.estimate(dev.chungjungsoo.gptmobile.data.github.GitHubEvidencePolicy.INSTRUCTION)).coerceAtLeast(0) },
+                    openVerifier = { prompt ->
+                        openPrimarySession(
+                            listOf(ConversationTurn(user.copy(content = prompt, attachments = emptyList()), null, true)),
+                            kind = "github-claim-extraction",
+                            textOnly = true,
+                            passOutputTokens = githubStageBudget("github-claim-extraction").output.takeIf { it > 0 } ?: error("GITHUB_EVIDENCE_CAPACITY: No claim-rendering allowance remains."),
+                            extraInstruction = dev.chungjungsoo.gptmobile.data.github.GitHubEvidencePolicy.INSTRUCTION
+                        )
+                    },
+                    validatePublication = {
+                        dispatchAuthority.validate()
+                        check(validateSavedEvidence()) { "Saved evidence permission changed during verification" }
+                        factVault?.validateRecall(recalled, user.chatId, platform.isPrivateDestination())
+                    },
+                    progress = { send(ApiState.ProgressCheckpoint(it)) },
+                    privateReviewCandidate = { reviewEvidence?.privateCandidate() },
+                    lifecycle = { dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(runId, it) },
+                    resumeCommitSha = dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.publishedCommit(originalUserRequest),
+                    resumeRequestKey = "${user.chatId}:${user.id}",
+                    gatewayDiagnostic = gatewayDiagnostics?.let { diagnostics ->
+                        { diagnostics.run(platform.uid, "${user.chatId}:${user.id}") { send(ApiState.ProgressCheckpoint(it)) } }
+                    },
+                    onPublication = { report ->
+                        retainGitHubRunAcceptance(runId, report)
+                        if (report["completion_verified"] == kotlinx.serialization.json.JsonPrimitive(true) || report["verification_failure"] == kotlinx.serialization.json.JsonPrimitive("GITHUB_TASK_INCOMPLETE")) {
+                            // Delivered claims or identified execution gaps can advance the task. A failed
+                            // extraction keeps the reviewed draft so recovery repeats only verification.
+                            githubReviewCheckpoint?.completed()
+                        }
+                    }
+                )
+            } else {
+                reviewedSession
+            }
+            dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(runId, if (dev.chungjungsoo.gptmobile.data.agent.CurrentRequestContract.from(latestUser?.content.orEmpty()).conversational) dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.INTENT_CONVERSATIONAL else dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.INTENT_SUBSTANTIVE)
+            val narrator = if (githubProgress != null && latestUser != null && invocationLedger != null) {
+                dev.chungjungsoo.gptmobile.data.github.GitHubProgressNarrator(
+                    snapshot = githubProgress::summarySnapshot,
+                    openSelected = { prompt, cap ->
+                        openPrimarySession(
+                            listOf(ConversationTurn(latestUser.copy(content = prompt, attachments = emptyList()), null, true)),
+                            kind = "github-progress-summary",
+                            textOnly = true,
+                            passOutputTokens = cap,
+                            extraInstruction = dev.chungjungsoo.gptmobile.data.github.GitHubProgressNarrator.INSTRUCTION
+                        )
+                    },
+                    validate = {
+                        dispatchAuthority.validate()
+                        check(validateSavedEvidence()) { "Saved evidence permission changed during progress narration." }
+                    },
+                    admit = { reservation, workReplayTokens ->
+                        val finalReserve = workReplayTokens + contextPlan.promptTokens.toLong() + (resolvedOutputCap ?: 4096).toLong() * 2
+                        budgetSettings.totalRunTokens == Int.MAX_VALUE ||
+                            budgetSettings.totalRunTokens.toLong() - invocationLedger.dao.committedTokens(turnKey) >= reservation + finalReserve
+                    },
+                    publish = { send(it) },
+                    tokenBudget = if (budgetSettings.totalRunTokens == Int.MAX_VALUE) 8192 else (budgetSettings.totalRunTokens / 10).coerceIn(0, 8192)
+                )
+            } else {
+                null
+            }
+            val advertisedSession = if (chatToolConfig?.github != null) {
+                dev.chungjungsoo.gptmobile.data.github.GitHubProgressSession(
+                    dev.chungjungsoo.gptmobile.data.diagnostics.withProviderFailureReceipts(verifiedSession, runId, platform, "github-delivery"),
+                    beforeRound = { exchanges -> narrator?.beforeRound(dev.chungjungsoo.gptmobile.data.accounting.InvocationReplayBudget.estimate(exchanges)) }
+                ) { send(ApiState.GitHubRoundStarted) }
+            } else {
+                verifiedSession
+            }
+            return GitHubAnswerSessions(advertisedSession, reviewEvidence, githubContinuedSession as? dev.chungjungsoo.gptmobile.data.agent.GitHubOutputContinuationSession)
         }
-        dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(runId, if (dev.chungjungsoo.gptmobile.data.agent.CurrentRequestContract.from(latestUser?.content.orEmpty()).conversational) dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.INTENT_CONVERSATIONAL else dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.INTENT_SUBSTANTIVE)
-        val narrator = if (githubProgress != null && latestUser != null && invocationLedger != null) {
-            dev.chungjungsoo.gptmobile.data.github.GitHubProgressNarrator(
-                snapshot = githubProgress::summarySnapshot,
-                openSelected = { prompt, cap ->
-                    openPrimarySession(
-                        listOf(ConversationTurn(latestUser.copy(content = prompt, attachments = emptyList()), null, true)),
-                        kind = "github-progress-summary",
-                        textOnly = true,
-                        passOutputTokens = cap,
-                        extraInstruction = dev.chungjungsoo.gptmobile.data.github.GitHubProgressNarrator.INSTRUCTION
-                    )
-                },
-                validate = {
-                    dispatchAuthority.validate()
-                    check(validateSavedEvidence()) { "Saved evidence permission changed during progress narration." }
-                },
-                admit = { reservation, workReplayTokens ->
-                    val finalReserve = workReplayTokens + contextPlan.promptTokens.toLong() + (resolvedOutputCap ?: 4096).toLong() * 2
-                    budgetSettings.totalRunTokens == Int.MAX_VALUE ||
-                        budgetSettings.totalRunTokens.toLong() - invocationLedger.dao.committedTokens(turnKey) >= reservation + finalReserve
-                },
-                publish = { send(it) },
-                tokenBudget = if (budgetSettings.totalRunTokens == Int.MAX_VALUE) 8192 else (budgetSettings.totalRunTokens / 10).coerceIn(0, 8192)
-            )
-        } else {
-            null
-        }
-        val advertisedSession = if (chatToolConfig?.github != null) {
-            dev.chungjungsoo.gptmobile.data.github.GitHubProgressSession(
-                dev.chungjungsoo.gptmobile.data.diagnostics.withProviderFailureReceipts(verifiedSession, runId, platform, "github-delivery"),
-                beforeRound = { exchanges -> narrator?.beforeRound(dev.chungjungsoo.gptmobile.data.accounting.InvocationReplayBudget.estimate(exchanges)) }
-            ) { send(ApiState.GitHubRoundStarted) }
-        } else {
-            verifiedSession
-        }
+        val (advertisedSession, reviewEvidence, outputContinuation) = prepareGitHubAnswerSessions()
         val executableTools = dev.chungjungsoo.gptmobile.data.agent.appendBudgetedCatalog(runnerTools, catalog)
         recordPrimaryToolCatalog(catalog, runnerTools, executableTools)
 
@@ -5732,7 +5744,7 @@ class ChatRepositoryImpl(
             delegationSettings, effectiveTools, githubEffectiveTask, resolvedOutputCap, reservedFinalToolCalls,
             toolBudgetSourceMessageId, dispatchAuthority, catalog, retryUndispatchedBudgetFailures,
             resumeToolBudget, toolCallsAlreadyUsed, reviewEvidence, verifiedEvidence,
-            githubContinuedSession as? dev.chungjungsoo.gptmobile.data.agent.GitHubOutputContinuationSession
+            outputContinuation
         )
         if (chatToolConfig?.github != null && latestUser != null && agentPersistenceDao.getChatRoom(latestUser.chatId)?.isTemporary == false) {
             val policy = dev.chungjungsoo.gptmobile.data.github.GitHubRunPolicySnapshot.capture(

@@ -1,28 +1,28 @@
-The code in this repo (https://github.com/moonshine-ai/moonshine), apart from 
-the source in core/third-party, is licensed under the MIT License. Moonshine 
-models are released under the MIT License by default, in every language and at 
-every size. This includes all streaming speech-to-text models and all 
+The code in this repo (https://github.com/moonshine-ai/moonshine), apart from
+the source in core/third-party, is licensed under the MIT License. Moonshine
+models are released under the MIT License by default, in every language and at
+every size. This includes all streaming speech-to-text models and all
 English-language models. See SECTION 1 for terms.
 
-The only speech-to-text models that are NOT MIT are the legacy non-streaming 
-models for languages other than English, which remain under the Moonshine 
-Community License, a non-commercial license. That list is exhaustive: 
+The only speech-to-text models that are NOT MIT are the legacy non-streaming
+models for languages other than English, which remain under the Moonshine
+Community License, a non-commercial license. That list is exhaustive:
 
-  Arabic      Base, Tiny 
-  Japanese    Base, Tiny 
-  Korean      Base, Tiny 
-  Mandarin    Base, Tiny 
-  Spanish     Base 
-  Ukrainian   Base, Tiny 
-  Vietnamese  Base, Tiny 
+  Arabic      Base, Tiny
+  Japanese    Base, Tiny
+  Korean      Base, Tiny
+  Mandarin    Base, Tiny
+  Spanish     Base
+  Ukrainian   Base, Tiny
+  Vietnamese  Base, Tiny
 
-Any speech-to-text model not named in that list is MIT, including every 
-streaming model and the English Tiny and Base models. See SECTION 2 for the 
+Any speech-to-text model not named in that list is MIT, including every
+streaming model and the English Tiny and Base models. See SECTION 2 for the
 Community License terms.
 
-Separately, the text to speech and grapheme to phoneme models and data files 
-are not covered by the MIT default: they are licensed under the terms listed in 
-their own readmes and source repositories, since they derive from third-party 
+Separately, the text to speech and grapheme to phoneme models and data files
+are not covered by the MIT default: they are licensed under the terms listed in
+their own readmes and source repositories, since they derive from third-party
 work. See core/moonshine-tts/data/README.md.
 
 
@@ -53,8 +53,8 @@ SOFTWARE.
 
 SECTION 2 -----------------------------------------------------------------
 
- MOONSHINE AI COMMUNITY LICENSE AGREEMENT 
- 
+ MOONSHINE AI COMMUNITY LICENSE AGREEMENT
+
  Last Updated: June 15th, 2025
 
 
@@ -71,7 +71,7 @@ This Agreement is intended to allow research, non-commercial, and limited
 commercial uses of the Models free of charge. In order to ensure that certain
 limited commercial uses of the Models continue to be allowed, this Agreement
 preserves free access to the Models for people or organizations generating
-annual revenue of less than US $1,000,000 (or local currency equivalent). 
+annual revenue of less than US $1,000,000 (or local currency equivalent).
 
 
 By clicking "I Accept" or by using or distributing or using any portion or
@@ -80,7 +80,7 @@ read, understood and are bound by the terms of this Agreement. If You are acting
 on behalf of a company, organization or other entity, then "You" includes you
 and that entity, and You agree that You: (i) are an authorized representative of
 such entity with the authority to bind such entity to this Agreement, and (ii)
-You agree to the terms of this Agreement on that entity's behalf. 
+You agree to the terms of this Agreement on that entity's behalf.
 
 II. RESEARCH & NON-COMMERCIAL USE LICENSE
 
@@ -95,7 +95,7 @@ primarily intended for commercial advantage or monetary compensation to You or
 others. "Non-Commercial Purpose" means any purpose other than a Research Purpose
 that is not primarily intended for commercial advantage or monetary compensation
 to You or others, such as personal use (i.e., hobbyist) or evaluation and
-testing. 
+testing.
 
 III. COMMERCIAL USE LICENSE
 
@@ -202,7 +202,7 @@ United States and the State of California without regard to choice of law
 principles, and the UN Convention on Contracts for International Sale of Goods
 does not apply to this Agreement.
 
-V. DEFINITIONS 
+V. DEFINITIONS
 
 "Affiliate(s)" means any entity that directly or indirectly controls, is
 controlled by, or is under common control with the subject entity; for purposes

@@ -144,7 +144,7 @@ internal object GitHubCollaboration {
             "add_labels", "remove_label" -> {
                 val labels = if (operation == "add_labels") strings("labels") else listOf(text("label").also { require(it.isNotBlank() && it.length <= 100) })
                 val path = "$issuePath/labels"
-                outcome = if (operation == "add_labels") request(path, HttpMethod.Post, buildJsonObject { put("labels", JsonArray(labels.map(::JsonPrimitive))) }) else request("$path/${java.net.URLEncoder.encode(labels.single(), java.nio.charset.StandardCharsets.UTF_8).replace("+", "%20")}", HttpMethod.Delete, null)
+                outcome = if (operation == "add_labels") request(path, HttpMethod.Post, buildJsonObject { put("labels", JsonArray(labels.map(::JsonPrimitive))) }) else request("$path/${GitHubWorkspaceClient.segment(labels.single())}", HttpMethod.Delete, null)
                 val names = read("$path?per_page=100").jsonArray.map { it.jsonObject["name"]?.jsonPrimitive?.content }
                 verified = labels.all { (it in names) == (operation == "add_labels") } && (operation == "add_labels" || names.size < 100)
             }

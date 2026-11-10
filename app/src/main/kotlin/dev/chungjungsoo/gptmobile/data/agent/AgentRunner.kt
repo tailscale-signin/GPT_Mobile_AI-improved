@@ -344,10 +344,24 @@ class AgentRunner(
                 if (retained.isEmpty()) return true
                 // Restore current authorization/evidence once, before provider work.
                 // Completion callbacks persist new work and must not replay here.
-                if (onToolResultsRestored != null) {
-                    onToolResultsRestored.invoke(retained)
-                } else {
-                    retained.forEach { onToolResult?.invoke(it.calls.single(), it.results.single()) }
+                var observedExchange: AgentToolExchange? = null
+                try {
+                    if (onToolResultsRestored != null) {
+                        onToolResultsRestored.invoke(retained)
+                    } else {
+                        for (exchange in retained) {
+                            observedExchange = exchange
+                            onToolResult?.invoke(exchange.calls.single(), exchange.results.single())
+                        }
+                    }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    val observed = observedExchange ?: retained.first()
+                    val failure = ToolFailureMetadata.withAuthorityFailure(observed.results.single(), error, "delivery") ?: throw error
+                    observedExchange?.let { emit(AgentRunEvent.ToolFinished(it.calls.single(), failure)) }
+                    emit(AgentRunEvent.Provider(ToolFailureMetadata.authorityFailure(failure, retainedUnknownOutcome)))
+                    return false
                 }
                 retained.forEach { exchange ->
                     val call = exchange.calls.single()

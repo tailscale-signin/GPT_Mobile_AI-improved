@@ -165,5 +165,17 @@
     "status": "HOST_VALIDATED_NATIVE_RENDER_PENDING",
     "intent": "Preserve selected gateway name visibility when the new recovery hint wraps on a narrow screen at large font scale.",
     "validation_receipt": "docs/repairs/evidence/audit-execution-recovery-2026-11-09/selected-host-header-validation.json"
+  },
+  "windows_schema_followup": {
+    "parent_head": "d1ef3f020558a0ba5833ab17943ea1b679e95c1f",
+    "status": "HOST_VALIDATED_FRESH_WINDOWS_AND_ANDROID_CI_REQUIRED",
+    "intent": "Preserve the reviewed diagnostic contract identity across UTF-8 LF, CRLF and CR checkouts while detecting real contract changes.",
+    "validation_receipt": "docs/repairs/evidence/audit-execution-recovery-2026-11-09/diagnostic-schema-digest-validation.json"
+  },
+  "diagnostic_test_contract_followup": {
+    "parent_head": "d1ef3f020558a0ba5833ab17943ea1b679e95c1f",
+    "status": "FORMATTED_FRESH_ANDROID_COMPILATION_REQUIRED",
+    "intent": "Implement the new diagnostic projection in the sole concrete recorder-test DAO fake; preserve production DAO behavior.",
+    "validation_receipt": "docs/repairs/evidence/audit-execution-recovery-2026-11-09/diagnostic-dao-fake-validation.json"
   }
 }

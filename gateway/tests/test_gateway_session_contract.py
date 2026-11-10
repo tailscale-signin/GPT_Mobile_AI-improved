@@ -45,7 +45,9 @@ class GatewaySessionContractTests(unittest.TestCase):
 
     def test_routes_and_schema_are_the_reviewed_shared_contract(self):
         contract = Path(__file__).resolve().parents[2] / 'docs/contracts/gateway-diagnostic-schema-v2.json'
-        self.assertEqual(hashlib.sha256(contract.read_bytes()).hexdigest(), SCHEMA_DIGEST)
+        # Check the same reviewed UTF-8/LF identity on LF and CRLF checkouts.
+        normalized = contract.read_text(encoding='utf-8').encode('utf-8')
+        self.assertEqual(hashlib.sha256(normalized).hexdigest(), SCHEMA_DIGEST)
         self.assertEqual(ROUTES, ENUM_ATTRIBUTES['route'])
         for path, route in [('/v1/gateway/capabilities', 'capabilities'), ('/gateway/identity','identity'),
                             ('/gateway/job-catalog','job_catalog'), ('/gateway/conversations/id/messages','messages'),

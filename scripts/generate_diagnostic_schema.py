@@ -10,7 +10,9 @@ SOURCE = ROOT / 'docs/contracts/gateway-diagnostic-schema-v2.json'
 
 
 def generated():
-    raw = SOURCE.read_bytes()
+    # The protocol identity uses UTF-8 with LF line endings, independently of
+    # Git's platform checkout conversion. Other contract bytes remain significant.
+    raw = SOURCE.read_text(encoding='utf-8').encode('utf-8')
     schema = json.loads(raw)
     digest = hashlib.sha256(raw).hexdigest()
     fields = {'choices': 'ENUMS', 'numeric_attributes': 'NUMBER_ATTRIBUTES',
@@ -54,10 +56,10 @@ def main():
     args = parser.parse_args()
     for path, content in generated().items():
         if args.check:
-            if not path.exists() or path.read_text() != content:
+            if not path.exists() or path.read_text(encoding='utf-8') != content:
                 raise SystemExit(f'Generated diagnostic contract is stale: {path.relative_to(ROOT)}')
         else:
-            path.write_text(content)
+            path.write_text(content, encoding='utf-8', newline='\n')
 
 
 if __name__ == '__main__':

@@ -2,7 +2,7 @@
   "baseCommit": "a66155dfdc0cf647dd368019f605d91689d48583",
   "version": "15.0.0",
   "schemaVersion": 1,
-  "sourceCommit": "ba0ff0a0c95bf1bf703236937f7a9939e93d45ba",
+  "sourceCommit": "d1ef3f020558a0ba5833ab17943ea1b679e95c1f",
   "files": {
     "COMPLETION_RECOVERY.md": "69f942eab0a85b9c1a2f1f0684a4cf653a3417401814673ffc426605ac3be429",
     "DIAGNOSTICS.md": "807348dd5657845327d8b22171c095052611fe73dcea44fb43b40d7f28e43f65",
@@ -96,7 +96,7 @@
     "tests/test_gateway_security.py": "9934e3f442bffc7f59e5f3e461d59877b55d54841e7a87a254bb5c75362ab5e0",
     "tests/test_gateway_selected_execution.py": "a63588d99e1a2c0a6f47faa914c8c3ec41fa50990ff246d6a5e5498acfb58544",
     "tests/test_gateway_selected_model_benchmark.py": "4ace8d7868bcb650d3096771c95e487aec4ab49b27652bb5144f1e80285dfd5c",
-    "tests/test_gateway_session_contract.py": "a680fd73ed4d941cc4912b06ddb28bd51caafa7d89a3f4d76090a690973c89f6",
+    "tests/test_gateway_session_contract.py": "4007faa878b7029c3a5eb1a134f2d95396b5f3294ea3475d866540dbbd06deac",
     "tests/test_gateway_singleflight.py": "466dd946426c871a5a5ae25a7c308fe97ee35564de564f25c989957cf776b086",
     "tests/test_gateway_stream_observation.py": "b3b91ed60529e3b02ee3d26fa83cb8475fadf78e68a7649dc9daca74a654140b",
     "tests/test_gateway_v12.py": "e87098859b9c78b1f2f02d41e89a285b1b339674b0bd41942d9c60b1906ad213",

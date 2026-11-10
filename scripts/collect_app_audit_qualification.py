@@ -58,6 +58,10 @@ def read_xml(path, allow_doctype=False, max_bytes=MAX_REPORT_BYTES):
         data = source.read(max_bytes + 1)
     if len(data) > max_bytes:
         raise ValueError('REPORT_TOO_LARGE')
+    # Gradle and JaCoCo emit UTF-8. Reject NUL bytes before parsing so
+    # Expat cannot auto-detect UTF-16 and bypass the byte-level checks.
+    if b'\x00' in data:
+        raise ValueError('UNSUPPORTED_XML_ENCODING')
     if b'<!ENTITY' in data or not allow_doctype and b'<!DOCTYPE' in data:
         raise ValueError('UNSUPPORTED_XML_DECLARATION')
     return ET.fromstring(data), digest(data)

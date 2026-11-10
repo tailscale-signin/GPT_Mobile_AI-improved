@@ -273,6 +273,20 @@ class AppAuditQualificationEvidenceTest(unittest.TestCase):
         self.assert_unqualified_coverage(result)
         self.assertNotIn("do-not-export", json.dumps(result))
 
+    def test_utf16_entity_declarations_cannot_supply_coverage_or_test_evidence(self):
+        coverage = self.coverage()
+        coverage_xml = coverage.read_text().replace('covered="8"', 'covered="&covered;"', 1)
+        coverage.write_bytes(('<!DOCTYPE report [<!ENTITY covered "8">]>' + coverage_xml).encode("utf-16"))
+        result = self.collect([self.junit()], coverage=coverage)
+        self.assert_unqualified_coverage(result)
+
+        junit = self.junit()
+        junit_xml = junit.read_text().replace("observedBehavior", "&method;", 1)
+        junit.write_bytes(('<!DOCTYPE testsuite [<!ENTITY method "observedBehavior">]>' + junit_xml).encode("utf-16"))
+        result = self.collect([junit])
+        self.assertEqual([{"report_name": junit.name, "reason": "UNSUPPORTED_XML_ENCODING"}], result["report_errors"])
+        self.assertEqual("NOT_OBSERVED", self.harness(result)["status"])
+
     def test_changing_inventory_totals_does_not_change_measured_coverage(self):
         report, coverage = self.junit(), self.coverage()
         first = self.collect([report], coverage=coverage)

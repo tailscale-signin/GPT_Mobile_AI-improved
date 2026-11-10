@@ -1,3 +1,3 @@
 GPT Mobile GitHub integration fixture
 fixture: dd35d1a6f409d0a9cd2f
-phase: created
+phase: staged

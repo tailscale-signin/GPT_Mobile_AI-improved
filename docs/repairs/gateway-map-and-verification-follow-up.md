@@ -57,4 +57,14 @@ The repaired parent revision completed 8,704 Android unit cases: 8,699 passed, f
 
 The follow-up retains exact source hashes, scoped host logs and independent review findings in its validation receipt. Full Android compilation, Compose rendering, instrumentation, APK packaging and the canonical `Required verification` aggregate must be evaluated on the newly published head and generated merge revision. Overlapping host suite counts are not a coverage percentage.
 
+### CI coverage collection follow-up
+
+Inspection of the retained parent CI artifact exposed a real collector defect: its full JaCoCo XML is 33,371,388 bytes, exceeding the 16 MiB limit shared with individual JUnit files. The collector therefore marked valid measured coverage unavailable. A new behavioral regression reproduces that rejection.
+
+JaCoCo now has a separate 64 MiB bound; JUnit retains its 16 MiB bound. Both the file-size check and the read enforce the limit. Oversized coverage receives a specific unavailable reason, while session freshness, current JUnit binding, application-only counters and XML declaration restrictions remain enforced. All 26 collector tests and the 443-test canonical fast gate passed; an independent review also passed the collector suite.
+
+Reprocessing the unchanged parent artifacts validates all 1,358 JUnit reports and 8,704 cases, then recovers 44.3893% line coverage and 43.0906% branch coverage across the 2,275 application source files present in that JaCoCo report. These measurements describe that parent execution only. They do not cover the entire source inventory, qualify unexecuted live/device work, or rewrite historical audit scores. The [coverage validation receipt](evidence/audit-execution-recovery-2026-11-09/coverage-size-validation.json) retains the exact report hashes and scope.
+
+The concurrent repository-casing correction at `04ec4a29a7ee41cdd777e85878f5092a5ffac185` is preserved. Its branch update superseded unfinished `b60e619` Android jobs; cancelled jobs are not test passes or source failures. The combined follow-up still requires fresh Android CI on its published head.
+
 Actual host sign-in, deployment updates, the three privacy-aliased MCP repairs, selected-model generation, every named live tool fixture and physical-device performance still require observations from those environments. The original audit remains at 25/27 measured passes with 67 untested checks until a new qualified run supplies evidence. Disabled and uninstalled optional plugins remain explicit configuration choices.

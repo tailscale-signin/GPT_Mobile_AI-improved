@@ -22,6 +22,9 @@ CATALOG = Path('app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAud
 INVENTORY = Path('app/src/main/assets/diagnostics/app-code-inventory.json')
 APPLICATION_PREFIX = 'dev/chungjungsoo/gptmobile/'
 MAX_REPORT_BYTES = 16 * 1024 * 1024
+# JaCoCo aggregates the whole application. Keep an independent, bounded
+# allowance for that report without widening per-suite JUnit input.
+MAX_COVERAGE_REPORT_BYTES = 64 * 1024 * 1024
 
 
 def digest(data):
@@ -48,10 +51,13 @@ def catalog(root):
     return mapping
 
 
-def read_xml(path, allow_doctype=False):
-    if path.stat().st_size > MAX_REPORT_BYTES:
+def read_xml(path, allow_doctype=False, max_bytes=MAX_REPORT_BYTES):
+    if path.stat().st_size > max_bytes:
         raise ValueError('REPORT_TOO_LARGE')
-    data = path.read_bytes()
+    with path.open('rb') as source:
+        data = source.read(max_bytes + 1)
+    if len(data) > max_bytes:
+        raise ValueError('REPORT_TOO_LARGE')
     if b'<!ENTITY' in data or not allow_doctype and b'<!DOCTYPE' in data:
         raise ValueError('UNSUPPORTED_XML_DECLARATION')
     return ET.fromstring(data), digest(data)
@@ -159,7 +165,7 @@ def instrumented_coverage(path, since, now, junit_current):
     if path is None or not path.is_file():
         return {'available': False, 'reason': 'INSTRUMENTED_REPORT_NOT_AVAILABLE'}
     try:
-        report, report_hash = read_xml(path, allow_doctype=True)
+        report, report_hash = read_xml(path, allow_doctype=True, max_bytes=MAX_COVERAGE_REPORT_BYTES)
         if report.tag != 'report':
             raise ValueError('NOT_A_JACOCO_REPORT')
         sessions = report.findall('sessioninfo')
@@ -198,7 +204,9 @@ def instrumented_coverage(path, since, now, junit_current):
             total['percent'] = 100 * total['covered'] / denominator if denominator else None
         return {'available': True, 'report_sha256': report_hash, 'source_files': len(source_files), 'counters': totals, 'current_run_sessions': len(sessions),
                 'scope': 'Application source files present in this JaCoCo report; excludes native, script and resource inventory.'}
-    except (OSError, ET.ParseError, KeyError, ValueError, OverflowError):
+    except (OSError, ET.ParseError, KeyError, ValueError, OverflowError) as error:
+        if isinstance(error, ValueError) and str(error) == 'REPORT_TOO_LARGE':
+            return {'available': False, 'reason': 'INSTRUMENTED_REPORT_TOO_LARGE', 'report_limit_bytes': MAX_COVERAGE_REPORT_BYTES}
         return {'available': False, 'reason': 'INVALID_OR_UNEXECUTED_INSTRUMENTED_REPORT'}
 
 

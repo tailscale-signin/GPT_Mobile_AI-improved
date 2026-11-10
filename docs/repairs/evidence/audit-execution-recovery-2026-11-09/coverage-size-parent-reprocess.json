@@ -1,0 +1,46 @@
+{
+  "kind": "RETAINED_CI_COVERAGE_COLLECTOR_REGRESSION",
+  "workflow_run_id": 42733380890,
+  "source_head": "e85dec10ec07b1a7dd58e4a4237a3c9e81572d6d",
+  "original_checkout": {
+    "commit": "bf20a2d13d4237e4939bfeca597d20c5f295d319",
+    "parents": [],
+    "tracked_files_clean": true,
+    "identity_meaning": "Observed checkout and source hashes; not independent APK or deployed-service attestation."
+  },
+  "execution_window_start": "2026-11-10T01:23:27+00:00",
+  "original_collected_at": "2026-11-10T01:40:39.060808+00:00",
+  "junit_reports": 1358,
+  "junit_cases": 8704,
+  "junit_current": true,
+  "report_errors": [],
+  "original_coverage": {
+    "available": false,
+    "reason": "INVALID_OR_UNEXECUTED_INSTRUMENTED_REPORT"
+  },
+  "original_qualification_sha256": "cfd9a9e4ee94de1f202912211b342483d1cad019e0ce4a2926023650955b44e8",
+  "coverage_artifact_id": 13727868401,
+  "coverage_artifact_sha256": "d1c6b96d9d9e6676959cc58287ed5bcebfb59ac9f026f3f3b01562867e185e89",
+  "coverage_xml_bytes": 33371388,
+  "collector_source_sha256": "2809c4aa2c841a26d0af6f64f9b0ca17e5343726708920c78834272724d663e5",
+  "reprocessed_coverage": {
+    "available": true,
+    "report_sha256": "39067a6e0948521ac5c9a57034c8c5742f66779336b2880bbfb921051ac549c4",
+    "source_files": 2275,
+    "counters": {
+      "LINE": {
+        "covered": 101216,
+        "missed": 126803,
+        "percent": 44.389283349194585
+      },
+      "BRANCH": {
+        "covered": 95484,
+        "missed": 126105,
+        "percent": 43.090586626592476
+      }
+    },
+    "current_run_sessions": 22,
+    "scope": "Application source files present in this JaCoCo report; excludes native, script and resource inventory."
+  },
+  "scope": "Reprocessed retained parent CI artifacts only. This is not execution of the current revision and does not change historical app audit scores."
+}

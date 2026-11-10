@@ -151,5 +151,13 @@
     "latest_report": "docs/repairs/evidence/audit-execution-recovery-2026-11-09/github-verification-capture.json",
     "remediation_record": "docs/repairs/gateway-map-and-verification-follow-up.md",
     "validation_receipt": "docs/repairs/evidence/audit-execution-recovery-2026-11-09/gateway-map-validation.json"
+  },
+  "coverage_followup": {
+    "parent_head": "04ec4a29a7ee41cdd777e85878f5092a5ffac185",
+    "status": "HOST_VALIDATED_FRESH_ANDROID_CI_REQUIRED",
+    "intent": "Accept the actual bounded aggregate JaCoCo report without weakening per-suite JUnit or execution-identity validation; preserve concurrent repository-casing fix and complete fresh Android CI.",
+    "validation_receipt": "docs/repairs/evidence/audit-execution-recovery-2026-11-09/coverage-size-validation.json",
+    "canonical_fast_tests": 443,
+    "collector_tests": 26
   }
 }

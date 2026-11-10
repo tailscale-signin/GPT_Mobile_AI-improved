@@ -1,0 +1,13 @@
+F
+======================================================================
+FAIL: test_large_coverage_report_does_not_expand_the_junit_report_limit (scripts.tests.test_app_audit_qualification_evidence.AppAuditQualificationEvidenceTest.test_large_coverage_report_does_not_expand_the_junit_report_limit)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/workspace/scratch/a5681ccdcf4d/repo/scripts/tests/test_app_audit_qualification_evidence.py", line 250, in test_large_coverage_report_does_not_expand_the_junit_report_limit
+    self.assertTrue(result["available"])
+AssertionError: False is not true
+
+----------------------------------------------------------------------
+Ran 1 test in 0.033s
+
+FAILED (failures=1)

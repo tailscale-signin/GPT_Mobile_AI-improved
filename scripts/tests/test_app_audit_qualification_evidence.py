@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 import xml.etree.ElementTree as ET
 
 
@@ -240,6 +241,37 @@ class AppAuditQualificationEvidenceTest(unittest.TestCase):
         self.assertEqual(2, result["source_files"])
         self.assertEqual({"covered": 8, "missed": 2, "percent": 80.0}, result["counters"]["LINE"])
         self.assertEqual({"covered": 3, "missed": 5, "percent": 37.5}, result["counters"]["BRANCH"])
+
+    def test_large_coverage_report_does_not_expand_the_junit_report_limit(self):
+        coverage = self.coverage()
+        coverage.write_bytes(coverage.read_bytes() + b"\n" * COLLECTOR.MAX_REPORT_BYTES)
+        self.assertGreater(coverage.stat().st_size, COLLECTOR.MAX_REPORT_BYTES)
+        result = self.collect([self.junit()], coverage=coverage)["coverage"]
+        self.assertTrue(result["available"])
+        self.assertEqual({"covered": 8, "missed": 2, "percent": 80.0}, result["counters"]["LINE"])
+
+        junit = self.junit(name="TEST-oversized.xml")
+        junit.write_bytes(junit.read_bytes() + b"\n" * COLLECTOR.MAX_REPORT_BYTES)
+        result = self.collect([junit], coverage=coverage)
+        self.assertEqual([{"report_name": junit.name, "reason": "REPORT_TOO_LARGE"}], result["report_errors"])
+        self.assert_unqualified_coverage(result)
+
+    def test_coverage_size_limit_is_bounded_and_has_an_actionable_reason(self):
+        coverage = self.coverage()
+        with patch.object(COLLECTOR, "MAX_COVERAGE_REPORT_BYTES", coverage.stat().st_size - 1):
+            result = self.collect([self.junit()], coverage=coverage)
+        self.assert_unqualified_coverage(result)
+        self.assertEqual("INSTRUMENTED_REPORT_TOO_LARGE", result["coverage"]["reason"])
+
+    def test_coverage_doctype_is_supported_but_entity_definitions_are_rejected(self):
+        coverage = self.coverage()
+        payload = coverage.read_bytes()
+        coverage.write_bytes(b'<!DOCTYPE report PUBLIC "-//JACOCO//DTD Report 1.1//EN" "report.dtd">' + payload)
+        self.assertTrue(self.collect([self.junit()], coverage=coverage)["coverage"]["available"])
+        coverage.write_bytes(b'<!DOCTYPE report [<!ENTITY private "do-not-export">]>' + payload)
+        result = self.collect([self.junit()], coverage=coverage)
+        self.assert_unqualified_coverage(result)
+        self.assertNotIn("do-not-export", json.dumps(result))
 
     def test_changing_inventory_totals_does_not_change_measured_coverage(self):
         report, coverage = self.junit(), self.coverage()

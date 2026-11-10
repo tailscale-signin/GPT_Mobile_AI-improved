@@ -5,7 +5,7 @@
   "base_sha": "7db0c735f9e86eaece24513fbaf5c0a624f13822",
   "working_branch": "fix/audit-execution-recovery-2026-11-09",
   "intent": "Implement the user-requested 24 archive findings, 18 process-log findings and the complete app audit remediation: reconcile durable handoffs, resume useful work, reuse compact evidence, scope verification to the request, unify budgets and failure receipts, improve connector compatibility and actionable qualification, and reduce diagnostic/UI overhead with truthful validation.",
-  "state": "FOLLOW_UP_LOCAL_VERIFIED_READY_FOR_PUBLICATION",
+  "state": "UI_TEST_SETUP_CORRECTED_FRESH_CI_REQUIRED",
   "task_store": "engineering_agent_checkpoints",
   "task_store_key": "audit-execution-recovery-2026-11-09",
   "source_evidence": {
@@ -82,7 +82,9 @@
       "Activity previews are concise with accessible full detail and subtle motion; summaries are readable and remain stable during updates.",
       "Canonical fast validation and fresh Android CI on the published head."
     ],
-    "validation_receipt": "docs/repairs/evidence/audit-execution-recovery-2026-11-09/follow-up-validation.json"
+    "validation_receipt": "docs/repairs/evidence/audit-execution-recovery-2026-11-09/follow-up-validation.json",
+    "android_ci_snapshot": "docs/repairs/evidence/audit-execution-recovery-2026-11-09/ci-progress-test-failures.json",
+    "ui_test_correction": "docs/repairs/evidence/audit-execution-recovery-2026-11-09/ui-test-follow-up-validation.json"
   },
   "latest_audit": {
     "file": "app-audit-1794267649957.json",

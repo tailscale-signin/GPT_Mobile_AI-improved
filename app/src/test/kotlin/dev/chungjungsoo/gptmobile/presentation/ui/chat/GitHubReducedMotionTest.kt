@@ -64,6 +64,8 @@ class GitHubReducedMotionTest {
             assertEquals(0.5f, phase.value, 0f)
             activity = "Reviewing the saved results"
         }
+        // Publish the snapshot write before advancing the paused clock at scale zero.
+        compose.waitForIdle()
         compose.mainClock.advanceTimeBy(16)
         compose.onNodeWithTag("github_latest_preview").assertTextEquals(activity).assertIsDisplayed()
         compose.runOnIdle { durationScale.scaleFactor = 1f }

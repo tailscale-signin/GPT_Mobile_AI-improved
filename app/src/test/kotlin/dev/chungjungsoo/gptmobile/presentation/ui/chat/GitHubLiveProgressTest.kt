@@ -86,7 +86,9 @@ class GitHubLiveProgressTest {
         }
     }
 
-    @Test fun summariesUseParagraphTypographyAndOnlyTheNewestActivityHasAnAccent() {
+    @Test
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    fun summariesUseParagraphTypographyAndOnlyTheNewestActivityHasAnAccent() {
         val summary = "I’ll inspect the loading bar."
         val first = line("Reading source files.")
         var timeline by mutableStateOf(listOf(line(summary, true), first))
@@ -170,7 +172,9 @@ class GitHubLiveProgressTest {
         compose.onNodeWithTag("github_activity_summary").assertTextEquals(summary)
     }
 
-    @Test fun overflowingActivityExpandsWithoutLosingItsPublicDescriptionOrRepeatingItForAccessibility() {
+    @Test
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    fun overflowingActivityExpandsWithoutLosingItsPublicDescriptionOrRepeatingItForAccessibility() {
         val activity = "Checking the changed Kotlin files against the retained comparison, including the recovery boundary and the progress presentation.\nThe validation result is still pending, so this activity does not claim that the checks passed."
         var latest by mutableStateOf(true)
         compose.setContent {

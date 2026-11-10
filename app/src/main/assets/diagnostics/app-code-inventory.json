@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "0b62629ddac951988c3183e1301d129b3c8ade8f613232d4f59ba452f3e28e48",
+  "source_digest": "d2d57d22020090eb18a28d3ad741490a616da7fe886ec91e9308cd36a4e0b257",
   "file_count": 2407,
-  "indexed_line_count": 374735,
+  "indexed_line_count": 374736,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -142,7 +142,7 @@
       "id": "auth_and_security",
       "label": "Permissions, privacy and credentials",
       "file_count": 20,
-      "indexed_line_count": 1940
+      "indexed_line_count": 1941
     },
     {
       "id": "voice_and_media",
@@ -9537,8 +9537,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/permissions/ToolApprovalManager.kt",
       "area_id": "auth_and_security",
       "kind": "source",
-      "sha256": "e0e2836fe8eecb41ad0cae1cb99b848ef8e7e78aa478432ca5ba4cc4030d57fc",
-      "indexed_lines": 317
+      "sha256": "eb0174cde0cc81702b591269738b351899a52e92f4931ad859695b82f44619fa",
+      "indexed_lines": 318
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/permissions/ToolAuthorizationRejected.kt",

@@ -4,6 +4,22 @@ Android build 141. Scoped reliability release covering the changes since [0.9.66
 
 This release brings together persistent gateway conversations and jobs, more reliable GitHub task recovery and acceptance evidence, application audits, safer diagnostics, and the November 7–9 integration repairs. The latest repair also addresses the Gateway conversations crash and the Android method-size and regression failures found while reviewing PR #815.
 
+## PR #816 candidate addendum: Gateway 16 and engineering completion
+
+These are unreleased branch changes on top of the versioned notes below. This addendum does not publish, install or qualify a release; it keeps the bounded release scope consistent with the combined PR.
+
+- Upgrade Gateway runtime and installer contracts to 16.0.0; align Kotlin/Python diagnostics, preserve typed readiness and terminal causes, correlate requests and retries, retain frame measurements and export linked support evidence.
+- Complete PR #816 admission and task recovery: require producible acceptance, validation policy and exact source/runtime preflight before saving implementation work; retain unmet requirements, bounded continuation and honest task ownership.
+- Expose guarded native PR draft/ready transitions and collaboration actions with exact approval, expected-head or update-time checks and remote readback; identify same-model review accurately.
+- Unify GitHub questions, choices and approvals at the conversation bottom; add 1.5-second relative bottom following and gateway conversation activity icons with lifecycle and reduced-motion handling.
+- Include PR #816 audit, repository graph and selected-profile recovery repairs and the local Moonshine voice plugin with microphone-permission rechecks and retained model/runtime provenance.
+
+Validation: [Gateway 16 engineering contract](docs/repairs/gateway16-engineering-contract.md), [chat and recovery](docs/repairs/gateway16-chat-2026-11-09.md), [session diagnostics](docs/repairs/gateway-session-2026-11-09.md), and [local voice](docs/implementation/Local_Voice_Plugin_2026-11-09.md). Host checks passed at their recorded source hashes; prior CI or a cancelled run does not qualify the final combined head.
+
+- Gateway 16 requires matching Android and gateway deployment. Its acceptance preflight requires approved host policy, exact source mirror, digest-pinned local Docker image, allowed CI checks and mapped fresh behavior tests; arbitrary objectives without suitable explicit requirements or a full-objective template remain blocked before execution.
+- PR #816 host fixtures validate contract and recovery behavior, not live GitHub collaboration mutations, private model inference, isolated Docker execution, physical-device scrolling or installed Moonshine recognition. Final Android, emulator, Windows installer and exact-revision release checks remain required.
+- Gateway 16 support exports preserve newly recorded evidence and cannot reconstruct omitted causes or repair an unidentified service dependency from an older diagnostic archive.
+
 ## Gateway conversations, jobs and model readiness
 
 - Add model-specific online-first gateway profiles, a gateway-wide Jobs tab, and **Gateway** between Chats and Favorites to browse conversations stored on the configured server. Normal GitHub Send can use durable gateway ownership; saved commands retain their original profile, model, repository and conversation bindings.
@@ -60,7 +76,7 @@ Before the version update, source revision [`834f045d4ba8dcc01c691463663cc4d04ce
 
 The branch-filtered unsigned-release job was skipped and is not counted as a passing check. The results above are predecessor-source evidence: release approval requires fresh checks for the versioned candidate and its resulting main revision. The signed-release pipeline separately validates exact-commit unit tests and lint, required main workflows, packaged runtimes, privacy, signing-certificate continuity, APK/AAB identities, checksums, provenance and downloaded publication assets. Its receipts identify the actual release commit and uploaded files; prior CI does not substitute for those gates.
 
-All 46 scoped qualification limitations are retained below. Host and emulator results remain separate from physical-device and private-service measurements.
+All scoped qualification limitations are retained below. Host and emulator results remain separate from physical-device and private-service measurements.
 
 ## Qualification and remaining work
 

@@ -196,7 +196,8 @@ class ToolApprovalManager @Inject constructor(private val database: ChatDatabase
         val connection = connections.getConnection(connectionId) ?: return false
         val github = GitHubAuthorizationBoundary.applies(connection)
         val lifecycle = GitHubAuthorizationBoundary.isNativeRepositoryLifecycle(connection, tool, arguments, nativeGitHub)
-        val collaborationWrite = connection.type == "GITHUB" && tool == "github" &&
+        val collaborationWrite = connection.type == "GITHUB" &&
+            tool == "github" &&
             (arguments["action"] as? kotlinx.serialization.json.JsonPrimitive)?.content in dev.chungjungsoo.gptmobile.data.github.GitHubCollaboration.writes
         // This new path requires a captured generation and connection snapshot even
         // when a caller constructs a manager without the optional trust dependency.

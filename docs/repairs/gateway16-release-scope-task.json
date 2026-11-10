@@ -1,0 +1,29 @@
+{
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "7db0c735f9e86eaece24513fbaf5c0a624f13822",
+  "working_branch": "fix/audit-execution-recovery-2026-11-09",
+  "parent_pr": 816,
+  "start_sha": "750d136e5b76624fd588a78a5c591a60e2b75dab",
+  "intent": "Reconcile the explicit release scope and truthful notes for the combined Gateway 16, audit and local voice branch without changing publication or qualification gates.",
+  "failed_run": 42759450519,
+  "failed_job": 129641493910,
+  "failure": "Changes outside release scope",
+  "new_exact_paths": 251,
+  "state": "READY_FOR_CI",
+  "preserved": [
+    "release version and build",
+    "historical scope base",
+    "all existing limitations",
+    "required workflows",
+    "full milestone qualification rules",
+    "publication guards"
+  ],
+  "validation": {
+    "release_scope": "scoped; original base and all exact changed paths validated",
+    "release_regressions": "13 passed",
+    "canonical_fast": "446 passed",
+    "approval_lint": "fixed one condition-wrapping error from concurrent commit 750d136; formatting only",
+    "full_ci": "pending on final combined head"
+  }
+}

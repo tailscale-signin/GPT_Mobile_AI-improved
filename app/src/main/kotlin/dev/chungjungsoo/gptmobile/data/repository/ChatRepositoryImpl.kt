@@ -4635,7 +4635,6 @@ class ChatRepositoryImpl(
         outputContinuation: dev.chungjungsoo.gptmobile.data.agent.GitHubOutputContinuationSession?
     ): dev.chungjungsoo.gptmobile.data.agent.AgentRunner {
         val githubTask = verifiedEvidence != null || chatToolConfig?.github != null
-        val remainingTaskMillis = verifiedEvidence?.remainingTaskMillis()
         val acceptedObjective = verifiedEvidence?.acceptedTaskRequest() ?: githubEffectiveTask
         val inferredTarget = effectiveTools.filter { it.nativeGitHub }.mapNotNull { it.gitHubPlanningContext }
             .filter { it.repository != null }.distinctBy { it.connectionUid to it.repository }.singleOrNull()
@@ -4659,7 +4658,7 @@ class ChatRepositoryImpl(
                 contextTokens = limits.contextTokens,
                 githubTask = githubTask,
                 githubMode = chatToolConfig?.github != null,
-                runTimeoutMillis = minOf(remainingTaskMillis ?: Long.MAX_VALUE, githubPreset?.minutes?.toLong()?.times(60_000) ?: Long.MAX_VALUE, customRunner.limits.runTimeoutMillis, budgetSettings.generationTimeoutMinutes.takeIf { it > 0 }?.toLong()?.times(60_000) ?: Long.MAX_VALUE),
+                runTimeoutMillis = minOf(githubPreset?.minutes?.toLong()?.times(60_000) ?: Long.MAX_VALUE, customRunner.limits.runTimeoutMillis, budgetSettings.generationTimeoutMinutes.takeIf { it > 0 }?.toLong()?.times(60_000) ?: Long.MAX_VALUE),
                 maxToolCalls = githubPreset?.let {
                     dev.chungjungsoo.gptmobile.data.github.GitHubExecutionLimits.toolCalls(githubEffectiveTask, customRunner.limits.maxToolCalls, it)
                 } ?: customRunner.limits.maxToolCalls,

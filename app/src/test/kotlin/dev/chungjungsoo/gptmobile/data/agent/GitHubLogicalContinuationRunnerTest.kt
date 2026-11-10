@@ -54,6 +54,29 @@ class GitHubLogicalContinuationRunnerTest {
         assertEquals(0, recovery.dispatchedCount)
     }
 
+    @Test fun acceptedDeadlineDuringModelRoundDeliversPreviouslySavedResults() = runTest {
+        val session = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
+                awaitCancellation()
+            }
+
+            override fun retainedFailureResponse(failure: ProviderEvent.Failed) = flow {
+                assertEquals(JsonPrimitive("ACCEPTED_TASK_DEADLINE_REACHED"), failure.failureDetails?.get("stop_reason"))
+                emit(ProviderEvent.TextDelta("Saved results from the previous attempt."))
+                emit(failure)
+            }
+        }
+        val events = AgentRunner(
+            AgentRunLimits(githubTask = true, runTimeoutMillis = 60_000),
+            remainingTaskMillis = { (1_000L - testScheduler.currentTime).coerceAtLeast(0L) }
+        ).run(session, emptyList()).toList()
+
+        assertEquals(1_000L, testScheduler.currentTime)
+        val providerEvents = events.filterIsInstance<AgentRunEvent.Provider>().map { it.event }
+        assertEquals(listOf("Saved results from the previous attempt."), providerEvents.filterIsInstance<ProviderEvent.TextDelta>().map { it.text })
+        assertEquals("GITHUB_TASK_INCOMPLETE", providerEvents.filterIsInstance<ProviderEvent.Failed>().single().errorCode)
+    }
+
     @Test fun expiredTaskReportDeliveryStillHonorsUserCancellation() = runTest {
         val started = CompletableDeferred<Unit>()
         val events = mutableListOf<AgentRunEvent>()

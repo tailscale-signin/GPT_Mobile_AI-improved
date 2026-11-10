@@ -140,7 +140,8 @@ class AgentRunner(
         var toolMayHaveExecuted = (recovery?.dispatchedCount ?: 0) > 0
         var retriedWithoutTools = false
 
-        val runTimeoutMillis = minOf(limits.runTimeoutMillis, remainingTaskMillis?.invoke() ?: Long.MAX_VALUE)
+        val acceptedRemainingMillis = remainingTaskMillis?.invoke()
+        val runTimeoutMillis = minOf(limits.runTimeoutMillis, acceptedRemainingMillis ?: Long.MAX_VALUE)
         if (limits.githubTask && runTimeoutMillis <= 0L) {
             deliverExpiredTask(session)
             return@flow
@@ -155,7 +156,9 @@ class AgentRunner(
         }
 
         if (finishedInTime == null) {
-            if (limits.githubTask && exchanges.isNotEmpty()) {
+            if (limits.githubTask && acceptedRemainingMillis == runTimeoutMillis) {
+                deliverExpiredTask(session)
+            } else if (limits.githubTask && exchanges.isNotEmpty()) {
                 finishFromRetained(guardedSession, ProviderEvent.Failed("Agent run timed out after $runTimeoutMillis ms. Completed receipts are retained; unfinished work can be resumed.", errorCode = "RUN_DEADLINE_REACHED"), true)
             } else {
                 emit(failed("Agent run timed out after $runTimeoutMillis ms."))

@@ -78,6 +78,15 @@ class GitHubWorkflowPresentationTest {
         assertTrue(view.recoveryExplanation.contains("existing proposed changes card"))
     }
 
+    @Test fun unresolvedRemoteOutcomeTakesPrecedenceOverSavedApproval() {
+        val verdict = Json.parseToJsonElement("""{"execution_ledger":{"recovery":"RECONCILE_REMOTE_OUTCOME","pending_approvals":[{"engineering_task_id":"task"}]}}""") as kotlinx.serialization.json.JsonObject
+        val view = GitHubWorkflowPresentation.snapshot(run(AgentRunStatus.PARTIAL), emptyList(), true, verdict)
+        assertEquals("Remote outcome needs reconciliation", view.phase)
+        assertTrue(view.reconciliationRequired)
+        assertTrue(view.recovery.isEmpty())
+        assertTrue(view.recoveryExplanation.contains("before approving or repeating"))
+    }
+
     @Test fun paginationGroupsPreserveResourceAndQueryBoundaries() {
         val events = listOf(
             event("1", """{"action":"issues","repo":"a","page":1}"""),

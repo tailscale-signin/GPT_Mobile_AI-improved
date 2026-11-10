@@ -132,7 +132,7 @@ class MultiEngineSearchTool(
                     }.toMap()
                     if (successes.isNotEmpty()) {
                         retainedEngines.entries.removeIf { entry -> entry.value.values.none { checkedAt - it.first in 0..30_000L } }
-                        if (retainedEngines.size >= 16 && key !in retainedEngines) retainedEngines.keys.firstOrNull()?.let(retainedEngines::remove)
+                        if (retainedEngines.size >= 16 && !retainedEngines.containsKey(key)) retainedEngines.keys.firstOrNull()?.let(retainedEngines::remove)
                         retainedEngines[key] = successes
                     }
                 }

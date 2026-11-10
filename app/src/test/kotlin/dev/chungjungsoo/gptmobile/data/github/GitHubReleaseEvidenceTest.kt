@@ -53,10 +53,12 @@ class GitHubReleaseEvidenceTest {
         val bytes = archive()
         var reads = 0
         var changedAttempt = false
+        var changedAssets = false
         val http = HttpClient(
             MockEngine { request ->
                 when (request.url.encodedPath) {
                     "/repos/o/r/releases" -> respond("[$release]")
+                    "/repos/o/r/releases/17" -> respond(if (changedAssets) release.replace(digest, "c".repeat(64)) else release)
                     "/repos/o/r/actions/workflows" -> respond("""{"workflows":[{"id":9,"name":"Publish Signed Release","path":".github/workflows/release-build.yml","state":"active"}]}""")
                     "/repos/o/r/actions/runs/42" -> {
                         reads++
@@ -84,6 +86,10 @@ class GitHubReleaseEvidenceTest {
             changedAttempt = true
             val stale = client.execute("release_status", args).jsonObject
             assertEquals(JsonPrimitive(false), stale["release_asset_source_verified"])
+            changedAttempt = false
+            changedAssets = true
+            val replaced = client.execute("release_status", args).jsonObject
+            assertEquals(JsonPrimitive(false), replaced["release_asset_source_verified"])
         } finally {
             http.close()
         }

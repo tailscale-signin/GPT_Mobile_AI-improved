@@ -1751,10 +1751,13 @@ class GitHubWorkspaceClient(
                 val text = GitHubCiLogReader(client, credential.token, scheduler, responseCache, requestPriority, credential.authenticationRejected, apiOrigins)
                     .read("$root/actions/artifacts/$id/zip", immutable = true, archiveEntry = "release-publication.json", archiveDigest = digest).text
                 val proof = json.parseToJsonElement(text).jsonObject
+                val releaseId = release["id"]?.jsonPrimitive?.longOrNull?.takeIf { it > 0 } ?: error("Release identity is invalid.")
+                val currentRelease = requestUntracked("$root/releases/$releaseId", HttpMethod.Get, null, authenticated = false, forceLiveRead = true).jsonObject
+                require(currentRelease["id"] == JsonPrimitive(releaseId) && currentRelease["tag_name"] == JsonPrimitive(tagName)) { "Published release identity changed." }
                 val tag = requestUntracked("$root/commits/${segment(tagName)}", HttpMethod.Get, null, authenticated = false, forceLiveRead = true).jsonObject
                 require(tag["sha"] == JsonPrimitive(expectedSource)) { "Published release tag changed." }
                 val current = requestUntracked("$root/actions/runs/$requestedRunId", HttpMethod.Get, null, authenticated = false, forceLiveRead = true).jsonObject
-                require(current["run_attempt"] == candidate["run_attempt"] && GitHubReleaseEvidence.verify(proof, release, current, root.removePrefix("/repos/"), expectedSource)) { "Release evidence does not match the current source, run attempt and asset bytes." }
+                require(current["run_attempt"] == candidate["run_attempt"] && GitHubReleaseEvidence.verify(proof, currentRelease, current, root.removePrefix("/repos/"), expectedSource)) { "Release evidence does not match the current source, run attempt and asset bytes." }
                 buildJsonObject {
                     put("verified", true)
                     put("artifact_id", id)

@@ -265,7 +265,7 @@ class GatewayAvailabilityRepository internal constructor(
             val probe = withTimeout(8_000) { source.probe(config, entry.target.model, forceRefresh) }
             observationFailed = probe.readinessFailure != null || probe.capabilitiesFailure != null
             unavailableReason = probe.readinessFailure?.reasonCode ?: probe.capabilitiesFailure?.reasonCode ?: probe.readiness?.reasonCode
-            observedState(probe, entry.state.value)
+            observedState(probe, entry.state.value, processEpoch(config) != "unobserved")
         } catch (_: TimeoutCancellationException) {
             currentCoroutineContext().ensureActive()
             observationFailed = true
@@ -282,9 +282,11 @@ class GatewayAvailabilityRepository internal constructor(
         synchronized(lock) {
             if (entry.generation != generation || network != networkEpoch() || entry.references == 0) return
             val previousFailure = entry.unavailableObservationKey
-            val unavailable = observationFailed || state.status in setOf(GatewayAvailabilityStatus.NOT_READY, GatewayAvailabilityStatus.MODEL_UNAVAILABLE, GatewayAvailabilityStatus.MODEL_LOADING, GatewayAvailabilityStatus.DRAINING, GatewayAvailabilityStatus.NOT_GATEWAY, GatewayAvailabilityStatus.INCOMPATIBLE)
+            val unavailable = observationFailed ||
+                state.failureCode == "GATEWAY_CAPABILITY_UNAVAILABLE" ||
+                state.status in setOf(GatewayAvailabilityStatus.NOT_READY, GatewayAvailabilityStatus.MODEL_UNAVAILABLE, GatewayAvailabilityStatus.MODEL_LOADING, GatewayAvailabilityStatus.DRAINING, GatewayAvailabilityStatus.NOT_GATEWAY, GatewayAvailabilityStatus.INCOMPATIBLE)
             if (unavailable) {
-                val key = "${state.status}|${state.failedDependency}|$unavailableReason"
+                val key = "${state.status}|${state.failedDependency}|${state.failureCode ?: unavailableReason}"
                 if (entry.unavailableObservationKey != key) entry.consecutiveFailures = 0
                 entry.unavailableObservationKey = key
                 entry.consecutiveFailures = (entry.consecutiveFailures + 1).coerceAtMost(4)
@@ -358,7 +360,7 @@ class GatewayAvailabilityRepository internal constructor(
         return (pollMillis(entry) * (1L shl (entry.consecutiveFailures - 1).coerceAtLeast(0))).coerceAtMost(ceiling)
     }
 
-    private fun observedState(probe: GatewayAvailabilityProbe, previous: GatewayAvailability): GatewayAvailability {
+    private fun observedState(probe: GatewayAvailabilityProbe, previous: GatewayAvailability, knownInstance: Boolean): GatewayAvailability {
         val failure = probe.readinessFailure ?: probe.capabilitiesFailure
         val metadata = GatewayAvailability(
             instanceId = probe.readiness?.instanceId ?: probe.capabilities?.instanceId,
@@ -389,8 +391,18 @@ class GatewayAvailabilityRepository internal constructor(
             }
             return metadata.copy(status = status)
         }
-        val capability = probe.capabilities
-            ?: return metadata.copy(status = if (probe.readiness == null) GatewayAvailabilityStatus.NOT_GATEWAY else GatewayAvailabilityStatus.INCOMPATIBLE)
+        val capability = probe.capabilities ?: return when {
+            probe.readiness != null -> metadata.copy(
+                status = GatewayAvailabilityStatus.NOT_READY,
+                failedPhase = "gateway_capabilities",
+                failureCode = "GATEWAY_CAPABILITY_UNAVAILABLE"
+            )
+            knownInstance || previous.lastReachableAtMillis != null -> metadata.copy(
+                failedPhase = "gateway_capabilities",
+                failureCode = "GATEWAY_CAPABILITY_UNAVAILABLE"
+            )
+            else -> metadata.copy(status = GatewayAvailabilityStatus.NOT_GATEWAY)
+        }
         if (capability.version.isNullOrBlank() && capability.gatewayVersion.isNullOrBlank()) {
             return metadata.copy(status = GatewayAvailabilityStatus.INCOMPATIBLE)
         }
@@ -435,7 +447,7 @@ internal fun gatewayAvailabilityFailure(failure: Exception): GatewayAvailability
         causes.any { it is GatewayDashboardAccessDenied } -> GatewayAvailabilityStatus.ACCESS_DENIED
         causes.any { it is ConnectException || it is NoRouteToHostException || it is UnknownHostException } -> GatewayAvailabilityStatus.OFFLINE
         causes.any {
-            it is LocalServiceUnavailableException && it.health in setOf(ConnectionHealth.DNS_FAILED, ConnectionHealth.ROUTE_UNAVAILABLE, ConnectionHealth.CONNECTION_REFUSED)
+            it is LocalServiceUnavailableException && it.health in setOf(ConnectionHealth.DNS_FAILED, ConnectionHealth.ROUTE_UNAVAILABLE, ConnectionHealth.CONNECTION_REFUSED, ConnectionHealth.CONNECT_TIMEOUT)
         } -> GatewayAvailabilityStatus.OFFLINE
         causes.any { it is IllegalArgumentException || it is kotlinx.serialization.SerializationException } -> GatewayAvailabilityStatus.INCOMPATIBLE
         else -> GatewayAvailabilityStatus.CHECKING

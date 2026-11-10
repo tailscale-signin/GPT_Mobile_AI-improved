@@ -8,11 +8,15 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityObservation
 import dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityStatus
 import dev.chungjungsoo.gptmobile.data.context.ReasoningMode
+import dev.chungjungsoo.gptmobile.data.context.isSelectedModelBlocker
 
 data class ReasoningCapabilityUiState(val checking: Boolean = false, val observation: ReasoningCapabilityObservation? = null)
 
@@ -48,7 +52,8 @@ data class ReasoningAdmissionNotice(
     val profileName: String,
     val model: String,
     val requested: ReasoningMode,
-    val state: ReasoningCapabilityUiState
+    val state: ReasoningCapabilityUiState,
+    val modelReadiness: Boolean = state.observation?.safeReasonCode?.isSelectedModelBlocker() == true
 )
 
 @Composable
@@ -57,19 +62,44 @@ internal fun ReasoningAdmissionDialog(
     onRecheck: () -> Unit,
     onSwitchToAuto: () -> Unit,
     onSettings: () -> Unit,
+    onChooseModel: () -> Unit,
     onDismiss: () -> Unit
 ) {
+    val observation = notice.state.observation
+    var showLoadInstructions by remember(notice.profileUid, notice.model) { mutableStateOf(false) }
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("${notice.profileName}: reasoning settings") },
+        title = { Text(if (notice.modelReadiness) "Selected model readiness" else "${notice.profileName}: reasoning settings") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Model: ${notice.model}", style = MaterialTheme.typography.bodySmall)
-                ReasoningCapabilityContent(notice.requested, notice.state, onRecheck, onSwitchToAuto, enabled = true)
+                if (notice.modelReadiness) {
+                    val detail = when {
+                        observation?.routeVerified == true && observation.permitsRequest -> "The selected model is ready with the current reasoning setting."
+                        observation?.routeVerified == true -> "The model is ready. The selected reasoning setting still needs attention."
+                        else -> observation?.detailMessage ?: "The gateway has not reported this model ready."
+                    }
+                    Text(detail, style = MaterialTheme.typography.bodySmall)
+                    if (observation?.safeReasonCode == "SELECTED_MODEL_NOT_LOADED") {
+                        TextButton(onClick = { showLoadInstructions = !showLoadInstructions }) { Text("Load model on gateway") }
+                        if (showLoadInstructions) {
+                            Text("On the gateway computer, run the prepare-model command with --model and the exact model ID shown above. Then recheck here.", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                    TextButton(onClick = onRecheck, enabled = !notice.state.checking) {
+                        Text(if (notice.state.checking) "Checking model…" else "Recheck model")
+                    }
+                } else {
+                    ReasoningCapabilityContent(notice.requested, notice.state, onRecheck, onSwitchToAuto, enabled = true)
+                }
                 Text("Your draft is kept. Rechecking does not send it. Return to the draft and press Send after repairing the setting.", style = MaterialTheme.typography.bodySmall)
             }
         },
-        confirmButton = { TextButton(onClick = onSettings) { Text("Change profile settings") } },
+        confirmButton = {
+            TextButton(onClick = if (notice.modelReadiness && observation?.routeVerified != true) onChooseModel else onSettings) {
+                Text(if (notice.modelReadiness && observation?.routeVerified != true) "Choose model" else "Change profile settings")
+            }
+        },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Back to draft") } }
     )
 }

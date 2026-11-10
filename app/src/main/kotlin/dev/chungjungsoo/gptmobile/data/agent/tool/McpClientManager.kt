@@ -269,7 +269,12 @@ class McpClientManager internal constructor(
             return it.value
         }
         val connectionHealth = healthSnapshot(config.connectionUid)
-        if (passiveBackoff && !forceRefresh && !awaitCompletion && (connectionHealth.nextRetryAtMs ?: 0) > nowMs()) {
+        if (passiveBackoff &&
+            !forceRefresh &&
+            !awaitCompletion &&
+            transportConfigurationKeys[config.connectionUid] == config.validatedKey() &&
+            (connectionHealth.nextRetryAtMs ?: 0) > nowMs()
+        ) {
             recordDecision(McpDiscoveryDecision.WAITING_BACKOFF)
             // Optional discovery must not wait on a known-down endpoint. Its existing
             // health controller owns recovery; execution still validates live access.

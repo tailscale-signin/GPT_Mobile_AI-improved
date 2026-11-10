@@ -60,6 +60,33 @@ class MultiEngineSearchToolTest {
         assertEquals(JsonPrimitive(true), payload["merge"]?.jsonObject?.get("partial"))
     }
 
+    @Test fun `retrying unavailable providers keeps successful sibling evidence without dispatching it again`() = runBlocking {
+        var recoveredCalls = 0
+        var healthyCalls = 0
+        val recovering = engine("recovering") { id, _ ->
+            if (++recoveredCalls == 1) {
+                AgentToolResult(id, ToolResultContent.Text("Hostname unavailable"), true, errorCode = "DNS_FAILED", dispatched = false)
+            } else {
+                AgentToolResult(id, ToolResultContent.Text("Title: Recovered\nURL: https://example.org/recovered"), false)
+            }
+        }
+        val healthy = engine("healthy") { id, _ ->
+            healthyCalls++
+            AgentToolResult(id, ToolResultContent.Text("Title: Retained\nURL: https://example.org/retained"), false)
+        }
+        val tool = MultiEngineSearchTool(listOf(recovering, healthy))
+        val arguments = buildJsonObject { put("query", "same request") }
+        tool.execute("initial", arguments)
+        val retried = tool.execute("retry", arguments)
+        val payload = (retried.content as ToolResultContent.Json).value.jsonObject
+        val engines = payload.getValue("engines").jsonArray
+        assertEquals(2, recoveredCalls)
+        assertEquals(1, healthyCalls)
+        assertEquals(2, payload.getValue("results").jsonArray.size)
+        assertEquals(JsonPrimitive(true), engines[1].jsonObject["retainedResult"])
+        assertEquals(JsonPrimitive(false), engines[1].jsonObject["dispatched"])
+    }
+
     @Test fun `all enabled engines run within phone concurrency and crawler receives unique pages`() = runBlocking {
         val started = java.util.concurrent.atomic.AtomicInteger()
         val active = java.util.concurrent.atomic.AtomicInteger()

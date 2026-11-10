@@ -5,6 +5,8 @@ import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 
 /** Admission still verifies host tools, grants and the exact execution binding. */
 internal object GatewayOwnedTurnPolicy {
+    private val repositoryWork = Regex("""\b(?:repo(?:sitory)?|git(?:hub)?|code|files?|sources?|branch(?:es)?|commits?|pull requests?|prs?|ci|workflows?|builds?|tests?|bugs?|issues?|regressions?|features?|parser|app)\b""")
+
     fun configured(profile: PlatformV2?, context: GitHubConversationContext?, features: AppFeatureSettings): Boolean =
         profile != null &&
             context?.mainProfileUid == profile.uid &&
@@ -13,10 +15,18 @@ internal object GatewayOwnedTurnPolicy {
             GitHubAutonomousEngineeringPolicy.supportsSavedJobs(profile) &&
             features.githubProfileOverrides[profile.uid]?.let { it.githubTools && !it.engineeringGatewayProfileUid.isNullOrBlank() } == true
 
+    /** Ordinary chat, reads and planning use the selected client profile. Jobs can be started explicitly in the Jobs UI. */
+    fun startsNewJob(request: String): Boolean {
+        val instruction = currentInstruction(request)
+        return repositoryWork.containsMatchIn(instruction) && classify(instruction) == "implement"
+    }
+
     /** Only the new instruction can authorize implementation; quoted history is data. */
-    fun scope(request: String): String {
+    fun scope(request: String): String = classify(currentInstruction(request))
+
+    private fun currentInstruction(request: String): String {
         var fenced = false
-        val instruction = request.lineSequence().map(String::trim).filter { line ->
+        return request.lineSequence().map(String::trim).filter { line ->
             if (line.startsWith("```") || line.startsWith("~~~")) {
                 fenced = !fenced
                 false
@@ -24,6 +34,9 @@ internal object GatewayOwnedTurnPolicy {
                 !fenced && line.isNotBlank() && !line.startsWith('>') && !line.startsWith('"') && !line.startsWith('\'')
             }
         }.joinToString("\n").lowercase(java.util.Locale.ROOT)
+    }
+
+    private fun classify(instruction: String): String {
         if (Regex("\\b(?:(?:read|review|audit|inspect)[- ]only|plan(?:ning)? only|no (?:code )?(?:changes|writes))\\b").containsMatchIn(instruction) ||
             Regex("\\b(?:do not|don't|never)\\s+(?:(?:edit|modify|change|write|implement)\\b|make\\s+(?:any\\s+)?(?:code\\s+)?changes\\b)").containsMatchIn(instruction) ||
             Regex("\\bwithout\\s+(?:editing|modifying|changing|writing|implementing)\\b").containsMatchIn(instruction)

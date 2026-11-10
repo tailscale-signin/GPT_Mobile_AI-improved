@@ -9,24 +9,24 @@ data class AppAuditSourceArea(val id: String, val label: String, val fileCount: 
 object AppAuditSourceInventory {
     val schemaVersion: Int = 1
     val assetPath: String = "diagnostics/app-code-inventory.json"
-    val sourceDigest: String = "dc5b6593b064206900f3aa8c65f1625915d4758b14e584247786b552de926211"
+    val sourceDigest: String = "8796ffd986dbb5b09aa686a6ff59a729ea8c2fdd4d785c2f4e714eb5df639c7a"
     val fileCount: Int = 2417
-    val lineCount: Int = 377084
+    val lineCount: Int = 377462
     val lineCoverageAvailable: Boolean = false
     val areas: List<AppAuditSourceArea> = listOf(
         AppAuditSourceArea("android_shell", "Android application and lifecycle", 71, 7869),
-        AppAuditSourceArea("chat_ui", "Chat, rendering and interaction", 513, 90102),
+        AppAuditSourceArea("chat_ui", "Chat, rendering and interaction", 513, 90214),
         AppAuditSourceArea("accessibility_and_localization", "Accessibility, themes and UI resources", 197, 9141),
-        AppAuditSourceArea("agent_execution", "Agent execution and recovery", 209, 34260),
-        AppAuditSourceArea("agent_tools", "Built-in tool routing and execution", 99, 21419),
-        AppAuditSourceArea("mcp_plugins", "MCP connections and tool catalogues", 30, 4352),
+        AppAuditSourceArea("agent_execution", "Agent execution and recovery", 209, 34374),
+        AppAuditSourceArea("agent_tools", "Built-in tool routing and execution", 99, 21473),
+        AppAuditSourceArea("mcp_plugins", "MCP connections and tool catalogues", 30, 4364),
         AppAuditSourceArea("marketplace_plugins", "Plugin marketplace", 13, 1732),
-        AppAuditSourceArea("model_providers", "Model providers and adapters", 59, 8706),
+        AppAuditSourceArea("model_providers", "Model providers and adapters", 59, 8726),
         AppAuditSourceArea("models_and_profiles", "Model profiles and settings", 40, 3970),
         AppAuditSourceArea("local_inference", "Local inference and admission", 111, 14825),
-        AppAuditSourceArea("gateway_client", "Android gateway client", 32, 4895),
-        AppAuditSourceArea("network", "Networking and readiness", 94, 8652),
-        AppAuditSourceArea("github", "GitHub and engineering workspace", 197, 30526),
+        AppAuditSourceArea("gateway_client", "Android gateway client", 32, 4907),
+        AppAuditSourceArea("network", "Networking and readiness", 94, 8684),
+        AppAuditSourceArea("github", "GitHub and engineering workspace", 197, 30548),
         AppAuditSourceArea("research", "Research and source acquisition", 112, 13941),
         AppAuditSourceArea("memory_and_rag", "Memory, retrieval and indexing", 42, 4845),
         AppAuditSourceArea("persistence", "Databases, backup and storage", 108, 14354),

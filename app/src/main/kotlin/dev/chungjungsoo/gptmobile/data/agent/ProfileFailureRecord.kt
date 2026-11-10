@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
+import dev.chungjungsoo.gptmobile.data.context.isSelectedModelBlocker
 import java.time.Instant
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
@@ -39,6 +40,14 @@ data class ProfileFailureRecord(
     val recoveryActions: List<String> = emptyList()
 ) {
     val isTaskVerification: Boolean get() = category in setOf("TASK_INCOMPLETE", "EVIDENCE_REQUIRED")
+    val isUnsentSetup: Boolean get() = dispatched == false &&
+        remoteAcceptance == RemoteRequestAcceptance.NO &&
+        (
+            phase == "connection_preflight" &&
+                category.startsWith("GATEWAY_ENGINEERING_") ||
+                phase == "provider_admission" &&
+                category.isSelectedModelBlocker()
+            )
 
     companion object {
         fun reviewRetryBlock(details: String?): String? = details?.takeIf { classify(it).category == "REVIEW_INPUT_REQUIRED" }?.let {

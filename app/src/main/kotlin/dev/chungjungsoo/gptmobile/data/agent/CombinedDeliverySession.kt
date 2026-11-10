@@ -172,6 +172,17 @@ internal class CombinedDeliverySession(
             emit(ProviderEvent.Failed("Combined continuation cannot replace the committed prefix without a new revision. Original contributions remain available."))
             return@flow
         }
+        if (retainUnfinishedDraft &&
+            singlePass &&
+            !publishCommittedDraft &&
+            committedPrefix.isEmpty() &&
+            accepted.terminal == ProviderEvent.Completed &&
+            accepted.text.isNotBlank() &&
+            accepted.decoder?.issues.orEmpty().none { it in COMBINED_FRAMING_FAILURES }
+        ) {
+            val draft = CombinedCommittedDraft.report(accepted.text, currentRevision, accepted.decoder?.passages.orEmpty(), sources.mapTo(linkedSetOf()) { it.platformUid })
+            emit(ProviderEvent.CombinedAnswer(accepted.text, draft))
+        }
         // Local pairwise coverage work cannot delay the first saved answer passage.
         val coverage = withContext(Dispatchers.Default) { CombinedContentCoverage(sources, originalRequest, preserveSourceContent) }
         suspend fun assess(candidate: Candidate): CombinedFinalAssessment = withContext(Dispatchers.Default) {
@@ -202,8 +213,10 @@ internal class CombinedDeliverySession(
         suspend fun report(candidate: Candidate, checked: CombinedFinalAssessment, final: Boolean): CombinedQualityReport {
             val unresolvedResearch = checked.checks.any { it.category == "RESEARCH_SCOPE" && it.result != "PASS" }
             val providerComplete = candidate.terminal == ProviderEvent.Completed
-            val material = correctionRequired || checked.correctionRequired || checked.requiredFailures.isNotEmpty() || checked.checks.any { it.material && it.result == "FAIL" }
-            val issues = (violations + listOfNotNull("NO_FINAL_OUTPUT".takeIf { candidate.text.isBlank() }) + candidate.decoder?.issues.orEmpty() + checked.issues + listOfNotNull("LEXICAL_COVERAGE_NOT_EVALUATED".takeIf { !coverageResult.evaluated }, "LEXICAL_COVERAGE_UNRESOLVED_HINTS".takeIf { coverageResult.missing.isNotEmpty() })).distinct()
+            val relevantClaimIds = coverage.units.mapTo(linkedSetOf()) { it.claimId }
+            val mapping = withContext(Dispatchers.Default) { CombinedAnswerMappings.get(candidate.text, sources, relevantClaimIds) }
+            val material = !mapping.evaluated || correctionRequired || checked.correctionRequired || checked.requiredFailures.isNotEmpty() || checked.checks.any { it.material && it.result == "FAIL" }
+            val issues = (violations + listOfNotNull("NO_FINAL_OUTPUT".takeIf { candidate.text.isBlank() }) + candidate.decoder?.issues.orEmpty() + checked.issues + listOfNotNull("SOURCE_MAPPING_WORK_LIMIT".takeIf { !mapping.evaluated }, "LEXICAL_COVERAGE_NOT_EVALUATED".takeIf { !coverageResult.evaluated }, "LEXICAL_COVERAGE_UNRESOLVED_HINTS".takeIf { coverageResult.missing.isNotEmpty() })).distinct()
             val framingValid = candidate.decoder?.issues.orEmpty().none { it in COMBINED_FRAMING_FAILURES }
             val delivered = when {
                 candidate.text.isBlank() -> "FAILED"
@@ -211,12 +224,16 @@ internal class CombinedDeliverySession(
                 issues.any { it != "LEXICAL_COVERAGE_UNRESOLVED_HINTS" } || checked.verificationNeeds.isNotEmpty() -> "COMPLETED_WITH_LIMITS"
                 else -> "COMPLETED"
             }
-            val relevantClaimIds = coverage.units.mapTo(linkedSetOf()) { it.claimId }
-            val mapping = withContext(Dispatchers.Default) { CombinedAnswerMappings.get(candidate.text, sources, relevantClaimIds) }
-            val meaningfulClaimIds = CombinedContentIndexes.get(sources).records.flatMapTo(linkedSetOf()) { it.candidateIds }
-            val semanticCoverageVerified = meaningfulClaimIds.isEmpty() ||
-                checked.checks.none { it.id.startsWith("SEMANTIC_CONTRIBUTION_UNRESOLVED:") }
-            val mappedPassages = CombinedAnswerMappings.passages(candidate.text, mapping, if (candidate.assembledLocally) emptyList() else candidate.decoder?.passages.orEmpty())
+            val semanticCoverageVerified = withContext(Dispatchers.Default) {
+                mapping.evaluated &&
+                    (
+                        CombinedContentIndexes.get(sources).records.isEmpty() ||
+                            checked.checks.none { it.id.startsWith("SEMANTIC_CONTRIBUTION_UNRESOLVED:") }
+                        )
+            }
+            val mappedPassages = withContext(Dispatchers.Default) {
+                CombinedAnswerMappings.passages(candidate.text, mapping, if (candidate.assembledLocally) emptyList() else candidate.decoder?.passages.orEmpty())
+            }
             val represented = mapping.links.flatMapTo(linkedSetOf()) { it.profileUids }
             return CombinedQualityReport(
                 version = 6,
@@ -533,9 +550,7 @@ internal class CombinedDeliverySession(
         fun counts(label: String, total: Int): String = "${label}Total=$total · ${label}Retained=${minOf(32, total)} · ${label}Omitted=${(total - 32).coerceAtLeast(0)}"
         AppLogRecorder.record("CombinedSynthesis", "SYNTHESIS_CHECK_DETAILS · revision=${finalReport.revisionId} · assessedDigest=${finalReport.answerDigest} · failedChecks=${failedChecks.take(32)} · ${counts("failedChecks", failedChecks.size)} · issues=${finalReport.issues.take(32)} · ${counts("issues", finalReport.issues.size)} · included=${sources.map { it.platformUid }.take(32)} · ${counts("included", sources.size)} · represented=${finalReport.representedProfileUids.take(32)} · ${counts("represented", finalReport.representedProfileUids.size)} · uniquePassages=${linkedPassages.count { it.profileUids.size == 1 }} · sharedPassages=${linkedPassages.count { it.profileUids.size > 1 }} · unlinkedPassages=${finalReport.passages.size - linkedPassages.size} · sourceRejections=${finalReport.sourceLinkRejections.entries.take(32).associate { it.toPair() }} · ${counts("sourceRejections", finalReport.sourceLinkRejections.size)} · length=${finalReport.lengthCompliance} · scope=${finalReport.topicCoverage} · delivery=${finalReport.deliveredScopeStatus} · facts=${finalReport.verificationStatus}")
         val publishable = finalReport.complete && !finalReport.correctionRequired && finalReport.semanticCoverageVerified
-        // Legacy interactive editing can retain a failed revision for another attempt.
-        // Checked synthesis withholds rejected output; only explicit saved-result
-        // recovery may retain it as a non-final draft.
+        // A retained draft stays visibly unfinished until the checks pass.
         val legacyDraft = combined == null && maxRepairRounds > 0 && !preserveSourceContent && !structured && answerContract == null
         if (accepted.text.isNotBlank() && publishable) {
             emit(ProviderEvent.CombinedAnswer(accepted.text, finalReport))

@@ -279,7 +279,17 @@ class GitHubOwnedFixturesTest {
             original.awaitApproval(root, intent, awaiting(intent))
             remote.publish(intent, first)
             val restored = GitHubOwnedFixtures(GitHubRepositoryStateStore(directory), "task")
-            val proof = restored.recoverApproval(root, approvalStatus(intent, "MONITORING_CI"), remote::read, { remote.head == null }) { saved -> GitHubCommitReconciliation.recover(root, saved, request = remote::read) }
+            suspend fun recover(expectedCommit: String): JsonObject? {
+                val status = JsonObject(approvalStatus(intent, "MONITORING_CI") + ("published_commit_sha" to JsonPrimitive(expectedCommit)))
+                return restored.recoverApproval(root, status, remote::read, { remote.head == null }) { saved ->
+                    GitHubCommitReconciliation.recover(root, saved, request = remote::read)
+                }
+            }
+            val mismatch = runCatching { recover("d".repeat(40)) }.exceptionOrNull()
+            assertEquals("FIXTURE_RECONCILE_REQUIRED", GitHubFailurePolicy.recordedCode(mismatch?.message.orEmpty()))
+            assertEquals(1, remote.publications)
+            assertEquals(0, remote.deletes)
+            val proof = recover(first)
             assertEquals(JsonPrimitive("PUBLISHED"), proof?.get("approval_state"))
             assertEquals(JsonPrimitive(true), proof?.get("remote_state_verified"))
             assertEquals(JsonPrimitive(first), proof?.get("sha"))

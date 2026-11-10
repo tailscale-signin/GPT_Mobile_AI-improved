@@ -171,6 +171,28 @@ class ProviderToolRejectionTest {
     }
 
     @Test
+    fun `groq rate rejection retains the provider retry time and never repeats inline`() {
+        var requests = 0
+        withServer(429, "{}", onRequest = {
+            requests++
+            it.responseHeaders.add("Retry-After", "42")
+        }) { baseUrl ->
+            val api = GroqAPIImpl(NetworkClient(CIO))
+            val request = groqRequest(withTools = false)
+            val config = config(baseUrl).copy(profileUid = "selected-groq", providerType = "GROQ")
+            val failure = assertThrows(ProviderHttpFailure::class.java) {
+                runBlocking { api.streamChatCompletion(request, 5, config).toList() }
+            }
+            assertEquals(42_000L, failure.retryAfterMs)
+            val decision = requireNotNull(providerLimitDecision(config, request.model, false, failure))
+            assertEquals(failure.retryAtMillis, decision.retryAt)
+            assertEquals(request.model, decision.model)
+            assertTrue(decision.knownNotAccepted)
+            assertEquals(1, requests)
+        }
+    }
+
+    @Test
     fun `anthropic rejects tool definitions before emitting provider events`() = withServer(422, anthropicError()) { baseUrl ->
         val api = AnthropicAPIImpl(NetworkClient(CIO))
 

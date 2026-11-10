@@ -101,6 +101,22 @@ internal fun providerExceptionDetails(error: Exception, partialOutput: Boolean, 
             }
         )
     }
+    if (error is dev.chungjungsoo.gptmobile.data.context.SelectedModelUnavailableException) {
+        return ErrorDetail(
+            message = requireNotNull(error.message),
+            type = "local_admission",
+            code = error.reason.name,
+            retryable = false,
+            failureDetails = buildJsonObject {
+                put("code", error.reason.name)
+                put("failed_stage", "provider_admission")
+                put("attempt_dispatch_state", "NOT_DISPATCHED")
+                put("retryable", false)
+                put("partial_output_preserved", partialOutput)
+                error.observation.failureFields().forEach { (name, value) -> put(name, value) }
+            }
+        )
+    }
     if (error is dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityUnavailableException) {
         return ErrorDetail(
             message = requireNotNull(error.message),

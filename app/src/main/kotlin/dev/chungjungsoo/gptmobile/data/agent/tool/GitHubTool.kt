@@ -1972,7 +1972,7 @@ class GitHubTool(
             }
             return transportFailure(callId, if (httpFailure != null) "GITHUB_TRANSIENT_SERVER" else "GITHUB_TRANSIENT_NETWORK", message, cooldown)
         }
-        val normalized = detail.substringBefore(" · ")
+        val normalized = detail.substringBefore(" · ").substringBefore(": ")
         if (normalized in dev.chungjungsoo.gptmobile.data.github.GitHubFailurePolicy.codes || normalized in setOf("GITHUB_AUTHENTICATION_REQUIRED", "GITHUB_NOT_FOUND")) {
             return AgentToolResult(callId, ToolResultContent.Text(detail), true, errorCode = normalized)
         }

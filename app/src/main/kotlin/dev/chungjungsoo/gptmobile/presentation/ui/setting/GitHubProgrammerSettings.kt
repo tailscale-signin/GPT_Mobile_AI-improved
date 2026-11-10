@@ -70,7 +70,7 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
         OutlinedCard(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Engineering gateway", style = MaterialTheme.typography.titleMedium)
-                Text("Select the private connection for saved jobs and repository graphs. Its address and credentials are independent of chat inference.", style = MaterialTheme.typography.bodySmall)
+                Text("Select a private gateway for saved repository jobs and graphs. Conversation and repository questions use the selected AI profile. Use Jobs to start saved work explicitly.", style = MaterialTheme.typography.bodySmall)
                 OutlinedButton(onClick = { gatewayMenu = true }, enabled = state.profileUid != null) {
                     Text(state.profiles.firstOrNull { it.uid == state.profileSettings.engineeringGatewayProfileUid }?.name ?: "Select gateway connection")
                 }

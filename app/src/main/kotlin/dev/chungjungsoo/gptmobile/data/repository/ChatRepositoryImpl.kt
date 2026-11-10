@@ -5252,6 +5252,7 @@ class ChatRepositoryImpl(
                     turnContext = frozen.turnContext,
                     structured = frozen.deliveryProtocol in setOf("PASSAGES_V2", "PASSAGES_V3") && restoredDraft.isEmpty(),
                     recordProtocol = frozen.deliveryProtocol == "PASSAGES_V3",
+                    retainUnfinishedDraft = frozen.combined != null,
                     combined = frozen.combined,
                     answerContract = frozen.answerContract,
                     revisionId = frozen.liveRevisionId(runId),

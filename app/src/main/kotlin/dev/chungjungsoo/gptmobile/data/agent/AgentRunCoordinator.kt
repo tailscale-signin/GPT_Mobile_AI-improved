@@ -13,6 +13,9 @@ import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.resetActiveRevision
 import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
+import dev.chungjungsoo.gptmobile.data.diagnostics.ProviderFailureReceipt
+import dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind
+import dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.GatewayProgress
 import dev.chungjungsoo.gptmobile.data.localruntime.DeviceHardwareGovernor
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalInferencePhase
@@ -1074,7 +1077,13 @@ class AgentRunCoordinator @Inject constructor(
                 AppLogRecorder.record("Streaming", "CHECKPOINT_WRITER · queueAgeMs=${checkpoints.lastQueueAgeMillis} · writeMs=${checkpoints.lastWriteMillis}")
                 val limit = (outcome as? ApiStateFlowOutcome.Failed)?.providerLimit
                 if (limit != null && pauseForProvider(limit)) return@coroutineScope
-                val terminal = outcome.toTerminalUpdate()
+                val terminal = outcome.toTerminalUpdate().let { update ->
+                    if (update.status == AgentRunStatus.FAILED && assistantMessage.timeline.lastOrNull { it.profileFailure != null }?.profileFailure?.isUnsentSetup == true) {
+                        update.copy(status = AgentRunStatus.BLOCKED)
+                    } else {
+                        update
+                    }
+                }
                 if (terminal.status == AgentRunStatus.FAILED && assistantMessage.content.isBlank()) {
                     val fallback = chatRepository.publishCombinedRetainedFallback(request.runId, terminal.error.orEmpty())
                     if (fallback != null) {
@@ -1147,7 +1156,12 @@ class AgentRunCoordinator @Inject constructor(
                 val completedAt = currentEpochSeconds()
                 val message = terminalFailure.message ?: "Unknown provider error."
                 val revokedWait = terminalFailure is dev.chungjungsoo.gptmobile.data.context.ProviderWaitAuthorityChanged
-                val status = if (revokedWait) AgentRunStatus.INTERRUPTED else acceptanceFailureStatus(message)
+                val typedFailure = coordinatorFailureRecord(assistantMessage, terminalFailure, gatewayPreflightKnownUnsent)
+                val status = when {
+                    revokedWait -> AgentRunStatus.INTERRUPTED
+                    typedFailure?.isUnsentSetup == true -> AgentRunStatus.BLOCKED
+                    else -> acceptanceFailureStatus(message)
+                }
                 if (finishUnavailablePolicy(terminalFailure, status)) return@withContext
                 if (assistantMessage.content.isBlank() && !revokedWait) {
                     val fallback = runCatching { chatRepository.publishCombinedRetainedFallback(request.runId, message) }.getOrNull()
@@ -1159,11 +1173,14 @@ class AgentRunCoordinator @Inject constructor(
                     }
                 }
                 runCatching {
-                    val typedFailure = coordinatorFailureRecord(assistantMessage, terminalFailure, gatewayPreflightKnownUnsent)
                     val terminalMessage = terminalAgentMessage(assistantMessage, message, completedAt, typedFailure).withCombinedOutcome(status)
                     traceReducedOutput(terminalMessage)
                     val committed = chatRepository.commitAgentRun(terminalMessage, request.runId, status, completedAt, message)
                     committedForHandoff = committed && !revokedWait
+                    val admission = terminalFailure as? dev.chungjungsoo.gptmobile.data.github.GatewayAdmissionException
+                    if (committed && typedFailure?.isUnsentSetup == true && admission != null) {
+                        runCatching { recordGatewaySetupReceipt(request, typedFailure, admission) }
+                    }
                     if (committed) settleResearchOutcome(request, researchLifecycle, terminalMessage, status, message)
                     if (committed && revokedWait) _notices.tryEmit(AgentRunNotice(request.chatId, request.runId, "Saved work needs review before it can resume. Its evidence and answer are retained.", true))
                 }.onFailure { failure -> finishUnavailablePolicy(failure) }
@@ -1208,6 +1225,27 @@ class AgentRunCoordinator @Inject constructor(
                 AppLogRecorder.record("Combined", "HANDOFF_FAILED · root=${combined.rootBudgetId} · reason=${failure.javaClass.simpleName}", "W")
             }
         }
+    }
+
+    private suspend fun recordGatewaySetupReceipt(
+        request: AgentRunRequest,
+        failure: ProfileFailureRecord,
+        admission: dev.chungjungsoo.gptmobile.data.github.GatewayAdmissionException
+    ) {
+        val journal = RunDiagnostics.journal ?: return
+        journal.setRunPrivacy(request.runId, isTemporary = !chatRepository.researchPersistenceAllowed(request.chatId))
+        val event = ProviderEvent.Failed(
+            message = failure.category,
+            errorCode = failure.category,
+            failureDetails = kotlinx.serialization.json.JsonObject(
+                mapOf(
+                    "failed_stage" to JsonPrimitive(failure.phase),
+                    "dispatched" to JsonPrimitive(false),
+                    "remote_acceptance" to JsonPrimitive("NO")
+                ) + listOfNotNull(admission.httpStatus?.let { "http_status" to JsonPrimitive(it) }).toMap()
+            )
+        )
+        journal.record(request.runId, RunDiagnosticKind.FAILURE_RECEIPT, successful = false, providerFailure = ProviderFailureReceipt.from(request.platform, "primary", event))
     }
 }
 

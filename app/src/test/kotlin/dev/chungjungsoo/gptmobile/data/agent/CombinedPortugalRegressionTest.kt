@@ -63,10 +63,15 @@ class CombinedPortugalRegressionTest {
                 emit(ProviderEvent.Completed)
             }
         }
-        val session = CombinedDeliverySession(provider, sources, 20000, validateAccess = {}, originalRequest = request, combined = context, verify = { error("No verifier request") }, repairDraft = { error("No rewrite request") }) { _, _ -> error("No continuation request") }
+        val session = CombinedDeliverySession(provider, sources, 20000, validateAccess = {}, originalRequest = request, combined = context, retainUnfinishedDraft = true, verify = { error("No verifier request") }, repairDraft = { error("No rewrite request") }) { _, _ -> error("No continuation request") }
         val events = session.streamRound(emptyList(), emptyList()).toList()
         val report = events.combinedReport()
         assertEquals(1, generations)
+        val draft = events.filterIsInstance<ProviderEvent.CombinedAnswer>().first()
+        assertEquals(CombinedCommittedDraft.STAGE, draft.report.assessmentStage)
+        assertTrue(draft.text.isNotBlank())
+        assertEquals(report.writerAnswerDigest, draft.report.answerDigest)
+        assertFalse(draft.report.complete)
         assertFalse("A length-compliant draft cannot claim complete coverage: ${report.issues}", report.complete)
         assertFalse(report.semanticCoverageVerified)
         assertTrue(report.issues.any { it.startsWith("SEMANTIC_CONTRIBUTION_UNRESOLVED:") })

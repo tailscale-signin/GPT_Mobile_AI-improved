@@ -271,6 +271,10 @@ private fun ChatScreenContent(
                 chatViewModel.dismissReasoningAdmission()
                 onProfileSettings(notice.profileUid)
             },
+            onChooseModel = {
+                chatViewModel.dismissReasoningAdmission()
+                chatViewModel.openChatModelDialog()
+            },
             onDismiss = chatViewModel::dismissReasoningAdmission
         )
     }
@@ -2003,7 +2007,7 @@ internal fun ChatMessagePair(
                             }
                             if (admission.canRetryAfterRepair && !hasCombinedTabs) {
                                 TextButton(onClick = { onRetry(messageIndex, displayPlatformIndex) }, enabled = isIdle && canUseChat && reviewRetryBlock == null) {
-                                    Text("Try again after gateway setup")
+                                    Text("Recheck gateway and retry")
                                 }
                             }
                         }

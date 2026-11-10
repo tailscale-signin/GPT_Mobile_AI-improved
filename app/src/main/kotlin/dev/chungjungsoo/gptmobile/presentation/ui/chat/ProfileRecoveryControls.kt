@@ -11,14 +11,24 @@ import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityObservation
 import dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityStatus
 import dev.chungjungsoo.gptmobile.data.context.ReasoningMode
+import dev.chungjungsoo.gptmobile.data.context.isSelectedModelBlocker
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import java.net.URI
 
-internal enum class ProfileRecoveryKind { NONE, REASONING, BILLING, SETTINGS }
+internal enum class ProfileRecoveryKind {
+    NONE,
+    MODEL,
+    REASONING,
+    BILLING,
+    SETTINGS;
+
+    val requiresModelRecheck: Boolean get() = this == MODEL || this == REASONING
+}
 
 internal fun profileRecoveryKind(category: String, details: String): ProfileRecoveryKind = when {
     category == "BILLING_UNAVAILABLE" || Regex("\\bBILLING_UNAVAILABLE\\b").containsMatchIn(details) -> ProfileRecoveryKind.BILLING
+    category.isSelectedModelBlocker() -> ProfileRecoveryKind.MODEL
     Regex("\\bREASONING_(?:ON_UNSUPPORTED|OFF_UNSUPPORTED|CAPABILITY_[A-Z_]+)\\b").containsMatchIn(details) -> ProfileRecoveryKind.REASONING
     Regex("\\bGATEWAY_(?:REMOTE_SURFACE_NOT_ADMITTED|MISSING_SCOPE|TRANSPORT_IDENTITY_REQUIRED|IDENTITY_MISMATCH|UNSUPPORTED_CONTRACT|INVALID_RESPONSE|INVALID_CONNECTION|SOURCE_MISMATCH|HTTP_REJECTED)\\b").containsMatchIn(details) -> ProfileRecoveryKind.SETTINGS
     category in setOf("INCOMPATIBLE_CONFIGURATION", "ENDPOINT_RETIRED", "REQUEST_REJECTED", "POLICY_STALE", "PRIVACY_CONFIGURATION", "AUTHENTICATION_FAILED", "ACCESS_FORBIDDEN") -> ProfileRecoveryKind.SETTINGS
@@ -44,7 +54,7 @@ data class ReasoningRecoveryUiState(
     val routeVerified: Boolean? = null
 )
 
-internal data class ReasoningRecoveryRequest(val profile: PlatformV2, val mode: ReasoningMode)
+internal data class ReasoningRecoveryRequest(val profile: PlatformV2, val mode: ReasoningMode, val requireRouteReady: Boolean = false)
 
 /** Process-local proof only. A retained failure has no recorded configuration revision: restart requires recheck. */
 internal class ReasoningRecoveryGate(private val now: () -> Long = System::currentTimeMillis) {
@@ -53,7 +63,7 @@ internal class ReasoningRecoveryGate(private val now: () -> Long = System::curre
 
     fun record(attemptId: String, request: ReasoningRecoveryRequest, observation: ReasoningCapabilityObservation): Boolean {
         proofs.remove(attemptId)
-        if (request.mode != ReasoningMode.AUTO && !observation.routeVerified) return false
+        if ((request.requireRouteReady || request.mode != ReasoningMode.AUTO) && !observation.routeVerified) return false
         if (observation.profileUid != request.profile.uid || observation.model != request.profile.model || observation.requested != request.mode || !observation.permitsRequest) return false
         proofs[attemptId] = Proof(request, observation, dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.networkEpoch)
         return permits(attemptId, request)
@@ -87,6 +97,16 @@ internal fun ProfileRecoveryActions(
     val qualified = state?.qualified == true && state.qualifiedAtMillis?.let { now - it in 0 until 20_000L } == true
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         when (kind) {
+            ProfileRecoveryKind.MODEL -> {
+                if (state?.checking == true) {
+                    Text("Checking the selected model…", style = MaterialTheme.typography.bodySmall)
+                } else if (qualified) {
+                    Text("The selected model is ready.", style = MaterialTheme.typography.bodySmall)
+                }
+                TextButton(onClick = onRecheck, enabled = enabled && state?.checking != true) { Text("Recheck model") }
+                TextButton(onClick = onSettings, enabled = enabled) { Text("Choose model") }
+                if (qualified) TextButton(onClick = onRetry, enabled = enabled && state?.checking != true) { Text("Retry with checked model") }
+            }
             ProfileRecoveryKind.REASONING -> {
                 val mode = state?.requested?.name?.lowercase()?.replaceFirstChar { it.uppercase() }
                 Text(

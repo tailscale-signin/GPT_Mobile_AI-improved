@@ -1058,7 +1058,8 @@ class OpenAICompatibleAdapter @Inject constructor(
         var canRotate = false
         var lastFailedMessage: String? = null
         var localCircuitRejection: ProviderEvent.Failed? = null
-        val effectiveOutputTokens = constraints.outputLimit(platform.maxTokens)
+        var limit: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision? = null
+        val effectiveOutputTokens = ProviderRouteCapacity.output(platform, constraints.outputLimit(platform.maxTokens))
         if (constraints.maxOutputTokens != null) {
             emit(
                 ProviderEvent.RequestConfigured(
@@ -1107,10 +1108,15 @@ class OpenAICompatibleAdapter @Inject constructor(
                 if (error is CancellationException || error is ToolDefinitionsRejectedException) throw error
                 roundFailed = true
                 streamInterrupted = true
+                limit = (error as? Exception)?.let { dev.chungjungsoo.gptmobile.data.network.providerLimitDecision(config, platform.model, deliveredPayload, it) }
                 localCircuitRejection = providerCircuitRejection(error, deliveredPayload)
-                lastFailedMessage = providerFailureMessage(error, "Groq stream request failed")
-                protocolErrorCode = if (error is java.io.IOException || error is io.ktor.client.plugins.HttpRequestTimeoutException) "NETWORK_ERROR" else protocolErrorCode
-                canRotate = ApiCredentialRotator.isRotatableError(error)
+                lastFailedMessage = if (limit != null) "Groq rejected this request at its rate limit. Check the saved retry time." else providerFailureMessage(error, "Groq stream request failed")
+                protocolErrorCode = when {
+                    limit != null -> "PROVIDER_RATE_LIMITED"
+                    error is java.io.IOException || error is io.ktor.client.plugins.HttpRequestTimeoutException -> "NETWORK_ERROR"
+                    else -> protocolErrorCode
+                }
+                canRotate = error !is dev.chungjungsoo.gptmobile.data.network.ProviderHttpFailure && limit == null && ApiCredentialRotator.isRotatableError(error)
             }
             .collect { chunk ->
                 if (chunk.streamFinished) {
@@ -1166,7 +1172,7 @@ class OpenAICompatibleAdapter @Inject constructor(
             return true
         } else {
             val completeOutputLimit = terminalReceived && !streamInterrupted && protocolErrorCode == null && lastFailedMessage == GROQ_OUTPUT_LIMIT_MESSAGE
-            emit(localCircuitRejection ?: ProviderEvent.Failed(lastFailedMessage ?: "Provider request failed", errorCode = protocolErrorCode ?: "OUTPUT_LIMIT".takeIf { completeOutputLimit }, transportComplete = completeOutputLimit))
+            emit(localCircuitRejection ?: ProviderEvent.Failed(lastFailedMessage ?: "Provider request failed", errorCode = protocolErrorCode ?: "OUTPUT_LIMIT".takeIf { completeOutputLimit }, transportComplete = completeOutputLimit, providerLimit = limit))
             return false
         }
     }

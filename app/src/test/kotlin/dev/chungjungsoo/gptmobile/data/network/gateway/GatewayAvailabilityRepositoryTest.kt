@@ -100,6 +100,26 @@ class GatewayAvailabilityRepositoryTest {
         assertFalse(current.isOnline)
     }
 
+    @Test fun aRecognizedRouteWithTemporarilyMissingMetadataDoesNotBecomeANonGateway() = runTest {
+        var current = GatewayAvailability()
+        var attempts = 0
+        val repository = repository { _, _, _ ->
+            if (++attempts == 2) GatewayAvailabilityProbe(null, null) else ready(testScheduler.currentTime)
+        }
+        backgroundScope.launch { repository.observe(listOf(target())).collect { current = it.getValue("a") } }
+        runCurrent()
+        assertTrue(current.isOnline)
+        advanceTimeBy(10_000)
+        runCurrent()
+        assertEquals(GatewayAvailabilityStatus.CHECKING, current.status)
+        assertEquals(0L, current.lastReachableAtMillis)
+        assertEquals("GATEWAY_CAPABILITY_UNAVAILABLE", current.failureCode)
+        assertFalse(current.isOnline)
+        advanceTimeBy(10_000)
+        runCurrent()
+        assertTrue(current.isOnline)
+    }
+
     @Test fun independentReadinessTimeoutRetainsCapabilitiesAndResumesAfterBoundedRetry() = runTest {
         var attempts = 0
         var current = GatewayAvailability()

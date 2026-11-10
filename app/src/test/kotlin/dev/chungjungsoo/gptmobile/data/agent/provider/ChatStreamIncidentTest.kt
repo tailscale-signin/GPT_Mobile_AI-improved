@@ -43,19 +43,48 @@ class ChatStreamIncidentTest {
         val assembler = ChatCompletionsEventAssembler()
         val published = mutableListOf<ProviderEvent>()
         try {
-            repeat(129) { published += assembler.accept(null, null, listOf(ChatToolCallDelta(it, "private-id-$it", function = ChatFunctionDelta("private-tool", "{}"))), null) }
+            repeat(9) { published += assembler.accept(null, null, listOf(ChatToolCallDelta(it, "private-id-$it", function = ChatFunctionDelta("private-tool", "{}"))), null) }
+            published += assembler.finish()
             throw AssertionError("Expected bounded stream rejection")
         } catch (failure: ToolBatchOversizeException) {
             assertFalse(published.any { it is ProviderEvent.ToolCall })
             assertTrue(assembler.finish().isEmpty())
-            assertEquals("STREAM_TOOL_SLOTS", failure.threshold)
+            assertEquals("COMPLETE_CALL_COUNT", failure.threshold)
             assertEquals(9, failure.observedValue)
-            assertEquals(8, failure.completeCallIds)
+            assertEquals(9, failure.completeCallIds)
             assertEquals(8, failure.allowedValue)
             assertTrue(failure.sanitizedStreamShape.orEmpty().length < 1500)
             assertFalse(failure.message.orEmpty().contains("private-id"))
             assertFalse(failure.message.orEmpty().contains("private-tool"))
         }
+    }
+
+    @Test fun emptyNinthSlotDoesNotDiscardEightCompleteCalls() {
+        val assembler = ChatCompletionsEventAssembler()
+        val deltas = List(8) { ChatToolCallDelta(it, "id-$it", function = ChatFunctionDelta("read", "{}")) } + ChatToolCallDelta(8)
+        val events = assembler.accept(null, null, deltas, "tool_calls")
+        assertEquals(List(8) { "id-$it" }, events.filterIsInstance<ProviderEvent.ToolCall>().map { it.callId })
+        assertFalse(events.any { it is ProviderEvent.Failed })
+    }
+
+    @Test fun incompleteMeaningfulCallRejectsTheBatchAndIncompleteSlotsStayBounded() {
+        val invalid = ChatCompletionsEventAssembler().accept(
+            null,
+            null,
+            listOf(ChatToolCallDelta(0, "ok", function = ChatFunctionDelta("read", "{}")), ChatToolCallDelta(1, "incomplete")),
+            "tool_calls"
+        )
+        assertTrue(invalid.any { it is ProviderEvent.Failed })
+        assertFalse(invalid.any { it is ProviderEvent.ToolCall })
+
+        val assembler = ChatCompletionsEventAssembler()
+        val failure = org.junit.Assert.assertThrows(ToolBatchOversizeException::class.java) {
+            repeat(129) { assembler.accept(null, null, listOf(ChatToolCallDelta(it, function = ChatFunctionDelta(arguments = "{"))), null) }
+        }
+        assertEquals("STREAM_TOOL_SLOTS", failure.threshold)
+        assertEquals(128, failure.allowedValue)
+        assertEquals(0, failure.completeCallIds)
+        assertTrue(assembler.finish().isEmpty())
     }
 
     @Test(expected = IllegalStateException::class)

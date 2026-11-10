@@ -14,6 +14,7 @@ import io.ktor.client.request.preparePost
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import io.ktor.utils.io.readLine
@@ -38,10 +39,10 @@ class GroqAPIImpl @Inject constructor(
         val workerBudget = kotlinx.coroutines.currentCoroutineContext()[WorkerRequestBudget]
         var receivedPayload = false
         try {
-            val resolvedApiUrl = config.apiUrl.ifBlank { ModelConstants.GROQ_API_URL }
-            val endpoint = config.copy(apiUrl = resolvedApiUrl).buildEndpoint("chat/completions")
+            val endpoint = config.copy(apiUrl = config.apiUrl.ifBlank { ModelConstants.GROQ_API_URL }).buildEndpoint("chat/completions")
 
-            val admittedPayload = requestPreparation.prepare(NetworkClient.openAIJson.encodeToString(request), config, request.model, null)
+            ProviderCooldown.await(config)
+            val admittedPayload = requestPreparation.prepare(NetworkClient.openAIJson.encodeToString(request), config, request.model, request.maxCompletionTokens)
             networkClient().preparePost(endpoint) {
                 applyPlatformStreamingTimeout(timeoutSeconds, workerBudget)
                 contentType(ContentType.Application.Json)
@@ -50,6 +51,13 @@ class GroqAPIImpl @Inject constructor(
                 config.token?.let { bearerAuth(it) }
             }.execute { response ->
                 if (!response.status.isSuccess()) {
+                    if (response.status.value == 429 && !receivedPayload) {
+                        throw ProviderHttpFailure(
+                            429,
+                            ProviderCooldown.defer(config, response.headers[HttpHeaders.RetryAfter]),
+                            knownNotAccepted = response.headers["X-Gateway-Job-ID"].isNullOrBlank()
+                        )
+                    }
                     val errorBody = response.body<String>()
                     throwIfToolDefinitionsRejected(response.status.value, !request.tools.isNullOrEmpty(), errorBody)
                     val errorMessage = try {
@@ -99,7 +107,7 @@ class GroqAPIImpl @Inject constructor(
                 }
             }
         } catch (e: Exception) {
-            if (e is CancellationException || e is dev.chungjungsoo.gptmobile.data.agent.ToolDefinitionsRejectedException) throw e
+            if (e is CancellationException || e is ProviderHttpFailure || e is dev.chungjungsoo.gptmobile.data.agent.ToolDefinitionsRejectedException) throw e
             if (ResilientStreamingClient.shouldTreatPrematureCloseAsStreamEnd(receivedPayload, e)) {
                 return@flow
             }

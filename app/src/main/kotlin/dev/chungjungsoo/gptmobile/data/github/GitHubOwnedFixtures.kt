@@ -269,7 +269,11 @@ internal class GitHubOwnedFixtures(private val store: GitHubRepositoryStateStore
             }
             return cancelled
         }
-        val proof = requireNotNull(reconcile(pending)) { "FIXTURE_RECONCILE_REQUIRED: The saved publication is not verified. Keep the existing approval and fixture; no mutation was repeated." }
+        val recordedCommit = status?.get("published_commit_sha")
+        val proofArguments = if (recordedCommit != null) JsonObject(pending + ("published_commit_sha" to recordedCommit)) else pending
+        val proof = checkNotNull(reconcile(proofArguments)) {
+            "FIXTURE_RECONCILE_REQUIRED · The live ref and commit do not verify the saved publication. The existing fixture and approval are retained."
+        }
         // The transport's reconciliation callback may already have accepted this exact receipt.
         if (saved(root, branch)?.get("pending_commit") != null) acceptCommit(root, pending, proof)
         val publication = JsonObject(

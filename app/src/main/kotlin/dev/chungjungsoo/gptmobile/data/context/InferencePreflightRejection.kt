@@ -7,6 +7,9 @@ internal enum class InferencePreflightReason {
     REASONING_CAPABILITY_UNVERIFIED,
     REASONING_CAPABILITY_UNAVAILABLE,
     REASONING_CAPABILITY_TIMEOUT,
+    SELECTED_MODEL_NOT_LOADED,
+    SELECTED_MODEL_LOADING,
+    SELECTED_MODEL_NOT_AVAILABLE,
     GATEWAY_CAPABILITY_UNAVAILABLE,
     GATEWAY_ISOLATION_UNAVAILABLE
 }
@@ -15,6 +18,18 @@ internal data class InferencePreflightRejection(val reason: InferencePreflightRe
     val phase: String get() = "LOCAL_INFERENCE_ADMISSION"
     val dispatch: String get() = "NOT_DISPATCHED"
     val failedStage: String get() = if (reason.name.startsWith("GATEWAY_")) "connection_preflight" else "provider_admission"
+}
+
+internal fun String?.isSelectedModelBlocker(): Boolean =
+    this == "SELECTED_MODEL_NOT_LOADED" || this == "SELECTED_MODEL_LOADING" || this == "SELECTED_MODEL_NOT_AVAILABLE"
+
+internal class SelectedModelUnavailableException(
+    val reason: InferencePreflightReason,
+    val observation: GatewayModelCapabilityObservation
+) : IllegalStateException("${reason.name}: ${observation.blockingSummary()} This attempt stopped before inference.") {
+    init {
+        require(reason.name.isSelectedModelBlocker())
+    }
 }
 
 class ReasoningAdmissionException(val requested: ReasoningMode) :

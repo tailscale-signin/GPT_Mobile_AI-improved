@@ -1,7 +1,6 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
 import dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord
-import dev.chungjungsoo.gptmobile.data.agent.RemoteRequestAcceptance
 
 internal data class GatewayAdmissionPresentation(val title: String, val guidance: String, val canRetryAfterRepair: Boolean)
 
@@ -26,8 +25,6 @@ internal fun gatewayAdmissionPresentation(failure: ProfileFailureRecord?): Gatew
     return GatewayAdmissionPresentation(
         title,
         guidance,
-        canRetryAfterRepair = observed.dispatched == false &&
-            observed.remoteAcceptance == RemoteRequestAcceptance.NO &&
-            observed.phase == "connection_preflight"
+        canRetryAfterRepair = observed.isUnsentSetup
     )
 }

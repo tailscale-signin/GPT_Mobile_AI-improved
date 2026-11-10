@@ -25,6 +25,8 @@ internal object ToolArgumentValidator {
             "github_pr" ->
                 "Use action=list to discover an existing pull_number before headers, context, comments or reviews. " +
                     "Use the exact field name pull_number, not number or pr_number. Writes need the observed expected_head_sha. "
+            "github_search" ->
+                "Use the search schema for a new query. For another page, use the last result's exact continuation_call. "
             else -> ""
         }
         val declared = (schema["properties"] as? JsonObject).orEmpty().keys.sorted().joinToString(", ").take(1000)
@@ -67,6 +69,10 @@ internal object ToolArgumentValidator {
 
     private fun discoveryCorrection(toolName: String, arguments: JsonObject, schema: JsonObject): JsonObject? {
         val operation = toolName.substringBefore("__")
+        if (operation == "github_search" && "per_page" in arguments && arguments.keys.none { it in setOf("view_cursor", "index_cursor", "search_id") }) {
+            val proposal = JsonObject(arguments - "per_page")
+            return proposal.takeIf { errors(it, schema).isEmpty() }
+        }
         if (operation !in setOf("github_pr", "github_issue") || "view_cursor" in arguments) return null
         val issue = operation == "github_issue"
         val numberKey = if (issue) "issue_number" else "pull_number"

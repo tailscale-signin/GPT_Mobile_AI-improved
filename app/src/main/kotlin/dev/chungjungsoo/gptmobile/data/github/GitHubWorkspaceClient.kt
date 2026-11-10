@@ -339,7 +339,11 @@ class GitHubWorkspaceClient(
                     put("card_id", "github-approval-$id")
                 }
             }
-            val proof = requireNotNull(reconcileCommit(root, intent, forceLiveRead = true)) { "APPROVAL_PUBLICATION_UNCONFIRMED: The saved patch has no matching remote publication proof. Reconcile the existing native task; do not repeat its commit." }
+            val recordedCommit = status["published_commit_sha"]
+            val proofArguments = if (recordedCommit != null) JsonObject(intent + ("published_commit_sha" to recordedCommit)) else intent
+            val proof = checkNotNull(reconcileCommit(root, proofArguments, forceLiveRead = true)) {
+                "APPROVAL_PUBLICATION_UNCONFIRMED · The live ref and commit do not verify the saved patch. The existing native approval is retained."
+            }
             return JsonObject(
                 proof + buildJsonObject {
                     put("engineering_task_id", id)

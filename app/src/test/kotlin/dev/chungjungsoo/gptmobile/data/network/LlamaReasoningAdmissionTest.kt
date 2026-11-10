@@ -24,6 +24,41 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LlamaReasoningAdmissionTest {
+    @Test fun unloadedSelectedGatewayModelBlocksAutoAndExplicitOffBeforeInference() = runBlocking {
+        val config = ProviderRequestConfig("https://unloaded-admission.example/v1", null, providerType = "LLAMA")
+        val instance = "a".repeat(32)
+        dev.chungjungsoo.gptmobile.data.network.gateway.GatewayClientDiagnostics.observeInstance(config, instance)
+        val paths = mutableListOf<String>()
+        HttpClient(
+            MockEngine { request ->
+                paths += request.url.encodedPath
+                assertEquals("GET", request.method.value)
+                assertEquals("selected", request.url.parameters["model"])
+                assertEquals("false", request.url.parameters["autoload"])
+                respond("""{"contractVersion":1,"instanceId":"$instance","selectedModel":{"schema":"gptmobile.gateway.selected-model.v1","schemaVersion":1,"requestedModel":"selected","limitsVerified":false,"failureCode":"EXECUTION_MODEL_NOT_LOADED","reasonCode":"SELECTED_MODEL_NOT_LOADED","modelState":"UNLOADED","modelLoaded":false}}""")
+            }
+        ).use { http ->
+            val network = mockk<NetworkClient>()
+            every { network() } returns http
+            every { network.gatewayReadClient() } returns http
+            val preparation = ModelRequestPreparation(network)
+            for (mode in listOf(ReasoningMode.AUTO, ReasoningMode.OFF)) {
+                val dispatch = dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext(emptySet(), "run", "invocation")
+                kotlinx.coroutines.withContext(dispatch) {
+                    val error = runCatching {
+                        preparation.prepare("""{"model":"selected","messages":[{"role":"user","content":"request"}]}""", config.copy(reasoningMode = mode), "selected", 256)
+                    }.exceptionOrNull()
+                    assertTrue(error is dev.chungjungsoo.gptmobile.data.context.SelectedModelUnavailableException)
+                    val detail = requireNotNull(providerExceptionDetails(requireNotNull(error as? Exception), partialOutput = false))
+                    assertEquals("SELECTED_MODEL_NOT_LOADED", detail.code)
+                    assertEquals("SELECTED_MODEL_NOT_LOADED", dispatch.preflightRejection?.reason?.name)
+                    assertTrue(dispatch.provenEntirelyUnsent())
+                }
+            }
+        }
+        assertEquals(listOf("/v1/gateway/capabilities"), paths)
+    }
+
     @Test fun unavailableGatewayMetadataRejectsStrictOffWithoutRawProbesExtraReadinessOrInference() = runBlocking {
         val config = ProviderRequestConfig("https://unavailable-strict-off.example/v1", "secret", providerType = "LLAMA", reasoningMode = ReasoningMode.OFF)
         dev.chungjungsoo.gptmobile.data.network.gateway.GatewayClientDiagnostics.observeInstance(config, "b".repeat(32))

@@ -71,7 +71,8 @@
     "Include PR #816 audit, repository graph and selected-profile recovery repairs and the local Moonshine voice plugin with microphone-permission rechecks and retained model/runtime provenance.",
     "Repair GitHub catalog and approval proof acceptance, bulk receipt restoration, scoped test admission, typed terminal causes, source-bound release attestation receipts and bounded diagnostic collection/storage; preserve Gateway 16 and local voice.",
     "Recover proven-unsent GitHub fixture cleanup and interrupted reads, retain dispatch and export timing evidence, improve MCP protocol and credential handling, and stabilize chat scrolling and GitHub reply delivery.",
-    "Add optional offline Kokoro-82M v1.0 INT8 spoken replies, verified model downloads, English text normalization, cancellation and installed Android voice fallback."
+    "Add optional offline Kokoro-82M v1.0 INT8 spoken replies, verified model downloads, English text normalization, cancellation and installed Android voice fallback.",
+    "Respect client chat routing and selected-model setup, preserve unsent and exact GitHub recovery evidence, and address bounded synthesis, provider retry and search regressions found in the November 10 audit."
   ],
   "limitations": [
     "Android GPU qualification requires compatible-device receipts for actual offload, prefill, decode, repeated requests and cancel/recovery; host tests do not establish those results.",
@@ -133,6 +134,14 @@
     "v0.9.50 Android acceptance"
   ],
   "allowedPaths": [
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedAnswerMapping.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedDeliverySession.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/McpToolMapper.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCommitReconciliation.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/GroqAPIImpl.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedPortugalRegressionTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/McpToolMapperTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/health/AndroidHealthConnectReaderTest.kt",
     ".github/workflows/audit-workspace.yml",
     ".github/workflows/device-validation.yml",
     ".github/workflows/gateway-stability.yml",

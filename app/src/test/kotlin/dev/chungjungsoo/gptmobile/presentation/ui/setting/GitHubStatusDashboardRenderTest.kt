@@ -91,21 +91,18 @@ class GitHubStatusDashboardRenderTest {
 
     @Test fun draftFailureMenuBindsActionsToTheExactCheckAndOtherTilesStillTrack() {
         val head = "a".repeat(40)
-        val pull = Json.parseToJsonElement("""{"number":42,"title":"Repair Android","draft":true,"head":{"sha":"$head"}}""") as JsonObject
+        val pull = Json.parseToJsonElement("""{"number":42,"title":"Repair Android","draft":true,"check_state":"FAILED","head":{"sha":"$head"}}""") as JsonObject
         val failed = GitHubLiveProcess("91", "Android failure", "failure", 10, 20, runId = 91, attempt = 3, headSha = head)
         val passed = GitHubLiveProcess("92", "Repository contracts", "success", 10, 20, runId = 92, headSha = head)
         val repaired = mutableListOf<GitHubStatusActionTarget>()
         val tracked = mutableListOf<Pair<GitHubStatusActionTarget, Boolean>>()
         compose.setContent {
             GPTMobileTheme(themeMode = ThemeMode.DARK) {
-                GitHubStatusOverview(
-                    listOf(pull),
-                    listOf(failed, passed),
-                    "main",
-                    false,
-                    {},
-                    GitHubStatusActions(emptyList(), { target, enabled -> tracked += target to enabled }, { repaired += it })
-                ) {}
+                Column {
+                    val actions = GitHubStatusActions(emptyList(), { target, enabled -> tracked += target to enabled }, { repaired += it })
+                    GitHubStatusOverview(listOf(pull), listOf(failed, passed), "main", false, {}, actions) {}
+                    GitHubPullRequestActionTile(pull, actions, enabled = true, inspect = {}, open = null)
+                }
             }
         }
         compose.onNodeWithText(failed.title).performClick()
@@ -115,8 +112,13 @@ class GitHubStatusDashboardRenderTest {
         compose.onNodeWithText(passed.title).performClick()
         compose.onNodeWithText("Fix").assertDoesNotExist()
         compose.onNodeWithText("Track").assertIsDisplayed().performClick()
+        compose.onNodeWithText("Repair Android").performClick()
+        compose.onNodeWithText("Fix").assertIsDisplayed().performClick()
         compose.runOnIdle {
-            assertEquals(listOf(GitHubStatusActionTarget(head, 42, 91, 3, true, true)), repaired)
+            assertEquals(
+                listOf(GitHubStatusActionTarget(head, 42, 91, 3, true, true), GitHubStatusActionTarget(head, 42, null, null, true, true)),
+                repaired
+            )
             assertEquals(listOf(91L to false, 92L to true), tracked.map { it.first.runId to it.second })
         }
     }

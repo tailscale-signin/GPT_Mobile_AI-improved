@@ -65,19 +65,23 @@ internal fun GitHubStatusLight(status: String, modifier: Modifier = Modifier) {
 }
 
 @Composable
-internal fun GitHubRepositoryStatusPanel(connection: ToolConnection, selection: GitHubRepositoryContext, pulls: List<JsonObject>, refreshPulls: () -> Unit, chatId: Int? = null, profile: PlatformV2? = null, graphContext: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext? = null, model: GitHubLiveStatusViewModel = hiltViewModel(), graphProfile: PlatformV2? = null, onConfigureGateway: (() -> Unit)? = null, onRepairDraft: ((GitHubDraftRepair) -> Unit)? = null) {
-    val state by model.state.collectAsStateWithLifecycle()
+internal fun rememberGitHubStatusActions(model: GitHubLiveStatusViewModel, connection: ToolConnection, selection: GitHubRepositoryContext, chatId: Int?, profile: PlatformV2?, onRepairDraft: ((GitHubDraftRepair) -> Unit)?): GitHubStatusActions {
     val watched by remember(model, chatId) { model.observeWatches(chatId) }.collectAsStateWithLifecycle(emptyList())
     val track: ((GitHubStatusActionTarget, Boolean) -> Unit)? = if (profile != null && chatId != null) {
         { target, enabled -> model.setTracking(connection, selection, profile.uid, chatId, target, enabled) }
     } else {
         null
     }
-    val actions = GitHubStatusActions(
+    return GitHubStatusActions(
         watched.filter { it.connectionUid == connection.connectionUid && it.profileUid == profile?.uid && "${it.owner}/${it.repo}".equals(selection.fullName, true) },
         track,
         onRepairDraft?.let { queue -> { target -> model.repairDraft(connection, selection, target, queue) } }
     )
+}
+
+@Composable
+internal fun GitHubRepositoryStatusPanel(connection: ToolConnection, selection: GitHubRepositoryContext, pulls: List<JsonObject>, refreshPulls: () -> Unit, chatId: Int? = null, profile: PlatformV2? = null, graphContext: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext? = null, model: GitHubLiveStatusViewModel = hiltViewModel(), graphProfile: PlatformV2? = null, onConfigureGateway: (() -> Unit)? = null, actions: GitHubStatusActions? = null) {
+    val state by model.state.collectAsStateWithLifecycle()
     val currentPulls by androidx.compose.runtime.rememberUpdatedState(pulls)
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }

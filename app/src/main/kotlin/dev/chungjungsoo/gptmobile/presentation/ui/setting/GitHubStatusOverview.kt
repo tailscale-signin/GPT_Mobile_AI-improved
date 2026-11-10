@@ -62,6 +62,32 @@ internal data class GitHubStatusActions(
 }
 
 @Composable
+internal fun GitHubPullRequestActionTile(pull: JsonObject, actions: GitHubStatusActions, enabled: Boolean, inspect: () -> Unit, open: (() -> Unit)?) {
+    val target = GitHubStatusActionTarget.from(pull)
+    val watch = actions.watch(target)
+    var menu by remember(target) { mutableStateOf(false) }
+    Box(Modifier.fillMaxWidth()) {
+        Surface(onClick = { menu = true }, enabled = enabled, shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth()) {
+            Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                GitHubStatusLight(pull.text("check_state"))
+                GitHubCheckBadge(pull.text("check_state"))
+                Column(Modifier.weight(1f)) {
+                    Text(pull.text("title"), style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    val tracking = when {
+                        watch?.status == "CANCELLED" -> " · Tracking off"
+                        watch?.terminal == false -> " · Tracking"
+                        else -> ""
+                    }
+                    Text("#${pull.text("number")} · ${if (pull.flag("draft")) "Draft" else pull.text("state")}$tracking", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                open?.let { IconButton(onClick = it) { Icon(Icons.Rounded.OpenInNew, "Open pull request", Modifier.size(18.dp)) } }
+            }
+        }
+        StatusActionMenu(menu, { menu = false }, target, actions, inspect, target)
+    }
+}
+
+@Composable
 private fun CheckGroup(title: String, subtitle: String, rows: List<GitHubLiveProcess>, stale: Boolean, open: (() -> Unit)?, inspect: (GitHubLiveProcess) -> Unit, pull: JsonObject? = null, actions: GitHubStatusActions? = null) {
     var allChecks by remember(title) { mutableStateOf(false) }
     var menu by remember(title) { mutableStateOf(false) }

@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "ae34bb89a12ba896a6d2651ac1a5970848a2be29346db3fbb6490ed62a6ae169",
+  "source_digest": "91bed8f4560319dc296be8795ad460e35e43caab840fc1e4bc17592a48fc54c6",
   "file_count": 2411,
-  "indexed_line_count": 376101,
+  "indexed_line_count": 376132,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -40,7 +40,7 @@
       "id": "chat_ui",
       "label": "Chat, rendering and interaction",
       "file_count": 512,
-      "indexed_line_count": 89894
+      "indexed_line_count": 89925
     },
     {
       "id": "accessibility_and_localization",
@@ -13772,8 +13772,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubRepositoryStatusPanel.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "eee4a2a9f9f98d4785f36de5b875d22da7b39d29b72c8bad47df605575c1e42b",
-      "indexed_lines": 258
+      "sha256": "ac62db96740123729e088ab0764229a58c210ff072a3011a2cfaa5bcae041841",
+      "indexed_lines": 262
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubSetupWelcome.kt",
@@ -13793,8 +13793,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubStatusOverview.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "a60541ef6190a3e1dcb5fe55cacf8c6bf286be13ec19276d721186697181cb1d",
-      "indexed_lines": 166
+      "sha256": "a1a4fc016d5047c362c70127de940a958e28c210f26142e0b0ae93d34a2b3169",
+      "indexed_lines": 192
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubStatusSummary.kt",
@@ -13821,8 +13821,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubWorkspaceScreen.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "5490af77043b8a63efb919a14b881bfe7386e09920abef294107824e98b4ab19",
-      "indexed_lines": 892
+      "sha256": "af810a0febe364742dd20a1fa054f031b7217e7169842fa9af7f98e7d6063454",
+      "indexed_lines": 893
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubWorkspaceViewModel.kt",

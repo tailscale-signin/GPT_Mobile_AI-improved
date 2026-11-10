@@ -480,11 +480,19 @@ fun GitHubWorkspaceScreen(
                                     }
                                 }
                                 2 -> {
+                                    val selection = requireNotNull(state.selection)
                                     var taskDetailsOpen by rememberSaveable(state.selection?.fullName, visibleProgrammer.chatId) { mutableStateOf(false) }
                                     var allPullsOpen by rememberSaveable(state.selection?.fullName) { mutableStateOf(false) }
                                     val statusProfile = visibleProgrammer.profiles.singleOrNull {
                                         it.uid == (commandContext?.mainProfileUid ?: state.cachedProfileUid ?: initialProfileUid)
                                     }
+                                    val statusModel: GitHubLiveStatusViewModel = hiltViewModel()
+                                    val queueRepair: ((GitHubDraftRepair) -> Unit)? = if (commandContext != null && !visibleProgrammer.submitting) {
+                                        { repair -> programmer.repairDraft(repair) { tab = 3 } }
+                                    } else {
+                                        null
+                                    }
+                                    val statusActions = rememberGitHubStatusActions(statusModel, connection, selection, visibleProgrammer.chatId, statusProfile, queueRepair)
                                     // Status is bound to the actually loaded revision, even before
                                     // a chat exists; gateway admission rechecks selected permissions.
                                     val mapContext = state.selection?.takeIf {
@@ -503,19 +511,16 @@ fun GitHubWorkspaceScreen(
                                     }
                                     GitHubRepositoryStatusPanel(
                                         connection,
-                                        requireNotNull(state.selection),
+                                        selection,
                                         state.pullRequests,
                                         viewModel::loadPullRequests,
                                         chatId = visibleProgrammer.chatId,
                                         profile = statusProfile,
                                         graphContext = mapContext,
+                                        model = statusModel,
                                         graphProfile = repositoryGraphProfile,
                                         onConfigureGateway = { tab = 5 },
-                                        onRepairDraft = if (commandContext != null && !visibleProgrammer.submitting) {
-                                            { repair -> programmer.repairDraft(repair) { tab = 3 } }
-                                        } else {
-                                            null
-                                        }
+                                        actions = statusActions
                                     )
                                     OutlinedButton(onClick = { taskDetailsOpen = !taskDetailsOpen }, modifier = Modifier.fillMaxWidth()) {
                                         Text(if (taskDetailsOpen) "Hide task details" else "Task details")
@@ -548,17 +553,13 @@ fun GitHubWorkspaceScreen(
                                     }
                                     if (state.pullRequests.isEmpty() && !state.busy) WorkspaceEmpty(Icons.Rounded.AccountTree, "No pull requests loaded", "Refresh to see the repository's open requests, or create a draft from your working branch.")
                                     (if (allPullsOpen) state.pullRequests else state.pullRequests.take(3)).forEach { pr ->
-                                        Surface(onClick = { viewModel.inspectPullRequest(pr.text("number").toInt()) }, enabled = !state.busy, shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth()) {
-                                            Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                                GitHubStatusLight(pr.text("check_state"))
-                                                GitHubCheckBadge(pr.text("check_state"))
-                                                Column(Modifier.weight(1f)) {
-                                                    Text(pr.text("title"), style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                                    Text("#${pr.text("number")} · ${if (pr.flag("draft")) "Draft" else pr.text("state")}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                                }
-                                                pr.text("html_url").takeIf { it.startsWith("https://github.com/") }?.let { url -> IconButton(onClick = { uriHandler.openUri(url) }) { Icon(Icons.Rounded.Launch, "Open pull request") } }
-                                            }
-                                        }
+                                        GitHubPullRequestActionTile(
+                                            pr,
+                                            statusActions,
+                                            !state.busy,
+                                            inspect = { pr.text("number").toIntOrNull()?.let { viewModel.inspectPullRequest(it) } },
+                                            open = pr.text("html_url").takeIf { it.startsWith("https://github.com/") }?.let { url -> { uriHandler.openUri(url) } }
+                                        )
                                     }
                                     if (state.pullRequests.size > 3) {
                                         TextButton(onClick = { allPullsOpen = !allPullsOpen }) {

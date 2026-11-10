@@ -242,7 +242,7 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
             check(inputs.size <= 8)
             for ((key, input) in inputs) {
                 check(input.jsonObject["method"]?.jsonPrimitive?.content == "elicitation/create" && interactions != null) { "Unsupported task input capability." }
-                val response = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { interactions.request(config.endpointUrl, json.decodeFromJsonElement<ElicitRequest>(input)) }
+                val response = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { interactions.request(config.endpointUrl, json.decodeFromJsonElement<ElicitRequest>(input), kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.ToolRunContext]?.runId) }
                 // Store answered keys before the network boundary: ambiguous updates are never silently repeated.
                 answered += key
                 store.save(config, result, null, answered, handle.cancellationRequested)
@@ -321,7 +321,7 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
             val responses = inputs.mapValues { (_, input) ->
                 val item = input.jsonObject
                 check(item["method"]?.jsonPrimitive?.content == "elicitation/create" && interactions != null) { "The server requested a capability this client did not advertise." }
-                val answer = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { interactions.request(config.endpointUrl, json.decodeFromJsonElement<ElicitRequest>(item)) }
+                val answer = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { interactions.request(config.endpointUrl, json.decodeFromJsonElement<ElicitRequest>(item), kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.ToolRunContext]?.runId) }
                 json.encodeToJsonElement(answer)
             }
             parameters = JsonObject(

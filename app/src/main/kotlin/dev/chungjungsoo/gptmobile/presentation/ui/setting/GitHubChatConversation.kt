@@ -41,7 +41,8 @@ internal fun GitHubChatConversation(
     exportRequested: Boolean = false,
     onExportHandled: () -> Unit = {},
     onProfileSettings: (String) -> Unit = {},
-    approvalPending: Boolean = false
+    approvalPending: Boolean = false,
+    bottomInteractionContent: (@Composable () -> Unit)? = null
 ) {
     key(chatId) {
         val controller = rememberNavController()
@@ -108,7 +109,8 @@ internal fun GitHubChatConversation(
                             showTopBar = false,
                             allowResearchPanels = false,
                             exportRequestedForChatId = chatId.takeIf { exportRequested },
-                            onExportHandled = onExportHandled
+                            onExportHandled = onExportHandled,
+                            bottomInteractionContent = bottomInteractionContent
                         )
                     }
                 }

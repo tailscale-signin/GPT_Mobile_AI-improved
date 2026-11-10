@@ -447,6 +447,24 @@ class Conversations:
         return (json.loads(row[0]).get('data') or {}).get('head_sha') if row else None
 
     @staticmethod
+    def job_state(db, conversation):
+        # The retained job ID is a recovery reference, not proof of active execution.
+        if not conversation['active_job']:
+            return None
+        engineering = conversation['active_kind'] == 'engineering'
+        table = 'engineering_jobs' if engineering else 'gateway_jobs'
+        if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone():
+            return None
+        if engineering:
+            row = db.execute('SELECT state FROM engineering_jobs WHERE id=? AND principal=?',
+                             (conversation['active_job'], conversation['principal'])).fetchone()
+        else:
+            row = db.execute('SELECT status,public_json FROM gateway_jobs WHERE job_id=?', (conversation['active_job'],)).fetchone()
+            if row and json.loads(row['public_json']).get('principal_id') != conversation['principal']:
+                return None
+        return str(row[0]).upper() if row and row[0] else None
+
+    @staticmethod
     def history_status(db, conversation):
         missing = [row[0] for row in db.execute('SELECT p.revision FROM gateway_message_publications p LEFT JOIN gateway_messages m ON m.id=p.message_id AND m.conversation_id=p.conversation_id WHERE p.conversation_id=? AND m.id IS NULL ORDER BY p.revision', (conversation['id'],))]
         incomplete = [row[0] for row in db.execute('SELECT m.revision FROM gateway_messages m LEFT JOIN gateway_message_parts p ON p.message_id=m.id AND p.revision=m.revision WHERE m.conversation_id=? GROUP BY m.id,m.revision HAVING COUNT(p.part_index)=0 OR COUNT(p.part_index)!=MAX(p.part_count) OR MIN(p.part_index)!=0 OR MAX(p.part_index)!=MAX(p.part_count)-1 OR COUNT(DISTINCT p.content_sha256)!=1', (conversation['id'],))]
@@ -469,7 +487,7 @@ class Conversations:
             row = dict(row)
             return dict(json.loads(row['binding']), schema_version=1, gateway_id=self.identity(db), principal_id=principal,
                         conversation_id=row['id'], title=row['title'], revision=row['revision'], transcript_available=True,
-                        active_job_id=row['active_job'], active_job_kind=row['active_kind'], created_at=row['created_at'], updated_at=row['updated_at'], head_sha=self.head_sha(db, row), server_now=self.now(), **self.history_status(db, row))
+                        active_job_id=row['active_job'], active_job_kind=row['active_kind'], job_state=self.job_state(db, row), created_at=row['created_at'], updated_at=row['updated_at'], head_sha=self.head_sha(db, row), server_now=self.now(), **self.history_status(db, row))
         return self.read(read)
 
     def list(self, principal, cursor=None, limit=50, engineering_allowed=True, generation_allowed=True):
@@ -488,7 +506,7 @@ class Conversations:
                 if type(upper) is not int or type(before) is not int or not 0 <= before <= upper + 1:
                     raise ValueError('Invalid conversation list cursor')
             rows = db.execute("SELECT c.*,k.sequence FROM gateway_conversations c JOIN gateway_conversation_catalog k ON k.conversation_id=c.id WHERE principal=? AND k.sequence<=? AND k.sequence<? AND (? OR active_kind!='engineering') AND (? OR active_kind!='generation') AND c.history_complete=1 AND EXISTS(SELECT 1 FROM gateway_messages m WHERE m.conversation_id=c.id AND m.role=?) AND NOT EXISTS(SELECT 1 FROM gateway_message_publications p LEFT JOIN gateway_messages m ON m.id=p.message_id AND m.conversation_id=p.conversation_id WHERE p.conversation_id=c.id AND m.id IS NULL) ORDER BY k.sequence DESC LIMIT ?", (principal, upper, before, int(engineering_allowed), int(generation_allowed), 'user', limit + 1)).fetchall()
-            items = [dict(json.loads(row['binding']), conversation_id=row['id'], title=row['title'], revision=row['revision'], created_at=row['created_at'], updated_at=row['updated_at'], job_id=row['active_job'], job_kind=row['active_kind'], active_job_id=row['active_job'], active_job_kind=row['active_kind'], head_sha=self.head_sha(db, row), transcript_available=True, gateway_id=gateway_id, principal_id=principal, **self.history_status(db, row)) for row in rows[:limit]]
+            items = [dict(json.loads(row['binding']), conversation_id=row['id'], title=row['title'], revision=row['revision'], created_at=row['created_at'], updated_at=row['updated_at'], job_id=row['active_job'], job_kind=row['active_kind'], active_job_id=row['active_job'], active_job_kind=row['active_kind'], job_state=self.job_state(db, row), head_sha=self.head_sha(db, row), transcript_available=True, gateway_id=gateway_id, principal_id=principal, **self.history_status(db, row)) for row in rows[:limit]]
             items = [item for item in items if item['history_complete']]
             more = len(rows) > limit
             return {'schema_version': 1, 'gateway_id': gateway_id, 'principal_id': principal, 'server_now': self.now(), 'items': items, 'has_more': more, 'complete': not more, 'next_cursor': self.encode_cursor(db, {'scope': scope, 'upper': upper, 'before': rows[limit - 1]['sequence']}) if more else None}

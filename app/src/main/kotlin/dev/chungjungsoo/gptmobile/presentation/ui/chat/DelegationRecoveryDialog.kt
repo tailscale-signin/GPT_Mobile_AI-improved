@@ -18,7 +18,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.agent.tool.DelegationRecoveryRequest
-import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDropdownMenu as DropdownMenu
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 
@@ -26,7 +25,8 @@ import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 fun DelegationRecoveryDialog(
     request: DelegationRecoveryRequest,
     onSwitch: (String) -> Unit,
-    onCancelDelegation: () -> Unit
+    onCancelDelegation: () -> Unit,
+    inline: Boolean = false
 ) {
     var selectedUid by remember(request.id) {
         mutableStateOf(request.options.firstOrNull()?.profileUid)
@@ -35,7 +35,8 @@ fun DelegationRecoveryDialog(
     val selected = request.options.firstOrNull { it.profileUid == selectedUid }
         ?: request.options.firstOrNull()
 
-    AlertDialog(
+    ChatInteractionSurface(
+        inline = inline,
         onDismissRequest = onCancelDelegation,
         title = { Text("Delegation failed") },
         text = {

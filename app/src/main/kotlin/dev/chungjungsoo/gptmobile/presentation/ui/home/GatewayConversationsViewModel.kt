@@ -54,6 +54,7 @@ internal data class GatewayConversationsState(
     val creationError: String? = null,
     val queuedCounts: Map<Int, Int> = emptyMap(),
     val activeChatIds: Set<Int> = emptySet(),
+    val unreadChatIds: Set<Int> = emptySet(),
     val gatewayStates: Map<Int, GatewayQueuedChatState> = emptyMap(),
     val localConversationKeys: Set<String> = emptySet(),
     val localConversationChats: Map<String, Int> = emptyMap()
@@ -80,7 +81,8 @@ internal class GatewayConversationsViewModel @Inject constructor(
     private val knownProfiles: GatewayKnownProfileStore,
     private val chatCreator: GatewayChatCreator,
     database: ChatDatabaseV2,
-    queue: DurablePromptQueue
+    queue: DurablePromptQueue,
+    completionStore: dev.chungjungsoo.gptmobile.data.chat.GenerationCompletionStore
 ) : ViewModel() {
     val connections = monitor.connections
     private val _state = MutableStateFlow(GatewayConversationsState(connectionUid = savedState["gateway_browser_profile"]))
@@ -91,6 +93,11 @@ internal class GatewayConversationsViewModel @Inject constructor(
     private var generation = 0L
 
     init {
+        viewModelScope.launch {
+            completionStore.items.collect { items ->
+                _state.update { it.copy(unreadChatIds = homeUnreadReplies(items, emptyMap()).mapTo(mutableSetOf()) { reply -> reply.visibleChatId }) }
+            }
+        }
         viewModelScope.launch {
             database.chatRoomDao().observeGatewayChats().collect { rooms -> _state.update { it.copy(localChats = rooms) } }
         }
@@ -216,6 +223,19 @@ internal class GatewayConversationsViewModel @Inject constructor(
             refreshJob?.cancel()
             openJob?.cancel()
             resetHistory(_state.value.connectionUid)
+        }
+    }
+
+    /** One lifecycle-owned observer; manual refresh joins the same in-flight request. */
+    suspend fun observeVisible() {
+        var failures = 0
+        while (true) {
+            refresh()
+            refreshJob?.join()
+            val current = _state.value
+            failures = if (current.error == null) 0 else (failures + 1).coerceAtMost(3)
+            val active = current.activeChatIds.isNotEmpty() || current.page?.items?.any { it.isWorking() } == true
+            kotlinx.coroutines.delay(gatewayConversationRefreshDelay(active, failures))
         }
     }
 

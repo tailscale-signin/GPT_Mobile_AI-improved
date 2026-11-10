@@ -111,22 +111,22 @@ internal suspend fun LazyListState.animateToGitHubBottom(animate: Boolean = true
         scrollToItem(lastIndex)
         return
     }
-    if (info.visibleItemsInfo.none { it.index == lastIndex }) {
-        // Preserve lazy-list seeking for a distant destination. Near the bottom,
-        // streaming growth is followed in one scroll mutation with a moving target.
-        animateScrollToItem(lastIndex)
-        return
-    }
     scroll {
-        var previousFrame = withFrameNanos { it }
-        while (canScrollForward) {
-            val frame = withFrameNanos { it }
+        val layout = LazyLayoutScrollScope(this@animateToGitHubBottom, this)
+        var previous = 0f
+        androidx.compose.animation.core.animate(0f, 1f, animationSpec = tween(GITHUB_BOTTOM_FOLLOW_MILLIS, easing = FastOutSlowInEasing)) { fraction, _ ->
             val current = layoutInfo
-            val footer = current.visibleItemsInfo.lastOrNull { it.index == current.totalItemsCount - 1 } ?: break
-            val remaining = (footer.offset + footer.size + current.afterContentPadding - current.viewportEndOffset).toFloat()
-            val step = gitHubBottomFollowStep(remaining, frame - previousFrame)
-            previousFrame = frame
-            if (step <= 0f || scrollBy(step) <= 0f) break
+            val target = current.totalItemsCount - 1
+            if (target >= 0) {
+                val footer = current.visibleItemsInfo.lastOrNull { it.index == target }
+                val remaining = if (footer != null) {
+                    (footer.offset + footer.size + current.afterContentPadding - current.viewportEndOffset).toFloat()
+                } else {
+                    layout.calculateDistanceTo(target).toFloat()
+                }
+                scrollBy(gitHubBottomFollowStep(remaining, previous, fraction))
+            }
+            previous = fraction
         }
     }
 }

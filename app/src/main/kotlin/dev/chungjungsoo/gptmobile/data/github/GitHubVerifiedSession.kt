@@ -51,6 +51,8 @@ internal class GitHubVerifiedSession(
     private var initialReceiptIds: Set<String>? = null
     private var initiallyVerifiedComplete = false
     private var executionCorrectionAttempted = false
+    private var correctionProgress: Set<String> = emptySet()
+    private var progressCorrections = 0
     private class ProgressCheckpointFailure(cause: Exception, val originalFailure: ProviderEvent.Failed?) : Exception(cause)
 
     private fun failureCauses(error: Throwable): Sequence<Throwable> =
@@ -136,6 +138,7 @@ internal class GitHubVerifiedSession(
         }
         if (initialReceiptIds == null) {
             initialReceiptIds = evidence.snapshot().first.keys.toSet()
+            correctionProgress = GitHubExecutionContinuation.progressKeys(evidence.snapshot().first)
             initiallyVerifiedComplete = evidence.diagnostic()?.get("completion_verified") == kotlinx.serialization.json.JsonPrimitive(true)
         }
         retainProgress(tools)
@@ -324,7 +327,7 @@ internal class GitHubVerifiedSession(
             emit(ProviderEvent.Completed)
             return@flow
         }
-        emitAll(publish(draft))
+        emitAll(publish(draft, continuationTools = tools, continuationExchanges = exchanges))
     }.catch { error ->
         handleCheckpointFailure(error)
     }
@@ -456,7 +459,13 @@ internal class GitHubVerifiedSession(
         }
     }
 
-    private fun publish(draft: String?, failureCode: String? = null, originalFailure: ProviderEvent.Failed? = null): Flow<ProviderEvent> = flow {
+    private fun publish(
+        draft: String?,
+        failureCode: String? = null,
+        originalFailure: ProviderEvent.Failed? = null,
+        continuationTools: List<AgentToolDefinition> = emptyList(),
+        continuationExchanges: List<AgentToolExchange> = emptyList()
+    ): Flow<ProviderEvent> = flow {
         val verificationStarted = System.nanoTime()
         val publication = try {
             validatePublication()
@@ -617,6 +626,35 @@ internal class GitHubVerifiedSession(
         }
         // Collector exceptions must propagate unchanged; they are not formatter failures.
         val (text, partial, report) = publication
+        val retained = evidence.snapshot().first
+        val currentProgress = GitHubExecutionContinuation.progressKeys(retained)
+        if (partial &&
+            originalFailure == null &&
+            openExecutionContinuation != null &&
+            continuationTools.isNotEmpty() &&
+            progressCorrections < 3 &&
+            (currentProgress - correctionProgress).isNotEmpty() &&
+            GitHubRequestCompletion.requiresRepositoryEvidence(task) &&
+            GitHubExecutionContinuation.canResume(report, retained, remainingToolCalls(), evidence.remainingTaskMillis())
+        ) {
+            // Keep the exact acceptance gaps durable before another selected-profile round.
+            // The existing runner still owns tool admission, original budgets and mutation deduplication.
+            evidence.retainVerdict(JsonObject(report + mapOf("response_delivered" to kotlinx.serialization.json.JsonPrimitive(false))))
+            correctionProgress = currentProgress
+            progressCorrections++
+            validatePublication()
+            progress("Continuing the first unfinished acceptance criterion from saved receipts")
+            val correction = collectDraft(openExecutionContinuation.invoke(GitHubExecutionContinuation.prompt(task, currentRequest, retained, report)), continuationTools, continuationExchanges)
+            if (correction.failed || !correction.completed) {
+                emit(correction.failure ?: ProviderEvent.Failed("Task continuation was interrupted. Its saved checkpoint is retained.", errorCode = "GITHUB_TASK_INCOMPLETE", taskOutcome = "PARTIAL"))
+                return@flow
+            }
+            if (correction.calls) {
+                emit(ProviderEvent.Completed)
+                return@flow
+            }
+            // A second prose-only answer is not progress, evidence or a reason to spend another round.
+        }
         try {
             evidence.retainAnswer(text, report)
         } catch (cancelled: CancellationException) {
@@ -641,7 +679,7 @@ internal class GitHubVerifiedSession(
             lifecycle(dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.VERIFICATION_REJECTED)
             emit(
                 ProviderEvent.Failed(
-                    if (waitingApproval) "Waiting for approval of the existing saved patch. Open its Approve & Commit card to continue." else originalFailure?.message ?: "Partial response delivered. The requested task remains incomplete; saved receipts and the task checkpoint are available for continuation.",
+                    if (waitingApproval) "Review the saved patch in the approval card at the bottom of this conversation to continue." else originalFailure?.message ?: GitHubExecutionContinuation.incompleteMessage(delivered, evidence.snapshot().first),
                     errorCode = if (unresolved) {
                         "RECONCILIATION_REQUIRED"
                     } else if (waitingApproval) {
@@ -662,7 +700,15 @@ internal class GitHubVerifiedSession(
                             put("pending_approvals", delivered["pending_approvals"] ?: (delivered["execution_ledger"] as? JsonObject)?.get("pending_approvals") ?: JsonArray(emptyList()))
                         }
                     } else {
-                        originalFailure?.failureDetails
+                        originalFailure?.failureDetails ?: buildJsonObject {
+                            put("failed_stage", "acceptance_verification")
+                            put("stop_reason", "UNVERIFIED_ACCEPTANCE_CRITERIA")
+                            put("recovery_action", if (unresolved) "RECONCILE_REMOTE_OUTCOME" else "RESUME_UNFINISHED_WORK")
+                            put("automatic_continuations", progressCorrections)
+                            (delivered["execution_ledger"] as? JsonObject)?.let { ledger ->
+                                listOf("required_criteria", "verified_criteria", "remaining_criteria").forEach { key -> ledger[key]?.let { put(key, it) } }
+                            }
+                        }
                     }
                 )
             )

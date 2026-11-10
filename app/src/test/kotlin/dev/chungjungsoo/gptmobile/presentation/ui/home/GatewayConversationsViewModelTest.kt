@@ -36,8 +36,11 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import kotlinx.serialization.encodeToString
@@ -95,7 +98,43 @@ class GatewayConversationsViewModelTest {
         }
         coEvery { creator.hasQueueBoundary(any()) } returns false
         val monitor = GatewayMenuMonitor(flowOf(emptyList()), CoroutineScope(Dispatchers.Main))
-        return GatewayConversationsViewModel(SavedStateHandle(), settings, jobs, conversations, scopes, monitor, known, creator, database, queue)
+        val completions = mockk<dev.chungjungsoo.gptmobile.data.chat.GenerationCompletionStore>()
+        every { completions.items } returns MutableStateFlow(emptyList())
+        return GatewayConversationsViewModel(SavedStateHandle(), settings, jobs, conversations, scopes, monitor, known, creator, database, queue, completions)
+    }
+
+    @Test fun visibleObserverCoalescesManualRefreshAndStopsWithItsLifecycle() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val store = ViewModelStore()
+        val response = CompletableDeferred<GatewayConversationPage>()
+        val requests = MutableStateFlow(0)
+        try {
+            coEvery { jobs.listConversations("gateway-profile", null) } coAnswers {
+                requests.value++
+                response.await()
+            }
+            val model = viewModel().also { store.put("browser", it) }
+            model.select(connection())
+            requests.first { it == 1 }
+            val observer = backgroundScope.launch { model.observeVisible() }
+            runCurrent()
+            model.refresh()
+            assertEquals(1, requests.value)
+            response.complete(page.copy(items = listOf(row.copy(activeJobId = "job", jobState = "RUNNING"))))
+            model.state.first { it.page != null && !it.loading }
+            runCurrent()
+            advanceTimeBy(10_001)
+            requests.first { it == 2 }
+            observer.cancel()
+            model.pause()
+            runCurrent()
+            advanceTimeBy(120_000)
+            runCurrent()
+            assertEquals(2, requests.value)
+        } finally {
+            store.clear()
+            Dispatchers.resetMain()
+        }
     }
 
     @Test fun serverInventoryAndCanonicalIdentityAreUsedToOpenConversation() = runTest {

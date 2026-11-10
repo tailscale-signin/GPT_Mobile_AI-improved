@@ -91,6 +91,32 @@ class GitHubChatScrollMotionTest {
         }
     }
 
+    @Test fun previewGrowthUsesTheFullSmoothFollowDuration() {
+        lateinit var state: LazyListState
+        var height by mutableStateOf(600.dp)
+        compose.setContent {
+            state = rememberLazyListState()
+            Box(Modifier.size(320.dp, 300.dp)) {
+                LazyColumn(state = state) {
+                    item { Spacer(Modifier.height(height)) }
+                    item { Spacer(Modifier.height(1.dp)) }
+                }
+                ChatBottomAutoScroller(state, isEnabled = true, githubMotion = true)
+            }
+        }
+        compose.waitForIdle()
+        compose.mainClock.autoAdvance = false
+        val initial = compose.runOnIdle { state.firstVisibleItemScrollOffset }
+        compose.runOnIdle { height += 200.dp }
+        advanceFrames(300)
+        compose.runOnIdle {
+            assertTrue(state.firstVisibleItemScrollOffset > initial)
+            assertTrue("Follow should still be moving before 1500ms", state.canScrollForward)
+        }
+        advanceFrames(1400)
+        compose.runOnIdle { assertFalse("Follow should reach the measured footer", state.canScrollForward) }
+    }
+
     @Test fun growingGitHubFooterFollowsOnceAndCancellingFollowKeepsTheReadingPosition() {
         lateinit var state: LazyListState
         var height by mutableStateOf(600.dp)
@@ -118,20 +144,20 @@ class GitHubChatScrollMotionTest {
                 previousOffset = state.firstVisibleItemScrollOffset
             }
         }
-        advanceFrames(1000)
+        advanceFrames(1700)
         compose.runOnIdle { assertFalse("Expected the true bottom: ${position(state)}", state.canScrollForward) }
         compose.runOnIdle { following = false }
         advanceFrames(32)
         val stopped = compose.runOnIdle { state.firstVisibleItemScrollOffset }
         // Deliver late layout growth after the disabled follower has left composition.
         compose.runOnIdle { height += 40.dp }
-        advanceFrames(1000)
+        advanceFrames(1700)
         compose.runOnIdle {
             assertEquals("Disabled follow moved: ${position(state)}", stopped, state.firstVisibleItemScrollOffset)
             assertTrue("Late growth must remain below the reading position: ${position(state)}", state.canScrollForward)
             following = true
         }
-        advanceFrames(1000)
+        advanceFrames(1700)
         compose.runOnIdle { assertFalse("Expected the true bottom: ${position(state)}", state.canScrollForward) }
     }
 
@@ -192,7 +218,7 @@ class GitHubChatScrollMotionTest {
             assertEquals(historyOffset, state.firstVisibleItemScrollOffset)
             gesture.cancel()
         }
-        advanceFrames(1000)
+        advanceFrames(1700)
         compose.runOnIdle {
             assertFalse(state.canScrollForward)
             assertTrue(state.firstVisibleItemScrollOffset > historyOffset)

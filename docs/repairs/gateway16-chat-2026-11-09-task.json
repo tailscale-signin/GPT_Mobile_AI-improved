@@ -1,0 +1,11 @@
+{
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "7db0c735f9e86eaece24513fbaf5c0a624f13822",
+  "start_sha": "0116890e7e411c544babb4afd6c6d67ff35c3f1b",
+  "working_branch": "fix/audit-execution-recovery-2026-11-09",
+  "parent_pr": 816,
+  "intent": "Gateway 16 migration, 1.5 second activity follow, inline approvals and questions, evidence-based task continuation, and gateway conversation status icons",
+  "state": "READY_FOR_CI",
+  "checkpoint": "All final host suites passed; exact-head Android CI is required"
+}

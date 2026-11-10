@@ -63,7 +63,6 @@ import dev.chungjungsoo.gptmobile.presentation.common.diagnosticFrameTiming
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.GatewayTranscriptDialog
 import java.text.DateFormat
 import java.util.Date
-import kotlinx.coroutines.awaitCancellation
 
 /** The same home navigation, toolbar, chat rows and compose button, scoped to saved gateway work. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -99,8 +98,7 @@ internal fun GatewayConversationsScreen(
     LaunchedEffect(lifecycle, state.connectionUid) {
         lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             try {
-                viewModel.refresh()
-                awaitCancellation()
+                viewModel.observeVisible()
             } finally {
                 viewModel.pause()
             }
@@ -210,15 +208,22 @@ internal fun GatewayConversationsScreen(
                 itemsIndexed(localChats, key = { _, chat -> "local:${chat.id}" }) { index, chat ->
                     val profile = state.profileChoices.firstOrNull { it.profileUid in chat.activePlatform }
                     val queue = state.gatewayStates[chat.id]
+                    val serverWorking = !state.cachedInventory &&
+                        state.page?.let { page ->
+                            page.items.any { conversation ->
+                                conversation.isWorking() && state.localConversationChats[gatewayIdentityKey(page.gatewayId, page.principalId, conversation.conversationId)] == chat.id
+                            }
+                        } == true
                     Column(Modifier.testTag("gateway_chat_${chat.id}")) {
                         ChatListItem(
                             chatRoom = chat,
                             idx = index,
                             chatListState = listState,
-                            isGenerating = chat.id in state.activeChatIds || queue?.state == GatewayQueuedState.RUNNING,
-                            hasUnreadResponse = false,
+                            isGenerating = chat.id in state.activeChatIds || queue?.state == GatewayQueuedState.RUNNING || serverWorking,
+                            hasUnreadResponse = chat.id in state.unreadChatIds,
                             usingPlatform = profile?.name ?: stringResource(R.string.gateway_menu_title),
                             profileLabels = emptyList(),
+                            isGateway = true,
                             isServerChat = true,
                             onItemClick = { viewModel.openLocalChat(chat, onOpenLocalChat) },
                             onItemLongClick = { viewModel.openLocalChat(chat, onOpenLocalChat) }
@@ -256,6 +261,7 @@ internal fun GatewayConversationsScreen(
                     GatewayHistoryRow(
                         conversation,
                         opening = state.openingId == conversation.conversationId,
+                        live = !state.cachedInventory,
                         enabled = state.openingId == null,
                         canOpen = conversation.transcriptAvailable || locallySaved,
                         onOpen = { viewModel.open(conversation, onOpenChat) },
@@ -323,19 +329,19 @@ private fun gatewayQueuedLabel(value: GatewayQueuedChatState): String = value.me
 )
 
 @Composable
-private fun GatewayHistoryRow(conversation: GatewayConversationSnapshot, opening: Boolean, enabled: Boolean, canOpen: Boolean, onOpen: () -> Unit, onTranscript: () -> Unit) {
+private fun GatewayHistoryRow(conversation: GatewayConversationSnapshot, opening: Boolean, live: Boolean, enabled: Boolean, canOpen: Boolean, onOpen: () -> Unit, onTranscript: () -> Unit) {
     ListItem(
         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
         modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp).testTag("gateway_conversation_${conversation.conversationId}")
             .clickable(enabled = enabled && canOpen, onClick = onOpen),
         headlineContent = { Text(conversation.title.ifBlank { stringResource(R.string.gateway_browser_untitled) }, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-        leadingContent = { Icon(Icons.Rounded.CloudQueue, contentDescription = null) },
+        leadingContent = { GatewayConversationIcon(working = live && conversation.isWorking(), unread = false) },
         supportingContent = {
             Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 if (conversation.model.isNotBlank()) Text(conversation.model, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 val context = listOfNotNull(conversation.repository, conversation.sourceBranch ?: conversation.branch).filter(String::isNotBlank).joinToString(" · ")
                 if (context.isNotBlank()) Text(context, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                if (conversation.activeJobId != null) Text(stringResource(R.string.gateway_browser_active_job), style = MaterialTheme.typography.labelMedium)
+                if (live && conversation.isWorking()) Text(stringResource(R.string.gateway_browser_active_job), style = MaterialTheme.typography.labelMedium)
                 if (!conversation.historyComplete) Text(conversation.historyLimitation ?: stringResource(R.string.gateway_transcript_history_partial), maxLines = 2, overflow = TextOverflow.Ellipsis)
                 if (!conversation.transcriptAvailable) Text(stringResource(R.string.gateway_browser_transcript_unavailable))
                 if (opening) Text(stringResource(R.string.gateway_browser_opening))

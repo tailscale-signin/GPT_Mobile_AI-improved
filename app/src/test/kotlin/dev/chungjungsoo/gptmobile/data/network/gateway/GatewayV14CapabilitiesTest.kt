@@ -11,7 +11,7 @@ class GatewayV14CapabilitiesTest {
     private val json = Json { ignoreUnknownKeys = true }
 
     @Test fun completeServerRouteFixturesAcceptLegacyMetadataWithoutEnablingIt() {
-        for (name in listOf("gateway-v15-capabilities-legacy-mixed.json", "gateway-v15-capabilities-full.json")) {
+        for (name in listOf("gateway-v15-capabilities-legacy-mixed.json", "gateway-v15-capabilities-full.json", "gateway-v16-capabilities-full.json")) {
             val fixture = requireNotNull(javaClass.classLoader?.getResourceAsStream(name)).bufferedReader().use { it.readText() }
             val capabilities = json.decodeFromString<GatewayCapabilities>(fixture)
             assertTrue(capabilities.supportsKeyFreeConnection)

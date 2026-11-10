@@ -38,21 +38,21 @@ import dev.chungjungsoo.gptmobile.data.permissions.PersonalDataGrantOptions
 import dev.chungjungsoo.gptmobile.data.permissions.ToolApproval
 import dev.chungjungsoo.gptmobile.data.permissions.isRepositoryLifecycleApproval
 import dev.chungjungsoo.gptmobile.data.permissions.requiresExactConfirmation
-import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 
 @Composable
-@Suppress("UNUSED_PARAMETER")
 internal fun ToolApprovalDialog(
     approval: ToolApproval,
     onDeny: () -> Unit,
     onAllowOnce: () -> Unit,
     onAlwaysAllowTool: () -> Unit,
     onAlwaysAllowProvider: () -> Unit,
-    onAllowInConversation: () -> Unit = {}
+    onAllowInConversation: () -> Unit = {},
+    inline: Boolean = false
 ) {
     var allowProvider by remember(approval.id) { mutableStateOf(false) }
-    AlertDialog(
+    ChatInteractionSurface(
+        inline = inline,
         onDismissRequest = onDeny,
         icon = {
             Surface(
@@ -105,6 +105,9 @@ internal fun ToolApprovalDialog(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 if (!approval.requiresExactConfirmation) {
+                    OutlinedButton(onClick = onAllowInConversation, modifier = Modifier.fillMaxWidth()) {
+                        Text("Allow in this conversation")
+                    }
                     FilledTonalButton(onClick = onAlwaysAllowTool, modifier = Modifier.fillMaxWidth()) {
                         Icon(Icons.Rounded.CheckCircle, null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
@@ -140,13 +143,15 @@ internal fun ToolApprovalDialog(
 internal fun FreeToolConsentDialog(
     request: ChatViewModel.FreeToolConsentRequest,
     onAccept: (PersonalDataGrantOptions) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    inline: Boolean = false
 ) {
     val policy = request.profileSnapshot?.let(dev.chungjungsoo.gptmobile.data.permissions.ProviderPrivacyPolicy::forProfile)
     var rememberProfile by remember(request) { mutableStateOf(false) }
     var healthRangeDays by remember(request) { mutableStateOf(7) }
     var preciseLocation by remember(request) { mutableStateOf(false) }
-    AlertDialog(
+    ChatInteractionSurface(
+        inline = inline,
         onDismissRequest = onDismiss,
         title = { Text("Share personal data with this provider?") },
         text = {

@@ -124,10 +124,17 @@ class SettingsTests(unittest.TestCase):
 
 class ReleaseTests(unittest.TestCase):
     def test_only_newer_stable_compatible_official_digest_assets(self):
-        bad = [metadata('15.0.0'), metadata('14.99.0'), metadata('16.0.0'), metadata(digest=None), metadata(size=0), metadata(browser_download_url='https://evil.example/file')]
+        bad = [metadata('15.0.0'), metadata('14.99.0'), metadata('17.0.0'), metadata(digest=None), metadata(size=0), metadata(browser_download_url='https://evil.example/file')]
         bad += [dict(metadata('15.2.0'), prerelease=True), dict(metadata('15.3.0'), draft=True)]
         self.assertIsNone(releases.choose(bad, '15.0.0'))
         self.assertEqual('15.1.0', releases.choose(bad+[metadata(),metadata('15.1.0')], '15.0.0')['version'])
+
+    def test_gateway16_upgrade_preserves_stable_channel_and_cannot_downgrade(self):
+        candidates = [metadata('15.9.0'), metadata('16.0.0'), metadata('16.0.1'), metadata('17.0.0')]
+        self.assertEqual('16.0.1', releases.choose(candidates, '15.0.0')['version'])
+        self.assertEqual('16.0.1', releases.choose(candidates, '16.0.0')['version'])
+        self.assertIsNone(releases.choose(candidates, '16.0.1'))
+        self.assertIsNone(releases.choose([dict(metadata('16.0.2'), prerelease=True)], '16.0.1'))
 
     def test_rejects_archive_paths_links_case_collisions_and_expansion(self):
         for names in [['../escape'], ['/absolute'], ['a\\b'], ['C:evil'], ['NUL'], ['foo.'], ['a','A'], ['x/../y'], ['a//b']]:
@@ -229,6 +236,18 @@ class UpdateTransactionTests(unittest.TestCase):
         self.assertEqual('15.0.1',read_pointer(self.root)['version'])
         self.assertNotIn('pending',read_pointer(self.root))
         self.manager.control.assert_called_with('resume')
+
+    def test_gateway16_trial_keeps_v15_state_and_rolls_back_without_erasing_jobs(self):
+        bundle(self.root/'releases'/'16.0.0', number='16.0.0')
+        state = self.root/'state'; state.mkdir()
+        checkpoint = state/'saved-job.json'; checkpoint.write_text('{"job_id":"accepted-job","checkpoint":"VERIFY"}')
+        self.assertTrue(self.manager.activate('16.0.0'))
+        self.assertEqual('15.0.0', read_pointer(self.root)['previous'])
+        self.manager.spawn.side_effect = RuntimeError('candidate did not become healthy')
+        self.assertEqual(RESTART, self.manager.boot())
+        self.assertEqual('15.0.0', read_pointer(self.root)['version'])
+        self.assertEqual('VERIFY', json.loads(checkpoint.read_text())['checkpoint'])
+        self.assertEqual('16.0.0', read_pointer(self.root)['failedVersion'])
 
     def test_unhealthy_candidate_rolls_back_and_blocks_automatic_retry(self):
         self.manager.activate('15.0.1')

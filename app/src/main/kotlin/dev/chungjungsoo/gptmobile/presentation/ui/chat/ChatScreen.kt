@@ -182,7 +182,8 @@ fun ChatScreen(
     showTopBar: Boolean = true,
     allowResearchPanels: Boolean = true,
     exportRequestedForChatId: Int? = null,
-    onExportHandled: () -> Unit = {}
+    onExportHandled: () -> Unit = {},
+    bottomInteractionContent: (@Composable () -> Unit)? = null
 ) {
     ConversationViewport { viewportWidth, viewportHeight ->
         ChatScreenContent(
@@ -197,6 +198,7 @@ fun ChatScreen(
             allowResearchPanels = allowResearchPanels,
             exportRequestedForChatId = exportRequestedForChatId,
             onExportHandled = onExportHandled,
+            bottomInteractionContent = bottomInteractionContent,
             viewportWidth = viewportWidth,
             viewportHeight = viewportHeight
         )
@@ -217,11 +219,14 @@ private fun ChatScreenContent(
     allowResearchPanels: Boolean,
     exportRequestedForChatId: Int?,
     onExportHandled: () -> Unit,
+    bottomInteractionContent: (@Composable () -> Unit)?,
     viewportWidth: Dp,
     viewportHeight: Dp
 ) {
     val chatRoom by chatViewModel.chatRoom.collectAsStateWithLifecycle()
+    val agentRunsById by chatViewModel.agentRunsById.collectAsStateWithLifecycle()
     val featureSettings by chatViewModel.featureSettings.collectAsStateWithLifecycle()
+    val chatToolConfig by chatViewModel.chatToolConfig.collectAsStateWithLifecycle()
     val snackbarHost = remember { androidx.compose.material3.SnackbarHostState() }
     val removedProfile by chatViewModel.removedCombinedProfile.collectAsStateWithLifecycle()
     LaunchedEffect(removedProfile) {
@@ -249,7 +254,7 @@ private fun ChatScreenContent(
         }
     }
     val delegationRecoveryRequests by chatViewModel.pendingDelegationRecovery.collectAsStateWithLifecycle()
-    delegationRecoveryRequests.firstOrNull { it.chatId == chatRoom.id }?.let { request ->
+    delegationRecoveryRequests.firstOrNull { it.chatId == chatRoom.id }?.takeIf { chatToolConfig.github == null }?.let { request ->
         DelegationRecoveryDialog(
             request = request,
             onSwitch = { profileUid -> chatViewModel.respondDelegationRecovery(request.id, profileUid) },
@@ -294,10 +299,12 @@ private fun ChatScreenContent(
             onSwitchToAuto = chatViewModel::switchProfileReasoningToAuto
         )
     }
-    val inputRequests by chatViewModel.pendingMcpInput.collectAsStateWithLifecycle()
-    inputRequests.firstOrNull()?.let { McpInputDialog(it, chatViewModel::respondMcpInput) }
-    val approvals by chatViewModel.pendingToolApprovals.collectAsStateWithLifecycle(emptyList())
-    approvals.firstOrNull()?.let { approval ->
+    val allInputRequests by chatViewModel.pendingMcpInput.collectAsStateWithLifecycle()
+    val inputRequests = allInputRequests.filter { request -> request.runId?.let { agentRunsById[it]?.chatId } == chatRoom.id }
+    inputRequests.firstOrNull()?.takeIf { chatToolConfig.github == null }?.let { McpInputDialog(it, respond = chatViewModel::respondMcpInput) }
+    val allApprovals by chatViewModel.pendingToolApprovals.collectAsStateWithLifecycle(emptyList())
+    val approvals = allApprovals.filter { approval -> agentRunsById[approval.runId]?.chatId == chatRoom.id }
+    approvals.firstOrNull()?.takeIf { chatToolConfig.github == null }?.let { approval ->
         ToolApprovalDialog(
             approval = approval,
             onDeny = { chatViewModel.decideToolApproval(approval.id, false) },
@@ -308,7 +315,7 @@ private fun ChatScreenContent(
         )
     }
     val freeToolConsent by chatViewModel.pendingFreeToolConsent.collectAsStateWithLifecycle()
-    freeToolConsent?.let { request ->
+    freeToolConsent?.takeIf { chatToolConfig.github == null }?.let { request ->
         FreeToolConsentDialog(
             request = request,
             onAccept = chatViewModel::confirmFreeToolConsent,
@@ -374,7 +381,6 @@ private fun ChatScreenContent(
     var showOutline by rememberSaveable { mutableStateOf(false) }
     var pendingJumpKey by rememberSaveable { mutableStateOf<String?>(null) }
     val isLoaded by chatViewModel.isLoaded.collectAsStateWithLifecycle()
-    val agentRunsById by chatViewModel.agentRunsById.collectAsStateWithLifecycle()
     val activeAgentRuns by chatViewModel.activeAgentRuns.collectAsStateWithLifecycle()
     val runNoticesById by chatViewModel.runNoticesById.collectAsStateWithLifecycle()
     val toolEventsByRun by chatViewModel.toolEventsByRun.collectAsStateWithLifecycle()
@@ -427,7 +433,6 @@ private fun ChatScreenContent(
     LaunchedEffect(chatRoom.id, appAllPlatforms, groupedMessages.userMessages.size, groupedMessages.assistantMessages.size) { chatViewModel.resumeBranchIfReady() }
     val chatPlatformModels by chatViewModel.chatPlatformModels.collectAsStateWithLifecycle()
     val availableChatTools by chatViewModel.availableChatTools.collectAsStateWithLifecycle()
-    val chatToolConfig by chatViewModel.chatToolConfig.collectAsStateWithLifecycle()
     val gatewayWriteBlocker by chatViewModel.gatewayWriteBlocker.collectAsStateWithLifecycle()
     val gatewayQueueState by chatViewModel.gatewayQueueState.collectAsStateWithLifecycle()
     val githubDecisions by chatViewModel.githubDecisions.collectAsStateWithLifecycle()
@@ -480,7 +485,7 @@ private fun ChatScreenContent(
         if (!isLoaded) return@LaunchedEffect
         if (chatToolConfig.github != null && promptTrackingReady && newestPromptKey != null && newestPromptKey != observedPromptKey) {
             anchoredPromptKey = newestPromptKey
-            promptAnchor.attach()
+            promptAnchor.followBottom()
             githubScrollMode = promptAnchor.mode
             githubGestureActive = false
             promptAnchorRevision++
@@ -1091,14 +1096,42 @@ private fun ChatScreenContent(
                     chatToolConfig.github?.let { github ->
                         item(key = "gateway-engineering-jobs") { GatewayEngineeringPanel(chatRoom.id, github, appAllPlatforms.firstOrNull { it.uid == github.mainProfileUid }, debugMode = debugMode) }
                     }
-                    items(visibleGitHubDecisions.size, key = { "github-decision-${visibleGitHubDecisions[it].id}" }) { index ->
-                        val decision = visibleGitHubDecisions[index]
-                        GitHubDecisionCard(decision, decision.id in githubWaiting, { option, answer -> chatViewModel.answerGitHubDecision(decision.id, option, answer) }, { chatViewModel.resumeGitHubDecision(decision.id) }, { chatViewModel.stopGitHubDecision(decision.id) })
-                    }
                     githubWorkingIndicator(isGenerating = activeMessage != null)
                 }
                 items(pendingPrompts.size, key = { "queued-${pendingPrompts[it].id}" }) { index ->
                     QueuedPromptBubble(pendingPrompts[index], chatViewModel::editQueuedPrompt, chatViewModel::removeQueuedPrompt, chatViewModel::pauseQueuedPrompt, followUpProgress[pendingPrompts[index].id])
+                }
+                if (chatToolConfig.github != null) {
+                    bottomInteractionContent?.let { content -> item(key = "github-saved-patch-approval") { content() } }
+                    items(visibleGitHubDecisions.size, key = { "github-decision-${visibleGitHubDecisions[it].id}" }) { index ->
+                        val decision = visibleGitHubDecisions[index]
+                        GitHubDecisionCard(decision, decision.id in githubWaiting, { option, answer -> chatViewModel.answerGitHubDecision(decision.id, option, answer) }, { chatViewModel.resumeGitHubDecision(decision.id) }, { chatViewModel.stopGitHubDecision(decision.id) })
+                    }
+                    items(approvals.size, key = { "tool-approval-${approvals[it].id}" }) { index ->
+                        val approval = approvals[index]
+                        ToolApprovalDialog(
+                            approval = approval,
+                            onDeny = { chatViewModel.decideToolApproval(approval.id, false) },
+                            onAllowOnce = { chatViewModel.decideToolApproval(approval.id, true) },
+                            onAllowInConversation = { chatViewModel.allowToolInConversation(approval.id) },
+                            onAlwaysAllowTool = { chatViewModel.alwaysAllowTool(approval.id) },
+                            onAlwaysAllowProvider = { chatViewModel.alwaysAllowToolProvider(approval.id) },
+                            inline = true
+                        )
+                    }
+                    items(inputRequests.size, key = { "mcp-input-${inputRequests[it].id}" }) { index ->
+                        McpInputDialog(inputRequests[index], inline = true, respond = chatViewModel::respondMcpInput)
+                    }
+                    delegationRecoveryRequests.filter { it.chatId == chatRoom.id }.forEach { request ->
+                        item(key = "delegation-recovery-${request.id}") {
+                            DelegationRecoveryDialog(request, { profileUid -> chatViewModel.respondDelegationRecovery(request.id, profileUid) }, { chatViewModel.respondDelegationRecovery(request.id, null) }, inline = true)
+                        }
+                    }
+                    freeToolConsent?.let { request ->
+                        item(key = "personal-tool-consent") {
+                            FreeToolConsentDialog(request, chatViewModel::confirmFreeToolConsent, chatViewModel::dismissFreeToolConsent, inline = true)
+                        }
+                    }
                 }
                 if (groupedMessages.userMessages.isNotEmpty()) {
                     item(key = "chat-bottom-anchor") {
@@ -1968,7 +2001,7 @@ internal fun ChatMessagePair(
                         if (!hasCombinedTabs) {
                             reviewRetryBlock?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                             if (gatewayAdmission == null && responseRecoveryKind == ProfileRecoveryKind.NONE && approvalRetryBlock == null) {
-                                TextButton(onClick = { onRetry(messageIndex, displayPlatformIndex) }, enabled = isIdle && canUseChat && reviewRetryBlock == null) { Text(stringResource(R.string.audit_generate_again)) }
+                                TextButton(onClick = { onRetry(messageIndex, displayPlatformIndex) }, enabled = isIdle && canUseChat && reviewRetryBlock == null) { Text(if (agentRun?.status in setOf(AgentRunStatus.PARTIAL, AgentRunStatus.EVIDENCE_MISSING) && githubTask != null) "Resume saved task" else stringResource(R.string.audit_generate_again)) }
                             } else if (gatewayAdmission == null && responseRecoveryKind != ProfileRecoveryKind.NONE) {
                                 ProfileRecoveryActions(
                                     kind = responseRecoveryKind,

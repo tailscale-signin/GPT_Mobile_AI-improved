@@ -5,7 +5,7 @@ Android closes, loses its network, or restarts. The gateway makes bounded llama
 requests, saves each phase and operation receipt in its SQLite job database,
 and owns execution independently of the HTTP request or phone process.
 
-These are additive Gateway 15 workflow capabilities in the existing 14.3
+These are additive Gateway 16 workflow capabilities in the existing 14.3
 package layout. Install the whole package and manifest through the v14 upgrade
 procedure; replacing a single launcher is insufficient.
 

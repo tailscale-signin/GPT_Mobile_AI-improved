@@ -348,11 +348,6 @@ fun GitHubWorkspaceScreen(
                                 3 -> {
                                     val chatId = visibleProgrammer.chatId
                                     if (chatId != null && commandContext != null) {
-                                        dev.chungjungsoo.gptmobile.presentation.ui.workspace.GitHubChatApprovalCard(commitReview) { sha ->
-                                            val publishedBranch = commitReview.review.value?.branch
-                                            if (publishedBranch == commandContext.ref) viewModel.acceptPublishedCommit(sha)
-                                            commitReview.refreshEngineeringTasks()
-                                        }
                                         GitHubChatChecks(chatId)
                                         androidx.compose.foundation.layout.Box(Modifier.weight(1f)) {
                                             GitHubChatConversation(
@@ -370,7 +365,14 @@ fun GitHubWorkspaceScreen(
                                                 onRecoveryHandled = { recoveryRequest = null },
                                                 exportRequested = exportChatId == chatId,
                                                 onExportHandled = { exportChatId = null },
-                                                approvalPending = savedEngineeringTasks.any { it.taskId == pendingCommit && it.state == "AWAITING_APPROVAL" }
+                                                approvalPending = savedEngineeringTasks.any { it.taskId == pendingCommit && it.state == "AWAITING_APPROVAL" },
+                                                bottomInteractionContent = {
+                                                    dev.chungjungsoo.gptmobile.presentation.ui.workspace.GitHubChatApprovalCard(commitReview) { sha ->
+                                                        val publishedBranch = commitReview.review.value?.branch
+                                                        if (publishedBranch == commandContext.ref) viewModel.acceptPublishedCommit(sha)
+                                                        commitReview.refreshEngineeringTasks()
+                                                    }
+                                                }
                                             )
                                         }
                                     } else {
@@ -509,7 +511,14 @@ fun GitHubWorkspaceScreen(
                                                 exportChatId = visibleProgrammer.chatId
                                                 tab = 3
                                             },
-                                            approvalPending = savedEngineeringTasks.any { it.taskId == pendingCommit && it.state == "AWAITING_APPROVAL" }
+                                            approvalPending = savedEngineeringTasks.any { it.taskId == pendingCommit && it.state == "AWAITING_APPROVAL" },
+                                            bottomInteractionContent = {
+                                                dev.chungjungsoo.gptmobile.presentation.ui.workspace.GitHubChatApprovalCard(commitReview) { sha ->
+                                                    val publishedBranch = commitReview.review.value?.branch
+                                                    if (publishedBranch == commandContext.ref) viewModel.acceptPublishedCommit(sha)
+                                                    commitReview.refreshEngineeringTasks()
+                                                }
+                                            }
                                         )
                                         visibleProgrammer.chatId?.let { GitHubChatChecks(it, expanded = true) }
                                     }

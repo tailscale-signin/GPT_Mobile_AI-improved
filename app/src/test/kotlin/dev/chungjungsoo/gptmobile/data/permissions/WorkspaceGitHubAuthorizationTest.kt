@@ -12,7 +12,9 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -80,5 +82,21 @@ class WorkspaceGitHubAuthorizationTest {
         configure(previous = "OUTCOME_UNKNOWN")
         assertFalse(manager.authorize("github", "run", "repeat", "github", buildJsonObject { put("action", "create_branch") }))
         coVerify(exactly = 0) { dao.insert(any()) }
+    }
+
+    @Test fun workspaceAutoApprovalDoesNotAuthorizeCollaborationWrites() = runTest {
+        configure()
+        for (action in listOf("pr_enable_auto_merge", "pr_dismiss_review", "issue_edit_comment")) {
+            state.value = null
+            val approval = async {
+                manager.authorize("github", "run", action, "github", buildJsonObject { put("action", action) })
+            }
+            val request = requireNotNull(state.first { it != null })
+            assertEquals("PENDING", request.state)
+            assertTrue(request.requiresExactConfirmation)
+            state.value = request.copy(state = "DENIED")
+            assertFalse(approval.await())
+        }
+        coVerify(exactly = 0) { dao.claim(any()) }
     }
 }

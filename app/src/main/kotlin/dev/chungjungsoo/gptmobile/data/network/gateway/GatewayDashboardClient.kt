@@ -78,7 +78,7 @@ internal class GatewayDashboardClient internal constructor(private val http: Htt
                         socketTimeoutMillis = 8_000
                     }
                 }.execute { response ->
-                    GatewayClientDiagnostics.observe(config, response.status.value) { response.headers[it] }
+                    GatewayClientDiagnostics.observe(config, response.status.value, response.call.request.headers["traceparent"]) { response.headers[it] }
                     if (response.status.value in setOf(404, 405)) return@execute null
                     if (response.status.value in setOf(401, 403)) throw GatewayDashboardAccessDenied()
                     check(response.status.isSuccess()) { "Gateway refresh is unavailable (HTTP ${response.status.value})." }
@@ -124,7 +124,7 @@ internal class GatewayDashboardClient internal constructor(private val http: Htt
                         socketTimeoutMillis = 5_000
                     }
                 }.execute { response ->
-                    GatewayClientDiagnostics.observe(config, response.status.value) { response.headers[it] }
+                    GatewayClientDiagnostics.observe(config, response.status.value, response.call.request.headers["traceparent"]) { response.headers[it] }
                     if (response.status.value in setOf(404, 405, 501)) return@execute null
                     if (response.status.value in setOf(401, 403)) throw GatewayDashboardAccessDenied()
                     check(response.status.value in setOf(200, 503)) { "Gateway readiness is unavailable (HTTP ${response.status.value})." }
@@ -139,6 +139,7 @@ internal class GatewayDashboardClient internal constructor(private val http: Htt
                         val age = parsed.observationAgeMillis ?: 0
                         parsed.copy(observationAgeMillis = if (travel > Long.MAX_VALUE - age) Long.MAX_VALUE else age + travel)
                     }
+                    GatewayClientDiagnostics.readiness(config, requestHeaders, readiness, model)
                     readiness.also {
                         GatewayClientDiagnostics.observeInstance(config, it.instanceId)
                     }

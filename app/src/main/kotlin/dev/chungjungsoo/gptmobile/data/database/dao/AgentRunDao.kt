@@ -11,8 +11,14 @@ import kotlinx.coroutines.flow.map
 
 data class RunOutputLength(val runId: String, val characters: Long)
 
+/** Narrow support projection: no prompts, credentials, failure prose or policy snapshots. */
+data class GatewayRunDiagnosticState(val runId: String, val status: String, val jobId: String?, val checkpointSequence: Int, val ownershipFence: Long, val terminalError: String?)
+
 @Dao
 interface AgentRunDao : RunPolicySnapshotAccess {
+    @Query("SELECT r.run_id AS runId, r.status, r.gateway_job_id AS jobId, r.gateway_last_sequence AS checkpointSequence, r.ownership_fence AS ownershipFence, substr(r.terminal_error,1,4096) AS terminalError FROM agent_runs r JOIN chats_v2 c ON c.chat_id = r.chat_id WHERE c.is_temporary = 0 AND (r.gateway_base_url = :baseUrl OR r.profile_uid = :profileUid) ORDER BY CASE WHEN r.status IN ('QUEUED','RUNNING','WAITING_PROVIDER_LIMIT','WAITING_REMOTE_JOB') THEN 0 ELSE 1 END, r.created_at DESC LIMIT 129")
+    suspend fun gatewayDiagnosticStates(baseUrl: String, profileUid: String): List<GatewayRunDiagnosticState>
+
     @Query("SELECT run_id AS runId, profile_uid AS profileUid, provider_snapshot AS provider, model_snapshot AS model, status, created_at AS createdAt, started_at AS startedAt, completed_at AS completedAt, input_tokens AS inputTokens, output_tokens AS outputTokens, total_tokens AS totalTokens FROM agent_runs WHERE display_role != 'INTERNAL' ORDER BY created_at DESC, run_id DESC LIMIT :limit")
     fun observeHomeActivity(limit: Int = 250): Flow<List<dev.chungjungsoo.gptmobile.data.model.SettingsHomeActivity>>
 

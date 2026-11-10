@@ -70,7 +70,10 @@ internal data class GatewayReadinessObservation(
     val observationAgeMillis: Long? = null,
     val receivedAtMonotonicMillis: Long? = null,
     val reasonCode: String? = null,
-    val retryable: Boolean? = null
+    val retryable: Boolean? = null,
+    val dependency: String? = null,
+    val upstreamStatus: Int? = null,
+    val recoveryAction: String? = null
 )
 
 internal fun parseGatewayReadiness(value: JsonObject, status: Int, model: String?, receivedAtMillis: Long, receivedAtMonotonicMillis: Long? = null): GatewayReadinessObservation {
@@ -96,6 +99,16 @@ internal fun parseGatewayReadiness(value: JsonObject, status: Int, model: String
     require((observedAt == null) == (reportedAge == null)) { "Gateway readiness freshness evidence is incomplete." }
     // Original probe age is monotonic on the server; its wall clock is metadata.
     // Validate the optional server timestamp without comparing clocks across hosts.
+    val topReason = GatewayReadinessFailure.reasonCode((value["reasonCode"] as? JsonPrimitive)?.contentOrNull)
+    val backendReason = GatewayReadinessFailure.reasonCode((capabilities["reasonCode"] as? JsonPrimitive)?.contentOrNull)
+    val reason = topReason ?: backendReason
+    // Storage/process blockers take precedence and must not borrow an unrelated backend cause.
+    val dependency = when (reason) {
+        "DURABLE_STORAGE_UNAVAILABLE", "DURABLE_STORAGE_WRITE_FAILED" -> "durable_storage"
+        "GATEWAY_DRAINING" -> "process"
+        else -> GatewayReadinessFailure.dependency(((if (topReason != null && topReason != backendReason) value else capabilities)["dependency"] as? JsonPrimitive)?.contentOrNull)
+    }
+    val upstream = if (topReason == null || topReason == backendReason) (capabilities["upstreamStatus"] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull?.takeIf { it in 100..599 } else null
     return GatewayReadinessObservation(
         instance,
         ready,
@@ -110,8 +123,11 @@ internal fun parseGatewayReadiness(value: JsonObject, status: Int, model: String
         observedAt,
         reportedAge,
         receivedAtMonotonicMillis,
-        GatewayReadinessFailure.reasonCode(((capabilities["reasonCode"] ?: value["reasonCode"]) as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull),
-        ((capabilities["retryable"] ?: value["retryable"]) as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull
+        reason,
+        ((value["retryable"] ?: capabilities["retryable"]) as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull,
+        dependency,
+        upstream,
+        reason?.let { gatewayDiagnosticRecovery(it) }
     )
 }
 

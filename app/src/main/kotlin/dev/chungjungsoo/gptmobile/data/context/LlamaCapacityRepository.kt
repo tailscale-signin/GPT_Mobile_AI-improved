@@ -97,7 +97,7 @@ internal class LlamaCapacityRepository(
                                     socketTimeoutMillis = 5_000
                                 }
                             }.execute { response ->
-                                GatewayClientDiagnostics.observe(config, response.status.value) { response.headers[it] }
+                                GatewayClientDiagnostics.observe(config, response.status.value, response.call.request.headers["traceparent"]) { response.headers[it] }
                                 GatewaySurfacePolicy.shared.observe(GatewaySurfacePolicy.identity(config), GatewaySurfacePolicy.Surface.CAPABILITIES, response.status.value)
                                 if (response.status.value != 200) {
                                     return@execute GatewayModelCapabilityObservation(httpStatus = response.status.value, failureCode = "GATEWAY_CAPABILITY_HTTP_REJECTED", retryable = response.status.value in setOf(408, 429, 502, 503, 504))
@@ -144,7 +144,7 @@ internal class LlamaCapacityRepository(
                                 parameter("autoload", "false")
                                 if (LocalEndpointConnectionPolicy.freshConnection(config.apiUrl)) header(HttpHeaders.Connection, "close")
                             }
-                            GatewayClientDiagnostics.observe(config, response.status.value) { response.headers[it] }
+                            GatewayClientDiagnostics.observe(config, response.status.value, response.call.request.headers["traceparent"]) { response.headers[it] }
                             val body = try {
                                 response.boundedMetadata(if (response.status.value == 200) 1_000_000 else 16 * 1024)
                             } catch (cancelled: CancellationException) {
@@ -229,48 +229,49 @@ internal class LlamaCapacityRepository(
             try {
                 withTimeoutOrNull(10_000L) {
                     val control = capacity?.let { reasoningControl(config, model, it) }
-                    val response = client().post(config.apiUrl.trim().trimEnd('/').removeSuffix("/v1") + "/v1/chat/completions") {
-                        config.token?.takeIf { it.isNotBlank() }?.let { bearerAuth(it) }
-                        // This is an independent synthetic inference, never a continuation
-                        // of the user's retained gateway job or idempotency identity.
-                        val headers = GatewayClientDiagnostics.requestHeaders(config)
-                        val identities = setOf("x-gateway-job-id", "x-gateway-request-id", "x-gateway-attempt-id", "x-request-id", "idempotency-key", "x-idempotency-key")
-                        headers.filterKeys { it.lowercase() !in identities }.forEach { (name, value) -> header(name, value) }
-                        if (headers.keys.any { it.equals("X-Gateway-Attempt-ID", true) }) header("X-Gateway-Attempt-ID", java.util.UUID.randomUUID().toString())
-                        parameter("autoload", "false")
-                        contentType(ContentType.Application.Json)
-                        if (LocalEndpointConnectionPolicy.freshConnection(config.apiUrl)) header(HttpHeaders.Connection, "close")
-                        setBody(
-                            buildJsonObject {
-                                put("model", model)
-                                put("stream", false)
-                                put("max_tokens", 256)
-                                put("tool_choice", "none")
-                                put(
-                                    "messages",
-                                    JsonArray(
-                                        listOf(
-                                            buildJsonObject {
-                                                put("role", "user")
-                                                put("content", "Return only {\"ok\":false}.")
-                                            }
+                    gatewayClientExchange(config, "chat", safeRead = false, method = "POST", knownGateway = false) { headers ->
+                        val response = client().post(config.apiUrl.trim().trimEnd('/').removeSuffix("/v1") + "/v1/chat/completions") {
+                            config.token?.takeIf { it.isNotBlank() }?.let { bearerAuth(it) }
+                            // This is an independent synthetic inference, never a continuation
+                            // of the user's retained gateway job or idempotency identity.
+                            val identities = setOf("x-gateway-job-id", "x-gateway-request-id", "x-gateway-attempt-id", "x-request-id", "idempotency-key", "x-idempotency-key")
+                            headers.filterKeys { it.lowercase() !in identities }.forEach { (name, value) -> header(name, value) }
+                            if (headers.keys.any { it.equals("X-Gateway-Attempt-ID", true) }) header("X-Gateway-Attempt-ID", java.util.UUID.randomUUID().toString())
+                            parameter("autoload", "false")
+                            contentType(ContentType.Application.Json)
+                            if (LocalEndpointConnectionPolicy.freshConnection(config.apiUrl)) header(HttpHeaders.Connection, "close")
+                            setBody(
+                                buildJsonObject {
+                                    put("model", model)
+                                    put("stream", false)
+                                    put("max_tokens", 256)
+                                    put("tool_choice", "none")
+                                    put(
+                                        "messages",
+                                        JsonArray(
+                                            listOf(
+                                                buildJsonObject {
+                                                    put("role", "user")
+                                                    put("content", "Return only {\"ok\":false}.")
+                                                }
+                                            )
                                         )
                                     )
-                                )
-                                put("response_format", dev.chungjungsoo.gptmobile.data.github.GitHubReviewSchema.probeFormat)
-                                control?.let { put("chat_template_kwargs", buildJsonObject { put(it.parameter, false) }) }
-                            }.toString()
-                        )
+                                    put("response_format", dev.chungjungsoo.gptmobile.data.github.GitHubReviewSchema.probeFormat)
+                                    control?.let { put("chat_template_kwargs", buildJsonObject { put(it.parameter, false) }) }
+                                }.toString()
+                            )
+                        }
+                        GatewayClientDiagnostics.observe(config, response.status.value, response.call.request.headers["traceparent"]) { response.headers[it] }
+                        val body = response.boundedMetadata(64 * 1024)
+                        if (response.status.value != 200) return@gatewayClientExchange null
+                        val root = Json.parseToJsonElement(body) as? JsonObject ?: return@gatewayClientExchange null
+                        val first = (root["choices"] as? JsonArray)?.firstOrNull() as? JsonObject
+                        val message = first?.get("message") as? JsonObject
+                        val text = (message?.get("content") as? JsonPrimitive)?.contentOrNull ?: return@gatewayClientExchange null
+                        // The prompt asks for false; only an enforced schema permits true.
+                        if (Json.parseToJsonElement(text.trim()) == buildJsonObject { put("ok", true) }) true else null
                     }
-                    GatewayClientDiagnostics.observe(config, response.status.value) { response.headers[it] }
-                    val body = response.boundedMetadata(64 * 1024)
-                    if (response.status.value != 200) return@withTimeoutOrNull null
-                    val root = Json.parseToJsonElement(body) as? JsonObject ?: return@withTimeoutOrNull null
-                    val first = (root["choices"] as? JsonArray)?.firstOrNull() as? JsonObject
-                    val message = first?.get("message") as? JsonObject
-                    val text = (message?.get("content") as? JsonPrimitive)?.contentOrNull ?: return@withTimeoutOrNull null
-                    // The prompt asks for false; only an enforced schema permits true.
-                    if (Json.parseToJsonElement(text.trim()) == buildJsonObject { put("ok", true) }) true else null
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -282,34 +283,36 @@ internal class LlamaCapacityRepository(
     private suspend fun applyTemplate(config: ProviderRequestConfig, model: String, control: ReasoningTemplateControl, enabled: Boolean): String? {
         val endpoint = config.apiUrl.trim().trimEnd('/').removeSuffix("/v1") + "/apply-template"
         val response = LocalEndpointConnectionPolicy.probe(config.apiUrl, evictIdleConnections) {
-            client().post(endpoint) {
-                config.token?.takeIf { it.isNotBlank() }?.let { bearerAuth(it) }
-                GatewayClientDiagnostics.requestHeaders(config).forEach { (name, value) -> header(name, value) }
-                parameter("model", model)
-                parameter("autoload", "false")
-                if (LocalEndpointConnectionPolicy.freshConnection(config.apiUrl)) header(HttpHeaders.Connection, "close")
-                contentType(ContentType.Application.Json)
-                setBody(
-                    buildJsonObject {
-                        put("model", model)
-                        put(
-                            "messages",
-                            JsonArray(
-                                listOf(
-                                    buildJsonObject {
-                                        put("role", "user")
-                                        put("content", "Template capability check.")
-                                    }
+            gatewayClientExchange(config, "other", safeRead = false, method = "POST", knownGateway = false) { headers ->
+                client().post(endpoint) {
+                    config.token?.takeIf { it.isNotBlank() }?.let { bearerAuth(it) }
+                    headers.forEach { (name, value) -> header(name, value) }
+                    parameter("model", model)
+                    parameter("autoload", "false")
+                    if (LocalEndpointConnectionPolicy.freshConnection(config.apiUrl)) header(HttpHeaders.Connection, "close")
+                    contentType(ContentType.Application.Json)
+                    setBody(
+                        buildJsonObject {
+                            put("model", model)
+                            put(
+                                "messages",
+                                JsonArray(
+                                    listOf(
+                                        buildJsonObject {
+                                            put("role", "user")
+                                            put("content", "Template capability check.")
+                                        }
+                                    )
                                 )
                             )
-                        )
-                        put("chat_template_kwargs", buildJsonObject { put(control.parameter, enabled) })
-                        put("add_generation_prompt", true)
-                    }.toString()
-                )
-            }.also {
-                GatewayClientDiagnostics.observe(config, it.status.value) { name -> it.headers[name] }
-                it.body<String>()
+                            put("chat_template_kwargs", buildJsonObject { put(control.parameter, enabled) })
+                            put("add_generation_prompt", true)
+                        }.toString()
+                    )
+                }.also {
+                    GatewayClientDiagnostics.observe(config, it.status.value, it.call.request.headers["traceparent"]) { name -> it.headers[name] }
+                    it.body<String>()
+                }
             }
         }
         if (response.status.value != 200) return null

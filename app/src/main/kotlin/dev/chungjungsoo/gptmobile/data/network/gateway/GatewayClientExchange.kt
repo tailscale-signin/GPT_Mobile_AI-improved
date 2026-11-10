@@ -9,11 +9,12 @@ internal suspend fun <T> gatewayClientExchange(
     route: String,
     safeRead: Boolean,
     method: String = "GET",
+    knownGateway: Boolean = true,
     block: suspend (Map<String, String>) -> T
 ): T {
     val read = currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.network.LocalMetadataReadAttempt]?.takeIf { safeRead && method == "GET" && it.ordinal in 0..1 }
     val observedReadAttempt = read?.ordinal
-    val diagnosticHeaders = GatewayClientDiagnostics.requestHeaders(config, route = route, method = method, metadataReadId = read?.readId, metadataReadAttempt = read?.ordinal)
+    val diagnosticHeaders = GatewayClientDiagnostics.requestHeaders(config, route = route, method = method, metadataReadId = read?.readId, metadataReadAttempt = read?.ordinal, knownGateway = knownGateway)
     val headers = if (observedReadAttempt == null) diagnosticHeaders else diagnosticHeaders.filterKeys { !it.equals("X-Gateway-Retry-Attempt", true) } + ("X-Gateway-Retry-Attempt" to observedReadAttempt.toString())
     return try {
         block(headers).also { if (it != null) GatewayClientDiagnostics.metadataReadCompleted(config, headers) }

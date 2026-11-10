@@ -144,7 +144,7 @@ class GatewayAvailabilityRepository internal constructor(
                 entry.references--
                 if (!background) entry.activeReferences--
                 if (entry.references == 0) {
-                    entry.polling?.cancel()
+                    entry.polling?.cancel(GatewayObserverCancellation("observer_detached"))
                     entry.polling = null
                     entry.generation++
                 }
@@ -197,6 +197,7 @@ class GatewayAvailabilityRepository internal constructor(
         }
         var running: Job? = null
         var forceRefresh = recovered
+        var refreshTrigger = if (recovered) "network_recovery" else "scheduled"
         while (isActive) {
             val changed = synchronized(lock) {
                 val currentEpoch = epoch(entry.target)
@@ -218,9 +219,10 @@ class GatewayAvailabilityRepository internal constructor(
                 }
             }
             if (changed) {
-                running?.cancel()
+                running?.cancel(GatewayObserverCancellation("superseded"))
                 running = null
                 forceRefresh = true
+                refreshTrigger = "instance_changed"
             }
             val nextCheck = synchronized(lock) {
                 val cadence = pollMillis(entry)
@@ -236,7 +238,9 @@ class GatewayAvailabilityRepository internal constructor(
             if (now() >= nextCheck && running?.isActive != true) {
                 val generation = synchronized(lock) { entry.generation }
                 val requestRefresh = forceRefresh
+                val trigger = refreshTrigger
                 forceRefresh = false
+                refreshTrigger = "scheduled"
                 // Advance from the scheduled time, skipping missed ticks instead of bursting.
                 synchronized(lock) {
                     val cadence = entry.cadenceMillis
@@ -245,14 +249,14 @@ class GatewayAvailabilityRepository internal constructor(
                     entry.nextCheckMillis = requireNotNull(entry.lastScheduledProbeMillis) + cadence
                 }
                 running = launch {
-                    probes.withPermit { refresh(entry, generation, requestRefresh) }
+                    probes.withPermit { refresh(entry, generation, requestRefresh, trigger) }
                 }
             }
             delay(1_000)
         }
     }
 
-    private suspend fun refresh(entry: Entry, generation: Long, forceRefresh: Boolean) {
+    private suspend fun refresh(entry: Entry, generation: Long, forceRefresh: Boolean, trigger: String) {
         val network = networkEpoch()
         val config = requireNotNull(entry.target.config)
         var observationFailed = false
@@ -277,9 +281,10 @@ class GatewayAvailabilityRepository internal constructor(
         }
         synchronized(lock) {
             if (entry.generation != generation || network != networkEpoch() || entry.references == 0) return
+            val previousFailure = entry.unavailableObservationKey
             val unavailable = observationFailed || state.status in setOf(GatewayAvailabilityStatus.NOT_READY, GatewayAvailabilityStatus.MODEL_UNAVAILABLE, GatewayAvailabilityStatus.MODEL_LOADING, GatewayAvailabilityStatus.DRAINING, GatewayAvailabilityStatus.NOT_GATEWAY, GatewayAvailabilityStatus.INCOMPATIBLE)
             if (unavailable) {
-                val key = "${state.status}|$unavailableReason"
+                val key = "${state.status}|${state.failedDependency}|$unavailableReason"
                 if (entry.unavailableObservationKey != key) entry.consecutiveFailures = 0
                 entry.unavailableObservationKey = key
                 entry.consecutiveFailures = (entry.consecutiveFailures + 1).coerceAtMost(4)
@@ -304,7 +309,34 @@ class GatewayAvailabilityRepository internal constructor(
                     lastReachableAtMillis = state.lastReachableAtMillis ?: entry.state.value.lastReachableAtMillis
                 ).fresh(now())
             }
-            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("GatewayAvailability", "PROBE_RESULT · routeHash=${researchHash(GatewayClientDiagnostics.routeIdentity(config)).take(16)} · modelHash=${researchHash(entry.target.model).take(16)} · networkEpoch=$network · instanceHash=${state.instanceId?.let { researchHash(it).take(16) } ?: "unobserved"} · status=${state.status} · phase=${state.failedPhase ?: "complete"} · reason=${state.failureCode ?: unavailableReason ?: "none"} · capabilitiesCheckedAt=${state.capabilitiesCheckedAtMillis ?: "unobserved"} · readinessCheckedAt=${state.readinessCheckedAtMillis ?: "unobserved"} · capabilityFailure=${state.capabilitiesFailureCode ?: "none"} · readinessFailure=${state.readinessFailureCode ?: "none"} · trigger=${if (forceRefresh) "EXPLICIT_REFRESH" else "SCHEDULED"} · metadataOnly=true")
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.recordEvent(
+                "GatewayAvailability",
+                "PROBE_RESULT",
+                mapOf(
+                    "endpoint_digest" to GatewayClientDiagnostics.routeIdentity(config),
+                    "model_digest" to researchHash(entry.target.model),
+                    "profile_digest" to config.profileUid?.let(::researchHash),
+                    "status" to state.status.name,
+                    "failedStage" to state.failedPhase,
+                    "reasonCode" to (state.failureCode ?: unavailableReason),
+                    "dependency" to state.failedDependency,
+                    "upstream_status" to state.upstreamStatus,
+                    "observation_age_ms" to state.observationAgeMillis,
+                    "recoveryAction" to state.recoveryAction,
+                    "poll_owner" to "availability",
+                    "poll_trigger" to trigger,
+                    "active_observers" to entry.activeReferences,
+                    "background_observers" to (entry.references - entry.activeReferences),
+                    "next_check_delay_ms" to (maxOf(entry.nextCheckMillis, entry.retryNotBeforeMillis) - now()).coerceAtLeast(0),
+                    "failure_transition" to if (!unavailable && previousFailure != null) {
+                        "recovered"
+                    } else if (previousFailure == entry.unavailableObservationKey) {
+                        "unchanged"
+                    } else {
+                        "changed"
+                    }
+                )
+            )
             entry.epoch = epoch(entry.target)
         }
     }
@@ -342,7 +374,11 @@ class GatewayAvailabilityRepository internal constructor(
             },
             failureCode = failure?.reasonCode,
             capabilitiesFailureCode = probe.capabilitiesFailure?.reasonCode,
-            readinessFailureCode = probe.readinessFailure?.reasonCode
+            readinessFailureCode = probe.readinessFailure?.reasonCode,
+            failedDependency = probe.readiness?.dependency,
+            upstreamStatus = probe.readiness?.upstreamStatus,
+            recoveryAction = probe.readiness?.recoveryAction ?: failure?.reasonCode?.let { gatewayDiagnosticRecovery(it) },
+            observationAgeMillis = probe.readiness?.observationAgeMillis
         )
         if (failure != null) {
             val status = when {
@@ -385,7 +421,10 @@ class GatewayAvailabilityRepository internal constructor(
             instanceId = readiness.instanceId,
             lastObservedStatus = status,
             lastObservedAtMillis = observedAt,
-            conversationSyncSupported = capability.supportsFeature("conversation_sync_v1")
+            conversationSyncSupported = capability.supportsFeature("conversation_sync_v1"),
+            failureCode = readiness.reasonCode.takeUnless { status in setOf(GatewayAvailabilityStatus.ONLINE, GatewayAvailabilityStatus.BUSY_QUEUE) },
+            failedPhase = "gateway_readiness".takeUnless { status in setOf(GatewayAvailabilityStatus.ONLINE, GatewayAvailabilityStatus.BUSY_QUEUE) },
+            observationAgeMillis = age
         ).fresh(now())
     }
 }

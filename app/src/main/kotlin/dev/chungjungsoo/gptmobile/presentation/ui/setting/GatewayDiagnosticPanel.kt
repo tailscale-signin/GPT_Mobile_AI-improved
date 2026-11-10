@@ -130,7 +130,7 @@ internal fun GatewayDiagnosticPanel(
                         }
                     }, enabled = !exporting && state.status.sessionId != null && state.status.captureState != "private_session") { Text(if (exporting) "Exporting…" else "Export evidence") }
                 }
-                Text("The device export contains a bounded mirror and a checksum/coverage manifest. Offline gaps and missing gateway evidence remain explicit. Full job evidence has separate retention.", style = MaterialTheme.typography.labelSmall)
+                Text("The support bundle links the device mirror, current saved run states, and the gateway’s committed session when reachable. Each source has checksums and coverage; missing sources and full job-evidence links remain explicit.", style = MaterialTheme.typography.labelSmall)
             }
         }
     }
@@ -145,7 +145,11 @@ private fun GatewayDiagnosticEventDetails(event: JsonObject) {
         event.diagnosticText(field)?.let { Text("$label: $it", style = MaterialTheme.typography.labelSmall) }
     }
     val attributes = event["bounded_attributes"] as? JsonObject
-    listOf("queue_ms" to "Queue ms", "load_ms" to "Load ms", "prefill_ms" to "Prefill ms", "decode_ms" to "Decode ms", "input_tokens" to "Input tokens", "output_tokens" to "Output tokens", "stalls_over_500_ms" to "Frames over 500 ms", "gc_count" to "GC count (approximate)", "gc_duration_ms" to "GC ms (approximate)", "heap_bytes" to "Java heap bytes", "native_heap_bytes" to "Native heap bytes").forEach { (field, label) ->
+    listOf("reason_code" to "Reason", "recovery_condition" to "Recovery condition", "failed_stage" to "Failed stage", "terminal_status" to "Outcome", "completion_disposition" to "Disposition", "dependency" to "Dependency", "dispatch_scope" to "Dispatch evidence scope", "mcp_phase" to "MCP phase", "transport_cause" to "Connection cause", "cancellation_origin" to "Cancellation origin", "correlation_status" to "Correlation", "poll_owner" to "Poll owner").forEach { (field, label) ->
+        attributes?.diagnosticText(field)?.let { Text("$label: $it", style = MaterialTheme.typography.bodySmall) }
+    }
+    attributes?.diagnosticText("recovery_action")?.let { Text(dev.chungjungsoo.gptmobile.presentation.ui.home.gatewayRecoveryLabel(it), style = MaterialTheme.typography.bodyMedium) }
+    listOf("frame_count" to "Measured frames", "missed_deadline_count" to "Missed frame deadlines", "dropped_samples" to "Lost measurement samples", "maximum_frame_ns" to "Maximum frame ns", "frame_budget_ns" to "Frame budget ns", "observation_age_ms" to "Observation age at capture ms", "upstream_status" to "Upstream HTTP status", "required_criteria" to "Required criteria", "verified_criteria" to "Verified criteria", "remaining_criteria" to "Remaining criteria", "next_check_delay_ms" to "Next check delay ms", "queue_ms" to "Queue ms", "load_ms" to "Load ms", "prefill_ms" to "Prefill ms", "decode_ms" to "Decode ms", "input_tokens" to "Input tokens", "output_tokens" to "Output tokens", "stalls_over_500_ms" to "Frames over 500 ms", "gc_count" to "GC count (approximate)", "gc_duration_ms" to "GC ms (approximate)", "heap_bytes" to "Java heap bytes", "native_heap_bytes" to "Native heap bytes").forEach { (field, label) ->
         attributes?.diagnosticLong(field)?.let { Text("$label: $it", style = MaterialTheme.typography.bodySmall) }
     }
     Text(diagnosticRecovery(event.diagnosticText("error_code") ?: "UNKNOWN_CAUSE"), style = MaterialTheme.typography.bodySmall)
@@ -175,9 +179,11 @@ internal fun diagnosticRecovery(code: String): String = when (code) {
     "DIAGNOSTIC_REQUEST_REJECTED", "DIAGNOSTIC_REDIRECT_REJECTED", "DIAGNOSTIC_PROTOCOL_FAILURE", "DIAGNOSTIC_TLS_FAILURE", "INVALID_DIAGNOSTIC_ACK", "INVALID_DIAGNOSTIC_PAGE", "INVALID_DIAGNOSTIC_CURSOR", "INVALID_DIAGNOSTIC_EVENT", "INVALID_DIAGNOSTIC_GAP", "DIAGNOSTIC_BATCH_LIMIT", "DIAGNOSTIC_RESPONSE_LIMIT" -> "Synchronization stopped after an invalid or unsupported response. Check the selected gateway's configuration and version, preserve the evidence, then refresh."
     "DIAGNOSTIC_TRANSPORT_FAILURE", "TRANSPORT_FAILURE", "GITHUB_TRANSIENT_NETWORK" -> "Check the selected gateway connection and refresh it. Preserve the export if the failure repeats."
     "DISPATCH_UNCERTAIN" -> "Reconcile the operation receipt before repeating a write. This event does not establish whether the remote effect completed."
-    "PRECHECK_REJECTED" -> "The operation was not dispatched. Inspect its retained precheck reason and resolve that condition."
+    "PRECHECK_REJECTED" -> "The blocked action was not dispatched. Earlier run actions may have executed. Inspect the reason and recovery condition."
     "JAVA_HEAP_PRESSURE" -> "Use reduced-memory diagnostic capture and inspect the retained heap and lifecycle observations."
     "MCP_UNAVAILABLE" -> "Inspect this gateway's MCP connection and discovery status; required tools remain unavailable until observed recovery."
+    "RENDERER_JANK" -> "The sampled window exceeded the missed-deadline threshold. Inspect its frame count and timing budget."
+    "RENDERER_MEASUREMENT_LOSS" -> "Frame-metric samples were lost. This does not establish dropped display frames or a freeze."
     "RENDERER_STALL" -> "Inspect the correlated frame, GC, network and model intervals. Vendor logs are unavailable until separately captured."
     "CANCELLED" -> "The originating operation reported cancellation; inspect its final execution receipt for completion state."
     else -> "The cause is not established. Follow the causal trace and export the retained evidence; this observation is not a confirmed independent defect."

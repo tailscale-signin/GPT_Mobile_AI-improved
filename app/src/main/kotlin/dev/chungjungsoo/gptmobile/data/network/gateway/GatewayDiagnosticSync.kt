@@ -10,6 +10,8 @@ import io.ktor.client.request.parameter
 import io.ktor.client.request.prepareGet
 import io.ktor.client.request.preparePost
 import io.ktor.client.request.setBody
+import io.ktor.client.statement.bodyAsChannel
+import io.ktor.utils.io.readAvailable
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
@@ -93,6 +95,52 @@ internal class GatewayDiagnosticHttpTransport(
         }.execute { response ->
             if (response.status.value !in 200..299) throw DiagnosticSyncFailure(responseCode(response.status.value))
             decode(response, "INVALID_DIAGNOSTIC_PAGE")
+        }
+    }
+
+    suspend fun exportSession(session: String, destination: java.io.File): java.io.File {
+        checkAllowed()
+        require(GatewayDiagnosticEvent.hex32.matches(session))
+        try {
+            http.prepareGet(config.buildEndpoint("gateway/debug/export")) {
+                checkAllowed()
+                config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
+                authenticationHeaders().forEach { (key, value) -> header(key, value) }
+                parameter("session_id", session)
+                timeout {
+                    connectTimeoutMillis = 5000
+                    requestTimeoutMillis = 15_000
+                    socketTimeoutMillis = 10_000
+                }
+            }.execute { response ->
+                if (response.status.value != 200) throw DiagnosticSyncFailure(responseCode(response.status.value))
+                val channel = response.bodyAsChannel()
+                try {
+                    destination.outputStream().use { output ->
+                        val buffer = ByteArray(8192)
+                        var total = 0
+                        while (true) {
+                            checkAllowed()
+                            val count = channel.readAvailable(buffer, 0, buffer.size)
+                            if (count < 0) break
+                            if (count == 0) {
+                                kotlinx.coroutines.yield()
+                                continue
+                            }
+                            total += count
+                            if (total > 12 * 1024 * 1024) throw DiagnosticSyncFailure("DIAGNOSTIC_RESPONSE_LIMIT")
+                            output.write(buffer, 0, count)
+                        }
+                    }
+                } finally {
+                    channel.cancel(null)
+                }
+            }
+            checkAllowed()
+            return destination
+        } catch (failure: Throwable) {
+            destination.delete()
+            throw failure
         }
     }
 

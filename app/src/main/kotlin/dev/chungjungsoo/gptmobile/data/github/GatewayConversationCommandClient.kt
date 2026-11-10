@@ -44,7 +44,7 @@ class GatewayConversationCommandClient internal constructor(private val http: Ht
         require(conversationId.isNotBlank() && conversationId.length <= 256 && conversationId.none(Char::isISOControl))
         require(command.commandId.length in 1..128 && command.content.isNotBlank() && command.content.length <= 16000 && command.expectedRevision >= 0)
         val diagnostic = GatewayClientDiagnostics.withHeaders(config, model = "", knownGateway = true)
-        return gatewayClientExchange(diagnostic, "conversation_command", safeRead = false, method = "POST") { headers ->
+        return gatewayClientExchange(diagnostic, "commands", safeRead = false, method = "POST") { headers ->
             http.prepareRequest(config.buildEndpoint("gateway/conversations/${conversationId.encodeURLParameter()}/messages")) {
                 method = HttpMethod.Post
                 config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
@@ -57,7 +57,7 @@ class GatewayConversationCommandClient internal constructor(private val http: Ht
                     socketTimeoutMillis = 30_000
                 }
             }.execute { response ->
-                GatewayClientDiagnostics.observe(diagnostic, response.status.value) { response.headers[it] }
+                GatewayClientDiagnostics.observe(diagnostic, response.status.value, response.call.request.headers["traceparent"]) { response.headers[it] }
                 if (response.status.value == 409) throw GatewayConversationConflict()
                 check(response.status.isSuccess()) {
                     when (response.status.value) {

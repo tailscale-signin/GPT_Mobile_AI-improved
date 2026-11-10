@@ -193,7 +193,7 @@ class GitHubGatewayStatusViewModelTest {
         every { settings.observeFeatureSettings() } returns features
         val recovery = mockk<GatewayNetworkRecoveryMonitor>()
         every { recovery.routeAvailable } returns MutableStateFlow(true)
-        return GitHubGatewayStatusViewModel(settings, client, recovery)
+        return GitHubGatewayStatusViewModel(settings, client, recovery, mockk(relaxed = true))
     }
 
     private fun ready() = GatewayReadinessObservation("a".repeat(32), true, true, true, false, 0)

@@ -71,7 +71,7 @@ class GatewayEngineeringClient internal constructor(
                     }
                 }.execute { response ->
                     if (repositoryRequest) GitHubDispatchAccounting.responded(body != null, response.status.value, repositoryRequestId, response.headers["X-Request-ID"])
-                    GatewayClientDiagnostics.observe(diagnostic, response.status.value) { response.headers[it] }
+                    GatewayClientDiagnostics.observe(diagnostic, response.status.value, response.call.request.headers["traceparent"]) { response.headers[it] }
                     if (path == "capabilities" && response.status.value in setOf(404, 501)) throw UnsupportedEngineeringGateway()
                     val payload = response.boundedMetadata(if (path == "capabilities") 128 * 1024 else 2_000_000)
                     if (!response.status.isSuccess()) {
@@ -200,7 +200,7 @@ class GatewayEngineeringClient internal constructor(
                     socketTimeoutMillis = 30_000
                 }
             }.execute { response ->
-                GatewayClientDiagnostics.observe(diagnostic, response.status.value) { response.headers[it] }
+                GatewayClientDiagnostics.observe(diagnostic, response.status.value, response.call.request.headers["traceparent"]) { response.headers[it] }
                 check(response.status.isSuccess()) { "Gateway diagnostic stream failed (HTTP ${response.status.value})." }
                 val channel = response.bodyAsChannel()
                 var seen = after

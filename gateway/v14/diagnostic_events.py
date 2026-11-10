@@ -33,36 +33,8 @@ HEX32 = re.compile(r'[a-f0-9]{32}')
 HEX64 = re.compile(r'[a-f0-9]{64}')
 SPAN = re.compile(r'[a-f0-9]{16}')
 OPAQUE = re.compile(r'(?:[a-f0-9]{32,64}|[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}|[a-z]{2,16}_[a-f0-9]{32,64})')
-ENUMS = {
-    'stage': {'request', 'response', 'transport', 'lifecycle', 'network', 'model_queue', 'model_load', 'prefill', 'decode',
-              'mcp_discovery', 'mcp_call', 'operation_dispatch', 'operation_reconciliation', 'renderer', 'cancellation', 'terminal_delivery', 'unknown'},
-    'direction': {'client_to_gateway', 'gateway_to_client', 'gateway_to_backend', 'backend_to_gateway', 'local'},
-    'severity': {'debug', 'info', 'warning', 'error', 'critical'},
-    'category': {'transport', 'authentication', 'authorization', 'model', 'tool', 'storage', 'renderer', 'lifecycle', 'network', 'cancellation', 'unknown'},
-    'owner': {'android', 'gateway', 'backend', 'unknown'},
-    'dispatch_state': {'not_dispatched', 'dispatched', 'response_received', 'unknown'},
-    'retry_class': {'none', 'safe_read', 'after_backoff', 'reconcile', 'manual', 'unknown'},
-    'error_code': {'NONE', 'UNKNOWN_CAUSE', 'HTTP_ERROR', 'TRANSPORT_FAILURE', 'TIMEOUT', 'CANCELLED', 'AUTHENTICATION_FAILED',
-                   'AUTHORIZATION_FAILED', 'MODEL_UNAVAILABLE', 'MCP_UNAVAILABLE', 'TOOL_FAILURE', 'REPOSITORY_GRAPH_UNAVAILABLE',
-                   'GITHUB_TRANSIENT_NETWORK', 'JAVA_HEAP_PRESSURE', 'STORAGE_UNAVAILABLE', 'RENDERER_STALL', 'SOURCE_UNAVAILABLE',
-                   'PRECHECK_REJECTED', 'DISPATCH_UNCERTAIN'},
-}
-NUMBER_ATTRIBUTES = {'status', 'received_bytes', 'sent_bytes', 'queue_ms', 'load_ms', 'prefill_ms', 'decode_ms', 'output_tokens',
-                     'input_tokens', 'frame_count', 'slow_frames', 'dropped_frames', 'gc_count', 'heap_bytes', 'network_epoch',
-                     'android_sdk', 'app_version_code', 'occurrence_count', 'source_record_bytes', 'stalls_over_500_ms',
-                     'refresh_rate_millihz', 'gc_duration_ms', 'native_heap_bytes', 'upstream_status'}
-DIGEST_ATTRIBUTES = {'profile_digest', 'model_digest', 'endpoint_digest', 'repository_digest', 'app_revision', 'gateway_revision',
-                     'capability_digest', 'runtime_config_digest', 'source_event_digest'}
-BOOL_ATTRIBUTES = {'vendor_log_available', 'source_available', 'client_metadata_accepted', 'truncation_applied',
-                   'response_headers_received', 'response_headers_sent', 'response_body_completed'}
-ENUM_ATTRIBUTES = {'route': ROUTES, 'failure_code': FAILURE_CODES, 'reason_code': FAILURE_CODES, 'dependency': DEPENDENCIES,
-                   'method': {'GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'},
-                   'client_metadata_acknowledgment': {'ACCEPTED', 'NOT_REQUESTED', 'REJECTED_BEFORE_PROCESSING', 'NOT_CONFIRMED', 'CAPTURE_DISABLED', 'INVALID_METADATA'},
-                   'gateway_admission_code': {'remote_surface_not_admitted', 'scope_not_granted', 'engineering_scope_required',
-                                              'tool_scope_required_for_runtime', 'local_admin_required', 'transport_identity_required',
-                                              'invalid_host', 'invalid_origin', 'duplicate_admission_header', 'browser_csrf_required',
-                                              'unknown_job', 'CONTINUITY_IDENTITY_MISMATCH', 'CONTINUITY_IDENTITY_INVALID',
-                                              'conversation_storage_disabled', 'conversation_storage_unavailable', 'cursor_expired'}}
+from .diagnostic_schema import ENUMS, NUMBER_ATTRIBUTES, DIGEST_ATTRIBUTES, BOOL_ATTRIBUTES, ENUM_ATTRIBUTES, SCHEMA_DIGEST
+
 LOSS_REASONS = {'OFFLINE_EVICTED', 'QUEUE_FULL', 'RECORD_REJECTED', 'STORAGE_UNAVAILABLE', 'CAPTURE_INTERRUPTED'}
 
 
@@ -595,7 +567,7 @@ class DiagnosticSessionJournal:
                 'watermarks': [self._watermark(source) for source in sources], 'evicted_count': capture['evicted'],
                 'clock_ordering': 'origin_sequence_and_causal_trace_only', 'clock_uncertainty_ms': None}
 
-    def export(self, principal, session, versions=None):
+    def export(self, principal, session, versions=None, support_inventory=None):
         capture, events, sources = self._snapshot(principal, session)
         # Re-project even persisted values. Never export database edits as arbitrary text.
         clean = []
@@ -635,7 +607,8 @@ class DiagnosticSessionJournal:
                     'evicted_count': capture['evicted'], 'rejected_count': capture['rejected'],
                     'dropped_count': sum(source['lost_count'] for source in sources), 'export_rejected_count': len(events) - len(clean),
                     'last_ingest_sequence': capture['last_ingest'], 'sources': coverage, 'missing_sources': missing,
-                    'vendor_log_available': False, 'source_versions': versions or {},
+                    'vendor_log_available': False, 'source_versions': versions or {}, 'schema_digest': SCHEMA_DIGEST,
+                    'job_inventory': support_inventory or {'availability': 'not_requested', 'complete': False, 'jobs': []},
                     'source_availability': {owner: ('retained_evidence' if owner in owners else 'not_observed') for owner in ('android', 'gateway')},
                     'time_window': {'first_occurred_at_utc': min((x['occurred_at_utc'] for x in clean), default=None),
                                     'last_occurred_at_utc': max((x['occurred_at_utc'] for x in clean), default=None)},

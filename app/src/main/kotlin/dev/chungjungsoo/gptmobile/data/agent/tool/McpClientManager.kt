@@ -668,10 +668,6 @@ class McpClientManager internal constructor(
             )
         }
         if (previousState != McpConnectionHealthState.CONNECTED || catalogChanged) {
-            AppLogRecorder.record(
-                "MCP",
-                "Health · connection=$connectionUid · state=CONNECTED · latencyMs=${healthSnapshot(connectionUid).latencyMs ?: "unknown"} · tools=${healthSnapshot(connectionUid).availableToolCount ?: "Not discovered"} · toolReadiness=${healthSnapshot(connectionUid).toolReadiness}"
-            )
         }
     }
 
@@ -761,9 +757,31 @@ class McpClientManager internal constructor(
                 current + (connectionUid to updated)
             }
             statistics?.observeHealth(connectionUid, updated.state.name, "PASSIVE_FAILURE", now)
-            AppLogRecorder.record(
+            AppLogRecorder.recordEvent(
                 "MCP",
-                "Health · connection=$connectionUid · state=${updated.state} · failures=${updated.consecutiveFailures} · retryAtMs=${updated.nextRetryAtMs} · failureClass=${updated.connectionHealth} · failedStage=${updated.failedStage} · errorCode=${updated.lastErrorCode} · retryable=${updated.failureRetryable} · error=${updated.lastError.orEmpty()}",
+                "MCP_FAILURE",
+                mapOf(
+                    "connection" to connectionUid,
+                    "operation_id" to dev.chungjungsoo.gptmobile.data.research.researchHash("mcp:$connectionUid:${observation.epoch}:${observation.request}"),
+                    "mcpPhase" to if (stage == "discovery") {
+                        "discovery"
+                    } else if (stage == "execution") {
+                        "execution"
+                    } else {
+                        "connection"
+                    },
+                    "failedStage" to updated.failedStage,
+                    "errorCode" to updated.lastErrorCode,
+                    "upstream_status" to updated.lastHttpStatus,
+                    "retryable" to updated.failureRetryable,
+                    "recoveryAction" to if (updated.state == McpConnectionHealthState.AUTHENTICATION_REQUIRED) {
+                        "authorize"
+                    } else if (updated.failureRetryable == true) {
+                        "retry_discovery"
+                    } else {
+                        "repair_configuration"
+                    }
+                ),
                 "W"
             )
         }

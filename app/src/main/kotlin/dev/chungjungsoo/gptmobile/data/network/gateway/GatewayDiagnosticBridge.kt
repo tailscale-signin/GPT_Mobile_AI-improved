@@ -268,18 +268,46 @@ internal object GatewayDiagnosticBridge {
         synchronized(lock) { routes[key]?.spool }?.page(offset, 32, failuresOnly, traceId, stages) ?: GatewayDiagnosticPage(emptyList(), null, 0)
     }
 
-    suspend fun export(config: ProviderRequestConfig?, destination: File): File = withContext(Dispatchers.IO) {
+    suspend fun export(config: ProviderRequestConfig?, destination: File, inventory: JsonObject? = null): File = withContext(Dispatchers.IO) {
         if (AppLogRecorder.privateSessionActive) throw IOException("PRIVATE_SESSION")
         val epoch = privacyEpoch.get()
         val key = config?.let(GatewayClientDiagnostics::routeIdentity) ?: active
-        val spool = synchronized(lock) { routes[key]?.spool } ?: throw IOException("DIAGNOSTIC_SOURCE_UNAVAILABLE")
-        synchronized(storageLock) {
-            val exported = spool.export(destination)
-            if (epoch != privacyEpoch.get() || AppLogRecorder.privateSessionActive) {
-                exported.delete()
-                throw IOException("DIAGNOSTIC_CAPTURE_REVOKED")
+        val route = synchronized(lock) { routes[key] } ?: throw IOException("DIAGNOSTIC_SOURCE_UNAVAILABLE")
+        val exportConfig = config ?: route.config
+        val spool = route.spool ?: throw IOException("DIAGNOSTIC_SOURCE_UNAVAILABLE")
+        destination.parentFile?.mkdirs()
+        val device = File.createTempFile("gateway-device-", ".zip", destination.parentFile)
+        val remote = File.createTempFile("gateway-remote-", ".zip", destination.parentFile)
+        fun permitted() = epoch == privacyEpoch.get() && !AppLogRecorder.privateSessionActive
+        try {
+            synchronized(storageLock) { spool.export(device, inventory) }
+            var gateway: File? = null
+            var failure: String? = "DIAGNOSTIC_SOURCE_UNAVAILABLE"
+            if (route.protocol == 2 && route.gatewayEnabled && allowed) {
+                try {
+                    gateway = GatewayDiagnosticHttpTransport(http, exportConfig) { permitted() && allowed }.exportSession(spool.sessionId, remote)
+                    failure = null
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    failure = (error as? DiagnosticSyncFailure)?.code ?: "DIAGNOSTIC_TRANSPORT_FAILURE"
+                }
             }
-            exported
+            if (!permitted()) throw IOException("DIAGNOSTIC_CAPTURE_REVOKED")
+            try {
+                GatewayDiagnosticSupportBundle.write(device, gateway, spool.sessionId, destination, failure)
+            } catch (invalid: GatewayDiagnosticSupportBundle.InvalidGatewayExport) {
+                // A corrupt or differently scoped gateway archive never hides the device evidence.
+                GatewayDiagnosticSupportBundle.write(device, null, spool.sessionId, destination, "INVALID_DIAGNOSTIC_EXPORT")
+            }
+            if (!permitted()) throw IOException("DIAGNOSTIC_CAPTURE_REVOKED")
+            destination
+        } catch (failure: Throwable) {
+            destination.delete()
+            throw failure
+        } finally {
+            device.delete()
+            remote.delete()
         }
     }
 

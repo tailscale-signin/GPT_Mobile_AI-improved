@@ -1,0 +1,65 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "7db0c735f9e86eaece24513fbaf5c0a624f13822",
+  "working_branch": "fix/audit-execution-recovery-2026-11-09",
+  "starting_head": "e85dec10ec07b1a7dd58e4a4237a3c9e81572d6d",
+  "parent_pr": 816,
+  "intent": "Implement the 15 gateway session findings; review and improve diagnostic, readiness, durable outcome and UI wiring without claiming unobserved host recovery.",
+  "state": "HOST_VALIDATED_ANDROID_CI_PENDING",
+  "task_store": "engineering_agent_checkpoints",
+  "task_store_key": "gateway-session-2026-11-09",
+  "validation": {
+    "canonical_fast": {
+      "passed": 444
+    },
+    "gateway_python": {
+      "total": 727,
+      "passed": 726,
+      "skipped": 1
+    },
+    "gateway_javascript": {
+      "passed": 7
+    },
+    "engineering_after_terminal_stage_change": {
+      "passed": 68
+    },
+    "session_contract_final": {
+      "passed": 4
+    },
+    "projection_privacy_host": {
+      "passed": 147
+    },
+    "availability_host": {
+      "passed": 62
+    },
+    "support_host": {
+      "passed": 34
+    },
+    "network_clients_host": {
+      "passed": 51
+    },
+    "mcp_host": {
+      "passed": 61
+    },
+    "cross_runtime_roundtrip": {
+      "approved_values": 962,
+      "passed": true
+    },
+    "ktlint": {
+      "files": 36,
+      "version": "1.3.1",
+      "passed": true
+    },
+    "android_full": {
+      "status": "BLOCKED",
+      "reason": "Gradle 9.8.0 download: Network is unreachable; resources/icons/provenance preflights passed."
+    },
+    "device_and_deployed_gateway": {
+      "status": "NOT_RUN"
+    }
+  },
+  "integrated_head": "ba0ff0a0c95bf1bf703236937f7a9939e93d45ba",
+  "evidence": "docs/repairs/evidence/gateway-session-2026-11-09/validation.json"
+}

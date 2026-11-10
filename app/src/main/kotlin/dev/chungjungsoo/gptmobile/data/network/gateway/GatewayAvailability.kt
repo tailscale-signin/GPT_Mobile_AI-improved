@@ -47,7 +47,11 @@ internal data class GatewayAvailability(
     val failedPhase: String? = null,
     val failureCode: String? = null,
     val capabilitiesFailureCode: String? = null,
-    val readinessFailureCode: String? = null
+    val readinessFailureCode: String? = null,
+    val failedDependency: String? = null,
+    val upstreamStatus: Int? = null,
+    val recoveryAction: String? = null,
+    val observationAgeMillis: Long? = null
 ) {
     /** Online describes generation for the selected model; it does not grant Jobs, engineering or graph access. */
     val isOnline: Boolean get() = status in setOf(GatewayAvailabilityStatus.ONLINE, GatewayAvailabilityStatus.BUSY_QUEUE)

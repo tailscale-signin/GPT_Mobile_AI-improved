@@ -876,6 +876,7 @@ class EngineeringService:
             confirmed = False
         if confirmed:
             job['milestones'] = sorted(set(job.get('milestones', [])) | {job['state']})
+            job['data']['last_completed_stage'] = job['state'].lower()
         try:
             self.memory.capture(job, job['state'], output)
         except Exception as error:

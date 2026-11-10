@@ -108,6 +108,8 @@ install_graph_tool(runtime, engineering, lambda principal: principal_authorized(
 debug_log = DebugLogStore(os.getenv("GATEWAY_DEBUG_LOG") or str(Path(runtime.GATEWAY_JOB_DB_PATH).with_name("gateway-debug.jsonl")),
                           enabled=os.getenv("GATEWAY_DEBUG_MODE", "false").lower() == "true")
 runtime.gateway_debug = debug_log
+from v14.diagnostic_support import engineering_inventory
+debug_log.support_inventory = lambda principal, session: engineering_inventory(engineering, principal, session)
 try:
     diagnostic_route = configured_route(runtime, str(getattr(runtime, 'GATEWAY_INFERENCE_PROVIDER', None) or os.getenv('GATEWAY_INFERENCE_PROVIDER') or 'LLAMA').upper())
 except ExecutionBindingError:

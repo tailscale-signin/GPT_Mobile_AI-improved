@@ -66,25 +66,30 @@ class OpenAIAPIImpl @Inject constructor(
         config: ProviderRequestConfig
     ): UploadedProviderFile {
         val endpoint = config.buildEndpoint("files")
-        val responseBody = networkClient().preparePost(endpoint) {
-            config.token?.let { bearerAuth(it) }
-            GatewayClientDiagnostics.requestHeaders(config).forEach { (key, value) -> header(key, value) }
-            setBody(
-                MultiPartFormDataContent(
-                    formData {
-                        append("purpose", "user_data")
-                        append(
-                            "file",
-                            File(filePath).readBytes(),
-                            Headers.build {
-                                append(HttpHeaders.ContentType, mimeType)
-                                append(HttpHeaders.ContentDisposition, "filename=\"$fileName\"")
-                            }
-                        )
-                    }
+        val responseBody = dev.chungjungsoo.gptmobile.data.network.gateway.gatewayClientExchange(config, "other", safeRead = false, method = "POST", knownGateway = false) { headers ->
+            networkClient().preparePost(endpoint) {
+                config.token?.let { bearerAuth(it) }
+                headers.forEach { (key, value) -> header(key, value) }
+                setBody(
+                    MultiPartFormDataContent(
+                        formData {
+                            append("purpose", "user_data")
+                            append(
+                                "file",
+                                File(filePath).readBytes(),
+                                Headers.build {
+                                    append(HttpHeaders.ContentType, mimeType)
+                                    append(HttpHeaders.ContentDisposition, "filename=\"$fileName\"")
+                                }
+                            )
+                        }
+                    )
                 )
-            )
-        }.body<String>()
+            }.execute { response ->
+                GatewayClientDiagnostics.observe(config, response.status.value, response.call.request.headers["traceparent"]) { response.headers[it] }
+                response.body<String>()
+            }
+        }
 
         val uploadResponse = NetworkClient.openAIJson.decodeFromString<OpenAIFileResponse>(responseBody)
         return UploadedProviderFile(
@@ -97,13 +102,18 @@ class OpenAIAPIImpl @Inject constructor(
     override suspend fun isFileAvailable(fileId: String, config: ProviderRequestConfig): Boolean {
         val endpoint = config.buildEndpoint("files/$fileId")
         return try {
-            networkClient().prepareGet(endpoint) {
-                config.token?.let { bearerAuth(it) }
-                GatewayClientDiagnostics.requestHeaders(config).forEach { (key, value) -> header(key, value) }
-            }.execute { response ->
-                config.freeDiagnostics?.responded()
-                response.status.isSuccess()
+            dev.chungjungsoo.gptmobile.data.network.gateway.gatewayClientExchange(config, "other", safeRead = true, knownGateway = false) { headers ->
+                networkClient().prepareGet(endpoint) {
+                    config.token?.let { bearerAuth(it) }
+                    headers.forEach { (key, value) -> header(key, value) }
+                }.execute { response ->
+                    GatewayClientDiagnostics.observe(config, response.status.value, response.call.request.headers["traceparent"]) { response.headers[it] }
+                    config.freeDiagnostics?.responded()
+                    response.status.isSuccess()
+                }
             }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (_: Exception) {
             false
         }
@@ -205,6 +215,7 @@ class OpenAIAPIImpl @Inject constructor(
                 val usageReceipt = FreeTokenUsageReceipt()
                 var dispatchStarted = false
                 var definitelyNotTransmitted = false
+                var diagnosticHeaders = emptyMap<String, String>()
                 try {
                     kotlinx.coroutines.currentCoroutineContext().ensureActive()
                     gatewayRequest.beforeDispatch(config)
@@ -215,13 +226,14 @@ class OpenAIAPIImpl @Inject constructor(
                     val responseObserver = ProviderResponseObserver().also { activeResponseObserver = it }
                     dispatchRetryGuard.dispatched()
                     requestDispatched = true
+                    diagnosticHeaders = GatewayClientDiagnostics.requestHeaders(config, "chat", "POST")
                     networkClient().preparePost(endpoint) {
                         applyPlatformStreamingTimeout(timeoutSeconds, workerBudget, connectionTimeout)
                         contentType(ContentType.Application.Json)
                         setBody(admittedPayload)
                         accept(if (preparedRequest.stream) ContentType.Text.EventStream else ContentType.Application.Json)
                         config.token?.takeIf { it.isNotBlank() && (free == null || free.acceptsUserToken) }?.let { bearerAuth(it) }
-                        GatewayClientDiagnostics.requestHeaders(config).forEach { (key, value) -> header(key, value) }
+                        diagnosticHeaders.forEach { (key, value) -> header(key, value) }
                         if (LocalEndpointConnectionPolicy.freshConnection(endpoint)) header(HttpHeaders.Connection, "close")
                     }.execute { response ->
                         responseObserver.headersReceived(response.status.value) { response.headers[it] }
@@ -229,7 +241,7 @@ class OpenAIAPIImpl @Inject constructor(
                         // Retain acceptance before parsing: even a reasoning-only interrupted stream has a request identity.
                         emit(ChatCompletionChunk(providerResponseTiming = responseObserver.snapshot(), reasoningControlReceipt = reasoningControlReceipt))
                         ProviderConnectivityPreflight.responseReceived(config.apiUrl)
-                        GatewayClientDiagnostics.observe(config, response.status.value) { response.headers[it] }
+                        GatewayClientDiagnostics.observe(config, response.status.value, response.call.request.headers["traceparent"]) { response.headers[it] }
                         config.freeDiagnostics?.responded()
                         if (!response.status.isSuccess()) {
                             val errorBody = if (free != null) readFreeErrorBody(response) else response.body<String>()
@@ -554,9 +566,11 @@ class OpenAIAPIImpl @Inject constructor(
                         }
                     }
                 } catch (error: Exception) {
+                    GatewayClientDiagnostics.failed(config, diagnosticHeaders, error, "chat")
                     definitelyNotTransmitted = !dispatchStarted || error is java.net.UnknownHostException || error is java.nio.channels.UnresolvedAddressException
                     throw error
                 } finally {
+                    GatewayClientDiagnostics.finished(diagnosticHeaders)
                     FreeAiRequestLimiter.shared.settle(quotaReservation, usageReceipt.settledTokens(), definitelyNotTransmitted)
                 }
             }
@@ -767,108 +781,110 @@ class OpenAIAPIImpl @Inject constructor(
                     dispatchRetryGuard.dispatched()
                     requestDispatched = true
                     val responseObserver = ProviderResponseObserver().also { activeResponseObserver = it }
-                    networkClient().preparePost(endpoint) {
-                        applyPlatformStreamingTimeout(timeoutSeconds, workerBudget, connectionTimeout)
-                        contentType(ContentType.Application.Json)
-                        setBody(admittedPayload)
-                        accept(ContentType.Text.EventStream)
-                        effectiveConfig.token?.let { bearerAuth(it) }
-                        GatewayClientDiagnostics.requestHeaders(effectiveConfig).forEach { (key, value) -> header(key, value) }
-                    }.execute { response ->
-                        responseObserver.headersReceived(response.status.value) { response.headers[it] }
-                        if (response.status.isSuccess()) dispatchRetryGuard.accepted()
-                        emit(ResponseGatewayMetadataEvent(providerResponseTiming = responseObserver.snapshot()))
-                        ProviderConnectivityPreflight.responseReceived(effectiveConfig.apiUrl)
-                        GatewayClientDiagnostics.observe(config, response.status.value) { response.headers[it] }
-                        effectiveConfig.freeDiagnostics?.responded()
-                        if (!response.status.isSuccess()) {
-                            val errorBody = response.body<String>()
-                            val parameter = rejectedSamplingParameter(errorBody)
-                            if (response.status.value == 400 && parameter != null && !dispatchRetryGuard.remoteOutcomeUnknown) {
-                                val sanitized = when (parameter) {
-                                    "temperature" -> preparedRequest.copy(temperature = null)
-                                    "top_p" -> preparedRequest.copy(topP = null)
-                                    else -> preparedRequest
+                    dev.chungjungsoo.gptmobile.data.network.gateway.gatewayClientExchange(effectiveConfig, "chat", safeRead = false, method = "POST", knownGateway = false) { diagnosticHeaders ->
+                        networkClient().preparePost(endpoint) {
+                            applyPlatformStreamingTimeout(timeoutSeconds, workerBudget, connectionTimeout)
+                            contentType(ContentType.Application.Json)
+                            setBody(admittedPayload)
+                            accept(ContentType.Text.EventStream)
+                            effectiveConfig.token?.let { bearerAuth(it) }
+                            diagnosticHeaders.forEach { (key, value) -> header(key, value) }
+                        }.execute { response ->
+                            responseObserver.headersReceived(response.status.value) { response.headers[it] }
+                            if (response.status.isSuccess()) dispatchRetryGuard.accepted()
+                            emit(ResponseGatewayMetadataEvent(providerResponseTiming = responseObserver.snapshot()))
+                            ProviderConnectivityPreflight.responseReceived(effectiveConfig.apiUrl)
+                            GatewayClientDiagnostics.observe(config, response.status.value, response.call.request.headers["traceparent"]) { response.headers[it] }
+                            effectiveConfig.freeDiagnostics?.responded()
+                            if (!response.status.isSuccess()) {
+                                val errorBody = response.body<String>()
+                                val parameter = rejectedSamplingParameter(errorBody)
+                                if (response.status.value == 400 && parameter != null && !dispatchRetryGuard.remoteOutcomeUnknown) {
+                                    val sanitized = when (parameter) {
+                                        "temperature" -> preparedRequest.copy(temperature = null)
+                                        "top_p" -> preparedRequest.copy(topP = null)
+                                        else -> preparedRequest
+                                    }
+                                    if (sanitized != preparedRequest) {
+                                        preparedRequest = sanitized
+                                        dispatchRetryGuard.rejectedBeforeExecution()
+                                        throw java.io.IOException("Retrying without unsupported sampling parameter: $parameter")
+                                    }
                                 }
-                                if (sanitized != preparedRequest) {
-                                    preparedRequest = sanitized
-                                    dispatchRetryGuard.rejectedBeforeExecution()
-                                    throw java.io.IOException("Retrying without unsupported sampling parameter: $parameter")
+                                if (response.status.value in listOf(429, 502, 503, 504)) {
+                                    throw ProviderHttpFailure(response.status.value, ProviderCooldown.defer(effectiveConfig, response.headers[HttpHeaders.RetryAfter]))
                                 }
-                            }
-                            if (response.status.value in listOf(429, 502, 503, 504)) {
-                                throw ProviderHttpFailure(response.status.value, ProviderCooldown.defer(effectiveConfig, response.headers[HttpHeaders.RetryAfter]))
-                            }
-                            throwIfToolDefinitionsRejected(response.status.value, !request.tools.isNullOrEmpty(), errorBody)
+                                throwIfToolDefinitionsRejected(response.status.value, !request.tools.isNullOrEmpty(), errorBody)
 
-                            val errorMessage = if (response.status.value in setOf(401, 402, 403)) dev.chungjungsoo.gptmobile.data.network.error.ProviderFailure.parse(response.status.value, errorBody).message() else providerErrorDetails(errorBody, "HTTP ${response.status.value}", effectiveConfig.token)
+                                val errorMessage = if (response.status.value in setOf(401, 402, 403)) dev.chungjungsoo.gptmobile.data.network.error.ProviderFailure.parse(response.status.value, errorBody).message() else providerErrorDetails(errorBody, "HTTP ${response.status.value}", effectiveConfig.token)
+                                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
+                                    "Provider",
+                                    "HTTP_ERROR · status=${response.status.value} · model=${request.model} · detail=$errorMessage",
+                                    "E"
+                                )
+
+                                emit(ResponseErrorEvent(message = if (response.status.value in setOf(401, 402, 403)) errorMessage else effectiveConfig.readableProviderError(errorMessage, response.status.value.toString()), code = response.status.value.toString()))
+                                return@execute
+                            }
+
+                            LocalServiceHealth.recordLocalHandshakeSuccess(effectiveConfig.apiUrl)
+                            effectiveConfig.freeDiagnostics?.stage = "generation"
                             dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
                                 "Provider",
-                                "HTTP_ERROR · status=${response.status.value} · model=${request.model} · detail=$errorMessage",
-                                "E"
+                                "REQUEST_ACCEPTED · model=${request.model} · server=${response.headers["Server"].orEmpty().take(120)} · requestId=${providerRequestIdentity { response.headers[it] }} · requestedOutputCap=${preparedRequest.maxOutputTokens} · serverEffectiveSettings=unverified"
                             )
+                            // Responses API requests need the same response-bound provenance as chat completions.
+                            emit(ResponseGatewayMetadataEvent(gatewayResponseMetadata { response.headers[it] } ?: GatewayResponseMetadata()))
+                            // Success - read SSE stream
+                            val channel = response.bodyAsChannel()
+                            while (!channel.isClosedForRead) {
+                                val line = channel.readLine() ?: break
+                                val data = SseUtils.extractSseData(line) ?: continue
 
-                            emit(ResponseErrorEvent(message = if (response.status.value in setOf(401, 402, 403)) errorMessage else effectiveConfig.readableProviderError(errorMessage, response.status.value.toString()), code = response.status.value.toString()))
-                            return@execute
-                        }
-
-                        LocalServiceHealth.recordLocalHandshakeSuccess(effectiveConfig.apiUrl)
-                        effectiveConfig.freeDiagnostics?.stage = "generation"
-                        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
-                            "Provider",
-                            "REQUEST_ACCEPTED · model=${request.model} · server=${response.headers["Server"].orEmpty().take(120)} · requestId=${providerRequestIdentity { response.headers[it] }} · requestedOutputCap=${preparedRequest.maxOutputTokens} · serverEffectiveSettings=unverified"
-                        )
-                        // Responses API requests need the same response-bound provenance as chat completions.
-                        emit(ResponseGatewayMetadataEvent(gatewayResponseMetadata { response.headers[it] } ?: GatewayResponseMetadata()))
-                        // Success - read SSE stream
-                        val channel = response.bodyAsChannel()
-                        while (!channel.isClosedForRead) {
-                            val line = channel.readLine() ?: break
-                            val data = SseUtils.extractSseData(line) ?: continue
-
-                            if (data == "[DONE]") {
-                                receivedTerminal = true
-                                break
-                            }
-
-                            val decoded = try {
-                                NetworkClient.openAIJson.decodeFromString<ResponsesStreamEvent>(data)
-                            } catch (_: kotlinx.serialization.SerializationException) {
-                                continue
-                            }
-                            val streamEvent = when (decoded) {
-                                is ResponseErrorEvent -> {
-                                    val reportedMessage = effectiveConfig.readableProviderError(providerErrorDetails(data, decoded.message, effectiveConfig.token), decoded.code)
-                                    if (dispatchRetryGuard.remoteOutcomeUnknown) {
-                                        decoded.copy(message = uncertainGatewayFailureMessage(reportedMessage), code = "GATEWAY_OUTCOME_UNKNOWN", failureDetails = uncertainGatewayFailureDetails(decoded.failureDetails ?: structuredResponsesFailure(data, response.status.value), responseObserver.snapshot(), decoded.code))
-                                    } else {
-                                        decoded.copy(message = reportedMessage)
-                                    }
+                                if (data == "[DONE]") {
+                                    receivedTerminal = true
+                                    break
                                 }
-                                is dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseFailedEvent -> {
-                                    if (dispatchRetryGuard.remoteOutcomeUnknown) {
-                                        val reported = decoded.response.error
-                                        ResponseErrorEvent(
-                                            message = uncertainGatewayFailureMessage(effectiveConfig.readableProviderError(providerErrorDetails(data, reported?.message ?: "Response failed", effectiveConfig.token), reported?.code)),
-                                            code = "GATEWAY_OUTCOME_UNKNOWN",
-                                            failureDetails = uncertainGatewayFailureDetails(structuredResponsesFailure(data, response.status.value), responseObserver.snapshot(), reported?.code)
-                                        )
-                                    } else {
-                                        decoded
-                                    }
+
+                                val decoded = try {
+                                    NetworkClient.openAIJson.decodeFromString<ResponsesStreamEvent>(data)
+                                } catch (_: kotlinx.serialization.SerializationException) {
+                                    continue
                                 }
-                                else -> decoded
+                                val streamEvent = when (decoded) {
+                                    is ResponseErrorEvent -> {
+                                        val reportedMessage = effectiveConfig.readableProviderError(providerErrorDetails(data, decoded.message, effectiveConfig.token), decoded.code)
+                                        if (dispatchRetryGuard.remoteOutcomeUnknown) {
+                                            decoded.copy(message = uncertainGatewayFailureMessage(reportedMessage), code = "GATEWAY_OUTCOME_UNKNOWN", failureDetails = uncertainGatewayFailureDetails(decoded.failureDetails ?: structuredResponsesFailure(data, response.status.value), responseObserver.snapshot(), decoded.code))
+                                        } else {
+                                            decoded.copy(message = reportedMessage)
+                                        }
+                                    }
+                                    is dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseFailedEvent -> {
+                                        if (dispatchRetryGuard.remoteOutcomeUnknown) {
+                                            val reported = decoded.response.error
+                                            ResponseErrorEvent(
+                                                message = uncertainGatewayFailureMessage(effectiveConfig.readableProviderError(providerErrorDetails(data, reported?.message ?: "Response failed", effectiveConfig.token), reported?.code)),
+                                                code = "GATEWAY_OUTCOME_UNKNOWN",
+                                                failureDetails = uncertainGatewayFailureDetails(structuredResponsesFailure(data, response.status.value), responseObserver.snapshot(), reported?.code)
+                                            )
+                                        } else {
+                                            decoded
+                                        }
+                                    }
+                                    else -> decoded
+                                }
+                                receivedTerminal = receivedTerminal ||
+                                    streamEvent is dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseCompletedEvent ||
+                                    streamEvent is dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseFailedEvent ||
+                                    streamEvent is dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseIncompleteEvent ||
+                                    streamEvent is ResponseErrorEvent
+                                receivedResponsePayload = receivedResponsePayload || streamEvent.hasResponseStreamPayload()
+                                receivedVisibleText = receivedVisibleText || streamEvent is dev.chungjungsoo.gptmobile.data.dto.openai.response.OutputTextDeltaEvent && streamEvent.delta.isNotBlank()
+                                emit(streamEvent)
                             }
-                            receivedTerminal = receivedTerminal ||
-                                streamEvent is dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseCompletedEvent ||
-                                streamEvent is dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseFailedEvent ||
-                                streamEvent is dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseIncompleteEvent ||
-                                streamEvent is ResponseErrorEvent
-                            receivedResponsePayload = receivedResponsePayload || streamEvent.hasResponseStreamPayload()
-                            receivedVisibleText = receivedVisibleText || streamEvent is dev.chungjungsoo.gptmobile.data.dto.openai.response.OutputTextDeltaEvent && streamEvent.delta.isNotBlank()
-                            emit(streamEvent)
+                            if (!receivedTerminal) throw java.io.EOFException("STREAM_INTERRUPTED: provider closed SSE before response.completed")
                         }
-                        if (!receivedTerminal) throw java.io.EOFException("STREAM_INTERRUPTED: provider closed SSE before response.completed")
                     }
                 }
             }

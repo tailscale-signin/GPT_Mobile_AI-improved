@@ -183,6 +183,7 @@ class GatewayEngineeringRepository @Inject constructor(
         val capability = client.capabilities(gateway.engineeringConfig())
         if (runId != null) check(capability.supportsDurableChat) { "This gateway does not support durable chat admission. Update it before sending this saved turn." }
         capability.requireJobReadiness()
+        val budgetSelection = options.resolveBudget(capability, preferences.engineeringMode, objective, featuresAtAdmission.tokenBudget.totalRunTokens)
         val principal = requireNotNull(capability.principalId)
         val frozenConfig = gateway.engineeringConfig()
         val identity = if (capability.conversationSync) history.identity(frozenConfig) else null
@@ -206,11 +207,11 @@ class GatewayEngineeringRepository @Inject constructor(
             gateway.apiUrl.trimEnd('/'),
             GatewayEngineeringRequest(
                 repository = repository, branch = branch, base = base, objective = objective,
-                model = profile.model, durationHours = options.durationHours, repairAttempts = options.repairAttempts,
+                model = profile.model, durationHours = budgetSelection.effectiveDurationHours, repairAttempts = options.repairAttempts,
                 chatId = chatId, requestId = commandId, acceptance = options.acceptance, profileId = profile.uid,
                 memoryMode = preferences.engineeringMemory, executionBindingId = admission.bindingId, taskScope = taskScope,
                 clientConversationId = if (capability.supportsDurableChat) conversations.clientConversationId(chatId) else null, conversationId = remote?.conversationId,
-                expectedRevision = remote?.revision?.takeIf { it >= 0 }, sourceBranch = sourceBranch, sourceSha = sourceSha
+                expectedRevision = remote?.revision?.takeIf { it >= 0 }, sourceBranch = sourceBranch, sourceSha = sourceSha, executionBudget = budgetSelection.effectiveBudget
             ),
             principalId = principal,
             executionSelection = selection,
@@ -219,7 +220,8 @@ class GatewayEngineeringRepository @Inject constructor(
             localAssistantMessageId = assistantMessageId,
             localRunId = runId,
             gatewayId = identity?.gatewayId,
-            originalContext = originalContext
+            originalContext = originalContext,
+            budgetSelection = budgetSelection
         )
         store.add(binding)
         settings.mutateFeatureSettings { it.copy(githubEngineeringSettings = options.copy(acceptance = emptyList())) }

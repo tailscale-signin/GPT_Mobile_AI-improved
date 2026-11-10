@@ -8,8 +8,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -42,6 +44,7 @@ import dev.chungjungsoo.gptmobile.data.model.ThemeMode
 import dev.chungjungsoo.gptmobile.presentation.theme.GPTMobileTheme
 import java.io.File
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -117,7 +120,7 @@ class GitHubLiveProgressTest {
         layouts.clear()
         compose.onNodeWithTag("github_latest_preview").performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
         assertEquals(2, layouts.single().lineCount)
-        assertEquals(colors.onSurfaceVariant, layouts.single().layoutInput.style.color)
+        assertEquals(colors.onSurface.copy(alpha = 0.5f), layouts.single().layoutInput.style.color)
 
         compose.runOnIdle { timeline = timeline + line("The files are available; checking the next step.", true) }
         compose.mainClock.advanceTimeBy(16)
@@ -231,7 +234,7 @@ class GitHubLiveProgressTest {
         assertEquals(text.height, row.height, 0f)
     }
 
-    @Test fun arrivalFadeFinishesQuicklyAndDoesNotReplayWhenTheThemeChanges() {
+    @Test fun arrivalFadeUsesOneAndAHalfSecondsAndDoesNotReplayWhenTheThemeChanges() {
         compose.mainClock.autoAdvance = false
         var dark by mutableStateOf(false)
         lateinit var opacity: State<Float>
@@ -243,13 +246,80 @@ class GitHubLiveProgressTest {
         }
         compose.mainClock.advanceTimeBy(64)
         compose.runOnIdle { assertTrue(opacity.value > 0f && opacity.value < 1f) }
-        compose.mainClock.advanceTimeBy(200)
+        compose.mainClock.advanceTimeBy(688)
+        compose.runOnIdle { assertEquals("The entrance is halfway through its 1500 ms fade", 0.5f, opacity.value, 0.05f) }
+        compose.mainClock.advanceTimeBy(800)
         compose.runOnIdle {
             assertEquals(1f, opacity.value, 0f)
             dark = true
         }
         compose.mainClock.advanceTimeBy(16)
         compose.runOnIdle { assertEquals(1f, opacity.value, 0f) }
+    }
+
+    @Test fun replacementCrossfadeKeepsItsExitForOneAndAHalfSecondsAndAnnouncesOnlyCurrentText() {
+        compose.mainClock.autoAdvance = false
+        val previous = "The repository read is recorded."
+        val replacement = "The test result is still pending."
+        var text by mutableStateOf(previous)
+        val rendered = mutableSetOf<String>()
+        compose.setContent {
+            MaterialTheme {
+                GitHubActivityCrossfade(text) { displayed, _ ->
+                    DisposableEffect(displayed) {
+                        rendered.add(displayed)
+                        onDispose { rendered.remove(displayed) }
+                    }
+                    Text(displayed)
+                }
+            }
+        }
+        compose.onNodeWithText(previous).assertExists()
+        compose.runOnIdle { text = replacement }
+        compose.waitForIdle()
+        compose.mainClock.advanceTimeBy(32)
+        compose.onNodeWithText(previous).assertDoesNotExist()
+        compose.onNodeWithText(replacement).assertExists()
+        compose.runOnIdle { assertEquals(setOf(previous, replacement), rendered) }
+        compose.mainClock.advanceTimeBy(720)
+        compose.runOnIdle { assertEquals("The outgoing text must still be fading after 750 ms", setOf(previous, replacement), rendered) }
+        compose.mainClock.advanceTimeBy(800)
+        compose.runOnIdle { assertEquals(setOf(replacement), rendered) }
+        compose.onAllNodes(androidx.compose.ui.test.hasText(replacement)).assertCountEquals(1)
+    }
+
+    @Test
+    @Config(qualifiers = "w400dp-h1000dp-mdpi")
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    fun onlyTheActiveBottomPreviewPansAcrossItsTextAndHistoryStaysHalfOpaque() {
+        compose.mainClock.autoAdvance = false
+        val older = "Reviewed the changed source files"
+        val current = "Checking the retained test results"
+        var timeline by mutableStateOf(listOf(line("The source read completed.", true), line(older), line(current)))
+        val colors = lightColorScheme()
+        compose.setContent {
+            MaterialTheme(colorScheme = colors) {
+                Surface { Column(Modifier.width(320.dp)) { GitHubLiveProgressCard(timeline) } }
+            }
+        }
+        compose.mainClock.advanceTimeBy(1600)
+        val layouts = mutableListOf<TextLayoutResult>()
+        compose.onNodeWithText(older).performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+        assertEquals(colors.onSurface.copy(alpha = 0.5f), layouts.single().layoutInput.style.color)
+        fun textImage(value: String) = compose.onNodeWithText(value).assertIsDisplayed().captureToImage().asAndroidBitmap()
+        val olderBefore = textImage(older)
+        val currentBefore = textImage(current)
+        compose.mainClock.advanceTimeBy(400)
+        assertTrue("Retained history must not pan or replay its entrance", olderBefore.sameAs(textImage(older)))
+        assertFalse("The highlight must move across the text, not only the leading icon", currentBefore.sameAs(textImage(current)))
+
+        compose.runOnIdle { timeline = timeline + line("The next verification is still running.", true) }
+        compose.waitForIdle()
+        compose.mainClock.advanceTimeBy(32)
+        compose.onAllNodesWithTag("github_latest_preview").assertCountEquals(0)
+        val settledPreview = textImage(current)
+        compose.mainClock.advanceTimeBy(400)
+        assertTrue("A newer summary ends the old preview's active highlight without reordering it", settledPreview.sameAs(textImage(current)))
     }
 
     @Test fun eachPreviewHasAnOutlineIconInOneAlignedLeadingColumn() {

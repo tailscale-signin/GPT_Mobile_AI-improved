@@ -71,6 +71,25 @@ class SettingsTests(unittest.TestCase):
             with patch.dict(os.environ, env, clear=True):
                 Config.from_env().validate()
 
+    def test_managed_environment_preserves_explicit_engineering_github_configuration(self):
+        from v14.engineering_backend import GitHubEngineeringBackend
+        inherited = {'GATEWAY_ENGINEERING_GITHUB_SERVER': 'github-official',
+                     'GATEWAY_ENGINEERING_GITHUB_TOKEN': 'dedicated-host-secret',
+                     'GATEWAY_AUTH_MODE': 'open_network', 'GATEWAY_REMOTE_ENGINEERING': 'true'}
+        with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, inherited, clear=True):
+            cfg = validate({})
+            env = environment(temp, cfg, 'management-secret')
+            self.assertEqual('github-official', env.get('GATEWAY_ENGINEERING_GITHUB_SERVER'))
+            self.assertEqual('dedicated-host-secret', env.get('GATEWAY_ENGINEERING_GITHUB_TOKEN'))
+            self.assertEqual('loopback', env['GATEWAY_AUTH_MODE'])
+            self.assertEqual('false', env['GATEWAY_REMOTE_ENGINEERING'])
+            backend = GitHubEngineeringBackend(SimpleNamespace(load_mcp_config=lambda: {
+                'github-official': {'env': {'GITHUB_TOKEN': 'selected-host-secret'}}}))
+            with patch.dict(os.environ, env, clear=True):
+                self.assertEqual('selected-host-secret', backend.token())
+            self.assertNotIn('secret', json.dumps(cfg))
+            self.assertNotIn('secret', (Path(temp) / 'data' / 'mcp.json').read_text())
+
     def test_debug_mode_is_explicit_and_persists_only_inside_managed_log_directory(self):
         with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {'GATEWAY_DEBUG_LOG': '/arbitrary/file', 'GATEWAY_DEBUG_MODE': 'true'}):
             self.assertEqual('false', environment(temp, validate({}), 'secret')['GATEWAY_DEBUG_MODE'])

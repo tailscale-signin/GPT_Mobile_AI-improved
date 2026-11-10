@@ -16,6 +16,7 @@ internal object GitHubSelfTestReads {
     fun next(tools: List<AgentToolDefinition>, receipts: List<JsonObject>): ProviderEvent.ToolCall? {
         val retiredRead = GitHubSelfTestFixtures.retiredReadPredicate(receipts.mapIndexed { index, receipt -> index.toString() to receipt }.toMap())
         val observations = receipts.filter { it["trusted"] == JsonPrimitive(true) && it["verification_eligible"] != JsonPrimitive(false) && !retiredRead(it) }
+        GitHubPolicyReadRecovery.next(tools, observations)?.let { return it }
         fun roots(tool: String, action: String? = null) = observations.filter {
             it["success"] == JsonPrimitive(true) &&
                 it.text("tool").substringBefore("__") == tool &&

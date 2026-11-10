@@ -237,9 +237,24 @@ internal object GitHubSelfTestFixtures {
 
     private fun requiresFixtureProof(receipt: JsonObject): Boolean {
         val execution = receipt["execution"] as? JsonObject
-        val sent = listOf("mutation_requests", "accepted_mutations", "unknown_mutations").any { ((execution?.get(it) as? JsonPrimitive)?.longOrNull ?: 0) > 0 }
+        val counters = listOf("mutation_requests", "accepted_mutations", "unknown_mutations")
+        fun count(key: String) = (execution?.get(key) as? JsonPrimitive)?.takeUnless { it.isString }?.longOrNull
+        val sent = counters.any { (count(it) ?: 0) > 0 }
+        val invalidCounters = counters.any { key ->
+            execution?.containsKey(key) == true && count(key)?.let { it < 0 } != false
+        }
+        if (sent || invalidCounters) return true
         if (receipt["success"] != JsonPrimitive(true) && receipt["dispatched"] == JsonPrimitive(false) && !sent) return false
-        if (sent || receipt["remote_mutation"] == JsonPrimitive(true)) return true
+        // Current native receipts classify local staging separately from remote
+        // mutation capability. Neither a draft nor an unsubmitted approval creates
+        // a GitHub resource that invalidates an already verified fixture cleanup.
+        if (receipt["remote_mutation"] == JsonPrimitive(false)) return false
+        val outcome = GitHubOperationOutcome.snapshot(receipt)
+        val noWrites = counters.all {
+            count(it) == 0L
+        }
+        if (noWrites && (outcome["proposal_prepared"] == JsonPrimitive(true) || outcome["approval_pending"] == JsonPrimitive(true))) return false
+        if (receipt["remote_mutation"] == JsonPrimitive(true)) return true
         // Legacy receipts predate explicit remote_mutation. Local watch/decide
         // operations create no GitHub resource and need no deletion lifecycle.
         val action = args(receipt)?.text("action").orEmpty()

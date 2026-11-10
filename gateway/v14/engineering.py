@@ -19,6 +19,7 @@ from v14.inference_capabilities import InferenceCapabilities
 from v14.inference_scheduler import install_scheduler
 from v14.engineering_artifacts import EngineeringArtifacts
 from v14.engineering_operations import EngineeringOperations
+from v14.engineering_defaults import EXECUTION_BUDGET_LIMITS, new_request_defaults, retained_request_defaults, effective_execution_budget
 from v14.debug import capture_context_snapshot, execution_diagnostic_context
 from v14.conversations import Conversations, ConversationConflict, short_title
 
@@ -55,7 +56,7 @@ def validate_request(request):
     if not isinstance(budget, dict) or set(budget) - {'model_calls', 'model_tokens', 'verification_calls', 'final_calls', 'final_seconds'}:
         raise ValueError('Unsupported engineering budget')
     for key, value in budget.items():
-        maximum = 8388608 if key == 'model_tokens' else 900 if key == 'final_seconds' else 256
+        maximum = EXECUTION_BUDGET_LIMITS[key]
         if type(value) is not int or not 1 <= value <= maximum:
             raise ValueError('Invalid engineering budget')
     if result.get('memory_mode', 'HYBRID') not in {'SESSION_ONLY', 'PERSISTENT', 'HYBRID'}:
@@ -85,8 +86,8 @@ def validate_request(request):
         if not isinstance(result.get(key), str) or not 1 <= len(result[key].strip()) <= maximum:
             raise ValueError('Missing or oversized ' + key)
     hours, retries = result.get('duration_hours', 3), result.get('repair_attempts', 5)
-    if type(hours) is not int or hours not in (0, 3, 6, 12) or type(retries) is not int or not 1 <= retries <= 5:
-        raise ValueError('Choose 3, 6, 12 hours or bounded until-complete; repair attempts are 1–5')
+    if type(hours) is not int or hours not in (0, 3, 6, 12, 24) or type(retries) is not int or not 1 <= retries <= 5:
+        raise ValueError('Choose 3, 6, 12, 24 hours or bounded until-complete; repair attempts are 1–5')
     result.update(duration_hours=hours, repair_attempts=retries)
     acceptance = result.get('acceptance', [])
     if not isinstance(acceptance, list) or len(acceptance) > 256:
@@ -186,11 +187,11 @@ class EngineeringStore:
             'SELECT data FROM engineering_events WHERE job_id=? AND revision>? AND revision<=? ORDER BY revision LIMIT 201', (job_id, after, through))])
 
     def create(self, principal, request):
-        request = validate_request(request)
-        request_hash = digest(request)
         existing = self.existing_request(principal, request)
         if existing:
             return existing
+        request = validate_request(new_request_defaults(request))
+        request_hash = digest(request)
         if self.bindings is None:
             raise ExecutionBindingError('EXECUTION_BINDING_REQUIRED', 'Verify the selected execution profile before admitting a new job.')
         binding = self.bindings.read(principal, request.get('execution_binding_id'))
@@ -254,13 +255,15 @@ class EngineeringStore:
 
     def existing_request(self, principal, request):
         """Reconcile a lost create receipt without admitting new work or changing the request identity."""
-        request = validate_request(request)
+        validate_request(request)
         def read(db):
             row = db.execute('SELECT data,state,revision,request_digest FROM engineering_jobs WHERE principal=? AND request_id=?',
                              (principal, request['request_id'])).fetchone()
-            if row and row[3] != digest(request):
+            existing = self.decode(row[:3]) if row else None
+            normalized = validate_request(retained_request_defaults(request, existing['request'])) if existing else None
+            if row and row[3] != digest(normalized):
                 raise ValueError('Request identity was reused with different settings')
-            return self.decode(row[:3]) if row else None
+            return existing
         return self.tx(read)
 
     def get(self, job_id, principal=None):
@@ -366,14 +369,14 @@ class EngineeringStore:
                 if not row or tuple(row) != (job['state'], job['revision'], job.get('_execution_lease')) or row[2] is None or not epoch or epoch[0] != job.get('_owner_epoch'):
                     raise ExecutionBindingError('EXECUTION_OWNER_CHANGED', 'The execution owner changed before model dispatch.')
                 calls, tokens = db.execute('SELECT COUNT(*),COALESCE(SUM(reserved_tokens),0) FROM engineering_model_attempts WHERE job_id=? AND dispatched=1', (job['id'],)).fetchone()
-                accepted = job['request'].get('execution_budget', {})
-                call_limit = accepted.get('model_calls', 128)
-                call_reserve = accepted.get('verification_calls', 2) + accepted.get('final_calls', 1)
+                accepted = effective_execution_budget(job['request'])
+                call_limit = accepted['model_calls']
+                call_reserve = accepted['verification_calls'] + accepted['final_calls']
                 if record.get('role') in {'final summary', 'final report'}:
                     call_reserve = 0
                 elif record.get('role') == 'selected-model reviewer':
-                    call_reserve = accepted.get('final_calls', 1)
-                token_limit = accepted.get('model_tokens', 4194304)
+                    call_reserve = accepted['final_calls']
+                token_limit = accepted['model_tokens']
                 token_reserve = 0 if call_reserve == 0 else record.get('budget', {}).get('final_tokens', 0) + record.get('budget', {}).get('verification_tokens', 0)
                 if (old is None or not old[0]) and (calls >= max(0, call_limit - call_reserve) or tokens + record.get('reserved_tokens', 0) + token_reserve > token_limit):
                     raise ExecutionBindingError('EXECUTION_RUN_BUDGET_EXHAUSTED', 'The retained job reached its inference budget. Verification and final reporting capacity were preserved.')
@@ -507,7 +510,8 @@ class EngineeringService:
         self.evidence = EvidenceLedger(store)
         self.memory = EngineeringMemory(store, store.runtime)
         from v14.code_graph.service import GraphService
-        self.graph = GraphService(store, backend, self.evidence)
+        graph_reader = getattr(backend, 'graph_reader', None)
+        self.graph = GraphService(store, graph_reader() if callable(graph_reader) else backend, self.evidence)
         backend.record_evidence = lambda job, payload: self.evidence.append(job, 'github_api', payload)
         backend.recall_memory = self.memory.recall
         backend.recall_graph = self.graph.recall
@@ -617,15 +621,17 @@ class EngineeringService:
             except (sqlite3.Error, OSError, ValueError):
                 journal = 'unavailable'
         configured = bool(self.backend.available())
+        graph_configured = bool(self.graph.backend.available())
         worker = self.thread is not None and self.thread.is_alive() and not self.stop.is_set()
         draining = bool(getattr(runtime, 'gateway_draining', False))
-        graph_ready = journal == 'ready' and configured and not draining
-        return {'schema_version': 1, 'ready': graph_ready and worker, 'graph_ready': graph_ready,
+        graph_ready = journal == 'ready' and graph_configured and not draining
+        return {'schema_version': 1, 'ready': journal == 'ready' and configured and worker and not draining, 'graph_ready': graph_ready,
                 'saved_results': journal in {'ready', 'write_failed'},
                 'checks': {'journal': journal, 'host_github_connection': 'configured' if configured else 'missing',
+                           'graph_host_github_connection': 'configured' if graph_configured else 'missing',
                            'worker': 'running' if worker else 'unavailable', 'draining': draining},
                 'github_reachable': None, 'repository_access': None, 'inference_ready': None,
-                'graph_supported': True, 'graph_configured': configured, 'graph_ready': graph_ready,
+                'graph_supported': True, 'graph_configured': graph_configured, 'graph_ready': graph_ready,
                 'execution_binding': {'schema_version': 1, 'supported': True, 'routing_policy': 'SELECTED_ONLY'},
                 'inference_scheduler': self.scheduler.snapshot()}
 
@@ -946,6 +952,7 @@ def public_job(job):
             'profile_id': job['request'].get('profile_id'), 'profile_name': job['request'].get('profile_name'), 'model': job['request']['model'],
             'source_branch': job['request'].get('source_branch', job['request']['branch']), 'source_sha': job['request'].get('source_sha'),
             'working_branch': job['request']['branch'], 'base': job['request']['base'],
+            'duration_hours': job['request'].get('duration_hours', 3), 'execution_budget': effective_execution_budget(job['request']),
             'chat_id': job['request'].get('chat_id', 0), 'state': state, 'revision': job['revision'],
             'created_at': job['created_at'], 'finished_at': job['updated_at'] if state in {'COMPLETED', 'CANCELLED', 'FAILED'} else None, 'deadline': job['deadline'], 'message': job['message'],
             'milestones_completed': completed, 'milestones_total': 2 if accepted_scope(job['request']) != 'implement' else len(PHASES) - 2,

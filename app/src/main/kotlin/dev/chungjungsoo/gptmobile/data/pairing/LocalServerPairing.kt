@@ -44,6 +44,6 @@ data class PairedServer(val version: Int, val name: String, val provider: String
         require(type in setOf(ClientType.LLAMA, ClientType.OLLAMA, ClientType.CUSTOM))
         validatePairingEndpoint(apiUrl)
         require(token == null || (token.length in 32..256 && token.none { it.isWhitespace() }))
-        return PlatformV2(name = name, compatibleType = type, apiUrl = apiUrl, model = model, token = token, enabled = false)
+        return PlatformV2(name = name, compatibleType = type, apiUrl = apiUrl, model = model, token = token, enabled = false, maxToolCalls = Int.MAX_VALUE)
     }
 }

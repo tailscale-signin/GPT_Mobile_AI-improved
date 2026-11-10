@@ -196,7 +196,7 @@ def install_routes(app, conversations, engineering, service, ownership):
                 raise ValueError('Expected a conversation command')
             submission = dict(payload['engineering_request'], conversation_id=conversation_id, command_id=payload['command_id'], request_id=payload['command_id'], objective=payload['content'], expected_revision=payload['expected_revision'])
             from v14.engineering import validate_request, public_job
-            submission = validate_request(submission)
+            validate_request(submission)
             old = engineering.store.existing_request(request.state.principal.id, submission)
             if old:
                 return public_job(old)

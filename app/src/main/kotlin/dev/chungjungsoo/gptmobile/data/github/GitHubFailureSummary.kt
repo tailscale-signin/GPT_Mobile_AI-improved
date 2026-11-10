@@ -14,12 +14,13 @@ internal object GitHubFailureSummary {
                 (receipt["trusted"] == JsonPrimitive(true) || receipt["dispatched"] == JsonPrimitive(false))
         }.distinctBy { (key, receipt) ->
             receipt.text("call_id")?.let { "call:$it" } ?: receipt.text("receipt_id")?.let { "receipt:$it" } ?: "entry:$key"
-        }.groupingBy { (_, receipt) -> receipt.text("error_code") ?: "UNCLASSIFIED" }.eachCount()
+        }.groupBy { (_, receipt) -> receipt.text("error_code") ?: "UNCLASSIFIED" }
         if (failures.isEmpty()) return ""
         return buildString {
             append("\n\n## Recorded operation failures\n\nThese are observed failures during this task; they do not establish the cause of an earlier interruption. Recovery actions below are recommendations.\n\n| Failure | Observations | Recommended action |\n| --- | ---: | --- |\n")
-            failures.toSortedMap().forEach { (code, count) ->
+            failures.toSortedMap().forEach { (code, observations) ->
                 val action = when (code) {
+                    in dev.chungjungsoo.gptmobile.data.agent.ToolFailureMetadata.authorityInvalidationCodes -> GitHubVerificationRecovery.advice(observations.map { it.value })
                     "SAVED_VIEW_UNAVAILABLE" -> "Reopen the immutable source using its retained source-recovery call."
                     "SAVED_VIEW_WRONG_OPERATION", "SAVED_VIEW_CURSOR_ALTERED" -> "Use the exact issued correction call and originating tool."
                     "INVALID_ARGUMENTS" -> "Discover exact paths and validate executable arguments; omit recovery envelopes."
@@ -31,7 +32,7 @@ internal object GitHubFailureSummary {
                     in dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.unknownOutcomeCodes -> "Reconcile the exact saved remote operation before another mutation. A lost response is not permission to repeat the write."
                     else -> "Inspect the retained error receipt and correct its cause before retrying."
                 }
-                append("| ").append(code.replace(Regex("[^A-Za-z0-9_]"), "").take(80)).append(" | ").append(count).append(" | ").append(action).append(" |\n")
+                append("| ").append(code.replace(Regex("[^A-Za-z0-9_]"), "").take(80)).append(" | ").append(observations.size).append(" | ").append(action).append(" |\n")
             }
         }
     }

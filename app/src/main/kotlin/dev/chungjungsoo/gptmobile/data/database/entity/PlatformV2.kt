@@ -69,6 +69,7 @@ data class PlatformV2(
     @ColumnInfo(name = "timeout")
     val timeout: Int = 300,
 
+    // Legacy backups omitted 50. New-profile creation supplies the default sentinel explicitly.
     @ColumnInfo(name = "max_tool_calls", defaultValue = "2147483647")
     val maxToolCalls: Int = 50,
 

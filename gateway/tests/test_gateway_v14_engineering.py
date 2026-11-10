@@ -1,4 +1,5 @@
 import copy
+import json
 import sqlite3
 import sys
 import tempfile
@@ -10,7 +11,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from v14.engineering import EngineeringStore, EngineeringService, EngineeringSupervisor, public_job, validate_request, principal_authorized
+from v14.engineering import EngineeringStore, EngineeringService, EngineeringSupervisor, public_job, validate_request, principal_authorized, digest
+from v14.engineering_defaults import DEFAULT_EXECUTION_BUDGET, LEGACY_EXECUTION_BUDGET
 from v14.engineering_backend import prepare_changes, blob_sha
 from v14.execution_binding import fingerprint
 
@@ -101,6 +103,44 @@ class DurableEngineeringTests(unittest.TestCase):
         self.assertEqual(first['id'], self.store.create('owner', self.request)['id'])
         with self.assertRaises(ValueError):
             self.store.create('owner', dict(self.request, objective='different'))
+
+    def test_new_default_is_frozen_ultra_and_explicit_smaller_limits_remain_authoritative(self):
+        original = copy.deepcopy(self.request)
+        job = self.store.create('owner', self.request)
+        self.assertEqual(24 * 3600, job['deadline'] - job['created_at'])
+        self.assertEqual(DEFAULT_EXECUTION_BUDGET, job['request']['execution_budget'])
+        self.assertEqual(original, self.request)
+        self.assertEqual(job['id'], self.store.create('owner', self.request)['id'])
+        public = public_job(job)
+        self.assertEqual(24, public['duration_hours'])
+        self.assertEqual(DEFAULT_EXECUTION_BUDGET, public['execution_budget'])
+        small = self.store.create('owner', dict(self.request, request_id='smaller', duration_hours=3,
+                                              execution_budget={'model_calls': 8, 'model_tokens': 4096}))
+        self.assertEqual(3 * 3600, small['deadline'] - small['created_at'])
+        self.assertEqual(8, small['request']['execution_budget']['model_calls'])
+        self.assertEqual(4096, small['request']['execution_budget']['model_tokens'])
+        with self.assertRaises(ValueError):
+            self.store.create('owner', dict(self.request, execution_budget={'model_calls': 8}))
+        with self.assertRaises(ValueError):
+            validate_request(dict(self.request, execution_budget={'model_calls': 513}))
+
+    def test_legacy_lost_response_reconciles_without_upgrading_frozen_budget_or_dispatching(self):
+        job = self.store.create('owner', self.request)
+        legacy = copy.deepcopy(job)
+        legacy['request'] = validate_request(self.request)
+        legacy['deadline'] = legacy['created_at'] + 3 * 3600
+        self.store.tx(lambda db: db.execute('UPDATE engineering_jobs SET data=?,request_digest=? WHERE id=?',
+                                           (json.dumps(legacy), digest(legacy['request']), job['id'])))
+        restored = self.store.create('owner', self.request)
+        self.assertEqual(job['id'], restored['id'])
+        self.assertEqual(3, restored['request']['duration_hours'])
+        self.assertNotIn('execution_budget', restored['request'])
+        self.assertEqual(legacy['deadline'], restored['deadline'])
+        self.assertEqual(LEGACY_EXECUTION_BUDGET, public_job(restored)['execution_budget'])
+        with self.assertRaises(ValueError):
+            self.store.create('owner', dict(self.request, duration_hours=24))
+        self.assertEqual(1, self.store.tx(lambda db: db.execute('SELECT COUNT(*) FROM engineering_jobs').fetchone()[0]))
+        self.assertEqual([], self.backend.calls)
 
     def test_worker_matches_admission_and_revoked_permissions_stop_execution(self):
         devices = SimpleNamespace(list_devices=lambda: [('paired', 'phone', 0, 1000), ('revoked', 'old', 1, 1000)])

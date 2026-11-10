@@ -80,6 +80,11 @@ class ConversationTests(unittest.TestCase):
                 response = client.post(path, json=followup, headers=headers)
             self.assertEqual(200, response.status_code, response.text)
             self.assertEqual(cid, response.json()['conversation_id'])
+            self.assertEqual(24, response.json()['duration_hours'])
+            self.assertEqual(512, response.json()['execution_budget']['model_calls'])
+            retried = client.post(path, json=followup, headers=headers)
+            self.assertEqual(200, retried.status_code, retried.text)
+            self.assertEqual(response.json()['id'], retried.json()['id'])
         self.assertEqual(2, self.store.tx(lambda db: db.execute('SELECT COUNT(*) FROM engineering_jobs').fetchone()[0]))
         self.assertEqual([], self.backend.calls)
 

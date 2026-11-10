@@ -7,6 +7,10 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chungjungsoo.gptmobile.data.ModelConstants
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.github.GatewayAdmissionException
+import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringClient
+import dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy
+import dev.chungjungsoo.gptmobile.data.github.engineeringConfig
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntime
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.endpointLocality
@@ -45,6 +49,7 @@ class ConnectionDoctorViewModel @Inject constructor(
     private val gateway: GatewayAPI,
     private val runtime: LocalRuntime,
     private val nvidiaProbe: NvidiaInferenceProbe,
+    private val engineeringClient: GatewayEngineeringClient,
     @param:ApplicationContext private val context: Context
 ) : ViewModel() {
     val detectedContext = MutableStateFlow<Pair<String, Int>?>(null)
@@ -130,6 +135,27 @@ class ConnectionDoctorViewModel @Inject constructor(
     private var job: Job? = null
     fun cancel() {
         job?.cancel()
+    }
+    fun inspectEngineeringGateway(profile: PlatformV2) = action {
+        require(GitHubAutonomousEngineeringPolicy.supportsSavedJobs(profile)) { "Select the saved engineering gateway connection." }
+        lastInspectedNvidia.value = null
+        detectedContext.value = null
+        deadlineProfile.value = null
+        contextReport.value = "Engineering readiness is checked on the selected gateway. Its model and GitHub repository permissions are verified when a job starts."
+        diagnosticReport.value = "This check reads gateway capabilities. It does not submit an engineering job or send the phone’s GitHub credential."
+        val result = try {
+            withTimeout(8_000) { engineeringClient.refreshCapabilities(profile.engineeringConfig()) }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: GatewayAdmissionException) {
+            finish("Gateway: ${profile.name}\n${failure.message}")
+            return@action
+        }
+        finish(
+            "Gateway: ${profile.name}\n" +
+                (result.unavailableReason() ?: "Engineering prerequisites are ready. GitHub access and selected-model execution are checked when you submit the task.") +
+                "\nNo engineering job was submitted by this check."
+        )
     }
     fun inspect(profile: PlatformV2) = action {
         lastInspectedNvidia.value = profile.takeIf { it.compatibleType == ClientType.NVIDIA }

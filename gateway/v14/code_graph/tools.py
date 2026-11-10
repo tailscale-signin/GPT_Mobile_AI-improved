@@ -25,7 +25,7 @@ def install_graph_tool(runtime, service, authorized):
 
     def listing(force_refresh=False):
         rows = catalog(force_refresh)
-        if runtime.GATEWAY_DURABLE_JOBS and service.backend.available() and local_model_destination(runtime.LLAMA_BASE):
+        if runtime.GATEWAY_DURABLE_JOBS and service.graph.backend.available() and local_model_destination(runtime.LLAMA_BASE):
             return rows + [definition]
         return rows
 

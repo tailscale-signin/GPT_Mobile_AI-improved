@@ -9,6 +9,15 @@ import kotlinx.serialization.json.put
 
 /** The architecture endpoint returns file dependencies, while symbol queries return nodes and edges. */
 internal data class RepositoryGraphPresentation(val nodes: List<JsonObject>, val edges: List<JsonObject>) {
+    fun search(query: String): RepositoryGraphPresentation {
+        val term = query.trim()
+        if (term.isEmpty()) return this
+        val matches = nodes.filter { node -> listOf("qualified", "name", "path").any { node.graphText(it).contains(term, ignoreCase = true) } }
+        return copy(nodes = matches)
+    }
+
+    fun relationships(id: String): List<JsonObject> = edges.filter { it.graphText("source") == id || it.graphText("target") == id }
+
     fun page(index: Int, size: Int = 12): RepositoryGraphPresentation {
         require(size > 0)
         val visible = nodes.drop(index.coerceAtLeast(0) * size).take(size)

@@ -21,6 +21,32 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GatewayEngineeringClientTest {
+    @Test fun explicitHostRepairCheckRefreshesTheExactGatewayWithoutSubmittingAJob() = runTest {
+        val selected = ProviderRequestConfig("http://127.0.0.1:29980/v1", "host-access")
+        var reads = 0
+        var repaired = false
+        http(
+            MockEngine { request ->
+                reads++
+                assertEquals(io.ktor.http.HttpMethod.Get, request.method)
+                assertEquals("http://127.0.0.1:29980/v1/gateway/engineering/capabilities", request.url.toString())
+                assertEquals("Bearer host-access", request.headers["Authorization"])
+                val connection = if (repaired) "configured" else "missing"
+                respond("""{"service":"engineering-gateway","protocol_version":1,"enabled":$repaired,"principal_id":"same-owner","readiness":{"schema_version":1,"ready":$repaired,"checks":{"journal":"ready","host_github_connection":"$connection","worker":"running"}}}""")
+            }
+        ).use { http ->
+            val client = GatewayEngineeringClient(http)
+            assertEquals(GatewayAdmissionReason.ENGINEERING_GITHUB_REQUIRED, client.capabilities(selected).jobReadinessFailure())
+            repaired = true
+            assertEquals(GatewayAdmissionReason.ENGINEERING_GITHUB_REQUIRED, client.capabilities(selected).jobReadinessFailure())
+            assertEquals(1, reads)
+            val ready = client.refreshCapabilities(selected)
+            assertNull(ready.jobReadinessFailure())
+            assertEquals("same-owner", client.principal(selected))
+            assertEquals(2, reads)
+        }
+    }
+
     private val config = ProviderRequestConfig("https://gateway.test/v1", "test-token")
     private val job = GatewayEngineeringJob("eng_" + "a".repeat(32), "owner/repo", "feature/job", state = "MERGE_READY", revision = 12, createdAt = 1.0, deadline = 99999.0, message = "Review", pr = 7, headSha = "b".repeat(40), mergeReady = true)
     private fun http(engine: MockEngine) = HttpClient(engine) {

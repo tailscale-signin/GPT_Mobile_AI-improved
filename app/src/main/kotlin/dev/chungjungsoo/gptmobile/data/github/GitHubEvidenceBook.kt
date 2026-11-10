@@ -32,7 +32,8 @@ internal class GitHubEvidenceBook(
     private val retentionLimitRecords: Int = 4096,
     private val retentionLimitBytes: Int = 16 * 1024 * 1024,
     private val runtimeIdentity: () -> JsonObject = GitHubRuntimeIdentity::current,
-    private val readSources: Set<String> = emptySet()
+    private val readSources: Set<String> = emptySet(),
+    authorizationRevision: String? = null
 ) {
     init {
         require(retentionLimitRecords in 1..4096)
@@ -47,6 +48,7 @@ internal class GitHubEvidenceBook(
     private var epoch = 0L
     private var observedHead: String? = null
     private var overflow = false
+    private val authorizationDigest = authorizationRevision?.takeIf(String::isNotBlank)?.let(::digest)
 
     private fun attemptKey(tool: String, arguments: JsonObject): AttemptKey =
         GitHubActionIdentity.digest(binding, repository, tool, arguments)?.let { AttemptKey(tool, JsonObject(emptyMap()), it) }
@@ -92,12 +94,14 @@ internal class GitHubEvidenceBook(
             else -> null
         }
         // Originals remain immutable. The current proof decision is a separate projection.
-        return JsonObject(
-            saved.filterKeys { it !in setOf("verification_eligible", "exclusion_reason") } + buildJsonObject {
+        val current = JsonObject(
+            saved.filterKeys { it !in setOf("verification_eligible", "exclusion_reason", GitHubPolicyReadRecovery.REVALIDATED) } + buildJsonObject {
                 put("verification_eligible", exclusion == null && saved["trusted"] == JsonPrimitive(true))
                 exclusion?.let { put("exclusion_reason", it) }
             }
         )
+        val revalidated = GitHubPolicyReadRecovery.revalidated(current, authorizationDigest)
+        return if (revalidated == null) current else JsonObject(current + (GitHubPolicyReadRecovery.REVALIDATED to JsonPrimitive(revalidated)))
     }
 
     suspend fun observe(call: ProviderEvent.ToolCall, result: AgentToolResult) = mutex.withLock {
@@ -187,6 +191,7 @@ internal class GitHubEvidenceBook(
                 }
             )
             put("runtime_identity", runtimeIdentity())
+            authorizationDigest?.let { put(GitHubPolicyReadRecovery.AUTHORITY, it) }
             put("branch", targetBranch)
             put("workspace_branch", branch)
             val resourceBranch = (root?.get("head_branch") as? JsonPrimitive)?.contentOrNull

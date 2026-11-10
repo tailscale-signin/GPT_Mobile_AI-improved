@@ -9,6 +9,42 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class RouteCapabilityCacheTest {
+    @Test fun explicitRepairRefreshWaitsForThisRouteAndReplacesItsStaleValueOnly() = runTest {
+        val cache = RouteCapabilityCache<String>({ testScheduler.currentTime })
+        val gate = CompletableDeferred<Unit>()
+        var loads = 0
+        val stale = async {
+            cache.getOrLoad("route-a") {
+                loads++
+                gate.await()
+                "missing"
+            }
+        }
+        runCurrent()
+        val repaired = async {
+            cache.getOrLoad("route-a", forceRefresh = true) {
+                loads++
+                "ready"
+            }
+        }
+        runCurrent()
+        assertEquals("other", cache.getOrLoad("route-b") { "other" })
+        gate.complete(Unit)
+        assertEquals("missing", stale.await())
+        assertEquals("ready", repaired.await())
+        assertEquals("ready", cache.getOrLoad("route-a") { "unexpected reload" })
+        assertEquals("other", cache.getOrLoad("route-b") { "unexpected reload" })
+        assertEquals(2, loads)
+    }
+
+    @Test fun explicitRefreshRechecksANegativeEntryWithoutChangingOtherRoutes() = runTest {
+        val cache = RouteCapabilityCache<String>({ testScheduler.currentTime })
+        assertNull(cache.getOrLoad("route-a") { null })
+        assertEquals("other", cache.getOrLoad("route-b") { "other" })
+        assertEquals("ready", cache.getOrLoad("route-a", forceRefresh = true) { "ready" })
+        assertEquals("other", cache.getOrLoad("route-b") { "unexpected reload" })
+    }
+
     @Test fun sameRouteSingleFlightDoesNotBlockOtherRoutes() = runTest {
         val cache = RouteCapabilityCache<String>({ testScheduler.currentTime })
         val gate = CompletableDeferred<Unit>()

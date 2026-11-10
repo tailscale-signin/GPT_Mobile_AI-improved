@@ -1,0 +1,3 @@
+/workspace/scratch/b236adcc0a61/repository-map-recovery/boundaries/Lifecycle.kt:5:121: warning: unchecked cast of 'Any?' to 'T? (of fun <T> get)'.
+class SavedStateHandle { private val values=mutableMapOf<String,Any?>();operator fun <T> get(key:String):T?=values[key] as T?;operator fun <T> set(key:String,value:T){values[key]=value} }
+                                                                                                                        ^^^^^

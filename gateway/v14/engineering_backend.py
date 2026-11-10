@@ -96,6 +96,28 @@ def prepare_changes(proposal, files, tree):
     return result
 
 
+class ReadOnlyGraphGitHub:
+    """Graph source access shares the selected host identity, never its write surface."""
+    def __init__(self, backend):
+        self.backend = backend
+
+    def available(self):
+        try:
+            self.backend.token(read_only=True)
+            return True
+        except ValueError:
+            return False
+
+    def api(self, path, method='GET', body=None, job=None, text=False):
+        if method not in {'GET', 'HEAD'} or body is not None or job is not None:
+            raise PermissionError('Repository graph access cannot dispatch GitHub mutations or engineering jobs')
+        return self.backend.api(path, method=method, text=text, read_only=True)
+
+    def paged(self, path, key=None, job=None, maximum=1000):
+        # The common paginator calls this adapter's guarded GET path on every page.
+        return GitHubEngineeringBackend.paged(self, path, key=key, job=job, maximum=maximum)
+
+
 class GitHubEngineeringBackend:
     physical_operation_journal = True
     def __init__(self, runtime):
@@ -127,19 +149,92 @@ class GitHubEngineeringBackend:
                 return self.is_set()
         return Cancellation()
 
-    def token(self):
+    def token(self, *, read_only=False):
         selected = os.getenv('GATEWAY_ENGINEERING_GITHUB_SERVER', '')
+        dedicated = os.getenv('GATEWAY_ENGINEERING_GITHUB_TOKEN')
+        if not selected and dedicated is not None:
+            return self.valid_token(dedicated)
+        load = getattr(self.runtime, 'load_mcp_config', None)
+        configs = load() if callable(load) else {}
+        if not isinstance(configs, dict):
+            raise ValueError('The host MCP configuration is invalid')
         if selected:
-            config = self.runtime.load_mcp_config().get(selected, {})
-            if config.get('enabled') is False:
-                raise ValueError('The host GitHub connection is disabled')
-            env = config.get('env') or {}
-            value = env.get('GITHUB_PERSONAL_ACCESS_TOKEN') or env.get('GITHUB_TOKEN')
-        else:
-            value = os.getenv('GATEWAY_ENGINEERING_GITHUB_TOKEN')
-        if not isinstance(value, str) or not value or any(ch in value for ch in '\r\n'):
+            # An explicit connection is authoritative, including when unavailable.
+            return self.connection_token(configs.get(selected), read_only=read_only)
+        # Reuse only a single known, enabled host GitHub connection. Unrelated
+        # MCP/process credentials and ambiguous accounts are never substitutes.
+        candidates = [configs[name] for name in ('github-official', 'github-codefirst')
+                      if name in configs and self.connection_enabled(configs[name])]
+        if len(candidates) != 1:
+            raise ValueError('Configure or explicitly select one host GitHub connection for autonomous engineering')
+        return self.connection_token(candidates[0], read_only=read_only)
+
+    @staticmethod
+    def valid_token(value):
+        if not isinstance(value, str) or not value or any(ch.isspace() or ord(ch) < 32 or ord(ch) == 127 for ch in value):
             raise ValueError('Configure a host GitHub connection for autonomous engineering')
         return value
+
+    @staticmethod
+    def connection_enabled(config):
+        if not isinstance(config, dict):
+            raise ValueError('The host GitHub connection configuration is invalid')
+        enabled, disabled = config.get('enabled', True), config.get('disabled', False)
+        if type(enabled) is not bool or type(disabled) is not bool:
+            raise ValueError('The host GitHub connection enablement is invalid')
+        return enabled and not disabled
+
+    @classmethod
+    def connection_token(cls, config, *, read_only=False):
+        if not cls.connection_enabled(config):
+            raise ValueError('The host GitHub connection is disabled')
+        env = config.get('env')
+        if not isinstance(env, dict):
+            raise ValueError('The host GitHub connection has no configured credential')
+        cls.connection_policy(config, env, read_only=read_only)
+        values = [cls.valid_token(env[key]) for key in ('GITHUB_PERSONAL_ACCESS_TOKEN', 'GITHUB_TOKEN')
+                  if key in env and env[key] not in (None, '')]
+        if len(set(values)) != 1:
+            raise ValueError('The host GitHub connection credential is missing or conflicting')
+        return values[0]
+
+    @staticmethod
+    def connection_policy(config, env, *, read_only=False):
+        def check(key, value):
+            if key == 'GITHUB_READ_ONLY' and read_only and (value is True or isinstance(value, str) and value.lower() in {'true', '1', 'yes', 'on'}):
+                return
+            if key == 'GITHUB_HOST':
+                if not isinstance(value, str):
+                    raise ValueError('The host GitHub API destination is invalid')
+                if not value:
+                    return
+                try:
+                    parsed = urlsplit(value if '://' in value else 'https://' + value)
+                    port = parsed.port
+                except ValueError:
+                    raise ValueError('The host GitHub API destination is invalid') from None
+                if parsed.scheme != 'https' or parsed.hostname not in {'github.com', 'api.github.com'} or port not in {None, 443} or parsed.username or parsed.password or parsed.path not in {'', '/'} or parsed.query or parsed.fragment:
+                    raise ValueError('The host GitHub connection targets a different GitHub API')
+            elif value is not False and not (isinstance(value, str) and value.lower() in {'', 'false', '0', 'no', 'off'}):
+                raise ValueError('The host GitHub connection restricts autonomous engineering')
+        # The MCP subprocess inherits these restrictions unless its own env
+        # overrides them. Never transplant an enterprise token to api.github.com.
+        options = {'GITHUB_READ_ONLY': '--read-only', 'GITHUB_LOCKDOWN_MODE': '--lockdown-mode', 'GITHUB_HOST': '--gh-host'}
+        for key in options:
+            if key in env or key in os.environ:
+                check(key, env[key] if key in env else os.environ[key])
+        args = config.get('args', [])
+        if not isinstance(args, list) or any(not isinstance(value, str) for value in args):
+            raise ValueError('The host GitHub connection arguments are invalid')
+        for index, argument in enumerate(args):
+            name, separator, value = argument.partition('=')
+            for key, flag in options.items():
+                if name not in {key, flag}:
+                    continue
+                if separator:
+                    check(key, value)
+                elif name == flag:
+                    check(key, args[index + 1] if key == 'GITHUB_HOST' and index + 1 < len(args) else True)
 
     def available(self):
         try:
@@ -148,12 +243,17 @@ class GitHubEngineeringBackend:
         except ValueError:
             return False
 
+    def graph_reader(self):
+        return ReadOnlyGraphGitHub(self)
+
     @staticmethod
     def root(job):
         owner, repo = job['request']['repository'].split('/')
         return '/repos/' + quote(owner, safe='') + '/' + quote(repo, safe='')
 
-    def api(self, path, method='GET', body=None, job=None, text=False):
+    def api(self, path, method='GET', body=None, job=None, text=False, *, read_only=False):
+        if read_only and (method not in {'GET', 'HEAD'} or body is not None):
+            raise PermissionError('Read-only GitHub access cannot dispatch a mutation')
         started = time.monotonic()
         mutating = method not in {'GET', 'HEAD'} and not (path == '/graphql' and isinstance(body, dict) and str(body.get('query', '')).lstrip().startswith(('query(', 'query ')))
         operation = None
@@ -170,7 +270,8 @@ class GitHubEngineeringBackend:
             raise InterruptedError('Engineering operation stopped')
         if job and job['state'] not in {'MERGE', 'VERIFY'} and time.time() >= job['deadline']:
             raise InterruptedError('Engineering duration limit reached')
-        headers = {'Authorization': 'Bearer ' + self.token(), 'Accept': 'application/vnd.github+json',
+        token = self.token(read_only=True) if read_only else self.token()
+        headers = {'Authorization': 'Bearer ' + token, 'Accept': 'application/vnd.github+json',
                    'X-GitHub-Api-Version': '2022-11-28'}
         if mutating and job and accepted_scope(job['request']) != 'implement':
             raise PermissionError('Read and plan tasks do not authorize GitHub mutations')

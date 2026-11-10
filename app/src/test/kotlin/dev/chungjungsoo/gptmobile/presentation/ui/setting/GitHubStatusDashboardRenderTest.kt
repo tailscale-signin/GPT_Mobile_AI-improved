@@ -15,11 +15,16 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.platform.ClipboardManager
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -125,6 +130,7 @@ class GitHubStatusDashboardRenderTest {
         val paths = (0..12).joinToString(",") { "\"app/File${it.toString().padStart(2, '0')}.kt\"" }
         val map = Json.parseToJsonElement("""{"communities":[{"id":"app","name":"app","files":[$paths]}],"dependencies":{"app/File00.kt":["app/File01.kt"]}}""") as JsonObject
         var context by mutableStateOf(GitHubConversationContext("github", "mobile", "app", "main", "a".repeat(40), "selected-profile"))
+        var gatewayUid by mutableStateOf("gateway-one")
         var selected = ""
         var refreshes = 0
         compose.setContent {
@@ -134,7 +140,7 @@ class GitHubStatusDashboardRenderTest {
                         Column(Modifier.verticalScroll(rememberScrollState())) {
                             RepositoryGraphStatusContent(
                                 context,
-                                RepositoryGraphUiState(architecture = map),
+                                RepositoryGraphUiState(architecture = map, gatewayProfileUid = gatewayUid),
                                 onRefresh = { refreshes++ },
                                 onIndex = {},
                                 onStop = {},
@@ -156,12 +162,127 @@ class GitHubStatusDashboardRenderTest {
         compose.runOnIdle { context = context.copy(commitSha = "b".repeat(40)) }
         compose.onNodeWithTag("github_repository_map_selection").assertDoesNotExist()
         compose.onNodeWithContentDescription("Interactive repository network with 12 source-backed bubbles").assertExists()
+        compose.onNodeWithTag("github_repository_node_app/File00.kt").performScrollTo().performClick()
+        compose.onNodeWithTag("github_repository_map_search").performScrollTo().performTextInput("File00")
+        compose.runOnIdle { gatewayUid = "gateway-two" }
+        compose.onNodeWithTag("github_repository_map_selection").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Interactive repository network with 12 source-backed bubbles").assertExists()
         compose.onNodeWithText("Refresh").performScrollTo().performClick()
         compose.runOnIdle { assertEquals(1, refreshes) }
         val directory = File("build/reports/reliability-ui").apply { mkdirs() }
         File(directory, "repository-map-dark-large.png").outputStream().use { output ->
             compose.onNodeWithTag("github_status_repository_map").captureToImage().asAndroidBitmap().compress(Bitmap.CompressFormat.PNG, 100, output)
         }
+    }
+
+    @Test fun blockedRepositoryMapOffersHostRepairWithoutAnIndexOrInventedRelationships() {
+        val context = GitHubConversationContext("github", "mobile", "app", "main", "a".repeat(40), "selected-profile")
+        val error = "GATEWAY_ENGINEERING_GITHUB_REQUIRED: Configure the GitHub connection on the selected gateway host."
+        var repairs = 0
+        var refreshes = 0
+        var builds = 0
+        lateinit var clipboard: ClipboardManager
+        renderRepositoryMap(
+            context,
+            { RepositoryGraphUiState(error = error, repairAction = "CONFIGURE_SELECTED_GATEWAY_HOST_GITHUB", gatewayName = "My desktop gateway", gatewayProfileUid = "gateway") },
+            ThemeMode.DARK,
+            onRefresh = { refreshes++ },
+            onIndex = { builds++ },
+            onConfigure = { repairs++ },
+            clipboard = { clipboard = it }
+        )
+        compose.onNodeWithText("Connect GitHub on your gateway").assertIsDisplayed()
+        compose.onNodeWithTag("github_repository_map_index").assertDoesNotExist()
+        compose.onNodeWithTag("github_repository_bubble_network").assertDoesNotExist()
+        compose.onNodeWithTag("github_repository_map_legend").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Repository revision ${context.commitSha}").assertExists()
+        compose.onNodeWithText("Revision ${context.commitSha.take(10)}").assertExists()
+        compose.onNodeWithTag("github_repository_map_copy_revision").performClick()
+        compose.runOnIdle { assertEquals(context.commitSha, clipboard.getText()?.text) }
+        compose.onNodeWithTag("github_repository_map_configure").performScrollTo().performClick()
+        compose.onNodeWithTag("github_repository_map_recheck").performScrollTo().performClick()
+        compose.runOnIdle {
+            assertEquals(1, repairs)
+            assertEquals(1, refreshes)
+            assertEquals(0, builds)
+        }
+        compose.onNodeWithTag("github_repository_map_error_details").performScrollTo().performClick()
+        compose.onNodeWithText(error).assertIsDisplayed()
+        compose.onNodeWithTag("github_repository_map_error_details").performClick()
+        captureRepositoryMap("repository-map-blocked-dark")
+    }
+
+    @Test fun repositoryMapBuildProgressUsesOnlyMeasuredFilesAndKeepsStopAvailable() {
+        val context = GitHubConversationContext("github", "mobile", "app", "main", "b".repeat(40), "selected-profile")
+        var state by mutableStateOf(RepositoryGraphUiState(busy = true, operation = "index", result = Json.parseToJsonElement("""{"graph":{"processed_files":3,"expected_files":10}}""") as JsonObject))
+        var stops = 0
+        renderRepositoryMap(context, { state }, ThemeMode.LIGHT, onStop = { stops++ })
+        compose.onNodeWithText("Building the source map").assertIsDisplayed()
+        compose.onNodeWithText("3 of 10 files processed").assertIsDisplayed()
+        assertEquals(.3f, compose.onNodeWithTag("github_repository_map_progress_bar").fetchSemanticsNode().config[SemanticsProperties.ProgressBarRangeInfo].current, 0f)
+        compose.onNodeWithTag("github_repository_map_index").assertDoesNotExist()
+        compose.onNodeWithTag("github_repository_bubble_network").assertDoesNotExist()
+        compose.onNodeWithTag("github_repository_map_stop").performClick()
+        compose.runOnIdle { assertEquals(1, stops) }
+        captureRepositoryMap("repository-map-building-light")
+        compose.runOnIdle { state = state.copy(result = Json.parseToJsonElement("""{"graph":{"processed_files":"3","expected_files":"10"}}""") as JsonObject) }
+        compose.onNodeWithText("3 of 10 files processed").assertDoesNotExist()
+        assertEquals(ProgressBarRangeInfo.Indeterminate, compose.onNodeWithTag("github_repository_map_progress_bar").fetchSemanticsNode().config[SemanticsProperties.ProgressBarRangeInfo])
+    }
+
+    @Test fun anUnknownIndexOutcomeRequiresAStatusReadBeforeAnotherBuild() {
+        val context = GitHubConversationContext("github", "mobile", "app", "main", "c".repeat(40), "selected-profile")
+        var state by mutableStateOf(RepositoryGraphUiState(result = Json.parseToJsonElement("""{"status":"NOT_INDEXED"}""") as JsonObject, resultOperation = "status"))
+        var builds = 0
+        var reads = 0
+        renderRepositoryMap(context, { state }, ThemeMode.LIGHT, onIndex = { builds++ }, onRefresh = { reads++ })
+        compose.onNodeWithTag("github_repository_map_index").performScrollTo().performClick()
+        compose.runOnIdle {
+            assertEquals(1, builds)
+            state = state.copy(indexOutcomeUnknown = true, error = "Index response was interrupted.")
+        }
+        compose.onNodeWithText("Check the saved index first").assertIsDisplayed()
+        compose.onNodeWithTag("github_repository_map_index").assertDoesNotExist()
+        compose.onNodeWithTag("github_repository_map_configure").assertDoesNotExist()
+        compose.onNodeWithText("Check saved index").performScrollTo().performClick()
+        compose.runOnIdle {
+            assertEquals(1, builds)
+            assertEquals(1, reads)
+        }
+    }
+
+    @Test fun anUnselectedGatewayKeepsTheMapVisibleWithOnlyItsSetupAction() {
+        val context = GitHubConversationContext("github", "mobile", "app", "main", "d".repeat(40), "cloud-inference-profile")
+        var repairs = 0
+        renderRepositoryMap(context, { RepositoryGraphUiState() }, ThemeMode.DARK, configured = false, onConfigure = { repairs++ })
+        compose.onNodeWithText("Choose an engineering gateway").assertIsDisplayed()
+        compose.onNodeWithTag("github_repository_map_refresh").assertIsNotEnabled()
+        compose.onNodeWithTag("github_repository_map_index").assertDoesNotExist()
+        compose.onNodeWithTag("github_repository_map_progress").assertDoesNotExist()
+        compose.onNodeWithTag("github_repository_map_configure").performScrollTo().performClick()
+        compose.runOnIdle { assertEquals(1, repairs) }
+    }
+
+    private fun renderRepositoryMap(context: GitHubConversationContext, state: () -> RepositoryGraphUiState, theme: ThemeMode, configured: Boolean = true, onRefresh: () -> Unit = {}, onIndex: () -> Unit = {}, onStop: () -> Unit = {}, onConfigure: () -> Unit = {}, clipboard: (ClipboardManager) -> Unit = {}) {
+        compose.setContent {
+            GPTMobileTheme(themeMode = theme) {
+                CompositionLocalProvider(LocalDensity provides Density(1f, 1.4f)) {
+                    clipboard(LocalClipboardManager.current)
+                    Surface(Modifier.width(320.dp)) {
+                        Column(Modifier.verticalScroll(rememberScrollState())) {
+                            RepositoryGraphStatusContent(context, state(), onRefresh, onIndex, onStop, {}, onConfigure, configured)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun captureRepositoryMap(name: String) {
+        val file = File("build/reports/reliability-ui/$name.png").apply { parentFile.mkdirs() }
+        val bitmap = compose.onNodeWithTag("github_status_repository_map").captureToImage().asAndroidBitmap()
+        assertTrue(bitmap.width >= 300 && bitmap.height > 200)
+        file.outputStream().use { assertTrue(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) }
     }
 
     private fun render(name: String, width: Int, fontScale: Float, theme: ThemeMode) {

@@ -134,16 +134,26 @@ internal fun GitHubLiveProgressCard(timeline: List<dev.chungjungsoo.gptmobile.da
 @Composable
 private fun GitHubActivitySummary(text: String, animateEntry: Boolean) {
     val entry = rememberGitHubActivityEntry(animateEntry)
-    Text(
+    GitHubActivityCrossfade(
         text,
-        style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 1.5.em),
-        color = MaterialTheme.colorScheme.onSurface,
         // Preserve the complete authored paragraphs. Fade only the drawing so
         // neither scrolling nor neighbouring rows move during the entrance.
         modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp).graphicsLayer { alpha = entry.value }
-            .testTag("github_activity_summary")
-            .semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite }
-    )
+    ) { displayed, current ->
+        Text(
+            displayed,
+            style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 1.5.em),
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.fillMaxWidth().then(
+                if (current) {
+                    Modifier.testTag("github_activity_summary")
+                        .semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite }
+                } else {
+                    Modifier
+                }
+            )
+        )
+    }
 }
 
 @Composable

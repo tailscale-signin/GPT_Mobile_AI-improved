@@ -33,7 +33,7 @@ class GatewayEngineeringSubmissionTest {
     private val history = mockk<GatewayJobClient>()
     private val selected = PlatformV2(uid = "execution-profile", name = "Selected inference", compatibleType = ClientType.LLAMA, apiUrl = "http://192.168.1.8:8080/v1", model = "profile-default")
     private val originalGateway = PlatformV2(uid = "original-gateway", name = "Original gateway", compatibleType = ClientType.LLAMA, apiUrl = "http://192.168.1.9:8090/v1", model = "unused")
-    private val capability = GatewayEngineeringCapabilities("engineering-gateway", 1, enabled = true, principalId = "owner", gatewayId = "gateway", taskScopeProtocol = 1, taskScopes = listOf("read", "plan", "implement"), conversationSync = true, durableDetach = true)
+    private val capability = GatewayEngineeringCapabilities("engineering-gateway", 1, enabled = true, principalId = "owner", gatewayId = "gateway", taskScopeProtocol = 1, taskScopes = listOf("read", "plan", "implement"), conversationSync = true, durableDetach = true, durationHours = listOf(3, 6, 12, 24, 0), executionBudgetLimits = GatewayEngineeringBudget(512, 8_388_608, 256, 256, 900))
     private fun repository() = GatewayEngineeringRepository(mockk<Context>(), settings, client, mockk(), store, conversations, history)
 
     @Before fun admissionDefaults() {
@@ -70,6 +70,10 @@ class GatewayEngineeringSubmissionTest {
         assertEquals(42L, saved.captured.request.expectedRevision)
         assertEquals(11, saved.captured.localUserMessageId)
         assertEquals(12, saved.captured.localAssistantMessageId)
+        assertEquals(24, saved.captured.request.durationHours)
+        assertEquals(512, saved.captured.request.executionBudget?.modelCalls)
+        assertEquals(2_097_152, saved.captured.request.executionBudget?.modelTokens)
+        assertTrue(saved.captured.budgetSelection?.limitedByHost == false)
         coVerify(exactly = 0) { client.create(any(), any()) }
     }
 

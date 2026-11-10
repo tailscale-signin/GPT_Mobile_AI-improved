@@ -1,5 +1,6 @@
 import copy
 import json
+import os
 import sys
 import threading
 import time
@@ -12,6 +13,214 @@ from unittest.mock import Mock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from v14.engineering import EngineeringSupervisor
 from v14.engineering_backend import GitHubEngineeringBackend, prepare_changes
+
+
+class EngineeringCredentialTests(unittest.TestCase):
+    def setUp(self):
+        self.config = {}
+        self.runtime = SimpleNamespace(load_mcp_config=lambda: self.config)
+        self.backend = GitHubEngineeringBackend(self.runtime)
+        environment = patch.dict(os.environ, {}, clear=True)
+        environment.start()
+        self.addCleanup(environment.stop)
+
+    def connection(self, token='host-github-secret', **values):
+        return dict(env={'GITHUB_PERSONAL_ACCESS_TOKEN': token}, **values)
+
+    def test_single_enabled_host_github_connection_is_the_default_and_is_reloaded(self):
+        self.config['github-official'] = self.connection()
+        self.assertTrue(self.backend.available())
+        self.assertEqual('host-github-secret', self.backend.token())
+        self.config['github-official']['env']['GITHUB_PERSONAL_ACCESS_TOKEN'] = 'rotated-host-secret'
+        self.assertEqual('rotated-host-secret', self.backend.token())
+        self.config['github-official']['disabled'] = True
+        self.assertFalse(self.backend.available())
+
+    def test_default_does_not_select_arbitrary_mcp_or_process_credentials(self):
+        self.config['web-search'] = self.connection()
+        with patch.dict(os.environ, {'GITHUB_TOKEN': 'unrelated-process-secret', 'GH_TOKEN': 'another-secret'}):
+            self.assertFalse(self.backend.available())
+        self.config['github-codefirst'] = {'env': {'GITHUB_TOKEN': 'configured-codefirst-secret'}}
+        self.assertEqual('configured-codefirst-secret', self.backend.token())
+
+    def test_ambiguous_default_requires_explicit_selection(self):
+        self.config.update({'github-official': self.connection('first-secret'),
+                            'github-codefirst': self.connection('second-secret')})
+        self.assertFalse(self.backend.available())
+        with self.assertRaises(ValueError) as failure:
+            self.backend.token()
+        self.assertNotIn('first-secret', str(failure.exception))
+        self.assertNotIn('second-secret', str(failure.exception))
+        with patch.dict(os.environ, {'GATEWAY_ENGINEERING_GITHUB_SERVER': 'github-codefirst'}):
+            self.assertEqual('second-secret', self.backend.token())
+
+    def test_conflicting_credentials_do_not_choose_an_arbitrary_account(self):
+        self.config['github-official'] = {'env': {'GITHUB_PERSONAL_ACCESS_TOKEN': 'first-secret',
+                                                'GITHUB_TOKEN': 'second-secret'}}
+        self.assertFalse(self.backend.available())
+        with patch.dict(os.environ, {'GATEWAY_ENGINEERING_GITHUB_SERVER': 'github-official'}):
+            self.assertFalse(self.backend.available())
+        self.config['github-official']['env']['GITHUB_TOKEN'] = 'first-secret'
+        self.assertEqual('first-secret', self.backend.token())
+
+    def test_explicit_connection_wins_and_never_falls_back_when_invalid(self):
+        self.config['github-official'] = self.connection('selected-secret')
+        with patch.dict(os.environ, {'GATEWAY_ENGINEERING_GITHUB_TOKEN': 'dedicated-secret'}):
+            self.assertEqual('dedicated-secret', self.backend.token())
+            with patch.dict(os.environ, {'GATEWAY_ENGINEERING_GITHUB_SERVER': 'github-official'}):
+                self.assertEqual('selected-secret', self.backend.token())
+                for update in ({'disabled': True}, {'enabled': False}, {'env': {}}, {'env': []}):
+                    self.config['github-official'] = dict(self.connection(), **update)
+                    self.assertFalse(self.backend.available())
+            with patch.dict(os.environ, {'GATEWAY_ENGINEERING_GITHUB_SERVER': 'missing'}):
+                self.assertFalse(self.backend.available())
+
+    def test_read_only_or_lockdown_host_connection_is_not_reused_for_engineering(self):
+        for name in ('GITHUB_READ_ONLY', 'GITHUB_LOCKDOWN_MODE'):
+            for value in ('true', '1', True, 'invalid'):
+                self.config['github-official'] = {'env': {'GITHUB_TOKEN': 'restricted-secret', name: value}}
+                with self.subTest(name=name, value=value):
+                    self.assertFalse(self.backend.available())
+                    with patch.dict(os.environ, {'GATEWAY_ENGINEERING_GITHUB_SERVER': 'github-official'}):
+                        self.assertFalse(self.backend.available())
+
+    def test_inherited_or_command_line_connection_restrictions_are_preserved(self):
+        self.config['github-official'] = self.connection()
+        with patch.dict(os.environ, {'GITHUB_READ_ONLY': 'true'}):
+            self.assertFalse(self.backend.available())
+            self.config['github-official']['env']['GITHUB_READ_ONLY'] = 'false'
+            self.assertTrue(self.backend.available())
+        for args in (['stdio', '--read-only'], ['--lockdown-mode=true'], ['run', '-e', 'GITHUB_READ_ONLY=1', 'github-server']):
+            self.config['github-official'] = self.connection(args=args)
+            with self.subTest(args=args):
+                self.assertFalse(self.backend.available())
+
+    def test_enterprise_connection_credential_is_never_reused_for_public_github_api(self):
+        for update in ({'env': {'GITHUB_TOKEN': 'enterprise-secret', 'GITHUB_HOST': 'https://github.example.test'}},
+                       {'args': ['stdio', '--gh-host', 'https://github.example.test']},
+                       {'args': ['--gh-host=https://github.example.test']},
+                       {'args': ['run', '-e', 'GITHUB_HOST=https://github.example.test', 'github-server']}):
+            self.config['github-official'] = dict(self.connection(), **update)
+            with self.subTest(update=update):
+                self.assertFalse(self.backend.available())
+                with patch.dict(os.environ, {'GATEWAY_ENGINEERING_GITHUB_SERVER': 'github-official'}):
+                    self.assertFalse(self.backend.available())
+        self.config['github-official'] = self.connection()
+        with patch.dict(os.environ, {'GITHUB_HOST': 'https://github.example.test'}):
+            self.assertFalse(self.backend.available())
+        self.config['github-official']['env']['GITHUB_HOST'] = 'https://github.com'
+        self.assertTrue(self.backend.available())
+
+    def test_invalid_or_blank_explicit_credential_is_not_replaced_by_default(self):
+        self.config['github-official'] = self.connection()
+        for value in ('', ' ', ' secret', 'secret\n', 'secret\t'):
+            with self.subTest(value=repr(value)), patch.dict(os.environ, {'GATEWAY_ENGINEERING_GITHUB_TOKEN': value}):
+                self.assertFalse(self.backend.available())
+
+    def test_malformed_connections_do_not_raise_from_readiness(self):
+        for value in (None, [], 'invalid', {'env': []}, {'env': {'GITHUB_TOKEN': 123}}, {'disabled': True, 'env': {'GITHUB_TOKEN': 'secret'}}):
+            self.config['github-official'] = value
+            with self.subTest(value=value):
+                self.assertFalse(self.backend.available())
+                with patch.dict(os.environ, {'GATEWAY_ENGINEERING_GITHUB_SERVER': 'github-official'}):
+                    self.assertFalse(self.backend.available())
+
+    def test_graph_reader_uses_exact_read_only_host_without_enabling_engineering_writes(self):
+        self.config['github-official'] = {'env': {'GITHUB_TOKEN': 'selected-read-secret', 'GITHUB_READ_ONLY': 'true'}}
+        self.config['github-codefirst'] = self.connection('another-host-secret')
+        reader = self.backend.graph_reader()
+        self.assertFalse(reader.available())
+        with patch.dict(os.environ, {'GATEWAY_ENGINEERING_GITHUB_SERVER': 'github-official'}), patch('requests.request') as request:
+            response = request.return_value.__enter__.return_value
+            response.status_code = 200
+            response.iter_content.return_value = [b'{"id":42}']
+            self.assertTrue(reader.available())
+            self.assertFalse(self.backend.available())
+            self.assertEqual({'id': 42}, reader.api('/user'))
+            self.assertEqual('GET', request.call_args.args[0])
+            self.assertEqual('https://api.github.com/user', request.call_args.args[1])
+            self.assertEqual('Bearer selected-read-secret', request.call_args.kwargs['headers']['Authorization'])
+            self.assertFalse(request.call_args.kwargs['allow_redirects'])
+            for method in ('POST', 'PUT', 'PATCH', 'DELETE'):
+                with self.subTest(method=method), self.assertRaises(PermissionError):
+                    reader.api('/repos/owner/repo/issues', method, {'title': 'not authorized'})
+            with self.assertRaises(PermissionError):
+                reader.api('/user', body={'unexpected': True})
+            with self.assertRaises(ValueError):
+                self.backend.api('/repos/owner/repo/issues', 'POST', {'title': 'not authorized'})
+            self.assertEqual(1, request.call_count)
+
+    def test_graph_reader_rechecks_current_credentials_for_each_page_and_stops_after_revocation(self):
+        self.config['github-official'] = {'env': {'GITHUB_TOKEN': 'first-read-secret', 'GITHUB_READ_ONLY': 'true'}}
+        reader = self.backend.graph_reader()
+        with patch('requests.request') as request:
+            response = request.return_value.__enter__.return_value
+            response.status_code = 200
+            response.iter_content.return_value = [b'[]']
+            self.assertEqual([], reader.paged('/repos/owner/repo/pulls?state=open', maximum=100))
+            self.assertIn('per_page=100&page=1', request.call_args.args[1])
+            self.assertEqual('Bearer first-read-secret', request.call_args.kwargs['headers']['Authorization'])
+            self.config['github-official']['env']['GITHUB_TOKEN'] = 'rotated-read-secret'
+            self.assertEqual([], reader.paged('/repos/owner/repo/pulls?state=open', maximum=100))
+            self.assertEqual('Bearer rotated-read-secret', request.call_args.kwargs['headers']['Authorization'])
+            self.config['github-official']['disabled'] = True
+            self.assertFalse(reader.available())
+            with self.assertRaises(ValueError):
+                reader.api('/user')
+            self.assertEqual(2, request.call_count)
+
+    def test_graph_reader_accepts_explicit_read_only_flags_but_preserves_lockdown_and_host_restrictions(self):
+        reader = self.backend.graph_reader()
+        for config in (
+            {'env': {'GITHUB_TOKEN': 'read-secret', 'GITHUB_READ_ONLY': 'true'}},
+            {'env': {'GITHUB_TOKEN': 'read-secret', 'GITHUB_READ_ONLY': True}},
+            self.connection(args=['stdio', '--read-only']),
+            self.connection(args=['--read-only=true']),
+            self.connection(args=['run', '-e', 'GITHUB_READ_ONLY=1', 'github-server'])
+        ):
+            self.config['github-official'] = config
+            with self.subTest(config=config):
+                self.assertTrue(reader.available())
+                self.assertFalse(self.backend.available())
+        self.config['github-official'] = self.connection()
+        with patch.dict(os.environ, {'GITHUB_READ_ONLY': 'true'}):
+            self.assertTrue(reader.available())
+            self.assertFalse(self.backend.available())
+        for config in (
+            {'env': {'GITHUB_TOKEN': 'read-secret', 'GITHUB_LOCKDOWN_MODE': 'true'}},
+            {'env': {'GITHUB_TOKEN': 'read-secret', 'GITHUB_READ_ONLY': 'invalid'}},
+            {'env': {'GITHUB_TOKEN': 'read-secret', 'GITHUB_HOST': 'https://github.enterprise.test'}},
+            self.connection(args=['--lockdown-mode']),
+            self.connection(args=['run', '-e', 'GITHUB_LOCKDOWN_MODE=true', 'github-server'])
+        ):
+            self.config['github-official'] = config
+            with self.subTest(config=config):
+                self.assertFalse(reader.available())
+                self.assertFalse(self.backend.available())
+        self.config['github-official'] = self.connection()
+        with patch.dict(os.environ, {'GITHUB_LOCKDOWN_MODE': 'true'}):
+            self.assertFalse(reader.available())
+
+    def test_graph_reader_does_not_replace_missing_ambiguous_conflicting_or_disabled_selection(self):
+        reader = self.backend.graph_reader()
+        for configs in (
+            {}, {'web-search': self.connection()},
+            {'github-official': self.connection(), 'github-codefirst': self.connection('another-secret')},
+            {'github-official': self.connection(disabled=True)},
+            {'github-official': {'env': {'GITHUB_TOKEN': 'first', 'GITHUB_PERSONAL_ACCESS_TOKEN': 'second'}}}
+        ):
+            self.config.clear()
+            self.config.update(configs)
+            with self.subTest(configs=configs), patch('requests.request') as request:
+                self.assertFalse(reader.available())
+                with self.assertRaises(ValueError):
+                    reader.api('/user')
+                request.assert_not_called()
+        self.config.clear()
+        self.config['github-official'] = self.connection()
+        with patch.dict(os.environ, {'GATEWAY_ENGINEERING_GITHUB_SERVER': 'missing',
+                                     'GATEWAY_ENGINEERING_GITHUB_TOKEN': 'other-dedicated-secret'}):
+            self.assertFalse(reader.available())
 
 
 class EngineeringBackendTests(unittest.TestCase):

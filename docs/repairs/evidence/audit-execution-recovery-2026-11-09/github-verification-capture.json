@@ -1,0 +1,95 @@
+{
+  "schema": "github.verification.user-reported.v1",
+  "source": "User-pasted GitHub verification report; raw operation payloads and full exported checkpoint were not attached.",
+  "independently_reexecuted": false,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "running_app": {
+    "application_id": "dev.melo.gptmobile.improved",
+    "version_name": "0.9.66.7",
+    "version_code": 141,
+    "build_type": "debug",
+    "app_source_sha": "8c8045e8b96d7aeb1967e2d811eee486d07f80d4",
+    "target_repository_sha": "7db0c735f9e86eaece24513fbaf5c0a624f13822"
+  },
+  "acceptance": {
+    "passed": 2,
+    "requested": 5,
+    "outcome": "PARTIAL_ACCEPTANCE"
+  },
+  "discovery": {
+    "retained_calls": 3,
+    "successful_calls": 3,
+    "verified_version_bound_pages": 0,
+    "authorized_names_observed": 0,
+    "denominator_final": false,
+    "stop_code": "AUTHORIZED_CATALOG_INCOMPLETE",
+    "blocker": "CATALOG_CONTRACT_CHANGED"
+  },
+  "tools": {
+    "known_authorized": 13,
+    "with_live_observations": 7,
+    "passed": 5,
+    "partial": 5,
+    "blocked": 3,
+    "failed": 0
+  },
+  "transport": {
+    "receipts": 75,
+    "dispatched_calls": 61,
+    "http_reads": 145,
+    "mutation_requests": 2
+  },
+  "operation_outcomes": {
+    "REMOTE_API_SUCCESS": 57,
+    "MUTATION_COMPLETED": 0,
+    "MUTATION_ACCEPTED": 0,
+    "MUTATION_VERIFIED": 2,
+    "PROPOSAL_PREPARED": 1,
+    "CACHE_HIT": 7,
+    "LOCAL_RESULT": 5,
+    "SUPPRESSED": 0,
+    "PENDING_APPROVAL": 2,
+    "PRECHECK_REJECTED": 1,
+    "FAILED": 0,
+    "UNKNOWN_OUTCOME": 0
+  },
+  "failed_read": {
+    "tool": "github_issue__github_api",
+    "action": "comments",
+    "issue_number": 674,
+    "branch": "main",
+    "error_code": "DISPATCH_POLICY_CHANGED",
+    "outcome": "PREFLIGHT_REJECTED",
+    "receipt_id": "ev_83f510eacae52f15d68713ca",
+    "changed_policy_fields": "NOT_INCLUDED_IN_PASTED_REPORT"
+  },
+  "fixture": {
+    "branch": "codex-self-test/81e3bdff874083ebd2cd",
+    "ownership_verified": true,
+    "cleanup": "CLEANED",
+    "creation_receipt": "ev_6b8d40386a707902915d04f8",
+    "cleanup_receipt": "ev_92b0e16d63fbeaf2c1fb5e8f",
+    "independent_fixture_criterion": "NOT_TESTED",
+    "reason_for_disagreement": "Raw proposal and mutation receipts unavailable; regression fixes must not rewrite this historical verdict."
+  },
+  "budget": {
+    "accepted_tool_calls": 100,
+    "remaining": 26,
+    "verification_reserve": 2,
+    "exhausted": false
+  },
+  "evidence_classes": {
+    "LIVE_ACCOUNT": 59,
+    "CACHED_OR_LOCAL": 16,
+    "MOCKED": 0,
+    "HISTORICAL_CI_OBSERVATION": 8,
+    "APP_GATEWAY": 0,
+    "CURRENT_DEVICE_EXECUTION": 0
+  },
+  "limits": [
+    "Catalog discovery is distinct from tool execution.",
+    "Observed historical CI is distinct from new app/device execution.",
+    "A successful fixture does not qualify every API action.",
+    "No live deployment, account fixture or current-device result is inferred from repository changes."
+  ]
+}

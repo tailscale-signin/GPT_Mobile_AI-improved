@@ -1,6 +1,7 @@
 import base64
 import copy
 import json
+import os
 from pathlib import Path
 import sqlite3
 import sys
@@ -8,14 +9,14 @@ import tempfile
 import threading
 import unittest
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from v14.code_graph.extract import extract, permitted
 from v14.code_graph.engine import Graph, GraphStore, bounded, encoded, scope
 from v14.code_graph.service import GraphService, validate
-from v14.engineering import EngineeringStore
-from v14.engineering_backend import blob_sha
+from v14.engineering import EngineeringService, EngineeringStore
+from v14.engineering_backend import GitHubEngineeringBackend, blob_sha
 
 
 def snapshot(files, sha='a' * 40):
@@ -166,6 +167,52 @@ class GraphServiceTests(unittest.TestCase):
 
     def call(self, action, **extra):
         return self.service.execute('principal', dict(self.request, action=action, **extra))
+
+    def test_read_only_host_indexes_and_queries_without_engineering_write_or_model_readiness(self):
+        runtime = self.storage.runtime
+        runtime.load_mcp_config = lambda: {'github-official': {'env': {'GITHUB_TOKEN': 'graph-read-secret', 'GITHUB_READ_ONLY': 'true'}}}
+        runtime.LLAMA_BASE = 'http://127.0.0.1:8080'
+        runtime.get_all_mcp_tools = lambda force_refresh=False: []
+        runtime.execute_mcp_tool = lambda *args, **kwargs: self.fail('No other MCP tool is needed')
+        runtime.get_gateway_tool_route = lambda *args, **kwargs: 'unrelated'
+        backend = GitHubEngineeringBackend(runtime)
+        engineering = EngineeringService(self.storage, backend)
+        self.service = engineering.graph
+        requests = []
+
+        def read(method, url, **kwargs):
+            self.assertEqual('GET', method)
+            self.assertEqual('Bearer graph-read-secret', kwargs['headers']['Authorization'])
+            self.assertFalse(kwargs['allow_redirects'])
+            requests.append(url)
+            response = MagicMock()
+            response.status_code = 200
+            response.iter_content.return_value = [json.dumps(self.api(url.removeprefix('https://api.github.com'))).encode()]
+            response.__enter__.return_value = response
+            return response
+
+        with patch.dict(os.environ, {}, clear=True), patch('requests.request', side_effect=read), \
+                patch.object(backend, 'model_executor', side_effect=AssertionError('Graph extraction uses no model')), \
+                patch.object(engineering.capabilities, '_probe', side_effect=AssertionError('Graph reads need no model probe')):
+            result = self.call('index')
+            self.assertFalse(result['has_more'])
+            self.assertEqual('FOUND', self.call('query', query='private_function')['status'])
+            self.assertFalse(backend.available())
+            self.assertTrue(self.service.backend.available())
+            readiness = engineering.readiness()
+            self.assertFalse(readiness['ready'])
+            self.assertTrue(readiness['graph_ready'])
+            self.assertEqual('missing', readiness['checks']['host_github_connection'])
+            self.assertEqual('configured', readiness['checks']['graph_host_github_connection'])
+            self.assertIsNone(readiness['github_reachable'])
+            self.assertIsNone(readiness['inference_ready'])
+            from v14.code_graph.tools import install_graph_tool, TOOL_NAME
+            install_graph_tool(runtime, engineering, lambda principal: True)
+            self.assertIn(TOOL_NAME, [row['function']['name'] for row in runtime.get_all_mcp_tools()])
+            runtime.LLAMA_BASE = 'https://remote.example.test'
+            self.assertEqual([], runtime.get_all_mcp_tools())
+        self.assertEqual(2, self.blob_reads)
+        self.assertGreaterEqual(len(requests), 12)
 
     def test_persistence_encryption_and_account_branch_principal_isolation(self):
         self.call('index')

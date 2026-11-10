@@ -206,7 +206,7 @@ private fun LocalFreeServerCard(name: String, port: Int, viewModel: SettingViewM
                             val endpoint = dev.chungjungsoo.gptmobile.data.network.LocalServerUrls.openAiBase(host)
                             when (val result = dev.chungjungsoo.gptmobile.data.network.ApiKeyValidator.validate(type, endpoint, if (anonymous) "" else key)) {
                                 is dev.chungjungsoo.gptmobile.data.network.ApiKeyValidator.ValidationResult.Success -> {
-                                    viewModel.addPlatform(PlatformV2(name = name, compatibleType = type, apiUrl = endpoint, model = model.trim(), token = if (anonymous) "" else key, enabled = true))
+                                    viewModel.addPlatform(PlatformV2(name = name, compatibleType = type, apiUrl = endpoint, model = model.trim(), token = if (anonymous) "" else key, enabled = true, maxToolCalls = Int.MAX_VALUE))
                                     error = "Connected. Your local AI profile is available."
                                     configure = false
                                 }

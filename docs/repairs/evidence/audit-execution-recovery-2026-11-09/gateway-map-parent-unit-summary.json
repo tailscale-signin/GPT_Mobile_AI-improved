@@ -1,0 +1,36 @@
+{
+  "head": "e85dec10ec07b1a7dd58e4a4237a3c9e81572d6d",
+  "merge": "bf20a2d13d4237e4939bfeca597d20c5f295d319",
+  "run": 42733380890,
+  "artifact_id": 13727292526,
+  "sha256": "3d8be5e0817e84a3ece949228bd378f40a89c1136c3af87920aeb6bb85d8a3d6",
+  "junit_files": 1358,
+  "tests": 8704,
+  "counts": {
+    "passed": 8699,
+    "failure": 0,
+    "error": 0,
+    "skipped": 5
+  },
+  "prior_failed_cases": [
+    {
+      "class": "dev.chungjungsoo.gptmobile.presentation.ui.chat.GitHubReducedMotionTest",
+      "name": "disabledAnimationsShowActivityImmediatelyAndEnablingMotionDoesNotReplayItsEntrance",
+      "status": "passed",
+      "file": "app/build/test-results/testDebugUnitTest/TEST-dev.chungjungsoo.gptmobile.presentation.ui.chat.GitHubReducedMotionTest.xml"
+    },
+    {
+      "class": "dev.chungjungsoo.gptmobile.presentation.ui.chat.GitHubLiveProgressTest",
+      "name": "overflowingActivityExpandsWithoutLosingItsPublicDescriptionOrRepeatingItForAccessibility",
+      "status": "passed",
+      "file": "app/build/test-results/testDebugUnitTest/TEST-dev.chungjungsoo.gptmobile.presentation.ui.chat.GitHubLiveProgressTest.xml"
+    },
+    {
+      "class": "dev.chungjungsoo.gptmobile.presentation.ui.chat.GitHubLiveProgressTest",
+      "name": "summariesUseParagraphTypographyAndOnlyTheNewestActivityHasAnAccent",
+      "status": "passed",
+      "file": "app/build/test-results/testDebugUnitTest/TEST-dev.chungjungsoo.gptmobile.presentation.ui.chat.GitHubLiveProgressTest.xml"
+    }
+  ],
+  "render_artifacts": []
+}

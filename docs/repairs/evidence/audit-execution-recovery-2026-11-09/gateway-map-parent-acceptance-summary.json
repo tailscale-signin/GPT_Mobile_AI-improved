@@ -1,0 +1,335 @@
+{
+  "head": "e85dec10ec07b1a7dd58e4a4237a3c9e81572d6d",
+  "merge": "bf20a2d13d4237e4939bfeca597d20c5f295d319",
+  "run": 42733381241,
+  "artifacts": [
+    {
+      "api": 34,
+      "artifact_id": 13726199931,
+      "sha256": "47cadb4c9a1dcbc9e0a59da9afb367496c3715a432b6e6af340598d4af3d80fb",
+      "archive": "/workspace/scratch/b236adcc0a61/ci-e85dec1/acceptance-api34.zip",
+      "instrumentation_runs": 22,
+      "total_tests": 60,
+      "receipts": [
+        {
+          "file": "GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/build/acceptance-0950/audit-actions-instrumentation.txt",
+          "tests": 2,
+          "final_code": [
+            "-1"
+          ]
+        },
+        {
+          "file": "GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/build/acceptance-0950/bubble-actions-instrumentation.txt",
+          "tests": 2,
+          "final_code": [
+            "-1"
+          ]
+        },
+        {
+          "file": "GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/build/acceptance-0950/chat-bottom-scroll-instrumentation.txt",
+          "tests": 4,
+          "final_code": [
+            "-1"
+          ]
+        },
+        {
+          "file": "GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/build/acceptance-0950/combined-finalization-instrumentation.txt",
+          "tests": 1,
+          "final_code": [
+            "-1"
+          ]
+        },
+        {
+          "file": "GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/build/acceptance-0950/combined-settings-instrumentation.txt",
+          "tests": 5,
+          "final_code": [
+            "-1"
+          ]
+        },
+        {
+          "file": "GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/build/acceptance-0950/composer-controls-instrumentation.txt",
+          "tests": 2,
+          "final_code": [
+            "-1"
+          ]
+        },
+        {
+          "file": "GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/build/acceptance-0950/conversation-glass-instrumentation.txt",
+          "tests": 4,
+          "final_code": [
+            "-1"
+          ]
+        },
+        {
+          "file": "GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/build/acceptance-0950/editor-instrumentation.txt",
+          "tests": 1,
+          "final_code": [
+            "-1"
+          ]
+        },
+        {
+          "file": "GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/build/acceptance-0950/gateway-profile-card-instrumentation.txt",
+          "tests": 2,
+          "final_code": [
+            "-1"
+          ]
+        },
+        {
+          "file": "GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/build/acceptance-0950/github-bound-transport-instrumentation.txt",
+          "tests": 2,
+          "final_code": [
+            "-1"
+          ]
+        },
+        {
+          "file": "GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/build/acceptance-0950/github-prompt-motion-instrumentation.txt",
+          "tests": 2,
+          "final_code": [
+            "-1"
+          ]
+        },
+        {
+          "file": "GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/build/acceptance-0950/github-workflow-execution-instrumentation.txt",
+          "tests": 6,
+          "final_code": [
+            "-1"
+          ]
+        },
+        {
+          "file": "GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/build/acceptance-0950/glass-instrumentation.txt",
+          "tests": 4,
+          "final_code": [
+            "-1"
+          ]
+        },
+        {
+          "file": "GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/build/acceptance-0950/memory-durability-instrumentation.txt",
+          "tests": 2,
+          "final_code": [
+            "-1"
+          ]
+        },
+        {
+          "file": "GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/build/acceptance-0950/model-source-instrumentation.txt",
+          "tests": 3,
+          "final_code": [
+            "-1"
+          ]
+        },
+        {
+          "file": "GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/build/acceptance-0950/navigation-motion-instrumentation.txt",
+          "tests": 1,
+          "final_code": [
+            "-1"
+          ]
+        },
+        {
+          "file": "GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/build/acceptance-0950/performance-instrumentation.txt",
+          "tests": 1,
+          "final_code": [
+            "-1"
+          ]
+        },
+        {
+          "file": "GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/build/acceptance-0950/picker-instrumentation.txt",
+          "tests": 2,
+          "final_code": [
+            "-1"
+          ]
+        },
+        {
+          "file": "GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/build/acceptance-0950/response-swipe-instrumentation.txt",
+          "tests": 2,
+          "final_code": [
+            "-1"
+          ]
+        },
+        {
+          "file": "GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/build/acceptance-0950/secret-vault-instrumentation.txt",
+          "tests": 7,
+          "final_code": [
+            "-1"
+          ]
+        },
+        {
+          "file": "GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/build/acceptance-0950/settings-home-instrumentation.txt",
+          "tests": 4,
+          "final_code": [
+            "-1"
+          ]
+        },
+        {
+          "file": "GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/build/acceptance-0950/tool-budget-fence-instrumentation.txt",
+          "tests": 1,
+          "final_code": [
+            "-1"
+          ]
+        }
+      ]
+    },
+    {
+      "api": 36,
+      "artifact_id": 13727416053,
+      "sha256": "7b4305b108e1eb69ae026541234154b0468487cb1ba44db2f9dc9e232039276c",
+      "archive": "/workspace/scratch/b236adcc0a61/ci-e85dec1/acceptance-api36.zip",
+      "instrumentation_runs": 22,
+      "total_tests": 60,
+      "receipts": [
+        {
+          "file": "GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/build/acceptance-0950/audit-actions-instrumentation.txt",
+          "tests": 2,
+          "final_code": [
+            "-1"
+          ]
+        },
+        {
+          "file": "GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/build/acceptance-0950/bubble-actions-instrumentation.txt",
+          "tests": 2,
+          "final_code": [
+            "-1"
+          ]
+        },
+        {
+          "file": "GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/build/acceptance-0950/chat-bottom-scroll-instrumentation.txt",
+          "tests": 4,
+          "final_code": [
+            "-1"
+          ]
+        },
+        {
+          "file": "GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/build/acceptance-0950/combined-finalization-instrumentation.txt",
+          "tests": 1,
+          "final_code": [
+            "-1"
+          ]
+        },
+        {
+          "file": "GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/build/acceptance-0950/combined-settings-instrumentation.txt",
+          "tests": 5,
+          "final_code": [
+            "-1"
+          ]
+        },
+        {
+          "file": "GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/build/acceptance-0950/composer-controls-instrumentation.txt",
+          "tests": 2,
+          "final_code": [
+            "-1"
+          ]
+        },
+        {
+          "file": "GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/build/acceptance-0950/conversation-glass-instrumentation.txt",
+          "tests": 4,
+          "final_code": [
+            "-1"
+          ]
+        },
+        {
+          "file": "GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/build/acceptance-0950/editor-instrumentation.txt",
+          "tests": 1,
+          "final_code": [
+            "-1"
+          ]
+        },
+        {
+          "file": "GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/build/acceptance-0950/gateway-profile-card-instrumentation.txt",
+          "tests": 2,
+          "final_code": [
+            "-1"
+          ]
+        },
+        {
+          "file": "GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/build/acceptance-0950/github-bound-transport-instrumentation.txt",
+          "tests": 2,
+          "final_code": [
+            "-1"
+          ]
+        },
+        {
+          "file": "GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/build/acceptance-0950/github-prompt-motion-instrumentation.txt",
+          "tests": 2,
+          "final_code": [
+            "-1"
+          ]
+        },
+        {
+          "file": "GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/build/acceptance-0950/github-workflow-execution-instrumentation.txt",
+          "tests": 6,
+          "final_code": [
+            "-1"
+          ]
+        },
+        {
+          "file": "GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/build/acceptance-0950/glass-instrumentation.txt",
+          "tests": 4,
+          "final_code": [
+            "-1"
+          ]
+        },
+        {
+          "file": "GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/build/acceptance-0950/memory-durability-instrumentation.txt",
+          "tests": 2,
+          "final_code": [
+            "-1"
+          ]
+        },
+        {
+          "file": "GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/build/acceptance-0950/model-source-instrumentation.txt",
+          "tests": 3,
+          "final_code": [
+            "-1"
+          ]
+        },
+        {
+          "file": "GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/build/acceptance-0950/navigation-motion-instrumentation.txt",
+          "tests": 1,
+          "final_code": [
+            "-1"
+          ]
+        },
+        {
+          "file": "GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/build/acceptance-0950/performance-instrumentation.txt",
+          "tests": 1,
+          "final_code": [
+            "-1"
+          ]
+        },
+        {
+          "file": "GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/build/acceptance-0950/picker-instrumentation.txt",
+          "tests": 2,
+          "final_code": [
+            "-1"
+          ]
+        },
+        {
+          "file": "GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/build/acceptance-0950/response-swipe-instrumentation.txt",
+          "tests": 2,
+          "final_code": [
+            "-1"
+          ]
+        },
+        {
+          "file": "GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/build/acceptance-0950/secret-vault-instrumentation.txt",
+          "tests": 7,
+          "final_code": [
+            "-1"
+          ]
+        },
+        {
+          "file": "GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/build/acceptance-0950/settings-home-instrumentation.txt",
+          "tests": 4,
+          "final_code": [
+            "-1"
+          ]
+        },
+        {
+          "file": "GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/build/acceptance-0950/tool-budget-fence-instrumentation.txt",
+          "tests": 1,
+          "final_code": [
+            "-1"
+          ]
+        }
+      ]
+    }
+  ]
+}

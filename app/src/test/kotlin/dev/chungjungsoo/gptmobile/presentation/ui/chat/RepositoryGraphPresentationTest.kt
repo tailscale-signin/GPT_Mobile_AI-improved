@@ -38,5 +38,21 @@ class RepositoryGraphPresentationTest {
         assertTrue(graph.edges.isEmpty())
     }
 
+    @Test fun sourceSearchMatchesThePathWithoutInventingEdgesToFilteredNodes() {
+        val graph = repositoryGraphPresentation(json("""{"nodes":[{"id":"a","qualified":"Store.save","path":"app/data/Store.kt"},{"id":"b","qualified":"Store.read","path":"app/data/Store.kt"},{"id":"c","qualified":"Screen.render","path":"app/ui/Screen.kt"}],"edges":[{"source":"a","target":"b","relation":"calls"},{"source":"c","target":"a","relation":"calls"}]}"""))
+        val result = graph.search("  DATA/store.KT ").page(0)
+        assertEquals(listOf("a", "b"), result.nodes.map { it.graphText("id") })
+        assertEquals(1, result.edges.size)
+        assertEquals("a", result.edges.single().graphText("source"))
+        assertEquals(listOf("c"), graph.search("Screen.render").nodes.map { it.graphText("id") })
+        assertTrue(graph.search("Missing.kt").page(0).edges.isEmpty())
+    }
+
+    @Test fun selectedSourceDetailsRetainBothDirectionsAndExcludeUnrelatedLinks() {
+        val graph = repositoryGraphPresentation(json("""{"nodes":[{"id":"a"},{"id":"b"},{"id":"c"}],"edges":[{"source":"a","target":"b","relation":"imports"},{"source":"c","target":"a","relation":"calls"},{"source":"b","target":"c","relation":"references"}]}"""))
+        assertEquals(listOf("imports", "calls"), graph.relationships("a").map { it.graphText("relation") })
+        assertTrue(graph.relationships("unknown").isEmpty())
+    }
+
     private fun json(value: String) = Json.parseToJsonElement(value) as JsonObject
 }

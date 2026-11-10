@@ -1,6 +1,8 @@
 package dev.chungjungsoo.gptmobile.data.github
 
 import java.security.MessageDigest
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
@@ -22,7 +24,9 @@ data class GatewayEngineeringCapabilities(
     @SerialName("task_scopes") val taskScopes: List<String> = emptyList(),
     @SerialName("conversation_sync_v1") val conversationSync: Boolean = false,
     @SerialName("durable_detach_v1") val durableDetach: Boolean = false,
-    @SerialName("repository_operations") val repositoryOperations: GatewayRepositoryCapability? = null
+    @SerialName("repository_operations") val repositoryOperations: GatewayRepositoryCapability? = null,
+    @SerialName("duration_hours") val durationHours: List<Int> = listOf(3, 6, 12, 0),
+    @SerialName("execution_budget_limits") val executionBudgetLimits: GatewayEngineeringBudget? = null
 ) {
     val supportsDurableChat: Boolean get() = taskScopeProtocol == 1 && taskScopes.containsAll(listOf("read", "plan", "implement")) && conversationSync && durableDetach
 
@@ -56,7 +60,7 @@ data class GatewayEngineeringCapabilities(
         return when {
             checks?.journal == "disabled" -> "Enable durable storage in the selected desktop gateway before using engineering jobs or repository graphs."
             checks?.journal in setOf("unavailable", "write_failed") -> "The engineering journal is unavailable. Check the desktop gateway storage and retained jobs before retrying."
-            checks?.hostGithubConnection == "missing" -> "Configure the GitHub connection on the selected gateway host. Chat inference availability does not establish engineering or repository graph readiness."
+            (if (graph) checks?.graphHostGithubConnection ?: checks?.hostGithubConnection else checks?.hostGithubConnection) == "missing" -> "Configure the GitHub connection on the selected gateway host. Chat inference availability does not establish engineering or repository graph readiness."
             checks?.draining == true -> "The selected engineering gateway is stopping or updating. Reconnect to its retained jobs when it is ready."
             !graph && checks?.worker == "unavailable" -> "The engineering worker is not running. Check the selected desktop gateway; retained jobs remain available."
             graph && codeGraph?.enabled != true -> "The selected gateway has not advertised an available repository graph service. Check its engineering status and update it if needed."
@@ -96,13 +100,15 @@ data class GatewayEngineeringChecks(
     val journal: String? = null,
     @SerialName("host_github_connection") val hostGithubConnection: String? = null,
     val worker: String? = null,
-    val draining: Boolean = false
+    val draining: Boolean = false,
+    @SerialName("graph_host_github_connection") val graphHostGithubConnection: String? = null
 )
 
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
-data class GatewayEngineeringSettings(val durationHours: Int = 3, val repairAttempts: Int = 5, val acceptance: List<GatewayEngineeringAcceptance> = emptyList()) {
+data class GatewayEngineeringSettings(@EncodeDefault val durationHours: Int = 24, val repairAttempts: Int = 5, val acceptance: List<GatewayEngineeringAcceptance> = emptyList(), val executionBudget: GatewayEngineeringBudget? = null) {
     init {
-        require(durationHours in setOf(0, 3, 6, 12) && repairAttempts in 1..5)
+        require(durationHours in setOf(0, 3, 6, 12, 24) && repairAttempts in 1..5)
         require(acceptance.size <= 32 && acceptance.map { it.id }.distinct().size == acceptance.size)
     }
 }
@@ -125,6 +131,7 @@ data class GatewayRequirementEvidence(val kind: String, val name: String) {
     }
 }
 
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 data class GatewayEngineeringRequest(
     val repository: String,
@@ -132,7 +139,8 @@ data class GatewayEngineeringRequest(
     val base: String,
     val objective: String,
     val model: String,
-    @SerialName("duration_hours") val durationHours: Int = 3,
+    // Legacy retained requests omitted their three-hour default. New admissions supply settings explicitly.
+    @EncodeDefault @SerialName("duration_hours") val durationHours: Int = 3,
     @SerialName("repair_attempts") val repairAttempts: Int = 5,
     @SerialName("chat_id") val chatId: Int,
     @SerialName("request_id") val requestId: String,
@@ -145,7 +153,8 @@ data class GatewayEngineeringRequest(
     @SerialName("conversation_id") val conversationId: String? = null,
     @SerialName("expected_revision") val expectedRevision: Long? = null,
     @SerialName("source_branch") val sourceBranch: String? = null,
-    @SerialName("source_sha") val sourceSha: String? = null
+    @SerialName("source_sha") val sourceSha: String? = null,
+    @SerialName("execution_budget") val executionBudget: GatewayEngineeringBudget? = null
 )
 
 @Serializable
@@ -195,7 +204,9 @@ data class GatewayEngineeringJob(
     @SerialName("source_branch") val sourceBranch: String? = null,
     @SerialName("source_sha") val sourceSha: String? = null,
     @SerialName("working_branch") val workingBranch: String? = null,
-    val base: String? = null
+    val base: String? = null,
+    @SerialName("duration_hours") val durationHours: Int? = null,
+    @SerialName("execution_budget") val executionBudget: GatewayEngineeringBudget? = null
 ) {
     val terminal: Boolean get() = state in setOf("COMPLETED", "CANCELLED", "FAILED")
     val progress: Float get() = (milestonesCompleted.toFloat() / milestonesTotal.coerceAtLeast(1)).coerceIn(0f, 1f)
@@ -220,7 +231,8 @@ data class GatewayEngineeringBinding(
     val localAssistantMessageId: Int? = null,
     val localRunId: String? = null,
     val gatewayId: String? = null,
-    val originalContext: GitHubConversationContext? = null
+    val originalContext: GitHubConversationContext? = null,
+    val budgetSelection: GatewayEngineeringBudgetSelection? = null
 ) {
     /** Remote request identity stays immutable when a backup maps local conversation IDs. */
     val chatId: Int get() = localChatId ?: request.chatId

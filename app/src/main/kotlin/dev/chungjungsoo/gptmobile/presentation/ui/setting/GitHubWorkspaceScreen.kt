@@ -127,10 +127,14 @@ fun GitHubWorkspaceScreen(
     val engineering by engineeringModel.state.collectAsStateWithLifecycle()
     dev.chungjungsoo.gptmobile.presentation.ui.chat.GatewayEngineeringObservation(engineeringModel, visibleProgrammer.chatId)
     val engineeringProfile = visibleProgrammer.profiles.firstOrNull { it.uid == commandContext?.mainProfileUid }
+    val repositoryGraphProfile = dev.chungjungsoo.gptmobile.data.github.engineeringGatewayProfile(
+        visibleProgrammer.profiles,
+        visibleProgrammer.profileSettings.engineeringGatewayProfileUid
+    )
     val jobsModel: GatewayJobsViewModel = hiltViewModel()
     val gatewayJobs by jobsModel.state.collectAsStateWithLifecycle()
     GatewayJobsObservation(jobsModel, commandContext?.mainProfileUid ?: visibleProgrammer.profileUid)
-    val repositoryMapAvailable = commandContext != null && visibleProgrammer.chatId?.let { it > 0 } == true && visibleProgrammer.chatId == programmerState.chatId && dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.supportsSavedJobs(engineeringProfile)
+    val repositoryMapAvailable = commandContext != null && visibleProgrammer.chatId?.let { it > 0 } == true && visibleProgrammer.chatId == programmerState.chatId
     var repositoryMapOpen by remember(commandContext) { mutableStateOf(false) }
     val engineeringJob = if (dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.supportsSavedJobs(engineeringProfile)) {
         engineering.bindings.lastOrNull { it.chatId == visibleProgrammer.chatId && (it.request.profileId ?: it.profileUid) == engineeringProfile?.uid && it.job?.terminal == false }?.job
@@ -227,7 +231,15 @@ fun GitHubWorkspaceScreen(
     androidx.compose.runtime.CompositionLocalProvider(LocalGitHubCompositionTiming provides GitHubCompositionTiming(navigationTrace, state.recentChatId != null || savedContext != null)) {
         Dialog(onDismissRequest = { close() }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
             if (repositoryMapOpen && repositoryMapAvailable && commandContext != null) {
-                dev.chungjungsoo.gptmobile.presentation.ui.chat.RepositoryGraphPanel(commandContext, engineeringProfile, onDismiss = { repositoryMapOpen = false })
+                dev.chungjungsoo.gptmobile.presentation.ui.chat.RepositoryGraphPanel(
+                    commandContext,
+                    repositoryGraphProfile,
+                    onDismiss = { repositoryMapOpen = false },
+                    onConfigureGateway = {
+                        repositoryMapOpen = false
+                        tab = 5
+                    }
+                )
             }
             Scaffold(
                 modifier = Modifier.diagnosticFrameTiming("GitHubWorkspace").fillMaxSize().imePadding().drawWithContent {
@@ -479,7 +491,9 @@ fun GitHubWorkspaceScreen(
                                         viewModel::loadPullRequests,
                                         chatId = visibleProgrammer.chatId,
                                         profile = statusProfile,
-                                        graphContext = mapContext
+                                        graphContext = mapContext,
+                                        graphProfile = repositoryGraphProfile,
+                                        onConfigureGateway = { tab = 5 }
                                     )
                                     OutlinedButton(onClick = { taskDetailsOpen = !taskDetailsOpen }, modifier = Modifier.fillMaxWidth()) {
                                         Text(if (taskDetailsOpen) "Hide task details" else "Task details")

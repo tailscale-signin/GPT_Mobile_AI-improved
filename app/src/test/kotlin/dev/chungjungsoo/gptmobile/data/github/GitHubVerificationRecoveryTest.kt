@@ -25,6 +25,30 @@ class GitHubVerificationRecoveryTest {
     }
     private fun receipt(result: String, action: String = "checks", epoch: Int = 0) = json("""{"trusted":true,"success":true,"observed_at_ms":1000,"epoch":$epoch,"tool":"github_context","arguments":{"action":"$action"},"result":$result}""")
 
+    @Test fun policyChangesExplainFreshAuthorizationAndOnlyExposeKnownFieldNames() {
+        val failure = json("""{"error_code":"DISPATCH_POLICY_CHANGED","dispatched":false,"execution":{"authority_failed_stage":"tool_precheck","changed_policy_fields":["tools","profile.model","profile.token","token=private-secret","profile.private-secret",{"tools":"private-value"}]},"result":"private-payload"}""")
+        val advice = GitHubVerificationRecovery.advice(listOf(failure))
+        assertTrue(GitHubVerificationRecovery.authorizationBlocked("DISPATCH_POLICY_CHANGED"))
+        assertTrue(GitHubVerificationRecovery.authorizationBlocked("POLICY_STALE"))
+        assertTrue(advice.contains("Recorded fields: profile.model, profile.token, tools"))
+        assertTrue(advice.contains("resume the saved task"))
+        assertTrue(advice.contains("one fresh attempt under the new authorization revision"))
+        assertTrue(advice.contains("uncertain outcomes retain their original receipts"))
+        assertFalse(advice.contains("private-secret") || advice.contains("private-value") || advice.contains("private-payload"))
+    }
+
+    @Test fun unknownOutcomeRecoveryTakesPrecedenceOverPolicyRefresh() {
+        val policy = json("""{"error_code":"DISPATCH_POLICY_CHANGED","dispatched":false}""")
+        for (unknown in listOf(
+            json("""{"error_code":"TIMEOUT_OUTCOME_UNKNOWN","dispatched":true}"""),
+            json("""{"error_code":"DISPATCH_POLICY_CHANGED","execution":{"requires_reconciliation":true}}""")
+        )) {
+            val advice = GitHubVerificationRecovery.advice(listOf(policy, unknown))
+            assertTrue(advice.contains("Reconcile the exact uncertain remote operation"))
+            assertFalse(advice.contains("one fresh attempt"))
+        }
+    }
+
     @Test fun stressRequestWithoutExecutionsCannotPublishInventedMetrics() = runBlocking {
         val book = GitHubEvidenceBook("binding", "o/r", "main", emptySet(), { 1000 })
         val session = GitHubVerifiedSession(answer("35 operations, 97% success, 12 seconds"), book, "Do a stress test of all tools", { 8192 }, { error("No model formatter for test coverage") }, {}, {}, { 1000 })

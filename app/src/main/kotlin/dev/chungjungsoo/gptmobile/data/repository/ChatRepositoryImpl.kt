@@ -4405,6 +4405,7 @@ class ChatRepositoryImpl(
                 branch = repository.ref,
                 trustedTools = evidenceTools.filter { it.nativeGitHub }.mapTo(hashSetOf()) { it.modelToolName } + listOfNotNull(catalog?.definition?.name),
                 currentToolContracts = evidenceTools.filter { it.nativeGitHub }.associate { it.modelToolName to it.tool.definition.inputSchema },
+                authorizationRevision = dispatchAuthority.revision,
                 readSources = dev.chungjungsoo.gptmobile.data.github.GitHubTargetPolicy.readSources(if (reuse) previousTask else githubEffectiveTask),
                 load = { id -> workspace?.protectedSynthesisCheckpoint("github-evidence:$binding:$id") },
                 latestVerdict = {

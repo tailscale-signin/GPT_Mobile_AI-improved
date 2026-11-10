@@ -115,8 +115,15 @@ class GatewayEngineeringClient internal constructor(
         return if (body == null) LocalEndpointConnectionPolicy.probe(endpoint, evictIdleConnections, exchange) else exchange()
     }
 
-    suspend fun capabilities(config: ProviderRequestConfig): GatewayEngineeringCapabilities {
-        val attempt = capabilityCache.getOrLoad(capabilityKey(config)) {
+    /** Explicit repair check: discard stale admission evidence before reading this exact saved route. */
+    suspend fun refreshCapabilities(config: ProviderRequestConfig): GatewayEngineeringCapabilities {
+        GatewaySurfacePolicy.shared.invalidate(GatewaySurfacePolicy.identity(config), GatewaySurfacePolicy.Surface.CAPABILITIES)
+        LocalServiceHealth.checkAgain(config.apiUrl)
+        return capabilities(config, forceRefresh = true)
+    }
+
+    suspend fun capabilities(config: ProviderRequestConfig, forceRefresh: Boolean = false): GatewayEngineeringCapabilities {
+        val attempt = capabilityCache.getOrLoad(capabilityKey(config), forceRefresh = forceRefresh) {
             if (GatewaySurfacePolicy.shared.rememberedStatus(GatewaySurfacePolicy.identity(config), GatewaySurfacePolicy.Surface.CAPABILITIES) != null) return@getOrLoad null
             val payload = try {
                 request(config, "capabilities")
@@ -176,12 +183,7 @@ class GatewayEngineeringClient internal constructor(
         }
     }
 
-    suspend fun requireGraphReady(config: ProviderRequestConfig): String {
-        val capability = capabilities(config)
-        capability.unavailableReason(graph = true)?.let { throw GatewayGraphUnavailableException(it, GatewayGraphPrerequisite.missing(capability)) }
-        if (capability.codeGraph?.schemaVersion != 1) throw GatewayGraphUnavailableException("The selected gateway repository graph protocol is unsupported. Update the desktop gateway.", listOf(GatewayGraphPrerequisite.GRAPH_PROTOCOL_UNSUPPORTED))
-        return requireNotNull(capability.principalId)
-    }
+    suspend fun requireGraphReady(config: ProviderRequestConfig): String = capabilities(config).requireGraphReadiness()
 
     internal fun diagnosticEvents(config: ProviderRequestConfig, jobId: String, after: Int): kotlinx.coroutines.flow.Flow<JsonObject> = kotlinx.coroutines.flow.flow {
         require(jobId.matches(Regex("diag_[a-f0-9]{32}")) && after in 0..3)

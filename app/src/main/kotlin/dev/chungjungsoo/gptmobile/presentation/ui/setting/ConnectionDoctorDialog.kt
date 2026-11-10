@@ -22,18 +22,18 @@ import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as Alert
 
 @Composable
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
-fun ConnectionDoctorDialog(onDismiss: () -> Unit, model: ConnectionDoctorViewModel = hiltViewModel(), initialProfileUid: String? = null) {
+fun ConnectionDoctorDialog(onDismiss: () -> Unit, model: ConnectionDoctorViewModel = hiltViewModel(), initialProfileUid: String? = null, engineeringGateway: Boolean = false) {
     val detectedContext by model.detectedContext.collectAsStateWithLifecycle()
     val selectedNvidia by model.lastInspectedNvidia.collectAsStateWithLifecycle()
     val deadlineProfile by model.deadlineProfile.collectAsStateWithLifecycle()
     val deadlineSettings by model.deadlineSettings.collectAsStateWithLifecycle()
     val profiles by model.profiles.collectAsStateWithLifecycle()
-    var inspectedInitial by rememberSaveable(initialProfileUid) { mutableStateOf(false) }
-    androidx.compose.runtime.LaunchedEffect(initialProfileUid, profiles) {
+    var inspectedInitial by rememberSaveable(initialProfileUid, engineeringGateway) { mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(initialProfileUid, profiles, engineeringGateway) {
         if (!inspectedInitial && initialProfileUid != null) {
             profiles.firstOrNull { it.uid == initialProfileUid }?.let {
                 inspectedInitial = true
-                model.inspect(it)
+                if (engineeringGateway) model.inspectEngineeringGateway(it) else model.inspect(it)
             }
         }
     }
@@ -45,19 +45,21 @@ fun ConnectionDoctorDialog(onDismiss: () -> Unit, model: ConnectionDoctorViewMod
     AlertDialog(onDismissRequest = {
         model.cancel()
         onDismiss()
-    }, title = { Text(stringResource(R.string.connection_doctor_dialog_label_1)) }, text = {
+    }, title = { Text(if (engineeringGateway) "Gateway readiness" else stringResource(R.string.connection_doctor_dialog_label_1)) }, text = {
         Column(Modifier.verticalScroll(rememberScrollState())) {
             Text(stringResource(R.string.connection_doctor_dialog_label_2))
-            profiles.filter { it.enabled }.forEach { profile ->
+            profiles.filter { it.enabled && (!engineeringGateway || dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.supportsSavedJobs(it)) }.forEach { profile ->
                 Text(profile.name, Modifier.padding(top = 12.dp))
-                TextButton(enabled = !busy, onClick = { model.inspect(profile) }) { Text(stringResource(R.string.connection_doctor_dialog_label_3)) }
+                TextButton(enabled = !busy, onClick = { if (engineeringGateway) model.inspectEngineeringGateway(profile) else model.inspect(profile) }) {
+                    Text(if (engineeringGateway) "Check gateway readiness" else stringResource(R.string.connection_doctor_dialog_label_3))
+                }
             }
-            selectedNvidia?.let { profile ->
+            selectedNvidia?.takeUnless { engineeringGateway }?.let { profile ->
                 TextButton(enabled = !busy, onClick = { model.testNvidiaInference(profile) }) {
                     Text("Test NVIDIA inference · may use API credits")
                 }
             }
-            deadlineProfile?.let { profile ->
+            deadlineProfile?.takeUnless { engineeringGateway }?.let { profile ->
                 TextButton(enabled = !busy, onClick = { model.testLlamaInference(profile) }) {
                     Text("Test llama.cpp inference")
                 }

@@ -11,6 +11,7 @@ from fastapi import Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from v14.engineering import public_job, validate_request
+from v14.engineering_defaults import DEFAULT_DURATION_HOURS, DEFAULT_EXECUTION_BUDGET, EXECUTION_BUDGET_LIMITS
 from v14.engineering_diagnostics import diagnostic_job
 from v14.execution_binding import ExecutionBindingError
 from v14.conversations import FEATURES, QueueFull, ConversationConflict
@@ -68,7 +69,8 @@ def install_engineering_routes(app, service):
             owner = principal(request)
             readiness = await asyncio.to_thread(service.readiness)
             repository_operations = await asyncio.to_thread(repository_lifecycle.capabilities)
-            return {'service': 'engineering-gateway', 'protocol_version': 1, 'diagnostic_protocol': 1, 'gateway_version': VERSION, 'server_build': server_build, 'enabled': readiness['ready'], 'readiness': readiness, 'duration_hours': [3, 6, 12, 0], 'until_complete_limit_hours': 72,
+            return {'service': 'engineering-gateway', 'protocol_version': 1, 'diagnostic_protocol': 1, 'gateway_version': VERSION, 'server_build': server_build, 'enabled': readiness['ready'], 'readiness': readiness, 'duration_hours': [3, 6, 12, 24, 0], 'until_complete_limit_hours': 72,
+                    'default_duration_hours': DEFAULT_DURATION_HOURS, 'execution_budget_defaults': dict(DEFAULT_EXECUTION_BUDGET), 'execution_budget_limits': dict(EXECUTION_BUDGET_LIMITS),
                     'principal_id': owner, 'gateway_id': await asyncio.to_thread(service.store.conversations.gateway_id) if service.store.runtime.GATEWAY_DURABLE_JOBS else None,
                     'instance_id': getattr(getattr(service.store.runtime, 'gateway_service', None), 'instance_id', None),
                     'task_scope_protocol': 1, 'task_scopes': ['read', 'plan', 'implement'], 'features': dict({key: bool(service.store.runtime.GATEWAY_DURABLE_JOBS) for key in FEATURES}, mutation_identity_preconditions_v1=True, repository_lifecycle_v1=repository_operations['enabled']), **{key: bool(service.store.runtime.GATEWAY_DURABLE_JOBS) for key in FEATURES},
@@ -79,7 +81,7 @@ def install_engineering_routes(app, service):
                     'execution_binding_protocol': 1, 'routing_policy': 'SELECTED_ONLY',
                     'execution_owner': 'GATEWAY', 'retry_owner': 'GATEWAY',
                     'code_graph': {'schema_version': 1, 'supported': True,
-                                   'configured': readiness.get('checks', {}).get('host_github_connection') == 'configured',
+                                   'configured': readiness.get('checks', {}).get('graph_host_github_connection') == 'configured',
                                    'enabled': readiness['graph_ready'], 'incremental': True, 'source_level_only': True}}
         return await execute(run)
 
@@ -165,7 +167,7 @@ def install_engineering_routes(app, service):
             owner = principal(request)
             readiness = await asyncio.to_thread(service.readiness)
             if not readiness['graph_ready']:
-                missing_connection = readiness.get('checks', {}).get('host_github_connection') == 'missing'
+                missing_connection = readiness.get('checks', {}).get('graph_host_github_connection') == 'missing'
                 return JSONResponse({'error': {'code': 'graph_connection_required', 'retryable': not missing_connection,
                                                'reason': 'HOST_GITHUB_CONNECTION_REQUIRED' if missing_connection else 'GRAPH_STORAGE_OR_SERVICE_UNAVAILABLE'},
                                      'supported': True, 'configured': not missing_connection, 'readiness': readiness},
@@ -179,7 +181,8 @@ def install_engineering_routes(app, service):
     async def create(request: Request):
         async def run():
             owner = principal(request)
-            payload = validate_request(await body(request))
+            payload = await body(request)
+            validate_request(payload)
             readiness = await asyncio.to_thread(service.readiness)
             if readiness['saved_results']:
                 existing = await asyncio.to_thread(service.store.existing_request, owner, payload)

@@ -1,0 +1,403 @@
+{
+  "python_suites": 56,
+  "python_tests": 722,
+  "python_passed": 721,
+  "skipped": 1,
+  "skip_reason": "No bindable LAN IPv4 interface available on this host",
+  "failed_suites": [],
+  "browser_tests": 7,
+  "suites": [
+    {
+      "suite": "test_gateway_backend_diagnostics.py",
+      "tests": 12,
+      "seconds": 0.026,
+      "result": "OK",
+      "skipped": 0
+    },
+    {
+      "suite": "test_gateway_capabilities.py",
+      "tests": 4,
+      "seconds": 2.013,
+      "result": "OK",
+      "skipped": 0
+    },
+    {
+      "suite": "test_gateway_completion_recovery.py",
+      "tests": 25,
+      "seconds": 0.287,
+      "result": "OK",
+      "skipped": 0
+    },
+    {
+      "suite": "test_gateway_connection_soak.py",
+      "tests": 1,
+      "seconds": 2.248,
+      "result": "OK",
+      "skipped": 0
+    },
+    {
+      "suite": "test_gateway_conversations.py",
+      "tests": 32,
+      "seconds": 13.55,
+      "result": "OK",
+      "skipped": 0
+    },
+    {
+      "suite": "test_gateway_dashboard.py",
+      "tests": 12,
+      "seconds": 0.146,
+      "result": "OK",
+      "skipped": 0
+    },
+    {
+      "suite": "test_gateway_debug_evidence.py",
+      "tests": 9,
+      "seconds": 0.26,
+      "result": "OK",
+      "skipped": 0
+    },
+    {
+      "suite": "test_gateway_desktop.py",
+      "tests": 28,
+      "seconds": 2.171,
+      "result": "OK",
+      "skipped": 0
+    },
+    {
+      "suite": "test_gateway_desktop_dashboard.py",
+      "tests": 3,
+      "seconds": 0.002,
+      "result": "OK",
+      "skipped": 0
+    },
+    {
+      "suite": "test_gateway_diagnostic_delivery.py",
+      "tests": 5,
+      "seconds": 0.009,
+      "result": "OK",
+      "skipped": 0
+    },
+    {
+      "suite": "test_gateway_engineering_retention.py",
+      "tests": 19,
+      "seconds": 11.542,
+      "result": "OK",
+      "skipped": 0
+    },
+    {
+      "suite": "test_gateway_general_routing.py",
+      "tests": 6,
+      "seconds": 0.716,
+      "result": "OK",
+      "skipped": 0
+    },
+    {
+      "suite": "test_gateway_message_contract.py",
+      "tests": 16,
+      "seconds": 0.022,
+      "result": "OK",
+      "skipped": 0
+    },
+    {
+      "suite": "test_gateway_model_preparation.py",
+      "tests": 16,
+      "seconds": 0.011,
+      "result": "OK",
+      "skipped": 0
+    },
+    {
+      "suite": "test_gateway_multisearch.py",
+      "tests": 6,
+      "seconds": 0.054,
+      "result": "OK",
+      "skipped": 0
+    },
+    {
+      "suite": "test_gateway_network.py",
+      "tests": 15,
+      "seconds": 4.091,
+      "result": "OK (skipped=1)",
+      "skipped": 1
+    },
+    {
+      "suite": "test_gateway_reasoning_capabilities.py",
+      "tests": 4,
+      "seconds": 1.624,
+      "result": "OK",
+      "skipped": 0
+    },
+    {
+      "suite": "test_gateway_recovery_payload.py",
+      "tests": 3,
+      "seconds": 0.615,
+      "result": "OK",
+      "skipped": 0
+    },
+    {
+      "suite": "test_gateway_reliability_faults.py",
+      "tests": 27,
+      "seconds": 0.442,
+      "result": "OK",
+      "skipped": 0
+    },
+    {
+      "suite": "test_gateway_repository_lifecycle.py",
+      "tests": 28,
+      "seconds": 12.536,
+      "result": "OK",
+      "skipped": 0
+    },
+    {
+      "suite": "test_gateway_repository_lifecycle_http.py",
+      "tests": 3,
+      "seconds": 1.095,
+      "result": "OK",
+      "skipped": 0
+    },
+    {
+      "suite": "test_gateway_saved_work_admission.py",
+      "tests": 3,
+      "seconds": 0.527,
+      "result": "OK",
+      "skipped": 0
+    },
+    {
+      "suite": "test_gateway_security.py",
+      "tests": 5,
+      "seconds": 0.216,
+      "result": "OK",
+      "skipped": 0
+    },
+    {
+      "suite": "test_gateway_selected_execution.py",
+      "tests": 19,
+      "seconds": 7.981,
+      "result": "OK",
+      "skipped": 0
+    },
+    {
+      "suite": "test_gateway_selected_model_benchmark.py",
+      "tests": 2,
+      "seconds": 0.0,
+      "result": "OK",
+      "skipped": 0
+    },
+    {
+      "suite": "test_gateway_singleflight.py",
+      "tests": 4,
+      "seconds": 0.001,
+      "result": "OK",
+      "skipped": 0
+    },
+    {
+      "suite": "test_gateway_stream_observation.py",
+      "tests": 3,
+      "seconds": 0.007,
+      "result": "OK",
+      "skipped": 0
+    },
+    {
+      "suite": "test_gateway_v12.py",
+      "tests": 17,
+      "seconds": 0.011,
+      "result": "OK",
+      "skipped": 0
+    },
+    {
+      "suite": "test_gateway_v13.py",
+      "tests": 29,
+      "seconds": 0.333,
+      "result": "OK",
+      "skipped": 0
+    },
+    {
+      "suite": "test_gateway_v14.py",
+      "tests": 25,
+      "seconds": 5.381,
+      "result": "OK",
+      "skipped": 0
+    },
+    {
+      "suite": "test_gateway_v14_actions.py",
+      "tests": 10,
+      "seconds": 0.398,
+      "result": "OK",
+      "skipped": 0
+    },
+    {
+      "suite": "test_gateway_v14_batch.py",
+      "tests": 11,
+      "seconds": 0.075,
+      "result": "OK",
+      "skipped": 0
+    },
+    {
+      "suite": "test_gateway_v14_browser.py",
+      "tests": 5,
+      "seconds": 5.391,
+      "result": "OK",
+      "skipped": 0
+    },
+    {
+      "suite": "test_gateway_v14_catalog_readiness.py",
+      "tests": 5,
+      "seconds": 0.002,
+      "result": "OK",
+      "skipped": 0
+    },
+    {
+      "suite": "test_gateway_v14_code_graph.py",
+      "tests": 32,
+      "seconds": 0.27,
+      "result": "OK",
+      "skipped": 0
+    },
+    {
+      "suite": "test_gateway_v14_component_readiness.py",
+      "tests": 5,
+      "seconds": 0.005,
+      "result": "OK",
+      "skipped": 0
+    },
+    {
+      "suite": "test_gateway_v14_continuity.py",
+      "tests": 24,
+      "seconds": 8.964,
+      "result": "OK",
+      "skipped": 0
+    },
+    {
+      "suite": "test_gateway_v14_contracts.py",
+      "tests": 6,
+      "seconds": 0.003,
+      "result": "OK",
+      "skipped": 0
+    },
+    {
+      "suite": "test_gateway_v14_deadlines.py",
+      "tests": 4,
+      "seconds": 0.43,
+      "result": "OK",
+      "skipped": 0
+    },
+    {
+      "suite": "test_gateway_v14_debug.py",
+      "tests": 11,
+      "seconds": 1.538,
+      "result": "OK",
+      "skipped": 0
+    },
+    {
+      "suite": "test_gateway_v14_diagnostic_events.py",
+      "tests": 25,
+      "seconds": 5.25,
+      "result": "OK",
+      "skipped": 0
+    },
+    {
+      "suite": "test_gateway_v14_engineering.py",
+      "tests": 21,
+      "seconds": 1.226,
+      "result": "OK",
+      "skipped": 0
+    },
+    {
+      "suite": "test_gateway_v14_engineering_backend.py",
+      "tests": 26,
+      "seconds": 0.028,
+      "result": "OK",
+      "skipped": 0
+    },
+    {
+      "suite": "test_gateway_v14_engineering_http.py",
+      "tests": 14,
+      "seconds": 0.774,
+      "result": "OK",
+      "skipped": 0
+    },
+    {
+      "suite": "test_gateway_v14_engineering_memory.py",
+      "tests": 7,
+      "seconds": 0.43,
+      "result": "OK",
+      "skipped": 0
+    },
+    {
+      "suite": "test_gateway_v14_events.py",
+      "tests": 2,
+      "seconds": 0.0,
+      "result": "OK",
+      "skipped": 0
+    },
+    {
+      "suite": "test_gateway_v14_evidence.py",
+      "tests": 27,
+      "seconds": 1.254,
+      "result": "OK",
+      "skipped": 0
+    },
+    {
+      "suite": "test_gateway_v14_github.py",
+      "tests": 10,
+      "seconds": 0.144,
+      "result": "OK",
+      "skipped": 0
+    },
+    {
+      "suite": "test_gateway_v14_http.py",
+      "tests": 1,
+      "seconds": 2.035,
+      "result": "OK",
+      "skipped": 0
+    },
+    {
+      "suite": "test_gateway_v14_jobs.py",
+      "tests": 23,
+      "seconds": 25.522,
+      "result": "OK",
+      "skipped": 0
+    },
+    {
+      "suite": "test_gateway_v14_readiness.py",
+      "tests": 9,
+      "seconds": 0.082,
+      "result": "OK",
+      "skipped": 0
+    },
+    {
+      "suite": "test_gateway_v14_stability.py",
+      "tests": 31,
+      "seconds": 3.684,
+      "result": "OK",
+      "skipped": 0
+    },
+    {
+      "suite": "test_gateway_v14_state_lock.py",
+      "tests": 1,
+      "seconds": 0.137,
+      "result": "OK",
+      "skipped": 0
+    },
+    {
+      "suite": "test_gateway_v14_upgrade.py",
+      "tests": 10,
+      "seconds": 0.082,
+      "result": "OK",
+      "skipped": 0
+    },
+    {
+      "suite": "test_gateway_v14_usage.py",
+      "tests": 6,
+      "seconds": 0.363,
+      "result": "OK",
+      "skipped": 0
+    },
+    {
+      "suite": "test_gateway_v14_validation.py",
+      "tests": 15,
+      "seconds": 1.152,
+      "result": "OK",
+      "skipped": 0
+    }
+  ]
+}

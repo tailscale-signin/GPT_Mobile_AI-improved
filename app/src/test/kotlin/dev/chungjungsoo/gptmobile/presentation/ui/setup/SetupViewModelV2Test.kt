@@ -250,6 +250,7 @@ class SetupViewModelV2Test {
 
         val saved = settings.addedPlatforms.single()
         assertEquals("ready-model", saved.model)
+        assertEquals(Int.MAX_VALUE, saved.maxToolCalls)
         assertTrue(saved.enabled)
         assertTrue(localModels.startDownloadCalls.isEmpty())
     }

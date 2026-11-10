@@ -1,0 +1,39 @@
+test_read_only_host_indexes_and_queries_without_engineering_write_or_model_readiness (test_gateway_v14_code_graph.GraphServiceTests.test_read_only_host_indexes_and_queries_without_engineering_write_or_model_readiness) ... ERROR
+
+======================================================================
+ERROR: test_read_only_host_indexes_and_queries_without_engineering_write_or_model_readiness (test_gateway_v14_code_graph.GraphServiceTests.test_read_only_host_indexes_and_queries_without_engineering_write_or_model_readiness)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/workspace/scratch/a5681ccdcf4d/repo/gateway/tests/test_gateway_v14_code_graph.py", line 196, in test_read_only_host_indexes_and_queries_without_engineering_write_or_model_readiness
+    result = self.call('index')
+             ^^^^^^^^^^^^^^^^^^
+  File "/workspace/scratch/a5681ccdcf4d/repo/gateway/tests/test_gateway_v14_code_graph.py", line 169, in call
+    return self.service.execute('principal', dict(self.request, action=action, **extra))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/scratch/a5681ccdcf4d/repo/gateway/v14/code_graph/service.py", line 156, in execute
+    return self._execute(principal, request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/scratch/a5681ccdcf4d/repo/gateway/v14/code_graph/service.py", line 162, in _execute
+    namespace, root, head, actor = self.authorize(principal, request)
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/scratch/a5681ccdcf4d/repo/gateway/v14/code_graph/service.py", line 56, in authorize
+    actor = self.backend.api('/user')['id']
+            ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/scratch/a5681ccdcf4d/repo/gateway/v14/engineering_backend.py", line 244, in api
+    headers = {'Authorization': 'Bearer ' + self.token(), 'Accept': 'application/vnd.github+json',
+                                            ^^^^^^^^^^^^
+  File "/workspace/scratch/a5681ccdcf4d/repo/gateway/v14/engineering_backend.py", line 148, in token
+    return self.connection_token(candidates[0])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/scratch/a5681ccdcf4d/repo/gateway/v14/engineering_backend.py", line 172, in connection_token
+    cls.connection_policy(config, env)
+  File "/workspace/scratch/a5681ccdcf4d/repo/gateway/v14/engineering_backend.py", line 201, in connection_policy
+    check(key, env[key] if key in env else os.environ[key])
+  File "/workspace/scratch/a5681ccdcf4d/repo/gateway/v14/engineering_backend.py", line 195, in check
+    raise ValueError('The host GitHub connection restricts autonomous engineering')
+ValueError: The host GitHub connection restricts autonomous engineering
+
+----------------------------------------------------------------------
+Ran 1 test in 0.005s
+
+FAILED (errors=1)

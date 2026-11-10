@@ -101,7 +101,7 @@ fun AddPlatformScreen(
     var creativity by remember { mutableStateOf(SamplingCreativity.DEFAULT) }
     var profileLabels by remember { mutableStateOf<List<ProfileLabel>>(emptyList()) }
     var showLabelsDialog by remember { mutableStateOf(false) }
-    var maxToolCallsText by remember { mutableStateOf("50") }
+    var maxToolCallsText by remember { mutableStateOf("") }
     var showSuggestedModels by remember { mutableStateOf(false) }
     var showOpenRouterPicker by remember { mutableStateOf(false) }
     var showNvidiaPicker by remember { mutableStateOf(false) }
@@ -248,7 +248,7 @@ fun AddPlatformScreen(
                             systemPrompt = ModelConstants.DEFAULT_PROMPT
                             creativity = SamplingCreativity.DEFAULT
                             profileLabels = emptyList()
-                            maxToolCallsText = "50"
+                            maxToolCallsText = if (clientType == ClientType.FREE) "50" else ""
                             showAdvancedSettings = false
                             isReasoningEnabled = false
                             step = AddPlatformStep.DETAILS

@@ -54,12 +54,14 @@ internal fun GitHubProfilePicker(profiles: List<PlatformV2>, selectedUid: String
 
 @Composable
 internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: GitHubProgrammerState, onProfile: (String?) -> Unit, onIndex: (Boolean) -> Unit, onPrepare: () -> Unit, onSettings: (dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride) -> Unit = {}, onExport: () -> Unit = {}, onOpenRepositoryMap: (() -> Unit)? = null) {
-    var showConnectionDoctor by remember { mutableStateOf(false) }
-    if (showConnectionDoctor) ConnectionDoctorDialog(onDismiss = { showConnectionDoctor = false }, initialProfileUid = state.profileUid)
+    var inspection by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
+    inspection?.let { (profileUid, engineering) ->
+        ConnectionDoctorDialog(onDismiss = { inspection = null }, initialProfileUid = profileUid, engineeringGateway = engineering)
+    }
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         GitHubProfilePicker(state.profiles, state.selectedProfileUid ?: state.profileUid ?: state.profileOverrideUid, onProfile)
         Text("This profile handles GitHub work and review. If it is unavailable, your task pauses until you explicitly select a profile.", style = MaterialTheme.typography.bodySmall)
-        OutlinedButton(onClick = { showConnectionDoctor = true }, enabled = state.profileUid != null, modifier = Modifier.testTag("github_test_connection")) { Text("Test connection") }
+        OutlinedButton(onClick = { state.profileUid?.let { inspection = it to false } }, enabled = state.profileUid != null, modifier = Modifier.testTag("github_test_connection")) { Text("Test AI connection") }
         onOpenRepositoryMap?.let { open ->
             OutlinedButton(onClick = open, modifier = Modifier.fillMaxWidth().testTag("github_repository_map")) { Text("Repository map") }
         }
@@ -84,6 +86,9 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
                     }
                 }
                 Text("Add a separate Llama or Ollama connection in Platforms using the desktop gateway address, then select it here.", style = MaterialTheme.typography.bodySmall)
+                GitHubGatewayConnectionCheck(
+                    dev.chungjungsoo.gptmobile.data.github.engineeringGatewayProfile(state.profiles, state.profileSettings.engineeringGatewayProfileUid)?.uid
+                ) { inspection = it to true }
             }
         }
         GitHubProfileOverrides(state.profileSettings, state.profileUid != null, state.profiles.firstOrNull { it.uid == state.profileUid }?.maxToolCalls, onSettings)
@@ -111,6 +116,14 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
         }
         if (state.prepareIndex) OutlinedButton(onClick = onPrepare, enabled = !workspace.busy) { Text("Prepare next batch") }
     }
+}
+
+@Composable
+internal fun GitHubGatewayConnectionCheck(profileUid: String?, onCheck: (String) -> Unit) {
+    OutlinedButton(onClick = { profileUid?.let(onCheck) }, enabled = profileUid != null, modifier = Modifier.testTag("github_check_gateway")) {
+        Text("Check gateway readiness")
+    }
+    Text("Engineering jobs use GitHub credentials saved on the gateway computer. Its enabled GitHub connection is selected automatically when it is the only eligible connection.", style = MaterialTheme.typography.bodySmall)
 }
 
 @Composable
@@ -171,7 +184,7 @@ private fun GitHubProfileOverrides(value: dev.chungjungsoo.gptmobile.data.github
                     }
                 }
             }
-            Text("Ultra Maximum supports up to 512 tool calls and 24 hours per job. Provider limits and usage charges still apply.", style = MaterialTheme.typography.bodySmall)
+            Text("Ultra Maximum is the default. GitHub work allows up to 512 tool calls; saved gateway jobs request up to 24 hours and 512 model calls. Your saved limits still apply, and each job shows the allowance accepted by its gateway.", style = MaterialTheme.typography.bodySmall)
             Text("Llama gateway · Review required before the final answer. Design decisions appear as buttons, with a custom answer option.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
         }
     }

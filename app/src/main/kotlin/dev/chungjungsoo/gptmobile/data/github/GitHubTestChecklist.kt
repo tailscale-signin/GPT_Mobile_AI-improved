@@ -468,9 +468,12 @@ internal object GitHubTestChecklist {
                         buildJsonObject {
                             put("discovered", discovered)
                             val denied = latest?.text("error_code")?.let { code -> GitHubVerificationRecovery.authorizationBlocked(code) } == true
+                            val revalidation = latest?.text("error_code") in dev.chungjungsoo.gptmobile.data.agent.ToolFailureMetadata.authorityInvalidationCodes
                             put(
                                 "authorization",
-                                if (denied) {
+                                if (revalidation) {
+                                    "REVALIDATION_REQUIRED"
+                                } else if (denied) {
                                     "DENIED"
                                 } else if (tools.isEmpty()) {
                                     "UNKNOWN"

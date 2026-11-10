@@ -111,8 +111,10 @@ def environment(root, cfg, management_token=''):
     names += [socket.gethostname().lower(), socket.getfqdn().lower()]
     names += [name.strip() for name in cfg['network_hostnames'].split(',') if name.strip()]
     hosts = list(dict.fromkeys(authority(h, cfg['port']) for h in names))
-    # Environment variables from a previous manual install must not override managed identity/state.
-    env = {k: v for k, v in os.environ.items() if not k.startswith('GATEWAY_')}
+    # Preserve explicit host GitHub authorization, but never inherit listener,
+    # principal, consent or durable-state overrides from an earlier manual install.
+    github_settings = {'GATEWAY_ENGINEERING_GITHUB_SERVER', 'GATEWAY_ENGINEERING_GITHUB_TOKEN'}
+    env = {k: v for k, v in os.environ.items() if not k.startswith('GATEWAY_') or k in github_settings}
     env.update(GATEWAY_HOST=cfg['bind_host'], GATEWAY_PORT=str(cfg['port']), LLAMA_BASE=cfg['backend'],
                GATEWAY_AUTH_MODE='open_network' if cfg['access'] == 'network' else 'loopback',
                GATEWAY_ALLOWED_HOSTS=json.dumps(hosts),

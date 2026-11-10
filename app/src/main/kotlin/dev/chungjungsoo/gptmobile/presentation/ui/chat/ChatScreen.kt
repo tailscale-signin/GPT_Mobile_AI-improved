@@ -1678,6 +1678,13 @@ internal fun ChatMessagePair(
     }
     val isResponseLoading = if (hasCombinedTabs) isCurrentPlatformLoading else shouldShowAssistantResponseProgress(isCurrentPlatformLoading, activeAgentRun != null, agentRun?.status)
     val responseFailure = visibleResponseFailure(assistantTimeline.lastOrNull { it.runError != null }?.runError, agentRun?.terminalError, agentRun?.status)
+    val responseFailureRecord = responseFailure?.let { error ->
+        assistantTimeline.lastOrNull { it.runError == error }?.profileFailure
+            ?: dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.classify(error)
+    }
+    val gatewayAdmission = gatewayAdmissionPresentation(responseFailureRecord)
+    val repairGatewayProfile = debugSettings.githubProfileOverrides[selectedPlatformUid]?.engineeringGatewayProfileUid
+        ?.let(enabledPlatformLookup::get)
     val approvalRetryBlock = gitHubApprovalRetryBlock(responseFailure, LocalGitHubApprovalPending.current)
     val reviewRetryBlock = approvalRetryBlock ?: dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.reviewRetryBlock(responseFailure)
     val responseRecoveryKind = responseFailure?.let { profileRecoveryKind(dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.classify(it).category, it) } ?: ProfileRecoveryKind.NONE
@@ -1928,7 +1935,9 @@ internal fun ChatMessagePair(
                 responseFailure?.let { error ->
                     Column(Modifier.fillMaxWidth().padding(12.dp)) {
                         Text(
-                            if (approvalRetryBlock != null) {
+                            if (gatewayAdmission != null) {
+                                gatewayAdmission.title
+                            } else if (approvalRetryBlock != null) {
                                 "Approval required"
                             } else if (agentRun?.status == AgentRunStatus.PARTIAL) {
                                 "Work remaining"
@@ -1942,12 +1951,25 @@ internal fun ChatMessagePair(
                             style = MaterialTheme.typography.titleSmall
                         )
                         Text(error, style = MaterialTheme.typography.bodySmall)
+                        gatewayAdmission?.let { admission ->
+                            Text(admission.guidance, style = MaterialTheme.typography.bodySmall)
+                            repairGatewayProfile?.let { gateway ->
+                                TextButton(onClick = { onProfileSettings(gateway.uid) }, enabled = isIdle && canUseChat) {
+                                    Text("Gateway connection settings · ${gateway.name}")
+                                }
+                            }
+                            if (admission.canRetryAfterRepair && !hasCombinedTabs) {
+                                TextButton(onClick = { onRetry(messageIndex, displayPlatformIndex) }, enabled = isIdle && canUseChat && reviewRetryBlock == null) {
+                                    Text("Try again after gateway setup")
+                                }
+                            }
+                        }
                         if (error.contains("QUEUE_") && selectedRunId != null) TextButton(onClick = { onCheckQueuedRun(selectedRunId) }) { Text(stringResource(R.string.audit_check_status)) }
                         if (!hasCombinedTabs) {
                             reviewRetryBlock?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-                            if (responseRecoveryKind == ProfileRecoveryKind.NONE && approvalRetryBlock == null) {
+                            if (gatewayAdmission == null && responseRecoveryKind == ProfileRecoveryKind.NONE && approvalRetryBlock == null) {
                                 TextButton(onClick = { onRetry(messageIndex, displayPlatformIndex) }, enabled = isIdle && canUseChat && reviewRetryBlock == null) { Text(stringResource(R.string.audit_generate_again)) }
-                            } else if (responseRecoveryKind != ProfileRecoveryKind.NONE) {
+                            } else if (gatewayAdmission == null && responseRecoveryKind != ProfileRecoveryKind.NONE) {
                                 ProfileRecoveryActions(
                                     kind = responseRecoveryKind,
                                     profileName = enabledPlatformLookup[selectedPlatformUid]?.name ?: "Saved profile",

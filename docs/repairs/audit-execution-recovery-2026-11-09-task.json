@@ -5,7 +5,7 @@
   "base_sha": "7db0c735f9e86eaece24513fbaf5c0a624f13822",
   "working_branch": "fix/audit-execution-recovery-2026-11-09",
   "intent": "Implement the user-requested 24 archive findings, 18 process-log findings and the complete app audit remediation: reconcile durable handoffs, resume useful work, reuse compact evidence, scope verification to the request, unify budgets and failure receipts, improve connector compatibility and actionable qualification, and reduce diagnostic/UI overhead with truthful validation.",
-  "state": "UI_TEST_SETUP_CORRECTED_FRESH_CI_REQUIRED",
+  "state": "HOST_VALIDATED_READY_FOR_FRESH_ANDROID_CI",
   "task_store": "engineering_agent_checkpoints",
   "task_store_key": "audit-execution-recovery-2026-11-09",
   "source_evidence": {
@@ -122,5 +122,34 @@
     "remediation_record": "docs/repairs/latest-audit-2026-11-09.md",
     "capture_index": "docs/repairs/evidence/audit-execution-recovery-2026-11-09/latest-audit-capture.json",
     "historical_outcomes_changed": false
+  },
+  "latest_steering": {
+    "received_at": "2026-11-10T01:13:12.392370+00:00",
+    "intent": "Default Ultra Maximum on client and server; repair host GitHub prerequisite discovery and exact-host setup recovery; restore 1500 ms GitHub summary/preview fading and 50% preview opacity with latest-row theme pan; repair authorized catalog and known-unsent read recovery; redesign and rewire the repository map. Preserve every earlier branch, progress text and audit scope.",
+    "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+    "base_branch": "main",
+    "base_sha": "7db0c735f9e86eaece24513fbaf5c0a624f13822",
+    "working_branch": "fix/audit-execution-recovery-2026-11-09",
+    "parent_sha": "e85dec10ec07b1a7dd58e4a4237a3c9e81572d6d",
+    "status": "HOST_VALIDATED_READY_FOR_FRESH_ANDROID_CI",
+    "constraints": [
+      "Retain actual host authorization and selected model/host identity",
+      "Preserve explicit smaller settings and durable retry identity",
+      "No merge or deployment performed without observed evidence"
+    ],
+    "acceptance": [
+      "New client/server engineering jobs use Ultra Maximum defaults; saved explicit limits and existing job identities remain authoritative.",
+      "A known configured host GitHub connection survives launcher setup and is used deterministically, without forwarding phone credentials.",
+      "Explicit gateway readiness checks refresh only the selected host and submit no job.",
+      "GitHub preview and summary arrival/replacement fades last 1500 ms; preview base alpha is 0.5 and only the active bottom preview pans the theme highlight.",
+      "Retained catalog pages preserve exact authorized names, fingerprints and continuation identities; every page is verified before the denominator becomes final.",
+      "A known-unsent read can resume once under a fresh validated authorization revision, preserving the original receipt and excluding mutations, revoked tools and unknown outcomes.",
+      "Confirmed local proposals do not erase verified fixture cleanup; real or uncertain writes still require matching fixture proof.",
+      "Repository map states and actions are exclusive and useful; selected-host recovery, exact revision binding, real graph relationships and accessible motion are verified.",
+      "Canonical host checks and fresh exact-head Android CI pass before completion is claimed."
+    ],
+    "latest_report": "docs/repairs/evidence/audit-execution-recovery-2026-11-09/github-verification-capture.json",
+    "remediation_record": "docs/repairs/gateway-map-and-verification-follow-up.md",
+    "validation_receipt": "docs/repairs/evidence/audit-execution-recovery-2026-11-09/gateway-map-validation.json"
   }
 }

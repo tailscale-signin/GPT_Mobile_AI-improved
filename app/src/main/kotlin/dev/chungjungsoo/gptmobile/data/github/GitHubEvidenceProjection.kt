@@ -10,6 +10,16 @@ import kotlinx.serialization.json.put
 
 /** Review material is bounded independently of the immutable, encrypted source receipt. */
 internal object GitHubEvidenceProjection {
+    private val catalogFields = setOf(
+        "authorized_inventory",
+        "inventory_version",
+        "authorized_tool_count",
+        "inventory_offset",
+        "returned",
+        "has_more",
+        "continuation_call"
+    )
+    private val catalogEntryFields = setOf("name", "schema_fingerprint", "semantic_schema_fingerprint", "invocation_contract_version")
     private val identities = setOf(
         "id", "number", "sha", "commit_sha", "head_sha", "base_sha", "tree_sha", "source_sha", "expected_head_sha",
         "stage_id", "task_id", "engineering_task_id", "card_id", "approval_state", "user_input_required", "execution_id", "correlation_id", "run_id", "workflow_run_id", "workflow_id", "release_id", "pull_number",
@@ -53,7 +63,7 @@ internal object GitHubEvidenceProjection {
     fun receipt(source: JsonObject): JsonObject {
         val original = source["result"] ?: return source
         if (source["review_projection"] == JsonPrimitive("EXACT_VALUES_WITH_DURABLE_ORIGINAL")) return source
-        val compact = result(original)
+        val compact = if (source["tool"] == JsonPrimitive(GitHubAuthorizedCatalog.TOOL)) catalog(original) ?: result(original) else result(original)
         var excerptBytes = 0
         val excerpts = GitHubEvidenceExcerpts.collect(source).filter { (key, value) ->
             val cost = key.encodeToByteArray().size + value.toString().encodeToByteArray().size
@@ -70,5 +80,27 @@ internal object GitHubEvidenceProjection {
                 put("original_retrieval", "The immutable receipt and saved result pages retain omitted text. A projection does not establish omitted facts or complete remote coverage.")
             }
         )
+    }
+
+    /** Discovery metadata may be large; its exact, bounded page proof must survive independently. */
+    private fun catalog(source: JsonElement): JsonElement? {
+        val envelope = source as? JsonObject ?: return null
+        val data = envelope["data"] as? JsonObject
+        val page = data ?: envelope
+        val inventory = page["authorized_inventory"] as? JsonArray ?: return null
+        // Match the producer's maximum page size. Never silently truncate or repair
+        // malformed pages, duplicate names, fingerprints or continuation recipes.
+        if (inventory.size > 256) return null
+        val proof = JsonObject(
+            page.filterKeys { it in catalogFields } + (
+                "authorized_inventory" to JsonArray(
+                    inventory.map { entry ->
+                        if (entry is JsonObject) JsonObject(entry.filterKeys { it in catalogEntryFields }) else entry
+                    }
+                )
+                )
+        )
+        if (proof.toString().encodeToByteArray().size > 128 * 1024) return null
+        return if (data == null) proof else JsonObject((result(envelope) as? JsonObject).orEmpty() + ("data" to proof))
     }
 }

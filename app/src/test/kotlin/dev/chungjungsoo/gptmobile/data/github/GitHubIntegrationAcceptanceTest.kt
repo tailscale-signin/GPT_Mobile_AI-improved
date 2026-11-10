@@ -96,6 +96,49 @@ class GitHubIntegrationAcceptanceTest {
         assertEquals(JsonPrimitive("NOT_TESTED"), GitHubIntegrationAcceptance.binding(receipts().values, runtime)["device_execution"])
     }
 
+    @Test fun confirmedLocalProposalsPreserveVerifiedFixtureCleanupWithoutQualifyingPublication() {
+        val records = receipts()
+        records["draft"] = JsonObject(
+            receipt("draft", "github_stage_patch", json("""{"commit_immediately":false}"""), json("""{"status":"STAGED","stage_id":"local-draft","committed":false}"""), "LOCAL") +
+                ("remote_mutation" to JsonPrimitive(false))
+        )
+        records["approval"] = JsonObject(
+            receipt("approval", "github_commit", json("""{"action":"commit"}"""), json("""{"status":"AWAITING_APPROVAL","committed":false}"""), "LOCAL") + mapOf(
+                "remote_mutation" to JsonPrimitive(true),
+                "execution" to json("""{"mutation_requests":0,"accepted_mutations":0,"unknown_mutations":0}""")
+            )
+        )
+        assertTrue(GitHubSelfTestFixtures.complete(records))
+        assertEquals(JsonPrimitive("PASS"), acceptance(records)[2]["acceptance_state"])
+        val expanded = tools.map { if (it.name == "github_commit") tool("github_commit", "branch", "delete_branch", "commit") else it }
+        val publication = GitHubTestChecklist.rows(records, expanded, task).filterIsInstance<JsonObject>().single { it["id"] == JsonPrimitive("github_commit:commit") }
+        assertEquals(JsonPrimitive(true), publication["waiting_for_approval"])
+        assertEquals(JsonPrimitive(false), publication["live_verified"])
+        assertFalse(publication["status"] in setOf(JsonPrimitive("PASSED"), JsonPrimitive("RECOVERED")))
+    }
+
+    @Test fun missingOrUncertainMutationCountersCannotExcuseAnUnverifiedRemoteProposal() {
+        val proposal = receipt("unverified", "github_commit", json("""{"action":"commit"}"""), json("""{"status":"AWAITING_APPROVAL","committed":false}"""), "LOCAL")
+        for (counters in listOf(
+            json("{}"),
+            json("""{"mutation_requests":0,"accepted_mutations":0}"""),
+            json("""{"mutation_requests":1,"accepted_mutations":0,"unknown_mutations":0}"""),
+            json("""{"mutation_requests":0,"accepted_mutations":1,"unknown_mutations":0}"""),
+            json("""{"mutation_requests":0,"accepted_mutations":0,"unknown_mutations":1}"""),
+            json("""{"mutation_requests":0,"accepted_mutations":0,"unknown_mutations":null}"""),
+            json("""{"mutation_requests":"0","accepted_mutations":"0","unknown_mutations":"0"}"""),
+            json("""{"mutation_requests":0,"accepted_mutations":0,"unknown_mutations":"000"}""")
+        )) {
+            val records = receipts()
+            records["unverified"] = JsonObject(proposal + mapOf("remote_mutation" to JsonPrimitive(true), "execution" to counters))
+            assertFalse(counters.toString(), GitHubSelfTestFixtures.complete(records))
+            assertEquals(JsonPrimitive("NOT_TESTED"), acceptance(records)[2]["acceptance_state"])
+        }
+        val records = receipts()
+        records["contradiction"] = JsonObject(proposal + mapOf("remote_mutation" to JsonPrimitive(false), "execution" to json("""{"unknown_mutations":1}""")))
+        assertFalse(GitHubSelfTestFixtures.complete(records))
+    }
+
     @Test fun absentBuildBindingDoesNotEraseCatalogFixtureAndSeparationCredits() {
         val records = receipts().mapValues { (_, value) -> JsonObject(value - "runtime_identity") }
         val rows = acceptance(records)

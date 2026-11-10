@@ -216,14 +216,28 @@ internal object GitHubContentFixture {
         if (creationReceipt == null) return if (allowCreate && !cleanupOnly && available(tools, branch, sourceBranch, origin)) call(creation(branch, sourceBranch, origin), tools, observations) else null
         if (!owned(source, creationReceipt)) return null
         if (checkpoint(creationReceipt, receipts)["final_state_verified"] == JsonPrimitive(true)) return null
-        val deletion = observations.lastOrNull {
+        val deletions = observations.filter {
             it.text("tool").substringBefore("__") == "github_commit" &&
                 arguments(it)?.text("action") == "delete_fixture_branch" &&
                 arguments(it)?.text("branch") == branch &&
                 arguments(it)?.text("origin_head_sha") == origin &&
                 arguments(it)?.text("expected_head_sha")?.sha() == true
         }
+        val deletion = deletions.lastOrNull()
         if (deletion != null) {
+            val head = requireNotNull(arguments(deletion)).text("expected_head_sha")
+            if (GitHubTransportRecovery.provenNoMutation(deletion)) {
+                // A retry uses the same owned branch and head, and repeats all cleanup guards.
+                // The second preflight failure stops the automatic retry path.
+                if (deletions.size != 1 || !GitHubTransportRecovery.retryable(deletion)) return null
+                val recipe = cleanup(branch, origin, head)
+                val tool = tool(recipe, tools) ?: return null
+                return ProviderEvent.ToolCall(
+                    "fixture-preflight-" + GitHubEvidenceBook.digest(deletion.text("receipt_id")).take(24),
+                    tool.name,
+                    recipe.arguments
+                )
+            }
             val recovery = Recipe(
                 "github_context",
                 buildJsonObject {
@@ -231,7 +245,7 @@ internal object GitHubContentFixture {
                     put("fixture_plan", GitHubOwnedFixtures.PLAN)
                     put("branch", branch)
                     put("base_sha", origin)
-                    put("commit_sha", requireNotNull(arguments(deletion)).getValue("expected_head_sha"))
+                    put("commit_sha", head)
                     put("verify_live", true)
                 }
             )
@@ -394,6 +408,10 @@ internal object GitHubContentFixture {
             emptyList()
         }
         val cleanup = verifiedCleanup ?: cleanups.lastOrNull()
+        val deletionWasUnsent = !cleaned &&
+            cleanups.lastOrNull {
+                arguments(it)?.text("action") == "delete_fixture_branch"
+            }?.let(GitHubTransportRecovery::provenNoMutation) == true
         val approvals = GitHubPendingApproval.snapshot(observations.mapIndexed { index, receipt -> index.toString() to receipt }.toMap())
         return buildJsonObject {
             put("branch", branch)
@@ -419,10 +437,12 @@ internal object GitHubContentFixture {
                     cleaned -> "REMOTE_REF_ABSENCE_VERIFIED"
                     !ownership -> "OWNERSHIP_NOT_ESTABLISHED"
                     approvals.isNotEmpty() -> "EXACT_PATCH_APPROVAL_PENDING"
+                    deletionWasUnsent -> "CLEANUP_PREFLIGHT_REJECTED"
                     cleanup != null -> "CLEANUP_ATTEMPT_NOT_VERIFIED"
                     else -> "LIFECYCLE_IN_PROGRESS_OR_INTERRUPTED"
                 }
             )
+            if (deletionWasUnsent) put("cleanup_dispatched", false)
             put(
                 "next_action",
                 if (cleaned) {

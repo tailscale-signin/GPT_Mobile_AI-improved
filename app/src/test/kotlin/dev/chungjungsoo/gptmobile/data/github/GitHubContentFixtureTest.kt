@@ -293,6 +293,40 @@ class GitHubContentFixtureTest {
         assertFalse(GitHubSelfTestFixtures.complete(records))
     }
 
+    @Test fun cleanupPreflightRejectionAllowsOneExactRetryWithoutReplayingPublishedWrites() {
+        val records = completed()
+        val deletion = records.values.last()
+        val id = deletion.getValue("receipt_id").jsonPrimitive.content
+        val rejected = JsonObject(
+            deletion + buildJsonObject {
+                put("success", false)
+                put("dispatched", false)
+                put("error_code", "GITHUB_TRANSIENT_NETWORK")
+                put(
+                    "execution",
+                    buildJsonObject {
+                        put("schema", "github.dispatch.v1")
+                        put("phase", "PREFLIGHT_REJECTED")
+                        put("requires_reconciliation", false)
+                        put("read_requests", 21)
+                        put("mutation_requests", 0)
+                        put("accepted_mutations", 0)
+                        put("rejected_mutations", 0)
+                        put("unknown_mutations", 0)
+                    }
+                )
+            }
+        )
+        records[id] = rejected
+        val retry = requireNotNull(GitHubSelfTestFixtures.next("Test all tools with writes", tools, records))
+        assertEquals("github_commit", retry.name)
+        assertEquals(deletion["arguments"], retry.arguments)
+        records[retry.callId] = JsonObject(rejected + ("receipt_id" to JsonPrimitive(retry.callId)))
+        assertNull(GitHubSelfTestFixtures.next("Test all tools with writes", tools, records))
+        records[retry.callId] = receipt(retry, result(retry))
+        assertTrue(GitHubSelfTestFixtures.complete(records))
+    }
+
     @Test fun uncertainDeletionResumesOnlyExactReadOnlyRecoveryAndPublishesItsProof() {
         val records = completed()
         val deletion = records.values.last()

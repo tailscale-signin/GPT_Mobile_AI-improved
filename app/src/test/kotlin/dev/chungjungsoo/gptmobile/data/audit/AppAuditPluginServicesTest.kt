@@ -711,7 +711,7 @@ class AppAuditPluginServicesTest {
         var markers = 0
         val observation = setup.source.execute(entry, context { markers++ })
         assertEquals(1, markers)
-        assertEquals(AppAuditOutcome.FAIL, observation.outcome)
+        assertEquals(AppAuditOutcome.BLOCKED, observation.outcome)
         assertEquals("MCP_LOCAL_CREDENTIAL_INVALID", observation.reasonCode)
         assertEquals(AppAuditObservationSource.NONE, observation.observationSource)
         assertEquals(AppAuditDispatchEvidence.NOT_DISPATCHED, observation.dispatchEvidence)

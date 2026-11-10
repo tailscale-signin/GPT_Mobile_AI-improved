@@ -53,8 +53,11 @@ internal class GitHubPromptAnchor(
     fun endGesture(distanceToBottom: Float, enterDistance: Float, leaveDistance: Float, cancelled: Boolean = false) {
         if (!dragging) return
         observeBottom(distanceToBottom, enterDistance, leaveDistance)
-        if (!cancelled && towardCurrent >= resumeDistance) {
-            mode = if (nearBottom) GitHubScrollMode.FOLLOW_BOTTOM else GitHubScrollMode.PIN_PROMPT
+        if (!cancelled && towardCurrent >= resumeDistance && nearBottom) {
+            mode = GitHubScrollMode.FOLLOW_BOTTOM
+        } else if (!cancelled && towardHistory >= releaseDistance) {
+            // A short decisive swipe should stay where the finger left it.
+            mode = GitHubScrollMode.USER_HISTORY
         } else if (mode != GitHubScrollMode.USER_HISTORY) {
             mode = modeBeforeGesture
         }

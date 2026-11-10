@@ -260,8 +260,10 @@ internal class AppAuditPluginServices @Inject constructor(
                 presentation.dispatchEvidence == "CONFIRMED" -> AppAuditDispatchEvidence.CONFIRMED
                 else -> AppAuditDispatchEvidence.UNKNOWN
             }
+            val prerequisiteBlocked = dispatch == AppAuditDispatchEvidence.NOT_DISPATCHED &&
+                presentation.errorCode in setOf("MCP_LOCAL_CREDENTIAL_MISSING", "MCP_LOCAL_CREDENTIAL_INVALID")
             AppAuditObservation(
-                if (cached) AppAuditOutcome.BLOCKED else AppAuditOutcome.FAIL,
+                if (cached || prerequisiteBlocked) AppAuditOutcome.BLOCKED else AppAuditOutcome.FAIL,
                 presentation.errorCode?.takeIf { it in AppAuditPluginProbeSource.reasonCodes } ?: "MCP_DISCOVERY_UNAVAILABLE",
                 stage = "mcp_discovery",
                 evidenceKind = AppAuditEvidenceKind.LIVE_METADATA,

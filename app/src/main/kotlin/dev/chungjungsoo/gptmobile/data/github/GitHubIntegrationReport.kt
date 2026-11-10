@@ -16,13 +16,16 @@ internal object GitHubIntegrationReport {
         val capabilities = GitHubTestChecklist.rows(receipts, tools, task).filterIsInstance<JsonObject>()
         val catalog = GitHubAuthorizedCatalog.snapshot(receipts, tools)
         val fixtures = GitHubSelfTestFixtures.checkpoint(receipts).filterIsInstance<JsonObject>()
+        val openFixtures = fixtures.filter { it["final_state_verified"] != JsonPrimitive(true) }
+        val cleanupStoppedBeforeDispatch = openFixtures.isNotEmpty() && openFixtures.all { it["cleanup_dispatched"] == JsonPrimitive(false) }
         val pending = GitHubTestChecklist.pendingPages(receipts)
         val reason = when {
             GitHubTestChecklist.apiComplete(task, receipts, tools) -> "ACCEPTANCE_COMPLETE" to "Every requested criterion has qualifying evidence."
             GitHubPendingApproval.snapshot(receipts).isNotEmpty() -> "WAITING_FOR_APPROVAL" to "The existing native Approve & Commit card must be resolved. Its exact patch, task identity and fixture are retained; another Continue does not approve the commit."
             remaining == 0 -> "TOOL_BUDGET_EXHAUSTED" to "The recorded authorized tool-call budget has no remaining calls. Resume requires a new authorized budget."
             remaining != null && remaining <= GitHubChecklistBudget.VERIFICATION_RESERVE -> "VERIFICATION_RESERVE_REACHED" to "The remaining $remaining calls are reserved for verification and cleanup; acquisition stopped before the hard ceiling."
-            fixtures.any { it["final_state_verified"] != JsonPrimitive(true) } -> "FIXTURE_CLEANUP_UNVERIFIED" to "An owned fixture has unverified final state or cleanup. Reconcile its retained mutation receipt before further writes."
+            cleanupStoppedBeforeDispatch -> "FIXTURE_CLEANUP_UNVERIFIED" to "GitHub cleanup stopped during preflight. The fixture still needs a guarded cleanup and a fresh absence check."
+            openFixtures.isNotEmpty() -> "FIXTURE_CLEANUP_UNVERIFIED" to "An owned fixture has unverified final state or cleanup. Reconcile its retained mutation receipt before further writes."
             GitHubAuthorizedCatalog.required(tools, receipts) && catalog["complete"] != JsonPrimitive(true) -> "AUTHORIZED_CATALOG_INCOMPLETE" to "Authorized discovery is ${catalog.text("status").lowercase()}; ${catalog.text("blocker").ifBlank { "the retained version-bound continuation must complete before the denominator is final" }}."
             capabilities.any { it.text("status") in setOf("FAILED", "PREFLIGHT_REJECTED") } -> "RECORDED_OPERATION_BLOCKERS" to "Unresolved operation errors remain. The exact error codes, resources and receipt IDs identify the recovery prerequisites."
             pending.isNotEmpty() && !GitHubChecklistScope.exhaustive(task) -> "BOUNDED_INVENTORY_SAMPLE_REACHED" to "Representative inventory sampling ended with ${pending.size} retained continuations. Full repository inventory was not requested; this is separate from API capability acceptance."
@@ -48,7 +51,7 @@ internal object GitHubIntegrationReport {
                         "RECONCILE_CATALOG_SNAPSHOT"
                     }
                     "WAITING_FOR_APPROVAL" -> "RESOLVE_BOUND_APPROVAL"
-                    "FIXTURE_CLEANUP_UNVERIFIED" -> "RECONCILE_OWNED_FIXTURE"
+                    "FIXTURE_CLEANUP_UNVERIFIED" -> if (cleanupStoppedBeforeDispatch) "RECHECK_OWNED_FIXTURE_PREFLIGHT" else "RECONCILE_OWNED_FIXTURE"
                     "TOOL_BUDGET_EXHAUSTED", "VERIFICATION_RESERVE_REACHED" -> "REVIEW_REMAINING_SCOPE_AND_BUDGET"
                     "CAPABILITY_PREREQUISITES_MISSING" -> "RESOLVE_CAPABILITY_PREREQUISITE"
                     "ACCEPTANCE_COMPLETE" -> "NONE"

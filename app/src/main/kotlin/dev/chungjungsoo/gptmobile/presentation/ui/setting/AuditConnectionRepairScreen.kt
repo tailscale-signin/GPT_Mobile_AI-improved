@@ -147,10 +147,11 @@ internal fun AuditConnectionRepairContent(
     OutlinedButton(onClick = onEdit, enabled = !busy && !checking) { Text("Edit saved connection") }
     if (connection.type == ToolConnectionType.MCP) {
         Text("A fresh connection check uses bounded requests to negotiate the MCP protocol and read discovery metadata. It does not establish that individual tools work.", style = MaterialTheme.typography.bodySmall)
-        if (health?.errorCode in setOf("MCP_LOCAL_CREDENTIAL_MISSING", "MCP_LOCAL_CREDENTIAL_INVALID")) {
+        val credentialBlocked = health?.errorCode in setOf("MCP_LOCAL_CREDENTIAL_MISSING", "MCP_LOCAL_CREDENTIAL_INVALID")
+        if (credentialBlocked) {
             Text("Replace the saved credential or sign in again before requesting another check. The credential failure was local; it did not send an MCP request.", style = MaterialTheme.typography.bodySmall)
         }
-        Button(onClick = onCheck, enabled = !busy && !checking) { Text(if (checking) "Checking connection…" else "Reconnect and check again") }
+        Button(onClick = onCheck, enabled = !busy && !checking && !credentialBlocked) { Text(if (checking) "Checking connection…" else "Reconnect and check again") }
         if (connection.authType == ToolConnectionAuthType.OAUTH) {
             OutlinedButton(onClick = onSignIn, enabled = !busy && !checking) { Text("Sign in again") }
         }

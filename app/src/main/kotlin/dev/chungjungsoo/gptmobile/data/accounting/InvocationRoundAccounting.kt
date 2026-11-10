@@ -228,11 +228,14 @@ internal class InvocationRoundAccounting(
                 diagnosticFailure = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.fromProvider(event.message, event.errorCode, event.failureDetails)
                 diagnosticFailure = diagnosticFailure?.let { failure ->
                     val observedAcceptance = (responseParsing?.get("remote_acceptance") as? kotlinx.serialization.json.JsonPrimitive)?.content
+                    val provenUnsent = hasNoExecutionEvidence() && dispatch.provenEntirelyUnsent()
                     failure.copy(
-                        remoteAcceptance = if (failure.remoteAcceptance == dev.chungjungsoo.gptmobile.data.agent.RemoteRequestAcceptance.UNKNOWN) {
-                            dev.chungjungsoo.gptmobile.data.agent.RemoteRequestAcceptance.entries.firstOrNull { it.name == observedAcceptance } ?: failure.remoteAcceptance
-                        } else {
-                            failure.remoteAcceptance
+                        dispatched = if (provenUnsent) false else failure.dispatched,
+                        remoteAcceptance = when {
+                            provenUnsent -> dev.chungjungsoo.gptmobile.data.agent.RemoteRequestAcceptance.NO
+                            failure.remoteAcceptance == dev.chungjungsoo.gptmobile.data.agent.RemoteRequestAcceptance.UNKNOWN ->
+                                dev.chungjungsoo.gptmobile.data.agent.RemoteRequestAcceptance.entries.firstOrNull { it.name == observedAcceptance } ?: failure.remoteAcceptance
+                            else -> failure.remoteAcceptance
                         },
                         serverRequestId = failure.serverRequestId ?: serverRequestId
                     )
@@ -294,7 +297,7 @@ internal class InvocationRoundAccounting(
         }
         val unsent = dispatch.provenUnsentAttemptIds()
         unsent.forEach { combinedAccounting?.notDispatched(it) }
-        val entirelyUnsent = hasNoExecutionEvidence() && dispatch.provenEntirelyUnsent(unsent)
+        val entirelyUnsent = hasNoExecutionEvidence() && dispatch.provenEntirelyUnsent()
         if (entirelyUnsent) {
             input = 0
             output = 0

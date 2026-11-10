@@ -146,6 +146,7 @@ class GitHubWorkspaceClient(
     }
     suspend fun taskSnapshot(): GitHubTaskSnapshot? = repositorySession.snapshot()
     suspend fun taskContext(): GitHubRepositoryContext? = repositorySession.context()
+    internal fun transportRetryAfterMillis(): Long = scheduler.transportRetryAfterMillis()
     internal suspend fun prepareFixtureCreation(arguments: JsonObject) =
         ownedFixtures.prepareCreation("/repos/${segment(arguments.getValue("owner").jsonPrimitive.content)}/${segment(arguments.getValue("repo").jsonPrimitive.content)}", arguments)
     internal suspend fun retainFixtureCreation(arguments: JsonObject, receipt: JsonObject): JsonObject =

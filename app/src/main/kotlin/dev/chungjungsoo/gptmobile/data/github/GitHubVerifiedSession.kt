@@ -8,6 +8,7 @@ import dev.chungjungsoo.gptmobile.data.context.TextTokenEstimate
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.catch
@@ -53,6 +54,7 @@ internal class GitHubVerifiedSession(
     private var executionCorrectionAttempted = false
     private var correctionProgress: Set<String> = emptySet()
     private var progressCorrections = 0
+    private var transportWaited = false
     private class ProgressCheckpointFailure(cause: Exception, val originalFailure: ProviderEvent.Failed?) : Exception(cause)
 
     private fun failureCauses(error: Throwable): Sequence<Throwable> =
@@ -190,6 +192,33 @@ internal class GitHubVerifiedSession(
                 }
             }
             if (next != null) {
+                val retryAt = GitHubTransportRecovery.retryNotBefore(receipts.values)
+                val wait = retryAt?.minus(now())?.coerceAtLeast(0) ?: 0L
+                if (wait > 0 && next.name != "discover_available_tools" && "view_cursor" !in next.arguments) {
+                    if (transportWaited || wait > GitHubTransportRecovery.MAX_WAIT_MILLIS || (evidence.remainingTaskMillis()?.let { it <= wait } == true)) {
+                        emitAll(
+                            publish(
+                                null,
+                                originalFailure = ProviderEvent.Failed(
+                                    "GitHub transport is cooling down. Resume the saved task after the retry time.",
+                                    errorCode = "GITHUB_CIRCUIT_OPEN",
+                                    taskOutcome = "BLOCKED",
+                                    failureDetails = buildJsonObject {
+                                        put("failed_stage", "tool_continuation")
+                                        put("retry_after_ms", wait)
+                                        put("retry_not_before_ms", retryAt)
+                                        put("dispatched", false)
+                                    }
+                                )
+                            )
+                        )
+                        return@flow
+                    }
+                    transportWaited = true
+                    progress("Waiting for GitHub transport before resuming the saved check")
+                    delay(wait)
+                    validatePublication()
+                }
                 lifecycle(dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.CONTINUATION_SELECTED)
                 emit(next.copy(callId = next.callId + "-${receipts.size}"))
                 emit(ProviderEvent.Completed)
@@ -202,7 +231,7 @@ internal class GitHubVerifiedSession(
             val executionBlocker = when {
                 acceptanceComplete -> null
                 remainingToolCalls() == 0 -> "TOOL_BUDGET_EXHAUSTED"
-                tools.isEmpty() -> "REQUIRED_TOOL_CAPABILITY_UNAVAILABLE"
+                tools.isEmpty() && authorizedTools.isEmpty() -> "REQUIRED_TOOL_CAPABILITY_UNAVAILABLE"
                 else -> null
             }
             if (executionBlocker == null) {

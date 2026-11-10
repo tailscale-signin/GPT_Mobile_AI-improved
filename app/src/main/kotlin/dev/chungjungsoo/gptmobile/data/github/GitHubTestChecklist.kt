@@ -263,7 +263,13 @@ internal object GitHubTestChecklist {
         if (!acquisitionAllowed && cleanup != null) return cleanup
         // A deletion may already have happened. Reconcile its exact retained
         // intent before attempting reads whose resource may no longer exist.
-        if (cleanup?.arguments?.get("action") == JsonPrimitive("recovery") && cleanup.arguments["fixture_plan"] == JsonPrimitive(GitHubOwnedFixtures.PLAN)) return cleanup
+        if (cleanup?.callId?.startsWith("fixture-preflight-") == true ||
+            cleanup?.arguments?.get("action") == JsonPrimitive("recovery") &&
+            cleanup.arguments["fixture_plan"] == JsonPrimitive(GitHubOwnedFixtures.PLAN)
+        ) {
+            return cleanup
+        }
+        if (acquisitionAllowed) GitHubTransportRecovery.nextRead(tools, observations)?.let { return it }
         val retiredRead = GitHubSelfTestFixtures.retiredReadPredicate(receipts)
         if (GitHubIntegrationAcceptance.requiresBuildBinding(task) && GitHubIntegrationAcceptance.binding(observations)["verified"] != JsonPrimitive(true)) {
             val runtime = GitHubRuntimeIdentity.current()

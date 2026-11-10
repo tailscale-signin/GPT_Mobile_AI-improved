@@ -48,6 +48,8 @@ internal object GitHubVerificationRecovery {
                 "Check the observed resource, permissions and retention; a missing response does not prove deletion. Log sampling permits one different executed job."
             codes.any { it.contains("RATE_LIMIT") } ->
                 "Wait until the recorded retry deadline before an authorized read."
+            failures.any(GitHubTransportRecovery::retryable) ->
+                "Resume the exact operation after GitHub transport recovers. The saved receipt confirms no mutation was sent."
             codes.any { it in GitHubFailurePolicy.codes } -> codes.filter { it in GitHubFailurePolicy.codes }.sorted().joinToString(" ") { GitHubFailurePolicy.recoveryHint(it) }
             else -> "Inspect the retained error, exact resource and recorded dispatch stage; correct its cause before retrying. A failed read is not an uncertain write."
         }

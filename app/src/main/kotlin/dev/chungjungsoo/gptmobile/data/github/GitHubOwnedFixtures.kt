@@ -392,13 +392,25 @@ internal class GitHubOwnedFixtures(private val store: GitHubRepositoryStateStore
             parent = commit.text("sha")
         }
         require(parent == expected && currentHead() == expected) { "Fixture head changed or contains an unowned commit." }
-        store.update(scope, key(root, branch)) { current ->
+        val deletionIntent = store.update(scope, key(root, branch)) { current ->
             require(current == retained) { "Fixture state changed before cleanup; inspect the durable receipt." }
             JsonObject(current + mapOf("cleanup_started" to JsonPrimitive(true), "status" to JsonPrimitive("DELETE_PENDING"), "lifecycle_state" to JsonPrimitive("CLEANUP_PENDING"), "lifecycle_reason" to JsonPrimitive("DELETE_OUTCOME_REQUIRES_ABSENCE_VERIFICATION")))
         }
         // GitHub REST deletion has no atomic SHA lease. Recheck above, retain
         // the intent before dispatch, and never retry an uncertain deletion.
-        delete("$root/git/refs/heads/$encoded")
+        try {
+            delete("$root/git/refs/heads/$encoded")
+        } catch (failure: Exception) {
+            // These scheduler rejections prove this DELETE never entered its
+            // dispatch block. Everything else keeps the durable uncertainty fence.
+            if (failure is GitHubRequestCircuit.Open || failure is GitHubRequestScheduler.Capacity) {
+                store.update(scope, key(root, branch)) { current ->
+                    require(current == deletionIntent) { "Fixture deletion intent changed before recovery." }
+                    retained
+                }
+            }
+            throw failure
+        }
         val missing = absent()
         if (missing) return finishCleanup(root, branch, retained, reconciled = false)
         return cleanupReceipt(retained, absent = false, reconciled = false)

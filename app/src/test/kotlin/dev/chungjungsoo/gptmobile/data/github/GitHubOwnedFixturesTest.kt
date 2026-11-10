@@ -214,6 +214,21 @@ class GitHubOwnedFixturesTest {
         }
     }
 
+    @Test fun circuitRejectionBeforeDeleteReleasesOnlyTheUnsentIntent() = runBlocking {
+        val ledger = GitHubOwnedFixtures(GitHubRepositoryStateStore(), "account:connection:conversation:task")
+        val remote = Remote()
+        ledger.register(root, creation(), created())
+        val failure = runCatching {
+            ledger.cleanup(root, cleanup(origin), "main", remote::read, { throw GitHubRequestCircuit.Open(30_000) }) { null }
+        }.exceptionOrNull()
+        assertTrue(failure is GitHubRequestCircuit.Open)
+        assertEquals(origin, remote.head)
+        assertEquals(0, remote.deletes)
+        val result = remote.clean(ledger, origin)
+        assertEquals(JsonPrimitive(true), result["absence_verified"])
+        assertEquals(1, remote.deletes)
+    }
+
     private fun awaiting(intent: JsonObject) = buildJsonObject {
         put("engineering_task_id", "saved-approval")
         put("status", "AWAITING_APPROVAL")

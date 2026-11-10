@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { request } from 'node:http';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/sdk/types.js';
 import { AMAZON_TOOLS, createAmazonBridge } from './bridge.mjs';
 
 const entryPath = fileURLToPath(new URL('./fixtures/upstream.mjs', import.meta.url));
@@ -28,6 +29,16 @@ test('real HTTP and stdio transports discover all nine tools and forward argumen
   const bridge = await createAmazonBridge({ entryPath, token, port: 0 });
   let connection;
   try {
+    const discovery = await fetch(`http://127.0.0.1:${bridge.address.port}/mcp`, {
+      method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 'probe', method: 'server/discover', params: { _meta: { 'io.modelcontextprotocol/protocolVersion': '2026-07-28' } } })
+    });
+    assert.equal(discovery.status, 400);
+    assert.equal(discovery.headers.get('mcp-session-id'), null);
+    const response = await discovery.json();
+    assert.equal(response.id, 'probe');
+    assert.equal(response.error.code, -32022);
+    assert.deepEqual(response.error.data, { requested: '2026-07-28', supported: [LATEST_PROTOCOL_VERSION] });
     connection = await connect(bridge);
     const list = await connection.client.listTools();
     assert.deepEqual(list.tools.map(tool => tool.name), AMAZON_TOOLS);

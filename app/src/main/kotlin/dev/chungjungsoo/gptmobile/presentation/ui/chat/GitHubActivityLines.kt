@@ -39,7 +39,8 @@ private fun legacyActivitySummary(text: String): Boolean {
 internal data class GitHubResponsePresentation(val text: String, val timeline: List<AssistantTimelineItem>, val progressOnly: Boolean = false)
 
 /** Reuse retained public prose in the normal answer renderer, without certifying it as a final answer. */
-internal fun gitHubResponsePresentation(text: String, timeline: List<AssistantTimelineItem>): GitHubResponsePresentation {
+internal fun gitHubResponsePresentation(text: String, timeline: List<AssistantTimelineItem>, awaitingDelivery: Boolean = false): GitHubResponsePresentation {
+    if (awaitingDelivery) return GitHubResponsePresentation("", timeline.filterNot { it.type == AssistantTimelineItemType.TEXT })
     val unchanged = GitHubResponsePresentation(text, timeline)
     val summary = gitHubPublicSummary(timeline) ?: return unchanged
     fun generated(value: String): Boolean {

@@ -297,14 +297,19 @@ object StagedDiagnosticCapture {
         options.guard()
         options.onSessionReady(session)
         val receipts = mutableListOf<JsonObject>()
+        val stageElapsed = linkedMapOf<String, Long>()
+        val collectionStarted = System.nanoTime()
         // Reserve useful evidence by capturing every cheap section before history can exhaust the archive budget.
         val ordered = stages.sortedWith(compareBy<DiagnosticCaptureStage> { !it.critical }.thenBy { !it.lowMemorySafe })
         for (stage in ordered) {
             currentCoroutineContext().ensureActive()
             options.guard()
             val available = options.maxArchiveBytes - MANIFEST_LIMIT - receipts.sumOf { it.long("bytes") ?: 0 }
+            val stageStarted = System.nanoTime()
             receipts += captureStage(session, stage, options, available.coerceAtLeast(0), archivePart, previousArchive)
+            stageElapsed[stage.id] = (System.nanoTime() - stageStarted).coerceAtLeast(0)
         }
+        val collectionElapsed = (System.nanoTime() - collectionStarted).coerceAtLeast(0)
         val complete = receipts.all { it.text("status") in setOf("COMPLETED", "EMPTY") }
         val usefulRecords = receipts.sumOf { it.long("evidenceRecords") ?: 0 }
         val emptyCritical = receipts.any { it["critical"] == JsonPrimitive(true) && (it.long("evidenceRecords") ?: 0) == 0L }
@@ -317,6 +322,14 @@ object StagedDiagnosticCapture {
             put("sourceIdentityHash", identity)
             put("startedAtMillis", start)
             put("completedAtMillis", System.currentTimeMillis())
+            put(
+                "partCollectionTiming",
+                buildJsonObject {
+                    put("elapsedMillis", collectionElapsed / 1_000_000)
+                    put("coordinationMillis", (collectionElapsed - stageElapsed.values.sum()).coerceAtLeast(0) / 1_000_000)
+                    put("stageElapsedMillis", buildJsonObject { stageElapsed.forEach { (id, elapsed) -> put(id, elapsed / 1_000_000) } })
+                }
+            )
             put("captureCompleted", complete)
             put("archivePart", archivePart)
             put("previousArchive", previousArchive ?: JsonNull)

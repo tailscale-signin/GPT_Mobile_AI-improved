@@ -8,7 +8,8 @@ import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import { CallToolRequestSchema, ListToolsRequestSchema, isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
+import { CallToolRequestSchema, LATEST_PROTOCOL_VERSION, ListToolsRequestSchema, isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
+import { replyToLegacyDiscovery } from '../legacy-discovery.mjs';
 
 import { validateResearchSource } from './research-source.mjs';
 
@@ -113,6 +114,7 @@ export async function createResearchBridge({
         catch { return reply(res, 400, 'Invalid JSON.'); }
       }
       if (!record) {
+        if (replyToLegacyDiscovery(res, body, LATEST_PROTOCOL_VERSION)) return;
         if (req.method !== 'POST' || !isInitializeRequest(body)) return reply(res, 400, 'Initialize a session first.');
         if (sessions.size + pendingSessions >= maxSessions) return reply(res, 503, 'Session limit reached.');
         pendingSessions++;

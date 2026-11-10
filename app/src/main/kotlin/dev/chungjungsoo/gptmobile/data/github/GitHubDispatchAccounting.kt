@@ -159,6 +159,8 @@ internal class GitHubDispatchAccounting(
 
     @Synchronized fun cancelled() = recordTerminal("CANCELLED")
 
+    @Synchronized fun mutationMayHaveTakenEffect(): Boolean = accepted > 0 || unknown > 0
+
     private fun recordTerminal(phase: String) {
         if (terminalRecorded) return
         terminalRecorded = true
@@ -218,6 +220,7 @@ internal class GitHubDispatchAccounting(
                 put("requires_reconciliation", uncertain || result.isError && accepted > 0)
                 lastStatus?.let { put("http_status", it) }
                 result.errorCode?.let { put("error_code", it) }
+                result.executionReceipt?.get("retry_not_before_ms")?.let { put("retry_not_before_ms", it) }
             }
         )
     }

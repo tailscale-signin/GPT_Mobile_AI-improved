@@ -143,6 +143,17 @@ class GitHubActivityLinesTest {
         assertTrue(primary.progressOnly)
     }
 
+    @Test fun activeDraftIsHiddenWhilePublicSummariesAndPreviewsRemainAvailable() {
+        val summary = line("The branch is resolved. I will check the results.").copy(modelAuthored = true)
+        val preview = line("Reading workflow runs")
+        val answer = AssistantTimelineItem(AssistantTimelineItemType.TEXT, "Retained result")
+        val timeline = listOf(summary, preview, answer)
+        val active = gitHubResponsePresentation(answer.content, timeline, awaitingDelivery = true)
+        assertEquals("", active.text)
+        assertEquals(listOf(summary, preview), active.timeline)
+        assertEquals(answer.content, gitHubResponsePresentation(answer.content, timeline).text)
+    }
+
     @Test fun substantiveAnswerKeepsPriorityAndGenericOnlyHistoryCannotInventOne() {
         val public = line("I will inspect the workflow next.").copy(modelAuthored = true)
         val report = "## Results\n\nNo failed runs were observed in the returned set."

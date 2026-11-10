@@ -488,7 +488,7 @@ fun ToolConnectionsScreen(
                             )
                         }
                         Text("Open Voice Chat beside New Chat and choose an AI profile. Microphone, speaker and interruption controls are available during the conversation.")
-                        Text("Microphone access is requested when you open a voice session. Audio stops when you leave the screen or background the app. Android speech services may use the network.")
+                        Text("Choose on-phone Moonshine recognition in Voice settings and download the English speech model once. Android speech remains an explicit option. Audio stops when you leave the screen or background the app; your selected AI profile processes the transcript.")
                     }
                 },
                 confirmButton = { TextButton(onClick = { pluginSettings = null }) { Text("Close") } }

@@ -9,13 +9,13 @@ data class AppAuditSourceArea(val id: String, val label: String, val fileCount: 
 object AppAuditSourceInventory {
     val schemaVersion: Int = 1
     val assetPath: String = "diagnostics/app-code-inventory.json"
-    val sourceDigest: String = "0ad0202c957694b058070b40e9aeeb8f0b518f67286cb97003514527e420a51a"
-    val fileCount: Int = 2398
-    val lineCount: Int = 373073
+    val sourceDigest: String = "a46556e7948c7b9cdb537ae30e2b7915f677e11f9de5f905fd7c3f41e3d5be6d"
+    val fileCount: Int = 2405
+    val lineCount: Int = 374167
     val lineCoverageAvailable: Boolean = false
     val areas: List<AppAuditSourceArea> = listOf(
         AppAuditSourceArea("android_shell", "Android application and lifecycle", 71, 7869),
-        AppAuditSourceArea("chat_ui", "Chat, rendering and interaction", 509, 89190),
+        AppAuditSourceArea("chat_ui", "Chat, rendering and interaction", 510, 89397),
         AppAuditSourceArea("accessibility_and_localization", "Accessibility, themes and UI resources", 197, 9141),
         AppAuditSourceArea("agent_execution", "Agent execution and recovery", 209, 34071),
         AppAuditSourceArea("agent_tools", "Built-in tool routing and execution", 99, 21349),
@@ -33,7 +33,7 @@ object AppAuditSourceInventory {
         AppAuditSourceArea("diagnostics_and_export", "Diagnostics, statistics and sharing", 70, 7849),
         AppAuditSourceArea("benchmark", "Benchmarks and app audit", 109, 15857),
         AppAuditSourceArea("auth_and_security", "Permissions, privacy and credentials", 20, 1938),
-        AppAuditSourceArea("voice_and_media", "Voice and media", 7, 1294),
+        AppAuditSourceArea("voice_and_media", "Voice and media", 13, 2181),
         AppAuditSourceArea("portable_domain", "Portable domain contracts", 2, 68),
         AppAuditSourceArea("native_bridge", "Native runtime bridge and policies", 39, 4075),
         AppAuditSourceArea("gateway_software", "Companion gateway software", 105, 60958),

@@ -1,0 +1,95 @@
+{
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_sha": "7db0c735f9e86eaece24513fbaf5c0a624f13822",
+  "starting_head": "0116890e7e411c544babb4afd6c6d67ff35c3f1b",
+  "working_branch": "fix/audit-execution-recovery-2026-11-09",
+  "research_date_toronto": "2026-11-09",
+  "host_voice": {
+    "passed": 101,
+    "failed": 0,
+    "test_classes": 13,
+    "production_files_compiled": 13,
+    "compiler_warnings": 0,
+    "source_hashes": "all-voice-tested-sources.json",
+    "receipt": "all-voice-validation-receipt.json",
+    "log": "all-voice-tests.log",
+    "scope": "JVM + Robolectric; real Android and Moonshine Java API artifacts; injected native decoder and microphone capture; AppLogRecorder no-op boundary"
+  },
+  "canonical_fast_gate": {
+    "command": "bash scripts/validate-local.sh fast",
+    "exit_code": 0,
+    "python_tests_passed": 446,
+    "regex_literal_patterns": 1434,
+    "regex_dynamic_patterns_skipped": 73,
+    "resource_xml_files": 34,
+    "scope": "Host repository policy, contracts, dependency catalog, schemas, secret scan, Python tests, Android regex, resources and diff whitespace",
+    "log": "combined-fast.log",
+    "execution": "Rerun successfully after incorporating publication parent"
+  },
+  "formatting": {
+    "ktlint_version": "1.3.1",
+    "changed_kotlin_files": 23,
+    "result": "passed"
+  },
+  "audit_inventory": {
+    "generator": "scripts/generate_app_audit_inventory.py",
+    "source_files": 2405,
+    "areas": 26,
+    "result": "regenerated and checked"
+  },
+  "moonshine": {
+    "coordinate": "ai.moonshine:moonshine-voice:0.1.5",
+    "source_commit": "234f60faa0eb388b01cdf7e60aca232af37aefda",
+    "aar_bytes": 24321396,
+    "aar_sha256": "ee2d95c21150683c743db8f3aef66281fd5408bcefc94be3ca1d2545ada1f571",
+    "pom_sha256": "7d3139c1bf92df6892bbb4e393d50712863179c3df04d4c2978fd485d45154e4",
+    "module_sha256": "7346e15215a5def7763c665b1679c8888fc1e781eac122f7d5df6010a60ce184",
+    "verification": "Compared downloaded artifacts with Maven Central publisher SHA-256 files and module metadata; pinned strict Gradle verification"
+  },
+  "native_elf": {
+    "checker": "scripts.check_play_bundle.check_library",
+    "abis": [
+      "arm64-v8a",
+      "x86_64"
+    ],
+    "libraries_per_abi": [
+      "libmoonshine-jni.so",
+      "libmoonshine.so",
+      "libonnxruntime.so"
+    ],
+    "checks_passed": 6,
+    "scope": "16 KiB ELF PT_LOAD alignment of dependency AAR libraries; not final APK packaging, loading or native inference"
+  },
+  "added_instrumentation": {
+    "class": "dev.chungjungsoo.gptmobile.presentation.ui.voice.LocalVoicePluginInstrumentedTest",
+    "methods": [
+      "packagedNativeSpeechRuntimeMatchesItsJavaApi",
+      "modelInstallRequiresExplicitAction",
+      "downloadCancellationAndModelRemovalHaveSeparateActions"
+    ],
+    "acceptance_script": "scripts/run_release0950_acceptance.sh",
+    "emulator_apis": [
+      34,
+      36
+    ],
+    "execution": "Not executed locally; exact-head CI required"
+  },
+  "android_build": {
+    "local_status": "unavailable",
+    "reason": "Gradle 9.8.0 wrapper download failed with java.net.SocketException: Network is unreachable; Android SDK 37 unavailable in the local environment",
+    "ci_status": "Not yet observed for this implementation"
+  },
+  "physical_device": {
+    "status": "not measured",
+    "remaining": [
+      "native model inference and accuracy",
+      "airplane-mode recognition after explicit model setup",
+      "30-turn conversation and microphone interruption/lifecycle scenarios",
+      "Bluetooth input changes",
+      "latency, memory, thermal and battery behavior with selected local LLM",
+      "ASUS ROG Phone 9 Pro qualification"
+    ]
+  },
+  "publication_parent": "e2b20da51e00e18f11cdb117847819bd98c9e409",
+  "reconciliation": "Preserved concurrent Gateway 16 update. Only the two generated audit inventory files conflicted; regenerated from the combined source tree. All 26 focused voice source/test hashes remain unchanged."
+}

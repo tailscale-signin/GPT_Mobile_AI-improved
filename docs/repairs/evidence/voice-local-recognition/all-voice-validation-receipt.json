@@ -1,0 +1,10 @@
+{
+  "production_files": 13,
+  "test_classes": 13,
+  "tests_passed": 101,
+  "tests_failed": 0,
+  "compilation_warnings": 0,
+  "changed_since_compile_snapshot": [],
+  "file_set_changes": [],
+  "scope": "JVM + Robolectric; native decoder and capture injected; AppLogRecorder no-op boundary"
+}

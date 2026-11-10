@@ -86,6 +86,16 @@
 -keep class io.objectbox.query.ObjectWithScore { *; }
 -keep class io.objectbox.query.IdWithScore { *; }
 
+# Moonshine 0.1.5 has no consumer rules. Its JNI bridge looks up transcript,
+# option and timing classes, constructors and fields by name. Native methods
+# alone do not retain these Java-only entry points in a minified release.
+-keep,includedescriptorclasses class ai.moonshine.voice.JNI { *; }
+-keep class ai.moonshine.voice.Transcript { *; }
+-keep class ai.moonshine.voice.TranscriptLine { *; }
+-keep class ai.moonshine.voice.TranscriberOption { *; }
+-keep class ai.moonshine.voice.SpeakerSpan { *; }
+-keep class ai.moonshine.voice.WordTiming { *; }
+
 # -------------------------------------------------------------
 # Hilt / Dagger & WorkManager
 # -------------------------------------------------------------

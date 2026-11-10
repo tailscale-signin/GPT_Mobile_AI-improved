@@ -459,6 +459,9 @@ tasks.register<JacocoReport>("jacocoTestReport") {
 }
 
 dependencies {
+    // Embedded recognition only; model downloads and microphone ownership are app-controlled.
+    // The existing app supplies AndroidX/OkHttp. Do not select the SDK's older transitive stack.
+    implementation(libs.moonshine.voice) { isTransitive = false }
     implementation(libs.androidx.window)
     // Local memory only: no model provider, hosted vector store or remote embedding SDK.
     implementation(libs.langchain4j.memory) {

@@ -159,5 +159,11 @@
     "validation_receipt": "docs/repairs/evidence/audit-execution-recovery-2026-11-09/coverage-size-validation.json",
     "canonical_fast_tests": 443,
     "collector_tests": 26
+  },
+  "selected_host_layout_followup": {
+    "parent_head": "fcfdc0bb193f02f25b821c87be0aa69d821a5215",
+    "status": "HOST_VALIDATED_NATIVE_RENDER_PENDING",
+    "intent": "Preserve selected gateway name visibility when the new recovery hint wraps on a narrow screen at large font scale.",
+    "validation_receipt": "docs/repairs/evidence/audit-execution-recovery-2026-11-09/selected-host-header-validation.json"
   }
 }

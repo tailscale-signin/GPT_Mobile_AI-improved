@@ -1,0 +1,60 @@
+{
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "7db0c735f9e86eaece24513fbaf5c0a624f13822",
+  "working_branch": "fix/audit-execution-recovery-2026-11-09",
+  "parent_head": "fcfdc0bb193f02f25b821c87be0aa69d821a5215",
+  "intent": "Keep selected gateway name visible above long recovery status at phone width and large font.",
+  "checked_at_utc": "2026-11-10T02:41:31.954190+00:00",
+  "sources": {
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/GatewayConversationsScreen.kt": "5124a37d327bafd2b5a2030a97881a630ae5addef82da6ab8b6b81d0390b9a42",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/GatewayProfileAvailabilityTest.kt": "133e0e24e91e78b6c73158d0e477e825e52e3c005d4ceb01f71f186d9fd375ca"
+  },
+  "checks": {
+    "format.log": {
+      "command": [
+        "java",
+        "-jar",
+        "/workspace/scratch/b236adcc0a61/validation/ktlint",
+        "--format",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/GatewayConversationsScreen.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/GatewayProfileAvailabilityTest.kt"
+      ],
+      "exit_code": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "ktlint.log": {
+      "command": [
+        "java",
+        "-jar",
+        "/workspace/scratch/b236adcc0a61/validation/ktlint",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/GatewayConversationsScreen.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/GatewayProfileAvailabilityTest.kt"
+      ],
+      "exit_code": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "diff-check.log": {
+      "command": [
+        "git",
+        "diff",
+        "--check",
+        "--",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/GatewayConversationsScreen.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/GatewayProfileAvailabilityTest.kt"
+      ],
+      "exit_code": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  "android_runtime": "NOT_RUN_LOCALLY: no Android SDK in workspace. Native layout/semantics and PNG rendering regression awaits fresh CI.",
+  "regression": "Actual GatewaySelectedConnectionHeader, width 320dp, font scale 2; full name and recovery text visible and multiline without overflow, name above status, full native PNG capture.",
+  "expected_render_artifact": "app/build/reports/reliability-ui/gateway-selected-host-dark-large.png",
+  "canonical_fast": {
+    "result": "PASS",
+    "tests": 444,
+    "log": "docs/repairs/evidence/audit-execution-recovery-2026-11-09/selected-host-header-fast.log",
+    "sha256": "174d601733204f831af206bf4523171aa0b67471f9381f0f74925e2c3248ef24"
+  },
+  "integration_review": "Selected host name and recovery/status use separate vertical space; host routing and actions are unchanged. Full Android/native rendering remains pending."
+}

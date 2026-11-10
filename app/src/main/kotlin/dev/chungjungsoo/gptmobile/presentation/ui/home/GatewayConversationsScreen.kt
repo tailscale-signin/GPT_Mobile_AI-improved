@@ -55,6 +55,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
 import dev.chungjungsoo.gptmobile.data.github.GatewayConversationAttachment
 import dev.chungjungsoo.gptmobile.data.github.GatewayConversationSnapshot
 import dev.chungjungsoo.gptmobile.data.github.gatewayIdentityKey
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAvailability
 import dev.chungjungsoo.gptmobile.data.queue.GatewayQueuedChatState
 import dev.chungjungsoo.gptmobile.data.queue.GatewayQueuedState
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
@@ -152,10 +153,7 @@ internal fun GatewayConversationsScreen(
                         }
                         Text(stringResource(R.string.gateway_home_queue_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         selected?.let { connection ->
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Text(connection.name, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                                GatewayProfileStatus(connection.availability)
-                            }
+                            GatewaySelectedConnectionHeader(connection.name, connection.availability)
                         }
                         if (connections.size > 1) {
                             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -302,6 +300,15 @@ internal fun GatewayConversationsScreen(
         }
     }
     state.transcriptKey?.let { GatewayTranscriptDialog(it, onDismiss = viewModel::dismissTranscript) }
+}
+
+/** Keep the selected host readable when a recovery paragraph needs the full phone width. */
+@Composable
+internal fun GatewaySelectedConnectionHeader(name: String, availability: GatewayAvailability, modifier: Modifier = Modifier) {
+    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(name, style = MaterialTheme.typography.labelLarge, modifier = Modifier.fillMaxWidth().testTag("gateway_selected_connection_name"))
+        GatewayProfileStatus(availability, Modifier.fillMaxWidth().testTag("gateway_selected_connection_status"))
+    }
 }
 
 @Composable

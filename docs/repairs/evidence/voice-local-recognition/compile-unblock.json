@@ -1,0 +1,28 @@
+{
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "parent": "4d304efe52bcc67c0f17d7c89cc52e1fbe363f25",
+  "voice_commit": "1917f420324ee6cc70a90e7939d03a85583c555e",
+  "failure_run": 42756693550,
+  "failure_jobs": [
+    129632791024,
+    129632791126
+  ],
+  "failure_stage": "compileDebugKotlin",
+  "observed_errors": [
+    "2026-11-10T04:41:00.4621082Z e: file:///home/runner/work/GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubWorkspaceScreen.kt:515:45 No parameter with name 'bottomInteractionContent' found.",
+    "2026-11-10T04:41:00.4633326Z e: file:///home/runner/work/GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubWorkspaceScreen.kt:516:102 @Composable invocations can only happen from the context of a @Composable function",
+    "2026-11-10T04:41:00.4643362Z e: file:///home/runner/work/GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubWorkspaceScreen.kt:518:90 Only safe (?.) or non-null asserted (!!.) calls are allowed on a nullable receiver of type 'GitHubConversationContext?'.",
+    "2026-11-10T04:41:00.4667935Z > Task :app:compileDebugKotlin FAILED",
+    "2026-11-10T04:41:00.5627206Z Execution failed for task ':app:compileDebugKotlin' (registered by plugin 'com.android.internal.application').",
+    "2026-11-10T04:41:00.5630323Z          Location: /home/runner/work/GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubWorkspaceScreen.kt:515",
+    "2026-11-10T04:41:00.5636146Z BUILD FAILED in 1m 17s"
+  ],
+  "cause": "The concurrent Gateway16 change duplicated the Chat-only composable slot argument onto the workflow execution panel, which has no such parameter.",
+  "repair": "Remove only the unsupported duplicate task-details argument. Preserve the real Chat tab inline approval card and the workflow panel approvalPending recovery gate.",
+  "validation": {
+    "review": "Independent read-only inspection confirmed intended Chat-only placement and the nullable context guard in the valid caller.",
+    "formatting": "Changed GitHubWorkspaceScreen.kt passes ktlint1.3.1.",
+    "canonical_fast_gate": "446 tests passed; see compile-unblock-fast.log.",
+    "voice_sources": "All 26 voice source/test hashes remain unchanged; no voice source changes in this follow-up."
+  }
+}

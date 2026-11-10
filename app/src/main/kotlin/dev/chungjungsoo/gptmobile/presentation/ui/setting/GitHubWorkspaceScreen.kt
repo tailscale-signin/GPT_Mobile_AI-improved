@@ -511,14 +511,7 @@ fun GitHubWorkspaceScreen(
                                                 exportChatId = visibleProgrammer.chatId
                                                 tab = 3
                                             },
-                                            approvalPending = savedEngineeringTasks.any { it.taskId == pendingCommit && it.state == "AWAITING_APPROVAL" },
-                                            bottomInteractionContent = {
-                                                dev.chungjungsoo.gptmobile.presentation.ui.workspace.GitHubChatApprovalCard(commitReview) { sha ->
-                                                    val publishedBranch = commitReview.review.value?.branch
-                                                    if (publishedBranch == commandContext.ref) viewModel.acceptPublishedCommit(sha)
-                                                    commitReview.refreshEngineeringTasks()
-                                                }
-                                            }
+                                            approvalPending = savedEngineeringTasks.any { it.taskId == pendingCommit && it.state == "AWAITING_APPROVAL" }
                                         )
                                         visibleProgrammer.chatId?.let { GitHubChatChecks(it, expanded = true) }
                                     }

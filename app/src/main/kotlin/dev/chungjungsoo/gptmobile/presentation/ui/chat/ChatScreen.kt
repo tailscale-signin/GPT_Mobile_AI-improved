@@ -446,7 +446,10 @@ private fun ChatScreenContent(
     }
     LaunchedEffect(chatRoom.id, chatToolConfig.github != null) { if (chatToolConfig.github != null) chatViewModel.loadGitHubDecisions() }
     val githubDecisionScope = chatToolConfig.github?.let(dev.chungjungsoo.gptmobile.data.github.GitHubChatDecisions::workspaceKey)
-    val visibleGitHubDecisions = githubDecisions.filter { it.chatId == chatRoom.id && it.workspace == githubDecisionScope && !it.delivered }
+    val scopedGitHubDecisions = remember(githubDecisions, chatRoom.id, githubDecisionScope) { githubDecisions.filter { it.chatId == chatRoom.id && it.workspace == githubDecisionScope } }
+    val visibleGitHubDecisions = remember(scopedGitHubDecisions) { scopedGitHubDecisions.filterNot { it.delivered } }
+    val nativeDecisions = LocalGitHubNativeDecisions.current
+    val turnDecisions = rememberGitHubTurnDecisions(scopedGitHubDecisions, nativeDecisions, groupedMessages.userMessages, pendingPrompts)
     val showResearchPanels = researchPanelsVisible(allowResearchPanels, chatToolConfig)
     val downloadedLocalModels by chatViewModel.downloadedLocalModels.collectAsStateWithLifecycle()
     val debugMode by chatViewModel.debugMode.collectAsStateWithLifecycle()
@@ -1000,6 +1003,7 @@ private fun ChatScreenContent(
                         onContinueClick = { chatViewModel.sendContinueResponse() },
                         onActionClick = { prompt -> chatViewModel.sendPromptResponse(prompt) }
                     )
+                    GitHubTurnDecisions(turnDecisions[message.id].orEmpty())
                     val researchExecution = researchExecutions.values.lastOrNull { it.accepted.chatId == chatRoom.id && it.accepted.originatingUserMessageId == message.id && it.accepted.targetSources > 0 }
                     researchExecution?.takeIf { showResearchPanels }?.let { execution ->
                         ResearchAttemptProgressCard(
@@ -1099,7 +1103,9 @@ private fun ChatScreenContent(
                     githubWorkingIndicator(isGenerating = activeMessage != null)
                 }
                 items(pendingPrompts.size, key = { "queued-${pendingPrompts[it].id}" }) { index ->
-                    QueuedPromptBubble(pendingPrompts[index], chatViewModel::editQueuedPrompt, chatViewModel::removeQueuedPrompt, chatViewModel::pauseQueuedPrompt, followUpProgress[pendingPrompts[index].id])
+                    val prompt = pendingPrompts[index]
+                    val receipt = if (chatToolConfig.github != null) gitHubCommitDecisionBubble(prompt.text, nativeDecisions) else null
+                    QueuedPromptBubble(prompt, chatViewModel::editQueuedPrompt, chatViewModel::removeQueuedPrompt, chatViewModel::pauseQueuedPrompt, followUpProgress[prompt.id], receipt)
                 }
                 if (chatToolConfig.github != null) {
                     item(key = "gateway-merge-interactions") { GatewayMergeInteractions(chatRoom.id) }
@@ -1110,27 +1116,29 @@ private fun ChatScreenContent(
                     }
                     items(approvals.size, key = { "tool-approval-${approvals[it].id}" }) { index ->
                         val approval = approvals[index]
-                        ToolApprovalDialog(
-                            approval = approval,
-                            onDeny = { chatViewModel.decideToolApproval(approval.id, false) },
-                            onAllowOnce = { chatViewModel.decideToolApproval(approval.id, true) },
-                            onAllowInConversation = { chatViewModel.allowToolInConversation(approval.id) },
-                            onAlwaysAllowTool = { chatViewModel.alwaysAllowTool(approval.id) },
-                            onAlwaysAllowProvider = { chatViewModel.alwaysAllowToolProvider(approval.id) },
-                            inline = true
-                        )
+                        GitHubPendingPrompt {
+                            ToolApprovalDialog(
+                                approval = approval,
+                                onDeny = { chatViewModel.decideToolApproval(approval.id, false) },
+                                onAllowOnce = { chatViewModel.decideToolApproval(approval.id, true) },
+                                onAllowInConversation = { chatViewModel.allowToolInConversation(approval.id) },
+                                onAlwaysAllowTool = { chatViewModel.alwaysAllowTool(approval.id) },
+                                onAlwaysAllowProvider = { chatViewModel.alwaysAllowToolProvider(approval.id) },
+                                inline = true
+                            )
+                        }
                     }
                     items(inputRequests.size, key = { "mcp-input-${inputRequests[it].id}" }) { index ->
-                        McpInputDialog(inputRequests[index], inline = true, respond = chatViewModel::respondMcpInput)
+                        GitHubPendingPrompt { McpInputDialog(inputRequests[index], inline = true, respond = chatViewModel::respondMcpInput) }
                     }
                     delegationRecoveryRequests.filter { it.chatId == chatRoom.id }.forEach { request ->
                         item(key = "delegation-recovery-${request.id}") {
-                            DelegationRecoveryDialog(request, { profileUid -> chatViewModel.respondDelegationRecovery(request.id, profileUid) }, { chatViewModel.respondDelegationRecovery(request.id, null) }, inline = true)
+                            GitHubPendingPrompt { DelegationRecoveryDialog(request, { profileUid -> chatViewModel.respondDelegationRecovery(request.id, profileUid) }, { chatViewModel.respondDelegationRecovery(request.id, null) }, inline = true) }
                         }
                     }
                     freeToolConsent?.let { request ->
                         item(key = "personal-tool-consent") {
-                            FreeToolConsentDialog(request, chatViewModel::confirmFreeToolConsent, chatViewModel::dismissFreeToolConsent, inline = true)
+                            GitHubPendingPrompt { FreeToolConsentDialog(request, chatViewModel::confirmFreeToolConsent, chatViewModel::dismissFreeToolConsent, inline = true) }
                         }
                     }
                 }
@@ -1719,9 +1727,13 @@ internal fun ChatMessagePair(
     val gatewayAdmission = gatewayAdmissionPresentation(responseFailureRecord)
     val repairGatewayProfile = debugSettings.githubProfileOverrides[selectedPlatformUid]?.engineeringGatewayProfileUid
         ?.let(enabledPlatformLookup::get)
-    val approvalRetryBlock = gitHubApprovalRetryBlock(responseFailure, LocalGitHubApprovalPending.current)
+    val nativeDecisions = LocalGitHubNativeDecisions.current
+    val approvalCardOrReceipt = LocalGitHubApprovalPending.current || nativeDecisions.any { it.sourceMessageId == message.id }
+    val approvalRetryBlock = gitHubApprovalRetryBlock(responseFailure, approvalCardOrReceipt)
     val reviewRetryBlock = approvalRetryBlock ?: dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.reviewRetryBlock(responseFailure)
     val responseRecoveryKind = responseFailure?.let { profileRecoveryKind(dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.classify(it).category, it) } ?: ProfileRecoveryKind.NONE
+    val gitHubChat = githubTask != null || currentResearchTools().github != null
+    val commitDecision = remember(gitHubChat, message.content, nativeDecisions) { if (gitHubChat) gitHubCommitDecisionBubble(message.content, nativeDecisions) else null }
     StableChatResponseViewport(contentKey = if (isCombinedConversation) "combined" else selectedPlatformUid, reservedHeight = reservedTurnHeight) {
         Column(
             modifier = Modifier
@@ -1734,16 +1746,20 @@ internal fun ChatMessagePair(
             horizontalAlignment = Alignment.End
         ) {
             Box {
-                UserChatBubble(
-                    modifier = Modifier.widthIn(max = maximumUserChatBubbleWidth),
-                    text = message.content,
-                    timestamp = (message.createdAt * 1000L).takeIf { debugSettings.messageTimestamps },
-                    files = message.attachments.map { it.filePathForDisplay },
-                    canEdit = canUseChat && isIdle,
-                    onCopyClick = { onCopyText(message.content) },
-                    onSelectClick = { onSelectText(message.content) },
-                    onEditClick = { onEditQuestion(message) }
-                )
+                if (commitDecision != null) {
+                    GitHubDecisionBubble(commitDecision, Modifier.widthIn(max = maximumUserChatBubbleWidth))
+                } else {
+                    UserChatBubble(
+                        modifier = Modifier.widthIn(max = maximumUserChatBubbleWidth),
+                        text = message.content,
+                        timestamp = (message.createdAt * 1000L).takeIf { debugSettings.messageTimestamps },
+                        files = message.attachments.map { it.filePathForDisplay },
+                        canEdit = canUseChat && isIdle,
+                        onCopyClick = { onCopyText(message.content) },
+                        onSelectClick = { onSelectText(message.content) },
+                        onEditClick = { onEditQuestion(message) }
+                    )
+                }
             }
         }
 
@@ -1966,13 +1982,11 @@ internal fun ChatMessagePair(
                     onContinueClick = onContinueClick.takeIf { smartSuggestionsEnabled && !isSourceResponse },
                     onActionClick = onActionClick.takeIf { smartSuggestionsEnabled && !isSourceResponse }
                 )
-                responseFailure?.let { error ->
+                responseFailure?.takeUnless { approvalRetryBlock != null }?.let { error ->
                     Column(Modifier.fillMaxWidth().padding(12.dp)) {
                         Text(
                             if (gatewayAdmission != null) {
                                 gatewayAdmission.title
-                            } else if (approvalRetryBlock != null) {
-                                "Approval required"
                             } else if (agentRun?.status == AgentRunStatus.PARTIAL) {
                                 "Work remaining"
                             } else if (agentRun?.status == AgentRunStatus.EVIDENCE_MISSING) {

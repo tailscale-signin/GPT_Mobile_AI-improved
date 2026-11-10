@@ -16,6 +16,8 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionAuthType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
 import dev.chungjungsoo.gptmobile.data.github.GitHubChatPolicy
 import dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext
+import dev.chungjungsoo.gptmobile.data.github.GitHubDecisionMode
+import dev.chungjungsoo.gptmobile.data.github.githubDecisionMode
 import dev.chungjungsoo.gptmobile.data.memory.MemoryGraphRepository
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
@@ -213,7 +215,8 @@ class AgentToolResolver @Inject constructor(
                     val selected = live.conversationGitHub[userMessage.chatId]
                     current?.enabled == true && !current.disableAllTools && !current.disableLocalTools && selected?.sameWorkspace(decisionWorkspace) == true
                 },
-                offered = { gitHubDecisionNotifications?.offered(it) }
+                offered = { gitHubDecisionNotifications?.offered(it) },
+                useSuggestion = { settingRepository.getFeatureSettings().githubDecisionMode(userMessage.chatId, decisionWorkspace) != GitHubDecisionMode.ASK }
             )
             resolved += ResolvedAgentTool(tool, null, "GitHub decisions", tool.definition.name, tool.definition.name)
         }

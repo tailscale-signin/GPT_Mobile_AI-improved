@@ -222,8 +222,21 @@ class GitHubCheckWatchRepository @Inject constructor(
         )
     }
 
+    internal suspend fun disable(connectionUid: String, profileUid: String, chatId: Int, args: JsonObject) = withContext(Dispatchers.IO) {
+        val target = prepareWatch(connectionUid, profileUid, chatId, args, background = true)
+        mutex.withLock {
+            val saved = workspace.dao.get(target.id)?.let(::decode)
+            require(saved == null || saved.headSha == target.headSha) { "The watch has moved to a different revision. Refresh the tile." }
+            cancelLocked(target.id, saved ?: target)
+        }
+    }
+
     internal suspend fun cancel(id: String) = mutex.withLock {
-        workspace.dao.get(id)?.let(::decode)?.let {
+        cancelLocked(id, workspace.dao.get(id)?.let(::decode))
+    }
+
+    private suspend fun cancelLocked(id: String, watch: GitHubCheckWatch?) {
+        watch?.let {
             val cancelled = it.copy(status = "CANCELLED", detail = "Watching stopped.", updatedAt = System.currentTimeMillis())
             save(cancelled)
             GitHubWatchDiagnostics.record(cancelled, "CANCELLED", GitHubWatchTrigger.USER_CANCEL)

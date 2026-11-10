@@ -16,6 +16,20 @@ import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.jsonObject
 
 @Serializable
+enum class GitHubDecisionMode { ASK, SUGGESTED, AUTO_APPROVE }
+
+@Serializable
+data class GitHubDecisionPreference(val conversationIdentity: String, val workspace: String, val mode: GitHubDecisionMode)
+
+internal fun dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings.githubDecisionMode(chatId: Int, context: GitHubConversationContext): GitHubDecisionMode =
+    githubDecisionPreferences[chatId]?.takeIf {
+        it.conversationIdentity.isNotBlank() &&
+            it.conversationIdentity == conversationIdentities[chatId] &&
+            it.workspace == GitHubChatDecisions.workspaceKey(context) &&
+            conversationGitHub[chatId]?.sameWorkspace(context) == true
+    }?.mode ?: GitHubDecisionMode.ASK
+
+@Serializable
 data class GitHubDecisionOption(val label: String, val detail: String = "")
 
 @Serializable
@@ -32,7 +46,8 @@ data class GitHubChatDecision(
     val persistent: Boolean = false,
     val answer: String? = null,
     val delivered: Boolean = false,
-    val cancelled: Boolean = false
+    val cancelled: Boolean = false,
+    val automatic: Boolean = false
 ) {
     init {
         require(chatId > 0 && sourceMessageId > 0 && profileUid.isNotBlank() && workspace.isNotBlank())
@@ -73,13 +88,16 @@ class GitHubChatDecisions @Inject constructor(private val store: GitHubRepositor
         mutable.value = items
     }
 
-    suspend fun request(proposal: GitHubChatDecision, offered: suspend (GitHubChatDecision) -> Unit = {}): GitHubChatDecision {
+    suspend fun request(proposal: GitHubChatDecision, useSuggestion: Boolean = false, offered: suspend (GitHubChatDecision) -> Unit = {}): GitHubChatDecision {
         var created = false
         val current = mutex.withLock {
             loadLocked()
             val existing = mutable.value.firstOrNull { it.id == proposal.id }
-            require(existing == null || existing.copy(answer = null, delivered = false, cancelled = false, persistent = proposal.persistent) == proposal) { "Decision identity changed." }
-            val decision = existing ?: proposal.also {
+            require(existing == null || existing.copy(answer = null, delivered = false, cancelled = false, automatic = false, persistent = proposal.persistent) == proposal) { "Decision identity changed." }
+            val decision = existing ?: proposal.let {
+                val label = if (useSuggestion) it.recommended?.let(it.options::get)?.label else null
+                if (label == null) it else it.copy(answer = label, automatic = true)
+            }.also {
                 check(mutable.value.count { !it.delivered } < MAX_PENDING) { "Answer or dismiss an existing GitHub decision before adding another." }
                 val retained = mutable.value.filter { !it.delivered } + mutable.value.filter { it.delivered }.takeLast(MAX_HISTORY)
                 save(retained + it)
@@ -90,9 +108,9 @@ class GitHubChatDecisions @Inject constructor(private val store: GitHubRepositor
             decision
         }
         return try {
-            if (created) offered(current)
-            // Waiting has no default answer or wall-clock auto-approval. Cancellation
-            // leaves the question available for an explicit resume after interruption.
+            if (created && current.answer == null) offered(current)
+            // An opted-in suggestion is durable before the tool receives it.
+            // Other questions remain available after an interruption.
             val items = mutable.first { items -> items.none { it.id == current.id } || items.any { it.id == current.id && it.answer != null } }
             items.firstOrNull { it.id == current.id } ?: throw CancellationException("The conversation was deleted.")
         } finally {

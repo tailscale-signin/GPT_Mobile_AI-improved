@@ -23,6 +23,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.github.GitHubDecisionMode
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDropdownMenu as DropdownMenu
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
@@ -53,7 +54,7 @@ internal fun GitHubProfilePicker(profiles: List<PlatformV2>, selectedUid: String
 }
 
 @Composable
-internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: GitHubProgrammerState, onProfile: (String?) -> Unit, onIndex: (Boolean) -> Unit, onPrepare: () -> Unit, onSettings: (dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride) -> Unit = {}, onExport: () -> Unit = {}, onOpenRepositoryMap: (() -> Unit)? = null) {
+internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: GitHubProgrammerState, onProfile: (String?) -> Unit, onIndex: (Boolean) -> Unit, onPrepare: () -> Unit, onSettings: (dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride) -> Unit = {}, onExport: () -> Unit = {}, onOpenRepositoryMap: (() -> Unit)? = null, onDecisionMode: (GitHubDecisionMode) -> Unit = {}) {
     var inspection by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
     inspection?.let { (profileUid, engineering) ->
         ConnectionDoctorDialog(onDismiss = { inspection = null }, initialProfileUid = profileUid, engineeringGateway = engineering)
@@ -101,7 +102,7 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
         Text("Save this GitHub conversation as Markdown or plain text. Debug mode also offers a diagnostic ZIP.", style = MaterialTheme.typography.bodySmall)
         state.chatId?.takeIf { it > 0 }?.let { dev.chungjungsoo.gptmobile.presentation.ui.chat.GitHubEvidenceButton(it) }
         state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-        Text("GitHub tools run automatically in this workspace. Each commit asks once, with a branch and change summary.", style = MaterialTheme.typography.bodySmall)
+        GitHubDecisionSettings(state.decisionMode, state.chatId?.let { it > 0 } == true, onDecisionMode)
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("Prepare code context", style = MaterialTheme.typography.titleSmall)
@@ -115,6 +116,39 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
             Text(if (total == null) "$indexed files cached. Coverage is checked against the selected revision." else "$indexed of $total files cached. Partial indexing remains visible.", style = MaterialTheme.typography.bodySmall)
         }
         if (state.prepareIndex) OutlinedButton(onClick = onPrepare, enabled = !workspace.busy) { Text("Prepare next batch") }
+    }
+}
+
+@Composable
+private fun GitHubDecisionSettings(mode: GitHubDecisionMode, enabled: Boolean, onChange: (GitHubDecisionMode) -> Unit) {
+    var menu by remember { mutableStateOf(false) }
+    fun label(value: GitHubDecisionMode) = when (value) {
+        GitHubDecisionMode.ASK -> "Ask each time"
+        GitHubDecisionMode.SUGGESTED -> "Use suggested choices"
+        GitHubDecisionMode.AUTO_APPROVE -> "Auto-approve eligible commits"
+    }
+    OutlinedCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Chat decisions", style = MaterialTheme.typography.titleMedium)
+            Text("Applies to this conversation and repository.", style = MaterialTheme.typography.bodySmall)
+            OutlinedButton(onClick = { menu = true }, enabled = enabled, modifier = Modifier.testTag("github_decision_mode")) { Text(label(mode)) }
+            DropdownMenu(menu, { menu = false }) {
+                GitHubDecisionMode.entries.forEach { option ->
+                    DropdownMenuItem(text = { Text(label(option)) }, onClick = {
+                        menu = false
+                        onChange(option)
+                    })
+                }
+            }
+            Text(
+                when (mode) {
+                    GitHubDecisionMode.ASK -> "Review each patch and choose how to answer each question."
+                    GitHubDecisionMode.SUGGESTED -> "Use the suggested option when one is available. Review proposed commits yourself."
+                    GitHubDecisionMode.AUTO_APPROVE -> "Use suggested choices and approve eligible working-branch patches while this workspace is open. Deletions, workflow changes, and changes that require hardware verification still ask."
+                },
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
     }
 }
 

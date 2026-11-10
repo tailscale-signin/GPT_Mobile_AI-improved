@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.github
 
+import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.first
@@ -10,6 +11,46 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubChatDecisionsTest {
+    @Test fun decisionPreferenceDoesNotFollowAnotherConversationOrWorkspace() {
+        val workspace = GitHubConversationContext("github", "owner", "repo", "feature", "a".repeat(40), "profile")
+        val preference = GitHubDecisionPreference("original", GitHubChatDecisions.workspaceKey(workspace), GitHubDecisionMode.AUTO_APPROVE)
+        val features = AppFeatureSettings(conversationGitHub = mapOf(1 to workspace), conversationIdentities = mapOf(1 to "original"), githubDecisionPreferences = mapOf(1 to preference))
+        assertEquals(GitHubDecisionMode.AUTO_APPROVE, features.githubDecisionMode(1, workspace))
+        assertEquals(GitHubDecisionMode.ASK, features.githubDecisionMode(2, workspace))
+        assertEquals(GitHubDecisionMode.ASK, features.githubDecisionMode(1, workspace.copy(ref = "another")))
+        assertEquals(GitHubDecisionMode.ASK, features.copy(conversationIdentities = mapOf(1 to "restored")).githubDecisionMode(1, workspace))
+    }
+
+    @Test fun optedInSuggestionIsSavedBeforeDeliveryAndDoesNotAskAgain() = runBlocking {
+        val directory = kotlin.io.path.createTempDirectory("github-suggested-choice").toFile()
+        try {
+            val proposal = question(persistent = true)
+            val store = GitHubChatDecisions(GitHubRepositoryStateStore(directory))
+            val answer = store.request(proposal, useSuggestion = true) { error("No prompt should be posted for the suggested option") }
+            assertEquals("Compact", answer.answer)
+            assertTrue(answer.automatic)
+            assertTrue(store.waiting.value.isEmpty())
+            store.delivered(answer.id)
+            val restored = GitHubChatDecisions(GitHubRepositoryStateStore(directory))
+            val replay = restored.request(proposal)
+            assertEquals("Compact", replay.answer)
+            assertTrue(replay.delivered && replay.automatic)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test fun suggestionModeStillWaitsWhenNoOptionIsRecommended() = runBlocking {
+        val store = GitHubChatDecisions(GitHubRepositoryStateStore())
+        val request = async { store.request(question().copy(recommended = null), useSuggestion = true) }
+        store.waiting.first { "choice" in it }
+        assertFalse(request.isCompleted)
+        assertTrue(store.respond("choice", 1, "workspace", 1).accepted)
+        val chosen = request.await()
+        assertEquals("Spacious", chosen.answer)
+        assertFalse(chosen.automatic)
+    }
+
     @Test fun restoreClearsSavedQuestionsBeforeTheyCanAttachToImportedChatIds() = runBlocking {
         val directory = kotlin.io.path.createTempDirectory("github-decision-restore").toFile()
         try {

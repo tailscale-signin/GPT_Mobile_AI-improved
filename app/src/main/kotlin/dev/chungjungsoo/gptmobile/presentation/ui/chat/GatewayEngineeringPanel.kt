@@ -190,24 +190,26 @@ internal fun GatewayMergeInteractions(chatId: Int, model: GatewayEngineeringView
     state.bindings.filter { it.request.chatId == chatId && it.job?.mergeReady == true }.forEach { binding ->
         val job = requireNotNull(binding.job)
         androidx.compose.runtime.key(job.id, job.revision, job.headSha) {
-            ChatInteractionSurface(
-                inline = true,
-                onDismissRequest = {},
-                title = { Text("Merge PR #${job.pr}?") },
-                text = {
-                    Column(Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(job.repository)
-                        Text(job.headSha.orEmpty(), fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
-                        Text("This approval applies only to this PR and commit, expires after 30 minutes, and is rejected if the head, base or merge policy changes.")
-                        Text("Changed files\n" + job.changedFiles.joinToString("\n"))
-                        Text("Test evidence\n" + job.tests.joinToString("\n") { "${it["name"]}: ${it["status"]}" })
-                        Text("Completion scope: ${job.completionVerification?.get("scope") ?: "Review the requested requirements."}")
-                        state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                    }
-                },
-                confirmButton = { Button(onClick = { model.control(binding, job, "approve") }, enabled = !state.busy) { Text("Approve & Merge") } },
-                dismissButton = { OutlinedButton(onClick = { model.control(binding, job, "request_changes") }, enabled = !state.busy) { Text("Request changes") } }
-            )
+            GitHubPendingPrompt {
+                ChatInteractionSurface(
+                    inline = true,
+                    onDismissRequest = {},
+                    title = { Text("Merge PR #${job.pr}?") },
+                    text = {
+                        Column(Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(job.repository)
+                            Text(job.headSha.orEmpty(), fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
+                            Text("This approval applies only to this PR and commit, expires after 30 minutes, and is rejected if the head, base or merge policy changes.")
+                            Text("Changed files\n" + job.changedFiles.joinToString("\n"))
+                            Text("Test evidence\n" + job.tests.joinToString("\n") { "${it["name"]}: ${it["status"]}" })
+                            Text("Completion scope: ${job.completionVerification?.get("scope") ?: "Review the requested requirements."}")
+                            state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                        }
+                    },
+                    confirmButton = { Button(onClick = { model.control(binding, job, "approve") }, enabled = !state.busy) { Text("Approve & Merge") } },
+                    dismissButton = { OutlinedButton(onClick = { model.control(binding, job, "request_changes") }, enabled = !state.busy) { Text("Request changes") } }
+                )
+            }
         }
     }
 }

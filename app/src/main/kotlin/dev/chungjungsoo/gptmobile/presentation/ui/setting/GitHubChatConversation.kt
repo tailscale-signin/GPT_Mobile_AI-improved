@@ -42,6 +42,7 @@ internal fun GitHubChatConversation(
     onExportHandled: () -> Unit = {},
     onProfileSettings: (String) -> Unit = {},
     approvalPending: Boolean = false,
+    nativeDecisions: List<dev.chungjungsoo.gptmobile.data.github.GitHubNativeDecisionReceipt> = emptyList(),
     bottomInteractionContent: (@Composable () -> Unit)? = null
 ) {
     key(chatId) {
@@ -86,7 +87,8 @@ internal fun GitHubChatConversation(
                 }
                 androidx.compose.runtime.CompositionLocalProvider(
                     dev.chungjungsoo.gptmobile.presentation.ui.chat.LocalChatProgressInHeader provides true,
-                    dev.chungjungsoo.gptmobile.presentation.ui.chat.LocalGitHubApprovalPending provides approvalPending
+                    dev.chungjungsoo.gptmobile.presentation.ui.chat.LocalGitHubApprovalPending provides approvalPending,
+                    dev.chungjungsoo.gptmobile.presentation.ui.chat.LocalGitHubNativeDecisions provides nativeDecisions
                 ) {
                     val typography = MaterialTheme.typography
                     fun larger(style: androidx.compose.ui.text.TextStyle) = style.copy(fontSize = (style.fontSize.value + 2).sp, lineHeight = (style.lineHeight.value + 2).sp)

@@ -29,12 +29,13 @@ internal class GitHubDecisionTool(
     private val workspace: GitHubConversationContext,
     private val persistent: Boolean,
     private val allowed: suspend () -> Boolean,
-    private val offered: suspend (GitHubChatDecision) -> Unit = {}
+    private val offered: suspend (GitHubChatDecision) -> Unit = {},
+    private val useSuggestion: suspend () -> Boolean = { false }
 ) : AgentTool {
     override val managesExecutionBudget = true
     override val definition = AgentToolDefinition(
         NAME,
-        "Ask the user a consequential feature/design question with 2-4 button choices. Waits for their answer; never selects a default or approves GitHub writes. Ask early about scope, UI, behavior and architecture, and again at meaningful design checkpoints. Reuse answers; do not ask about routine fixes or settled choices.",
+        "Ask a consequential feature/design question with 2-4 button choices. Waits for an answer unless the user enabled suggestions and a recommended choice is provided. This tool cannot approve GitHub writes. Reuse answers; do not ask about routine fixes or settled choices.",
         buildJsonObject {
             put("type", "object")
             put(
@@ -96,7 +97,7 @@ internal class GitHubDecisionTool(
         }
         val proposal = GitHubChatDecision("", chatId, sourceMessageId, profileUid, scope, question, context, options, arguments["recommended"]?.jsonPrimitive?.intOrNull, persistent)
         val id = GitHubRepositoryStateStore.digest(Json.encodeToString(GitHubChatDecision.serializer(), proposal.copy(persistent = false)))
-        val answer = decisions.request(proposal.copy(id = id), offered)
+        val answer = decisions.request(proposal.copy(id = id), useSuggestion = useSuggestion(), offered = offered)
         check(allowed()) { "The GitHub conversation or profile changed while waiting. The choice is saved; no new action is authorized." }
         decisions.delivered(id)
         return AgentToolResult(
@@ -105,6 +106,7 @@ internal class GitHubDecisionTool(
                 buildJsonObject {
                     put("question", question)
                     put("user_answer", requireNotNull(answer.answer))
+                    if (answer.automatic) put("answer_source", "USER_ENABLED_SUGGESTION")
                     put("cancelled", answer.cancelled)
                     put("instruction", if (answer.cancelled) "Stop tool work and summarize retained results." else "Apply this user choice to the current task. Continue independent work and ask the next consequential design question when evidence is ready. This answer is not write approval.")
                 }

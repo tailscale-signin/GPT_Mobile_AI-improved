@@ -58,8 +58,25 @@ class GitHubApprovalBindingTest {
             assertNull(GitHubApprovalBinding.continuation(restored, "saved-task", workspace.copy(mainProfileUid = "another"), branch, publication(true)))
             GitHubApprovalBinding.continuationQueued(restored, "saved-task", sha)
             assertNull(GitHubApprovalBinding.continuation(GitHubRepositoryStateStore(directory), "saved-task", workspace, branch, publication(true)))
+            val receipt = requireNotNull(GitHubApprovalBinding.receipt(restored, "saved-task", workspace, branch, "Repair CI", publication(true), false))
+            assertEquals(42, receipt.sourceMessageId)
+            assertEquals(sha, receipt.sha)
+            assertEquals("Repair CI", receipt.summary)
         } finally {
             directory.deleteRecursively()
         }
+    }
+
+    @Test fun rejectedReceiptRequiresExplicitDecisionAndCancellationBeforePublication() = runBlocking {
+        val store = GitHubRepositoryStateStore()
+        val branch = "fix/saved-patch"
+        GitHubApprovalBinding.bind(store, "task", workspace, branch, 31, 42)
+        assertNull(GitHubApprovalBinding.receipt(store, "task", workspace, branch, "Repair CI", null, true))
+        GitHubApprovalBinding.markDecision(store, "task", workspace, branch, automatic = false)
+        assertNull(GitHubApprovalBinding.receipt(store, "task", workspace, branch, "Repair CI", null, false))
+        assertNull(GitHubApprovalBinding.receipt(store, "task", workspace.copy(connectionUid = "another"), branch, "Repair CI", null, true))
+        val receipt = requireNotNull(GitHubApprovalBinding.receipt(store, "task", workspace, branch, "Repair CI", null, true))
+        assertEquals(31, receipt.chatId)
+        assertNull(receipt.sha)
     }
 }

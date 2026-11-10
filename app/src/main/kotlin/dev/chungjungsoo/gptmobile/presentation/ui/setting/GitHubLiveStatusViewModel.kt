@@ -9,6 +9,7 @@ import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubEngineeringApi
 import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubEngineeringApiFactory
 import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubTool
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
+import dev.chungjungsoo.gptmobile.data.github.GitHubCheckWatchRepository
 import dev.chungjungsoo.gptmobile.data.github.GitHubLiveProcess
 import dev.chungjungsoo.gptmobile.data.github.GitHubLiveStatus
 import dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator
@@ -24,6 +25,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -40,7 +42,8 @@ internal class GitHubLiveStatusViewModel @Inject constructor(
     private val auth: GitHubPublicAuthCoordinator,
     private val factory: GitHubEngineeringApiFactory,
     private val connections: ToolConnectionRepository,
-    private val repositoryState: GitHubRepositoryStateStore
+    private val repositoryState: GitHubRepositoryStateStore,
+    private val watches: GitHubCheckWatchRepository
 ) : ViewModel() {
     private val mutable = MutableStateFlow(GitHubLiveStatus())
     val state = mutable.asStateFlow()
@@ -56,6 +59,82 @@ internal class GitHubLiveStatusViewModel @Inject constructor(
     }
     fun refresh() {
         refresh.trySend(Unit)
+    }
+
+    fun observeWatches(chatId: Int?) = if (chatId == null) flowOf(emptyList()) else watches.observe(chatId)
+
+    fun setTracking(connection: ToolConnection, selection: GitHubRepositoryContext, profileUid: String, chatId: Int, target: GitHubStatusActionTarget, enabled: Boolean) =
+        statusAction(connection, selection, "Could not update tracking. Refresh the check or review your GitHub connection.") {
+            val args = target.watchArguments(selection.owner, selection.repo)
+            if (enabled) {
+                watches.subscribe(connection.connectionUid, profileUid, chatId, args)
+                "Tracking this check in GitHub Chat."
+            } else {
+                watches.disable(connection.connectionUid, profileUid, chatId, args)
+                "Tracking disabled for this tile. Use Track to turn it back on."
+            }
+        }
+
+    fun repairDraft(connection: ToolConnection, selection: GitHubRepositoryContext, target: GitHubStatusActionTarget, queue: (GitHubDraftRepair) -> Unit) =
+        statusAction(connection, selection, "The failed draft could not be verified. Refresh the tile before starting a repair.") {
+            require(target.canFix)
+            val number = requireNotNull(target.pullNumber)
+            val repair = withContext(Dispatchers.IO) {
+                val current = requireNotNull(connections.getConnection(connection.connectionUid))
+                require(current.type == "GITHUB" && current.endpointUrl == connection.endpointUrl)
+                val api = factory.createForEndpoint(current.endpointUrl) { auth.accessToken(current) }
+                val root = GitHubEngineeringApi.root(selection.owner, selection.repo)
+                val pr = Json.parseToJsonElement(api.request("$root/pulls/$number")) as JsonObject
+                val head = pr["head"] as? JsonObject ?: error("Missing head")
+                val base = pr["base"] as? JsonObject ?: error("Missing base")
+                require(
+                    pr.text("number").toLongOrNull() == number &&
+                        pr.flag("draft") &&
+                        pr.text("state") == "open" &&
+                        head.text("sha").equals(target.headSha, true) &&
+                        (head["repo"] as? JsonObject)?.text("full_name")?.equals(selection.fullName, true) == true &&
+                        (base["repo"] as? JsonObject)?.text("full_name")?.equals(selection.fullName, true) == true &&
+                        head.text("ref").isNotBlank() &&
+                        base.text("ref").isNotBlank()
+                )
+                if (target.runId != null) {
+                    val run = Json.parseToJsonElement(api.request("$root/actions/runs/${target.runId}")) as JsonObject
+                    require(
+                        run.text("id").toLongOrNull() == target.runId &&
+                            run.text("run_attempt").toIntOrNull() == target.attempt &&
+                            run.text("head_sha").equals(target.headSha, true) &&
+                            githubCheckState(run.text("conclusion")) == "Failed"
+                    )
+                } else {
+                    val summary = GitHubWorkspaceClient(auth.accessToken(current), freshnessSeconds = 0, apiOrigins = dev.chungjungsoo.gptmobile.data.github.GitHubApiOrigins.fromEndpoint(current.endpointUrl)).execute(
+                        "get_commit_status_summary",
+                        buildJsonObject {
+                            put("owner", selection.owner)
+                            put("repo", selection.repo)
+                            put("ref", target.headSha)
+                        }
+                    ) as JsonObject
+                    require(summary.text("state") == "FAILED")
+                }
+                GitHubDraftRepair(selection.fullName, number, target.headSha, head.text("ref"), base.text("ref"), target.runId, target.attempt)
+            }
+            if (scope == scopeKey(connection, selection)) queue(repair)
+            null
+        }
+
+    private fun scopeKey(connection: ToolConnection, selection: GitHubRepositoryContext) = "${connection.connectionUid}:${selection.fullName}:${selection.ref}"
+
+    private fun statusAction(connection: ToolConnection, selection: GitHubRepositoryContext, failureText: String, action: suspend () -> String?) = viewModelScope.launch {
+        val requestedScope = scopeKey(connection, selection)
+        if (scope != requestedScope) return@launch
+        try {
+            val result = action()
+            if (scope == requestedScope) mutable.value = mutable.value.copy(notice = result)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            if (scope == requestedScope) mutable.value = mutable.value.copy(notice = failureText)
+        }
     }
     fun filter(value: String) {
         require(value in setOf("ACTIVE", "CURRENT", "HISTORY"))
@@ -84,7 +163,7 @@ internal class GitHubLiveStatusViewModel @Inject constructor(
     }
 
     suspend fun observe(connection: ToolConnection, selection: GitHubRepositoryContext, refreshPulls: () -> Unit, pullHeads: () -> Set<String> = { emptySet() }) {
-        val selectedScope = "${connection.connectionUid}:${selection.fullName}:${selection.ref}"
+        val selectedScope = scopeKey(connection, selection)
         if (scope != selectedScope) {
             scope = selectedScope
             pages = 1

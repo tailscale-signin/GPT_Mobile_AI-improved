@@ -44,13 +44,14 @@ internal fun QueuedPromptBubble(
     onEdit: (String, String, Boolean) -> Unit,
     onRemove: (String) -> Unit,
     onPause: (String, Boolean) -> Unit,
-    progress: FollowUpProgress? = null
+    progress: FollowUpProgress? = null,
+    receipt: GitHubDecisionBubbleData? = null
 ) {
     val merging = progress?.phase == FollowUpPhase.MERGING
     val deadline = progress?.deadlineMs
     var remaining by remember(prompt.id, deadline) { mutableLongStateOf((deadline?.minus(System.nanoTime() / 1_000_000L) ?: 0L).coerceAtLeast(0L)) }
     var editing by remember(prompt.id) { mutableStateOf(false) }
-    var text by remember(prompt.id, prompt.text) { mutableStateOf(prompt.text) }
+    var text by remember(prompt.id, prompt.text, receipt) { mutableStateOf(prompt.text.takeIf { receipt == null }.orEmpty()) }
     val canChange = !merging && (deadline == null || remaining > 0L)
     val opacity = remember(prompt.id) { Animatable(1f) }
     LaunchedEffect(deadline) {
@@ -78,8 +79,10 @@ internal fun QueuedPromptBubble(
                 Icon(Icons.Rounded.PlayArrow, contentDescription = "Resume queued message")
             }
         }
-        IconButton(enabled = canChange, onClick = { editing = true }) {
-            Icon(Icons.Rounded.Edit, contentDescription = "Edit queued message")
+        if (receipt == null) {
+            IconButton(enabled = canChange, onClick = { editing = true }) {
+                Icon(Icons.Rounded.Edit, contentDescription = "Edit queued message")
+            }
         }
         Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = Modifier.weight(1f)) {
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -94,7 +97,7 @@ internal fun QueuedPromptBubble(
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Text(preview.ifBlank { "Attached document" }, style = MaterialTheme.typography.bodyLarge)
+                if (receipt != null) GitHubDecisionBubble(receipt) else Text(preview.ifBlank { "Attached document" }, style = MaterialTheme.typography.bodyLarge)
                 if (prompt.paused) {
                     Text(
                         "Paused. Check the selected profile and spend settings, then resume.",
@@ -111,7 +114,7 @@ internal fun QueuedPromptBubble(
             }
         }
     }
-    if (editing && canChange) {
+    if (editing && canChange && receipt == null) {
         AlertDialog(
             onDismissRequest = { editing = false },
             title = { Text("Edit queued message") },

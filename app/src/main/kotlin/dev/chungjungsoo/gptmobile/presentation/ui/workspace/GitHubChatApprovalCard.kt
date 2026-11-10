@@ -43,6 +43,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.presentation.common.AppGlassSurface
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDialog
+import dev.chungjungsoo.gptmobile.presentation.ui.chat.gitHubDecisionOutline
 
 /** Native approval of the frozen digest; model text can never invoke the buttons. */
 @Composable
@@ -129,7 +130,8 @@ internal fun GitHubApprovalSummary(
     onDetails: () -> Unit,
     onReject: () -> Unit
 ) {
-    AppGlassSurface(Modifier.fillMaxWidth().padding(horizontal = 12.dp).testTag("github_chat_approval"), shape = MaterialTheme.shapes.large) {
+    val shape = MaterialTheme.shapes.large
+    AppGlassSurface(Modifier.fillMaxWidth().padding(horizontal = 12.dp).gitHubDecisionOutline(shape, active = !busy).testTag("github_chat_approval"), shape = shape) {
         Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text("Review proposed changes", style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(summary, style = MaterialTheme.typography.bodySmall, maxLines = 3, overflow = TextOverflow.Ellipsis)

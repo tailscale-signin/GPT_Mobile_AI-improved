@@ -78,6 +78,7 @@ import dev.chungjungsoo.gptmobile.presentation.common.FadingDialog as Dialog
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDropdownMenu as DropdownMenu
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import dev.chungjungsoo.gptmobile.presentation.common.diagnosticFrameTiming
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.jsonObject
 
@@ -151,9 +152,21 @@ fun GitHubWorkspaceScreen(
     val pendingCommit by commitReview.pendingEngineeringTask.collectAsStateWithLifecycle()
     val savedEngineeringTasks by commitReview.engineeringTasks.collectAsStateWithLifecycle()
     val publishedContinuations by commitReview.publishedContinuations.collectAsStateWithLifecycle()
-    LaunchedEffect(commandContext) {
-        commitReview.restrictTo(commandContext)
+    val nativeDecisions by commitReview.decisionReceipts.collectAsStateWithLifecycle()
+    val pendingEngineeringRun by commitReview.selectedEngineeringRun.collectAsStateWithLifecycle()
+    val approvalChatId = visibleProgrammer.chatId
+    val latestApprovalRun = visibleProgrammer.runs.lastOrNull()
+    LaunchedEffect(commandContext, approvalChatId) {
+        commitReview.restrictTo(commandContext, approvalChatId)
         if (commandContext != null) commitReview.observeWorkspaceApproval(commandContext)
+    }
+    LaunchedEffect(commandContext, approvalChatId, pendingCommit, pendingEngineeringRun?.patchDigest, visibleProgrammer.decisionMode, latestApprovalRun?.status, latestApprovalRun?.terminalError) {
+        val task = pendingEngineeringRun?.takeIf { it.taskId == pendingCommit } ?: return@LaunchedEffect
+        if (approvalChatId == null || visibleProgrammer.decisionMode != dev.chungjungsoo.gptmobile.data.github.GitHubDecisionMode.AUTO_APPROVE) return@LaunchedEffect
+        commitReview.busy.first { !it }
+        commitReview.approveAutomatically(task.taskId, task.patchDigest, approvalChatId) { sha ->
+            if (commitReview.review.value?.branch == commandContext?.ref) viewModel.acceptPublishedCommit(sha)
+        }
     }
     LaunchedEffect(publishedContinuations, visibleProgrammer.chatId, visibleProgrammer.submitting, visibleProgrammer.error, commandContext) {
         if (commandContext != null && !visibleProgrammer.submitting && visibleProgrammer.error == null) {
@@ -366,6 +379,7 @@ fun GitHubWorkspaceScreen(
                                                 exportRequested = exportChatId == chatId,
                                                 onExportHandled = { exportChatId = null },
                                                 approvalPending = savedEngineeringTasks.any { it.taskId == pendingCommit && it.state == "AWAITING_APPROVAL" },
+                                                nativeDecisions = nativeDecisions.filter { it.chatId == chatId },
                                                 bottomInteractionContent = {
                                                     dev.chungjungsoo.gptmobile.presentation.ui.workspace.GitHubChatApprovalCard(commitReview) { sha ->
                                                         val publishedBranch = commitReview.review.value?.branch
@@ -405,7 +419,8 @@ fun GitHubWorkspaceScreen(
                                             { repositoryMapOpen = true }
                                         } else {
                                             null
-                                        }
+                                        },
+                                        onDecisionMode = programmer::setDecisionMode
                                     )
                                     if (state.selection != null) {
                                         OutlinedTextField(branchName, { branchName = it }, label = { Text("New working branch") }, singleLine = true, modifier = Modifier.fillMaxWidth())
@@ -495,7 +510,12 @@ fun GitHubWorkspaceScreen(
                                         profile = statusProfile,
                                         graphContext = mapContext,
                                         graphProfile = repositoryGraphProfile,
-                                        onConfigureGateway = { tab = 5 }
+                                        onConfigureGateway = { tab = 5 },
+                                        onRepairDraft = if (commandContext != null && !visibleProgrammer.submitting) {
+                                            { repair -> programmer.repairDraft(repair) { tab = 3 } }
+                                        } else {
+                                            null
+                                        }
                                     )
                                     OutlinedButton(onClick = { taskDetailsOpen = !taskDetailsOpen }, modifier = Modifier.fillMaxWidth()) {
                                         Text(if (taskDetailsOpen) "Hide task details" else "Task details")

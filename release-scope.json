@@ -1958,6 +1958,14 @@
     "scripts/tests/test_structured_diagnostic_inspection.py",
     "scripts/validate-local.sh",
     "scripts/verify_published_release.py",
-    "scripts/verify_release_identity.py"
+    "scripts/verify_release_identity.py",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubDecisionTool.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubChatDecisions.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubDecisionBubble.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/QueuedPromptBubble.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubStatusActionTarget.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/workspace/GitHubChatApprovalCard.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubChatDecisionsTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/workspace/GitHubReviewObservationTest.kt"
   ]
 }

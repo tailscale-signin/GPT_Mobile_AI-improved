@@ -50,9 +50,10 @@ internal fun GitHubDecisionCard(decision: GitHubChatDecision, waiting: Boolean, 
     var custom by rememberSaveable(decision.id) { mutableStateOf(false) }
     var answer by rememberSaveable(decision.id) { mutableStateOf("") }
     val colors = MaterialTheme.colorScheme
+    val shape = RoundedCornerShape(24.dp)
     Card(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).testTag("github_decision_${decision.id}"),
-        shape = RoundedCornerShape(24.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).gitHubDecisionOutline(shape, active = decision.answer == null).testTag("github_decision_${decision.id}"),
+        shape = shape,
         colors = CardDefaults.cardColors(containerColor = colors.surfaceContainerLow),
         border = BorderStroke(1.dp, colors.primary.copy(alpha = 0.3f))
     ) {
@@ -87,9 +88,8 @@ internal fun GitHubDecisionCard(decision: GitHubChatDecision, waiting: Boolean, 
                     OutlinedTextField(value = answer, onValueChange = { answer = it.take(2000) }, modifier = Modifier.fillMaxWidth().testTag("github_decision_custom"), label = { Text("Your preference") }, minLines = 2, maxLines = 5, supportingText = { Text("${answer.length}/2000") })
                     Button(onClick = { onAnswer(null, answer) }, enabled = answer.isNotBlank(), modifier = Modifier.fillMaxWidth()) { Text("Use my answer") }
                 }
-                Text(if (waiting) "Work that depends on this choice is waiting for you." else "The task was interrupted. Choosing an answer resumes it with your direction.", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
             } else {
-                Surface(color = colors.secondaryContainer, shape = RoundedCornerShape(12.dp)) { Text(decision.answer, Modifier.fillMaxWidth().padding(12.dp), color = colors.onSecondaryContainer) }
+                decision.bubble()?.let { GitHubDecisionBubble(it) }
                 if (!waiting && !decision.cancelled) Button(onClick = onResume, modifier = Modifier.fillMaxWidth()) { Text("Continue with my choice") }
             }
             TextButton(onClick = onStop) { Text("Stop this task") }

@@ -45,6 +45,7 @@ jobs:
           mkdir -p device-evidence
           echo '{"status":"NOT_QUALIFIED","reason":"No successful compatible-device GPU evidence from this job"}' > device-evidence/gguf-status.json
           echo '{"status":"NOT_QUALIFIED","reason":"No successful matching QNN native/backend/cleanup evidence from this job"}' > device-evidence/qnn-status.json
+          echo '{"qualification":"NOT_QUALIFIED","reason":"No complete benchmark session from this job"}' > device-evidence/performance-status.json
           adb get-state
           adb shell getprop > device-evidence/getprop.txt
           adb shell dumpsys thermalservice > device-evidence/thermal-before.txt
@@ -199,12 +200,82 @@ jobs:
       - name: Capture Qualcomm execution logs
         if: always()
         run: adb logcat -d -v threadtime -s QnnQualification LiteRT QnnHtp > device-evidence/qnn-logcat.txt
-      - name: Generate Baseline Profile and measure performance
-        run: ./gradlew :macrobenchmark:connectedBenchmarkAndroidTest
+      - name: Build target and benchmark APKs for the observed device session
+        run: ./gradlew :app:assembleBenchmark :macrobenchmark:assembleBenchmark
+      - name: Install exact artifacts and measure performance without uninstalling them
+        shell: bash
+        run: |
+          set -euo pipefail
+          performance_abi="$(adb shell getprop ro.product.cpu.abi | tr -d '\r')"
+          performance_target="$(python3 scripts/select_android_test_apk.py app/build/outputs/apk/benchmark --application-id dev.melo.gptmobile.improved --abi "$performance_abi" --universal)"
+          performance_package="$(python3 - <<'PYPACKAGE'
+          import json
+          from pathlib import Path
+          metadata = json.loads(Path('macrobenchmark/build/outputs/apk/benchmark/output-metadata.json').read_text())
+          package = metadata.get('applicationId')
+          if package not in {'dev.chungjungsoo.gptmobile.benchmark', 'dev.chungjungsoo.gptmobile.benchmark.test'}:
+              raise SystemExit('Unexpected benchmark APK application identity')
+          print(package)
+          PYPACKAGE
+          )"
+          performance_tests="$(python3 scripts/select_android_test_apk.py macrobenchmark/build/outputs/apk/benchmark --application-id "$performance_package")"
+          adb install -r "$performance_target"
+          adb install -r "$performance_tests"
+          adb shell pm list instrumentation > device-evidence/performance-instrumentations.txt
+          export PERFORMANCE_BENCHMARK_PACKAGE="$performance_package" PERFORMANCE_TEST_APK="$performance_tests"
+          python3 - <<'PYRUNNER'
+          import os, re, sys
+          from pathlib import Path
+          sys.path.insert(0, 'scripts')
+          from qualify_device_performance import adb, installed_apks, require_installed_universal, write_json
+          package = os.environ['PERFORMANCE_BENCHMARK_PACKAGE']
+          runner = package + '/androidx.test.runner.AndroidJUnitRunner'
+          identities = re.findall(r'^instrumentation:(\S+) \(target=(\S+)\)$', Path('device-evidence/performance-instrumentations.txt').read_text(), re.MULTILINE)
+          if identities.count((runner, package)) != 1:
+              raise SystemExit('Fresh self-instrumenting benchmark runner was not installed')
+          installed = installed_apks(adb, package, allow_test_version_zero=True)
+          require_installed_universal(installed, os.environ['PERFORMANCE_TEST_APK'])
+          write_json(Path('device-evidence/performance-test-apk.json'), installed)
+          PYRUNNER
+          performance_remote="/sdcard/Android/media/$performance_package/performance-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          performance_local="macrobenchmark/build/outputs/performance-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          # A unique, previously absent directory excludes retained files from earlier device runs.
+          adb shell test ! -e "$performance_remote"
+          test ! -e "$performance_local"
+          adb shell mkdir -p "$performance_remote"
+          mkdir -p "$performance_local"
+          python3 scripts/qualify_device_performance.py --capture-before device-evidence/performance-before.json --expected-apk "$performance_target"
+          timeout 1800s adb shell am instrument -w -r \
+            -e class dev.chungjungsoo.gptmobile.benchmark.AppPerformanceBenchmark,dev.chungjungsoo.gptmobile.benchmark.BaselineProfileGenerator \
+            -e additionalTestOutputDir "$performance_remote" \
+            "$performance_package/androidx.test.runner.AndroidJUnitRunner" \
+            | tee device-evidence/performance-instrumentation.txt
+          python3 - <<'PYPACKETS'
+          import re, sys
+          from pathlib import Path
+          sys.path.insert(0, 'scripts')
+          from check_native_memory_smoke import check_instrumentation
+          source = Path('macrobenchmark/src/main/kotlin/dev/chungjungsoo/gptmobile/benchmark/AppPerformanceBenchmark.kt').read_text()
+          required = {}
+          for block in re.split(r'\n@RunWith', source):
+              match = re.search(r'class (AppPerformanceBenchmark|BaselineProfileGenerator)\s*\{', block)
+              if match:
+                  required[match[1]] = re.findall(r'@Test\s+fun\s+(\w+)\s*\(', block)
+          if set(required) != {'AppPerformanceBenchmark', 'BaselineProfileGenerator'} or any(not methods for methods in required.values()):
+              raise SystemExit('Named benchmark and baseline-profile tests could not be resolved')
+          for name, methods in required.items():
+              for method in methods:
+                  check_instrumentation('device-evidence/performance-instrumentation.txt', 'dev.chungjungsoo.gptmobile.benchmark.' + name, method)
+          PYPACKETS
+          adb pull "$performance_remote/." "$performance_local/"
       - name: Compare measured performance with a reviewed reference baseline
         env:
           PERFORMANCE_BASELINE: ${{ inputs.performance_baseline }}
-        run: python3 scripts/qualify_device_performance.py --baseline "$PERFORMANCE_BASELINE"
+        run: |
+          python3 scripts/qualify_device_performance.py \
+            --measurements "macrobenchmark/build/outputs/performance-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
+            --before-identity device-evidence/performance-before.json \
+            --baseline "$PERFORMANCE_BASELINE"
       - name: Device evidence
         if: always()
         run: |

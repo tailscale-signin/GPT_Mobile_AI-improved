@@ -5979,7 +5979,9 @@ class ChatRepositoryImpl(
                         gatewayToolEvent?.let {
                             emit(gatewayToolEvent)
                             val progress = providerEvent.progress
-                            if (progress.event in setOf("tool_completed", "tool_failed", "tool_finished")) {
+                            // GitHub has its own observed activity and public findings;
+                            // the generic call-count ticker would add duplicate filler.
+                            if (!githubChat && progress.event in setOf("tool_completed", "tool_failed", "tool_finished")) {
                                 progressTracker.complete(
                                     progress.toolCallId ?: "gateway-${gatewayToolEvent.toolSequence}",
                                     progress.toolName ?: "tool",

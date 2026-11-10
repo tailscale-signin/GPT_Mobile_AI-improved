@@ -375,7 +375,7 @@ fun ProfileBenchmarkScreen(
                         onOpenAuditConnection,
                         onPrepareModelBenchmark = if (ready && session == null && progress == null) {
                             { entry ->
-                                viewModel.prepareAuditModelBenchmark(entry) {
+                                viewModel.prepareAuditModelBenchmark(selectedAudit.id, entry) {
                                     mode = BenchmarkMode.QUICK
                                     tab = 0
                                 }

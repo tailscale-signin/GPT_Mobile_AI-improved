@@ -191,7 +191,8 @@ data class BenchmarkSample(
     val nativeLoading: BenchmarkNativeLoadObservation? = null,
     val inspectionReceipt: dev.chungjungsoo.gptmobile.data.localruntime.RuntimeInspectionReceipt? = null,
     val inspectionAttribution: BenchmarkInspectionAttribution? = null,
-    val deadlineReceipt: BenchmarkDeadlineReceipt? = null
+    val deadlineReceipt: BenchmarkDeadlineReceipt? = null,
+    val auditModelConfiguration: dev.chungjungsoo.gptmobile.data.audit.AppAuditModelConfigurationReceipt? = null
 ) {
     val runtimeExecution: dev.chungjungsoo.gptmobile.data.localruntime.RuntimeExecutionReceipt? get() = runtimeExecutions.lastOrNull()
     val rawReferenceSpeed: Double? get() = firstTextMs?.let { first ->

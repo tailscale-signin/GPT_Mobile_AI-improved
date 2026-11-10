@@ -1,12 +1,15 @@
 package dev.chungjungsoo.gptmobile.data.audit
 
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.database.entity.ProviderConnection
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.data.security.SecretVault
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.confirmVerified
 import io.mockk.mockk
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -16,6 +19,56 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AppAuditSelectedModelServicesTest {
+    @Test fun profileEditWhileCredentialRevisionSuspendsCannotProduceAUsableSnapshot() = runBlocking {
+        val settings = mockk<SettingRepository>()
+        val vault = mockk<SecretVault>()
+        val accepted = PlatformV2(uid = "selected", name = "Selected", model = "model", enabled = true, secretRef = "ref")
+        var current = accepted
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        coEvery { settings.fetchPlatformV2s() } answers { listOf(current) }
+        coEvery { vault.recordRevision("ref") } coAnswers {
+            entered.complete(Unit)
+            release.await()
+            "a".repeat(64)
+        }
+        val pending = async { AppAuditSelectedModelServices(settings, vault).target(accepted.uid) }
+        entered.await()
+        current = accepted.copy(model = "replacement", enabled = false)
+        release.complete(Unit)
+        val snapshot = checkNotNull(pending.await())
+        assertFalse(snapshot.configured)
+        assertNull(snapshot.configurationRevision)
+        coVerify(exactly = 0) { vault.read(any()) }
+    }
+
+    @Test fun ownerOrCredentialChangeDuringRevisionReadInvalidatesTheSnapshot() = runBlocking {
+        for (rotateCredential in listOf(false, true)) {
+            val settings = mockk<SettingRepository>()
+            val vault = mockk<SecretVault>()
+            val profile = PlatformV2(uid = "selected", name = "Selected", model = "model", secretRef = "ref", providerConnectionUid = "owner", apiUrl = "https://selected.invalid/v1")
+            var owner = ProviderConnection(uid = "owner", name = "Owner", compatibleType = profile.compatibleType, apiUrl = profile.apiUrl, secretRef = profile.secretRef)
+            var revision = "a".repeat(64)
+            val entered = CompletableDeferred<Unit>()
+            val release = CompletableDeferred<Unit>()
+            coEvery { settings.fetchPlatformV2s() } returns listOf(profile)
+            coEvery { settings.getProviderConnection("owner") } answers { owner }
+            coEvery { vault.recordRevision("ref") } coAnswers {
+                val captured = revision
+                entered.complete(Unit)
+                release.await()
+                captured
+            }
+            val pending = async { AppAuditSelectedModelServices(settings, vault).target(profile.uid) }
+            entered.await()
+            if (rotateCredential) revision = "b".repeat(64) else owner = owner.copy(apiUrl = "https://changed.invalid/v1")
+            release.complete(Unit)
+            val snapshot = checkNotNull(pending.await())
+            assertFalse(snapshot.configured)
+            assertNull(snapshot.configurationRevision)
+        }
+    }
+
     @Test
     fun emptySelectionDoesNotReadSavedProfilesOrCredentials() = runBlocking {
         val settings = mockk<SettingRepository>()

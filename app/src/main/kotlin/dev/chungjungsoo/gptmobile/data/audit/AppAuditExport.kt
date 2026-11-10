@@ -48,7 +48,7 @@ suspend fun writeAppAuditExport(output: OutputStream, batch: BenchmarkBatch, sou
         val writer = AppAuditJsonWriter(output) { coroutine.ensureActive() }
         writer.field("format", JsonPrimitive("gptmobile.app-audit.v1"))
         writer.field("schemaVersion", JsonPrimitive(1))
-        writer.field("privacyPolicy", JsonPrimitive("app-audit-allowlist-v1"))
+        writer.field("privacyPolicy", JsonPrimitive("app-audit-allowlist-v2"))
         writer.field("recordScope", JsonPrimitive("Selected app audit only; no model answers, chat history, credentials, tool bodies or uncorrelated application logs."))
         writer.field(
             "run",
@@ -84,9 +84,12 @@ suspend fun writeAppAuditExport(output: OutputStream, batch: BenchmarkBatch, sou
                 put("sourceCommit", run.sourceCommit.takeIf { it.matches(Regex("[a-fA-F0-9]{40}")) })
                 put("sourceIdentityMeaning", "Build-time app commit declaration; remote service source is not inferred from app or catalogue metadata.")
                 put("version", run.buildVersion.takeIf { it.matches(Regex("[0-9]{1,5}(\\.[0-9]{1,5}){1,4}")) })
+                put("versionCode", safeAppAuditEnvironment(run.environment)?.versionCode?.let(::JsonPrimitive) ?: JsonNull)
                 put("variant", run.buildVariant.takeIf { it in setOf("debug", "release", "benchmark") } ?: "unknown")
+                put("installedArtifact", appAuditInstalledArtifactJson(run.environment))
             }
         )
+        writer.field("device", appAuditDeviceIdentityJson(run.environment))
         writer.field(
             "sourceCoverage",
             buildJsonObject {
@@ -198,6 +201,8 @@ suspend fun writeAppAuditExport(output: OutputStream, batch: BenchmarkBatch, sou
                     put("observedAtEpochMs", observation.observedAtEpochMs?.nonnegative() ?: JsonNull)
                     put("configurationRevision", safeAuditConfigurationRevision(observation.configurationRevision))
                     put("remoteServiceIdentity", appAuditRemoteIdentityJson(observation.remoteIdentity) ?: JsonNull)
+                    put("remoteServiceIdentityStatus", appAuditRemoteIdentityStatus(observation.remoteIdentity))
+                    put("remoteSourceIndependentlyVerified", false)
                     put(
                         "metrics",
                         JsonArray(

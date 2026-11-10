@@ -5,7 +5,7 @@
   "base_sha": "7db0c735f9e86eaece24513fbaf5c0a624f13822",
   "working_branch": "fix/audit-execution-recovery-2026-11-09",
   "intent": "Implement the user-requested 24 archive findings, 18 process-log findings and the complete app audit remediation: reconcile durable handoffs, resume useful work, reuse compact evidence, scope verification to the request, unify budgets and failure receipts, improve connector compatibility and actionable qualification, and reduce diagnostic/UI overhead with truthful validation.",
-  "state": "FOLLOWUP_HOST_VALIDATED_CI_PENDING",
+  "state": "FOLLOW_UP_LOCAL_VERIFIED_READY_FOR_PUBLICATION",
   "task_store": "engineering_agent_checkpoints",
   "task_store_key": "audit-execution-recovery-2026-11-09",
   "source_evidence": {
@@ -57,5 +57,68 @@
     "initial_published_head": "901e3eb8184fa2721e8ccd7255b21e2636677833",
     "initial_tree": "f3c61c0d0f38a58c407db92fa143d88c2ba4d612",
     "recovery": "Confirmed the remote commit tree exactly matched the recovered staged tree; synchronized local branch without rewriting or redispatching the published commit."
+  },
+  "followup": {
+    "parent_head": "016990710f71b8c1a268fe5e7a0328a72d13a173",
+    "base_sha": "7db0c735f9e86eaece24513fbaf5c0a624f13822",
+    "intent": "Fix the three observed PR #816 test failures; compare the supplied app and ChatGPT screenshots and improve GitHub activity previews and public summaries with specific evidence, readable hierarchy, simple animation and preserved accessibility.",
+    "failed_run": 42716221437,
+    "observed_unit_outcome": {
+      "total": 8654,
+      "passed": 8646,
+      "failed": 3,
+      "skipped": 5
+    },
+    "failures": [
+      "GitHubContinuationInvocationTest.authorizedAliasAndCompactedArgumentsResolveTheOriginalHandoff",
+      "GatewayJobsViewModelTest.transientCatalogFailureBacksOffAndRetainsPreviouslyVerifiedRows",
+      "GitHubProgrammerHomeTest.fixedProgressStaysVisibleWhileConversationScrolls"
+    ],
+    "acceptance": [
+      "Raw provider-call identity survives authorized aliasing and replay compaction without trusting provider fingerprints.",
+      "Gateway retry starts at 10 seconds, caps at 60 seconds, resets after success, and preserves cached rows.",
+      "The pinned progress header exposes the actual preparation or public summary exactly once while scrolling.",
+      "Detailed progress uses explicit public findings, observed subjects and a concrete next action; no invented success or private reasoning.",
+      "Activity previews are concise with accessible full detail and subtle motion; summaries are readable and remain stable during updates.",
+      "Canonical fast validation and fresh Android CI on the published head."
+    ],
+    "validation_receipt": "docs/repairs/evidence/audit-execution-recovery-2026-11-09/follow-up-validation.json"
+  },
+  "latest_audit": {
+    "file": "app-audit-1794267649957.json",
+    "sha256": "950b32a4f9015e425fd8d46bdc9b992b9fe1afc31295653b910608bee58d910c",
+    "source_commit": "7431c9564c4ca9cecb2ae398c2e81d31d7a077ae",
+    "run_id": "a6a0bec4-62ea-4465-9bb3-69c8ba70af7f",
+    "all_pairs_reconciled": 137,
+    "outcomes": {
+      "passed": 53,
+      "failed": 3,
+      "blocked": 4,
+      "unavailable": 10,
+      "untested": 67
+    },
+    "measured": {
+      "passed": 25,
+      "exercised": 27
+    },
+    "qualification_entries": 67,
+    "scope": "Add all repository-side fixes supported by this capture and run available qualification; preserve the completed UI/narrative and CI repairs. Keep external saved-connection repair, target-fixture/model execution and physical-device evidence explicit when access is unavailable.",
+    "work_packages": [
+      "Bind pending MCP OAuth authorization to the unchanged saved connection and endpoint.",
+      "Bind selected-model benchmark preparation, dispatch and export to the exact audit/configuration revision.",
+      "Retain installed APK and device identity with audit/export and require measured-session provenance for device qualification.",
+      "Collect actual named-suite execution and instrumented coverage evidence without promoting historical audit scores.",
+      "Run repository host suites and full fresh Android CI; retain deployment and device blockers."
+    ],
+    "preserve": [
+      "Strict modern discovery validation and controlled legacy compatibility.",
+      "Zero dispatch for invalid local credentials.",
+      "Disabled/uninstalled optional plugins until requested setup.",
+      "Immutable historical audit outcomes and measured-only score.",
+      "No unknown mutation replay or selected-profile substitution."
+    ],
+    "remediation_record": "docs/repairs/latest-audit-2026-11-09.md",
+    "capture_index": "docs/repairs/evidence/audit-execution-recovery-2026-11-09/latest-audit-capture.json",
+    "historical_outcomes_changed": false
   }
 }

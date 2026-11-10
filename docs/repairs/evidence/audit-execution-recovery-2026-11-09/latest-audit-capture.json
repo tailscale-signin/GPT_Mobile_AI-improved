@@ -1,0 +1,3305 @@
+{
+  "schema_version": 1,
+  "kind": "IMMUTABLE_CAPTURE_INDEX_NOT_NEW_EXECUTION",
+  "input_file": "app-audit-1794267649957.json",
+  "input_sha256": "950b32a4f9015e425fd8d46bdc9b992b9fe1afc31295653b910608bee58d910c",
+  "run_id": "a6a0bec4-62ea-4465-9bb3-69c8ba70af7f",
+  "app_source_commit": "7431c9564c4ca9cecb2ae398c2e81d31d7a077ae",
+  "outcomes": {
+    "PASS": 53,
+    "UNTESTED": 67,
+    "FAIL": 3,
+    "BLOCKED": 4,
+    "UNAVAILABLE": 10
+  },
+  "measured_verified_passes": 25,
+  "eligible_measured_checks": 27,
+  "historical_audit_changed": false,
+  "new_execution_claimed": false,
+  "scope": "Privacy-limited index of all original checks and pending qualification paths. Not a repaired audit or target-execution report.",
+  "checks": [
+    {
+      "id": "check-1",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "chat_ui",
+        "gateway_client"
+      ],
+      "evidenceKind": "LOCAL_CONTRACT",
+      "outcome": "PASS",
+      "reasonCode": "LOCAL_CONTRACT_PASSED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-2",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "accessibility_and_localization",
+        "chat_ui"
+      ],
+      "evidenceKind": "LOCAL_CONTRACT",
+      "outcome": "PASS",
+      "reasonCode": "LOCAL_CONTRACT_PASSED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-3",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "agent_tools",
+        "agent_execution"
+      ],
+      "evidenceKind": "LOCAL_CONTRACT",
+      "outcome": "PASS",
+      "reasonCode": "LOCAL_CONTRACT_PASSED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-4",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "auth_and_security",
+        "agent_tools"
+      ],
+      "evidenceKind": "LOCAL_CONTRACT",
+      "outcome": "PASS",
+      "reasonCode": "LOCAL_CONTRACT_PASSED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-5",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "agent_execution",
+        "agent_tools"
+      ],
+      "evidenceKind": "LOCAL_CONTRACT",
+      "outcome": "PASS",
+      "reasonCode": "LOCAL_CONTRACT_PASSED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-6",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "auth_and_security"
+      ],
+      "evidenceKind": "LOCAL_CONTRACT",
+      "outcome": "PASS",
+      "reasonCode": "LOCAL_CONTRACT_PASSED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-7",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "agent_execution"
+      ],
+      "evidenceKind": "LOCAL_CONTRACT",
+      "outcome": "PASS",
+      "reasonCode": "LOCAL_CONTRACT_PASSED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-8",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "evidenceKind": "LOCAL_CONTRACT",
+      "outcome": "PASS",
+      "reasonCode": "FIXTURE_PASSED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-9",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "evidenceKind": "LOCAL_CONTRACT",
+      "outcome": "PASS",
+      "reasonCode": "FIXTURE_PASSED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-10",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "evidenceKind": "LOCAL_CONTRACT",
+      "outcome": "PASS",
+      "reasonCode": "FIXTURE_PASSED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-11",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "portable_domain",
+        "models_and_profiles"
+      ],
+      "evidenceKind": "LOCAL_CONTRACT",
+      "outcome": "PASS",
+      "reasonCode": "FIXTURE_PASSED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-12",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "portable_domain"
+      ],
+      "evidenceKind": "LOCAL_CONTRACT",
+      "outcome": "PASS",
+      "reasonCode": "FIXTURE_PASSED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-13",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "agent_execution",
+        "auth_and_security"
+      ],
+      "evidenceKind": "LOCAL_CONTRACT",
+      "outcome": "PASS",
+      "reasonCode": "FIXTURE_PASSED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-14",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "diagnostics_and_export",
+        "auth_and_security"
+      ],
+      "evidenceKind": "LOCAL_CONTRACT",
+      "outcome": "PASS",
+      "reasonCode": "FIXTURE_PASSED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-15",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "research"
+      ],
+      "evidenceKind": "LOCAL_CONTRACT",
+      "outcome": "PASS",
+      "reasonCode": "FIXTURE_PASSED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-16",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "gateway_client"
+      ],
+      "evidenceKind": "LOCAL_CONTRACT",
+      "outcome": "PASS",
+      "reasonCode": "FIXTURE_PASSED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-17",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "github"
+      ],
+      "evidenceKind": "LOCAL_CONTRACT",
+      "outcome": "PASS",
+      "reasonCode": "FIXTURE_PASSED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-18",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "benchmark",
+        "persistence"
+      ],
+      "evidenceKind": "LOCAL_CONTRACT",
+      "outcome": "PASS",
+      "reasonCode": "FIXTURE_PASSED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-19",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "memory_and_rag",
+        "auth_and_security"
+      ],
+      "evidenceKind": "LOCAL_CONTRACT",
+      "outcome": "PASS",
+      "reasonCode": "LOCAL_CONTRACT_PASSED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-20",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "memory_and_rag"
+      ],
+      "evidenceKind": "LOCAL_CONTRACT",
+      "outcome": "PASS",
+      "reasonCode": "LOCAL_CONTRACT_PASSED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-21",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "memory_and_rag"
+      ],
+      "evidenceKind": "LOCAL_CONTRACT",
+      "outcome": "PASS",
+      "reasonCode": "LOCAL_CONTRACT_PASSED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-22",
+      "targetAlias": "target-1",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "evidenceKind": "CONFIGURATION",
+      "outcome": "PASS",
+      "reasonCode": "PLUGIN_CONFIGURATION_ONLY",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-23",
+      "targetAlias": "target-1",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "evidenceKind": "TOOL_EXECUTION",
+      "outcome": "UNTESTED",
+      "reasonCode": "PLUGIN_EXECUTION_NOT_EXERCISED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-24",
+      "targetAlias": "target-2",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "evidenceKind": "CONFIGURATION",
+      "outcome": "PASS",
+      "reasonCode": "PLUGIN_CONFIGURATION_ONLY",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-25",
+      "targetAlias": "target-2",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "evidenceKind": "TOOL_EXECUTION",
+      "outcome": "UNTESTED",
+      "reasonCode": "PLUGIN_EXECUTION_NOT_EXERCISED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-26",
+      "targetAlias": "target-3",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "evidenceKind": "CONFIGURATION",
+      "outcome": "PASS",
+      "reasonCode": "PLUGIN_CONFIGURATION_ONLY",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-27",
+      "targetAlias": "target-3",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "evidenceKind": "TOOL_EXECUTION",
+      "outcome": "UNTESTED",
+      "reasonCode": "PLUGIN_EXECUTION_NOT_EXERCISED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-28",
+      "targetAlias": "target-4",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "evidenceKind": "CONFIGURATION",
+      "outcome": "PASS",
+      "reasonCode": "PLUGIN_CONFIGURATION_ONLY",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-29",
+      "targetAlias": "target-4",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "evidenceKind": "TOOL_EXECUTION",
+      "outcome": "UNTESTED",
+      "reasonCode": "PLUGIN_EXECUTION_NOT_EXERCISED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-30",
+      "targetAlias": "target-5",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "evidenceKind": "CONFIGURATION",
+      "outcome": "PASS",
+      "reasonCode": "PLUGIN_CONFIGURATION_ONLY",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-31",
+      "targetAlias": "target-5",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "evidenceKind": "TOOL_EXECUTION",
+      "outcome": "UNTESTED",
+      "reasonCode": "PLUGIN_EXECUTION_NOT_EXERCISED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-32",
+      "targetAlias": "target-6",
+      "sourceAreaIds": [
+        "mcp_plugins"
+      ],
+      "evidenceKind": "CONFIGURATION",
+      "outcome": "PASS",
+      "reasonCode": "PLUGIN_CONFIGURATION_ONLY",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-33",
+      "targetAlias": "target-6",
+      "sourceAreaIds": [
+        "mcp_plugins"
+      ],
+      "evidenceKind": "LIVE_METADATA",
+      "outcome": "PASS",
+      "reasonCode": "MCP_DISCOVERY_VERIFIED",
+      "dispatchEvidence": "CONFIRMED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-34",
+      "targetAlias": "target-6",
+      "sourceAreaIds": [
+        "mcp_plugins"
+      ],
+      "evidenceKind": "TOOL_EXECUTION",
+      "outcome": "UNTESTED",
+      "reasonCode": "PLUGIN_EXECUTION_NOT_EXERCISED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-35",
+      "targetAlias": "target-7",
+      "sourceAreaIds": [
+        "mcp_plugins"
+      ],
+      "evidenceKind": "CONFIGURATION",
+      "outcome": "PASS",
+      "reasonCode": "PLUGIN_CONFIGURATION_ONLY",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-36",
+      "targetAlias": "target-7",
+      "sourceAreaIds": [
+        "mcp_plugins"
+      ],
+      "evidenceKind": "LIVE_METADATA",
+      "outcome": "FAIL",
+      "reasonCode": "MCP_DISCOVERY_SCHEMA_INVALID",
+      "dispatchEvidence": "CONFIRMED",
+      "httpStatus": 200,
+      "failurePhase": "protocol_negotiation",
+      "validationRule": "PROTOCOL_VERSIONS_ARRAY_REQUIRED",
+      "validationField": "supportedVersions"
+    },
+    {
+      "id": "check-37",
+      "targetAlias": "target-7",
+      "sourceAreaIds": [
+        "mcp_plugins"
+      ],
+      "evidenceKind": "TOOL_EXECUTION",
+      "outcome": "UNTESTED",
+      "reasonCode": "PLUGIN_EXECUTION_NOT_EXERCISED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-38",
+      "targetAlias": "target-8",
+      "sourceAreaIds": [
+        "mcp_plugins"
+      ],
+      "evidenceKind": "CONFIGURATION",
+      "outcome": "PASS",
+      "reasonCode": "PLUGIN_CONFIGURATION_ONLY",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-39",
+      "targetAlias": "target-8",
+      "sourceAreaIds": [
+        "mcp_plugins"
+      ],
+      "evidenceKind": "LIVE_METADATA",
+      "outcome": "PASS",
+      "reasonCode": "MCP_DISCOVERY_VERIFIED",
+      "dispatchEvidence": "CONFIRMED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-40",
+      "targetAlias": "target-8",
+      "sourceAreaIds": [
+        "mcp_plugins"
+      ],
+      "evidenceKind": "TOOL_EXECUTION",
+      "outcome": "UNTESTED",
+      "reasonCode": "PLUGIN_EXECUTION_NOT_EXERCISED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-41",
+      "targetAlias": "target-9",
+      "sourceAreaIds": [
+        "mcp_plugins"
+      ],
+      "evidenceKind": "CONFIGURATION",
+      "outcome": "PASS",
+      "reasonCode": "PLUGIN_CONFIGURATION_ONLY",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-42",
+      "targetAlias": "target-9",
+      "sourceAreaIds": [
+        "mcp_plugins"
+      ],
+      "evidenceKind": "LIVE_METADATA",
+      "outcome": "FAIL",
+      "reasonCode": "MCP_DISCOVERY_CONFIGURATION",
+      "dispatchEvidence": "CONFIRMED",
+      "httpStatus": 404,
+      "failurePhase": "protocol_negotiation",
+      "validationRule": "DISCOVERY_METHOD_SUPPORTED_REQUIRED",
+      "validationField": "server_discover"
+    },
+    {
+      "id": "check-43",
+      "targetAlias": "target-9",
+      "sourceAreaIds": [
+        "mcp_plugins"
+      ],
+      "evidenceKind": "TOOL_EXECUTION",
+      "outcome": "UNTESTED",
+      "reasonCode": "PLUGIN_EXECUTION_NOT_EXERCISED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-44",
+      "targetAlias": "target-10",
+      "sourceAreaIds": [
+        "mcp_plugins"
+      ],
+      "evidenceKind": "CONFIGURATION",
+      "outcome": "PASS",
+      "reasonCode": "PLUGIN_CONFIGURATION_ONLY",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-45",
+      "targetAlias": "target-10",
+      "sourceAreaIds": [
+        "mcp_plugins"
+      ],
+      "evidenceKind": "LIVE_METADATA",
+      "outcome": "PASS",
+      "reasonCode": "MCP_DISCOVERY_VERIFIED",
+      "dispatchEvidence": "CONFIRMED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-46",
+      "targetAlias": "target-10",
+      "sourceAreaIds": [
+        "mcp_plugins"
+      ],
+      "evidenceKind": "TOOL_EXECUTION",
+      "outcome": "UNTESTED",
+      "reasonCode": "PLUGIN_EXECUTION_NOT_EXERCISED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-47",
+      "targetAlias": "target-11",
+      "sourceAreaIds": [
+        "mcp_plugins"
+      ],
+      "evidenceKind": "CONFIGURATION",
+      "outcome": "PASS",
+      "reasonCode": "PLUGIN_CONFIGURATION_ONLY",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-48",
+      "targetAlias": "target-11",
+      "sourceAreaIds": [
+        "mcp_plugins"
+      ],
+      "evidenceKind": "LIVE_METADATA",
+      "outcome": "FAIL",
+      "reasonCode": "MCP_LOCAL_CREDENTIAL_INVALID",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": "local_validation",
+      "validationRule": "CREDENTIAL_REAUTHORIZATION_REQUIRED",
+      "validationField": "credential"
+    },
+    {
+      "id": "check-49",
+      "targetAlias": "target-11",
+      "sourceAreaIds": [
+        "mcp_plugins"
+      ],
+      "evidenceKind": "TOOL_EXECUTION",
+      "outcome": "UNTESTED",
+      "reasonCode": "PLUGIN_EXECUTION_NOT_EXERCISED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-50",
+      "targetAlias": "target-12",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "evidenceKind": "CONFIGURATION",
+      "outcome": "PASS",
+      "reasonCode": "PLUGIN_CONFIGURATION_ONLY",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-51",
+      "targetAlias": "target-12",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "evidenceKind": "TOOL_EXECUTION",
+      "outcome": "UNTESTED",
+      "reasonCode": "PLUGIN_EXECUTION_NOT_EXERCISED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-52",
+      "targetAlias": "target-13",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "evidenceKind": "CONFIGURATION",
+      "outcome": "PASS",
+      "reasonCode": "PLUGIN_CONFIGURATION_ONLY",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-53",
+      "targetAlias": "target-13",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "evidenceKind": "TOOL_EXECUTION",
+      "outcome": "UNTESTED",
+      "reasonCode": "PLUGIN_EXECUTION_NOT_EXERCISED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-54",
+      "targetAlias": "target-14",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "evidenceKind": "CONFIGURATION",
+      "outcome": "PASS",
+      "reasonCode": "PLUGIN_CONFIGURATION_ONLY",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-55",
+      "targetAlias": "target-14",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "evidenceKind": "TOOL_EXECUTION",
+      "outcome": "UNTESTED",
+      "reasonCode": "PLUGIN_EXECUTION_NOT_EXERCISED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-56",
+      "targetAlias": "target-15",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "evidenceKind": "CONFIGURATION",
+      "outcome": "PASS",
+      "reasonCode": "PLUGIN_CONFIGURATION_ONLY",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-57",
+      "targetAlias": "target-16",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "evidenceKind": "CONFIGURATION",
+      "outcome": "BLOCKED",
+      "reasonCode": "PLUGIN_DISABLED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-58",
+      "targetAlias": "target-16",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "evidenceKind": "TOOL_EXECUTION",
+      "outcome": "UNTESTED",
+      "reasonCode": "PLUGIN_EXECUTION_NOT_EXERCISED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-59",
+      "targetAlias": "target-17",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "evidenceKind": "CONFIGURATION",
+      "outcome": "PASS",
+      "reasonCode": "PLUGIN_CONFIGURATION_ONLY",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-60",
+      "targetAlias": "target-18",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "evidenceKind": "CONFIGURATION",
+      "outcome": "BLOCKED",
+      "reasonCode": "PLUGIN_DISABLED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-61",
+      "targetAlias": "target-18",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "evidenceKind": "TOOL_EXECUTION",
+      "outcome": "UNTESTED",
+      "reasonCode": "PLUGIN_EXECUTION_NOT_EXERCISED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-62",
+      "targetAlias": "target-19",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "evidenceKind": "CONFIGURATION",
+      "outcome": "PASS",
+      "reasonCode": "PLUGIN_CONFIGURATION_ONLY",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-63",
+      "targetAlias": "target-19",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "evidenceKind": "TOOL_EXECUTION",
+      "outcome": "UNTESTED",
+      "reasonCode": "PLUGIN_EXECUTION_NOT_EXERCISED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-64",
+      "targetAlias": "target-20",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "evidenceKind": "CONFIGURATION",
+      "outcome": "PASS",
+      "reasonCode": "PLUGIN_CONFIGURATION_ONLY",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-65",
+      "targetAlias": "target-20",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "evidenceKind": "TOOL_EXECUTION",
+      "outcome": "UNTESTED",
+      "reasonCode": "PLUGIN_EXECUTION_NOT_EXERCISED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-66",
+      "targetAlias": "target-21",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "evidenceKind": "CONFIGURATION",
+      "outcome": "PASS",
+      "reasonCode": "PLUGIN_CONFIGURATION_ONLY",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-67",
+      "targetAlias": "target-21",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "evidenceKind": "TOOL_EXECUTION",
+      "outcome": "UNTESTED",
+      "reasonCode": "PLUGIN_EXECUTION_NOT_EXERCISED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-68",
+      "targetAlias": "target-22",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "evidenceKind": "CONFIGURATION",
+      "outcome": "PASS",
+      "reasonCode": "PLUGIN_CONFIGURATION_ONLY",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-69",
+      "targetAlias": "target-22",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "evidenceKind": "TOOL_EXECUTION",
+      "outcome": "UNTESTED",
+      "reasonCode": "PLUGIN_EXECUTION_NOT_EXERCISED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-70",
+      "targetAlias": "target-23",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "evidenceKind": "CONFIGURATION",
+      "outcome": "PASS",
+      "reasonCode": "PLUGIN_CONFIGURATION_ONLY",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-71",
+      "targetAlias": "target-23",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "evidenceKind": "TOOL_EXECUTION",
+      "outcome": "UNTESTED",
+      "reasonCode": "PLUGIN_EXECUTION_NOT_EXERCISED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-72",
+      "targetAlias": "target-24",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "evidenceKind": "CONFIGURATION",
+      "outcome": "PASS",
+      "reasonCode": "PLUGIN_CONFIGURATION_ONLY",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-73",
+      "targetAlias": "target-24",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "evidenceKind": "TOOL_EXECUTION",
+      "outcome": "UNTESTED",
+      "reasonCode": "PLUGIN_EXECUTION_NOT_EXERCISED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-74",
+      "targetAlias": "target-25",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "evidenceKind": "CONFIGURATION",
+      "outcome": "PASS",
+      "reasonCode": "PLUGIN_CONFIGURATION_ONLY",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-75",
+      "targetAlias": "target-25",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "evidenceKind": "TOOL_EXECUTION",
+      "outcome": "UNTESTED",
+      "reasonCode": "PLUGIN_EXECUTION_NOT_EXERCISED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-76",
+      "targetAlias": "target-26",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "evidenceKind": "CONFIGURATION",
+      "outcome": "PASS",
+      "reasonCode": "PLUGIN_CONFIGURATION_ONLY",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-77",
+      "targetAlias": "target-26",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "evidenceKind": "TOOL_EXECUTION",
+      "outcome": "UNTESTED",
+      "reasonCode": "PLUGIN_EXECUTION_NOT_EXERCISED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-78",
+      "targetAlias": "target-27",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "evidenceKind": "CONFIGURATION",
+      "outcome": "BLOCKED",
+      "reasonCode": "PLUGIN_DISABLED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-79",
+      "targetAlias": "target-27",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "evidenceKind": "TOOL_EXECUTION",
+      "outcome": "UNTESTED",
+      "reasonCode": "PLUGIN_EXECUTION_NOT_EXERCISED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-80",
+      "targetAlias": "target-28",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "evidenceKind": "CONFIGURATION",
+      "outcome": "BLOCKED",
+      "reasonCode": "PLUGIN_DISABLED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-81",
+      "targetAlias": "target-28",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "evidenceKind": "TOOL_EXECUTION",
+      "outcome": "UNTESTED",
+      "reasonCode": "PLUGIN_EXECUTION_NOT_EXERCISED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-82",
+      "targetAlias": "target-29",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "evidenceKind": "CONFIGURATION",
+      "outcome": "PASS",
+      "reasonCode": "PLUGIN_CONFIGURATION_ONLY",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-83",
+      "targetAlias": "target-29",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "evidenceKind": "TOOL_EXECUTION",
+      "outcome": "UNTESTED",
+      "reasonCode": "PLUGIN_EXECUTION_NOT_EXERCISED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-84",
+      "targetAlias": "target-30",
+      "sourceAreaIds": [
+        "marketplace_plugins"
+      ],
+      "evidenceKind": "CONFIGURATION",
+      "outcome": "UNAVAILABLE",
+      "reasonCode": "PLUGIN_NOT_INSTALLED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-85",
+      "targetAlias": "target-30",
+      "sourceAreaIds": [
+        "marketplace_plugins"
+      ],
+      "evidenceKind": "TOOL_EXECUTION",
+      "outcome": "UNTESTED",
+      "reasonCode": "PLUGIN_EXECUTION_NOT_EXERCISED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-86",
+      "targetAlias": "target-31",
+      "sourceAreaIds": [
+        "marketplace_plugins"
+      ],
+      "evidenceKind": "CONFIGURATION",
+      "outcome": "UNAVAILABLE",
+      "reasonCode": "PLUGIN_NOT_INSTALLED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-87",
+      "targetAlias": "target-31",
+      "sourceAreaIds": [
+        "marketplace_plugins"
+      ],
+      "evidenceKind": "TOOL_EXECUTION",
+      "outcome": "UNTESTED",
+      "reasonCode": "PLUGIN_EXECUTION_NOT_EXERCISED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-88",
+      "targetAlias": "target-32",
+      "sourceAreaIds": [
+        "marketplace_plugins"
+      ],
+      "evidenceKind": "CONFIGURATION",
+      "outcome": "UNAVAILABLE",
+      "reasonCode": "PLUGIN_NOT_INSTALLED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-89",
+      "targetAlias": "target-32",
+      "sourceAreaIds": [
+        "marketplace_plugins"
+      ],
+      "evidenceKind": "TOOL_EXECUTION",
+      "outcome": "UNTESTED",
+      "reasonCode": "PLUGIN_EXECUTION_NOT_EXERCISED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-90",
+      "targetAlias": "target-33",
+      "sourceAreaIds": [
+        "marketplace_plugins"
+      ],
+      "evidenceKind": "CONFIGURATION",
+      "outcome": "UNAVAILABLE",
+      "reasonCode": "PLUGIN_NOT_INSTALLED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-91",
+      "targetAlias": "target-33",
+      "sourceAreaIds": [
+        "marketplace_plugins"
+      ],
+      "evidenceKind": "TOOL_EXECUTION",
+      "outcome": "UNTESTED",
+      "reasonCode": "PLUGIN_EXECUTION_NOT_EXERCISED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-92",
+      "targetAlias": "target-34",
+      "sourceAreaIds": [
+        "marketplace_plugins"
+      ],
+      "evidenceKind": "CONFIGURATION",
+      "outcome": "UNAVAILABLE",
+      "reasonCode": "PLUGIN_NOT_INSTALLED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-93",
+      "targetAlias": "target-34",
+      "sourceAreaIds": [
+        "marketplace_plugins"
+      ],
+      "evidenceKind": "TOOL_EXECUTION",
+      "outcome": "UNTESTED",
+      "reasonCode": "PLUGIN_EXECUTION_NOT_EXERCISED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-94",
+      "targetAlias": "target-35",
+      "sourceAreaIds": [
+        "marketplace_plugins"
+      ],
+      "evidenceKind": "CONFIGURATION",
+      "outcome": "UNAVAILABLE",
+      "reasonCode": "PLUGIN_NOT_INSTALLED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-95",
+      "targetAlias": "target-35",
+      "sourceAreaIds": [
+        "marketplace_plugins"
+      ],
+      "evidenceKind": "TOOL_EXECUTION",
+      "outcome": "UNTESTED",
+      "reasonCode": "PLUGIN_EXECUTION_NOT_EXERCISED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-96",
+      "targetAlias": "target-36",
+      "sourceAreaIds": [
+        "marketplace_plugins"
+      ],
+      "evidenceKind": "CONFIGURATION",
+      "outcome": "PASS",
+      "reasonCode": "PLUGIN_CONFIGURATION_ONLY",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-97",
+      "targetAlias": "target-36",
+      "sourceAreaIds": [
+        "marketplace_plugins"
+      ],
+      "evidenceKind": "TOOL_EXECUTION",
+      "outcome": "UNTESTED",
+      "reasonCode": "PLUGIN_EXECUTION_NOT_EXERCISED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-98",
+      "targetAlias": "target-37",
+      "sourceAreaIds": [
+        "marketplace_plugins"
+      ],
+      "evidenceKind": "CONFIGURATION",
+      "outcome": "UNAVAILABLE",
+      "reasonCode": "PLUGIN_NOT_INSTALLED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-99",
+      "targetAlias": "target-37",
+      "sourceAreaIds": [
+        "marketplace_plugins"
+      ],
+      "evidenceKind": "TOOL_EXECUTION",
+      "outcome": "UNTESTED",
+      "reasonCode": "PLUGIN_EXECUTION_NOT_EXERCISED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-100",
+      "targetAlias": "target-38",
+      "sourceAreaIds": [
+        "marketplace_plugins"
+      ],
+      "evidenceKind": "CONFIGURATION",
+      "outcome": "UNAVAILABLE",
+      "reasonCode": "PLUGIN_NOT_INSTALLED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-101",
+      "targetAlias": "target-38",
+      "sourceAreaIds": [
+        "marketplace_plugins"
+      ],
+      "evidenceKind": "TOOL_EXECUTION",
+      "outcome": "UNTESTED",
+      "reasonCode": "PLUGIN_EXECUTION_NOT_EXERCISED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-102",
+      "targetAlias": "target-39",
+      "sourceAreaIds": [
+        "marketplace_plugins"
+      ],
+      "evidenceKind": "CONFIGURATION",
+      "outcome": "PASS",
+      "reasonCode": "PLUGIN_CONFIGURATION_ONLY",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-103",
+      "targetAlias": "target-39",
+      "sourceAreaIds": [
+        "marketplace_plugins"
+      ],
+      "evidenceKind": "TOOL_EXECUTION",
+      "outcome": "UNTESTED",
+      "reasonCode": "PLUGIN_EXECUTION_NOT_EXERCISED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-104",
+      "targetAlias": "target-40",
+      "sourceAreaIds": [
+        "marketplace_plugins"
+      ],
+      "evidenceKind": "CONFIGURATION",
+      "outcome": "UNAVAILABLE",
+      "reasonCode": "PLUGIN_NOT_INSTALLED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-105",
+      "targetAlias": "target-40",
+      "sourceAreaIds": [
+        "marketplace_plugins"
+      ],
+      "evidenceKind": "TOOL_EXECUTION",
+      "outcome": "UNTESTED",
+      "reasonCode": "PLUGIN_EXECUTION_NOT_EXERCISED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-106",
+      "targetAlias": "target-41",
+      "sourceAreaIds": [
+        "marketplace_plugins"
+      ],
+      "evidenceKind": "CONFIGURATION",
+      "outcome": "UNAVAILABLE",
+      "reasonCode": "PLUGIN_NOT_INSTALLED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-107",
+      "targetAlias": "target-41",
+      "sourceAreaIds": [
+        "marketplace_plugins"
+      ],
+      "evidenceKind": "TOOL_EXECUTION",
+      "outcome": "UNTESTED",
+      "reasonCode": "PLUGIN_EXECUTION_NOT_EXERCISED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-108",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "research",
+        "auth_and_security"
+      ],
+      "evidenceKind": "LOCAL_CONTRACT",
+      "outcome": "PASS",
+      "reasonCode": "LOCAL_CONTRACT_PASSED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-109",
+      "targetAlias": "target-42",
+      "sourceAreaIds": [
+        "models_and_profiles",
+        "model_providers"
+      ],
+      "evidenceKind": "CONFIGURATION",
+      "outcome": "PASS",
+      "reasonCode": "MODEL_CONFIGURATION_ONLY",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-110",
+      "targetAlias": "target-42",
+      "sourceAreaIds": [
+        "models_and_profiles",
+        "model_providers"
+      ],
+      "evidenceKind": "MODEL_EXECUTION",
+      "outcome": "UNTESTED",
+      "reasonCode": "MODEL_BENCHMARK_REQUIRED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-111",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "android_shell"
+      ],
+      "evidenceKind": "EXTERNAL_SUITE",
+      "outcome": "UNTESTED",
+      "reasonCode": "EXTERNAL_HARNESS_REQUIRED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-112",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "chat_ui"
+      ],
+      "evidenceKind": "EXTERNAL_SUITE",
+      "outcome": "UNTESTED",
+      "reasonCode": "EXTERNAL_HARNESS_REQUIRED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-113",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "accessibility_and_localization"
+      ],
+      "evidenceKind": "EXTERNAL_SUITE",
+      "outcome": "UNTESTED",
+      "reasonCode": "EXTERNAL_HARNESS_REQUIRED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-114",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "agent_execution"
+      ],
+      "evidenceKind": "EXTERNAL_SUITE",
+      "outcome": "UNTESTED",
+      "reasonCode": "EXTERNAL_HARNESS_REQUIRED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-115",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "evidenceKind": "EXTERNAL_SUITE",
+      "outcome": "UNTESTED",
+      "reasonCode": "EXTERNAL_HARNESS_REQUIRED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-116",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "mcp_plugins"
+      ],
+      "evidenceKind": "EXTERNAL_SUITE",
+      "outcome": "UNTESTED",
+      "reasonCode": "EXTERNAL_HARNESS_REQUIRED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-117",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "marketplace_plugins"
+      ],
+      "evidenceKind": "EXTERNAL_SUITE",
+      "outcome": "UNTESTED",
+      "reasonCode": "EXTERNAL_HARNESS_REQUIRED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-118",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "model_providers"
+      ],
+      "evidenceKind": "EXTERNAL_SUITE",
+      "outcome": "UNTESTED",
+      "reasonCode": "EXTERNAL_HARNESS_REQUIRED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-119",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "models_and_profiles"
+      ],
+      "evidenceKind": "EXTERNAL_SUITE",
+      "outcome": "UNTESTED",
+      "reasonCode": "EXTERNAL_HARNESS_REQUIRED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-120",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "local_inference"
+      ],
+      "evidenceKind": "EXTERNAL_SUITE",
+      "outcome": "UNTESTED",
+      "reasonCode": "EXTERNAL_HARNESS_REQUIRED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-121",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "gateway_client"
+      ],
+      "evidenceKind": "EXTERNAL_SUITE",
+      "outcome": "UNTESTED",
+      "reasonCode": "EXTERNAL_HARNESS_REQUIRED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-122",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "network"
+      ],
+      "evidenceKind": "EXTERNAL_SUITE",
+      "outcome": "UNTESTED",
+      "reasonCode": "EXTERNAL_HARNESS_REQUIRED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-123",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "github"
+      ],
+      "evidenceKind": "EXTERNAL_SUITE",
+      "outcome": "UNTESTED",
+      "reasonCode": "EXTERNAL_HARNESS_REQUIRED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-124",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "research"
+      ],
+      "evidenceKind": "EXTERNAL_SUITE",
+      "outcome": "UNTESTED",
+      "reasonCode": "EXTERNAL_HARNESS_REQUIRED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-125",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "memory_and_rag"
+      ],
+      "evidenceKind": "EXTERNAL_SUITE",
+      "outcome": "UNTESTED",
+      "reasonCode": "EXTERNAL_HARNESS_REQUIRED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-126",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "persistence"
+      ],
+      "evidenceKind": "EXTERNAL_SUITE",
+      "outcome": "UNTESTED",
+      "reasonCode": "EXTERNAL_HARNESS_REQUIRED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-127",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "diagnostics_and_export"
+      ],
+      "evidenceKind": "EXTERNAL_SUITE",
+      "outcome": "UNTESTED",
+      "reasonCode": "EXTERNAL_HARNESS_REQUIRED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-128",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "benchmark"
+      ],
+      "evidenceKind": "EXTERNAL_SUITE",
+      "outcome": "UNTESTED",
+      "reasonCode": "EXTERNAL_HARNESS_REQUIRED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-129",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "auth_and_security"
+      ],
+      "evidenceKind": "EXTERNAL_SUITE",
+      "outcome": "UNTESTED",
+      "reasonCode": "EXTERNAL_HARNESS_REQUIRED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-130",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "voice_and_media"
+      ],
+      "evidenceKind": "EXTERNAL_SUITE",
+      "outcome": "UNTESTED",
+      "reasonCode": "EXTERNAL_HARNESS_REQUIRED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-131",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "portable_domain"
+      ],
+      "evidenceKind": "EXTERNAL_SUITE",
+      "outcome": "UNTESTED",
+      "reasonCode": "EXTERNAL_HARNESS_REQUIRED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-132",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "native_bridge"
+      ],
+      "evidenceKind": "EXTERNAL_SUITE",
+      "outcome": "UNTESTED",
+      "reasonCode": "EXTERNAL_HARNESS_REQUIRED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-133",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "gateway_software"
+      ],
+      "evidenceKind": "EXTERNAL_SUITE",
+      "outcome": "UNTESTED",
+      "reasonCode": "EXTERNAL_HARNESS_REQUIRED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-134",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "authentication_service"
+      ],
+      "evidenceKind": "EXTERNAL_SUITE",
+      "outcome": "UNTESTED",
+      "reasonCode": "EXTERNAL_HARNESS_REQUIRED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-135",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "external_integrations"
+      ],
+      "evidenceKind": "EXTERNAL_SUITE",
+      "outcome": "UNTESTED",
+      "reasonCode": "EXTERNAL_HARNESS_REQUIRED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-136",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "other_production"
+      ],
+      "evidenceKind": "EXTERNAL_SUITE",
+      "outcome": "UNTESTED",
+      "reasonCode": "EXTERNAL_HARNESS_REQUIRED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    },
+    {
+      "id": "check-137",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "android_shell",
+        "chat_ui",
+        "local_inference",
+        "native_bridge"
+      ],
+      "evidenceKind": "DEVICE_MEASUREMENT",
+      "outcome": "UNTESTED",
+      "reasonCode": "DEVICE_MEASUREMENT_REQUIRED",
+      "dispatchEvidence": "NOT_DISPATCHED",
+      "httpStatus": null,
+      "failurePhase": null,
+      "validationRule": null,
+      "validationField": null
+    }
+  ],
+  "pending_qualification": [
+    {
+      "checkId": "check-23",
+      "targetAlias": "target-1",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "requiredEvidenceKind": "TOOL_EXECUTION",
+      "family": "TARGET_TOOL_EXECUTION",
+      "readiness": "TARGET_FIXTURE_REQUIRED",
+      "configurationCheckId": "check-22",
+      "discoveryCheckId": null,
+      "blockingCheckIds": [],
+      "nextAction": "REVIEW_REQUIRED_HARNESS",
+      "namedHarnesses": [
+        "EXPLICITLY_NAMED_TARGET_FIXTURE_REQUIRED"
+      ]
+    },
+    {
+      "checkId": "check-25",
+      "targetAlias": "target-2",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "requiredEvidenceKind": "TOOL_EXECUTION",
+      "family": "TARGET_TOOL_EXECUTION",
+      "readiness": "TARGET_FIXTURE_REQUIRED",
+      "configurationCheckId": "check-24",
+      "discoveryCheckId": null,
+      "blockingCheckIds": [],
+      "nextAction": "REVIEW_REQUIRED_HARNESS",
+      "namedHarnesses": [
+        "EXPLICITLY_NAMED_TARGET_FIXTURE_REQUIRED"
+      ]
+    },
+    {
+      "checkId": "check-27",
+      "targetAlias": "target-3",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "requiredEvidenceKind": "TOOL_EXECUTION",
+      "family": "TARGET_TOOL_EXECUTION",
+      "readiness": "TARGET_FIXTURE_REQUIRED",
+      "configurationCheckId": "check-26",
+      "discoveryCheckId": null,
+      "blockingCheckIds": [],
+      "nextAction": "REVIEW_REQUIRED_HARNESS",
+      "namedHarnesses": [
+        "EXPLICITLY_NAMED_TARGET_FIXTURE_REQUIRED"
+      ]
+    },
+    {
+      "checkId": "check-29",
+      "targetAlias": "target-4",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "requiredEvidenceKind": "TOOL_EXECUTION",
+      "family": "TARGET_TOOL_EXECUTION",
+      "readiness": "TARGET_FIXTURE_REQUIRED",
+      "configurationCheckId": "check-28",
+      "discoveryCheckId": null,
+      "blockingCheckIds": [],
+      "nextAction": "REVIEW_REQUIRED_HARNESS",
+      "namedHarnesses": [
+        "EXPLICITLY_NAMED_TARGET_FIXTURE_REQUIRED"
+      ]
+    },
+    {
+      "checkId": "check-31",
+      "targetAlias": "target-5",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "requiredEvidenceKind": "TOOL_EXECUTION",
+      "family": "TARGET_TOOL_EXECUTION",
+      "readiness": "TARGET_FIXTURE_REQUIRED",
+      "configurationCheckId": "check-30",
+      "discoveryCheckId": null,
+      "blockingCheckIds": [],
+      "nextAction": "REVIEW_REQUIRED_HARNESS",
+      "namedHarnesses": [
+        "EXPLICITLY_NAMED_TARGET_FIXTURE_REQUIRED"
+      ]
+    },
+    {
+      "checkId": "check-34",
+      "targetAlias": "target-6",
+      "sourceAreaIds": [
+        "mcp_plugins"
+      ],
+      "requiredEvidenceKind": "TOOL_EXECUTION",
+      "family": "TARGET_TOOL_EXECUTION",
+      "readiness": "TARGET_FIXTURE_REQUIRED",
+      "configurationCheckId": "check-32",
+      "discoveryCheckId": "check-33",
+      "blockingCheckIds": [],
+      "nextAction": "REVIEW_REQUIRED_HARNESS",
+      "namedHarnesses": [
+        "EXPLICITLY_NAMED_TARGET_FIXTURE_REQUIRED"
+      ]
+    },
+    {
+      "checkId": "check-37",
+      "targetAlias": "target-7",
+      "sourceAreaIds": [
+        "mcp_plugins"
+      ],
+      "requiredEvidenceKind": "TOOL_EXECUTION",
+      "family": "TARGET_TOOL_EXECUTION",
+      "readiness": "DISCOVERY_RECHECK_REQUIRED",
+      "configurationCheckId": "check-35",
+      "discoveryCheckId": "check-36",
+      "blockingCheckIds": [
+        "check-36"
+      ],
+      "nextAction": "REPAIR_MCP_DISCOVERY_SCHEMA_THEN_RECONNECT",
+      "namedHarnesses": [
+        "EXPLICITLY_NAMED_TARGET_FIXTURE_REQUIRED"
+      ]
+    },
+    {
+      "checkId": "check-40",
+      "targetAlias": "target-8",
+      "sourceAreaIds": [
+        "mcp_plugins"
+      ],
+      "requiredEvidenceKind": "TOOL_EXECUTION",
+      "family": "TARGET_TOOL_EXECUTION",
+      "readiness": "TARGET_FIXTURE_REQUIRED",
+      "configurationCheckId": "check-38",
+      "discoveryCheckId": "check-39",
+      "blockingCheckIds": [],
+      "nextAction": "REVIEW_REQUIRED_HARNESS",
+      "namedHarnesses": [
+        "EXPLICITLY_NAMED_TARGET_FIXTURE_REQUIRED"
+      ]
+    },
+    {
+      "checkId": "check-43",
+      "targetAlias": "target-9",
+      "sourceAreaIds": [
+        "mcp_plugins"
+      ],
+      "requiredEvidenceKind": "TOOL_EXECUTION",
+      "family": "TARGET_TOOL_EXECUTION",
+      "readiness": "DISCOVERY_RECHECK_REQUIRED",
+      "configurationCheckId": "check-41",
+      "discoveryCheckId": "check-42",
+      "blockingCheckIds": [
+        "check-42"
+      ],
+      "nextAction": "REPAIR_MCP_PROTOCOL_NEGOTIATION_THEN_RECONNECT",
+      "namedHarnesses": [
+        "EXPLICITLY_NAMED_TARGET_FIXTURE_REQUIRED"
+      ]
+    },
+    {
+      "checkId": "check-46",
+      "targetAlias": "target-10",
+      "sourceAreaIds": [
+        "mcp_plugins"
+      ],
+      "requiredEvidenceKind": "TOOL_EXECUTION",
+      "family": "TARGET_TOOL_EXECUTION",
+      "readiness": "TARGET_FIXTURE_REQUIRED",
+      "configurationCheckId": "check-44",
+      "discoveryCheckId": "check-45",
+      "blockingCheckIds": [],
+      "nextAction": "REVIEW_REQUIRED_HARNESS",
+      "namedHarnesses": [
+        "EXPLICITLY_NAMED_TARGET_FIXTURE_REQUIRED"
+      ]
+    },
+    {
+      "checkId": "check-49",
+      "targetAlias": "target-11",
+      "sourceAreaIds": [
+        "mcp_plugins"
+      ],
+      "requiredEvidenceKind": "TOOL_EXECUTION",
+      "family": "TARGET_TOOL_EXECUTION",
+      "readiness": "CREDENTIAL_REAUTHORIZATION_REQUIRED",
+      "configurationCheckId": "check-47",
+      "discoveryCheckId": "check-48",
+      "blockingCheckIds": [
+        "check-48"
+      ],
+      "nextAction": "REAUTHORIZE_SAVED_CONNECTION_THEN_RECHECK",
+      "namedHarnesses": [
+        "EXPLICITLY_NAMED_TARGET_FIXTURE_REQUIRED"
+      ]
+    },
+    {
+      "checkId": "check-51",
+      "targetAlias": "target-12",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "requiredEvidenceKind": "TOOL_EXECUTION",
+      "family": "TARGET_TOOL_EXECUTION",
+      "readiness": "TARGET_FIXTURE_REQUIRED",
+      "configurationCheckId": "check-50",
+      "discoveryCheckId": null,
+      "blockingCheckIds": [],
+      "nextAction": "REVIEW_REQUIRED_HARNESS",
+      "namedHarnesses": [
+        "EXPLICITLY_NAMED_TARGET_FIXTURE_REQUIRED"
+      ]
+    },
+    {
+      "checkId": "check-53",
+      "targetAlias": "target-13",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "requiredEvidenceKind": "TOOL_EXECUTION",
+      "family": "TARGET_TOOL_EXECUTION",
+      "readiness": "TARGET_FIXTURE_REQUIRED",
+      "configurationCheckId": "check-52",
+      "discoveryCheckId": null,
+      "blockingCheckIds": [],
+      "nextAction": "REVIEW_REQUIRED_HARNESS",
+      "namedHarnesses": [
+        "EXPLICITLY_NAMED_TARGET_FIXTURE_REQUIRED"
+      ]
+    },
+    {
+      "checkId": "check-55",
+      "targetAlias": "target-14",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "requiredEvidenceKind": "TOOL_EXECUTION",
+      "family": "TARGET_TOOL_EXECUTION",
+      "readiness": "TARGET_FIXTURE_REQUIRED",
+      "configurationCheckId": "check-54",
+      "discoveryCheckId": null,
+      "blockingCheckIds": [],
+      "nextAction": "REVIEW_REQUIRED_HARNESS",
+      "namedHarnesses": [
+        "EXPLICITLY_NAMED_TARGET_FIXTURE_REQUIRED"
+      ]
+    },
+    {
+      "checkId": "check-58",
+      "targetAlias": "target-16",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "requiredEvidenceKind": "TOOL_EXECUTION",
+      "family": "TARGET_TOOL_EXECUTION",
+      "readiness": "ENABLE_PERMISSION_REQUIRED",
+      "configurationCheckId": "check-57",
+      "discoveryCheckId": null,
+      "blockingCheckIds": [
+        "check-57"
+      ],
+      "nextAction": "REVIEW_OPTIONAL_PLUGIN_PERMISSION_THEN_START_NEW_AUDIT",
+      "namedHarnesses": [
+        "EXPLICITLY_NAMED_TARGET_FIXTURE_REQUIRED"
+      ]
+    },
+    {
+      "checkId": "check-61",
+      "targetAlias": "target-18",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "requiredEvidenceKind": "TOOL_EXECUTION",
+      "family": "TARGET_TOOL_EXECUTION",
+      "readiness": "ENABLE_PERMISSION_REQUIRED",
+      "configurationCheckId": "check-60",
+      "discoveryCheckId": null,
+      "blockingCheckIds": [
+        "check-60"
+      ],
+      "nextAction": "REVIEW_OPTIONAL_PLUGIN_PERMISSION_THEN_START_NEW_AUDIT",
+      "namedHarnesses": [
+        "EXPLICITLY_NAMED_TARGET_FIXTURE_REQUIRED"
+      ]
+    },
+    {
+      "checkId": "check-63",
+      "targetAlias": "target-19",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "requiredEvidenceKind": "TOOL_EXECUTION",
+      "family": "TARGET_TOOL_EXECUTION",
+      "readiness": "TARGET_FIXTURE_REQUIRED",
+      "configurationCheckId": "check-62",
+      "discoveryCheckId": null,
+      "blockingCheckIds": [],
+      "nextAction": "REVIEW_REQUIRED_HARNESS",
+      "namedHarnesses": [
+        "EXPLICITLY_NAMED_TARGET_FIXTURE_REQUIRED"
+      ]
+    },
+    {
+      "checkId": "check-65",
+      "targetAlias": "target-20",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "requiredEvidenceKind": "TOOL_EXECUTION",
+      "family": "TARGET_TOOL_EXECUTION",
+      "readiness": "TARGET_FIXTURE_REQUIRED",
+      "configurationCheckId": "check-64",
+      "discoveryCheckId": null,
+      "blockingCheckIds": [],
+      "nextAction": "REVIEW_REQUIRED_HARNESS",
+      "namedHarnesses": [
+        "EXPLICITLY_NAMED_TARGET_FIXTURE_REQUIRED"
+      ]
+    },
+    {
+      "checkId": "check-67",
+      "targetAlias": "target-21",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "requiredEvidenceKind": "TOOL_EXECUTION",
+      "family": "TARGET_TOOL_EXECUTION",
+      "readiness": "TARGET_FIXTURE_REQUIRED",
+      "configurationCheckId": "check-66",
+      "discoveryCheckId": null,
+      "blockingCheckIds": [],
+      "nextAction": "REVIEW_REQUIRED_HARNESS",
+      "namedHarnesses": [
+        "EXPLICITLY_NAMED_TARGET_FIXTURE_REQUIRED"
+      ]
+    },
+    {
+      "checkId": "check-69",
+      "targetAlias": "target-22",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "requiredEvidenceKind": "TOOL_EXECUTION",
+      "family": "TARGET_TOOL_EXECUTION",
+      "readiness": "TARGET_FIXTURE_REQUIRED",
+      "configurationCheckId": "check-68",
+      "discoveryCheckId": null,
+      "blockingCheckIds": [],
+      "nextAction": "REVIEW_REQUIRED_HARNESS",
+      "namedHarnesses": [
+        "EXPLICITLY_NAMED_TARGET_FIXTURE_REQUIRED"
+      ]
+    },
+    {
+      "checkId": "check-71",
+      "targetAlias": "target-23",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "requiredEvidenceKind": "TOOL_EXECUTION",
+      "family": "TARGET_TOOL_EXECUTION",
+      "readiness": "TARGET_FIXTURE_REQUIRED",
+      "configurationCheckId": "check-70",
+      "discoveryCheckId": null,
+      "blockingCheckIds": [],
+      "nextAction": "REVIEW_REQUIRED_HARNESS",
+      "namedHarnesses": [
+        "EXPLICITLY_NAMED_TARGET_FIXTURE_REQUIRED"
+      ]
+    },
+    {
+      "checkId": "check-73",
+      "targetAlias": "target-24",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "requiredEvidenceKind": "TOOL_EXECUTION",
+      "family": "TARGET_TOOL_EXECUTION",
+      "readiness": "TARGET_FIXTURE_REQUIRED",
+      "configurationCheckId": "check-72",
+      "discoveryCheckId": null,
+      "blockingCheckIds": [],
+      "nextAction": "REVIEW_REQUIRED_HARNESS",
+      "namedHarnesses": [
+        "EXPLICITLY_NAMED_TARGET_FIXTURE_REQUIRED"
+      ]
+    },
+    {
+      "checkId": "check-75",
+      "targetAlias": "target-25",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "requiredEvidenceKind": "TOOL_EXECUTION",
+      "family": "TARGET_TOOL_EXECUTION",
+      "readiness": "TARGET_FIXTURE_REQUIRED",
+      "configurationCheckId": "check-74",
+      "discoveryCheckId": null,
+      "blockingCheckIds": [],
+      "nextAction": "REVIEW_REQUIRED_HARNESS",
+      "namedHarnesses": [
+        "EXPLICITLY_NAMED_TARGET_FIXTURE_REQUIRED"
+      ]
+    },
+    {
+      "checkId": "check-77",
+      "targetAlias": "target-26",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "requiredEvidenceKind": "TOOL_EXECUTION",
+      "family": "TARGET_TOOL_EXECUTION",
+      "readiness": "TARGET_FIXTURE_REQUIRED",
+      "configurationCheckId": "check-76",
+      "discoveryCheckId": null,
+      "blockingCheckIds": [],
+      "nextAction": "REVIEW_REQUIRED_HARNESS",
+      "namedHarnesses": [
+        "EXPLICITLY_NAMED_TARGET_FIXTURE_REQUIRED"
+      ]
+    },
+    {
+      "checkId": "check-79",
+      "targetAlias": "target-27",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "requiredEvidenceKind": "TOOL_EXECUTION",
+      "family": "TARGET_TOOL_EXECUTION",
+      "readiness": "ENABLE_PERMISSION_REQUIRED",
+      "configurationCheckId": "check-78",
+      "discoveryCheckId": null,
+      "blockingCheckIds": [
+        "check-78"
+      ],
+      "nextAction": "REVIEW_OPTIONAL_PLUGIN_PERMISSION_THEN_START_NEW_AUDIT",
+      "namedHarnesses": [
+        "EXPLICITLY_NAMED_TARGET_FIXTURE_REQUIRED"
+      ]
+    },
+    {
+      "checkId": "check-81",
+      "targetAlias": "target-28",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "requiredEvidenceKind": "TOOL_EXECUTION",
+      "family": "TARGET_TOOL_EXECUTION",
+      "readiness": "ENABLE_PERMISSION_REQUIRED",
+      "configurationCheckId": "check-80",
+      "discoveryCheckId": null,
+      "blockingCheckIds": [
+        "check-80"
+      ],
+      "nextAction": "REVIEW_OPTIONAL_PLUGIN_PERMISSION_THEN_START_NEW_AUDIT",
+      "namedHarnesses": [
+        "EXPLICITLY_NAMED_TARGET_FIXTURE_REQUIRED"
+      ]
+    },
+    {
+      "checkId": "check-83",
+      "targetAlias": "target-29",
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "requiredEvidenceKind": "TOOL_EXECUTION",
+      "family": "TARGET_TOOL_EXECUTION",
+      "readiness": "TARGET_FIXTURE_REQUIRED",
+      "configurationCheckId": "check-82",
+      "discoveryCheckId": null,
+      "blockingCheckIds": [],
+      "nextAction": "REVIEW_REQUIRED_HARNESS",
+      "namedHarnesses": [
+        "EXPLICITLY_NAMED_TARGET_FIXTURE_REQUIRED"
+      ]
+    },
+    {
+      "checkId": "check-85",
+      "targetAlias": "target-30",
+      "sourceAreaIds": [
+        "marketplace_plugins"
+      ],
+      "requiredEvidenceKind": "TOOL_EXECUTION",
+      "family": "TARGET_TOOL_EXECUTION",
+      "readiness": "CONFIGURATION_REQUIRED",
+      "configurationCheckId": "check-84",
+      "discoveryCheckId": null,
+      "blockingCheckIds": [
+        "check-84"
+      ],
+      "nextAction": "CONFIGURE_EXACT_TARGET_THEN_START_NEW_AUDIT",
+      "namedHarnesses": [
+        "EXPLICITLY_NAMED_TARGET_FIXTURE_REQUIRED"
+      ]
+    },
+    {
+      "checkId": "check-87",
+      "targetAlias": "target-31",
+      "sourceAreaIds": [
+        "marketplace_plugins"
+      ],
+      "requiredEvidenceKind": "TOOL_EXECUTION",
+      "family": "TARGET_TOOL_EXECUTION",
+      "readiness": "CONFIGURATION_REQUIRED",
+      "configurationCheckId": "check-86",
+      "discoveryCheckId": null,
+      "blockingCheckIds": [
+        "check-86"
+      ],
+      "nextAction": "CONFIGURE_EXACT_TARGET_THEN_START_NEW_AUDIT",
+      "namedHarnesses": [
+        "EXPLICITLY_NAMED_TARGET_FIXTURE_REQUIRED"
+      ]
+    },
+    {
+      "checkId": "check-89",
+      "targetAlias": "target-32",
+      "sourceAreaIds": [
+        "marketplace_plugins"
+      ],
+      "requiredEvidenceKind": "TOOL_EXECUTION",
+      "family": "TARGET_TOOL_EXECUTION",
+      "readiness": "CONFIGURATION_REQUIRED",
+      "configurationCheckId": "check-88",
+      "discoveryCheckId": null,
+      "blockingCheckIds": [
+        "check-88"
+      ],
+      "nextAction": "CONFIGURE_EXACT_TARGET_THEN_START_NEW_AUDIT",
+      "namedHarnesses": [
+        "EXPLICITLY_NAMED_TARGET_FIXTURE_REQUIRED"
+      ]
+    },
+    {
+      "checkId": "check-91",
+      "targetAlias": "target-33",
+      "sourceAreaIds": [
+        "marketplace_plugins"
+      ],
+      "requiredEvidenceKind": "TOOL_EXECUTION",
+      "family": "TARGET_TOOL_EXECUTION",
+      "readiness": "CONFIGURATION_REQUIRED",
+      "configurationCheckId": "check-90",
+      "discoveryCheckId": null,
+      "blockingCheckIds": [
+        "check-90"
+      ],
+      "nextAction": "CONFIGURE_EXACT_TARGET_THEN_START_NEW_AUDIT",
+      "namedHarnesses": [
+        "EXPLICITLY_NAMED_TARGET_FIXTURE_REQUIRED"
+      ]
+    },
+    {
+      "checkId": "check-93",
+      "targetAlias": "target-34",
+      "sourceAreaIds": [
+        "marketplace_plugins"
+      ],
+      "requiredEvidenceKind": "TOOL_EXECUTION",
+      "family": "TARGET_TOOL_EXECUTION",
+      "readiness": "CONFIGURATION_REQUIRED",
+      "configurationCheckId": "check-92",
+      "discoveryCheckId": null,
+      "blockingCheckIds": [
+        "check-92"
+      ],
+      "nextAction": "CONFIGURE_EXACT_TARGET_THEN_START_NEW_AUDIT",
+      "namedHarnesses": [
+        "EXPLICITLY_NAMED_TARGET_FIXTURE_REQUIRED"
+      ]
+    },
+    {
+      "checkId": "check-95",
+      "targetAlias": "target-35",
+      "sourceAreaIds": [
+        "marketplace_plugins"
+      ],
+      "requiredEvidenceKind": "TOOL_EXECUTION",
+      "family": "TARGET_TOOL_EXECUTION",
+      "readiness": "CONFIGURATION_REQUIRED",
+      "configurationCheckId": "check-94",
+      "discoveryCheckId": null,
+      "blockingCheckIds": [
+        "check-94"
+      ],
+      "nextAction": "CONFIGURE_EXACT_TARGET_THEN_START_NEW_AUDIT",
+      "namedHarnesses": [
+        "EXPLICITLY_NAMED_TARGET_FIXTURE_REQUIRED"
+      ]
+    },
+    {
+      "checkId": "check-97",
+      "targetAlias": "target-36",
+      "sourceAreaIds": [
+        "marketplace_plugins"
+      ],
+      "requiredEvidenceKind": "TOOL_EXECUTION",
+      "family": "TARGET_TOOL_EXECUTION",
+      "readiness": "TARGET_FIXTURE_REQUIRED",
+      "configurationCheckId": "check-96",
+      "discoveryCheckId": null,
+      "blockingCheckIds": [],
+      "nextAction": "REVIEW_REQUIRED_HARNESS",
+      "namedHarnesses": [
+        "EXPLICITLY_NAMED_TARGET_FIXTURE_REQUIRED"
+      ]
+    },
+    {
+      "checkId": "check-99",
+      "targetAlias": "target-37",
+      "sourceAreaIds": [
+        "marketplace_plugins"
+      ],
+      "requiredEvidenceKind": "TOOL_EXECUTION",
+      "family": "TARGET_TOOL_EXECUTION",
+      "readiness": "CONFIGURATION_REQUIRED",
+      "configurationCheckId": "check-98",
+      "discoveryCheckId": null,
+      "blockingCheckIds": [
+        "check-98"
+      ],
+      "nextAction": "CONFIGURE_EXACT_TARGET_THEN_START_NEW_AUDIT",
+      "namedHarnesses": [
+        "EXPLICITLY_NAMED_TARGET_FIXTURE_REQUIRED"
+      ]
+    },
+    {
+      "checkId": "check-101",
+      "targetAlias": "target-38",
+      "sourceAreaIds": [
+        "marketplace_plugins"
+      ],
+      "requiredEvidenceKind": "TOOL_EXECUTION",
+      "family": "TARGET_TOOL_EXECUTION",
+      "readiness": "CONFIGURATION_REQUIRED",
+      "configurationCheckId": "check-100",
+      "discoveryCheckId": null,
+      "blockingCheckIds": [
+        "check-100"
+      ],
+      "nextAction": "CONFIGURE_EXACT_TARGET_THEN_START_NEW_AUDIT",
+      "namedHarnesses": [
+        "EXPLICITLY_NAMED_TARGET_FIXTURE_REQUIRED"
+      ]
+    },
+    {
+      "checkId": "check-103",
+      "targetAlias": "target-39",
+      "sourceAreaIds": [
+        "marketplace_plugins"
+      ],
+      "requiredEvidenceKind": "TOOL_EXECUTION",
+      "family": "TARGET_TOOL_EXECUTION",
+      "readiness": "TARGET_FIXTURE_REQUIRED",
+      "configurationCheckId": "check-102",
+      "discoveryCheckId": null,
+      "blockingCheckIds": [],
+      "nextAction": "REVIEW_REQUIRED_HARNESS",
+      "namedHarnesses": [
+        "EXPLICITLY_NAMED_TARGET_FIXTURE_REQUIRED"
+      ]
+    },
+    {
+      "checkId": "check-105",
+      "targetAlias": "target-40",
+      "sourceAreaIds": [
+        "marketplace_plugins"
+      ],
+      "requiredEvidenceKind": "TOOL_EXECUTION",
+      "family": "TARGET_TOOL_EXECUTION",
+      "readiness": "CONFIGURATION_REQUIRED",
+      "configurationCheckId": "check-104",
+      "discoveryCheckId": null,
+      "blockingCheckIds": [
+        "check-104"
+      ],
+      "nextAction": "CONFIGURE_EXACT_TARGET_THEN_START_NEW_AUDIT",
+      "namedHarnesses": [
+        "EXPLICITLY_NAMED_TARGET_FIXTURE_REQUIRED"
+      ]
+    },
+    {
+      "checkId": "check-107",
+      "targetAlias": "target-41",
+      "sourceAreaIds": [
+        "marketplace_plugins"
+      ],
+      "requiredEvidenceKind": "TOOL_EXECUTION",
+      "family": "TARGET_TOOL_EXECUTION",
+      "readiness": "CONFIGURATION_REQUIRED",
+      "configurationCheckId": "check-106",
+      "discoveryCheckId": null,
+      "blockingCheckIds": [
+        "check-106"
+      ],
+      "nextAction": "CONFIGURE_EXACT_TARGET_THEN_START_NEW_AUDIT",
+      "namedHarnesses": [
+        "EXPLICITLY_NAMED_TARGET_FIXTURE_REQUIRED"
+      ]
+    },
+    {
+      "checkId": "check-110",
+      "targetAlias": "target-42",
+      "sourceAreaIds": [
+        "models_and_profiles",
+        "model_providers"
+      ],
+      "requiredEvidenceKind": "MODEL_EXECUTION",
+      "family": "MODEL_GENERATION_BENCHMARK",
+      "readiness": "MODEL_BENCHMARK_REQUIRED",
+      "configurationCheckId": "check-109",
+      "discoveryCheckId": null,
+      "blockingCheckIds": [],
+      "nextAction": "PREPARE_EXACT_SELECTED_PROFILE_BENCHMARK",
+      "namedHarnesses": [
+        "APP_SELECTED_PROFILE_BENCHMARK_QUEUE"
+      ]
+    },
+    {
+      "checkId": "check-111",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "android_shell"
+      ],
+      "requiredEvidenceKind": "EXTERNAL_SUITE",
+      "family": "ANDROID_LIFECYCLE_SUITE",
+      "readiness": "EXTERNAL_HARNESS_REQUIRED",
+      "configurationCheckId": null,
+      "discoveryCheckId": null,
+      "blockingCheckIds": [],
+      "nextAction": "REVIEW_REQUIRED_HARNESS",
+      "namedHarnesses": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/queue/DurableExecutionIntegrationTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/service/AgentRunForegroundLifecycleTest.kt",
+        "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/CombinedFinalizationLifecycleInstrumentedTest.kt"
+      ]
+    },
+    {
+      "checkId": "check-112",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "chat_ui"
+      ],
+      "requiredEvidenceKind": "EXTERNAL_SUITE",
+      "family": "DEVICE_RENDERING_ACCESSIBILITY_SUITE",
+      "readiness": "EXTERNAL_HARNESS_REQUIRED",
+      "configurationCheckId": null,
+      "discoveryCheckId": null,
+      "blockingCheckIds": [],
+      "nextAction": "REVIEW_REQUIRED_HARNESS",
+      "namedHarnesses": [
+        "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubPromptMotionInstrumentedTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ComposerInputLifecycleTest.kt"
+      ]
+    },
+    {
+      "checkId": "check-113",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "accessibility_and_localization"
+      ],
+      "requiredEvidenceKind": "EXTERNAL_SUITE",
+      "family": "DEVICE_RENDERING_ACCESSIBILITY_SUITE",
+      "readiness": "EXTERNAL_HARNESS_REQUIRED",
+      "configurationCheckId": null,
+      "discoveryCheckId": null,
+      "blockingCheckIds": [],
+      "nextAction": "REVIEW_REQUIRED_HARNESS",
+      "namedHarnesses": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/appearance/AppearanceContractsTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubWorkspaceFilesTest.kt",
+        "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/presentation/navigation/NavigationMotionInstrumentedTest.kt"
+      ]
+    },
+    {
+      "checkId": "check-114",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "agent_execution"
+      ],
+      "requiredEvidenceKind": "EXTERNAL_SUITE",
+      "family": "EXTERNAL_SOURCE_SUITE",
+      "readiness": "EXTERNAL_HARNESS_REQUIRED",
+      "configurationCheckId": null,
+      "discoveryCheckId": null,
+      "blockingCheckIds": [],
+      "nextAction": "REVIEW_REQUIRED_HARNESS",
+      "namedHarnesses": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunnerTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubReplayPlanningTest.kt"
+      ]
+    },
+    {
+      "checkId": "check-115",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "agent_tools"
+      ],
+      "requiredEvidenceKind": "EXTERNAL_SUITE",
+      "family": "EXTERNAL_SOURCE_SUITE",
+      "readiness": "EXTERNAL_HARNESS_REQUIRED",
+      "configurationCheckId": null,
+      "discoveryCheckId": null,
+      "blockingCheckIds": [],
+      "nextAction": "REVIEW_REQUIRED_HARNESS",
+      "namedHarnesses": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolAuthorizationOutcomeTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/McpCatalogueExecutionSafetyTest.kt"
+      ]
+    },
+    {
+      "checkId": "check-116",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "mcp_plugins"
+      ],
+      "requiredEvidenceKind": "EXTERNAL_SUITE",
+      "family": "EXTERNAL_SOURCE_SUITE",
+      "readiness": "EXTERNAL_HARNESS_REQUIRED",
+      "configurationCheckId": null,
+      "discoveryCheckId": null,
+      "blockingCheckIds": [],
+      "nextAction": "REVIEW_REQUIRED_HARNESS",
+      "namedHarnesses": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ModernMcpTransportTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/McpFailureDiagnosticsTest.kt"
+      ]
+    },
+    {
+      "checkId": "check-117",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "marketplace_plugins"
+      ],
+      "requiredEvidenceKind": "EXTERNAL_SUITE",
+      "family": "EXTERNAL_SOURCE_SUITE",
+      "readiness": "EXTERNAL_HARNESS_REQUIRED",
+      "configurationCheckId": null,
+      "discoveryCheckId": null,
+      "blockingCheckIds": [],
+      "nextAction": "REVIEW_REQUIRED_HARNESS",
+      "namedHarnesses": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/marketplace/MarketplaceAvailabilityTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/mcp/MarketplaceViewModelTest.kt"
+      ]
+    },
+    {
+      "checkId": "check-118",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "model_providers"
+      ],
+      "requiredEvidenceKind": "EXTERNAL_SUITE",
+      "family": "PROVIDER_STREAMING_CONTRACT_SUITE",
+      "readiness": "EXTERNAL_HARNESS_REQUIRED",
+      "configurationCheckId": null,
+      "discoveryCheckId": null,
+      "blockingCheckIds": [],
+      "nextAction": "REVIEW_REQUIRED_HARNESS",
+      "namedHarnesses": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/OpenAICompletionDecoderTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/SseUtilsTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderToolRequestSerializationTest.kt"
+      ]
+    },
+    {
+      "checkId": "check-119",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "models_and_profiles"
+      ],
+      "requiredEvidenceKind": "EXTERNAL_SUITE",
+      "family": "EXTERNAL_SOURCE_SUITE",
+      "readiness": "EXTERNAL_HARNESS_REQUIRED",
+      "configurationCheckId": null,
+      "discoveryCheckId": null,
+      "blockingCheckIds": [],
+      "nextAction": "REVIEW_REQUIRED_HARNESS",
+      "namedHarnesses": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/repository/SettingRepositorySecretMigrationTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/repository/SettingRepositoryConfigBackupTest.kt"
+      ]
+    },
+    {
+      "checkId": "check-120",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "local_inference"
+      ],
+      "requiredEvidenceKind": "EXTERNAL_SUITE",
+      "family": "NATIVE_RUNTIME_DEVICE_SUITE",
+      "readiness": "EXTERNAL_HARNESS_REQUIRED",
+      "configurationCheckId": null,
+      "discoveryCheckId": null,
+      "blockingCheckIds": [],
+      "nextAction": "REVIEW_REQUIRED_HARNESS",
+      "namedHarnesses": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/localruntime/InferenceAdmissionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/localruntime/ProcessGenerationSupervisionTest.kt",
+        "scripts/qualify_device_performance.py"
+      ]
+    },
+    {
+      "checkId": "check-121",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "gateway_client"
+      ],
+      "requiredEvidenceKind": "EXTERNAL_SUITE",
+      "family": "EXTERNAL_SOURCE_SUITE",
+      "readiness": "EXTERNAL_HARNESS_REQUIRED",
+      "configurationCheckId": null,
+      "discoveryCheckId": null,
+      "blockingCheckIds": [],
+      "nextAction": "REVIEW_REQUIRED_HARNESS",
+      "namedHarnesses": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayAvailabilityRepositoryTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/queue/GatewayQueueStoreTest.kt"
+      ]
+    },
+    {
+      "checkId": "check-122",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "network"
+      ],
+      "requiredEvidenceKind": "EXTERNAL_SUITE",
+      "family": "NETWORK_TRANSPORT_RECOVERY_SUITE",
+      "readiness": "EXTERNAL_HARNESS_REQUIRED",
+      "configurationCheckId": null,
+      "discoveryCheckId": null,
+      "blockingCheckIds": [],
+      "nextAction": "REVIEW_REQUIRED_HARNESS",
+      "namedHarnesses": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/ResilientStreamingClientTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/LocalServiceHealthTest.kt"
+      ]
+    },
+    {
+      "checkId": "check-123",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "github"
+      ],
+      "requiredEvidenceKind": "EXTERNAL_SUITE",
+      "family": "EXTERNAL_SOURCE_SUITE",
+      "readiness": "EXTERNAL_HARNESS_REQUIRED",
+      "configurationCheckId": null,
+      "discoveryCheckId": null,
+      "blockingCheckIds": [],
+      "nextAction": "REVIEW_REQUIRED_HARNESS",
+      "namedHarnesses": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSessionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubIntegrationAcceptanceTest.kt"
+      ]
+    },
+    {
+      "checkId": "check-124",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "research"
+      ],
+      "requiredEvidenceKind": "EXTERNAL_SUITE",
+      "family": "EXTERNAL_SOURCE_SUITE",
+      "readiness": "EXTERNAL_HARNESS_REQUIRED",
+      "configurationCheckId": null,
+      "discoveryCheckId": null,
+      "blockingCheckIds": [],
+      "nextAction": "REVIEW_REQUIRED_HARNESS",
+      "namedHarnesses": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/DeepResearchAcquisitionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/research/feature/ArticleExaminationRecoveryTest.kt"
+      ]
+    },
+    {
+      "checkId": "check-125",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "memory_and_rag"
+      ],
+      "requiredEvidenceKind": "EXTERNAL_SUITE",
+      "family": "EXTERNAL_SOURCE_SUITE",
+      "readiness": "EXTERNAL_HARNESS_REQUIRED",
+      "configurationCheckId": null,
+      "discoveryCheckId": null,
+      "blockingCheckIds": [],
+      "nextAction": "REVIEW_REQUIRED_HARNESS",
+      "namedHarnesses": [
+        "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/data/memory/MemoryDurabilityInstrumentedTest.kt",
+        "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/data/memory/LocalSemanticMemoryInstrumentedTest.kt"
+      ]
+    },
+    {
+      "checkId": "check-126",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "persistence"
+      ],
+      "requiredEvidenceKind": "EXTERNAL_SUITE",
+      "family": "DATABASE_MIGRATION_RECOVERY_SUITE",
+      "readiness": "EXTERNAL_HARNESS_REQUIRED",
+      "configurationCheckId": null,
+      "discoveryCheckId": null,
+      "blockingCheckIds": [],
+      "nextAction": "REVIEW_REQUIRED_HARNESS",
+      "namedHarnesses": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/database/ChatDatabaseV2MigrationsTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/database/GatewayJobPersistenceTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/database/GatewayJobsMigrationTest.kt"
+      ]
+    },
+    {
+      "checkId": "check-127",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "diagnostics_and_export"
+      ],
+      "requiredEvidenceKind": "EXTERNAL_SUITE",
+      "family": "EXTERNAL_SOURCE_SUITE",
+      "readiness": "EXTERNAL_HARNESS_REQUIRED",
+      "configurationCheckId": null,
+      "discoveryCheckId": null,
+      "blockingCheckIds": [],
+      "nextAction": "REVIEW_REQUIRED_HARNESS",
+      "namedHarnesses": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/CorrelatedDiagnosticExportTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/RunDiagnosticJournalTest.kt"
+      ]
+    },
+    {
+      "checkId": "check-128",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "benchmark"
+      ],
+      "requiredEvidenceKind": "EXTERNAL_SUITE",
+      "family": "EXTERNAL_SOURCE_SUITE",
+      "readiness": "EXTERNAL_HARNESS_REQUIRED",
+      "configurationCheckId": null,
+      "discoveryCheckId": null,
+      "blockingCheckIds": [],
+      "nextAction": "REVIEW_REQUIRED_HARNESS",
+      "namedHarnesses": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditQualificationTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkQueuePolicyTest.kt"
+      ]
+    },
+    {
+      "checkId": "check-129",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "auth_and_security"
+      ],
+      "requiredEvidenceKind": "EXTERNAL_SUITE",
+      "family": "EXTERNAL_SOURCE_SUITE",
+      "readiness": "EXTERNAL_HARNESS_REQUIRED",
+      "configurationCheckId": null,
+      "discoveryCheckId": null,
+      "blockingCheckIds": [],
+      "nextAction": "REVIEW_REQUIRED_HARNESS",
+      "namedHarnesses": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/permissions/ToolGrantRevocationTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/permissions/ProviderPrivacyPolicyTest.kt"
+      ]
+    },
+    {
+      "checkId": "check-130",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "voice_and_media"
+      ],
+      "requiredEvidenceKind": "EXTERNAL_SUITE",
+      "family": "VOICE_MEDIA_PERMISSION_SUITE",
+      "readiness": "EXTERNAL_HARNESS_REQUIRED",
+      "configurationCheckId": null,
+      "discoveryCheckId": null,
+      "blockingCheckIds": [],
+      "nextAction": "REVIEW_REQUIRED_HARNESS",
+      "namedHarnesses": [
+        "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceEntryInstrumentedTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSessionTest.kt"
+      ]
+    },
+    {
+      "checkId": "check-131",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "portable_domain"
+      ],
+      "requiredEvidenceKind": "EXTERNAL_SUITE",
+      "family": "PORTABLE_DOMAIN_SUITE",
+      "readiness": "EXTERNAL_HARNESS_REQUIRED",
+      "configurationCheckId": null,
+      "discoveryCheckId": null,
+      "blockingCheckIds": [],
+      "nextAction": "REVIEW_REQUIRED_HARNESS",
+      "namedHarnesses": [
+        "core-domain/src/jvmTest/kotlin/dev/chungjungsoo/gptmobile/core/UsageMathTest.kt"
+      ]
+    },
+    {
+      "checkId": "check-132",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "native_bridge"
+      ],
+      "requiredEvidenceKind": "EXTERNAL_SUITE",
+      "family": "NATIVE_RUNTIME_DEVICE_SUITE",
+      "readiness": "EXTERNAL_HARNESS_REQUIRED",
+      "configurationCheckId": null,
+      "discoveryCheckId": null,
+      "blockingCheckIds": [],
+      "nextAction": "REVIEW_REQUIRED_HARNESS",
+      "namedHarnesses": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/localruntime/NativeHandleLifecycleTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/localruntime/RuntimeBinaryScopeTest.kt",
+        "scripts/qualify_device_performance.py"
+      ]
+    },
+    {
+      "checkId": "check-133",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "gateway_software"
+      ],
+      "requiredEvidenceKind": "EXTERNAL_SUITE",
+      "family": "GATEWAY_SERVICE_SUITE",
+      "readiness": "EXTERNAL_HARNESS_REQUIRED",
+      "configurationCheckId": null,
+      "discoveryCheckId": null,
+      "blockingCheckIds": [],
+      "nextAction": "REVIEW_REQUIRED_HARNESS",
+      "namedHarnesses": [
+        "gateway/check_gateway.py",
+        "gateway/tests/test_gateway_model_preparation.py"
+      ]
+    },
+    {
+      "checkId": "check-134",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "authentication_service"
+      ],
+      "requiredEvidenceKind": "EXTERNAL_SUITE",
+      "family": "AUTHENTICATION_SERVICE_SUITE",
+      "readiness": "EXTERNAL_HARNESS_REQUIRED",
+      "configurationCheckId": null,
+      "discoveryCheckId": null,
+      "blockingCheckIds": [],
+      "nextAction": "REVIEW_REQUIRED_HARNESS",
+      "namedHarnesses": [
+        "authentication/test_app.py",
+        "authentication/test_ticket_broker.py",
+        "authentication/test_github_broker.py"
+      ]
+    },
+    {
+      "checkId": "check-135",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "external_integrations"
+      ],
+      "requiredEvidenceKind": "EXTERNAL_SUITE",
+      "family": "EXTERNAL_INTEGRATION_SUITE",
+      "readiness": "EXTERNAL_HARNESS_REQUIRED",
+      "configurationCheckId": null,
+      "discoveryCheckId": null,
+      "blockingCheckIds": [],
+      "nextAction": "REVIEW_REQUIRED_HARNESS",
+      "namedHarnesses": [
+        "mcp/crawler/tests/test_http_transport.py",
+        "mcp/crawler/tests/test_network.py",
+        "mcp/crawler/tests/test_server_coordinator.py"
+      ]
+    },
+    {
+      "checkId": "check-136",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "other_production"
+      ],
+      "requiredEvidenceKind": "EXTERNAL_SUITE",
+      "family": "RESIDUAL_SOURCE_BEHAVIOR_SUITE",
+      "readiness": "EXTERNAL_HARNESS_REQUIRED",
+      "configurationCheckId": null,
+      "discoveryCheckId": null,
+      "blockingCheckIds": [],
+      "nextAction": "REVIEW_REQUIRED_HARNESS",
+      "namedHarnesses": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/dto/ProviderAttachmentSerializationTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/util/ApiStateTerminalCollectionTest.kt"
+      ]
+    },
+    {
+      "checkId": "check-137",
+      "targetAlias": null,
+      "sourceAreaIds": [
+        "android_shell",
+        "chat_ui",
+        "local_inference",
+        "native_bridge"
+      ],
+      "requiredEvidenceKind": "DEVICE_MEASUREMENT",
+      "family": "DEVICE_MEASUREMENT_SUITE",
+      "readiness": "EXTERNAL_HARNESS_REQUIRED",
+      "configurationCheckId": null,
+      "discoveryCheckId": null,
+      "blockingCheckIds": [],
+      "nextAction": "REVIEW_REQUIRED_HARNESS",
+      "namedHarnesses": [
+        "scripts/qualify_device_performance.py"
+      ]
+    }
+  ]
+}

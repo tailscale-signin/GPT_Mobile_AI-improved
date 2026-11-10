@@ -9,15 +9,20 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.isActive
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 
 /** Observed activity and explicitly selected-profile prose; no inference runs on the ticker. */
 internal class GitHubChatProgress(task: String = "", private val now: () -> Long = { System.nanoTime() / 1_000_000 }) {
     private val taskLabel = GitHubProgressPresentation.taskLabel(task)
-    private var activity = "Preparing to inspect the relevant repository details."
-    private var nextStep = "inspect the request and identify the relevant repository evidence"
+    private var activity = "Locating the relevant repository evidence"
+    private var nextStep = "connect the requested behavior to its implementation and choose the first useful check"
     private var completed = 0
     private var failures = 0
-    private var lastCompleted = ""
+    private var skipped = 0
+    private var blocked = 0
     private var lastPreviewAt = now()
     private var lastSummaryAt = lastPreviewAt
     private var initial = true
@@ -25,12 +30,18 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
     private val previews = mutableSetOf<String>()
     private val livePreviews = mutableMapOf<String, String>()
     private val recentSteps = ArrayDeque<String>()
+    private var lastProblem: String? = null
     private var revision = 0L
     private var pendingSummary: ApiState.ActivitySummary? = null
     private var pendingSummaryRevision = -1L
     private var lastSummaryKey = ""
     private var lastSummaryRevision = -1L
+    private var modelSummaryRetained = false
+    private val modelProgress = StringBuilder()
+    private var modelInvocationId: String? = null
     private val terminalCalls = mutableSetOf<Pair<String, String>>()
+    private val activeCalls = mutableSetOf<Pair<String, String>>()
+    private val blockedCalls = mutableSetOf<Pair<String, String>>()
     private val observedProgress = linkedSetOf<Triple<String, Int, String>>()
 
     fun updates(): Flow<ApiState> = flow {
@@ -44,26 +55,19 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
     @Synchronized internal fun tick(): List<ApiState> = buildList {
         val at = now()
         if (initial || at - lastSummaryAt >= SUMMARY_INTERVAL_MS) {
-            val generated = pendingSummary.takeIf { pendingSummaryRevision == revision }
-            if (!initial && generated == null) {
-                summary = buildString {
-                    if (completed == 0) {
-                        append("I have received the request; no repository operation has completed yet. ")
-                    } else {
-                        append("I have completed $completed repository operations. $lastCompleted ")
-                    }
-                    if (failures > 0) append("$failures operations need recovery. ")
-                    val details = recentSteps.takeLast(3).filter { it != lastCompleted }
-                    if (details.isNotEmpty()) append(details.joinToString(" ")).append(' ')
-                    append("Next, I will $nextStep. Any remaining checks or blocked operations stay visible until their results can be verified.")
-                }
+            val generated = pendingSummary.takeIf { it?.modelAuthored == true || pendingSummaryRevision == revision }
+            val candidate = generated ?: if (!modelSummaryRetained && (initial || revision != lastSummaryRevision)) {
+                ApiState.ActivitySummary(if (initial) summary else GitHubProgressNarrator.factualSummary(summarySnapshot()))
+            } else {
+                null
             }
-            if (!initial && generated != null) summary = generated.text
-            val summaryKey = GitHubProgressPresentation.lineKey(summary)
-            if (initial || (generated != null || revision != lastSummaryRevision) && summaryKey != lastSummaryKey) {
-                add(if (!initial && generated != null) generated else ApiState.ActivitySummary(summary))
-                lastSummaryKey = summaryKey
+            val key = candidate?.text?.let(GitHubProgressPresentation::lineKey)
+            if (candidate != null && key != lastSummaryKey && candidate.text.isNotBlank()) {
+                summary = candidate.text
+                add(candidate)
+                lastSummaryKey = requireNotNull(key)
                 lastSummaryRevision = revision
+                modelSummaryRetained = candidate.modelAuthored
             }
             pendingSummary = null
             initial = false
@@ -89,7 +93,7 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
             // than replacing it with the ticker's operation-count template.
             is ApiState.ProgressCheckpoint -> event.takeIf { it.modelAuthored }
             is ApiState.ActivitySummary -> {
-                val generated = pendingSummary.takeIf { pendingSummaryRevision == revision } ?: return null
+                val generated = pendingSummary.takeIf { it?.modelAuthored == true || pendingSummaryRevision == revision } ?: return null
                 pendingSummary = null
                 val key = GitHubProgressPresentation.lineKey(generated.text)
                 if (key == lastSummaryKey) return null
@@ -97,6 +101,7 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
                 lastSummaryKey = key
                 lastSummaryRevision = revision
                 lastSummaryAt = now()
+                modelSummaryRetained = generated.modelAuthored
                 initial = false
                 generated
             }
@@ -114,37 +119,88 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
                 if (observedProgress.size > 4_096) observedProgress.remove(observedProgress.first())
                 val terminalKey = progress.toolCallId?.takeIf(String::isNotBlank)?.let { scope to it }
                 val name = progress.toolName.orEmpty()
-                when (progress.event) {
+                val operation = operation(name, progress.toolArgs)
+                val eventName = if (progress.event in setOf("tool_finished", "tool_completed")) {
+                    when (progress.status?.lowercase(java.util.Locale.ROOT)) {
+                        "failed", "error" -> "tool_failed"
+                        "blocked", "awaiting_approval", "waiting_for_approval" -> "tool_blocked"
+                        "skipped" -> "tool_skipped"
+                        else -> progress.event
+                    }
+                } else {
+                    progress.event
+                }
+                when (eventName) {
                     "tool_started" -> {
+                        if (terminalKey in terminalCalls) return
+                        terminalKey?.let(blockedCalls::remove)
+                        terminalKey?.takeUnless { it in terminalCalls }?.let(activeCalls::add)
+                        modelProgress.clear()
                         activity = operationSummary(name, progress.toolArgs)
-                        nextStep = "finish this operation and compare its result with the remaining requirements"
+                        nextStep = operation.next
                         revision++
                     }
                     "tool_failed" -> {
                         if (terminalKey != null && !terminalCalls.add(terminalKey)) return
+                        terminalKey?.let(activeCalls::remove)
+                        terminalKey?.let(blockedCalls::remove)
                         failures++
-                        activity = "Checking how to continue after the problem."
-                        nextStep = "inspect the recorded failure and choose a bounded recovery action"
-                        rememberStep(milestone(name, true, false, progress.toolArgs))
+                        modelSummaryRetained = false
+                        pendingSummary = null
+                        activity = milestone(name, true, false, progress.toolArgs)
+                        nextStep = "inspect the ${operation.subject} error and identify whether a corrected request or connection recovery is needed"
+                        rememberStep(observation(name, true, false, progress.toolArgs), problem = true)
                     }
-                    "tool_completed", "tool_finished" -> {
+                    "tool_blocked" -> {
+                        if (terminalKey in terminalCalls || terminalKey != null && !blockedCalls.add(terminalKey)) return
+                        terminalKey?.let(activeCalls::remove)
+                        blocked++
+                        modelSummaryRetained = false
+                        pendingSummary = null
+                        activity = "${operation.subject.replaceFirstChar(Char::uppercase)} blocked${sourceFocus(progress.toolArgs).let { if (it.isBlank()) "" else " · $it" }}"
+                        nextStep = "inspect the recorded blocker and identify the required approval, setup or correction before continuing"
+                        rememberStep("The ${operation.subject}${focusClause(progress.toolArgs)} is blocked; the requested action has not been verified.", problem = true)
+                    }
+                    "tool_completed", "tool_finished", "tool_skipped" -> {
                         if (terminalKey != null && !terminalCalls.add(terminalKey)) return
+                        terminalKey?.let(activeCalls::remove)
+                        terminalKey?.let(blockedCalls::remove)
+                        if (eventName == "tool_skipped") {
+                            skipped++
+                            modelSummaryRetained = false
+                            pendingSummary = null
+                            activity = "${operation.subject.replaceFirstChar(Char::uppercase)} skipped${sourceFocus(progress.toolArgs).let { if (it.isBlank()) "" else " · $it" }}"
+                            nextStep = "check why the ${operation.subject} was skipped before treating it as validation evidence"
+                            rememberStep("The ${operation.subject}${focusClause(progress.toolArgs)} was skipped; it did not provide an executed validation result.", problem = true)
+                            return
+                        }
                         completed++
                         activity = milestone(name, false, false, progress.toolArgs)
-                        lastCompleted = activity
-                        nextStep = "review these results and continue the remaining requested work"
-                        rememberStep(activity)
+                        nextStep = operation.next
+                        rememberStep(observation(name, false, false, progress.toolArgs))
                     }
                 }
             }
             is ApiState.ProgressCheckpoint -> {
-                if (activity != event.text) revision++
-                activity = event.text
+                if (event.modelAuthored && event.text.isNotBlank()) {
+                    if (event.invocationId != modelInvocationId) modelProgress.clear()
+                    modelInvocationId = event.invocationId
+                    modelProgress.append(event.text.take((2400 - modelProgress.length).coerceAtLeast(0)))
+                    summary = modelProgress.toString()
+                    modelSummaryRetained = true
+                    pendingSummary = null
+                    lastSummaryAt = now()
+                    initial = false
+                } else if (event.text.isNotBlank() && !GitHubProgressPresentation.isGenericProgress(event.text)) {
+                    if (activity != event.text) revision++
+                    activity = event.text
+                }
             }
-            is ApiState.ActivitySummary -> if (event.modelAuthored && event.text.isNotBlank()) {
+            is ApiState.ActivitySummary -> if (event.text.isNotBlank() && (event.modelAuthored || !modelSummaryRetained && !GitHubProgressPresentation.isGenericProgress(event.text))) {
                 pendingSummary = event
                 pendingSummaryRevision = revision
             }
+            ApiState.GitHubRoundStarted -> modelProgress.clear()
             is ApiState.Success -> {
                 activity = "Putting the response together."
                 nextStep = "present the supported findings and identify any remaining work"
@@ -162,11 +218,15 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
         completed,
         failures,
         GitHubProgressPresentation.taskLabel(activity),
-        recentSteps.takeLast(6),
-        GitHubProgressPresentation.taskLabel(nextStep)
+        recentSteps.takeLast(6).let { steps -> lastProblem?.takeUnless(steps::contains)?.let { listOf(it) + steps } ?: steps },
+        GitHubProgressPresentation.taskLabel(nextStep),
+        pending = activeCalls.size,
+        skipped = skipped,
+        blocked = blocked
     )
 
-    private fun rememberStep(step: String) {
+    private fun rememberStep(step: String, problem: Boolean = false) {
+        if (problem) lastProblem = step.take(220)
         if (recentSteps.lastOrNull() != step) recentSteps.addLast(step.take(220))
         while (recentSteps.size > 8) recentSteps.removeFirst()
         revision++
@@ -175,89 +235,93 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
     companion object {
         const val PREVIEW_INTERVAL_MS = 3_000L
         const val SUMMARY_INTERVAL_MS = 15_000L
-        private fun currentActivity(name: String): String = when (name.substringBefore("__")) {
-            "web_search" -> "Searching the internet for relevant information."
-            "fetch_webpage" -> "Reading the relevant web page."
-            "github_search" -> "Searching for the code and files related to the task."
-            "github_read" -> "Reading the relevant source files."
-            "github_context" -> "Checking the repository, branch and available evidence."
-            "github_ci", "github_watch_checks" -> "Inspecting the build and test results."
-            "github_pr" -> "Checking the pull request and its current review state."
-            "github_write", "github_stage_patch", "github_commit" -> "Working through the requested change and its safeguards."
-            "github_decide" -> "Waiting for your direction before continuing."
-            else -> "Looking through the repository information for the task."
-        }
+        private data class Operation(val preview: String, val subject: String, val next: String, val mutation: Boolean = false)
 
-        private fun sourceFocus(args: kotlinx.serialization.json.JsonObject?): String {
-            val ranges = args?.get("ranges") as? kotlinx.serialization.json.JsonArray
-            val path = ((ranges?.firstOrNull() as? kotlinx.serialization.json.JsonObject)?.get("path") ?: args?.get("path")) as? kotlinx.serialization.json.JsonPrimitive
-            fun value(key: String) = (args?.get(key) as? kotlinx.serialization.json.JsonPrimitive)?.content?.let(GitHubProgressPresentation::taskLabel)
+        /** Only these bounded request identifiers enter public progress; result bodies stay private. */
+        private fun sourceFocus(args: JsonObject?): String {
+            fun value(key: String) = (args?.get(key) as? JsonPrimitive)?.contentOrNull?.takeIf(String::isNotBlank)?.let(GitHubProgressPresentation::taskLabel)
+            val ranges = args?.get("ranges") as? JsonArray
+            val path = ((ranges?.firstOrNull() as? JsonObject)?.get("path") as? JsonPrimitive)?.contentOrNull ?: value("path")
             return when {
-                path != null -> "File: ${GitHubProgressPresentation.taskLabel(path.content)}. "
-                value("job_id") != null -> "Job ${value("job_id")}. "
-                value("run_id") != null -> "Run ${value("run_id")}. "
-                value("pull_number") != null -> "Pull request #${value("pull_number")}. "
-                value("branch") != null -> "Branch: ${value("branch")}. "
-                value("tag_name") != null -> "Tag: ${value("tag_name")}. "
-                value("commit_sha") != null -> "Revision ${value("commit_sha")?.take(12)}. "
+                !path.isNullOrBlank() -> GitHubProgressPresentation.taskLabel(path.replace('\\', '/').split('/').takeLast(2).joinToString("/"))
+                value("job_id") != null -> "Job ${value("job_id")}"
+                value("run_id") != null -> "Run ${value("run_id")}"
+                value("pull_number") != null -> "PR #${value("pull_number")}"
+                value("issue_number") != null -> "Issue #${value("issue_number")}"
+                value("branch") != null -> "branch ${value("branch")}"
+                value("tag_name") != null -> "tag ${value("tag_name")}"
                 else -> ""
             }
         }
 
-        private fun operationSummary(name: String, args: kotlinx.serialization.json.JsonObject?): String {
-            val action = (args?.get("action") as? kotlinx.serialization.json.JsonPrimitive)?.content.orEmpty()
-            val purpose = when (name.substringBefore("__") to action) {
-                "github_ci" to "logs" -> "I’m reading the recorded job output and checking its observed result."
-                "github_ci" to "jobs" -> "I’m identifying which jobs ran, failed or were skipped before opening their logs."
-                "github_ci" to "workflows" -> "I’m finding the available workflows so validation uses a real workflow definition."
-                "github_ci" to "runs" -> "I’m locating the workflow attempt associated with this revision."
-                "github_context" to "resolve" -> "Resolving the selected reference so every later observation uses the same revision."
-                "github_context" to "index" -> "Checking source-index coverage to see which files still need a direct read."
-                "github_context" to "efficiency" -> "Inspecting cached reads and reuse to identify unnecessary repeat work."
-                "github_context" to "capabilities" -> "Checking which repository operations are authorized before planning the remaining work."
-                "github_context" to "recovery" -> "Matching saved work with the current repository state before resuming it."
-                "github_context" to "commits" -> "Reading recent changes to establish how the selected branch reached its current state."
-                "github_release" to "status" -> "Checking the release attached to this tag and whether its artifacts are available."
-                "github_release" to "tags" -> "Finding existing tags before selecting a release to inspect."
-                "github_release" to "list" -> "Looking through published releases for the version relevant to this request."
-                "github_issue" to "list" -> "Looking for an existing issue that can supply the next read’s identifier."
-                "github_context" to "checks" -> "I’m checking the selected commit’s results; pending and skipped checks remain separate from passes."
-                "github_context" to "branches" -> "I’m comparing branch references to establish where the requested work belongs."
-                "github_pr" to "reviews" -> "I’m reading review decisions to identify unresolved requirements."
-                "github_pr" to "comments" -> "I’m reading the pull request discussion for outstanding questions and fixes."
-                else -> activityPurpose(name)
+        private fun focusClause(args: JsonObject?) = sourceFocus(args).let { if (it.isBlank()) "" else " for $it" }
+
+        private fun operation(name: String, args: JsonObject?): Operation {
+            val action = (args?.get("action") as? JsonPrimitive)?.contentOrNull.orEmpty()
+            return when (name.substringBefore("__")) {
+                "github_read" -> Operation("Reading source", "source read", "compare the implementation with the reported behavior and identify the next relevant source")
+                "github_search" -> Operation("Searching repository", "repository search", "open the matching implementation and check how it connects to the requested behavior")
+                "github_context" -> when (action) {
+                    "checks" -> Operation("Checking build and test results", "check results", "separate failures from pending or skipped checks before deciding what needs repair")
+                    "changes" -> Operation("Comparing branch changes", "branch comparison", "read the affected source and examine how the changes alter the requested behavior")
+                    "resolve" -> Operation("Resolving branch revision", "reference lookup", "use the observed revision to keep subsequent source reads and checks consistent")
+                    "branches" -> Operation("Inspecting branches", "branch inventory", "identify the branch containing the requested work and establish its comparison base")
+                    "index" -> Operation("Inspecting source coverage", "source index", "identify which relevant files need a direct read before drawing conclusions")
+                    "efficiency" -> Operation("Reviewing saved reads", "saved-read inspection", "reuse available evidence and identify the remaining source reads that can advance the task")
+                    "capabilities" -> Operation("Checking available tools", "authorized tool inventory", "match the available operations to the request and identify any required setup")
+                    "recovery" -> Operation("Reconciling saved work", "saved-work inspection", "match saved results to the current state before resuming unfinished operations")
+                    "commits" -> Operation("Reading recent changes", "commit history", "connect the recent changes to the affected implementation and choose a relevant comparison")
+                    else -> Operation("Checking repository status", "repository status", "identify the relevant branch, outstanding work and available evidence for the request")
+                }
+                "github_ci", "github_watch_checks" -> when (action) {
+                    "logs" -> Operation("Reading job log", "job log read", "identify the relevant diagnostic in the recorded output and compare it with the affected source")
+                    "jobs" -> Operation("Inspecting workflow jobs", "workflow job inventory", "distinguish failed, pending and skipped jobs before selecting the relevant log")
+                    "workflows" -> Operation("Finding validation workflows", "workflow inventory", "select a workflow that actually covers the changed behavior before requesting validation")
+                    "runs" -> Operation("Locating workflow run", "workflow run lookup", "match the run to the selected revision before interpreting its jobs and results")
+                    "dispatch", "rerun", "cancel" -> Operation("Checking workflow request", "workflow request", "verify whether the requested workflow action was accepted and observe its resulting state", true)
+                    else -> Operation("Inspecting build and test results", "build and test inspection", "separate observed failures from pending or skipped checks and identify the next relevant diagnostic")
+                }
+                "github_pr" -> when (action) {
+                    "reviews" -> Operation("Reading PR reviews", "pull request reviews", "identify unresolved review requirements and compare them with the current changes")
+                    "comments" -> Operation("Reading PR discussion", "pull request discussion", "connect outstanding questions to the affected source and existing validation evidence")
+                    "list" -> Operation("Checking pull requests", "pull request inventory", "identify the pull request associated with the requested branch and inspect its changes")
+                    "merge", "create", "update", "close" -> Operation("Checking PR request", "pull request action", "verify the requested action against the current pull request and its required checks", true)
+                    else -> Operation("Inspecting PR changes", "pull request inspection", "compare the proposed changes with the requested behavior and outstanding review requirements")
+                }
+                "github_issue" -> Operation("Reading issue details", "issue inspection", "connect the reported symptoms and remaining requirements to the relevant implementation")
+                "github_stage_patch" -> Operation("Preparing patch", "patch request", "review the proposed changes and verify their approval and publication state before claiming they were applied", true)
+                "github_commit", "github_write" -> Operation("Checking change request", "change request", "verify whether the proposed change was accepted and then inspect the resulting branch state", true)
+                "github_release" -> Operation("Inspecting release artifacts", "release inspection", "check the relevant version and available artifacts against the requested release state")
+                "github_decide" -> Operation("Waiting for your decision", "decision request", "use the recorded choice to select the authorized next step without repeating completed work")
+                "web_search" -> Operation("Searching web sources", "web search", "read the relevant sources and compare their information with the repository evidence")
+                "fetch_webpage" -> Operation("Reading web source", "web source read", "check how the source supports the investigation before relying on its conclusions")
+                else -> Operation("Inspecting repository information", "repository operation", "connect the available result to the request and identify the next missing piece of evidence")
             }
-            return sourceFocus(args) + purpose
         }
 
-        private fun activityPurpose(name: String): String = when (name.substringBefore("__")) {
-            "github_search" -> "I’m locating existing paths and symbols so the next source read targets the relevant implementation."
-            "github_read" -> "I’m tracing the implementation to identify where the behavior originates and what depends on it."
-            "github_context" -> "I’m establishing the selected revision and repository state so later findings refer to the correct code."
-            "github_ci", "github_watch_checks" -> "I’m separating executed checks from pending or skipped jobs and looking for actionable failures."
-            "github_pr" -> "I’m checking the proposed changes and review requirements before deciding the next step."
-            "github_issue" -> "I’m comparing the issue details with the current investigation to identify unresolved requirements."
-            "github_write", "github_stage_patch", "github_commit" -> "I’m checking the requested changes against the current branch; completion still needs an accepted result."
-            "web_search", "fetch_webpage" -> "I’m gathering supporting web sources and checking whether they address the repository issue."
-            "github_decide" -> "The next operation depends on your choice; completed work remains available."
-            else -> "I’m comparing the available information with the remaining requirements to select the next useful check."
+        private fun operationSummary(name: String, args: JsonObject?): String =
+            operation(name, args).preview + sourceFocus(args).let { if (it.isBlank()) "" else " · $it" }
+
+        private fun observation(name: String, failed: Boolean, shared: Boolean, args: JsonObject?): String {
+            val operation = operation(name, args)
+            val outcome = when {
+                failed -> "failed"
+                shared -> "is available from saved results"
+                operation.mutation -> "returned a result; any remote change still needs verification"
+                else -> "is available for review"
+            }
+            return "The ${operation.subject}${focusClause(args)} $outcome."
         }
 
-        fun milestone(toolName: String, failed: Boolean, shared: Boolean, args: kotlinx.serialization.json.JsonObject? = null): String {
-            val name = toolName.substringBefore("__")
-            val focus = sourceFocus(args).trim()
-            if (focus.isNotBlank()) return if (failed) "$focus Operation failed; inspecting the cause." else "$focus Result received."
-            return when {
-                name == "github_decide" && !failed -> "Your choice is saved. Continuing with your direction."
-                failed -> "A step needs attention. Checking how to continue."
-                shared -> "Using the information already gathered."
-                name in setOf("web_search", "fetch_webpage") -> "Web information is ready to review."
-                name in setOf("github_read", "github_search", "github_context") -> "Repository information is ready to review."
-                name in setOf("github_write", "github_stage_patch") -> "The change request has a result to review."
-                name == "github_ci" || name == "github_watch_checks" -> "Checking the latest build and test results."
-                name == "github_pr" -> "Reviewing the pull request update."
-                else -> "Reviewing the latest result and the next step."
+        fun milestone(toolName: String, failed: Boolean, shared: Boolean, args: JsonObject? = null): String {
+            val operation = operation(toolName, args)
+            val outcome = when {
+                failed -> "needs attention"
+                shared -> "reused from saved results"
+                operation.mutation -> "result available; verification pending"
+                else -> "available for review"
             }
+            return "${operation.subject.replaceFirstChar(Char::uppercase)} $outcome" + sourceFocus(args).let { if (it.isBlank()) "" else " · $it" }
         }
     }
 }

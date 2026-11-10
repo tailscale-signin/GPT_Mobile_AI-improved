@@ -13,8 +13,17 @@ import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
+
+/** Kept only in the encrypted vault; a browser callback cannot authorize an edited connection. */
+@Serializable
+private data class McpSavedAuthorization(
+    val pending: McpOAuthPending,
+    val connection: ToolConnection,
+    val endpoint: String
+)
 
 @Singleton
 class McpOAuthCoordinator @Inject constructor(
@@ -31,30 +40,32 @@ class McpOAuthCoordinator @Inject constructor(
     suspend fun begin(connectionUid: String, redirectUri: String, expectedConnection: ToolConnection? = null): String = credentialMutex(connectionUid).withLock {
         val connection = requireOAuthConnection(connectionUid)
         if (expectedConnection != null && connection != expectedConnection) throw McpLocalValidationException(McpLocalValidationRule.CONNECTION_CONFIGURATION_CHANGED)
-        val discovery = oauthClient.discover(
-            resourceUrl = dev.chungjungsoo.gptmobile.data.security.EndpointSecrets.resolve(connection, secretVault),
-            allowCleartext = connection.allowCleartext
-        )
+        val endpoint = dev.chungjungsoo.gptmobile.data.security.EndpointSecrets.resolve(connection, secretVault)
+        val discovery = oauthClient.discover(resourceUrl = endpoint, allowCleartext = connection.allowCleartext)
         val start = oauthClient.beginAuthorization(discovery, redirectUri, connection.oauthClientId)
-        if (start.pending.clientId != connection.oauthClientId) {
-            persistConnection(connection.copy(oauthClientId = start.pending.clientId), expected = connection)
+        val authorizedConnection = connection.copy(oauthClientId = start.pending.clientId)
+        if (authorizedConnection != connection) {
+            persistConnection(authorizedConnection, expected = connection, expectedEndpoint = endpoint)
         }
-        storePending(start.pending.copy(connectionUid = connectionUid))
+        storePending(McpSavedAuthorization(start.pending.copy(connectionUid = connectionUid), authorizedConnection, endpoint))
         start.authorizationUri
     }
 
     suspend fun complete(connectionUid: String, callbackUri: String) = credentialMutex(connectionUid).withLock {
         val connection = requireOAuthConnection(connectionUid)
         val pendingRef = mcpOAuthPendingSecretRef(connectionUid)
-        val pending = readSecret<McpOAuthPending>(pendingRef)
+        val authorization = readSecret<McpSavedAuthorization>(pendingRef)
             ?: throw McpOAuthException("OAuth authorization is no longer pending.")
+        val pending = authorization.pending
         if (pending.connectionUid != connectionUid) throw McpOAuthException("OAuth pending connection did not match.")
+        if (authorization.connection != connection) throw McpLocalValidationException(McpLocalValidationRule.CONNECTION_CONFIGURATION_CHANGED)
+        requireUnchangedConnection(connection, authorization.endpoint)
         val credential = oauthClient.completeAuthorization(pending, callbackUri)
-        check(requireOAuthConnection(connectionUid) == connection) { "MCP connection changed during authorization; reconnect with the current configuration." }
         persistConnection(
             connection.copy(oauthClientId = credential.clientId),
             credential = NetworkClient.json.encodeToString(credential).encodeToByteArray(),
-            expected = connection
+            expected = connection,
+            expectedEndpoint = authorization.endpoint
         )
         rejectedCredentials.remove(connectionUid)
         refreshBackoff.remove(connectionUid)
@@ -134,16 +145,33 @@ class McpOAuthCoordinator @Inject constructor(
     private suspend fun persistConnection(
         connection: ToolConnection,
         credential: ByteArray? = null,
-        expected: ToolConnection
-    ) = dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations.mutex.withLock {
-        check(connectionRepository.getConnection(connection.connectionUid) == expected) { "MCP connection changed before OAuth credentials could be saved. Reconnect using the current configuration." }
-        connectionRepository.upsertConnection(connection, credential = credential)
+        expected: ToolConnection,
+        expectedEndpoint: String? = null
+    ) {
+        try {
+            dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations.mutex.withLock {
+                requireUnchangedConnection(expected, expectedEndpoint)
+                connectionRepository.upsertConnection(connection, credential = credential)
+            }
+        } finally {
+            credential?.fill(0)
+        }
     }
 
-    private suspend fun storePending(pending: McpOAuthPending) {
-        val bytes = NetworkClient.json.encodeToString(pending).encodeToByteArray()
+    private suspend fun requireUnchangedConnection(expected: ToolConnection, expectedEndpoint: String? = null) {
+        if (connectionRepository.getConnection(expected.connectionUid) != expected ||
+            expectedEndpoint != null &&
+            dev.chungjungsoo.gptmobile.data.security.EndpointSecrets.resolve(expected, secretVault) != expectedEndpoint
+        ) {
+            throw McpLocalValidationException(McpLocalValidationRule.CONNECTION_CONFIGURATION_CHANGED)
+        }
+    }
+
+    private suspend fun storePending(authorization: McpSavedAuthorization) = dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations.mutex.withLock {
+        requireUnchangedConnection(authorization.connection, authorization.endpoint)
+        val bytes = NetworkClient.json.encodeToString(authorization).encodeToByteArray()
         try {
-            secretVault.put(mcpOAuthPendingSecretRef(requireNotNull(pending.connectionUid)), bytes)
+            secretVault.put(mcpOAuthPendingSecretRef(requireNotNull(authorization.pending.connectionUid)), bytes)
         } finally {
             bytes.fill(0)
         }
@@ -153,8 +181,10 @@ class McpOAuthCoordinator @Inject constructor(
         val bytes = secretVault.read(secretRef) ?: return null
         return try {
             NetworkClient.json.decodeFromString<T>(bytes.decodeToString())
-        } catch (error: Exception) {
-            throw McpOAuthException("MCP OAuth credential is invalid.", error)
+        } catch (_: Exception) {
+            // Old unbound pending records and malformed documents require a new flow.
+            // Never retain a decoder cause that can contain the authorization code verifier.
+            throw McpOAuthException("MCP OAuth authorization is invalid or expired. Start sign-in again.")
         } finally {
             bytes.fill(0)
         }

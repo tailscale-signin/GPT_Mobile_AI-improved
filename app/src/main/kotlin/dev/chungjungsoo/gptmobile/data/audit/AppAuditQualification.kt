@@ -14,19 +14,12 @@ internal fun appAuditQualificationPlan(
     targetAliases: Map<String, String>,
     completeEvidence: Boolean
 ): JsonObject {
-    val buildBound = run.sourceCommit.matches(Regex("[a-fA-F0-9]{40}")) &&
-        run.buildVersion.matches(Regex("[0-9]{1,5}(\\.[0-9]{1,5}){1,4}")) &&
-        run.buildVariant in setOf("debug", "release", "benchmark") &&
-        listOf(run.sourceInventoryDigest, run.catalogHash).all { it.matches(Regex("[a-f0-9]{64}")) }
+    val runBinding = appAuditQualificationRunBinding(run)
+    val buildBound = runBinding != null
     val results = run.results.distinctBy { it.entryId }.associateBy { it.entryId }
     val gaps = run.plan.distinctBy { it.id }.filter { entry ->
         entry.evidenceKind in QUALIFICATION_EVIDENCE_KINDS &&
             appAuditScore(run.copy(plan = listOf(entry), results = listOfNotNull(results[entry.id]))).passedWeight == 0
-    }
-    val runBinding = if (buildBound) {
-        appAuditHash("app-audit-qualification-v1\n${run.id}\n${run.sourceCommit}\n${run.buildVersion}\n${run.buildVariant}\n${run.sourceInventoryDigest}\n${run.catalogHash}")
-    } else {
-        null
     }
     return buildJsonObject {
         put("schemaVersion", 1)
@@ -35,6 +28,14 @@ internal fun appAuditQualificationPlan(
         put("importsPromoteAuditScore", false)
         put("completeRetainedEvidence", completeEvidence)
         put("runBinding", runBinding)
+        put(
+            "retainedEnvironment",
+            buildJsonObject {
+                put("installedArtifact", appAuditInstalledArtifactJson(run.environment))
+                put("device", appAuditDeviceIdentityJson(run.environment))
+                put("scope", "Observed at audit creation. A later harness must independently match its installed artifact and device; this snapshot does not prove later execution or source provenance.")
+            }
+        )
         put("pendingChecks", gaps.size)
         put("pendingChecksScope", "RETAINED_PLAN")
         put("scope", "Named target fixtures and external suites require independent execution evidence. This worklist does not execute tools, change retained results, establish service identity, or claim line coverage.")
@@ -107,9 +108,7 @@ internal fun appAuditQualificationPlan(
                         entry.evidenceKind == AppAuditEvidenceKind.MODEL_EXECUTION -> "MODEL_BENCHMARK_REQUIRED"
                         else -> "EXTERNAL_HARNESS_REQUIRED"
                     }
-                    val binding = runBinding?.takeIf { entry.evidenceKind !in TARGET_EXECUTION_KINDS || revision != null }?.let {
-                        appAuditHash("$it\n${entry.id}\n${entry.evidenceKind}\n${entry.configFingerprint}\n$revision\n${entry.fixtureHash}")
-                    }
+                    val binding = appAuditQualificationCheckBinding(run, entry)
                     buildJsonObject {
                         put("checkId", checkIds[entry.id]?.takeIf { it.matches(Regex("check-[1-9][0-9]*")) })
                         put("targetAlias", target?.let(targetAliases::get)?.takeIf { it.matches(Regex("target-[1-9][0-9]*")) })
@@ -174,6 +173,24 @@ internal fun appAuditQualificationPlan(
             )
         )
     }
+}
+
+internal fun appAuditQualificationRunBinding(run: AppAuditRun): String? {
+    if (!run.sourceCommit.matches(Regex("[a-fA-F0-9]{40}")) ||
+        !run.buildVersion.matches(Regex("[0-9]{1,5}(\\.[0-9]{1,5}){1,4}")) ||
+        run.buildVariant !in setOf("debug", "release", "benchmark") ||
+        listOf(run.sourceInventoryDigest, run.catalogHash).any { !it.matches(Regex("[a-f0-9]{64}")) }
+    ) {
+        return null
+    }
+    return appAuditHash("app-audit-qualification-v1\n${run.id}\n${run.sourceCommit}\n${run.buildVersion}\n${run.buildVariant}\n${run.sourceInventoryDigest}\n${run.catalogHash}")
+}
+
+internal fun appAuditQualificationCheckBinding(run: AppAuditRun, entry: AppAuditPlanEntry): String? {
+    val binding = appAuditQualificationRunBinding(run) ?: return null
+    val revision = safeAuditConfigurationRevision(entry.configurationRevision)
+    if (entry.evidenceKind in TARGET_EXECUTION_KINDS && revision == null) return null
+    return appAuditHash("$binding\n${entry.id}\n${entry.evidenceKind}\n${entry.configFingerprint}\n$revision\n${entry.fixtureHash}")
 }
 
 private fun qualificationFamily(entry: AppAuditPlanEntry): String = when (entry.evidenceKind) {

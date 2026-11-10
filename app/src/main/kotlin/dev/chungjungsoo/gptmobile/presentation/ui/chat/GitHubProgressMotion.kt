@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -7,6 +8,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -23,6 +25,19 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.data.diagnostics.FrameEffectPressure
 
 internal const val GITHUB_PROGRESS_PAN_MILLIS = 1800
+internal const val GITHUB_ACTIVITY_FADE_MILLIS = 180
+
+/** Fade an arriving item once, without changing its measured position or replaying its text. */
+@Composable
+internal fun rememberGitHubActivityEntry(animate: Boolean = true): State<Float> {
+    val durationScale = rememberCoroutineScope().coroutineContext[MotionDurationScale]
+    val enabled = animate && (durationScale?.scaleFactor ?: 1f) > 0f
+    val opacity = remember { Animatable(if (enabled) 0f else 1f) }
+    LaunchedEffect(enabled) {
+        if (enabled) opacity.animateTo(1f, tween(GITHUB_ACTIVITY_FADE_MILLIS, easing = LinearEasing)) else opacity.snapTo(1f)
+    }
+    return opacity.asState()
+}
 
 /** Use the same linear cycle for the header and latest preview; obey animation scale. */
 @Composable

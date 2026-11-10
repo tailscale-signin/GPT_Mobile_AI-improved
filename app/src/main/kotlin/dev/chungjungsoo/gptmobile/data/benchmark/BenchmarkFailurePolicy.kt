@@ -28,9 +28,17 @@ internal fun benchmarkFailure(error: Throwable, stage: String = "request"): Benc
     val limit = providerFailure?.providerLimit ?: freeFailure?.providerLimit
     val rateLimit = causes.filterIsInstance<FreeAiRateLimitException>().firstOrNull()
     val providerCode = (providerFailure?.errorCode ?: freeFailure?.category?.name ?: rateLimit?.let { dev.chungjungsoo.gptmobile.data.network.freeFailureCategory(it).name })?.uppercase()
-    val effectiveStage = if (causes.any { it is BenchmarkPolicyBlockedException || it is BenchmarkUnsupportedConfigurationException }) "admission" else causes.filterIsInstance<dev.chungjungsoo.gptmobile.data.localruntime.QnnRuntimeFailure>().firstOrNull()?.stage?.name?.lowercase() ?: stage
+    val auditFailure = causes.filterIsInstance<dev.chungjungsoo.gptmobile.data.audit.AppAuditModelQualificationException>().firstOrNull()
+    val effectiveStage = if (auditFailure != null) {
+        if (auditFailure.beforeDispatch) "admission" else "qualification"
+    } else if (causes.any { it is BenchmarkPolicyBlockedException || it is BenchmarkUnsupportedConfigurationException }) {
+        "admission"
+    } else {
+        causes.filterIsInstance<dev.chungjungsoo.gptmobile.data.localruntime.QnnRuntimeFailure>().firstOrNull()?.stage?.name?.lowercase() ?: stage
+    }
     val text = causes.joinToString(" ") { "${it.javaClass.simpleName} ${it.message.orEmpty()}" }.lowercase()
     val code = when {
+        auditFailure != null -> auditFailure.code
         causes.any { it is BenchmarkPolicyBlockedException } || providerCode == "POLICY_BLOCKED" -> "POLICY_BLOCKED"
         causes.any { it is BenchmarkUnsupportedConfigurationException } -> "UNSUPPORTED_OUTPUT_CONTRACT"
         error is TimeoutCancellationException -> "${effectiveStage.uppercase()}_DEADLINE_EXCEEDED"
@@ -62,7 +70,7 @@ internal fun benchmarkFailure(error: Throwable, stage: String = "request"): Benc
         else -> "EXECUTION_FAILED"
     }
     val next = limit?.retryAt ?: causes.filterIsInstance<FreeAiRateLimitException>().firstOrNull()?.retryAt ?: retryTimestampFromLegacyMessage(message)
-    return BenchmarkFailure(code, effectiveStage, message, retryable = !code.startsWith("UNSUPPORTED_") && code !in setOf("FIXTURE_INVALID", "POLICY_BLOCKED", "CACHED_UNUSABLE_RESPONSE", "HOSTED_GENERATION_FAILED"), nextEligibleAt = next)
+    return BenchmarkFailure(code, effectiveStage, message, retryable = !code.startsWith("AUDIT_MODEL_") && !code.startsWith("UNSUPPORTED_") && code !in setOf("FIXTURE_INVALID", "POLICY_BLOCKED", "CACHED_UNUSABLE_RESPONSE", "HOSTED_GENERATION_FAILED"), nextEligibleAt = next)
 }
 
 /** Compatibility for older persisted failures; punctuation is never part of an ISO instant. */
@@ -85,6 +93,7 @@ internal fun BenchmarkSample.executionFailure(): Boolean = outcome in setOf(Benc
 internal fun BenchmarkSample.recoveryAction(allowConfirmedRecovery: Boolean = true): BenchmarkRecoveryAction {
     if (runtimeCleanup?.safeForSuccessor == false || cleanupReceipt == "cleanup_unconfirmed_local_blocked") return BenchmarkRecoveryAction.QUARANTINE_RUNTIME
     if (outcome == BenchmarkOutcome.CANCELED || failure?.owner == "user") return BenchmarkRecoveryAction.HONOR_USER_STOP
+    if (failureCategory?.startsWith("AUDIT_MODEL_") == true || failure?.code?.startsWith("AUDIT_MODEL_") == true) return BenchmarkRecoveryAction.STOP_PROFILE
     if (!executionFailure() || failureCategory == "FIXTURE_INVALID") return BenchmarkRecoveryAction.CONTINUE_INDEPENDENT_CASES
     if (outcome in setOf(BenchmarkOutcome.QUOTA_BLOCKED, BenchmarkOutcome.POLICY_BLOCKED)) return BenchmarkRecoveryAction.STOP_PROFILE
     if (allowConfirmedRecovery && runtimeCleanup?.safeForSuccessor == true) {

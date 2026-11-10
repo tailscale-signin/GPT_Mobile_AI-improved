@@ -24,8 +24,9 @@ class GitHubFactualProgressTest {
         narrator.beforeRound(Long.MAX_VALUE)
         assertEquals(1, summaries.size)
         assertFalse(summaries.single().modelAuthored)
-        assertTrue(summaries.single().text.contains("Saved operation results: 10"))
-        assertTrue(summaries.single().text.contains("Evaluate remaining requirements"))
+        assertTrue(summaries.single().text.contains("Workflow results are retained"))
+        assertFalse(summaries.single().text.contains("10"))
+        assertTrue(summaries.single().text.contains("evaluate remaining requirements"))
         clock += 15_000
         narrator.beforeRound()
         assertEquals(1, summaries.size)

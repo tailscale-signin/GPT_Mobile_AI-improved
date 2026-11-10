@@ -21,6 +21,13 @@ internal fun appAuditRemoteIdentityJson(identity: AppAuditRemoteIdentity?): Json
         put("instanceId", it.instanceId)
         put("sourceCommit", it.sourceCommit)
         put("buildStatus", it.buildStatus)
+        put("verificationStatus", "DECLARED_UNVERIFIED")
+        put("sourceIndependentlyVerified", false)
+        put("deployedArtifactSha256", kotlinx.serialization.json.JsonNull)
         put("meaning", "Identity declared by the remote capability response; remote source and execution are not independently verified.")
     }
 }
+
+/** Missing remote build disclosure limits source-version claims, not functional observations. */
+internal fun appAuditRemoteIdentityStatus(identity: AppAuditRemoteIdentity?): String =
+    if (safeAuditRemoteIdentity(identity) == null) "UNAVAILABLE" else "DECLARED_UNVERIFIED"

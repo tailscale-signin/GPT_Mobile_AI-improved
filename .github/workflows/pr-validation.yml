@@ -100,8 +100,19 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          python3 scripts/build_metrics.py --label unit-tests --output build/reports/profile/unit-metrics.json -- python3 scripts/gradle_retry.py -- :app:testDebugUnitTest :app:jacocoTestReport --no-daemon --info 2>&1 | tee test.log || (echo "=== TEST FAILURE LOG ===" && tail -n 100 test.log && exit 1)
+          date -u +%Y-%m-%dT%H:%M:%SZ > app-audit-test-started.txt
+          # Qualification needs fresh test/session receipts. Reuse compilation,
+          # but do not restore the actual test or coverage reports from cache.
+          python3 scripts/build_metrics.py --label unit-tests --output build/reports/profile/unit-metrics.json -- python3 scripts/gradle_retry.py -- :app:testDebugUnitTest --rerun :app:jacocoTestReport --rerun --no-daemon --info 2>&1 | tee test.log || (echo "=== TEST FAILURE LOG ===" && tail -n 100 test.log && exit 1)
           python3 scripts/check_jacoco_coverage.py app/build/reports/jacoco/jacocoTestReport/jacocoTestReport.xml
+
+      - name: Collect named audit qualification and measured coverage
+        if: always()
+        run: >-
+          python3 scripts/collect_app_audit_qualification.py
+          --started-at-file app-audit-test-started.txt
+          --coverage app/build/reports/jacoco/jacocoTestReport/jacocoTestReport.xml
+          --output app-audit-source-qualification.json
 
       - name: Upload generated statistics schema and reports
         if: always()
@@ -115,6 +126,8 @@ jobs:
             app/schemas/dev.chungjungsoo.gptmobile.data.research.feature.ResearchDatabase/*.json
             app/build/test-results/testDebugUnitTest/*.xml
             app/build/reports/unified-runtime-paired.json
+            app-audit-test-started.txt
+            app-audit-source-qualification.json
           if-no-files-found: warn
 
       - name: Verify exported Room schemas

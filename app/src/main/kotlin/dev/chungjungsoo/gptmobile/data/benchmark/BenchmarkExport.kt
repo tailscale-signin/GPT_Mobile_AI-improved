@@ -34,7 +34,7 @@ internal val benchmarkExportJson = Json {
     encodeDefaults = true
 }
 
-internal val benchmarkExportMetadata = setOf("format", "schemaVersion", "storageSchemaVersion", "detail", "exportedAt", "snapshotState", "measurementPolicy", "measurementPolicies", "scoringPolicy", "units", "perRunMetrics", "perRunScores", "scoringNotes", "scoreSelection", "policyDomains", "coverage", "nativeSegmentMeasurements", "runtimeEvidenceScope", "performanceComparisonMatrix", "intelligenceFixtureScope")
+internal val benchmarkExportMetadata = setOf("format", "schemaVersion", "storageSchemaVersion", "detail", "exportedAt", "snapshotState", "measurementPolicy", "measurementPolicies", "scoringPolicy", "units", "perRunMetrics", "perRunScores", "scoringNotes", "scoreSelection", "policyDomains", "coverage", "nativeSegmentMeasurements", "runtimeEvidenceScope", "performanceComparisonMatrix", "intelligenceFixtureScope", "auditModelQualificationEvidence")
 
 /** Compatibility helper for retained JSON callers; app exports use the streaming store API. */
 internal fun benchmarkExport(raw: String, detailed: Boolean): String {
@@ -171,6 +171,18 @@ internal fun writeBenchmarkExport(output: BenchmarkExportOutput, source: Benchma
             }
         )
         writeStoredFields(this)
+        put(
+            "auditModelQualificationEvidence",
+            benchmarkExportRecords {
+                val boundItems = batches.flatMap { batch -> batch.items.filter { it.auditModelBinding != null }.map { it.runId to (batch to it) } }.toMap()
+                source.completeRuns().forEach { run ->
+                    boundItems[run.id]?.let { (batch, item) ->
+                        val audit = batches.singleOrNull { it.id == item.auditModelBinding?.auditRunId }?.audit
+                        benchmarkAuditQualificationEvidence(run, batch, item, audit)?.let(::add)
+                    }
+                }
+            }
+        )
         put(
             "nativeSegmentMeasurements",
             benchmarkExportRecords {

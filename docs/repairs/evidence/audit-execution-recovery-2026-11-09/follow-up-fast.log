@@ -1,0 +1,61 @@
+CI policy passed
+Dependency declarations use the shared version catalog.
+.............................................................................................................................................................{"qualification": "NOT_QUALIFIED", "reason": "BEFORE_MEASUREMENT_IDENTITY_MISSING", "candidateCommit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+Could not resolve plugin artifact. HTTP 503
+Dependency service throttled or unavailable; retry 2/3 after 0s. Gradle cache is retained.
+..Could not resolve dependency. HTTP 503
+Build process deadline expired; terminating its process group. No automatic retry.
+.Could not GET resource. HTTP 429
+Dependency service throttled or unavailable; retry 2/3 after 0.09013953000066977s. Gradle cache is retained.
+..Could not GET resource. HTTP 429
+Dependency service throttled or unavailable; retry 2/3 after 0s. Gradle cache is retained.
+Could not GET resource. HTTP 429
+Dependency service throttled or unavailable; retry 3/3 after 0s. Gradle cache is retained.
+Could not GET resource. HTTP 429
+.Could not resolve dependency. HTTP 429
+Dependency service throttled or unavailable; retry 2/3 after 0s. Gradle cache is retained.
+.................................................................................................................................................................................................fixture: MediaPipe Java/JNI definitions verified across 1 DEX files
+fixture: MediaPipe Java/JNI definitions verified across 2 DEX files
+fixture: MediaPipe Java/JNI definitions verified across 2 DEX files
+Instrumentation: AcceptanceTest.measured executed and passed
+Instrumentation: dev.chungjungsoo.gptmobile.data.memory.LocalSemanticMemoryInstrumentedTest.nativeIndexSurvivesReopenAndHonorsScopeAndDeletion executed and passed
+Instrumentation: dev.chungjungsoo.gptmobile.data.memory.LocalSemanticMemoryInstrumentedTest.nativeIndexSurvivesReopenAndHonorsScopeAndDeletion executed and passed
+Instrumentation: dev.chungjungsoo.gptmobile.data.memory.LocalSemanticMemoryInstrumentedTest.nativeIndexSurvivesReopenAndHonorsScopeAndDeletion executed and passed
+Native memory smoke: dev.chungjungsoo.gptmobile.data.memory.LocalSemanticMemoryInstrumentedTest.nativeIndexSurvivesReopenAndHonorsScopeAndDeletion passed on 1 device(s)
+fixture: ObjectBox scored-query JNI definitions verified across 2 DEX files
+fixture: ObjectBox scored-query JNI definitions verified across 2 DEX files
+app.aab: 2 host shared libraries have 16 KB aligned PT_LOAD segments; 0 Qualcomm DSP skeletons excluded
+Google Play SDK/identity configuration: min=31, target=37, compile=37, code=122
+Verified android-all-instrumented-test-version.jar
+Verified android-all-instrumented-test-version.pom
+.Transient Robolectric download failure (HTTP 503); retry 2/3 after 5s
+Transient Robolectric download failure (HTTP 503); retry 3/3 after 10s
+.Transient Robolectric download failure (HTTP 429); retry 2/6 after 15s
+Transient Robolectric download failure (HTTP 429); retry 3/6 after 30s
+Transient Robolectric download failure (HTTP 429); retry 4/6 after 60s
+Transient Robolectric download failure (HTTP 429); retry 5/6 after 60s
+Transient Robolectric download failure (HTTP 429); retry 6/6 after 60s
+.Robolectric HTTP 429: next retry cannot fit within the provisioning deadline
+Robolectric HTTP 429: next retry cannot fit within the provisioning deadline
+.Transient Robolectric download failure (HTTP 429); retry 2/6 after 90s
+.Transient Robolectric download failure (HTTP 429); retry 2/6 after 90s
+.Transient Robolectric download failure (HTTP 429); retry 2/6 after 33s
+.Transient Robolectric download failure (HTTP 429); retry 2/6 after 15s
+Transient Robolectric download failure (HTTP 429); retry 3/6 after 30s
+Transient Robolectric download failure (HTTP 429); retry 4/6 after 60s
+.Transient Robolectric download failure (HTTP 429); retry 2/6 after 15s
+.Transient Robolectric download failure (HTTP 429); retry 2/6 after 15s
+Robolectric HTTP 429: next retry cannot fit within the provisioning deadline
+..................................arm64.apk: v2 and v3 signatures verified
+.arm64.apk: v2 and v3 signatures verified
+universal.apk: v2 and v3 signatures verified
+........................................
+----------------------------------------------------------------------
+Ran 440 tests in 30.968s
+
+OK
+38 tool definition producers have explicit statistics coverage policies. This is not an end-to-end execution test.
+Android regex check: 1430 literal patterns, 73 dynamic patterns skipped, 0 errors.
+Resource preflight passed (34 XML files checked).
+Icon resources match the reference SVG.
+QNN provenance matches LiteRT-LM 0.18.0 / QAIRT 2.51.0; device execution remains unverified.

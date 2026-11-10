@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.benchmark
 
+import dev.chungjungsoo.gptmobile.data.audit.AppAuditModelBenchmarkBinding
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditOutcome
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditRun
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
@@ -47,7 +48,8 @@ data class BenchmarkQueueItem(
     val failure: BenchmarkFailure? = null,
     val activeCaseId: String? = null,
     val completedCases: Int = 0,
-    val retryOfRunId: String? = null
+    val retryOfRunId: String? = null,
+    val auditModelBinding: AppAuditModelBenchmarkBinding? = null
 ) {
     val terminal: Boolean get() = state !in setOf(BenchmarkQueueState.QUEUED, BenchmarkQueueState.RUNNING)
 }

@@ -42,7 +42,7 @@ data class GitHubConversationContext(
         if (recentCommits.isEmpty()) append("Not loaded.\n") else recentCommits.take(3).forEach { append(it.lineSequence().firstOrNull().orEmpty().take(120)).append('\n') }
         append("Complete authorized work or name blockers. Pending CI is incomplete. Use github_watch_checks and github_stage_patch. Discover paths: github_search mode=paths query=*name*. Use file_extension=kt and path_prefix, not extension:/path: qualifiers. Follow continuation_call; view_cursor is an argument on its original tool. Refresh before writes/claims; retain receipts, reconcile uncertain writes and respect cancellation, approvals and budgets.\n")
         append("Verify claims with fresh receipts; never invent tests or metrics. Missing evidence: Not measured. Draft PRs may run CI.\n")
-        append("Public <progress_update> findings: unique previews >=3s apart; summaries every 15s. Keep reasoning private; finish with one complete answer.\n")
+        append("Public <progress_update>: 2-4 sentences: new finding/change, its effect, next action. No filler/private reasoning. Close tag; finish with one complete answer.\n")
         append("Use github_decide for required consequential choices: 2-4 options, one recommendation. Honor prior answers; never infer write approval.")
     }
 

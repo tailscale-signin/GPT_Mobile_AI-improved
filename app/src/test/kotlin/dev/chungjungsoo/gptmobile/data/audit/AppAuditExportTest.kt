@@ -35,6 +35,37 @@ import org.junit.Test
 
 class AppAuditExportTest {
     @Test
+    fun retainedBuildAndDeviceIdentityRemainSeparateFromSourceVerification() = runBlocking {
+        val base = appAuditHash("base")
+        val splits = listOf(appAuditHash("split"))
+        val environment = AppAuditEnvironmentIdentity(1234, 96607, base, splits, appAuditApkSetDigest(base, splits), 2, manufacturer = "Google", model = "Pixel 9", androidApiLevel = 36, supportedAbis = listOf("arm64-v8a"), process64Bit = true)
+        val saved = export(batch(run().copy(environment = environment)))
+        val build = saved.getValue("build").jsonObject
+        assertEquals(96607, build.getValue("versionCode").jsonPrimitive.int)
+        val artifact = build.getValue("installedArtifact").jsonObject
+        assertEquals("OBSERVED", artifact.getValue("status").jsonPrimitive.content)
+        assertEquals(environment.apkSetSha256, artifact.getValue("apkSetSha256").jsonPrimitive.content)
+        assertFalse(artifact.getValue("sourceCommitIndependentlyVerified").jsonPrimitive.boolean)
+        assertEquals("Pixel 9", saved.getValue("device").jsonObject.getValue("model").jsonPrimitive.content)
+        assertFalse(saved.getValue("device").jsonObject.getValue("physicalDeviceVerified").jsonPrimitive.boolean)
+        val legacy = export(batch(run()))
+        assertEquals(JsonNull, legacy.getValue("build").jsonObject.getValue("versionCode"))
+        assertEquals("LEGACY_RUN_NO_ENVIRONMENT_SNAPSHOT", legacy.getValue("device").jsonObject.getValue("reason").jsonPrimitive.content)
+    }
+
+    @Test
+    fun undisclosedRemoteBuildIdentityDoesNotDiscardMeasuredFunctionalEvidence() = runBlocking {
+        val check = entry()
+        val saved = export(batch(run(listOf(check)).copy(results = listOf(result(check.id, AppAuditOutcome.PASS)))))
+        val observation = saved.getValue("results").jsonArray.single().jsonObject
+        assertEquals(JsonNull, observation.getValue("remoteServiceIdentity"))
+        assertEquals("UNAVAILABLE", observation.getValue("remoteServiceIdentityStatus").jsonPrimitive.content)
+        assertFalse(observation.getValue("remoteSourceIndependentlyVerified").jsonPrimitive.boolean)
+        assertEquals(1, saved.getValue("score").jsonObject.getValue("passedWeight").jsonPrimitive.int)
+        assertEquals(1, saved.getValue("score").jsonObject.getValue("measuredWeight").jsonPrimitive.int)
+    }
+
+    @Test
     fun auditExportKeepsTypedFailureAndTimingButDropsPrivateFreeTextAndModelFields() = runBlocking {
         val private = "PRIVATE_SECRET_987"
         val first = entry().copy(label = private, targetId = "https://private.invalid/$private", configFingerprint = private)

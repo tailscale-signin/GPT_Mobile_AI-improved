@@ -376,5 +376,8 @@ internal class GitHubOutputContinuationSession(
         checkpoint["state"] == JsonPrimitive("TOOL_RESULTS_READY") &&
             (checkpoint["pending_calls"] as? JsonArray)?.isEmpty() == true
 
-    private fun callDigest(call: ProviderEvent.ToolCall): String = ToolHandoffReceipt.fingerprint(call)
+    // Newly emitted provider calls have not crossed the runner's trusted routing
+    // boundary. Hash their original fields; a provider-supplied fingerprint cannot
+    // select the receipt identity that survives authorized aliasing and compaction.
+    private fun callDigest(call: ProviderEvent.ToolCall): String = GitHubEvidenceBook.digest("${call.callId}:${call.name}:${call.arguments}")
 }

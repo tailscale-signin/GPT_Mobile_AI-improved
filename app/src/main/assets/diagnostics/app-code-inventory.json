@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "ce518b5a816ca0b7855822755cda542c3ef150893f914fd7fd799a37ffaf428e",
+  "source_digest": "e8eeb9388eb5a37935536e3b3d0c7baa6dc2596a8afb305115597426ab6a1b0b",
   "file_count": 2409,
-  "indexed_line_count": 375441,
+  "indexed_line_count": 375442,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -52,7 +52,7 @@
       "id": "agent_execution",
       "label": "Agent execution and recovery",
       "file_count": 209,
-      "indexed_line_count": 34256
+      "indexed_line_count": 34257
     },
     {
       "id": "agent_tools",
@@ -1599,8 +1599,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubTerminalDelivery.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "b6caa0c0f0385dc63320a3d9bbee2f2cd5421b7dc8e1c57db21e478413c6c54d",
-      "indexed_lines": 127
+      "sha256": "ac5eda0923c1a6f280898754bfd94a47253af8efbe08626fc08869b4880d6202",
+      "indexed_lines": 128
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubToolHandoff.kt",

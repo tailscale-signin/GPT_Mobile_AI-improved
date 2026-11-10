@@ -120,7 +120,8 @@ private fun ProviderEvent.Failed.rateLimitDeliveryMessage(): String? {
     val status = (failureDetails?.get("http_status") as? kotlinx.serialization.json.JsonPrimitive)?.content
     val rateLimited = classified.category == "RATE_LIMIT" ||
         errorCode in setOf("429", "RATE_LIMIT", "RATE_LIMIT_EXCEEDED", "PROVIDER_RATE_LIMITED") ||
-        errorCode in setOf(null, "HTTP_ERROR") && status == "429"
+        errorCode in setOf(null, "HTTP_ERROR") &&
+        status == "429"
     if (!rateLimited) return null
     val service = if (errorCode?.let(dev.chungjungsoo.gptmobile.data.github.GitHubFailurePolicy::isRateLimited) == true) "GitHub" else "The AI provider"
     return "$service reached its request limit. Wait for the cooldown, then resume."

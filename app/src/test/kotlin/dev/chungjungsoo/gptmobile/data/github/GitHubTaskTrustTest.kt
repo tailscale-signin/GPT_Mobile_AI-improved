@@ -245,17 +245,31 @@ class GitHubTaskTrustTest {
     @Test fun expiredTaskKeepsItsDeadlineCauseWhenAnOlderApprovalIsStillUnresolved() = runBlocking {
         val write = AgentToolDefinition("github_write", "Stage a patch", JsonObject(emptyMap()))
         val book = GitHubEvidenceBook("expired", "o/r", "feature", setOf(write.name))
-        val call = ProviderEvent.ToolCall("staged", write.name, buildJsonObject {
-            put("action", "commit")
-            put("branch", "feature")
-            put("expected_head_sha", "a".repeat(40))
-            put("stage_id", "saved-stage")
-        })
-        book.observe(call, AgentToolResult(call.callId, ToolResultContent.Json(buildJsonObject {
-            put("engineering_task_id", "approval-42")
-            put("status", "AWAITING_APPROVAL")
-            put("committed", false)
-        }), false, dispatched = false))
+        val call = ProviderEvent.ToolCall(
+            "staged",
+            write.name,
+            buildJsonObject {
+                put("action", "commit")
+                put("branch", "feature")
+                put("expected_head_sha", "a".repeat(40))
+                put("stage_id", "saved-stage")
+            }
+        )
+        book.observe(
+            call,
+            AgentToolResult(
+                call.callId,
+                ToolResultContent.Json(
+                    buildJsonObject {
+                        put("engineering_task_id", "approval-42")
+                        put("status", "AWAITING_APPROVAL")
+                        put("committed", false)
+                    }
+                ),
+                false,
+                dispatched = false
+            )
+        )
         val provider = object : AgentProviderSession {
             override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): kotlinx.coroutines.flow.Flow<ProviderEvent> = error("Report delivery cannot dispatch work")
         }

@@ -1,0 +1,12 @@
+{
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "7db0c735f9e86eaece24513fbaf5c0a624f13822",
+  "start_sha": "e2b20da51e00e18f11cdb117847819bd98c9e409",
+  "working_branch": "fix/audit-execution-recovery-2026-11-09",
+  "parent_pr": 816,
+  "intent": "Wire producible acceptance and validation preflight into durable admission, complete native PR lifecycle and collaboration actions, identify execution ownership, and correct same-model review attribution",
+  "state": "READY_FOR_CI",
+  "reconciled_parent_sha": "0c49f260ec9960dfc1641ad4fabe568815865ec9",
+  "validation": "docs/repairs/evidence/gateway16-engineering-contract/validation.json"
+}

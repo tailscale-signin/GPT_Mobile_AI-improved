@@ -122,6 +122,7 @@ internal fun gatewayAppDiagnosticProjection(entry: AppLogEntry): JsonObject? {
                     GatewayDiagnosticSchema.boolAttributes.forEach { name -> fields[name]?.let { put(name, it) } }
                     val reason = execution.errorCode ?: text("reasonCode", "reason_code", "failureCode")
                     reason?.let { put("reason_code", it) }
+                    if ("dependency" !in fields) gatewayDiagnosticDependency(reason)?.let { put("dependency", it) }
                     execution.stage?.lowercase()?.let { put("failed_stage", it) }
                     terminal?.let { put("terminal_status", it) }
                     (text("completionDisposition", "completion_disposition") ?: execution.state?.takeIf { it in GatewayDiagnosticSchema.enumAttributes.getValue("completion_disposition") } ?: terminal)?.let { put("completion_disposition", it) }

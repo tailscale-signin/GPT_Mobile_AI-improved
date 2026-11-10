@@ -184,19 +184,19 @@ internal object GitHubExecutionLedger {
         val arguments = receipt["arguments"] as? JsonObject ?: return false
         val native = if (receipt.text("tool").substringBefore("__") == "github") arguments else GitHubOperationTool.nativeArguments(receipt.text("tool"), arguments) ?: return false
         val result = receipt.result() ?: return false
-        if (native.text("action") == "mark_ready_for_review") {
+        if (native.text("action") in setOf("mark_ready_for_review", "convert_pull_request_to_draft")) {
             val expected = native.text("expected_head_sha").takeIf { it.matches(Regex("[a-fA-F0-9]{40}")) } ?: return false
             val number = native.text("pull_number").toLongOrNull()?.takeIf { it > 0 } ?: return false
             val execution = result["execution"] as? JsonObject ?: return false
             return GitHubEvidenceOrigin.of(receipt) == "LIVE" &&
                 result["reconciled"] == JsonPrimitive(true) &&
                 result["remote_state_verified"] == JsonPrimitive(true) &&
-                result.text("verification") == "REMOTE_PR_READY_AT_EXPECTED_HEAD" &&
+                result.text("verification") == (if (native.text("action") == "convert_pull_request_to_draft") "REMOTE_PR_DRAFT_AT_EXPECTED_HEAD" else "REMOTE_PR_READY_AT_EXPECTED_HEAD") &&
                 result.text("repository").equals(receipt.text("repository"), ignoreCase = true) &&
                 result.text("pull_number").toLongOrNull() == number &&
                 result.text("node_id").isNotBlank() &&
                 result.text("state") == "open" &&
-                result["draft"] == JsonPrimitive(false) &&
+                result["draft"] == JsonPrimitive(native.text("action") == "convert_pull_request_to_draft") &&
                 result.text("head_sha") == expected &&
                 execution.text("action") == "graphql.mutation" &&
                 execution.text("status") == "COMPLETED" &&
@@ -234,7 +234,7 @@ internal object GitHubExecutionLedger {
         val scope = listOf("binding", "tool", "repository", "branch").map { receipt.text(it).takeIf(String::isNotBlank) ?: return null }
         val arguments = receipt["arguments"] as? JsonObject ?: return null
         val native = if (scope[1].substringBefore("__") == "github") arguments else GitHubOperationTool.nativeArguments(scope[1], arguments)
-        if (native?.text("action") == "mark_ready_for_review") {
+        if (native != null && native.text("action") in setOf("mark_ready_for_review", "convert_pull_request_to_draft")) {
             val execution = receipt.result()?.get("execution") as? JsonObject ?: return null
             if (execution.text("action") != "graphql.mutation") return null
             val executionId = execution.text("execution_id").takeIf { it.matches(Regex("[a-f0-9]{64}")) } ?: return null
@@ -242,7 +242,7 @@ internal object GitHubExecutionLedger {
             val number = native.text("pull_number").toLongOrNull()?.takeIf { it > 0 } ?: return null
             val expected = native.text("expected_head_sha").takeIf { it.matches(Regex("[a-fA-F0-9]{40}")) } ?: return null
             val request = buildJsonObject {
-                put("action", "mark_ready_for_review")
+                put("action", native.text("action"))
                 put("pull_number", number)
                 put("expected_head_sha", expected)
                 native["expected_base_sha"]?.let { put("expected_base_sha", it) }

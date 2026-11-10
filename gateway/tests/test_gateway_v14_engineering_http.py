@@ -78,6 +78,22 @@ class EngineeringHTTPTests(unittest.TestCase):
         install_engineering_routes(app, self.service)
         self.client = TestClient(app, client=('127.0.0.1', 12000))
         self.headers = {'Tailscale-User-Login': 'owner@example.test'}
+        # Admission infrastructure boundary: this HTTP suite exercises real policy
+        # parsing/producer resolution, while mirror/image execution is tested separately.
+        self.request['source_sha'] = 'a' * 40
+        policy = Path(self.temp.name) / 'validation.json'
+        policy.write_text(json.dumps({'owner/repo': {'mirror': self.temp.name, 'image': 'fixture@sha256:' + 'a' * 64,
+            'allowed_checks': ['tests'], 'commands': [['fixture-tests']], 'acceptance_map': [{'requirement_id': 'build-fix', 'case_id': 'build-fix',
+                'command_index': 0, 'scope': 'behavior', 'report_path': 'tests.xml'}]}}))
+        import os
+        self.policy_environment = patch.dict(os.environ, GATEWAY_ENGINEERING_VALIDATION_POLICY=str(policy))
+        self.policy_environment.start()
+        self.addCleanup(self.policy_environment.stop)
+        self.validation_probe = patch('v14.engineering_preflight.run_bounded', side_effect=lambda argv, *a, **k: {
+            'exit_code': 0, 'output_tail': 'sha256:' + 'b' * 64 if argv[0] == 'docker' else 'true'})
+        self.validation_probe.start()
+        self.addCleanup(self.validation_probe.stop)
+
 
     def tearDown(self):
         self.client.close()

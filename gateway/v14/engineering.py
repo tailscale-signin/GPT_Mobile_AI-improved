@@ -186,12 +186,16 @@ class EngineeringStore:
         return self.tx(lambda db: [json.loads(row[0]) for row in db.execute(
             'SELECT data FROM engineering_events WHERE job_id=? AND revision>? AND revision<=? ORDER BY revision LIMIT 201', (job_id, after, through))])
 
-    def create(self, principal, request):
+    def create(self, principal, request, *, admission=None):
         existing = self.existing_request(principal, request)
         if existing:
             return existing
         request = validate_request(new_request_defaults(request))
         request_hash = digest(request)
+        if admission is not None:
+            if not admission.get('ready'):
+                raise ValueError('Admission has unresolved prerequisites')
+            request = validate_request(dict(request, acceptance=admission['acceptance']))
         if self.bindings is None:
             raise ExecutionBindingError('EXECUTION_BINDING_REQUIRED', 'Verify the selected execution profile before admitting a new job.')
         binding = self.bindings.read(principal, request.get('execution_binding_id'))
@@ -203,6 +207,8 @@ class EngineeringStore:
                'updated_at': now, 'steps': 0, 'milestones': [], 'repairs': {}, 'patches': [], 'stalls': 0,
                'message': 'Queued for repository inspection', 'data': {}, 'approval': None,
                'execution_binding': binding}
+        if admission is not None:
+            job['data']['admission'] = admission
         capture = capture_context_snapshot(principal, self.runtime)
         if capture is not None:
             job['diagnostic_capture'] = capture
@@ -547,6 +553,36 @@ class EngineeringService:
             raise ExecutionBindingError('EXECUTION_SELECTION_MISMATCH', 'The submitted model/profile does not match the selected execution binding.')
         return binding
 
+    def preflight_submission(self, principal, request):
+        self.validate_submission(principal, request)
+        from v14.engineering_preflight import preflight
+        value = validate_request(request)
+        if value.get('conversation_id'):
+            conversation = self.store.conversations.snapshot(principal, value['conversation_id'])
+            previous = self.store.get(conversation.get('active_job_id'), principal) if conversation and conversation.get('active_job_id') else None
+            head = previous.get('data', {}).get('head_sha') if previous else None
+            if previous and previous['request']['branch'] == value['branch'] and isinstance(head, str) and SHA.fullmatch(head):
+                value = dict(value, source_branch=value['branch'], source_sha=head)
+        result = preflight(value)
+        result['validation_source_sha'] = value.get('source_sha')
+        result['source_sha'] = request.get('source_sha')
+        result['checks']['selected_model'] = 'ready'
+        if result['ready']:
+            access = getattr(self.backend, 'preflight_access', None)
+            if callable(access):
+                result['checks'].update(access(value))
+        return result
+
+    def admit(self, principal, request):
+        existing = self.store.existing_request(principal, request)
+        if existing:
+            return existing
+        from v14.engineering_preflight import EngineeringPreflightError
+        admission = self.preflight_submission(principal, request)
+        if not admission['ready']:
+            raise EngineeringPreflightError(admission)
+        return self.store.create(principal, request, admission=admission)
+
     def validate_execution(self, job, *, force=False):
         self.store.assert_claim(job)
         if not self.authorized(job):
@@ -607,6 +643,7 @@ class EngineeringService:
 
     def readiness(self):
         """Local engineering prerequisites; this never implies model or GitHub API success."""
+        from v14.engineering_preflight import configuration_status
         runtime = self.store.runtime
         journal = 'disabled' if not runtime.GATEWAY_DURABLE_JOBS else 'unavailable'
         if runtime.GATEWAY_DURABLE_JOBS and runtime.durable_job_initialized:
@@ -629,7 +666,9 @@ class EngineeringService:
                 'saved_results': journal in {'ready', 'write_failed'},
                 'checks': {'journal': journal, 'host_github_connection': 'configured' if configured else 'missing',
                            'graph_host_github_connection': 'configured' if graph_configured else 'missing',
-                           'worker': 'running' if worker else 'unavailable', 'draining': draining},
+                           'worker': 'running' if worker else 'unavailable', 'draining': draining,
+                           'validation_policy': configuration_status(), 'acceptance': 'requires_objective_preflight'},
+                'implementation_ready': None, 'implementation_preflight_required': True,
                 'github_reachable': None, 'repository_access': None, 'inference_ready': None,
                 'graph_supported': True, 'graph_configured': graph_configured, 'graph_ready': graph_ready,
                 'execution_binding': {'schema_version': 1, 'supported': True, 'routing_policy': 'SELECTED_ONLY'},
@@ -963,6 +1002,8 @@ def public_job(job):
             'merge_ready': state == 'MERGE_READY' and bool(EngineeringSupervisor.readiness(readiness)),
             'approval_expires_at': (job.get('approval') or {}).get('expires_at'),
             'merge_sha': data.get('merge_sha'), 'review': data.get('review', {}),
+            'acceptance': job['request'].get('acceptance', []), 'admission': data.get('admission'),
+            'execution_owner': 'GATEWAY' if job.get('detach_safe') else 'NOT_CONFIRMED',
             'completion_verification': data.get('completion_verification'), 'evidence_policy': 'github.evidence.v1',
             'latest_evidence': data.get('latest_evidence'),
             'execution_binding_id': job['request'].get('execution_binding_id'),

@@ -3,6 +3,9 @@ package dev.chungjungsoo.gptmobile.data.network.gateway
 /** Repair hints are fixed vocabulary; they never grant permission to replay an operation. */
 internal fun gatewayDiagnosticRecovery(reason: String?, terminal: String? = null, execution: String? = null): String = when {
     execution == "UNKNOWN_OUTCOME" -> "reconcile"
+    reason in setOf("ACCEPTANCE_CONTRACT_REQUIRED", "ACCEPTANCE_PRODUCER_REQUIRED", "VALIDATION_POLICY_REQUIRED", "VALIDATION_CHECKS_REQUIRED", "VALIDATION_CHECK_UNSUPPORTED", "VALIDATION_RUNTIME_UNAVAILABLE", "VALIDATION_REVISION_UNAVAILABLE") -> "repair_configuration"
+    reason in setOf("SOURCE_REVISION_REQUIRED", "SOURCE_REVISION_CHANGED") -> "repair_request"
+    reason == "ENGINEERING_REPOSITORY_ACCESS_REQUIRED" -> "authorize"
     reason in setOf("SELECTED_MODEL_LOADING", "EXECUTION_MODEL_LOADING") -> "wait_for_model"
     reason in setOf("SELECTED_MODEL_NOT_LOADED", "EXECUTION_MODEL_NOT_LOADED") -> "load_selected_model"
     reason in setOf("SELECTED_MODEL_NOT_AVAILABLE", "EXECUTION_MODEL_UNAVAILABLE") -> "select_available_model"
@@ -37,4 +40,15 @@ internal fun gatewayRecoveryCondition(action: String): String = when (action) {
     "verify_acceptance" -> "acceptance_evidence_available"
     "reconcile" -> "original_outcome_reconciled"
     else -> "dependency_changed"
+}
+
+/** Fixed cause-to-dependency mapping for admission failures that have no dispatched job. */
+internal fun gatewayDiagnosticDependency(reason: String?): String? = when (reason) {
+    "ACCEPTANCE_CONTRACT_REQUIRED", "ACCEPTANCE_PRODUCER_REQUIRED" -> "acceptance"
+    "VALIDATION_POLICY_REQUIRED" -> "validation_policy"
+    "VALIDATION_CHECKS_REQUIRED", "VALIDATION_CHECK_UNSUPPORTED" -> "ci_checks"
+    "SOURCE_REVISION_REQUIRED", "SOURCE_REVISION_CHANGED", "VALIDATION_REVISION_UNAVAILABLE" -> "source_revision"
+    "VALIDATION_RUNTIME_UNAVAILABLE" -> "validation_runtime"
+    "ENGINEERING_REPOSITORY_ACCESS_REQUIRED" -> "repository_access"
+    else -> null
 }

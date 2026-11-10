@@ -96,7 +96,7 @@ class GitHubWorkspaceClient(
             }
         }
         private val json = Json { ignoreUnknownKeys = true }
-        val readActions = GitHubInspection.actions + (GitHubRepositoryLifecycle.actions - GitHubRepositoryLifecycle.writes) + setOf(
+        val readActions = GitHubCollaboration.reads + GitHubInspection.actions + (GitHubRepositoryLifecycle.actions - GitHubRepositoryLifecycle.writes) + setOf(
             "list_commits", "list_open_pull_requests", "get_commit_detail", "get_commit_status_summary",
             "get_account", "list_repositories", "list_installations", "list_installation_repositories", "get_repository", "list_branches", "browse_files",
             "read_code", "get_branch_head", "get_pull_request_files", "get_commit_checks", "compare_refs",
@@ -105,12 +105,12 @@ class GitHubWorkspaceClient(
             "list_releases", "get_release", "get_release_by_tag", "list_tags", "release_status", "get_pull_request_comments",
             "resolve_context", "task_context", "index_status", "build_index", "workflow_catalog", "search_repository", "read_ranges", "ci_failure_digest", "efficiency", "recovery_context"
         )
-        val writeActions = GitHubRepositoryLifecycle.writes + setOf(
+        val writeActions = GitHubCollaboration.writes + GitHubRepositoryLifecycle.writes + setOf(
             "commit_files", "stage_patch", "commit_staged_patch",
             "create_tag", "create_issue", "update_issue", "delete_branch", "delete_fixture_branch",
             "create_release",
             "update_release",
-            "publish_release", "update_pull_request", "mark_ready_for_review", "submit_pull_request_review", "merge_pull_request",
+            "publish_release", "update_pull_request", "mark_ready_for_review", "convert_pull_request_to_draft", "submit_pull_request_review", "merge_pull_request",
             "create_pull_request_review", "reply_pull_request_comment"
         )
         val actions = readActions + writeActions
@@ -511,6 +511,16 @@ class GitHubWorkspaceClient(
                 reconcile = { reconcileCommit(root, it, forceLiveRead = true) }
             )
             "create_tag" -> createTag(root, args)
+            in GitHubCollaboration.writes, in GitHubCollaboration.reads -> GitHubCollaboration.execute(
+                root,
+                action,
+                args,
+                apiOrigins.rest,
+                request = { path, method, body ->
+                    if (method == HttpMethod.Get) requestUntracked(path, method, body, false, forceLiveRead = true) else request(path, method, body)
+                },
+                graphQl = { query, variables -> graphQl(query, variables) }
+            )
             "create_issue", "update_issue" -> issueMutation(root, action, args)
             "create_release" -> createRelease(root, args)
             "update_release" -> updateRelease(root, args)
@@ -520,7 +530,7 @@ class GitHubWorkspaceClient(
                 restoreDispatchReceipt(root, result)
                 result
             }
-            "update_pull_request", "mark_ready_for_review", "submit_pull_request_review", "merge_pull_request", "create_pull_request_review", "reply_pull_request_comment" -> pullRequestLifecycle(root, action, args)
+            "update_pull_request", "mark_ready_for_review", "convert_pull_request_to_draft", "submit_pull_request_review", "merge_pull_request", "create_pull_request_review", "reply_pull_request_comment" -> pullRequestLifecycle(root, action, args)
             "commit_files" -> commitFiles(root, args)
             else -> error("Unsupported workspace action: $action")
         }
@@ -1067,69 +1077,76 @@ class GitHubWorkspaceClient(
         val number = args["pull_number"]?.jsonPrimitive?.content?.toIntOrNull()?.also { require(it > 0) } ?: error("pull_number is required.")
         val expected = args["expected_head_sha"]?.jsonPrimitive?.content.orEmpty()
         require(Regex("[a-fA-F0-9]{40}").matches(expected)) { "Read the current PR head and supply expected_head_sha." }
-        val pr = request("$root/pulls/$number").jsonObject
+        val pr = requestUntracked("$root/pulls/$number", HttpMethod.Get, null, false, forceLiveRead = true).jsonObject
         check(pr["head"]?.jsonObject?.get("sha")?.jsonPrimitive?.content == expected) { "Pull request head changed. Refresh before continuing." }
         args["expected_base_sha"]?.let { check(pr["base"]?.jsonObject?.get("sha") == it) { "Pull request base changed. Refresh before continuing." } }
         if (action != "update_pull_request") check(pr["state"]?.jsonPrimitive?.content == "open") { "Pull request is no longer open." }
         val body = args["body"]?.jsonPrimitive?.content.orEmpty()
         val result = when (action) {
-            "update_pull_request" -> request(
-                "$root/pulls/$number",
-                HttpMethod.Patch,
-                buildJsonObject {
-                    listOf("title", "body", "base", "state").forEach { key -> args[key]?.let { put(key, it) } }
-                    require(args.keys.any { it in setOf("title", "body", "base", "state") }) { "Supply title, body, base or state for a PR update." }
-                    args["state"]?.let { require(it.jsonPrimitive.content in setOf("open", "closed")) { "PR state must be open or closed." } }
-                }
-            )
-            "mark_ready_for_review" -> graphQl(
-                "mutation Ready(\$id: ID!) { markPullRequestReadyForReview(input: {pullRequestId: \$id}) { pullRequest { number isDraft url } } }",
-                buildJsonObject { put("id", requireNotNull(pr["node_id"])) },
-                reconcile = {
-                    val observed = request("$root/pulls/$number").jsonObject
-                    if (observed["number"] == JsonPrimitive(number) &&
-                        observed["node_id"] == pr["node_id"] &&
-                        observed["draft"] == JsonPrimitive(false) &&
-                        observed["state"] == JsonPrimitive("open") &&
-                        observed["head"]?.jsonObject?.get("sha") == JsonPrimitive(expected)
+            "update_pull_request" -> {
+                require("draft" !in args) { "Use mark_ready_for_review or convert_pull_request_to_draft for draft transitions; mixed updates are not dispatched." }
+                request(
+                    "$root/pulls/$number",
+                    HttpMethod.Patch,
+                    buildJsonObject {
+                        listOf("title", "body", "base", "state").forEach { key -> args[key]?.let { put(key, it) } }
+                        require(args.keys.any { it in setOf("title", "body", "base", "state") }) { "Supply title, body, base or state for a PR update." }
+                        args["state"]?.let { require(it.jsonPrimitive.content in setOf("open", "closed")) { "PR state must be open or closed." } }
+                    }
+                )
+            }
+            "mark_ready_for_review", "convert_pull_request_to_draft" -> {
+                val draft = action == "convert_pull_request_to_draft"
+                val verification = if (draft) "REMOTE_PR_DRAFT_AT_EXPECTED_HEAD" else "REMOTE_PR_READY_AT_EXPECTED_HEAD"
+                graphQl(
+                    if (draft) "mutation Draft(\$id: ID!) { convertPullRequestToDraft(input: {pullRequestId: \$id}) { pullRequest { number isDraft url } } }" else "mutation Ready(\$id: ID!) { markPullRequestReadyForReview(input: {pullRequestId: \$id}) { pullRequest { number isDraft url } } }",
+                    buildJsonObject { put("id", requireNotNull(pr["node_id"])) },
+                    reconcile = {
+                        val observed = requestUntracked("$root/pulls/$number", HttpMethod.Get, null, false, forceLiveRead = true).jsonObject
+                        if (observed["number"] == JsonPrimitive(number) &&
+                            observed["node_id"] == pr["node_id"] &&
+                            observed["draft"] == JsonPrimitive(draft) &&
+                            observed["state"] == JsonPrimitive("open") &&
+                            observed["head"]?.jsonObject?.get("sha") == JsonPrimitive(expected)
+                        ) {
+                            buildJsonObject {
+                                put("reconciled", true)
+                                put("verification", verification)
+                                put("repository", root.removePrefix("/repos/"))
+                                put("pull_number", number)
+                                put("node_id", observed.getValue("node_id"))
+                                put("state", "open")
+                                put("head_sha", expected)
+                                put("draft", draft)
+                            }
+                        } else {
+                            null
+                        }
+                    }
+                ).let { mutation ->
+                    val observed = requestUntracked("$root/pulls/$number", HttpMethod.Get, null, false, forceLiveRead = true).jsonObject
+                    check(
+                        observed["number"] == JsonPrimitive(number) &&
+                            observed["node_id"] == pr["node_id"] &&
+                            observed["state"] == JsonPrimitive("open") &&
+                            observed["draft"] == JsonPrimitive(draft) &&
+                            observed["head"]?.jsonObject?.get("sha") == JsonPrimitive(expected)
                     ) {
-                        buildJsonObject {
-                            put("reconciled", true)
-                            put("verification", "REMOTE_PR_READY_AT_EXPECTED_HEAD")
+                        "GitHub did not confirm the expected pull request draft state at the selected head. Inspect remote state; do not repeat the mutation."
+                    }
+                    JsonObject(
+                        mutation + buildJsonObject {
+                            put("remote_state_verified", true)
+                            put("verification", verification)
                             put("repository", root.removePrefix("/repos/"))
                             put("pull_number", number)
                             put("node_id", observed.getValue("node_id"))
                             put("state", "open")
                             put("head_sha", expected)
-                            put("draft", false)
+                            put("draft", draft)
                         }
-                    } else {
-                        null
-                    }
+                    )
                 }
-            ).let { mutation ->
-                val observed = request("$root/pulls/$number").jsonObject
-                check(
-                    observed["number"] == JsonPrimitive(number) &&
-                        observed["node_id"] == pr["node_id"] &&
-                        observed["state"] == JsonPrimitive("open") &&
-                        observed["draft"] == JsonPrimitive(false) &&
-                        observed["head"]?.jsonObject?.get("sha") == JsonPrimitive(expected)
-                ) {
-                    "GitHub did not confirm the expected pull request is ready at the selected head. Inspect remote state; do not repeat the mutation."
-                }
-                JsonObject(
-                    mutation + buildJsonObject {
-                        put("remote_state_verified", true)
-                        put("verification", "REMOTE_PR_READY_AT_EXPECTED_HEAD")
-                        put("repository", root.removePrefix("/repos/"))
-                        put("pull_number", number)
-                        put("node_id", observed.getValue("node_id"))
-                        put("state", "open")
-                        put("head_sha", expected)
-                        put("draft", false)
-                    }
-                )
             }
             "submit_pull_request_review" -> {
                 val event = args["event"]?.jsonPrimitive?.content.orEmpty().ifBlank { "COMMENT" }
@@ -1213,7 +1230,7 @@ class GitHubWorkspaceClient(
                     expected
                 )
                 check(health.eligible) { health.detail }
-                val latest = request("$root/pulls/$number").jsonObject
+                val latest = requestUntracked("$root/pulls/$number", HttpMethod.Get, null, false, forceLiveRead = true).jsonObject
                 check(
                     latest["head"]?.jsonObject?.get("sha")?.jsonPrimitive?.content == expected &&
                         latest["base"]?.jsonObject?.get("sha")?.jsonPrimitive?.content == health.baseSha &&
@@ -1427,7 +1444,7 @@ class GitHubWorkspaceClient(
         require(token.isNotBlank()) { "Connect GitHub before changing issues." }
         val creating = action == "create_issue"
         val number = if (creating) null else args["issue_number"]?.jsonPrimitive?.content?.toIntOrNull().also { require(it != null && it > 0) }
-        val before = if (number == null) null else request("$root/issues/$number").jsonObject
+        val before = if (number == null) null else requestUntracked("$root/issues/$number", HttpMethod.Get, null, false, forceLiveRead = true).jsonObject
         if (before != null) {
             require("pull_request" !in before) { "Use github_pr for pull requests." }
             require(!args["expected_updated_at"]?.jsonPrimitive?.content.isNullOrBlank() && args["expected_updated_at"]?.jsonPrimitive?.content == before["updated_at"]?.jsonPrimitive?.content) { "Issue changed; refresh and review it before updating." }

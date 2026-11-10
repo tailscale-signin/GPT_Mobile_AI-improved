@@ -262,8 +262,8 @@ internal object GitHubSelfTestFixtures {
             "github_stage_patch" -> true
             "github_commit" -> action in setOf("branch", "commit", "commit_staged_patch", "delete_branch", "delete_fixture_branch", "")
             "github_write" -> action in setOf("commit", "")
-            "github_pr" -> action in setOf("create", "update", "comment", "reply", "review", "merge")
-            "github_issue" -> action in setOf("create", "update")
+            "github_pr" -> action in GitHubCollaboration.prActions || action in setOf("create", "update", "comment", "reply", "review", "merge", "ready", "draft")
+            "github_issue" -> action in GitHubCollaboration.issueActions || action in setOf("create", "update")
             "github_release" -> action in setOf("create_tag", "publish")
             "github_ci" -> action in setOf("dispatch", "rerun", "rerun_failed_jobs", "rerun_all", "cancel")
             "github" -> action in GitHubWorkspaceClient.writeActions || action in setOf("create_branch", "update_file", "create_pull_request", "create_issue_comment", "dispatch_workflow", "rerun_workflow", "rerun_failed_jobs", "cancel_workflow")

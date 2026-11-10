@@ -84,6 +84,13 @@ class GatewayEngineeringClient internal constructor(
                             val missing = GatewayGraphPrerequisite.missing(GatewayEngineeringCapabilities("engineering-gateway", 1, readiness = readiness))
                             throw GatewayGraphUnavailableException("The selected gateway graph prerequisites changed before this request.", missing)
                         }
+                        val preflight = runCatching { error?.get("preflight")?.let { json.decodeFromJsonElement(GatewayEngineeringPreflight.serializer(), it) } }.getOrNull()
+                        if (preflight != null && !preflight.ready && preflight.blockers.isNotEmpty()) {
+                            throw GatewayEngineeringRequestRejected(response.status.value, preflight.blockers.joinToString("\n") { "${it.message} (${it.failedStage}: ${it.reasonCode}; ${it.recoveryAction})" })
+                        }
+                        if (code in setOf("ENGINEERING_REPOSITORY_ACCESS_REQUIRED", "SOURCE_REVISION_CHANGED", "SOURCE_REVISION_REQUIRED", "VALIDATION_POLICY_REQUIRED")) {
+                            throw GatewayEngineeringRequestRejected(response.status.value, "$code: ${detail?.get("message")?.jsonPrimitive?.content.orEmpty().take(1000)}")
+                        }
                         if (body != null && response.status.value in 400..499 && response.status.value !in setOf(408, 499)) {
                             val message = when (response.status.value) {
                                 401, 403 -> "Gateway engineering access was rejected. Restore the original account and engineering permission before submitting a new command."
@@ -120,6 +127,14 @@ class GatewayEngineeringClient internal constructor(
         GatewaySurfacePolicy.shared.invalidate(GatewaySurfacePolicy.identity(config), GatewaySurfacePolicy.Surface.CAPABILITIES)
         LocalServiceHealth.checkAgain(config.apiUrl)
         return capabilities(config, forceRefresh = true)
+    }
+
+    suspend fun preflight(config: ProviderRequestConfig, request: GatewayEngineeringRequest): GatewayEngineeringPreflight {
+        val result = json.decodeFromString<GatewayEngineeringPreflight>(this.request(config, "preflight", json.encodeToString(request)))
+        check(result.schema == "github.engineering-admission.v1" && result.objectiveSha256 == GitHubRepositoryStateStore.digest(request.objective) && result.sourceSha == request.sourceSha) { "The gateway preflight does not match this objective and source revision." }
+        if (!result.ready) throw GatewayEngineeringRequestRejected(412, result.blockers.joinToString("\n") { "${it.message} (${it.failedStage}: ${it.reasonCode}; ${it.recoveryAction})" }.ifBlank { "Engineering prerequisites have not been verified." })
+        check(request.taskScope != "implement" || result.acceptance.isNotEmpty()) { "The gateway did not provide a testable acceptance contract." }
+        return result
     }
 
     suspend fun capabilities(config: ProviderRequestConfig, forceRefresh: Boolean = false): GatewayEngineeringCapabilities {

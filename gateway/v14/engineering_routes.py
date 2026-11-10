@@ -11,6 +11,7 @@ from fastapi import Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from v14.engineering import public_job, validate_request
+from v14.engineering_preflight import EngineeringPreflightError
 from v14.engineering_defaults import DEFAULT_DURATION_HOURS, DEFAULT_EXECUTION_BUDGET, EXECUTION_BUDGET_LIMITS
 from v14.engineering_diagnostics import diagnostic_job
 from v14.execution_binding import ExecutionBindingError
@@ -45,6 +46,9 @@ def install_engineering_routes(app, service):
     async def execute(action):
         try:
             return await action()
+        except EngineeringPreflightError as error:
+            return JSONResponse({'error': {'code': error.code, 'message': str(error), 'retryable': False},
+                                 'preflight': error.result}, status_code=error.status)
         except ExecutionBindingError as error:
             return JSONResponse({'error': {'code': error.code, 'message': str(error),
                                            'retryable': error.retryable, 'routeSubstituted': False}}, status_code=error.status)
@@ -79,7 +83,7 @@ def install_engineering_routes(app, service):
                     'repair_attempts': 5, 'explicit_merge_approval': True, 'approval_ttl_seconds': 1800,
                     'notifications': 'android_background_sync', 'batch_reads': True,
                     'execution_binding_protocol': 1, 'routing_policy': 'SELECTED_ONLY',
-                    'execution_owner': 'GATEWAY', 'retry_owner': 'GATEWAY',
+                    'execution_owner': 'GATEWAY', 'retry_owner': 'GATEWAY', 'admission_preflight_protocol': 1,
                     'code_graph': {'schema_version': 1, 'supported': True,
                                    'configured': readiness.get('checks', {}).get('graph_host_github_connection') == 'configured',
                                    'enabled': readiness['graph_ready'], 'incremental': True, 'source_level_only': True}}
@@ -176,6 +180,13 @@ def install_engineering_routes(app, service):
             return await asyncio.to_thread(service.graph.execute, owner, payload)
         return await execute(run)
 
+    @app.post('/gateway/engineering/preflight')
+    @app.post('/v1/gateway/engineering/preflight')
+    async def preflight(request: Request):
+        async def run():
+            return await asyncio.to_thread(service.preflight_submission, principal(request), await body(request))
+        return await execute(run)
+
     @app.post('/gateway/engineering/jobs')
     @app.post('/v1/gateway/engineering/jobs')
     async def create(request: Request):
@@ -190,8 +201,7 @@ def install_engineering_routes(app, service):
                     return JSONResponse(public_job(existing), status_code=200)
             if not readiness['ready']:
                 return JSONResponse({'error': {'code': 'engineering_connection_required', 'message': 'Check durable storage, the gateway host GitHub connection and the engineering worker before starting an autonomous job.'}, 'readiness': readiness}, status_code=503)
-            await asyncio.to_thread(service.validate_submission, owner, payload)
-            job = await asyncio.to_thread(service.store.create, owner, payload)
+            job = await asyncio.to_thread(service.admit, owner, payload)
             service.wake.set()
             return JSONResponse(public_job(job), status_code=202)
         return await execute(run)

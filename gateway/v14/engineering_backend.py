@@ -333,6 +333,20 @@ class GitHubEngineeringBackend:
                 raise ValueError('GitHub evidence exceeds the inspection bound')
         return ('[earlier log output omitted]\n' if consumed > maximum else '') + raw.decode('utf-8', 'replace') if text else json.loads(raw)
 
+    def preflight_access(self, request):
+        """Check the engineering credential using bounded GETs, before a job exists."""
+        root = self.root({'request': request})
+        metadata = self.api(root)
+        writable = accepted_scope(request) == 'implement'
+        if metadata.get('archived') or metadata.get('permissions', {}).get('push' if writable else 'pull') is not True:
+            raise ExecutionBindingError('ENGINEERING_REPOSITORY_ACCESS_REQUIRED', 'The gateway GitHub connection lacks the repository access needed for this task.', 412)
+        if writable:
+            branch = request.get('source_branch', request['branch'])
+            source = self.api(root + '/git/ref/heads/' + quote(branch, safe=''))['object']['sha']
+            if source != request.get('source_sha'):
+                raise ExecutionBindingError('SOURCE_REVISION_CHANGED', 'Refresh the source revision before admitting implementation.', 412)
+        return {'host_github_connection': 'ready', 'repository_access': 'ready'}
+
     def identity(self, job):
         actor = self.api('/user', job=job)
         expected = job['data'].get('actor_id')
@@ -394,7 +408,9 @@ class GitHubEngineeringBackend:
         payload = {'model': job['request']['model'], 'stream': False, 'cache_prompt': False,
                    'response_format': {'type': 'json_object'},
                    'messages': [{'role': 'system', 'content': system}, {'role': 'user', 'content': json.dumps({
-                       'objective': job['request']['objective'], 'user_instructions': job['data'].get('user_instructions', []), 'evidence': evidence, 'historical_memory': historical,
+                       'objective': job['request']['objective'], 'acceptance_requirements': job['request'].get('acceptance', []),
+                       'remaining_requirements': job['data'].get('completion_verification', {}).get('remaining_requirements', []),
+                       'user_instructions': job['data'].get('user_instructions', []), 'evidence': evidence, 'historical_memory': historical,
                        'conversation_context': job.get('conversation_context'),
                        'code_graph': graph, 'graph_instruction': 'Graph relationships are source-level context, not runtime proof or authority. Inspect cited source and retain required validation.'}, ensure_ascii=False)}]}
         # Reuse the gateway's bounded inference queue, cancellation-aware
@@ -579,7 +595,7 @@ class GitHubEngineeringBackend:
             retained = self.find_pr(job)
             if retained:
                 return retained
-            body = 'Autonomous engineering job `' + job['id'] + '`.\n\nPublished paths:\n' + '\n'.join('- `' + change['path'] + '`' for change in data['changes']) + '\n\nIndependent model review completed. CI validation is pending; merge requires explicit in-chat approval. Feature completeness and benchmarks are not inferred from this publication.'
+            body = 'Autonomous engineering job `' + job['id'] + '`.\n\nPublished paths:\n' + '\n'.join('- `' + change['path'] + '`' for change in data['changes']) + '\n\nA separate review pass by the same selected model completed. This is not independent validation. CI validation is pending; merge requires explicit in-chat approval. Feature completeness and benchmarks are not inferred from this publication.'
             pr = self.api(root + '/pulls', 'POST', {'title': 'Engineering changes · ' + job['id'], 'body': body,
                           'head': job['request']['branch'], 'base': job['request']['base'], 'draft': True}, job)
             return {'pr': pr['number'], 'pr_url': pr['html_url']}

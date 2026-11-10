@@ -47,15 +47,18 @@ internal fun ChatGenerationProgress(
     githubPresentation: Boolean = false
 ) {
     if (githubPresentation) {
-        GitHubLoadingHeader(
-            activity = engineeringJob?.message ?: statusOverride ?: generationActivityLabel(toolEvents, timeline),
-            active = engineeringJob?.let { !it.terminal } ?: active,
-            startedAtMillis = engineeringJob?.createdAt?.times(1000)?.toLong() ?: startedAtMillis,
-            completedAtMillis = engineeringJob?.finishedAt?.times(1000)?.toLong() ?: completedAtMillis,
-            textSizeIncrease = textSizeIncrease,
-            progress = engineeringJob?.progress,
-            modifier = modifier
-        )
+        Column(modifier) {
+            Text(engineeringJob?.ownershipLabel ?: "Running on this device", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            GitHubLoadingHeader(
+                activity = engineeringJob?.message ?: statusOverride ?: generationActivityLabel(toolEvents, timeline),
+                active = engineeringJob?.let { !it.terminal } ?: active,
+                startedAtMillis = engineeringJob?.createdAt?.times(1000)?.toLong() ?: startedAtMillis,
+                completedAtMillis = engineeringJob?.finishedAt?.times(1000)?.toLong() ?: completedAtMillis,
+                textSizeIncrease = textSizeIncrease,
+                progress = engineeringJob?.progress,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
         return
     }
     Column(modifier) {

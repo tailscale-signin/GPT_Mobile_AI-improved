@@ -110,7 +110,7 @@
       "unknown"
     ]
   },
-  "contract_revision": 1,
+  "contract_revision": 2,
   "digest_attributes": [
     "app_revision",
     "capability_digest",
@@ -166,14 +166,20 @@
       "local_only"
     ],
     "dependency": [
+      "acceptance",
       "backend_health",
       "backend_models",
       "backend_properties",
       "backend_template",
+      "ci_checks",
       "durable_storage",
       "model_backend",
       "process",
-      "selected_model"
+      "repository_access",
+      "selected_model",
+      "source_revision",
+      "validation_policy",
+      "validation_runtime"
     ],
     "dispatch_scope": [
       "blocked_action",
@@ -258,7 +264,9 @@
       "verify"
     ],
     "failure_code": [
+      "ACCEPTANCE_CONTRACT_REQUIRED",
       "ACCEPTANCE_CRITERIA_UNVERIFIED",
+      "ACCEPTANCE_PRODUCER_REQUIRED",
       "ACCEPTED",
       "ACCESS_DENIED",
       "ACCESS_FORBIDDEN",
@@ -329,6 +337,7 @@
       "ENGINEERING_NOT_CONFIGURED",
       "ENGINEERING_RATE_LIMIT_WAIT",
       "ENGINEERING_RECOVERY_REQUIRES_REVIEW",
+      "ENGINEERING_REPOSITORY_ACCESS_REQUIRED",
       "ENGINEERING_UNAVAILABLE",
       "ENGINEERING_VALIDATION_REJECTED",
       "EVIDENCE_MISSING",
@@ -528,6 +537,8 @@
       "SERIALIZATION_ERROR",
       "SERVER_RESPONSE",
       "SERVICE_UNAVAILABLE",
+      "SOURCE_REVISION_CHANGED",
+      "SOURCE_REVISION_REQUIRED",
       "STALE_INVENTORY",
       "STREAM_DEGRADED",
       "TASK_BLOCKED",
@@ -549,6 +560,11 @@
       "UNKNOWN_TOOL",
       "UNSUPPORTED_INSTRUCTION_CONTENT",
       "UPSTREAM_UNAVAILABLE",
+      "VALIDATION_CHECKS_REQUIRED",
+      "VALIDATION_CHECK_UNSUPPORTED",
+      "VALIDATION_POLICY_REQUIRED",
+      "VALIDATION_REVISION_UNAVAILABLE",
+      "VALIDATION_RUNTIME_UNAVAILABLE",
       "VERIFIED",
       "WAITING_FOR_APPROVAL",
       "YES",
@@ -646,7 +662,9 @@
       "explicit_refresh"
     ],
     "reason_code": [
+      "ACCEPTANCE_CONTRACT_REQUIRED",
       "ACCEPTANCE_CRITERIA_UNVERIFIED",
+      "ACCEPTANCE_PRODUCER_REQUIRED",
       "ACCEPTED",
       "ACCESS_DENIED",
       "ACCESS_FORBIDDEN",
@@ -717,6 +735,7 @@
       "ENGINEERING_NOT_CONFIGURED",
       "ENGINEERING_RATE_LIMIT_WAIT",
       "ENGINEERING_RECOVERY_REQUIRES_REVIEW",
+      "ENGINEERING_REPOSITORY_ACCESS_REQUIRED",
       "ENGINEERING_UNAVAILABLE",
       "ENGINEERING_VALIDATION_REJECTED",
       "EVIDENCE_MISSING",
@@ -916,6 +935,8 @@
       "SERIALIZATION_ERROR",
       "SERVER_RESPONSE",
       "SERVICE_UNAVAILABLE",
+      "SOURCE_REVISION_CHANGED",
+      "SOURCE_REVISION_REQUIRED",
       "STALE_INVENTORY",
       "STREAM_DEGRADED",
       "TASK_BLOCKED",
@@ -937,6 +958,11 @@
       "UNKNOWN_TOOL",
       "UNSUPPORTED_INSTRUCTION_CONTENT",
       "UPSTREAM_UNAVAILABLE",
+      "VALIDATION_CHECKS_REQUIRED",
+      "VALIDATION_CHECK_UNSUPPORTED",
+      "VALIDATION_POLICY_REQUIRED",
+      "VALIDATION_REVISION_UNAVAILABLE",
+      "VALIDATION_RUNTIME_UNAVAILABLE",
       "VERIFIED",
       "WAITING_FOR_APPROVAL",
       "YES",

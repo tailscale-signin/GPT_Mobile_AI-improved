@@ -19,6 +19,7 @@ data class GatewayEngineeringCapabilities(
     @SerialName("server_build") val serverBuild: String? = null,
     @SerialName("code_graph") val codeGraph: GatewayGraphCapability? = null,
     val readiness: GatewayEngineeringReadiness? = null,
+    @SerialName("admission_preflight_protocol") val admissionPreflightProtocol: Int = 0,
     @SerialName("gateway_id") val gatewayId: String? = null,
     @SerialName("task_scope_protocol") val taskScopeProtocol: Int = 0,
     @SerialName("task_scopes") val taskScopes: List<String> = emptyList(),
@@ -100,6 +101,8 @@ data class GatewayEngineeringChecks(
     val journal: String? = null,
     @SerialName("host_github_connection") val hostGithubConnection: String? = null,
     val worker: String? = null,
+    @SerialName("validation_policy") val validationPolicy: String? = null,
+    val acceptance: String? = null,
     val draining: Boolean = false,
     @SerialName("graph_host_github_connection") val graphHostGithubConnection: String? = null
 )
@@ -206,8 +209,19 @@ data class GatewayEngineeringJob(
     @SerialName("working_branch") val workingBranch: String? = null,
     val base: String? = null,
     @SerialName("duration_hours") val durationHours: Int? = null,
-    @SerialName("execution_budget") val executionBudget: GatewayEngineeringBudget? = null
+    @SerialName("execution_budget") val executionBudget: GatewayEngineeringBudget? = null,
+    val acceptance: List<GatewayEngineeringAcceptance> = emptyList(),
+    val admission: JsonObject? = null
 ) {
+    val ownershipLabel: String get() = if (detachSafe && acceptedAt != null && id.isNotBlank()) {
+        when {
+            terminal -> "Saved on Gateway"
+            state in setOf("MERGE_READY", "NEEDS_INPUT") -> "Saved on Gateway · waiting for your input"
+            else -> "Saved and running on Gateway"
+        }
+    } else {
+        "Gateway ownership not confirmed"
+    }
     val terminal: Boolean get() = state in setOf("COMPLETED", "CANCELLED", "FAILED")
     val progress: Float get() = (milestonesCompleted.toFloat() / milestonesTotal.coerceAtLeast(1)).coerceIn(0f, 1f)
 }
@@ -257,3 +271,22 @@ internal fun gatewayWorkingBranchMatches(request: GatewayEngineeringRequest, act
     if (derived != null) return actualBranch == derived && workingBranch == derived && sourceBranch == request.sourceBranch && sourceSha == request.sourceSha
     return actualBranch == request.branch && (sourceBranch == null || request.sourceBranch == null || sourceBranch == request.sourceBranch) && (sourceSha == null || request.sourceSha == null || sourceSha == request.sourceSha)
 }
+
+@Serializable
+data class GatewayEngineeringPreflight(
+    val schema: String = "",
+    val ready: Boolean = false,
+    val acceptance: List<GatewayEngineeringAcceptance> = emptyList(),
+    val blockers: List<GatewayEngineeringBlocker> = emptyList(),
+    @SerialName("objective_sha256") val objectiveSha256: String = "",
+    @SerialName("source_sha") val sourceSha: String? = null
+)
+
+@Serializable
+data class GatewayEngineeringBlocker(
+    val dependency: String,
+    @SerialName("reason_code") val reasonCode: String,
+    @SerialName("failed_stage") val failedStage: String,
+    val message: String,
+    @SerialName("recovery_action") val recoveryAction: String
+)

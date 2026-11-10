@@ -47,6 +47,45 @@ class GatewayEngineeringClientTest {
         }
     }
 
+    @Test fun preflightReturnsProducibleAcceptanceBeforeSubmittingAnyJob() = runTest {
+        val objective = "Repair build"
+        val sha = "a".repeat(40)
+        val requirement = GatewayEngineeringAcceptance("build", listOf("file"), listOf("tests"), listOf(GatewayRequirementEvidence("behavior_test", "Fixture.build")))
+        val result = GatewayEngineeringPreflight("github.engineering-admission.v1", true, listOf(requirement), objectiveSha256 = GitHubRepositoryStateStore.digest(objective), sourceSha = sha)
+        var calls = 0
+        http(
+            MockEngine { request ->
+                calls++
+                assertTrue(request.url.encodedPath.endsWith("/engineering/preflight"))
+                assertEquals(io.ktor.http.HttpMethod.Post, request.method)
+                respond(Json.encodeToString(result))
+            }
+        ).use { http ->
+            val request = GatewayEngineeringRequest("owner/repo", "feature", "main", objective, "local", chatId = 1, requestId = "command", sourceSha = sha)
+            assertEquals(listOf(requirement), GatewayEngineeringClient(http).preflight(config, request).acceptance)
+            assertEquals(1, calls)
+        }
+    }
+
+    @Test fun missingProducerHasAnAdmissionReasonAndCannotBecomeGenericPartialWork() = runTest {
+        val objective = "Repair build"
+        val result = GatewayEngineeringPreflight("github.engineering-admission.v1", false, blockers = listOf(GatewayEngineeringBlocker("acceptance", "ACCEPTANCE_PRODUCER_REQUIRED", "admission", "Configure the build behavior test", "CONFIGURE_ACCEPTANCE_MAPPING")), objectiveSha256 = GitHubRepositoryStateStore.digest(objective))
+        http(MockEngine { respond(Json.encodeToString(result)) }).use { http ->
+            val failure = runCatching { GatewayEngineeringClient(http).preflight(config, GatewayEngineeringRequest("owner/repo", "feature", "main", objective, "local", chatId = 1, requestId = "command")) }.exceptionOrNull()
+            assertTrue(failure is GatewayEngineeringRequestRejected)
+            assertTrue(failure?.message.orEmpty().contains("ACCEPTANCE_PRODUCER_REQUIRED"))
+            assertTrue(failure?.message.orEmpty().contains("CONFIGURE_ACCEPTANCE_MAPPING"))
+        }
+    }
+
+    @Test fun preflightForAnotherObjectiveCannotAuthorizeThisTask() = runTest {
+        val result = GatewayEngineeringPreflight("github.engineering-admission.v1", true, objectiveSha256 = "b".repeat(64))
+        http(MockEngine { respond(Json.encodeToString(result)) }).use { http ->
+            val failure = runCatching { GatewayEngineeringClient(http).preflight(config, GatewayEngineeringRequest("owner/repo", "feature", "main", "Repair build", "local", chatId = 1, requestId = "command")) }.exceptionOrNull()
+            assertTrue(failure?.message.orEmpty().contains("does not match"))
+        }
+    }
+
     private val config = ProviderRequestConfig("https://gateway.test/v1", "test-token")
     private val job = GatewayEngineeringJob("eng_" + "a".repeat(32), "owner/repo", "feature/job", state = "MERGE_READY", revision = 12, createdAt = 1.0, deadline = 99999.0, message = "Review", pr = 7, headSha = "b".repeat(40), mergeReady = true)
     private fun http(engine: MockEngine) = HttpClient(engine) {

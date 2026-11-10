@@ -1102,6 +1102,7 @@ private fun ChatScreenContent(
                     QueuedPromptBubble(pendingPrompts[index], chatViewModel::editQueuedPrompt, chatViewModel::removeQueuedPrompt, chatViewModel::pauseQueuedPrompt, followUpProgress[pendingPrompts[index].id])
                 }
                 if (chatToolConfig.github != null) {
+                    item(key = "gateway-merge-interactions") { GatewayMergeInteractions(chatRoom.id) }
                     bottomInteractionContent?.let { content -> item(key = "github-saved-patch-approval") { content() } }
                     items(visibleGitHubDecisions.size, key = { "github-decision-${visibleGitHubDecisions[it].id}" }) { index ->
                         val decision = visibleGitHubDecisions[index]

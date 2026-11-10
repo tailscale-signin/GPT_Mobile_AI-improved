@@ -12,6 +12,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class McpInteractionScopeTest {
+    @Test fun anExpiredInputCannotAcceptAnAnswerEvenIfStillVisible() = runBlocking {
+        val interactions = McpInteractions()
+        val response = kotlinx.coroutines.CompletableDeferred<io.modelcontextprotocol.kotlin.sdk.types.ElicitResult>()
+        val request = McpInputRequest("expired", "server", "Choice", kotlinx.serialization.json.JsonObject(emptyMap()), response, "run", deadlineNanos = System.nanoTime() - 1)
+        interactions.pending.value = listOf(request)
+        interactions.respond("expired", kotlinx.serialization.json.JsonObject(emptyMap()))
+        assertEquals(io.modelcontextprotocol.kotlin.sdk.types.ElicitResult.Action.Cancel, response.await().action)
+    }
+
     @Test fun simultaneousRunInputsKeepTheirOriginAndAnswersSeparate() = runBlocking {
         withTimeout(5000) {
             val interactions = McpInteractions()

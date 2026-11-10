@@ -6,6 +6,14 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProfileFailureRecordTest {
+    @Test fun engineeringPreflightRetainsItsReasonAndRequiresChangedPrerequisites() {
+        val failure = ProfileFailureRecord.fromProvider("Configure the approved test mapping", "ACCEPTANCE_PRODUCER_REQUIRED")
+        assertEquals("ACCEPTANCE_PRODUCER_REQUIRED", failure.category)
+        assertEquals("admission", failure.phase)
+        assertFalse(failure.retryAllowed)
+        assertFalse(failure.isTaskVerification)
+    }
+
     @Test fun taskVerificationNeverCreatesProviderRetryOrCooldownEligibility() {
         for (code in listOf("GITHUB_TASK_INCOMPLETE", "GITHUB_EVIDENCE_REQUIRED", "GITHUB_EVIDENCE_RETENTION_INCOMPLETE", "REPLAY_EVIDENCE_REQUIRED")) {
             val failure = ProfileFailureRecord.fromProvider("Retained task evidence mentions a prior HTTP 429; cooldown remaining: 60000", code)

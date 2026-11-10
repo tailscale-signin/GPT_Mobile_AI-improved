@@ -2116,8 +2116,9 @@ class GitHubTool(
     }
 
     private fun requiredGitHubPermission(action: String): String = when (action) {
+        in dev.chungjungsoo.gptmobile.data.github.GitHubCollaboration.writes -> if (action.startsWith("issue_")) "Issues: write" else "Pull requests: write (auto-merge also requires Contents: write)"
         "create_issue", "update_issue" -> "Issues: write"
-        "create_pull_request", "update_pull_request", "mark_ready_for_review", "submit_pull_request_review", "create_pull_request_review", "reply_pull_request_comment" -> "Pull requests: write"
+        "create_pull_request", "update_pull_request", "mark_ready_for_review", "convert_pull_request_to_draft", "submit_pull_request_review", "create_pull_request_review", "reply_pull_request_comment" -> "Pull requests: write"
         "create_issue_comment" -> "Issues: write or Pull requests: write"
         "dispatch_workflow", "rerun_workflow", "rerun_failed_jobs", "cancel_workflow" -> "Actions: write"
         else -> "Contents: write"

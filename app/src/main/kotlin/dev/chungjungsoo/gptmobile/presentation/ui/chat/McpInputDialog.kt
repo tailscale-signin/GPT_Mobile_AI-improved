@@ -55,6 +55,7 @@ internal fun McpInputDialog(request: McpInputRequest, inline: Boolean = false, r
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 Text(request.server)
                 Text(request.message)
+                if (inline) Text("This question is bound to the current operation and expires after 40 seconds. An interrupted connection must request it again.", style = MaterialTheme.typography.bodySmall)
                 Text(stringResource(R.string.mcp_input_dialog_label_2))
                 fields.forEach { (key, value) ->
                     val field = value.jsonObject

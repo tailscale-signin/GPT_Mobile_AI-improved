@@ -24,7 +24,7 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.longOrNull
 
-data class McpInputRequest(val id: String, val server: String, val message: String, val schema: JsonObject, val response: CompletableDeferred<ElicitResult>, val runId: String? = null)
+data class McpInputRequest(val id: String, val server: String, val message: String, val schema: JsonObject, val response: CompletableDeferred<ElicitResult>, val runId: String? = null, val expiresAtMillis: Long = System.currentTimeMillis() + 40_000, val deadlineNanos: Long = System.nanoTime() + 40_000_000_000)
 
 /** No URL elicitation, secrets, automatic answers or persisted form values. */
 @Singleton
@@ -48,7 +48,9 @@ class McpInteractions @Inject constructor() {
     }
     fun respond(id: String, values: JsonObject?) {
         val entry = pending.value.firstOrNull { it.id == id } ?: return
-        if (values == null) {
+        if (System.nanoTime() >= entry.deadlineNanos) {
+            entry.response.complete(ElicitResult(ElicitResult.Action.Cancel))
+        } else if (values == null) {
             entry.response.complete(ElicitResult(ElicitResult.Action.Decline))
         } else if (values.toString().length <= 8000 && schemaError(entry.schema, values) == null) {
             entry.response.complete(ElicitResult(ElicitResult.Action.Accept, content = values))

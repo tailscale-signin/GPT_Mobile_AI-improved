@@ -89,7 +89,7 @@ class GatewayEngineeringRepository @Inject constructor(
     }
 
     suspend fun start(chatId: Int, context: GitHubConversationContext, base: String, branch: String, objective: String, options: GatewayEngineeringSettings) {
-        submit(chatId, requireNotNull(context.mainProfileUid), "${context.owner}/${context.repo}", base, branch, objective, UUID.randomUUID().toString(), null, null, null, "implement", null, options, originalContext = context)
+        submit(chatId, requireNotNull(context.mainProfileUid), "${context.owner}/${context.repo}", base, branch, objective, UUID.randomUUID().toString(), null, null, null, "implement", null, options, sourceBranch = context.ref, sourceSha = context.commitSha, originalContext = context)
     }
 
     /** Adopts an already persisted Chat turn; reconnect always retains these exact message IDs. */
@@ -212,7 +212,15 @@ class GatewayEngineeringRepository @Inject constructor(
                 memoryMode = preferences.engineeringMemory, executionBindingId = admission.bindingId, taskScope = taskScope,
                 clientConversationId = if (capability.supportsDurableChat) conversations.clientConversationId(chatId) else null, conversationId = remote?.conversationId,
                 expectedRevision = remote?.revision?.takeIf { it >= 0 }, sourceBranch = sourceBranch, sourceSha = sourceSha, executionBudget = budgetSelection.effectiveBudget
-            ),
+            ).let { request ->
+                if (capability.admissionPreflightProtocol == 1) {
+                    val preflight = client.preflight(identity?.let { frozenConfig.withGatewayIdentity(it) } ?: frozenConfig, request)
+                    request.copy(acceptance = preflight.acceptance)
+                } else {
+                    check(taskScope != "implement" || request.acceptance.isNotEmpty()) { "Update the gateway to version 16 or configure explicit acceptance requirements before implementation. No job was submitted." }
+                    request
+                }
+            },
             principalId = principal,
             executionSelection = selection,
             executionAdmission = admission,

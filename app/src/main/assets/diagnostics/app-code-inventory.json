@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "b214126474d136edc231532ed5950b21044a717e5c096c546d0d41c928cb799d",
+  "source_digest": "cc86a275ce5c02bdb55200acf8dbf3b4d1b8ce2090c7ff1f2f46fee055d84b93",
   "file_count": 2409,
   "indexed_line_count": 375453,
   "line_coverage_available": false,
@@ -14479,7 +14479,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/workspace/GitHubWorkflowExecutionPanel.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "889037b7909d234d9fe244a777be714dd566b87243c8e30467a64d1840351c23",
+      "sha256": "89940df3ce8a34c714a78f13029ceec658294bcc6ef6fe8b259e7e7a2bafe444",
       "indexed_lines": 166
     },
     {

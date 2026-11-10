@@ -81,9 +81,9 @@ internal fun GitHubWorkflowExecutionContent(
                     Text("${group.label}: ${group.observed} operations · ${group.completed} completed · ${group.failed} failed", style = MaterialTheme.typography.bodySmall)
                 }
                 if (!snapshot.eventWindowComplete) Text("Activity shows ${snapshot.observedOperations} of ${state.eventCountsByRun[snapshot.runId] ?: 0} recorded operations for this run.", style = MaterialTheme.typography.bodySmall)
-                if (approvalPending) {
+                if (approvalPending && !snapshot.reconciliationRequired) {
                     Text("Review the existing proposed changes card in Chat before continuing this work.", style = MaterialTheme.typography.bodySmall)
-                } else if (snapshot.recovery.isNotEmpty() || snapshot.failureCategory != null) {
+                } else if (snapshot.reconciliationRequired || snapshot.recovery.isNotEmpty() || snapshot.failureCategory != null) {
                     Text(snapshot.recoveryExplanation, style = MaterialTheme.typography.bodySmall)
                 }
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

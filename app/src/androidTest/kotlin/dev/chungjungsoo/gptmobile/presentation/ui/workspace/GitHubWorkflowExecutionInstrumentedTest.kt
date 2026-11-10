@@ -40,11 +40,12 @@ class GitHubWorkflowExecutionInstrumentedTest {
         var evidence by mutableStateOf(GitHubWorkflowEvidence())
         compose.setContent { Panel(state, evidence) }
 
-        compose.onNodeWithText("Answer ready · Acceptance: Untested").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Answer ready").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Acceptance: Untested").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("read: 1 operations · 1 completed · 0 failed").performScrollTo().assertIsDisplayed()
         listOf("PASS" to "Verified", "FAIL" to "Failed", "BLOCKED" to "Blocked", "NOT_TESTED" to "Untested").forEach { (status, label) ->
             compose.runOnIdle { evidence = verification(run.runId, status) }
-            compose.onNodeWithText("Answer ready · Acceptance: $label").performScrollTo().assertIsDisplayed()
+            compose.onNodeWithText("Acceptance: $label").performScrollTo().assertIsDisplayed()
             compose.onNodeWithText("$label: Requested regression").performScrollTo().assertIsDisplayed()
         }
     }
@@ -93,11 +94,13 @@ class GitHubWorkflowExecutionInstrumentedTest {
     fun unknownGatewayOutcomeKeepsDetailsWithoutResumeOrRetry() {
         val run = run(AgentRunStatus.BLOCKED).copy(terminalError = "GATEWAY_OUTCOME_UNKNOWN")
         val requests = mutableListOf<GitHubRecoveryRequest>()
-        compose.setContent { Panel(state(run), onRecovery = requests::add) }
+        compose.setContent { Panel(state(run), onRecovery = requests::add, approvalPending = true) }
 
-        compose.onNodeWithText("Blocked · Acceptance: Blocked").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Remote outcome needs reconciliation").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Acceptance: Blocked").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Resume").assertDoesNotExist()
         compose.onNodeWithText("Retry failed stage").assertDoesNotExist()
+        compose.onNodeWithText("Review the existing proposed changes card in Chat", substring = true).assertDoesNotExist()
         compose.onNodeWithText("The gateway outcome is unknown and no saved job can be reconciled.", substring = true).performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("View details").performScrollTo().performClick()
         compose.onNodeWithText("Failure category: GATEWAY_OUTCOME_UNKNOWN").performScrollTo().assertIsDisplayed()
@@ -109,7 +112,8 @@ class GitHubWorkflowExecutionInstrumentedTest {
         val run = run(AgentRunStatus.BLOCKED).copy(terminalError = "AUTH_REQUIRED")
         compose.setContent { Panel(state(run)) }
 
-        compose.onNodeWithText("Blocked · Acceptance: Blocked").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Blocked").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Acceptance: Blocked").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Resume").assertDoesNotExist()
         compose.onNodeWithText("Retry failed stage").assertDoesNotExist()
         compose.onNodeWithText("View details").performScrollTo().performClick()
@@ -134,11 +138,12 @@ class GitHubWorkflowExecutionInstrumentedTest {
         state: GitHubProgrammerState,
         evidence: GitHubWorkflowEvidence = GitHubWorkflowEvidence(),
         onRecovery: (GitHubRecoveryRequest) -> Unit = {},
-        onExport: () -> Unit = {}
+        onExport: () -> Unit = {},
+        approvalPending: Boolean = false
     ) {
         MaterialTheme {
             Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-                GitHubWorkflowExecutionContent(state, evidence, onRecovery, onExport)
+                GitHubWorkflowExecutionContent(state, evidence, onRecovery, onExport, approvalPending)
             }
         }
     }

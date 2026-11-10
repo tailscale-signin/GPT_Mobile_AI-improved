@@ -430,9 +430,11 @@ class GitHubVerifiedSessionTest {
             assertEquals(if (persistent) GitHubTaskRecovery.MAX_RECOVERIES + 2 else 3, rounds)
             assertEquals(if (persistent) 0 else 1, extractions)
             val published = events.filterIsInstance<AgentRunEvent.Provider>().map { it.event }
-            assertEquals("PARTIAL", (published.last() as ProviderEvent.Failed).taskOutcome)
+            val failure = published.last() as ProviderEvent.Failed
+            assertEquals("PARTIAL", failure.taskOutcome)
             val text = published.filterIsInstance<ProviderEvent.TextDelta>().single().text
-            assertEquals(persistent, text.contains("Task interrupted"))
+            assertEquals(persistent, text.startsWith("**Task paused.**"))
+            if (persistent) assertEquals("Connection reset", failure.message)
             assertFalse(text.contains("| Count | 3 |"))
             assertFalse(text.contains("private candidate"))
         }
@@ -462,9 +464,12 @@ class GitHubVerifiedSessionTest {
         val events = AgentRunner(AgentRunLimits(githubTask = true)).run(gate, listOf(read)).toList().filterIsInstance<AgentRunEvent.Provider>().map { it.event }
         assertEquals(4, rounds)
         assertEquals(1, dispatches)
-        assertTrue(events.filterIsInstance<ProviderEvent.TextDelta>().single().text.contains("Task interrupted"))
-        assertFalse(events.filterIsInstance<ProviderEvent.TextDelta>().single().text.contains("| Count | 3 |"))
-        assertTrue(events.last() is ProviderEvent.Failed)
+        val text = events.filterIsInstance<ProviderEvent.TextDelta>().single().text
+        assertTrue(text.startsWith("**Task paused.** Unparsed tool-call markup"))
+        assertFalse(text.contains("| Count | 3 |"))
+        val failure = events.last() as ProviderEvent.Failed
+        assertEquals("TOOL_PROTOCOL_INVALID_FRAME", failure.errorCode)
+        assertEquals("PARTIAL", failure.taskOutcome)
     }
 
     @Test fun terminalFallbackCannotDisclosePrivateDraftAfterRevocation() = runTest {

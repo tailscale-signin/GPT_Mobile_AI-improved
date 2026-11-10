@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "460765cce1f6c7b88a6754e457d8b69ba5efa116bda3cb0a20c9dbfc169beaf7",
+  "source_digest": "505af2106b238b000d6f4099a77e7120538c7f96f2edfc8a96c6d98e44aa630e",
   "file_count": 2417,
   "indexed_line_count": 377471,
   "line_coverage_available": false,
@@ -12092,7 +12092,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatViewModel.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "f7b3e8cd0993b59128c8399d63a50f9267379a621f7ed21772cbcaeabb2f6b94",
+      "sha256": "2b96940bddba82550500dda8d05339e3966d1e9cbbb7451724eabc4c703ab603",
       "indexed_lines": 4504
     },
     {

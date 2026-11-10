@@ -82,6 +82,25 @@ class AgentRunner(
         ToolExchangeCompactor.compact(exchanges, maxReplayTokens, maxResultTokens, consumedCallIds, replayRenderCache)
 
     fun run(session: AgentProviderSession, tools: List<AgentTool>, dynamicTools: () -> List<AgentTool> = { emptyList() }, selectDefinitions: (List<AgentToolDefinition>) -> List<AgentToolDefinition> = { it }): Flow<AgentRunEvent> = flow {
+        // The saved GitHub task deadline is authoritative across continuations.
+        // Never disguise exhausted time as a fresh five-second generation attempt.
+        if (limits.runTimeoutMillis <= 0L) {
+            emit(
+                AgentRunEvent.Provider(
+                    ProviderEvent.Failed(
+                        "The accepted task time budget has ended. Completed work is saved; increase the budget before continuing.",
+                        errorCode = "RUN_DEADLINE_REACHED",
+                        taskOutcome = "PARTIAL",
+                        failureDetails = buildJsonObject {
+                            put("failed_stage", "admission")
+                            put("dispatched", false)
+                            put("budget_exhausted", true)
+                        }
+                    )
+                )
+            )
+            return@flow
+        }
         if (tools.isNotEmpty() && !session.handlesToolsInternally && limits.maxReplayTokens <= 0) {
             emit(
                 AgentRunEvent.Provider(

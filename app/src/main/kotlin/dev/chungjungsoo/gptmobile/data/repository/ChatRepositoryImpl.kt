@@ -4659,7 +4659,7 @@ class ChatRepositoryImpl(
                 contextTokens = limits.contextTokens,
                 githubTask = githubTask,
                 githubMode = chatToolConfig?.github != null,
-                runTimeoutMillis = minOf(remainingTaskMillis?.takeIf { it > 0 } ?: if (remainingTaskMillis == 0L) 5_000L else Long.MAX_VALUE, githubPreset?.minutes?.toLong()?.times(60_000) ?: Long.MAX_VALUE, customRunner.limits.runTimeoutMillis, budgetSettings.generationTimeoutMinutes.takeIf { it > 0 }?.toLong()?.times(60_000) ?: Long.MAX_VALUE),
+                runTimeoutMillis = minOf(remainingTaskMillis ?: Long.MAX_VALUE, githubPreset?.minutes?.toLong()?.times(60_000) ?: Long.MAX_VALUE, customRunner.limits.runTimeoutMillis, budgetSettings.generationTimeoutMinutes.takeIf { it > 0 }?.toLong()?.times(60_000) ?: Long.MAX_VALUE),
                 maxToolCalls = githubPreset?.let {
                     dev.chungjungsoo.gptmobile.data.github.GitHubExecutionLimits.toolCalls(githubEffectiveTask, customRunner.limits.maxToolCalls, it)
                 } ?: customRunner.limits.maxToolCalls,

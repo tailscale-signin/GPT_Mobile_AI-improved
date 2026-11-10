@@ -48,7 +48,6 @@ internal fun ChatGenerationProgress(
 ) {
     if (githubPresentation) {
         Column(modifier) {
-            Text(engineeringJob?.ownershipLabel ?: "Running on this device", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             GitHubLoadingHeader(
                 activity = engineeringJob?.message ?: statusOverride ?: generationActivityLabel(toolEvents, timeline),
                 active = engineeringJob?.let { !it.terminal } ?: active,

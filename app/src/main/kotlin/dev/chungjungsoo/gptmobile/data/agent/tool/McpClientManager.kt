@@ -182,7 +182,7 @@ class McpClientManager internal constructor(
             else -> ToolCatalogDiscoveryState.NOT_DISCOVERED
         }
         val revision = dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest("$state|${health.lastSuccessAtMs}|${health.lastFailureAtMs}|${health.availableToolCount}|${health.lastErrorCode}|$policyEpoch|$networkEpoch")
-        return ToolCatalogConnectionDiscovery(connectionUid, state, revision, health.availableToolCount, health.lastErrorCode, health.nextRetryAtMs)
+        return ToolCatalogConnectionDiscovery(connectionUid, state, revision, health.availableToolCount, health.lastErrorCode, health.nextRetryAtMs, health.failedStage, health.lastValidationRule, health.lastValidationField, health.lastHttpStatus)
     }
 
     fun peekTools(config: McpConnectionConfig): List<Tool>? = catalogue.peek(config.validatedKey() + ":" + dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.epoch)?.value

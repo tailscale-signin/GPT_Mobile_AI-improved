@@ -9,6 +9,21 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class GitHubDispatchAccountingTest {
+    @Test fun optionalFailedReadKeepsItsEndpointAndStatusWhenParentSucceeds() = runTest {
+        val accounting = GitHubDispatchAccounting(record = {})
+        withContext(accounting) {
+            val id = GitHubDispatchAccounting.started(false, "/repos/private/secret/branches/main/protection?token=private")
+            GitHubDispatchAccounting.responded(false, 403, id)
+        }
+        val receipt = accounting.finish(AgentToolResult("read", ToolResultContent.Text("Other reads succeeded"), false), false).executionReceipt!!
+        val failure = (receipt["failed_requests"] as kotlinx.serialization.json.JsonArray).single() as kotlinx.serialization.json.JsonObject
+        assertEquals(JsonPrimitive("BRANCH_PROTECTION"), failure["endpoint_class"])
+        assertEquals(JsonPrimitive(403), failure["http_status"])
+        assertEquals(JsonPrimitive(true), receipt["parent_result_successful"])
+        org.junit.Assert.assertFalse(receipt.toString().contains("secret"))
+        org.junit.Assert.assertFalse(receipt.toString().contains("token"))
+    }
+
     @Test fun timeoutDoesNotProveAWriteWasRejected() = runTest {
         for (status in listOf(408, 422)) {
             val accounting = GitHubDispatchAccounting()

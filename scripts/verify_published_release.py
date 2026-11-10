@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 
 from release_evidence import artifact_inventory, immutable_sha, verify_uploaded_release
@@ -17,7 +18,14 @@ MAX_RELEASE_PAGES = 100
 
 
 def gh_json(*arguments):
-    return json.loads(subprocess.check_output(["gh", *arguments], text=True, stderr=subprocess.PIPE, timeout=90))
+    try:
+        return json.loads(subprocess.check_output(["gh", *arguments], text=True, stderr=subprocess.PIPE, timeout=90))
+    except subprocess.CalledProcessError as error:
+        match = re.search(r"\(HTTP ([1-5][0-9]{2})\)\s*$", error.stderr or "")
+        status = match.group(1) if match else "unknown"
+        resource = "release" if any("/releases" in arg for arg in arguments) else "commit" if any("/commits/" in arg for arg in arguments) else "other"
+        print(f"Release verification read failed: resource={resource} http_status={status} exit_code={error.returncode}", file=sys.stderr)
+        raise
 
 
 def is_not_found(error):
@@ -77,12 +85,43 @@ def resolve_release(root, tag, source, *, release_id=None, published=False):
     return release
 
 
+def verify_asset_attestations(directory, assets, repository, source, signer_workflow):
+    """Trust the CLI's signature/certificate verifier, pinned to repository, workflow and commit."""
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/\.github/workflows/[A-Za-z0-9_.-]+\.ya?ml", signer_workflow):
+        raise ValueError("A complete trusted signer workflow path is required")
+    if not signer_workflow.startswith(repository + "/"):
+        raise ValueError("Signer workflow must belong to the selected repository")
+    version = subprocess.check_output(["gh", "--version"], text=True, stderr=subprocess.PIPE, timeout=30)
+    match = re.search(r"gh version ([0-9]+)\.([0-9]+)\.([0-9]+)", version)
+    if not match or tuple(map(int, match.groups())) < (2, 102, 0):
+        raise ValueError("GitHub CLI 2.102.0 or newer is required for exact signer-workflow verification")
+    receipts = []
+    for asset in assets:
+        name = asset["name"]
+        if Path(name).name != name or not re.fullmatch(r"[A-Za-z0-9_.+-]+", name):
+            raise ValueError("Unsafe attestation asset name")
+        command = ["gh", "attestation", "verify", str(directory / name), "--repo", repository,
+                   "--signer-workflow", signer_workflow, "--source-digest", immutable_sha(source),
+                   "--signer-digest", immutable_sha(source), "--deny-self-hosted-runners", "--format", "json"]
+        try:
+            verified = json.loads(subprocess.check_output(command, text=True, stderr=subprocess.PIPE, timeout=180))
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+            raise ValueError("Asset attestation verification failed; publication remains blocked: " + name) from None
+        if not isinstance(verified, list) or not verified or any(not isinstance(item.get("verificationResult"), dict) for item in verified if isinstance(item, dict)) or any(not isinstance(item, dict) for item in verified):
+            raise ValueError("No verified attestation result for " + name)
+        receipts.append({"name": name, "sha256": asset["sha256"], "bytes": asset["bytes"],
+                         "sourceSha": source, "signerWorkflow": signer_workflow,
+                         "verification": "SIGNATURE_CERTIFICATE_SOURCE_AND_SIGNER_VERIFIED"})
+    return receipts
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repository", required=True)
     parser.add_argument("--artifacts", type=Path, required=True)
     parser.add_argument("--release-id", type=int, help="Pin a previously verified release identity")
     parser.add_argument("--published", action="store_true")
+    parser.add_argument("--signer-workflow", help="Require cryptographically verified asset provenance from this exact workflow")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", args.repository):
@@ -142,6 +181,12 @@ def main():
                 raise ValueError("Published provenance or checksum manifest does not match the verified build")
         assets = artifact_inventory([downloaded / name for name in names[:-2]])
         result = verify_uploaded_release(release, provenance, sha, assets, published=args.published)
+        attested = verify_asset_attestations(downloaded, assets, args.repository, source, args.signer_workflow) if args.signer_workflow else []
+        result["assetSourceVerified"] = bool(attested) and len(attested) == len(assets)
+        result["assetAttestations"] = attested
+        result["workflowRun"] = provenance.get("workflowRun")
+        result["workflowAttempt"] = provenance.get("workflowAttempt")
+        result["verificationScope"] = "DOWNLOADED_BYTES_AND_TRUSTED_BUILD_ATTESTATIONS" if attested else "DOWNLOADED_BYTES_AGAINST_LOCAL_BUILD_MANIFEST"
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, indent=2) + "\n")
     print(result["status"] + " for " + provenance["commit"])

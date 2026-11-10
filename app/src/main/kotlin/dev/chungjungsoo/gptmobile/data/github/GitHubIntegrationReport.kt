@@ -33,6 +33,28 @@ internal object GitHubIntegrationReport {
         return buildJsonObject {
             put("code", reason.first)
             put("detail", reason.second)
+            if (reason.first == "AUTHORIZED_CATALOG_INCOMPLETE") {
+                put("blocker", catalog["blocker"] ?: JsonPrimitive("CATALOG_INCOMPLETE"))
+                put("affected_contracts", catalog["requested_contract_changes"] ?: JsonArray(emptyList()))
+            }
+            put(
+                "recovery_action",
+                when (reason.first) {
+                    "AUTHORIZED_CATALOG_INCOMPLETE" -> if (catalog.text("blocker") == "CATALOG_CONTRACT_CHANGED") {
+                        "RECONCILE_CATALOG_CONTRACTS"
+                    } else if (catalog["continuation_call"] is JsonObject) {
+                        "RESUME_ISSUED_CATALOG_CONTINUATION"
+                    } else {
+                        "RECONCILE_CATALOG_SNAPSHOT"
+                    }
+                    "WAITING_FOR_APPROVAL" -> "RESOLVE_BOUND_APPROVAL"
+                    "FIXTURE_CLEANUP_UNVERIFIED" -> "RECONCILE_OWNED_FIXTURE"
+                    "TOOL_BUDGET_EXHAUSTED", "VERIFICATION_RESERVE_REACHED" -> "REVIEW_REMAINING_SCOPE_AND_BUDGET"
+                    "CAPABILITY_PREREQUISITES_MISSING" -> "RESOLVE_CAPABILITY_PREREQUISITE"
+                    "ACCEPTANCE_COMPLETE" -> "NONE"
+                    else -> "RESUME_UNVERIFIED_REQUIREMENTS"
+                }
+            )
             remaining?.let { put("remaining_tool_calls", it) }
             put("budget_exhausted", remaining == 0)
             put("pending_continuations", pending.size)

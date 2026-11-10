@@ -207,15 +207,15 @@ internal suspend fun writeStagedChatDiagnostics(
                 if (draft.length <= maximumCharacters) sink.emit(buildJsonObject { put("composerDraft", draft) }, evidence = false) else sink.omit("COMPOSER_DRAFT_CHARACTER_LIMIT")
             },
             DiagnosticCaptureStage("recent_logs", "recent-app-logs.jsonl", lowMemorySafe = true, emptyReason = "NO_RETAINED_APP_LOGS") { captureLogs(it, critical = false) },
-            DiagnosticCaptureStage("profiles", "profiles.jsonl", lowMemorySafe = true) { sink ->
+            DiagnosticCaptureStage("profiles", "profiles.jsonl", lowMemorySafe = true, content = dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticStageContent.CONFIGURATION) { sink ->
                 profiles.forEach { profile ->
                     sink.checkBudget()
                     val characters = profile.systemPrompt.orEmpty().length.toLong() + profile.openRouterRouting.orEmpty().length + profile.ollamaOptions.orEmpty().length + profile.labels.orEmpty().length
                     if (characters > maximumCharacters) {
                         sink.omit("PROFILE_SETTINGS_CHARACTER_LIMIT")
-                        sink.emit(json.encodeToJsonElement(profile.copy(token = null, secretRef = null, systemPrompt = "[omitted: character limit]", openRouterRouting = null, ollamaOptions = null, labels = null)))
+                        sink.emit(json.encodeToJsonElement(profile.copy(token = null, secretRef = null, systemPrompt = "[omitted: character limit]", openRouterRouting = null, ollamaOptions = null, labels = null)), evidence = false)
                     } else {
-                        sink.emit(json.encodeToJsonElement(profile.copy(token = null, secretRef = null)))
+                        sink.emit(json.encodeToJsonElement(profile.copy(token = null, secretRef = null)), evidence = false)
                     }
                 }
             },
@@ -370,6 +370,8 @@ internal suspend fun writeStagedChatDiagnostics(
             sink.emit(
                 buildJsonObject {
                     put("diagnosticsCollection", features.diagnosticsCollection)
+                    put("diagnosticsCollectionScope", "NETWORK_DIAGNOSTICS")
+                    put("appLogCollection", AppLogRecorder.collectionState())
                     put("localAssistPolicy", json.encodeToJsonElement(features.localAssistPolicy))
                     put("configurationEvidence", "CURRENT_SNAPSHOT_NOT_EXECUTION_PROOF")
                     put("currentChatReasoningOverride", json.encodeToJsonElement(tools.reasoning ?: features.conversationReasoning[room.id]))

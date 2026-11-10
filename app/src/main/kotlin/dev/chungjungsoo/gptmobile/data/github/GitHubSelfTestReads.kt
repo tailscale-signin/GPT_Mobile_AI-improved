@@ -13,10 +13,14 @@ import kotlinx.serialization.json.put
 
 /** Dependency-aware smoke reads. Identifiers retain the resource type that supplied them. */
 internal object GitHubSelfTestReads {
-    fun next(tools: List<AgentToolDefinition>, receipts: List<JsonObject>): ProviderEvent.ToolCall? {
+    fun next(tools: List<AgentToolDefinition>, receipts: List<JsonObject>): ProviderEvent.ToolCall? = available(tools, receipts).firstOrNull()
+
+    /** Compute dependency recipes once per checklist, rather than once per capability row. */
+    fun available(tools: List<AgentToolDefinition>, receipts: List<JsonObject>): List<ProviderEvent.ToolCall> {
+        val ready = mutableListOf<ProviderEvent.ToolCall>()
         val retiredRead = GitHubSelfTestFixtures.retiredReadPredicate(receipts.mapIndexed { index, receipt -> index.toString() to receipt }.toMap())
         val observations = receipts.filter { it["trusted"] == JsonPrimitive(true) && it["verification_eligible"] != JsonPrimitive(false) && !retiredRead(it) }
-        GitHubPolicyReadRecovery.next(tools, observations)?.let { return it }
+        GitHubPolicyReadRecovery.next(tools, observations)?.let { ready += it }
         fun roots(tool: String, action: String? = null) = observations.filter {
             it["success"] == JsonPrimitive(true) &&
                 it.text("tool").substringBefore("__") == tool &&
@@ -125,9 +129,9 @@ internal object GitHubSelfTestReads {
                 if (!correctable) continue
             }
             if (ToolArgumentValidator.errors(args, tool.inputSchema).isNotEmpty()) continue
-            return ProviderEvent.ToolCall("checklist-" + GitHubEvidenceBook.digest("${tool.name}:$args").take(24), tool.name, args)
+            ready += ProviderEvent.ToolCall("checklist-" + GitHubEvidenceBook.digest("${tool.name}:$args").take(24), tool.name, args)
         }
-        return null
+        return ready
     }
 
     private fun JsonObject.text(key: String) = (get(key) as? JsonPrimitive)?.contentOrNull.orEmpty()

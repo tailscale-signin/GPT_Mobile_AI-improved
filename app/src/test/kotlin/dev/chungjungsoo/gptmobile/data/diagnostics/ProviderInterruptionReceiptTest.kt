@@ -14,6 +14,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProviderInterruptionReceiptTest {
+    @Test fun approvalAndApplicationVerificationDoNotBlameSelectedProvider() {
+        val profile = PlatformV2(uid = "selected", name = "Selected", model = "private-model")
+        val blocked = ProviderFailureReceipt.from(profile, "github-delivery", ProviderEvent.Failed("Approval required", errorCode = "WAITING_FOR_APPROVAL"))
+        val incomplete = ProviderFailureReceipt.from(profile, "github-delivery", ProviderEvent.Failed("Unverified requirements", errorCode = "GITHUB_TASK_INCOMPLETE"))
+        assertEquals(FailureDomain.APPROVAL, blocked.failureDomain)
+        assertEquals(FailureDomain.APPLICATION_VERIFICATION, incomplete.failureDomain)
+        assertTrue(blocked.valid() && incomplete.valid())
+    }
+
     @Test fun completedProviderWithPendingReconciliationIsNotClassifiedAsDeliveryOrTransportFailure() {
         for (stage in listOf("tool_reconciliation", "stage_not_recorded")) {
             val failure = ProviderEvent.Failed(

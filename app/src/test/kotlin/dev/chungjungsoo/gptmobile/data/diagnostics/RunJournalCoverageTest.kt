@@ -13,7 +13,7 @@ import org.junit.Test
 class RunJournalCoverageTest {
     @Test fun completeExportStreamsBeyondRecentWindowWithoutReportingArtificialLoss() = runTest {
         val vault = Vault()
-        val journal = RunDiagnosticJournal(vault, backgroundScope, maxSnapshotEvents = 5, sessionId = "session").apply { setRunPrivacy("run", false) }
+        val journal = RunDiagnosticJournal(vault, backgroundScope, coalesceMillis = 0, maxSnapshotEvents = 5, sessionId = "session").apply { setRunPrivacy("run", false) }
         repeat(20) {
             repeat(40) { journal.record("run", RunDiagnosticKind.TOOL_RESULT) }
             runCurrent()
@@ -35,11 +35,11 @@ class RunJournalCoverageTest {
 
     @Test fun durableCheckpointExposesDeletedTailAfterProcessRestart() = runTest {
         val vault = Vault()
-        val first = RunDiagnosticJournal(vault, backgroundScope, sessionId = "old").apply { setRunPrivacy("run", false) }
+        val first = RunDiagnosticJournal(vault, backgroundScope, coalesceMillis = 0, sessionId = "old").apply { setRunPrivacy("run", false) }
         repeat(3) { first.record("run", RunDiagnosticKind.TOOL_RESULT) }
         runCurrent()
         vault.rows.keys.filter { it.startsWith("journal-") }.forEach { vault.rows.remove(it) }
-        val restarted = RunDiagnosticJournal(vault, backgroundScope, sessionId = "new")
+        val restarted = RunDiagnosticJournal(vault, backgroundScope, coalesceMillis = 0, sessionId = "new")
         val coverage = restarted.stream("run", {}) { error("No retained events expected") }
         assertEquals(3L, coverage.missingSequences)
         assertEquals(listOf(RunJournalMissingRange("old:run", 1, 3)), coverage.missingRanges)
@@ -48,18 +48,18 @@ class RunJournalCoverageTest {
 
     @Test fun failedEventBatchLeavesDurableMissingTailCheckpointAfterRestart() = runTest {
         val vault = Vault().apply { failEventWrites = true }
-        val journal = RunDiagnosticJournal(vault, backgroundScope, sessionId = "old").apply { setRunPrivacy("run", false) }
+        val journal = RunDiagnosticJournal(vault, backgroundScope, coalesceMillis = 0, sessionId = "old").apply { setRunPrivacy("run", false) }
         repeat(3) { journal.record("run", RunDiagnosticKind.TOOL_RESULT) }
         runCurrent()
         vault.failEventWrites = false
-        val coverage = RunDiagnosticJournal(vault, backgroundScope, sessionId = "new").stream("run", {}) { error("Failed batch unexpectedly retained") }
+        val coverage = RunDiagnosticJournal(vault, backgroundScope, coalesceMillis = 0, sessionId = "new").stream("run", {}) { error("Failed batch unexpectedly retained") }
         assertEquals(3L, coverage.missingSequences)
         assertEquals(listOf(RunJournalMissingRange("old:run", 1, 3)), coverage.missingRanges)
     }
 
     @Test fun frozenBoundaryIncludesQueuedEventsExactlyOnceAndExcludesLaterWrites() = runTest {
         val vault = Vault()
-        val journal = RunDiagnosticJournal(vault, backgroundScope, sessionId = "session").apply { setRunPrivacy("run", false) }
+        val journal = RunDiagnosticJournal(vault, backgroundScope, coalesceMillis = 0, sessionId = "session").apply { setRunPrivacy("run", false) }
         journal.record("run", RunDiagnosticKind.TOOL_RESULT)
         runCurrent()
         journal.record("run", RunDiagnosticKind.TOOL_RESULT)
@@ -76,10 +76,10 @@ class RunJournalCoverageTest {
 
     @Test fun checkpointValuesRemainFrozenWhenAnotherWriterAdvancesBeforeBatchRead() = runTest {
         val vault = Vault()
-        val writer = RunDiagnosticJournal(vault, backgroundScope, sessionId = "old").apply { setRunPrivacy("run", false) }
+        val writer = RunDiagnosticJournal(vault, backgroundScope, coalesceMillis = 0, sessionId = "old").apply { setRunPrivacy("run", false) }
         writer.record("run", RunDiagnosticKind.TOOL_RESULT)
         runCurrent()
-        val reader = RunDiagnosticJournal(vault, backgroundScope, sessionId = "new")
+        val reader = RunDiagnosticJournal(vault, backgroundScope, coalesceMillis = 0, sessionId = "new")
         var reads = 0
         val coverage = reader.stream("run", {
             reads++
@@ -94,7 +94,7 @@ class RunJournalCoverageTest {
     }
 
     @Test fun clearedOrRevokedEmptyExportCannotPublishStaleCompleteness() = runTest {
-        val journal = RunDiagnosticJournal(Vault(), backgroundScope)
+        val journal = RunDiagnosticJournal(Vault(), backgroundScope, coalesceMillis = 0)
         var reads = 0
         val cleared = runCatching {
             journal.stream("run", {
@@ -113,7 +113,7 @@ class RunJournalCoverageTest {
 
     @Test fun privacyRevocationRemovesCheckpointsAndSuppressesExport() = runTest {
         val vault = Vault()
-        val journal = RunDiagnosticJournal(vault, backgroundScope).apply { setRunPrivacy("run", false) }
+        val journal = RunDiagnosticJournal(vault, backgroundScope, coalesceMillis = 0).apply { setRunPrivacy("run", false) }
         journal.record("run", RunDiagnosticKind.TOOL_RESULT)
         runCurrent()
         assertTrue(vault.rows.keys.any { it.startsWith("journalcheckpoint-") })

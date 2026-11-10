@@ -226,7 +226,8 @@ internal object GitHubSelfTestFixtures {
         if (fixtures.isEmpty() || fixtures.any { it.text("cleanup_status") != "CLEANED" }) return false
         if (fixtures.any { it.text("fixture_plan") == GitHubOwnedFixtures.PLAN && it["content_verified"] != JsonPrimitive(true) }) return false
         val reconciledDeletions = fixtures.flatMap { (it["reconciled_deletion_receipts"] as? JsonArray).orEmpty() }.toSet()
-        val proved = fixtures.flatMap { listOfNotNull(it["creation_receipt"], it["cleanup_receipt"]) + (it["mutation_receipts"] as? JsonArray).orEmpty() }.toSet() + reconciledDeletions
+        val resolvedProposals = fixtures.flatMap { (it["approval_resolutions"] as? JsonArray).orEmpty() }.filterIsInstance<JsonObject>().mapNotNull { it["proposal_receipt"] }.toSet()
+        val proved = fixtures.flatMap { listOfNotNull(it["creation_receipt"], it["cleanup_receipt"]) + (it["mutation_receipts"] as? JsonArray).orEmpty() }.toSet() + reconciledDeletions + resolvedProposals
         return receipts.values.filter {
             it["trusted"] == JsonPrimitive(true) &&
                 it["verification_eligible"] != JsonPrimitive(false) &&

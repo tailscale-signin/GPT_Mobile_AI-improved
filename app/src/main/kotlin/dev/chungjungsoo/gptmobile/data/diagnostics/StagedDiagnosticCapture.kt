@@ -309,6 +309,8 @@ object StagedDiagnosticCapture {
         val usefulRecords = receipts.sumOf { it.long("evidenceRecords") ?: 0 }
         val emptyCritical = receipts.any { it["critical"] == JsonPrimitive(true) && (it.long("evidenceRecords") ?: 0) == 0L }
         val retry = !complete || emptyCritical || usefulRecords == 0L
+        val continuationAvailable = options.resumable && receipts.any { it["resumableRecords"] == JsonPrimitive(true) && it["collectionCompleted"] != JsonPrimitive(true) && it["cursor"] is JsonObject }
+        val retryableCollectionFailure = options.resumable && receipts.any { it["collectionCompleted"] == JsonPrimitive(false) && it.text("omissionReason") in setOf("SOURCE_IO_FAILURE", "SOURCE_CAPTURE_FAILURE", "CAPTURE_CANCELLED", "JAVA_HEAP_PRESSURE") }
         val manifest = buildJsonObject {
             put("schema", SCHEMA)
             put("sessionId", sessionId)
@@ -320,7 +322,7 @@ object StagedDiagnosticCapture {
             put("previousArchive", previousArchive ?: JsonNull)
             put("externalPartsRequired", archivePart > 1)
             put("recordAtomicity", "A logical record and all of its chunks are retained together in one archive part. A durable source cursor advances only after their byte boundary is committed.")
-            put("continuationAvailable", options.resumable && receipts.any { it["resumableRecords"] == JsonPrimitive(true) && it["collectionCompleted"] != JsonPrimitive(true) && it["cursor"] is JsonObject })
+            put("continuationAvailable", continuationAvailable)
             put("stageBytePolicy", "Ordinary stages use maxStageBytes. Cursor-backed stages automatically stream successive bounded records within maxArchiveBytes, then continue in the next archive part; earlier parts are referenced by digest, not duplicated.")
             val completedStageCount = receipts.count { it.text("status") in setOf("COMPLETED", "EMPTY") }
             put("captureCompletionPercent", completedStageCount * 100 / receipts.size)
@@ -345,12 +347,24 @@ object StagedDiagnosticCapture {
             put("criticalEvidenceAvailable", receipts.any { it["critical"] == JsonPrimitive(true) && (it.long("evidenceRecords") ?: 0) > 0 })
             put("emptyCriticalEvidence", emptyCritical)
             put("retryRecommended", retry)
-            put("resumable", options.resumable)
+            put("resumable", continuationAvailable || retryableCollectionFailure)
+            put("resumeSupported", options.resumable)
+            put(
+                "recoveryAction",
+                if (continuationAvailable) {
+                    "RESUME_UNFINISHED_COLLECTION"
+                } else if (retry) {
+                    "NEW_CAPTURE_REQUIRED"
+                } else {
+                    "NONE"
+                }
+            )
             put(
                 "recovery",
                 when {
-                    retry && options.resumable -> "Resume with this sessionId and unchanged source identity. Cursor-backed stages export the next tail without repeating an earlier part; keep earlier archives identified by previousArchive and continuedFrom digests. Reduced-memory retry is available."
-                    retry -> "This capture does not retain resumable checkpoints. Start a new reduced-memory capture to retry."
+                    retry && continuationAvailable -> "Resume with this sessionId and unchanged source identity. Cursor-backed stages export the next tail without repeating an earlier part; keep earlier archives identified by previousArchive and continuedFrom digests. Reduced-memory retry is available."
+                    retry && retryableCollectionFailure -> "Resume this session to retry failed collectors; completed stages remain referenced. Source evidence that was never recorded still requires a new capture after reproduction."
+                    retry -> "No unfinished cursor is available. Missing or disabled source evidence cannot be recovered by resuming this snapshot. Enable the relevant recorder, reproduce the issue, then start a new capture. Retain this archive as evidence of what was available."
                     else -> "All requested stages reached a recorded terminal state; source completeness remains bounded by retention."
                 }
             )

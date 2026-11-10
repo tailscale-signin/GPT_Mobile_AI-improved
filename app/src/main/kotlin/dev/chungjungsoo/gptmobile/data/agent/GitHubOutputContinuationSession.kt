@@ -54,6 +54,21 @@ internal class GitHubOutputContinuationSession(
 
     override suspend fun awaitRecoveryReady(maxWaitMillis: Long): Boolean = awaitConnectivity(maxWaitMillis)
 
+    /** Hydrate a saved turn with one handoff reconciliation and at most one write. */
+    suspend fun restoreToolResults(exchanges: List<AgentToolExchange>) = checkpointMutex.withLock {
+        val previous = readCheckpoint() ?: currentCheckpoint ?: return@withLock
+        if (previous["state"] !in GitHubToolHandoff.states) return@withLock
+        val durable = durableToolReceipts(GitHubToolHandoff.pending(previous))
+        val restored = exchanges.flatMap { exchange ->
+            exchange.calls.mapNotNull { call ->
+                exchange.results.firstOrNull { it.callId == call.callId }?.let { ToolHandoffReceipt.from(call, it, originalAvailable = false) }
+            }
+        }
+        val updated = GitHubToolHandoff.reconcile(previous, restored + durable, reconciledCallIds())
+        if (updated != previous) saveCheckpoint(updated)
+        currentCheckpoint = updated
+    }
+
     init {
         require(maxContinuations in 0..4)
         require(maxCharacters in 1..1_048_576)

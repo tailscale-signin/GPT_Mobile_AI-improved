@@ -14,9 +14,10 @@ internal class GitHubCiLogReader(private val client: HttpClient, private val tok
     data class Log(val text: String, val bytes: Int, val complete: Boolean)
     private data class Hop(val redirect: String? = null, val log: Log? = null)
 
-    suspend fun read(path: String, immutable: Boolean): Log {
+    suspend fun read(path: String, immutable: Boolean, archiveEntry: String? = null, archiveDigest: String? = null): Log {
+        require(archiveEntry == null || archiveEntry == "release-publication.json" && archiveDigest?.matches(Regex("[a-f0-9]{64}")) == true && path.endsWith("/zip"))
         require(path.startsWith("/") && !path.startsWith("//")) { "Use a relative GitHub API log path." }
-        val cacheKey = "ci-log:${apiOrigins.rest}:${GitHubRepositoryStateStore.digest(token)}:$path"
+        val cacheKey = "ci-log:${apiOrigins.rest}:${GitHubRepositoryStateStore.digest(token)}:$path:${archiveEntry.orEmpty()}:${archiveDigest.orEmpty()}"
         check(!authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
         val forceLive = kotlinx.coroutines.currentCoroutineContext()[GitHubDispatchAccounting]?.forceLiveReads == true
         if (immutable && !forceLive) {
@@ -41,7 +42,7 @@ internal class GitHubCiLogReader(private val client: HttpClient, private val tok
                     val host = target.host.lowercase()
                     require(apiRequest || host.endsWith(".githubusercontent.com") || host.endsWith(".blob.core.windows.net") || host.endsWith(".amazonaws.com")) { "CI log redirect is outside GitHub artifact storage." }
                     scheduler.recordRequest()
-                    val observationId = GitHubDispatchAccounting.started(mutation = false)
+                    val observationId = GitHubDispatchAccounting.started(mutation = false, path = path)
                     val hopResult = network.prepareGet(url) {
                         header(HttpHeaders.UserAgent, "GPT-Mobile-App")
                         if (apiRequest) {
@@ -88,7 +89,12 @@ internal class GitHubCiLogReader(private val client: HttpClient, private val tok
                             }
                             val bytes = output.toByteArray()
                             val complete = eof && bytes.size <= MAX_LOG_BYTES
-                            val text = bytes.copyOf(minOf(bytes.size, MAX_LOG_BYTES)).decodeToString()
+                            val text = if (archiveEntry != null) {
+                                check(complete) { "Release evidence archive exceeds the byte limit." }
+                                GitHubReleaseEvidence.archive(bytes, archiveEntry, requireNotNull(archiveDigest))
+                            } else {
+                                bytes.copyOf(minOf(bytes.size, MAX_LOG_BYTES)).decodeToString()
+                            }
                             if (immutable && complete) cache.putDecodedBlob(cacheKey, text)
                             return@responseBlock Hop(log = Log(text, minOf(bytes.size, MAX_LOG_BYTES), complete))
                         } finally {

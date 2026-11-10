@@ -106,8 +106,11 @@ internal object GitHubExecutionContinuation {
         val verified = (ledger?.get("verified_criteria") as? JsonPrimitive)?.content?.toIntOrNull()
         val required = (ledger?.get("required_criteria") as? JsonPrimitive)?.content?.toIntOrNull()
         val prefix = if (verified != null && required != null && required > 0) "$verified of $required acceptance criteria are verified. " else "The requested result is not yet verified. "
+        val stop = report["stop_reason"] as? JsonObject
+        val detail = (stop?.get("detail") as? JsonPrimitive)?.content?.takeIf { it.isNotBlank() }
         val failures = receipts.values.filter { it["success"] == JsonPrimitive(false) }.takeLast(8)
         return prefix + when {
+            detail != null -> detail
             ledger?.get("recovery") == JsonPrimitive("RECONCILE_REMOTE_OUTCOME") -> "Check the saved remote operation before continuing; its outcome is still unconfirmed."
             failures.isNotEmpty() -> GitHubVerificationRecovery.advice(failures)
             else -> "The model stopped before completing the remaining criteria. Resume the saved task to continue from its verified work; completed actions stay recorded."

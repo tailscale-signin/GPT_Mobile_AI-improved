@@ -694,6 +694,7 @@ internal class GitHubVerifiedSession(
                     failureDetails = if (waitingApproval) {
                         buildJsonObject {
                             put("failed_stage", "approval")
+                            put("failure_domain", "APPROVAL")
                             put("dispatched", false)
                             put("user_input_required", true)
                             put("retryable", false)
@@ -702,8 +703,11 @@ internal class GitHubVerifiedSession(
                     } else {
                         originalFailure?.failureDetails ?: buildJsonObject {
                             put("failed_stage", "acceptance_verification")
-                            put("stop_reason", "UNVERIFIED_ACCEPTANCE_CRITERIA")
-                            put("recovery_action", if (unresolved) "RECONCILE_REMOTE_OUTCOME" else "RESUME_UNFINISHED_WORK")
+                            val stop = delivered["stop_reason"] as? JsonObject
+                            put("stop_reason", stop?.get("code") ?: kotlinx.serialization.json.JsonPrimitive("UNVERIFIED_ACCEPTANCE_CRITERIA"))
+                            stop?.let { put("acceptance_stop", it) }
+                            put("failure_domain", "APPLICATION_VERIFICATION")
+                            put("recovery_action", if (unresolved) kotlinx.serialization.json.JsonPrimitive("RECONCILE_REMOTE_OUTCOME") else stop?.get("recovery_action") ?: kotlinx.serialization.json.JsonPrimitive("RESUME_UNFINISHED_WORK"))
                             put("automatic_continuations", progressCorrections)
                             (delivered["execution_ledger"] as? JsonObject)?.let { ledger ->
                                 listOf("required_criteria", "verified_criteria", "remaining_criteria").forEach { key -> ledger[key]?.let { put(key, it) } }

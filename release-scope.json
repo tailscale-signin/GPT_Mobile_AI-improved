@@ -68,7 +68,8 @@
     "Complete PR #816 admission and task recovery: require producible acceptance, validation policy and exact source/runtime preflight before saving implementation work; retain unmet requirements, bounded continuation and honest task ownership.",
     "Expose guarded native PR draft/ready transitions and collaboration actions with exact approval, expected-head or update-time checks and remote readback; identify same-model review accurately.",
     "Unify GitHub questions, choices and approvals at the conversation bottom; add 1.5-second relative bottom following and gateway conversation activity icons with lifecycle and reduced-motion handling.",
-    "Include PR #816 audit, repository graph and selected-profile recovery repairs and the local Moonshine voice plugin with microphone-permission rechecks and retained model/runtime provenance."
+    "Include PR #816 audit, repository graph and selected-profile recovery repairs and the local Moonshine voice plugin with microphone-permission rechecks and retained model/runtime provenance.",
+    "Repair GitHub catalog and approval proof acceptance, bulk receipt restoration, scoped test admission, typed terminal causes, source-bound release attestation receipts and bounded diagnostic collection/storage; preserve Gateway 16 and local voice."
   ],
   "limitations": [
     "Android GPU qualification requires compatible-device receipts for actual offload, prefill, decode, repeated requests and cancel/recovery; host tests do not establish those results.",
@@ -119,7 +120,8 @@
     "The November 8 diagnostic integration retains required matching PC/phone deployment, original MCP endpoint checks, private-account workflow execution and physical-device speech/DNS/frame qualification. Closed transport stubs and a disposable CI fixture are explicitly separate from live-account or device acceptance.",
     "Gateway 16 requires matching Android and gateway deployment. Its acceptance preflight requires approved host policy, exact source mirror, digest-pinned local Docker image, allowed CI checks and mapped fresh behavior tests; arbitrary objectives without suitable explicit requirements or a full-objective template remain blocked before execution.",
     "PR #816 host fixtures validate contract and recovery behavior, not live GitHub collaboration mutations, private model inference, isolated Docker execution, physical-device scrolling or installed Moonshine recognition. Final Android, emulator, Windows installer and exact-revision release checks remain required.",
-    "Gateway 16 support exports preserve newly recorded evidence and cannot reconstruct omitted causes or repair an unidentified service dependency from an older diagnostic archive."
+    "Gateway 16 support exports preserve newly recorded evidence and cannot reconstruct omitted causes or repair an unidentified service dependency from an older diagnostic archive.",
+    "New release provenance requires a successful exact workflow with GitHub CLI >=2.102.0 and an unexpired digest-bound evidence artifact. Host tests do not qualify the current APK, microphone or deployed gateway. Unsupported mutation lifecycles remain explicitly outside the new bounded integration preset."
   ],
   "requiredWorkflows": [
     "Build Android APK",
@@ -477,6 +479,7 @@
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCriterionBlocker.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubDispatchAccounting.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEngineeringMemory.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEngineeringMemoryPolicy.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceBook.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceExcerpts.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceOrigin.kt",
@@ -512,6 +515,7 @@
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubQuickWorkflow.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReadValidation.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRefAvailability.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReleaseEvidence.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRepositoryAcceptance.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRepositoryInput.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRepositoryLifecycle.kt",
@@ -526,6 +530,7 @@
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReviewSchema.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReviewedSession.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRunAcceptance.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRunPolicySnapshot.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRuntimeIdentity.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSavedViewStore.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSearchOptions.kt",
@@ -1114,6 +1119,7 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubApprovalBindingTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubApprovalRecoveryTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubArgumentProvenanceTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAuditContinuationTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAuditEvidenceTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubBlobContentTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubBoundRepositoryToolTest.kt",
@@ -1176,6 +1182,7 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubPublicAuthCoordinatorTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReadRecoveryTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRefAvailabilityTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReleaseEvidenceTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRepositoryAcceptanceTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRepositoryLifecycleHttpTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRepositoryLifecycleTest.kt",
@@ -1691,6 +1698,7 @@
     "docs/repairs/evidence/gateway16-engineering-contract/mcp.log",
     "docs/repairs/evidence/gateway16-engineering-contract/native.log",
     "docs/repairs/evidence/gateway16-engineering-contract/validation.json",
+    "docs/repairs/evidence/github-verification-continuation-2026-11-10/validation.json",
     "docs/repairs/evidence/voice-local-recognition/README.md",
     "docs/repairs/evidence/voice-local-recognition/all-voice-compile.log",
     "docs/repairs/evidence/voice-local-recognition/all-voice-tested-sources.json",
@@ -1732,6 +1740,8 @@
     "docs/repairs/github-status-1793718669685.md",
     "docs/repairs/github-tool-preparation-gateway-diagnostics-2026-11-08.md",
     "docs/repairs/github-verdict-tool-gateway-reliability-2026-11-04-task.json",
+    "docs/repairs/github-verification-continuation-2026-11-10-task.json",
+    "docs/repairs/github-verification-continuation-2026-11-10.md",
     "docs/repairs/github-verification-recovery-2026-11-06-task.json",
     "docs/repairs/github-verification-recovery-2026-11-06.md",
     "docs/repairs/github-workspace-reliability-2026-11-04-task.json",

@@ -1496,6 +1496,7 @@ class ChatRepositoryImpl(
                     }
                 }
                 is AgentRunEvent.BatchProgress -> onProgress(DelegateProgress(DelegateProgressKind.TOOL_ACTIVITY))
+                is AgentRunEvent.ToolResultsRestored -> Unit
                 is AgentRunEvent.Notice -> Unit
             }
         }
@@ -4689,7 +4690,16 @@ class ChatRepositoryImpl(
             } else {
                 null
             },
-            onToolResultCommitted = outputContinuation?.let { continuation -> { call, result -> continuation.observeToolResult(call, result) } }
+            onToolResultCommitted = outputContinuation?.let { continuation -> { call, result -> continuation.observeToolResult(call, result) } },
+            onToolResultsRestored = { exchanges ->
+                exchanges.forEach { exchange ->
+                    val call = exchange.calls.single()
+                    val result = exchange.results.single()
+                    reviewEvidence?.observe(call, result)
+                    verifiedEvidence?.observe(call, result)
+                }
+                outputContinuation?.restoreToolResults(exchanges)
+            }
         )
     }
 
@@ -4964,13 +4974,14 @@ class ChatRepositoryImpl(
                 // Saved recovery and recall are validated above; individual tool grants are checked only when that tool runs.
             }
             val guarded = if (platform.compatibleType == ClientType.LLAMA) authorized.withProgressWatchdog(settings = progressSettings) else authorized
-            val ledger = if (passCombined != null) requireNotNull(invocationLedger) { "Combined invocation accounting is unavailable; no request was dispatched." } else invocationLedger
+            val retainGithubAccounting = chatToolConfig?.github != null && latestUser?.chatId?.let { agentPersistenceDao.getChatRoom(it)?.isTemporary == false } == true
+            val ledger = if (passCombined != null || retainGithubAccounting) requireNotNull(invocationLedger) { "Invocation accounting is unavailable; no request was dispatched." } else invocationLedger
             return ledger?.wrap(
                 guarded, runId, turnKey, platform.compatibleType.name, platform.model, kind,
                 costs.total,
                 constraints.outputLimit(platform.maxTokens) ?: 0, budgetSettings.totalRunTokens,
                 profileUid = platform.uid,
-                forceAccounting = kind == "github-progress-summary",
+                forceAccounting = retainGithubAccounting,
                 preparedAssistEvidence = preparedAssistEvidence,
                 combined = passCombined
             ) ?: guarded
@@ -5716,13 +5727,25 @@ class ChatRepositoryImpl(
         val executableTools = dev.chungjungsoo.gptmobile.data.agent.appendBudgetedCatalog(runnerTools, catalog)
         recordPrimaryToolCatalog(catalog, runnerTools, executableTools)
 
-        val agentEvents = streamPrimaryAnswerRunner(
+        val runner = streamPrimaryAnswerRunner(
             platform, latestUser, chatToolConfig, contextPlan, limits, budgetSettings, customRunner,
             delegationSettings, effectiveTools, githubEffectiveTask, resolvedOutputCap, reservedFinalToolCalls,
             toolBudgetSourceMessageId, dispatchAuthority, catalog, retryUndispatchedBudgetFailures,
             resumeToolBudget, toolCallsAlreadyUsed, reviewEvidence, verifiedEvidence,
             githubContinuedSession as? dev.chungjungsoo.gptmobile.data.agent.GitHubOutputContinuationSession
-        ).run(advertisedSession, executableTools, dynamicTools = { effectiveTools.flatMap { it.dynamicTools?.invoke().orEmpty() }.map(::bindGitHubTarget) }, selectDefinitions = { definitions -> catalog?.selected(definitions) ?: definitions })
+        )
+        if (chatToolConfig?.github != null && latestUser != null && agentPersistenceDao.getChatRoom(latestUser.chatId)?.isTemporary == false) {
+            val policy = dev.chungjungsoo.gptmobile.data.github.GitHubRunPolicySnapshot.capture(
+                runId, platform.uid, platform.model, dispatchAuthority.revision,
+                githubEffectiveTask, executableTools.map { it.definition }, runner.limits,
+                kotlinx.serialization.json.Json.encodeToJsonElement(ChatMcpToolConfig.serializer(), chatToolConfig),
+                toolCallsAlreadyUsed
+            )
+            val key = "github-run-policy:$runId:" + dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest(policy.toString())
+            requireNotNull(workspace) { "GITHUB_POLICY_STORAGE_UNAVAILABLE: The engineering tool loop was not started." }
+                .saveProtectedSynthesisCheckpoint(key, latestUser.chatId, runId, policy, appendOnly = true)
+        }
+        val agentEvents = runner.run(advertisedSession, executableTools, dynamicTools = { effectiveTools.flatMap { it.dynamicTools?.invoke().orEmpty() }.map(::bindGitHubTarget) }, selectDefinitions = { definitions -> catalog?.selected(definitions) ?: definitions })
         try {
             streamAgentEvents(agentEvents, platform, runId, resolvedTools.size, trace, chatToolConfig?.combined != null, resolvedOutputCap, dispatchAuthority, githubChat = chatToolConfig?.github != null).collect { send(it) }
         } finally {
@@ -6013,6 +6036,11 @@ class ChatRepositoryImpl(
                     if (!gatewayTelemetrySeen) {
                         emit(ApiState.GatewayProgressChanged(providerProgress("tool_started", "executing_tools", if (runEvent.call.name == "github_decide") "Waiting for your feature decision" else "Running ${runEvent.call.name}…", runEvent.call.name, "running").copy(toolCallId = runEvent.call.callId, toolArgs = runEvent.call.arguments)))
                     }
+                }
+
+                is AgentRunEvent.ToolResultsRestored -> {
+                    dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(runId, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.TOOL_RESULTS_RESTORED)
+                    emit(ApiState.ProgressCheckpoint("Restored ${runEvent.count} saved results. Checking the remaining requirements and blockers; completed actions will not be repeated."))
                 }
 
                 is AgentRunEvent.ToolFinished -> {

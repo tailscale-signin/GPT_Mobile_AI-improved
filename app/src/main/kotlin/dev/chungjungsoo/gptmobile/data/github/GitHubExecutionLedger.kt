@@ -13,7 +13,7 @@ import kotlinx.serialization.json.put
 
 /** A bounded projection of durable receipts; model completion never substitutes for acceptance. */
 internal object GitHubExecutionLedger {
-    enum class ReceiptState { PRECHECK_REJECTED, DISPATCHED, PROPOSAL_PREPARED, WAITING_FOR_APPROVAL, COMPLETED, FAILED, UNKNOWN_OUTCOME }
+    enum class ReceiptState { PRECHECK_REJECTED, DISPATCHED, PROPOSAL_PREPARED, WAITING_FOR_APPROVAL, COMPLETED, CANCELLED, FAILED, UNKNOWN_OUTCOME }
     enum class ObservationKind { REMOTE_API_SUCCESS, MUTATION_COMPLETED, MUTATION_ACCEPTED, MUTATION_VERIFIED, PROPOSAL_PREPARED, CACHE_HIT, LOCAL_RESULT, SUPPRESSED, PENDING_APPROVAL, PRECHECK_REJECTED, FAILED, UNKNOWN_OUTCOME }
     private data class ReconciliationKey(
         val binding: String,
@@ -75,6 +75,17 @@ internal object GitHubExecutionLedger {
         val reconciled = reconciliationProofs(receipts)
         val unresolved = uncertain.size - reconciled.size
         val pendingApprovals = GitHubPendingApproval.snapshot(receipts)
+        val resolvedApprovals = receipts.values.mapNotNull { proposal ->
+            GitHubPendingApproval.resolution(proposal, receipts.values)?.let { resolution -> proposal to resolution }
+        }
+        val resolutions = resolvedApprovals.toMap()
+        val currentStates = receipts.values.groupingBy { receipt ->
+            when (resolutions[receipt]?.result()?.text("approval_state")) {
+                "PUBLISHED" -> ReceiptState.COMPLETED
+                "CANCELLED_BEFORE_PUBLICATION" -> ReceiptState.CANCELLED
+                else -> receiptState(receipt)
+            }
+        }.eachCount()
         val acceptance = checkpoint["acceptance_ledger"] as? JsonObject
         val requirements = (acceptance?.get("requirements") as? JsonArray).orEmpty().filterIsInstance<JsonObject>().filter { it["required"] != JsonPrimitive(false) }
         val accepted = requirements.count { it["state"] == JsonPrimitive("PASS") }
@@ -115,8 +126,24 @@ internal object GitHubExecutionLedger {
             put("receipt_count", receipts.size)
             put("presentation_failures", receipts.values.count { (it["execution"] as? JsonObject)?.text("presentation_state") == "CAPACITY_REJECTED" })
             put("receipt_states", buildJsonObject { ReceiptState.entries.forEach { put(it.name, states.getOrDefault(it, 0)) } })
+            put("receipt_states_scope", "HISTORICAL_OBSERVATIONS")
+            put("current_receipt_states", buildJsonObject { ReceiptState.entries.forEach { put(it.name, currentStates.getOrDefault(it, 0)) } })
             put("observation_kinds", buildJsonObject { ObservationKind.entries.forEach { kind -> put(kind.name, receipts.values.count { observationKind(it) == kind }) } })
             put("pending_approvals", pendingApprovals)
+            put(
+                "resolved_approvals",
+                JsonArray(
+                    resolvedApprovals.map { (proposal, resolution) ->
+                        buildJsonObject {
+                            put("proposal_receipt", proposal["receipt_id"] ?: kotlinx.serialization.json.JsonNull)
+                            put("resolution_receipt", resolution["receipt_id"] ?: kotlinx.serialization.json.JsonNull)
+                            put("state", resolution.result()?.text("approval_state").orEmpty())
+                            put("remote_state_verified", resolution.result()?.get("remote_state_verified") == JsonPrimitive(true))
+                            put("dispatch_attribution", "NATIVE_PUBLICATION_DISPATCH_UNAVAILABLE_USE_REMOTE_STATE_PROOF")
+                        }
+                    }
+                )
+            )
             put("unresolved_remote_outcomes", unresolved)
             put("reconciled_remote_outcomes", reconciled.size)
             put("reconciliation_proofs", JsonObject(reconciled))

@@ -13,7 +13,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 @Serializable
-enum class RunDiagnosticKind { INTENT_CONVERSATIONAL, INTENT_SUBSTANTIVE, TOOL_ADMITTED, TOOL_RESULT, CONTINUATION_SELECTED, VERIFICATION_REJECTED, ANSWER_REWRITE, CACHE_OBSERVATION, INPUT_PERSISTED, DISPATCH_ELIGIBLE, PREPARATION_DIRECT, PREPARATION_CONTEXTUAL, PREPARATION_REQUIRED, HTTP_CALL_START, REQUEST_BODY_END, RESPONSE_HEADERS, FIRST_TEXT, FIRST_REASONING, FIRST_TOOL, FIRST_VISIBLE_TEXT, FIRST_PROGRESS, FIRST_VISIBLE_ANSWER, FIRST_SYSTEM_ERROR, FIRST_APPLICATION_REPORT, FIRST_RETAINED_CONTENT, FIRST_UNATTRIBUTED_OUTPUT, PROVIDER_COOLDOWN, PREPARATION_PHASE, REQUEST_SERIALIZED, INVOCATION_STARTED, INVOCATION_FINISHED, ASSIST_DECISION, REDUCER_CHECKPOINT, SEGMENT_COMMITTED, OUTPUT_CHECKPOINT, PROGRESS_STAGE, PROGRESS_DEADLINE, FAILURE_RECEIPT, RUN_TERMINAL, CAPTURE_GAP }
+enum class RunDiagnosticKind { INTENT_CONVERSATIONAL, INTENT_SUBSTANTIVE, TOOL_ADMITTED, TOOL_RESULT, TOOL_RESULTS_RESTORED, CONTINUATION_SELECTED, VERIFICATION_REJECTED, ANSWER_REWRITE, CACHE_OBSERVATION, INPUT_PERSISTED, DISPATCH_ELIGIBLE, PREPARATION_DIRECT, PREPARATION_CONTEXTUAL, PREPARATION_REQUIRED, HTTP_CALL_START, REQUEST_BODY_END, RESPONSE_HEADERS, FIRST_TEXT, FIRST_REASONING, FIRST_TOOL, FIRST_VISIBLE_TEXT, FIRST_PROGRESS, FIRST_VISIBLE_ANSWER, FIRST_SYSTEM_ERROR, FIRST_APPLICATION_REPORT, FIRST_RETAINED_CONTENT, FIRST_UNATTRIBUTED_OUTPUT, PROVIDER_COOLDOWN, PREPARATION_PHASE, REQUEST_SERIALIZED, INVOCATION_STARTED, INVOCATION_FINISHED, ASSIST_DECISION, REDUCER_CHECKPOINT, SEGMENT_COMMITTED, OUTPUT_CHECKPOINT, PROGRESS_STAGE, PROGRESS_DEADLINE, FAILURE_RECEIPT, RUN_TERMINAL, CAPTURE_GAP }
 
 @Serializable
 enum class ProgressDeadlineCode { RUN_DEADLINE_EXCEEDED, GENERATION_STALLED, QUEUE_DEADLINE_EXCEEDED, LOAD_DEADLINE_EXCEEDED, MODEL_PROGRESS_TIMEOUT }
@@ -109,7 +109,8 @@ internal class RunDiagnosticJournal(
     private val retentionMillis: Long = 7L * 86_400_000,
     private val maxStoredBytes: Long = 128L * 1024 * 1024,
     private val maxSnapshotBytes: Long = 4L * 1024 * 1024,
-    private val maxSnapshotEvents: Int = 4096
+    private val maxSnapshotEvents: Int = 4096,
+    private val coalesceMillis: Long = 250
 ) {
     private val json = Json {
         encodeDefaults = true
@@ -154,6 +155,13 @@ internal class RunDiagnosticJournal(
     init {
         scope.launch {
             for (signal in wake) {
+                if (coalesceMillis > 0) {
+                    kotlinx.coroutines.withTimeoutOrNull(coalesceMillis.coerceAtMost(1000)) {
+                        while (synchronized(lock) { pending.isNotEmpty() && pending.size < 32 && pending.none { it.kind in criticalKinds } }) {
+                            wake.receive()
+                        }
+                    }
+                }
                 val (batch, epoch) = synchronized(lock) {
                     pending.toList().also {
                         pending.clear()
@@ -738,7 +746,7 @@ internal class RunDiagnosticJournal(
         }
     }
 
-    private val minimalKinds = setOf(RunDiagnosticKind.FAILURE_RECEIPT, RunDiagnosticKind.INVOCATION_STARTED, RunDiagnosticKind.INVOCATION_FINISHED, RunDiagnosticKind.FIRST_TEXT, RunDiagnosticKind.FIRST_REASONING, RunDiagnosticKind.FIRST_TOOL, RunDiagnosticKind.FIRST_PROGRESS, RunDiagnosticKind.FIRST_VISIBLE_ANSWER, RunDiagnosticKind.FIRST_SYSTEM_ERROR, RunDiagnosticKind.FIRST_APPLICATION_REPORT, RunDiagnosticKind.FIRST_RETAINED_CONTENT, RunDiagnosticKind.FIRST_UNATTRIBUTED_OUTPUT, RunDiagnosticKind.INTENT_CONVERSATIONAL, RunDiagnosticKind.INTENT_SUBSTANTIVE, RunDiagnosticKind.TOOL_ADMITTED, RunDiagnosticKind.TOOL_RESULT, RunDiagnosticKind.CONTINUATION_SELECTED, RunDiagnosticKind.VERIFICATION_REJECTED, RunDiagnosticKind.ANSWER_REWRITE, RunDiagnosticKind.RUN_TERMINAL)
+    private val minimalKinds = setOf(RunDiagnosticKind.FAILURE_RECEIPT, RunDiagnosticKind.INVOCATION_STARTED, RunDiagnosticKind.INVOCATION_FINISHED, RunDiagnosticKind.FIRST_TEXT, RunDiagnosticKind.FIRST_REASONING, RunDiagnosticKind.FIRST_TOOL, RunDiagnosticKind.FIRST_PROGRESS, RunDiagnosticKind.FIRST_VISIBLE_ANSWER, RunDiagnosticKind.FIRST_SYSTEM_ERROR, RunDiagnosticKind.FIRST_APPLICATION_REPORT, RunDiagnosticKind.FIRST_RETAINED_CONTENT, RunDiagnosticKind.FIRST_UNATTRIBUTED_OUTPUT, RunDiagnosticKind.INTENT_CONVERSATIONAL, RunDiagnosticKind.INTENT_SUBSTANTIVE, RunDiagnosticKind.TOOL_ADMITTED, RunDiagnosticKind.TOOL_RESULT, RunDiagnosticKind.TOOL_RESULTS_RESTORED, RunDiagnosticKind.CONTINUATION_SELECTED, RunDiagnosticKind.VERIFICATION_REJECTED, RunDiagnosticKind.ANSWER_REWRITE, RunDiagnosticKind.RUN_TERMINAL)
     private val criticalKinds = setOf(RunDiagnosticKind.FAILURE_RECEIPT, RunDiagnosticKind.INTENT_CONVERSATIONAL, RunDiagnosticKind.INTENT_SUBSTANTIVE, RunDiagnosticKind.VERIFICATION_REJECTED, RunDiagnosticKind.ANSWER_REWRITE) + setOf(RunDiagnosticKind.RUN_TERMINAL, RunDiagnosticKind.INVOCATION_FINISHED, RunDiagnosticKind.SEGMENT_COMMITTED, RunDiagnosticKind.PROGRESS_DEADLINE, RunDiagnosticKind.CAPTURE_GAP)
 
     private fun identity(value: String) = java.security.MessageDigest.getInstance("SHA-256").digest(value.toByteArray()).take(12).joinToString("") { "%02x".format(it) }

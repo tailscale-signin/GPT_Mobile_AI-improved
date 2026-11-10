@@ -223,6 +223,9 @@ sealed interface AgentRunEvent {
     data class Provider(val event: ProviderEvent) : AgentRunEvent
     data class ToolStarted(val call: ProviderEvent.ToolCall) : AgentRunEvent
     data class ToolFinished(val call: ProviderEvent.ToolCall, val result: AgentToolResult) : AgentRunEvent
+
+    /** Historical hydration is not a new dispatch, completion, or progress milestone. */
+    data class ToolResultsRestored(val count: Int) : AgentRunEvent
     data class Notice(val message: String, val persistent: Boolean = false, val researchDelivery: dev.chungjungsoo.gptmobile.data.research.delivery.ResearchDeliveryReceipt? = null) : AgentRunEvent
 }
 

@@ -35,5 +35,20 @@
   "followups": [
     "docs/repairs/evidence/voice-local-recognition/compile-unblock.json",
     "docs/repairs/evidence/voice-local-recognition/capture-permission.json"
-  ]
+  ],
+  "integration_followup": {
+    "parent_sha": "8f30e808460df46d5951a75b88a723eddd19c7aa",
+    "intent": "Retain the complete voice feature and unblock API 34/36 instrumentation compilation; inspect current integration evidence.",
+    "failed_run": 42760148940,
+    "failed_jobs": [
+      129643760156,
+      129643760341
+    ],
+    "cause": "Unresolved top-level assertDoesNotExist import; the assertion is a SemanticsNodeInteraction member.",
+    "state": "UPSTREAM_FIX_RETAINED",
+    "preserved_commits": [
+      "c6a0badda",
+      "f18cdf21e"
+    ]
+  }
 }

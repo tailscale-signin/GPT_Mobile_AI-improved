@@ -73,7 +73,8 @@ class AgentRunner(
     private val onToolResult: (suspend (ProviderEvent.ToolCall, AgentToolResult) -> Unit)? = null,
     private val resumeToolBudget: Boolean = false,
     private val initialToolCallCountOverride: Int? = null,
-    private val onToolResultCommitted: (suspend (ProviderEvent.ToolCall, AgentToolResult) -> Unit)? = null
+    private val onToolResultCommitted: (suspend (ProviderEvent.ToolCall, AgentToolResult) -> Unit)? = null,
+    private val onToolResultsRestored: (suspend (List<AgentToolExchange>) -> Unit)? = null
 ) {
     private val replayRenderCache = ToolExchangeCompactor.RenderCache()
 
@@ -338,6 +339,27 @@ class AgentRunner(
         state: LoopState
     ): Boolean {
         with(state) {
+            if (limits.githubTask) {
+                val retained = recovery?.completedExchanges.orEmpty().filter { it.calls.single().name in toolByName }
+                if (retained.isEmpty()) return true
+                // Restore current authorization/evidence once, before provider work.
+                // Completion callbacks persist new work and must not replay here.
+                if (onToolResultsRestored != null) {
+                    onToolResultsRestored.invoke(retained)
+                } else {
+                    retained.forEach { onToolResult?.invoke(it.calls.single(), it.results.single()) }
+                }
+                retained.forEach { exchange ->
+                    val call = exchange.calls.single()
+                    val result = exchange.results.single()
+                    if (result.errorCode in ToolResultEnvelope.unknownOutcomeCodes && !replayableRead(call, toolByName[call.name])) {
+                        unknownOutcomes += call.name + ":" + dev.chungjungsoo.gptmobile.data.permissions.ScopedToolGrant.canonicalHash(call.arguments)
+                    }
+                }
+                exchanges += retained
+                emit(AgentRunEvent.ToolResultsRestored(retained.size))
+                return true
+            }
             // Restore all settled batches before model finalization, without executing them.
             // Full GitHub receipts are reloaded by call identity by the evidence observer.
             for (exchange in recovery?.completedExchanges.orEmpty()) {

@@ -572,7 +572,7 @@ class GitHubWorkspaceClient(
             require(bytes.size <= 2 * 1024 * 1024 && bytes.none { it == 0.toByte() }) { "Workspace supports UTF-8 ingestion up to 2 MiB." }
             bytes.decodeToString(throwOnInvalidSequence = true).also { if (blobCache) responseCache.putDecodedBlob("${apiOrigins.rest}:$durableIdentity:$root:$sha", it) }
         }
-        val lines = content.split('\n')
+        val lines = GitHubRepositorySession.sourceLines(content)
         val start = startField.ifBlank { "1" }.toInt()
         val end = endField.ifBlank { (start + 299).toString() }.toInt()
         require(start >= 1 && end >= start && end - start < 2000) { "Use a valid range of at most 2,000 lines." }
@@ -1731,6 +1731,49 @@ class GitHubWorkspaceClient(
             }
         }
         val correlated = receipt != null && candidate != null
+        val assetEvidence = if (release != null &&
+            candidate != null &&
+            workflow?.get("path") == JsonPrimitive(GitHubReleaseEvidence.WORKFLOW) &&
+            candidate["status"] == JsonPrimitive("completed") &&
+            candidate["conclusion"] == JsonPrimitive("success") &&
+            release["draft"] == JsonPrimitive(false)
+        ) {
+            try {
+                val artifacts = request("$root/actions/runs/$requestedRunId/artifacts?per_page=100").jsonObject
+                val rows = artifacts["artifacts"]?.jsonArray.orEmpty().map { it.jsonObject }
+                require((artifacts["total_count"]?.jsonPrimitive?.intOrNull ?: Int.MAX_VALUE) <= rows.size) { "Release evidence inventory is incomplete." }
+                val artifact = rows.single { it["name"] == JsonPrimitive("release-evidence-$expectedSource") && it["expired"] == JsonPrimitive(false) }
+                val digest = artifact["digest"]?.jsonPrimitive?.content?.removePrefix("sha256:").orEmpty()
+                require(digest.matches(Regex("[a-f0-9]{64}"))) { "Release evidence digest is unavailable." }
+                val id = artifact["id"]?.jsonPrimitive?.longOrNull?.takeIf { it > 0 } ?: error("Release evidence identity is invalid.")
+                refreshCredential()
+                val credential = requestCredential()
+                val text = GitHubCiLogReader(client, credential.token, scheduler, responseCache, requestPriority, credential.authenticationRejected, apiOrigins)
+                    .read("$root/actions/artifacts/$id/zip", immutable = true, archiveEntry = "release-publication.json", archiveDigest = digest).text
+                val proof = json.parseToJsonElement(text).jsonObject
+                val tag = requestUntracked("$root/commits/${segment(tagName)}", HttpMethod.Get, null, authenticated = false, forceLiveRead = true).jsonObject
+                require(tag["sha"] == JsonPrimitive(expectedSource)) { "Published release tag changed." }
+                val current = requestUntracked("$root/actions/runs/$requestedRunId", HttpMethod.Get, null, authenticated = false, forceLiveRead = true).jsonObject
+                require(current["run_attempt"] == candidate["run_attempt"] && GitHubReleaseEvidence.verify(proof, release, current, root.removePrefix("/repos/"), expectedSource)) { "Release evidence does not match the current source, run attempt and asset bytes." }
+                buildJsonObject {
+                    put("verified", true)
+                    put("artifact_id", id)
+                    put("artifact_digest", digest)
+                    put("run_id", requestedRunId)
+                    put("run_attempt", current["run_attempt"]!!)
+                    put("source_sha", expectedSource)
+                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                buildJsonObject {
+                    put("verified", false)
+                    put("reason", "TRUSTED_PUBLICATION_RECEIPT_UNAVAILABLE_OR_MISMATCHED")
+                }
+            }
+        } else {
+            null
+        }
         fun compact(run: JsonObject) = project(run, "id", "name", "event", "status", "conclusion", "head_branch", "head_sha", "run_number", "run_attempt", "created_at", "updated_at", "html_url")
         return buildJsonObject {
             put("tag_name", tagName)
@@ -1742,8 +1785,10 @@ class GitHubWorkspaceClient(
             put("workflow_correlation", if (correlated) "DISPATCH_RECEIPT_AND_SOURCE_VERIFIED" else "UNKNOWN_DISPATCH_RECEIPT_NOT_AVAILABLE")
             put("latest_workflow_run", candidate?.takeIf { correlated }?.let(::compact) ?: JsonNull)
             if (!correlated && candidate != null) put("candidate_workflow_run", compact(candidate))
-            put("release_asset_source_verified", false)
-            put("release_asset_verification", "BUILD_ATTESTATION_REQUIRED")
+            put("release_asset_source_verified", assetEvidence?.get("verified") == JsonPrimitive(true))
+            put("release_asset_verification", if (assetEvidence?.get("verified") == JsonPrimitive(true)) "TRUSTED_WORKFLOW_ATTESTATION_AND_REMOTE_DIGEST_VERIFIED" else "BUILD_ATTESTATION_REQUIRED")
+            assetEvidence?.let { put("release_asset_evidence", it) }
+            put("release_asset_recovery", "Use the exact release workflow_run_id and expected_head_sha. A successful trusted release-build workflow must retain release-publication.json with verified attestations; missing or expired evidence remains unverified.")
         }
     }
 
@@ -2510,7 +2555,7 @@ class GitHubWorkspaceClient(
                 }
                 scheduler.recordRequest()
                 if (method != HttpMethod.Get) GitHubMutationAttempts.dispatched()
-                val observationId = GitHubDispatchAccounting.started(method != HttpMethod.Get)
+                val observationId = GitHubDispatchAccounting.started(method != HttpMethod.Get, path)
                 var response = client.githubRequest("${apiOrigins.rest}$path") {
                     this.method = method
                     header(HttpHeaders.Accept, "application/vnd.github+json")
@@ -2530,7 +2575,7 @@ class GitHubWorkspaceClient(
                     // read recovers an evicted body; a repeated 304 is an error.
                     rateLimits.requireAvailable(if (path.startsWith("/search/")) "search" else "core")
                     scheduler.recordRequest()
-                    val recoveryObservationId = GitHubDispatchAccounting.started(false)
+                    val recoveryObservationId = GitHubDispatchAccounting.started(false, path)
                     response = client.githubRequest("${apiOrigins.rest}$path") {
                         header(HttpHeaders.Accept, "application/vnd.github+json")
                         header(HttpHeaders.UserAgent, "GPT-Mobile-App")

@@ -142,6 +142,28 @@ class GitHubCatalogRetentionTest {
         assertNotNull(GitHubAuthorizedCatalog.next(tools, fixture.book.snapshot().first))
     }
 
+    @Test fun unrelatedSearchContractChangesRetainVerifiedGithubInventory() = runBlocking {
+        val github = (0 until 13).map { definition("github_operation_$it") }
+        val search = definition("web_search")
+        val fixture = RetainedCatalog(ProgressiveToolCatalog(github + search, "test all GitHub tools", githubMode = true))
+        fixture.observe("discovery")
+        val changedSearch = search.copy(
+            inputSchema = buildJsonObject {
+                put("type", "object")
+                put("required", JsonArray(listOf(JsonPrimitive("query"))))
+            }
+        )
+        val tools = github + changedSearch + fixture.catalog.definition
+        val state = GitHubAuthorizedCatalog.snapshot(fixture.book.snapshot().first, tools)
+        assertEquals(JsonPrimitive(true), state["complete"])
+        assertEquals(JsonPrimitive(13), state["observed_github_tool_count"])
+        assertEquals(JsonPrimitive(1), state["inventory_pages_verified"])
+        assertEquals(13, state.getValue("verified_github_names").jsonArray.size)
+        assertEquals(1, state.getValue("unrelated_contract_changes").jsonArray.size)
+        assertTrue(state.getValue("requested_contract_changes").jsonArray.isEmpty())
+        assertNull(GitHubAuthorizedCatalog.next(tools, fixture.book.snapshot().first))
+    }
+
     @Test fun projectionDoesNotRepairDuplicateNamesOrAnInvalidTerminalRecipe() = runBlocking {
         val definitions = (0 until 13).map { definition("github_operation_$it", links = 32) }
         for (duplicate in listOf(true, false)) {

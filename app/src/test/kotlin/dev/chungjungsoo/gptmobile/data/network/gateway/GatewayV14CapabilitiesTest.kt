@@ -80,13 +80,16 @@ class GatewayV14CapabilitiesTest {
     }
 
     @Test
-    fun acceptsGateway15AndRejectsUnknownOrMalformedContracts() {
+    fun acceptsGateway15And16AndRejectsUnknownOrMalformedContracts() {
         val valid = """{"gatewayVersion":"15.0.0","contractVersion":1,"auth":{"mode":"trusted_proxy","apiKeyRequired":false},"desktop":{"managed":true,"maintenanceProtocol":1,"stateSchema":1,"idleUpdates":true,"updateAuthority":"local-manager"}}"""
         val caps = json.decodeFromString<GatewayCapabilities>(valid)
         assertTrue(caps.supportsKeyFreeConnection)
         assertTrue(caps.desktop?.managed == true)
         assertTrue(caps.desktop?.idleUpdates == true)
-        for (version in listOf("16.0.0", "15.evil", "15.0.0-preview", "15.00.0", "15.0.0.extra")) {
+        for (version in listOf("15.0.0", "16.0.0", "16.1.2")) {
+            assertTrue(json.decodeFromString<GatewayCapabilities>(valid.replace("15.0.0", version)).supportsKeyFreeConnection)
+        }
+        for (version in listOf("17.0.0", "15.evil", "15.0.0-preview", "15.00.0", "15.0.0.extra", "16.0.0-preview", "16.00.0")) {
             assertFalse(json.decodeFromString<GatewayCapabilities>(valid.replace("15.0.0", version)).supportsKeyFreeConnection)
         }
         assertFalse(json.decodeFromString<GatewayCapabilities>(valid.replace("trusted_proxy", "public")).supportsKeyFreeConnection)

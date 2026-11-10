@@ -1,0 +1,140 @@
+{
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "branch": "fix/audit-execution-recovery-2026-11-09",
+  "parent_sha": "f18cdf21e05658b29417a919707f0761f2698f3a",
+  "status": "HOST_REGRESSIONS_PASSED_FINAL_ANDROID_CI_REQUIRED",
+  "checks": {
+    "engineering": {
+      "passed": 232,
+      "failed": 0,
+      "log_sha256": "c580147f04be7c5e0fe464ca6a603bd2e526a8302a6911d639dc33b6786c2b37",
+      "command": "python3 engineering-host/run.py",
+      "scope": "JVM production subsets with declared Android/platform/storage boundaries; test methods may overlap suites"
+    },
+    "recovery": {
+      "passed": 207,
+      "failed": 0,
+      "log_sha256": "854ae7ea2841e7c79b44cc94d007b350dd4165d67fefcbcef278a5269931941e",
+      "command": "python3 recovery-host/run.py",
+      "scope": "JVM production subsets with declared Android/platform/storage boundaries; test methods may overlap suites"
+    },
+    "connector": {
+      "passed": 63,
+      "failed": 0,
+      "log_sha256": "3bf37c9f5457e692dee20eccfc24abf26c9c3a54c6ab073cc0d0078672cdcc4c",
+      "command": "python3 connector-host/run.py",
+      "scope": "JVM production subsets with declared Android/platform/storage boundaries; test methods may overlap suites"
+    },
+    "journal": {
+      "passed": 37,
+      "failed": 0,
+      "log_sha256": "83d10fa49c09fc5bb03d5d62af9f3ac5935b8d1de3f30a6873f24de249e6dabd",
+      "command": "python3 journal-host/run.py",
+      "scope": "JVM production subsets with declared Android/platform/storage boundaries; test methods may overlap suites"
+    },
+    "capture": {
+      "passed": 27,
+      "failed": 0,
+      "log_sha256": "32e0c840a3f9604120f14442a91b80134f7cd461564c35a0194aac1fb4b1baff",
+      "command": "python3 capture-host/run.py",
+      "scope": "JVM production subsets with declared Android/platform/storage boundaries; test methods may overlap suites"
+    },
+    "network": {
+      "passed": 59,
+      "failed": 0,
+      "log_sha256": "7996d6894108db4ced69e8bb26e0efd7b1cff538bb1a5d8b740e88a92ab19689",
+      "command": "python3 network-host/run.py",
+      "scope": "JVM production subsets with declared Android/platform/storage boundaries; test methods may overlap suites"
+    },
+    "log-diagnostics": {
+      "passed": 148,
+      "failed": 0,
+      "log_sha256": "ff1bbb910e9abfa53c73dcfc1ba077fb145ee89276dd6bdf8a716ce6db1ff0c7",
+      "command": "python3 log-diagnostics-host/run.py",
+      "scope": "JVM production subsets with declared Android/platform/storage boundaries; test methods may overlap suites"
+    },
+    "presentation-diagnostics": {
+      "passed": 50,
+      "failed": 0,
+      "log_sha256": "2b8ad24a380f2a6d0b41bd64df27352d9c8d078931f661c4e4f1951c1bbc5ca8",
+      "command": "python3 presentation-diagnostics-host/run.py",
+      "scope": "JVM production subsets with declared Android/platform/storage boundaries; test methods may overlap suites"
+    },
+    "canonical_fast": {
+      "passed": 448,
+      "failed": 0,
+      "command": "bash scripts/validate-local.sh fast",
+      "log_sha256": "903b296f3a781ac52324df0f7f0a303b977b8f16f86c4d7034f4644b638186e3"
+    },
+    "ktlint": {
+      "passed_files": 46,
+      "version": "1.3.1",
+      "failed": 0
+    }
+  },
+  "source_sha256": {
+    ".github/workflows/release-build.yml": "697d65a56f904f968400024332712b1ac72a946abccd7531189cdebc97671360",
+    "app/src/main/assets/diagnostics/app-code-inventory.json": "033aa5c41a47214dd589c6f14f1d3e6746e479b8d4de1605a1bcc8bc52d24619",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentContracts.kt": "9537878053f164132452745b324fdd1b06257781fe6393953e59f6dd5792d766",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt": "fdfd98b9d8f526ccee22656c9ad68197ff83f43fbc9d0472199eae501ef1cbe9",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubOutputContinuationSession.kt": "5f2945f3ed6489163489153d03ca05713073edfe5c0f804be9817b818fd6f78a",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolCatalogAcquisition.kt": "97ad537a4db6926fa0b1b0b7f607c524cd147c0819b342a35866a1a7380a6f79",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/McpClientManager.kt": "8da32e62309425c2a64ac022c8abb205609b9a94ac01bb71ee0c524ba14ff4d1",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditSourceInventory.kt": "f538b61c8266cab4369717dcfe672a6427f1731b4d2a575352747b82c7b431a4",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/AppLogRecorder.kt": "e81fd6f6b3794aa13c5bcc2d7a6af1d8bd58939d347a1c3b95c8f47d474a379a",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticSemanticFields.kt": "f40d4589d00cdfe0232f4efee7593ef882732c99577f967bf52d011058ea52f0",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReceipt.kt": "2318fa25c86c0cc13fc528bfa115433f9fcf2fcdbd54e081af75fec219c29eb0",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/RunDiagnosticJournal.kt": "ea4f5337bb9bbea056d28527f0471745213051dec2d8b0bcadb3d5e4617073ad",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/StagedDiagnosticCapture.kt": "fe40ba7a11ebed386e830c238d816cb44566d72a462f2fb962922d8bdf3e399e",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAuthorizedCatalog.kt": "0d7caa7e19c46fc3d453f9389dc8b9b328e6b50a304babdf0cdc0b0d69caa259",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubChecklistScope.kt": "1c748e870c4149679ac62a6ab1708cbb2039ed4801cef5f1fd6a7237769a53db",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCiLogReader.kt": "7a8bf52927f1fec0d560eac51122563a08ed5aeb914dfa7fe87440940cee7e89",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubContentFixture.kt": "9050205d0480ae728e535d9e8cbc98ede5d98cfb08f8e4f0b5fd219d1f866421",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubDispatchAccounting.kt": "3a03e506903d7ce2150fc958c7befc82cf5e97df7f568889cfd43814c1dc0a54",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEngineeringMemory.kt": "63b16e86e7df935414b367e6553c021f3d7805d32575cb76e859e97120ad661f",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEngineeringMemoryPolicy.kt": "dc5f999b0227098a7dcc365e14f4cf53cf46af72c9416c1af106adf94d61634e",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubExecutionContinuation.kt": "689958b00c3a00adce14bef45fe075c7877e13c109a11fd75ca9557e0f1f42d4",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubExecutionLedger.kt": "3f3186ecd1b9094127e7cf63a2d9a997162b3abcef472881cef549bc1c593c34",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubIntegrationReport.kt": "1d3bffb1516aa0319400ace5463b5076fe6cdbc0396fab8281346785fc3a35a4",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReleaseEvidence.kt": "86afaf997a64466e3abddd217b0cdcf1dba02e56a669483b4ad62dacc9bc6dcf",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRepositorySession.kt": "d787cc82811ef0b2208a685eae33d70af8827e750d9f1dc3d1c34b1aa0a32e31",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRunPolicySnapshot.kt": "b3ab218aee12da89e20c97e7464475e98f0eb4180f2c7fc5ed6af4d6d54a8b9c",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestFixtures.kt": "eb4aeea9ed17733265611f28354710aaa99863ff42915564ff730ff6ba2ee5d4",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestReads.kt": "295b7b60630ff27b69dea15a1d0c83d52c4af8f92e8b9531a64bb6f775fab57d",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTestChecklist.kt": "cc1430d344f2ecde93db6337d553b82886ec2bad9d0f3be0276f095c7a16db00",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSession.kt": "92f8bf388b66a0bfc40621fd110f57d98d9c16377673b58edd765fc33d7be234",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkflowPreset.kt": "d25066daeb716547730225d669d9b915b74f1241be2ad0c45a1646e4a5344858",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkspaceClient.kt": "1cab71e39a046b59916a02328465cd062719ed8667fbc2c7cd230a1b87695f1f",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayModels.kt": "f97d5ea033c816ee9b70fee094271de6aaa96329ad101056cdab0b88b4a22745",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ChatRepositoryImpl.kt": "c83c66b72dfc969b4a553c8bc2b2a20f0c613288dcf12a2c6298d95d57b5a633",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/StagedChatDebugExport.kt": "920f8b60476e85f68f1d91802bbd08cba26bc6d30fe529a26533334e47eda5cd",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubLogicalContinuationRunnerTest.kt": "8e555729f18660f4ee524d8c066e449c8a9749e4d154f545b7c622c5401e4946",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolCatalogAcquisitionTest.kt": "534c093765c6ae0eb8449b584a6a41b9c7fccff5b17f64d700e1badf684c9803",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/AcceptanceDiagnosticRoundTripTest.kt": "0ea10bfefbf2767b873ba1caccabe5412213a382b3f042a36489e15c68c902c2",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderInterruptionReceiptTest.kt": "4425d9e0a13e6469a58fc507c6441a7fbb82704de2894ed5792b9e6ef7b36734",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/RunDiagnosticJournalTest.kt": "f0c61da0069b38825bb1c1b87e480b4c0d2a92aa46bad68e52b35c378968361d",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/RunJournalCoverageTest.kt": "0124428a51dff74db944305d34560959546b6fe72acaa5210c8955c6cef93bbc",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/StagedDiagnosticCaptureTest.kt": "385052b41b633710b4da93e8be186150885756950223b14641bb0b07828e557b",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAuditContinuationTest.kt": "dbf7780cb9c4c1791b9a892f1ea6db681e6971dd3132365a0e74673e7016f55d",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCatalogRetentionTest.kt": "f65d8fe7efb3d15404e15cffdc3f6c5f72e2864db02c7c9b1a18df220700e6f5",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubContentFixtureTest.kt": "d3e942c54c0bba197f1752a159b4c08d84d235257fa5c5b2bf15e239acedcb51",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubDispatchAccountingTest.kt": "43474019507b15c43a54df94c8a3d52144572db0f842d89467add2f537beab33",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReleaseEvidenceTest.kt": "ae943077d68e55de7efc031e115c4ed9139e7f5c48fa41b42844c92351bc4390",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayV14CapabilitiesTest.kt": "39bc9280f0dfa79840775d947b23e841cdd4b2d485247114ff8a55c4d8b3f055",
+    "scripts/tests/test_published_release.py": "5ea1f30afec63fc3780b55b93155401ca2780703a9c9a40c224eff4d5b4f9087",
+    "scripts/verify_published_release.py": "9815dacbff37ec80c71adaf97a9ed19febcc3037b8fc09938637cc7513f52462"
+  },
+  "limits": [
+    "Counts overlap; no sum represents unique execution coverage.",
+    "Full Android source, APK, emulator, microphone and deployed gateway acceptance require exact-head CI/device evidence.",
+    "Release attestation HTTP/CLI contracts use controlled fixtures; no release published.",
+    "No historical fixture writes or cleanup were replayed.",
+    "Noncritical journal persistence is delayed by at most 250 ms; critical events flush immediately."
+  ],
+  "predecessor_ci": {
+    "sha": "f18cdf21e05658b29417a919707f0761f2698f3a",
+    "api36": "PASSED",
+    "api34": "PREREQUISITE_INSTALLATION_FAILED",
+    "unit": "8829 executed, 1 failure, 5 skipped; Gateway16 version allowlist repaired here"
+  }
+}

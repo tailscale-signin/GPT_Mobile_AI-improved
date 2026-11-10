@@ -17,7 +17,7 @@ internal class GitHubDispatchAccounting(
     private val record: (String) -> Unit = { AppLogRecorder.record("GitHub", it) }
 ) : AbstractCoroutineContextElement(Key) {
     companion object Key : CoroutineContext.Key<GitHubDispatchAccounting> {
-        suspend fun started(mutation: Boolean): String? = currentCoroutineContext()[Key]?.start(mutation)
+        suspend fun started(mutation: Boolean, path: String? = null): String? = currentCoroutineContext()[Key]?.start(mutation, path)
         suspend fun responded(mutation: Boolean, status: Int, requestId: String? = null, serverRequestId: String? = null) =
             currentCoroutineContext()[Key]?.response(mutation, status, requestId, serverRequestId, false)
         suspend fun responded(mutation: Boolean, status: Int, requestId: String?, serverRequestId: String?, expectedAbsence: Boolean) =
@@ -25,7 +25,9 @@ internal class GitHubDispatchAccounting(
         suspend fun cached(observedAt: Long?, immutable: Boolean = false) = currentCoroutineContext()[Key]?.cache(observedAt, immutable)
     }
 
-    private data class Pending(val mutation: Boolean, val startedAt: Long)
+    private data class Pending(val mutation: Boolean, val startedAt: Long, val endpoint: String, val targetDigest: String?)
+    private val failures = mutableListOf<kotlinx.serialization.json.JsonObject>()
+    private var omittedFailures = 0
     private val invocationId = UUID.randomUUID().toString()
     private val pending = LinkedHashMap<String, Pending>()
     private var sequence = 0L
@@ -59,9 +61,24 @@ internal class GitHubDispatchAccounting(
         }
     }
 
-    @Synchronized private fun start(mutation: Boolean): String {
+    @Synchronized private fun start(mutation: Boolean, path: String?): String {
         val requestId = "$invocationId:${++sequence}"
-        pending[requestId] = Pending(mutation, now())
+        val route = path?.substringBefore('?').orEmpty()
+        val endpoint = when {
+            "/protection" in route -> "BRANCH_PROTECTION"
+            "/rules" in route -> "RULES"
+            "/actions/" in route -> "ACTIONS"
+            "/releases" in route -> "RELEASES"
+            "/pulls" in route -> "PULL_REQUESTS"
+            "/issues" in route -> "ISSUES"
+            "/git/ref" in route -> "GIT_REFS"
+            "/commits" in route -> "COMMITS"
+            "/contents" in route -> "CONTENTS"
+            "/branches" in route -> "BRANCHES"
+            route.startsWith("/repos/") -> "REPOSITORY"
+            else -> "OTHER"
+        }
+        pending[requestId] = Pending(mutation, now(), endpoint, route.takeIf { it.isNotBlank() }?.let(GitHubEvidenceBook::digest))
         if (mutation) {
             mutations++
             unknown++
@@ -108,6 +125,33 @@ internal class GitHubDispatchAccounting(
                 readHttpFailures++
             }
             if (expectedAbsence && status == 404) "EXPECTED_OWNED_REF_ABSENCE" else "READ_RESPONSE"
+        }
+        if (status >= 400 && !(expectedAbsence && status == 404)) {
+            if (failures.size < 32) {
+                failures += buildJsonObject {
+                    put("request_id", id)
+                    put("endpoint_class", request.endpoint)
+                    request.targetDigest?.let { put("target_sha256", it) }
+                    put("http_status", status)
+                    put("mutation", mutation)
+                    put("elapsed_ms", (now() - request.startedAt).coerceAtLeast(0))
+                    put(
+                        "cause",
+                        when (status) {
+                            401 -> "AUTHENTICATION"
+                            403 -> "ACCESS_OR_RATE_POLICY"
+                            404 -> "NOT_FOUND_OR_HIDDEN"
+                            408, 504 -> "DEADLINE"
+                            429 -> "RATE_LIMIT"
+                            in 500..599 -> "SERVICE_UNAVAILABLE"
+                            else -> "HTTP_ERROR"
+                        }
+                    )
+                    put("requirement_scope", "CALLER_NOT_RECORDED")
+                }
+            } else {
+                omittedFailures++
+            }
         }
         val server = serverRequestId?.takeIf { it.matches(Regex("[a-zA-Z0-9:._-]{1,160}")) } ?: "not_recorded"
         emit("REQUEST_EXECUTION_STATE · state=HTTP_RESPONSE_OBSERVED · invocationId=$invocationId · requestId=$id · mutation=$mutation · httpStatus=$status · requestOutcome=$outcome · elapsedMs=${(now() - request.startedAt).coerceAtLeast(0)} · serverRequestId=$server · taskCompletion=NOT_MEASURED")
@@ -159,6 +203,9 @@ internal class GitHubDispatchAccounting(
                 put("read_requests", reads)
                 put("read_response_observations", readResponses)
                 put("read_http_failures", readHttpFailures)
+                put("failed_requests", kotlinx.serialization.json.JsonArray(failures))
+                put("omitted_failed_requests", omittedFailures)
+                put("parent_result_successful", !result.isError)
                 put("expected_absence_responses", expectedAbsenceResponses)
                 put("unobserved_read_requests", pending.values.count { !it.mutation })
                 put("observation_mismatches", observationMismatches)

@@ -16,6 +16,21 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AcceptanceDiagnosticRoundTripTest {
+    @Test fun typedReadinessRetainsAuthorizationEnumButNotCredentials() {
+        val row = buildJsonObject {
+            put("schema", "github.capability-readiness.v1")
+            put("authorization", "AUTHORIZED")
+            put("authorization_state", "AUTHORIZED")
+            put("discovered", true)
+            put("availability", "AVAILABLE")
+            put("tested", false)
+            put("successfully_tested", false)
+        }
+        assertEquals(row, redactChatDebugData(row))
+        val credential = JsonObject(row + ("authorization" to JsonPrimitive("Bearer private-secret")))
+        assertFalse(redactChatDebugData(credential).toString().contains("private-secret"))
+    }
+
     @Test fun allTypedCriteriaSurviveStorageAndStructuredExportWithTheirOriginalDigests() {
         val ledger = buildJsonObject {
             put(

@@ -37,6 +37,19 @@ object AppLogRecorder {
     private val droppedCriticalRecords = java.util.concurrent.atomic.AtomicLong()
     private val captureEpoch = java.util.concurrent.atomic.AtomicLong()
     private val preferenceRevision = java.util.concurrent.atomic.AtomicLong()
+
+    @Volatile private var collectionChangedAt = System.currentTimeMillis()
+
+    @Volatile private var collectionChangeReason = "PROCESS_DEFAULT"
+
+    @Synchronized internal fun collectionState(): kotlinx.serialization.json.JsonObject = kotlinx.serialization.json.buildJsonObject {
+        put("configured", kotlinx.serialization.json.JsonPrimitive(mutableEnabled.value))
+        put("active", kotlinx.serialization.json.JsonPrimitive(mutableEnabled.value && !privateSessionActive && app != null))
+        put("privateSession", kotlinx.serialization.json.JsonPrimitive(privateSessionActive))
+        put("changedAtMillis", kotlinx.serialization.json.JsonPrimitive(collectionChangedAt))
+        put("changeReason", kotlinx.serialization.json.JsonPrimitive(collectionChangeReason))
+        put("scope", kotlinx.serialization.json.JsonPrimitive("APP_LOG_RECORDER_SEPARATE_FROM_NETWORK_DIAGNOSTICS"))
+    }
     private val preferenceWriteLock = Any()
     private val queue = BoundedDiagnosticPendingQueue<Pair<Long, AppLogEntry>>(maximumRecords = QUEUE_RECORD_LIMIT) { critical ->
         droppedRecords.incrementAndGet()
@@ -173,10 +186,13 @@ object AppLogRecorder {
     @Synchronized internal fun restoreTrackingPreference(revision: Long, value: Boolean): Boolean {
         if (preferenceRevision.get() != revision) return false
         setEnabled(value)
+        collectionChangeReason = "RESTORED_PREFERENCE"
         return true
     }
 
     @Synchronized fun setEnabled(value: Boolean) {
+        collectionChangedAt = System.currentTimeMillis()
+        collectionChangeReason = "EXPLICIT_APP_LOG_SETTING"
         mutableEnabled.value = value
         RunDiagnostics.journal?.enabled = value
         FrameTimingRecorder.refresh()

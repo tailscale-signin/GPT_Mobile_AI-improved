@@ -17,6 +17,42 @@ import org.junit.Test
 /** Exercises the runner's retry decision and the durable generation boundary together. */
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class GitHubLogicalContinuationRunnerTest {
+    @Test fun bulkRestorationDoesNotEmitFreshResultsOrSpendRemainingBudget() = runTest {
+        val checkpoint = ToolBatchCheckpoint(null, "same-task")
+        repeat(75) { index ->
+            val call = ProviderEvent.ToolCall("saved-$index", "github_read", buildJsonObject { put("path", "file-$index") })
+            checkpoint.enqueue(listOf(call))
+            checkpoint.complete(call, AgentToolResult(call.callId, ToolResultContent.Text("Saved source"), false))
+        }
+        var restores = 0
+        var fresh = 0
+        val tool = object : AgentTool {
+            override val definition = AgentToolDefinition("github_read", "Read", JsonObject(emptyMap()))
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult = error("Must not replay")
+        }
+        val session = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                emit(ProviderEvent.TextDelta("Saved evidence restored"))
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val events = AgentRunner(
+            AgentRunLimits(githubTask = true, maxToolCalls = 256),
+            checkpoint = checkpoint,
+            initialToolCallCountOverride = 76,
+            onToolResult = { _, _ -> fresh++ },
+            onToolResultCommitted = { _, _ -> fresh++ },
+            onToolResultsRestored = {
+                restores++
+                assertEquals(75, it.size)
+            }
+        ).run(session, listOf(tool)).toList()
+        assertEquals(1, restores)
+        assertEquals(0, fresh)
+        assertEquals(listOf(75), events.filterIsInstance<AgentRunEvent.ToolResultsRestored>().map { it.count })
+        assertTrue(events.none { it is AgentRunEvent.ToolFinished || it is AgentRunEvent.ToolStarted })
+    }
+
     @Test fun reasoningOnlyPartialFailureContinuesOnceFromSavedReads() = runTest {
         var reads = 0
         var requests = 0

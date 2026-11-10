@@ -208,6 +208,34 @@ class GatewayConversationsViewModelTest {
         }
     }
 
+    @Test fun backgroundRefreshRetainsExpandedHistoryAndUsesTheFreshCursor() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val store = ViewModelStore()
+        try {
+            val older = row.copy(conversationId = "older", activeJobId = "job", jobState = "RUNNING")
+            val completed = older.copy(jobState = "COMPLETED")
+            val newest = row.copy(conversationId = "newest")
+            coEvery { jobs.listConversations("gateway-profile", null) } returns page.copy(hasMore = true, nextCursor = "original")
+            coEvery { jobs.listConversations("gateway-profile", "original") } returns page.copy(items = listOf(older))
+            val model = viewModel().also { store.put("browser", it) }
+            model.select(connection())
+            model.state.first { it.page != null && !it.loading }
+            model.refresh(loadMore = true)
+            model.state.first { it.page?.items == listOf(row, older) && !it.loading }
+
+            coEvery { jobs.listConversations("gateway-profile", null) } returns page.copy(items = listOf(newest, row), hasMore = true, nextCursor = "fresh")
+            coEvery { jobs.listConversations("gateway-profile", "fresh") } returns page.copy(items = listOf(completed))
+            val observer = backgroundScope.launch { model.observeVisible() }
+            val refreshed = model.state.first { it.page?.items?.firstOrNull() == newest && !it.loading }
+            assertEquals(listOf(newest, row, completed), refreshed.page?.items)
+            assertFalse(requireNotNull(refreshed.page).hasMore)
+            observer.cancel()
+        } finally {
+            store.clear()
+            Dispatchers.resetMain()
+        }
+    }
+
     @Test fun missingExecutionProfileCanReadItsSavedTranscriptWithoutCreatingAnotherChat() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         val store = ViewModelStore()

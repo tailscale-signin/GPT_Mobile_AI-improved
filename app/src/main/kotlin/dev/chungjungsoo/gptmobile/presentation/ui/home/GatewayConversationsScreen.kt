@@ -95,7 +95,7 @@ internal fun GatewayConversationsScreen(
     LaunchedEffect(connections.map { it.profileUid to it.navigationIdentity }) {
         viewModel.updateConnections(connections)
     }
-    LaunchedEffect(lifecycle, state.connectionUid) {
+    LaunchedEffect(lifecycle) {
         lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             try {
                 viewModel.observeVisible()

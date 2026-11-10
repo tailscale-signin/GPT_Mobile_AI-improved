@@ -69,7 +69,8 @@
     "Expose guarded native PR draft/ready transitions and collaboration actions with exact approval, expected-head or update-time checks and remote readback; identify same-model review accurately.",
     "Unify GitHub questions, choices and approvals at the conversation bottom; add 1.5-second relative bottom following and gateway conversation activity icons with lifecycle and reduced-motion handling.",
     "Include PR #816 audit, repository graph and selected-profile recovery repairs and the local Moonshine voice plugin with microphone-permission rechecks and retained model/runtime provenance.",
-    "Repair GitHub catalog and approval proof acceptance, bulk receipt restoration, scoped test admission, typed terminal causes, source-bound release attestation receipts and bounded diagnostic collection/storage; preserve Gateway 16 and local voice."
+    "Repair GitHub catalog and approval proof acceptance, bulk receipt restoration, scoped test admission, typed terminal causes, source-bound release attestation receipts and bounded diagnostic collection/storage; preserve Gateway 16 and local voice.",
+    "Recover proven-unsent GitHub fixture cleanup and interrupted reads, retain dispatch and export timing evidence, improve MCP protocol and credential handling, and stabilize chat scrolling and GitHub reply delivery."
   ],
   "limitations": [
     "Android GPU qualification requires compatible-device receipts for actual offload, prefill, decode, repeated requests and cancel/recovery; host tests do not establish those results.",
@@ -1966,6 +1967,15 @@
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubStatusActionTarget.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/workspace/GitHubChatApprovalCard.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubChatDecisionsTest.kt",
-    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/workspace/GitHubReviewObservationTest.kt"
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/workspace/GitHubReviewObservationTest.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRequestScheduler.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTransportRecovery.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ActiveGitHubPrompt.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/LatestResponseBoundary.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/LatestResponseBoundaryTest.kt",
+    "mcp/amazon/bridge.mjs",
+    "mcp/amazon/bridge.test.mjs",
+    "mcp/legacy-discovery.mjs",
+    "mcp/research/bridge.mjs"
   ]
 }

@@ -1655,7 +1655,9 @@ internal fun ChatMessagePair(
     val selectedRunId = selectedAssistantMessage?.effectiveRunId()
     val agentRun = selectedRunId?.let(agentRunsById::get)
     val savedFailure = visibleResponseFailure(assistantTimeline.lastOrNull { it.runError != null }?.runError, agentRun?.terminalError, agentRun?.status)
-    val awaitingGitHubDelivery = pinGitHubPrompt || githubTask != null && gitHubApprovalRetryBlock(savedFailure, pendingCard = true) != null
+    val nativeDecisions = LocalGitHubNativeDecisions.current
+    val approvalCardOrReceipt = LocalGitHubApprovalPending.current || nativeDecisions.any { it.sourceMessageId == message.id }
+    val awaitingGitHubDelivery = pinGitHubPrompt || githubTask != null && gitHubApprovalRetryBlock(savedFailure, approvalCardOrReceipt) != null
     val readAssistantActionText: suspend () -> String = {
         when {
             selectedSourceReader != null -> selectedSourceReader.readAll()
@@ -1666,12 +1668,6 @@ internal fun ChatMessagePair(
     }
     val readLifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current
     val readLifecycleState by readLifecycle.lifecycle.currentStateFlow.collectAsStateWithLifecycle()
-    LaunchedEffect(replyRevision, replyVisible, selectedAssistantMessage, rawAssistantContent, readLifecycleState, awaitingGitHubDelivery) {
-        if (!awaitingGitHubDelivery && replyVisible && !isSourceResponse && readLifecycle.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) {
-            androidx.compose.runtime.withFrameNanos { }
-            selectedAssistantMessage?.let { onAnswerDisplayed(it.copy(content = rawAssistantContent)) }
-        }
-    }
     val retainedFailure = remember(selectedAssistantMessage, agentRun?.terminalError) { selectedAssistantMessage?.let { dev.chungjungsoo.gptmobile.data.agent.CombinedRecoveryFailure.retained(it, agentRun?.terminalError) } }
     val needsAnswerCorrection = isCombinedConversation && retainedFailure?.category == dev.chungjungsoo.gptmobile.data.agent.CombinedRecoveryCategory.REQUIREMENTS_UNMET
     val revisionTarget = remember(selectedAssistantMessage, agentRun, needsAnswerCorrection) {
@@ -1711,6 +1707,13 @@ internal fun ChatMessagePair(
         else -> isActiveMessage && loadingStates.getOrElse(displayPlatformIndex) { ChatViewModel.LoadingState.Idle } == ChatViewModel.LoadingState.Loading
     }
     val isResponseLoading = if (hasCombinedTabs) isCurrentPlatformLoading else shouldShowAssistantResponseProgress(isCurrentPlatformLoading, activeAgentRun != null, agentRun?.status)
+    val answerCanBeAcknowledged = githubTask == null || !awaitingGitHubDelivery && !isResponseLoading
+    LaunchedEffect(replyRevision, replyVisible, selectedAssistantMessage, rawAssistantContent, readLifecycleState, answerCanBeAcknowledged) {
+        if (answerCanBeAcknowledged && replyVisible && !isSourceResponse && readLifecycle.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) {
+            androidx.compose.runtime.withFrameNanos { }
+            selectedAssistantMessage?.let { onAnswerDisplayed(it.copy(content = rawAssistantContent)) }
+        }
+    }
     val responseFailure = savedFailure.takeUnless { awaitingGitHubDelivery }
     val responseFailureRecord = responseFailure?.let { error ->
         assistantTimeline.lastOrNull { it.runError == error }?.profileFailure
@@ -1719,8 +1722,6 @@ internal fun ChatMessagePair(
     val gatewayAdmission = gatewayAdmissionPresentation(responseFailureRecord)
     val repairGatewayProfile = debugSettings.githubProfileOverrides[selectedPlatformUid]?.engineeringGatewayProfileUid
         ?.let(enabledPlatformLookup::get)
-    val nativeDecisions = LocalGitHubNativeDecisions.current
-    val approvalCardOrReceipt = LocalGitHubApprovalPending.current || nativeDecisions.any { it.sourceMessageId == message.id }
     val approvalRetryBlock = gitHubApprovalRetryBlock(responseFailure, approvalCardOrReceipt)
     val reviewRetryBlock = approvalRetryBlock ?: dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.reviewRetryBlock(responseFailure)
     val responseRecoveryKind = responseFailure?.let { profileRecoveryKind(dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.classify(it).category, it) } ?: ProfileRecoveryKind.NONE

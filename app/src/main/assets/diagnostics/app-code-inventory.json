@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "df566710579cc29ba0e00c51aa0caae5dd9c9ee797454668502efb2ad94acd6c",
+  "source_digest": "dc5f0d2fb928cb69371f93033165cf1fc9d018b57dd1dbe1cd5ac8cede957f0a",
   "file_count": 2395,
-  "indexed_line_count": 372756,
+  "indexed_line_count": 372760,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -166,7 +166,7 @@
       "id": "gateway_software",
       "label": "Companion gateway software",
       "file_count": 105,
-      "indexed_line_count": 60934
+      "indexed_line_count": 60938
     },
     {
       "id": "authentication_service",
@@ -16432,15 +16432,15 @@
       "path": "gateway/v14/diagnostic_support.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "0ca937e0ec7732b3fe319d4d22e1d9bb60cd8185c459433f0818b672e34c96f9",
-      "indexed_lines": 82
+      "sha256": "9082fce1c13e2e254e9fb3d1984778e559a260c078dc9f44e6960358bff71a63",
+      "indexed_lines": 85
     },
     {
       "path": "gateway/v14/engineering.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "5bb735cbc0e872b0477fa1412f2666091cdd75c3b5099c520cdfb606f7396068",
-      "indexed_lines": 971
+      "sha256": "f48f1e37214997b14da2cff69979427faa66c84e3b5732da8c7da5df1e167b0e",
+      "indexed_lines": 972
     },
     {
       "path": "gateway/v14/engineering_artifacts.py",

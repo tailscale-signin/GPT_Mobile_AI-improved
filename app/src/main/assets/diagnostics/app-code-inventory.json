@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "391ee68526ef5de2f5cdede9225269c906b4684370f22c80fd49f631f0cc131d",
+  "source_digest": "278434e9eaf3df0fc4ff7ab7d14edc039431ba5988b8c906acad505a5211acb3",
   "file_count": 2387,
-  "indexed_line_count": 371955,
+  "indexed_line_count": 371968,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -106,7 +106,7 @@
       "id": "github",
       "label": "GitHub and engineering workspace",
       "file_count": 193,
-      "indexed_line_count": 29356
+      "indexed_line_count": 29369
     },
     {
       "id": "research",
@@ -5974,8 +5974,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayGraphRepository.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "6a04d492bf914792d07ef8416554e7d970c13d7ade866d0597a119bea0679a23",
-      "indexed_lines": 201
+      "sha256": "8ec5f82c0148f47688bf76a79f368b4c1ec67e76807cda2c9d26623b625f4857",
+      "indexed_lines": 214
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayGraphResponse.kt",

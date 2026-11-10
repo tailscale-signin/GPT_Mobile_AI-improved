@@ -184,14 +184,27 @@ class GatewayGraphRepository @Inject constructor(
         internal fun boundRequest(context: GitHubConversationContext, arguments: JsonObject): JsonObject {
             require(arguments.toString().length <= 64_000) { "Graph request exceeds its inspection limit." }
             require(context.commitSha.matches(Regex("[a-fA-F0-9]{40}"))) { "Graph qualification requires the exact selected repository commit SHA." }
-            val pinned = mapOf("repository" to JsonPrimitive("${context.owner}/${context.repo}"), "branch" to JsonPrimitive(context.ref), "commit_sha" to JsonPrimitive(context.commitSha))
-            pinned.forEach { (name, value) -> require(arguments[name] == null || arguments[name] == value) { "Graph request must use the selected repository revision." } }
+            val pinned = mapOf(
+                "repository" to JsonPrimitive("${context.owner}/${context.repo}"),
+                "branch" to JsonPrimitive(context.ref),
+                "commit_sha" to JsonPrimitive(context.commitSha.lowercase(java.util.Locale.ROOT))
+            )
+            pinned.forEach { (name, value) ->
+                val supplied = arguments[name]
+                require(supplied == null || supplied is JsonPrimitive && supplied.isString && supplied.content.equals(value.content, ignoreCase = name != "branch")) {
+                    "Graph request must use the selected repository revision."
+                }
+            }
             return JsonObject(arguments + pinned)
         }
 
         private fun verifyResult(context: GitHubConversationContext, result: JsonObject) {
             val metadata = result["graph"] as? JsonObject ?: result
-            check(metadata.text("repository") == "${context.owner}/${context.repo}" && metadata.text("commit_sha") == context.commitSha && (metadata["branch"] == null || metadata.text("branch") == context.ref)) {
+            check(
+                "${context.owner}/${context.repo}".equals(metadata.text("repository"), ignoreCase = true) &&
+                    context.commitSha.equals(metadata.text("commit_sha"), ignoreCase = true) &&
+                    (metadata["branch"] == null || metadata.text("branch") == context.ref)
+            ) {
                 "The gateway graph response does not match the selected repository revision. Check the original host before continuing."
             }
         }

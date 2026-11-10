@@ -94,6 +94,30 @@ class GatewayGraphRepositoryTest {
         }
     }
 
+    @Test fun savedGraphAllowsEquivalentRepositoryCasingButRejectsDifferentIdentities() = runTest {
+        val selected = context.copy(owner = "Owner", repo = "Repo", commitSha = "A".repeat(40))
+        var response = status("saved-cursor")
+        HttpClient(
+            MockEngine { request ->
+                if (request.url.encodedPath.endsWith("capabilities")) {
+                    respond(ready, HttpStatusCode.OK, headers)
+                } else {
+                    val body = Json.parseToJsonElement((request.body as TextContent).text) as JsonObject
+                    assertEquals(JsonPrimitive("Owner/Repo"), body["repository"])
+                    assertEquals(JsonPrimitive(context.commitSha), body["commit_sha"])
+                    respond(response, HttpStatusCode.OK, headers)
+                }
+            }
+        ) { install(HttpTimeout) }.use { http ->
+            val repo = repository(http)
+            assertEquals(JsonPrimitive("saved-cursor"), repo.executeForMap(selected, action("status"), host.uid).result["index_cursor"])
+            response = status("saved-cursor").replace("owner/repo", "owner/other")
+            assertTrue(runCatching { repo.executeForMap(selected, action("status"), host.uid) }.exceptionOrNull() is GatewayGraphOperationException)
+            response = status("saved-cursor").replace("\"main\"", "\"Main\"")
+            assertTrue(runCatching { repo.executeForMap(selected, action("status"), host.uid) }.exceptionOrNull() is GatewayGraphOperationException)
+        }
+    }
+
     @Test fun configurationChangeDuringReadinessCannotDispatchToTheOldHost() = runTest {
         val admitted = CompletableDeferred<Unit>()
         val resume = CompletableDeferred<Unit>()

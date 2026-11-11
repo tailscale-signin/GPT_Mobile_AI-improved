@@ -26,11 +26,12 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -59,27 +60,27 @@ internal fun IssueReportHost(
     val incident by viewModel.currentIncident.collectAsStateWithLifecycle(initialValue = null)
     val error by viewModel.error.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
-    val context = LocalContext.current
+    val resources by rememberUpdatedState(LocalResources.current)
     val uriHandler = LocalUriHandler.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     LaunchedEffect(viewModel, lifecycle) {
         lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             launch {
-                viewModel.queued.collect { snackbar.showSnackbar(context.getString(R.string.issue_report_queued)) }
+                viewModel.queued.collect { snackbar.showSnackbar(resources.getString(R.string.issue_report_queued)) }
             }
             viewModel.receipts.map { it.firstOrNull() }.distinctUntilChanged().filterNotNull().collect { receipt ->
                 val number = receipt.number
                 if (number != null) {
                     val action = snackbar.showSnackbar(
-                        message = context.getString(R.string.issue_report_posted, number),
-                        actionLabel = context.getString(R.string.issue_report_view),
+                        message = resources.getString(R.string.issue_report_posted, number),
+                        actionLabel = resources.getString(R.string.issue_report_view),
                         duration = SnackbarDuration.Long
                     )
                     if (action == SnackbarResult.ActionPerformed) {
                         runCatching { uriHandler.openUri("$ISSUE_TRACKER/$number") }
                     }
                 } else {
-                    snackbar.showSnackbar(context.getString(R.string.issue_report_send_failed))
+                    snackbar.showSnackbar(resources.getString(R.string.issue_report_send_failed))
                 }
                 viewModel.acknowledge(receipt)
             }

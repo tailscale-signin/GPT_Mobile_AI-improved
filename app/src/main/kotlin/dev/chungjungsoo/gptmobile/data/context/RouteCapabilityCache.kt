@@ -5,30 +5,34 @@ import kotlinx.coroutines.sync.withLock
 
 /** One refresh per route. A slow/absent endpoint cannot block unrelated connections. */
 internal class RouteCapabilityCache<T>(private val now: () -> Long, private val positiveTtl: Long = 300_000L, private val negativeTtl: Long = 15_000L, private val valueTtl: ((T) -> Long)? = null) {
-    private data class Cached<T>(val value: T?, val expires: Long)
+    private data class Cached<T>(val value: T?, val expires: Long, val explicitlyRefreshed: Boolean)
     private class Refresh(val mutex: Mutex = Mutex(), var subscribers: Int = 0)
     private val lock = Any()
     private val entries = linkedMapOf<String, Cached<T>>()
     private val refreshes = mutableMapOf<String, Refresh>()
     private var epoch = 0L
 
-    suspend fun getOrLoad(key: String, forceRefresh: Boolean = false, load: suspend () -> T?): T? {
+    suspend fun getOrLoad(key: String, forceRefresh: Boolean = false, isCurrent: (T?) -> Boolean = { true }, load: suspend () -> T?): T? {
         val (refresh, previous) = synchronized(lock) {
             val cached = entries[key]
-            if (!forceRefresh && cached != null && cached.expires > now()) return cached.value
+            if (!forceRefresh && cached != null && cached.expires > now() && isCurrent(cached.value)) return cached.value
             refreshes.getOrPut(key) { Refresh() }.also { it.subscribers++ } to cached
         }
         return try {
             refresh.mutex.withLock {
                 val generation = synchronized(lock) {
-                    entries[key]?.takeIf { it.expires > now() && (!forceRefresh || it !== previous) }?.let { return@withLock it.value }
+                    // Only an overlapping explicit refresh can satisfy a queued repair probe.
+                    entries[key]?.takeIf {
+                        it.expires > now() && isCurrent(it.value) && (!forceRefresh || it.explicitlyRefreshed && it !== previous)
+                    }?.let { return@withLock it.value }
                     epoch
                 }
                 val result = load()
                 synchronized(lock) {
                     if (generation != epoch) return@withLock null
                     if (entries.size >= 128 && key !in entries) entries.remove(entries.keys.first())
-                    entries[key] = Cached(result, now() + if (result == null) negativeTtl else valueTtl?.invoke(result) ?: positiveTtl)
+                    val ttl = if (result == null) negativeTtl else valueTtl?.invoke(result) ?: positiveTtl
+                    entries[key] = Cached(result, now() + ttl, forceRefresh)
                     result
                 }
             }

@@ -45,6 +45,26 @@ class RouteCapabilityCacheTest {
         assertEquals("other", cache.getOrLoad("route-b") { "unexpected reload" })
     }
 
+    @Test fun overlappingExplicitRefreshesShareTheFreshObservation() = runTest {
+        val cache = RouteCapabilityCache<String>({ testScheduler.currentTime })
+        assertEquals("stale", cache.getOrLoad("route") { "stale" })
+        val gate = CompletableDeferred<Unit>()
+        val first = async {
+            cache.getOrLoad("route", forceRefresh = true) {
+                gate.await()
+                "fresh"
+            }
+        }
+        runCurrent()
+        val second = async {
+            cache.getOrLoad("route", forceRefresh = true) { error("Duplicate explicit refresh") }
+        }
+        runCurrent()
+        gate.complete(Unit)
+        assertEquals("fresh", first.await())
+        assertEquals("fresh", second.await())
+    }
+
     @Test fun sameRouteSingleFlightDoesNotBlockOtherRoutes() = runTest {
         val cache = RouteCapabilityCache<String>({ testScheduler.currentTime })
         val gate = CompletableDeferred<Unit>()

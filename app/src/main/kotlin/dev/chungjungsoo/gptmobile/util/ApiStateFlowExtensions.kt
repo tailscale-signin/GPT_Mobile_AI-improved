@@ -243,7 +243,7 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
                 }
 
                 is ApiState.Error -> {
-                    if (chunk.providerLimit?.mayWait != true) buffer.observeSystemError(chunk.message, chunk.invocationId)
+                    buffer.observeSystemError(chunk.message, chunk.invocationId)
                     pendingCombinedAnswer = null
                     providerLimit = chunk.providerLimit
                     errorCode = chunk.errorCode

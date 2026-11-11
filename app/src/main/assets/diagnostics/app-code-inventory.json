@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "7141e3c692fa54ea2892c5b877791a44103b947a11fc382095fb2506350f267c",
+  "source_digest": "e34b693e6fd0174b33a328d8c0c4499dc4bdb7cac620b65dc4b944c139e7cc24",
   "file_count": 2437,
-  "indexed_line_count": 382662,
+  "indexed_line_count": 382657,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -40,7 +40,7 @@
       "id": "chat_ui",
       "label": "Chat, rendering and interaction",
       "file_count": 516,
-      "indexed_line_count": 90975
+      "indexed_line_count": 90980
     },
     {
       "id": "accessibility_and_localization",
@@ -52,7 +52,7 @@
       "id": "agent_execution",
       "label": "Agent execution and recovery",
       "file_count": 209,
-      "indexed_line_count": 34680
+      "indexed_line_count": 34664
     },
     {
       "id": "agent_tools",
@@ -94,7 +94,7 @@
       "id": "gateway_client",
       "label": "Android gateway client",
       "file_count": 32,
-      "indexed_line_count": 4921
+      "indexed_line_count": 4927
     },
     {
       "id": "network",
@@ -1676,8 +1676,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProgressiveToolCatalog.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "f569cf350e6c0135f8cf7b973af48b0367d045f1293725e8ac72f31d16d4fc04",
-      "indexed_lines": 656
+      "sha256": "70d4521d744968f7ed8b2fb402da8a3955130c8f9a06009e6e6c88cf52aee3f6",
+      "indexed_lines": 640
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProviderLimitResumeWorker.kt",
@@ -4371,8 +4371,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/RouteCapabilityCache.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "c6dff786b30c3b855d77758074e2852659217f42c180481c4b2f76fa7186621f",
-      "indexed_lines": 47
+      "sha256": "d7bc7e90ca23c56b232bf3ae4c58eeddb7ddbae8b69a1ae7ebb34b51cc468f2e",
+      "indexed_lines": 51
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/TextTokenEstimate.kt",
@@ -9222,8 +9222,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayDashboardClient.kt",
       "area_id": "gateway_client",
       "kind": "source",
-      "sha256": "3317955103289e6c75d6a4bbbced5c00ed227cb8f9f65832ae571a45685e21df",
-      "indexed_lines": 161
+      "sha256": "b51327de07c5cd265cd96ec76b3d1dd7f0451504d91c71c6a6e0a744fd275e2d",
+      "indexed_lines": 167
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayDashboardModels.kt",
@@ -13947,8 +13947,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/IssueReportHost.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "597534a200bdfd55b9816323ad70e3579953a2e67cd0776f6a8e2cb55b535345",
-      "indexed_lines": 198
+      "sha256": "66c12f1143efb6c2c1d73d901f8271853632d35048f55426c8ed1a256b151857",
+      "indexed_lines": 199
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/IssueReportViewModel.kt",
@@ -14752,7 +14752,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/util/ApiStateFlowExtensions.kt",
       "area_id": "android_shell",
       "kind": "source",
-      "sha256": "737497d191e4b286e29e7de9dd96f9f7ab881e5b6e93e20b200b02c12a29db15",
+      "sha256": "1b275609c0a8049bfa8d8f5e2f8f48ec7dc84c7cdf33ea43d72683c46bc45219",
       "indexed_lines": 855
     },
     {

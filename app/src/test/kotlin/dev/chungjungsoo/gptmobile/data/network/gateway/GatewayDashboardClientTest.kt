@@ -119,6 +119,27 @@ class GatewayDashboardClientTest {
         }
     }
 
+    @Test fun cachedReadinessIsRefreshedWhenTheSelectedGatewayRestarts() = runTest {
+        val selected = config.copy(apiUrl = "http://readiness-restart.example/v1", profileUid = "readiness-restart")
+        var instance = "a".repeat(32)
+        var calls = 0
+        http(
+            MockEngine {
+                calls++
+                respond(JsonObject(readinessFixture("selected-model") + ("instanceId" to JsonPrimitive(instance))).toString(), HttpStatusCode.OK)
+            }
+        ).use { http ->
+            val client = GatewayDashboardClient(http)
+            assertEquals(instance, client.readiness(selected, "selected-model")?.instanceId)
+            assertEquals(instance, client.readiness(selected, "selected-model")?.instanceId)
+            assertEquals(1, calls)
+            instance = "b".repeat(32)
+            GatewayClientDiagnostics.observeInstance(selected, instance)
+            assertEquals(instance, client.readiness(selected, "selected-model")?.instanceId)
+            assertEquals(2, calls)
+        }
+    }
+
     @Test fun timeSpentReceivingAResponseCannotExtendTheOriginalProbeFreshness() = runTest {
         var elapsed = 0L
         val base = readinessFixture("selected-model")

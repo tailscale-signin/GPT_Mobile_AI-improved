@@ -23,22 +23,8 @@ class ProgressiveToolCatalog(
     override val coordinatesChildWork = true
     private var advanced = advancedTask(task)
     private val integrationPreset = task.lineSequence().any { it.trim() == "[github-workflow-preset:test_integration]" }
-    private val githubUpfront = integrationPreset ||
-        githubMode &&
-        (
-            dev.chungjungsoo.gptmobile.data.github.GitHubTestChecklist.integration(task) ||
-                dev.chungjungsoo.gptmobile.data.github.GitHubTaskCoverage.matches(task)
-            )
+    private val githubUpfront = githubMode || integrationPreset
     private val conversational = !githubUpfront && CurrentRequestContract.from(task).conversational
-    private val githubInitialTools = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.taskTools(task).let { requested ->
-        val core = setOf("github_context", "github_read", "github_search")
-        val editing = if ("github_write" in requested || "github_stage_patch" in requested) {
-            setOf("github_stage_patch", "github_commit", "github_decide")
-        } else {
-            emptySet()
-        }
-        requested + core + editing
-    }
     private val toolAllowance get() = if (advanced) 16 else INITIAL_TOOLS
     private val schemaAllowance get() = if (advanced) MAX_SCHEMA_TOKEN_ALLOWANCE else SCHEMA_TOKEN_ALLOWANCE
     private val taskText = task
@@ -65,8 +51,6 @@ class ProgressiveToolCatalog(
             emptyList()
         } else if (githubUpfront) {
             candidates.values.filter(::isGitHubTool) + window(taskRequired)
-        } else if (githubMode) {
-            candidates.values.filter { it.name.substringBefore("__") in githubInitialTools } + window(taskRequired)
         } else {
             window(taskRequired + ranked(task).filter { (initialNames == null || it.name in initialNames) && dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) !in deferredEngineering })
         }

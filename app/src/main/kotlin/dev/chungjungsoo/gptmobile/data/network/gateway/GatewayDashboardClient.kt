@@ -38,13 +38,17 @@ internal class GatewayDashboardClient internal constructor(private val http: Htt
 
     @Inject constructor(network: NetworkClient) : this(network.gatewayReadClient(), network::evictIdleConnections, SystemClock::elapsedRealtime)
     private data class Attempt(val observation: GatewayDashboardObservation? = null, val failure: Exception? = null)
-    private data class ReadinessAttempt(val observation: GatewayReadinessObservation? = null, val failure: Exception? = null)
+    private data class ReadinessAttempt(val runtimeIdentity: String, val observation: GatewayReadinessObservation? = null, val failure: Exception? = null)
     private val cache = RouteCapabilityCache<Attempt>({ System.nanoTime() / 1_000_000 }, positiveTtl = 4_000, negativeTtl = 60_000)
     private val readinessCache = RouteCapabilityCache<ReadinessAttempt>(
         { System.nanoTime() / 1_000_000 },
-        positiveTtl = 4_000,
-        negativeTtl = 60_000,
-        valueTtl = { attempt -> if (attempt.failure != null || attempt.observation?.ready == false) 30_000 else 4_000 }
+        valueTtl = { attempt ->
+            when {
+                attempt.failure != null || attempt.observation?.ready == false -> 30_000
+                attempt.observation == null -> 60_000
+                else -> 4_000
+            }
+        }
     )
 
     fun refresh() {
@@ -102,14 +106,17 @@ internal class GatewayDashboardClient internal constructor(private val http: Htt
         readiness(config, model, forceRefresh = false)
 
     internal suspend fun readiness(config: ProviderRequestConfig, model: String?, forceRefresh: Boolean): GatewayReadinessObservation? {
-        val key = listOf(GatewayClientDiagnostics.routeIdentity(config), researchHash(model.orEmpty()), LocalServiceHealth.networkEpoch, GatewayClientDiagnostics.runtimeEpoch(config)).joinToString(":")
-        val attempt = readinessCache.getOrLoad(key, forceRefresh) {
+        require(model == null || validGatewayAvailabilityModel(model)) { "Invalid gateway model identifier." }
+        val key = gatewayDashboardIdentity(config) + ":" + researchHash(model.orEmpty()) + ":" + LocalServiceHealth.networkEpoch
+        val attempt = readinessCache.getOrLoad(key, forceRefresh, isCurrent = { it?.runtimeIdentity == GatewayClientDiagnostics.runtimeEpoch(config) }) {
+            val startRuntime = GatewayClientDiagnostics.runtimeEpoch(config)
             try {
-                readReadiness(config, model)?.let { ReadinessAttempt(observation = it) }
+                val observation = readReadiness(config, model)
+                ReadinessAttempt(observation?.instanceId ?: GatewayClientDiagnostics.runtimeEpoch(config), observation)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
-                ReadinessAttempt(failure = failure)
+                ReadinessAttempt(startRuntime, failure = failure)
             }
         } ?: return null
         attempt.failure?.let { throw it }
@@ -117,7 +124,6 @@ internal class GatewayDashboardClient internal constructor(private val http: Htt
     }
 
     private suspend fun readReadiness(config: ProviderRequestConfig, model: String?): GatewayReadinessObservation? {
-        require(model == null || validGatewayAvailabilityModel(model)) { "Invalid gateway model identifier." }
         val endpoint = config.buildEndpoint("gateway/ready")
         return LocalEndpointConnectionPolicy.probe(endpoint, evictIdleConnections) {
             gatewayClientExchange(config, "readiness", safeRead = true) { requestHeaders ->

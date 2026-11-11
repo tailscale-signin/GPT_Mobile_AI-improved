@@ -46,7 +46,10 @@ class GitHubBoundTransportInstrumentedTest {
             object : AgentTool {
                 override val definition = AgentToolDefinition("github", "Synthetic authorized test boundary", buildJsonObject { put("type", "object") })
                 override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
-                    val accounting = GitHubDispatchAccounting(forceLiveReads = true)
+                    // Mirror the production transport: retained recovery may be
+                    // served locally, while verify_live=true must observe the
+                    // exact remote state before it can succeed.
+                    val accounting = GitHubDispatchAccounting(forceLiveReads = arguments["verify_live"] == JsonPrimitive(true))
                     val result = withContext(accounting) {
                         try {
                             AgentToolResult(callId, ToolResultContent.Json(client.execute(arguments.getValue("action").jsonPrimitive.content, arguments)), false)

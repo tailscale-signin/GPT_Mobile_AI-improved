@@ -21,7 +21,6 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 env:
   OBX_DISABLE_ANALYTICS: "true"
-  ISSUE_REPORT_ORIGIN: ${{ vars.ISSUE_REPORT_ORIGIN }}
 jobs:
   release_intent:
     name: Check whether the version changed

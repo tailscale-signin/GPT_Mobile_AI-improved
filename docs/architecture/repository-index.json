@@ -536,6 +536,8 @@
         "authentication/__init__.py",
         "authentication/app.py",
         "authentication/github_broker.py",
+        "authentication/issue_report_app.py",
+        "authentication/issue_reports.py",
         "authentication/test_app.py",
         "authentication/test_github_broker.py",
         "authentication/test_ticket_broker.py",

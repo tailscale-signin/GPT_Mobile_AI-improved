@@ -16,6 +16,7 @@ import requests
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from v14.engineering import EngineeringSupervisor
 from v14.engineering_backend import GitHubEngineeringBackend, blob_sha, prepare_changes
+from v14.github_api_governor import GitHubApiGovernor
 
 
 class EngineeringCredentialTests(unittest.TestCase):
@@ -227,6 +228,28 @@ class EngineeringCredentialTests(unittest.TestCase):
 
 
 class EngineeringBackendTests(unittest.TestCase):
+    def test_api_waiter_cannot_dispatch_after_its_job_deadline(self):
+        backend = GitHubEngineeringBackend(SimpleNamespace(LLAMA_BASE='http://localhost:8080'))
+        backend.token = lambda: 'queue-deadline-fixture'
+        waiting = threading.Event()
+        backend.github_governor = GitHubApiGovernor(clock=lambda: (waiting.set(), time.monotonic())[1])
+        now = [1000.0]
+        job = {'id': 'deadline-test', 'state': 'READ', 'deadline': 1001.0, 'data': {},
+               'request': {'repository': 'owner/repo'}}
+        with patch('v14.engineering_backend.time.time', side_effect=lambda: now[0]), \
+                patch('v14.engineering_backend.requests.request') as request, ThreadPoolExecutor(max_workers=1) as pool:
+            response = request.return_value.__enter__.return_value
+            response.status_code = 200
+            response.iter_content.return_value = [b'{}']
+            with backend.github_governor.lease('queue-deadline-fixture'):
+                waiting.clear()
+                future = pool.submit(backend.api, '/repos/owner/repo', 'GET', None, job)
+                self.assertTrue(waiting.wait(2), 'request must reach the account queue')
+                now[0] = 1002.0
+            with self.assertRaises(InterruptedError):
+                future.result(timeout=2)
+            request.assert_not_called()
+
     def setUp(self):
         self.runtime = SimpleNamespace(LLAMA_BASE='http://localhost:8080')
         self.backend = GitHubEngineeringBackend(self.runtime)

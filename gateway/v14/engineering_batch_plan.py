@@ -42,8 +42,8 @@ def transition(job, following, output):
         plan['state'] = 'reconcile_required'
         return
     if following == phase:
-        waiting = bool(job.get('provider_wait'))
-        next_state = 'waiting_rate_limit' if waiting else 'running'
+        waiting = job.get('provider_wait')
+        next_state = ('waiting_model' if waiting.get('source') == 'MODEL_READINESS' else 'waiting_rate_limit') if waiting else 'running'
         if current['state'] != next_state:
             current['state'] = next_state
             plan['revision'] += 1
@@ -63,6 +63,39 @@ def transition(job, following, output):
     nodes.append({'id': 'stage-' + str(len(nodes) + 1).zfill(4),
                   'phase': following, 'depends_on': [current['id']],
                   'state': 'queued', 'attempt': attempts, 'receipt_sha256': None})
+
+
+def claimed(job):
+    """A committed worker lease establishes activity, never successful completion."""
+    plan = job.get('data', {}).get('integration_batch')
+    if not isinstance(plan, dict) or plan.get('schema_version') != VERSION or not plan.get('nodes'):
+        return
+    current = plan['nodes'][-1]
+    if current['phase'] == job['state'] and current['state'] != 'running':
+        current['state'] = 'running'
+        plan['revision'] += 1
+
+
+def control_transition(job, following, action):
+    """Project an authoritative journal control, without inventing stage success.
+
+    Paused jobs retain the interrupted execution node, so their state need not
+    equal that node's phase. Cancellation must still be visible in that case.
+    The caller persists this projection in the same transaction as the control.
+    """
+    plan = job.get('data', {}).get('integration_batch')
+    if not isinstance(plan, dict) or plan.get('schema_version') != VERSION:
+        return
+    states = {'CANCELLING': 'cancelling', 'CANCELLED': 'cancelled', 'NEEDS_INPUT': 'needs_attention'}
+    if following not in states:
+        transition(job, following, {'control': action})
+        return
+    plan['state'] = states[following]
+    plan['revision'] += 1
+    plan['control_receipt_sha256'] = _digest({'phase': job['state'], 'following': following,
+                                            'action': action, 'revision': job['revision']})
+    if plan['nodes'] and plan['nodes'][-1]['state'] != 'completed':
+        plan['nodes'][-1]['state'] = 'blocked' if following == 'NEEDS_INPUT' else states[following]
 
 
 def summary(plan):

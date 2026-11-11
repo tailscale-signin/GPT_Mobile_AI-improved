@@ -286,6 +286,12 @@ class GitHubEngineeringBackend:
             raise InterruptedError('Engineering operation stopped')
         if job and job['state'] not in {'MERGE', 'VERIFY'} and time.time() >= job['deadline']:
             raise InterruptedError('Engineering duration limit reached')
+        def admission_stopped():
+            # A shared account can queue behind another job. Recheck the
+            # accepted deadline while waiting, before any physical dispatch.
+            return self.stopping.is_set() or job is not None and (
+                self.cancelled(job['id']) or
+                job['state'] not in {'MERGE', 'VERIFY'} and time.time() >= job['deadline'])
         token = self.token(read_only=True) if read_only else self.token()
         headers = {'Authorization': 'Bearer ' + token, 'Accept': 'application/vnd.github+json',
                    'X-GitHub-Api-Version': '2022-11-28'}
@@ -294,7 +300,7 @@ class GitHubEngineeringBackend:
         if mutating and job and job['data'].get('actor_id') is not None:
             # Bind each write to the account checked during planning, even if
             # the host credential changes between operations in one phase.
-            with self.github_governor.lease(token, cancelled=lambda: self.stopping.is_set() or self.cancelled(job['id'])):
+            with self.github_governor.lease(token, cancelled=admission_stopped):
                 with requests.get('https://api.github.com/user', headers=headers, timeout=(10, 30), allow_redirects=False, stream=True) as identity:
                     self.github_governor.observe(token, identity.status_code, identity.headers)
                     identity.raise_for_status()
@@ -308,8 +314,7 @@ class GitHubEngineeringBackend:
                 return self.operations.service.artifacts.json_value(job, operation['response_ref'])
             # Physical intent is recorded only after API admission succeeds.
         try:
-            with self.github_governor.lease(token, mutating=mutating,
-                    cancelled=lambda: self.stopping.is_set() or (job is not None and self.cancelled(job['id']))):
+            with self.github_governor.lease(token, mutating=mutating, cancelled=admission_stopped):
                 if operation:
                     self.operations.dispatch(job, operation)
                 with requests.request(method, 'https://api.github.com' + path, headers=headers, json=body,

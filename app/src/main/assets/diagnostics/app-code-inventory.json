@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "c9a348384e60c2f3d83f998a3dd8d3243d94412f8cfb83cc67f2f1c3ea44ded9",
+  "source_digest": "a5d322393a1dde1327954c0ae04521a58969516f11b49b9e8f10d5fa02198ed8",
   "file_count": 2441,
-  "indexed_line_count": 384417,
+  "indexed_line_count": 384460,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -166,7 +166,7 @@
       "id": "gateway_software",
       "label": "Companion gateway software",
       "file_count": 113,
-      "indexed_line_count": 62439
+      "indexed_line_count": 62482
     },
     {
       "id": "authentication_service",
@@ -16726,8 +16726,8 @@
       "path": "gateway/v14/engineering.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "7c553d4347f08850c3c0877e02c85840e65a433fe3c01fdacd6730f295f98c7c",
-      "indexed_lines": 1141
+      "sha256": "63a4bb9ac63ca93b934b78e91f14c6d090e2ee0af24cf175e15ef8c5257d9e85",
+      "indexed_lines": 1146
     },
     {
       "path": "gateway/v14/engineering_artifacts.py",
@@ -16740,8 +16740,8 @@
       "path": "gateway/v14/engineering_backend.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "2c3d02644f14dd1fe1b8c86e4cf1fff76c026860e65b9e8c94ca41cfd139bc3c",
-      "indexed_lines": 822
+      "sha256": "ed1c1a43f00ec9a75d199b3d7eef06d554851d011d198ea2db32e45004c8c784",
+      "indexed_lines": 827
     },
     {
       "path": "gateway/v14/engineering_backup.py",
@@ -16754,8 +16754,8 @@
       "path": "gateway/v14/engineering_batch_plan.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "24ef19bd1b20c14d4a2d6e9d550286042e70f5d184687ef38ab1a3db39cefe27",
-      "indexed_lines": 87
+      "sha256": "1df1d3ac61ccc686cf7f3d300f6e3f9448d289750c887e7f31caba5369aa57f8",
+      "indexed_lines": 120
     },
     {
       "path": "gateway/v14/engineering_batch_policy.py",

@@ -9,6 +9,7 @@ import time
 import requests
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from v14.engineering import EngineeringStore, EngineeringService, EngineeringSupervisor, public_job, validate_request, principal_authorized, digest
@@ -167,6 +168,67 @@ class DurableEngineeringTests(unittest.TestCase):
         self.service.tick(job['id'])
         self.assertEqual(1, self.backend.calls.count('merge'))
         self.assertEqual('COMPLETED', self.store.get(job['id'])['state'])
+
+    def enable_full_batch(self):
+        policy = patch('v14.engineering_batch_policy.load_policy', return_value={'full_enabled': True})
+        policy.start()
+        self.addCleanup(policy.stop)
+        self.request.update(execution_mode='full', batch_policy_version=1)
+
+    def test_full_batch_tracks_approval_through_verified_completion(self):
+        self.enable_full_batch()
+        job = self.ready()
+        self.service.approve(job['id'], 'owner', job['revision'], 7, 'a' * 40)
+        approved = self.store.get(job['id'])
+        self.assertEqual('MERGE', public_job(approved)['batch_progress']['current_phase'])
+        self.service.tick(job['id'])
+        self.service.tick(job['id'])
+        reopened = EngineeringStore(self.runtime, lambda: self.time).get(job['id'], 'owner')
+        self.assertEqual('COMPLETED', reopened['state'])
+        self.assertEqual('completed', public_job(reopened)['batch_progress']['status'])
+        self.assertEqual('VERIFY', public_job(reopened)['batch_progress']['current_phase'])
+        self.assertEqual(1, self.backend.calls.count('merge'))
+
+    def test_full_batch_tracks_cancel_without_accepting_late_worker_output(self):
+        self.enable_full_batch()
+        job = self.store.create('owner', self.request)
+        claimed, lease, _ = self.store.claim(job['id'])
+        self.assertEqual('running', public_job(self.store.get(job['id']))['batch_progress']['current_state'])
+        cancelled = self.store.control(job['id'], 'owner', 'cancel', job['revision'])
+        self.assertEqual('cancelling', public_job(cancelled)['batch_progress']['status'])
+        self.assertFalse(self.store.complete(claimed, lease, 'READ', {'ok': True}))
+        stored = self.store.get(job['id'])
+        self.assertEqual('CANCELLED', stored['state'])
+        self.assertEqual('cancelled', public_job(stored)['batch_progress']['status'])
+        self.assertEqual(0, public_job(stored)['batch_progress']['completed'])
+
+    def test_full_batch_tracks_changed_readiness_and_request_changes(self):
+        self.enable_full_batch()
+        job = self.ready()
+        self.backend.evidence['checks_passed'] = False
+        with self.assertRaises(ValueError):
+            self.service.approve(job['id'], 'owner', job['revision'], 7, 'a' * 40)
+        waiting = self.store.get(job['id'])
+        self.assertEqual('CI', waiting['state'])
+        self.assertEqual('CI', public_job(waiting)['batch_progress']['current_phase'])
+        changed = self.store.control(job['id'], 'owner', 'request_changes', waiting['revision'])
+        self.assertEqual('needs_attention', public_job(changed)['batch_progress']['status'])
+        cancelled = self.store.control(job['id'], 'owner', 'cancel', changed['revision'])
+        self.assertEqual('cancelled', public_job(cancelled)['batch_progress']['status'])
+        self.assertNotIn('merge', self.backend.calls)
+
+    def test_full_batch_model_wait_is_visible_and_claimed_as_running_when_due(self):
+        self.enable_full_batch()
+        self.backend.step = lambda *args: (_ for _ in ()).throw(ExecutionBindingError('EXECUTION_MODEL_LOADING', 'Loading'))
+        job = self.store.create('owner', self.request)
+        self.service.tick(job['id'])
+        waiting = self.store.get(job['id'])
+        self.assertEqual('waiting_model', public_job(waiting)['batch_progress']['current_state'])
+        self.assertIsNone(self.store.claim(job['id']))
+        self.time = waiting['provider_wait']['retry_at'] + 1
+        claimed, _, _ = self.store.claim(job['id'])
+        self.assertEqual('running', public_job(claimed)['batch_progress']['current_state'])
+        self.assertEqual(0, public_job(claimed)['batch_progress']['completed'])
 
     def test_head_base_policy_and_expiry_invalidate_approval(self):
         for key, value in [('head_sha', 'd' * 40), ('base_sha', 'd' * 40), ('policy_verified', False), ('reviews_satisfied', False), ('draft', True), ('checks_passed', False), ('expired', True)]:

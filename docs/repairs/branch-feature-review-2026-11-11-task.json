@@ -1,0 +1,45 @@
+{
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "e62bded83b3861816c2c6e97116b30c9eb0920f1",
+  "working_branch": "fix/voice-chat-crash-and-diagnostics-2026-11-11",
+  "starting_head": "160e0e8d222eb48e01a83454d7c070908f15dd14",
+  "pr": 819,
+  "intent": "Review branch feature integration and repair reproducible lifecycle, recovery and reporting defects without overstating device qualification.",
+  "state": "IMPLEMENTED_HOST_VALIDATED_CI_PENDING",
+  "findings": [
+    "Fixed Full Integration projection across approval, cancellation, supersession and readiness invalidation.",
+    "Fixed queued GitHub API requests dispatching after accepted job deadlines.",
+    "Improved stage visibility on worker claim and differentiated model-readiness waits from rate limits."
+  ],
+  "validation": {
+    "baseline_fast": "461 tests passed; Android regex and resource preflight passed",
+    "baseline_focused_gateway_and_reporter": "78 tests passed",
+    "physical_device_audio": "Not measured",
+    "fast": "461 tests passed; regex/resources/diff integrity passed",
+    "focused_gateway": "69 tests passed, including 5 new behavioral regressions",
+    "gateway_full": {
+      "command": "python gateway/check_gateway.py",
+      "python_total": 792,
+      "python_passed": 790,
+      "python_skipped": 2,
+      "browser_passed": 7,
+      "failed": 0
+    },
+    "authentication": "32 tests passed",
+    "metadata": "Gateway package manifest, app audit inventory, architecture index and changed Kotlin formatting verified",
+    "starting_head_android_ci": {
+      "head": "160e0e8d222eb48e01a83454d7c070908f15dd14",
+      "unit_passed": 8965,
+      "unit_skipped": 5,
+      "unit_failed": 0,
+      "result": "Underlying builds and tests passed; artifact uploads failed. This is not an all-green workflow result."
+    }
+  },
+  "remaining": [
+    "Exact-new-head GitHub Actions validation",
+    "Physical Android 16 Moonshine/Kokoro audio and latency qualification",
+    "Hosted issue reporting deployment and build origin",
+    "Full Integration test sharding and performance qualification"
+  ]
+}

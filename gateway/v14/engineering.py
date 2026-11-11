@@ -22,7 +22,7 @@ from v14.engineering_artifacts import EngineeringArtifacts
 from v14.engineering_operations import EngineeringOperations
 from v14.engineering_defaults import EXECUTION_BUDGET_LIMITS, new_request_defaults, retained_request_defaults, effective_execution_budget
 from v14.engineering_batch_policy import authorize_request
-from v14.engineering_batch_plan import new_plan, transition as batch_transition, summary as batch_summary
+from v14.engineering_batch_plan import new_plan, claimed as batch_claimed, transition as batch_transition, control_transition as batch_control, summary as batch_summary
 from v14.debug import capture_context_snapshot, execution_diagnostic_context
 from v14.conversations import Conversations, ConversationConflict, short_title
 
@@ -257,6 +257,7 @@ class EngineeringStore:
                     raise ConversationConflict('The preceding job is still active; wait for its safe checkpoint')
                 previous.update(approval=None, updated_at=now, finished_at=now, superseded_by=job['id'],
                                 message='Stopped at its paused checkpoint by an explicit follow-up. Earlier operation receipts and uncertain outcomes remain retained.')
+                batch_control(previous, 'CANCELLED', 'superseded')
                 db.execute("UPDATE engineering_jobs SET state='CANCELLED',revision=revision+1,data=? WHERE id=? AND revision=? AND lease IS NULL", (json.dumps(previous), previous_id, previous['revision']))
                 self.event(db, previous, 'CANCELLED', previous['revision'] + 1, now)
                 self.conversations.engineering_projection(db, previous, 'CANCELLED')
@@ -334,6 +335,7 @@ class EngineeringStore:
                 return None
             job['started_at'] = job.get('started_at') or self.now()
             self.conversations.consume_instructions(db, job)
+            batch_claimed(job)
             db.execute('UPDATE engineering_jobs SET lease=?,data=? WHERE id=? AND lease IS NULL', (lease, json.dumps(job), job_id))
             db.execute('INSERT INTO engineering_owner_epochs VALUES(?,1) ON CONFLICT(job_id) DO UPDATE SET epoch=epoch+1', (job_id,))
             epoch = db.execute('SELECT epoch FROM engineering_owner_epochs WHERE job_id=?', (job_id,)).fetchone()[0]
@@ -484,6 +486,7 @@ class EngineeringStore:
                 state = 'NEEDS_INPUT'
             else:
                 raise ValueError('Unsupported job action')
+            batch_control(job, state, action)
             db.execute('UPDATE engineering_jobs SET data=?,state=?,revision=revision+1,next_at=?,lease=NULL WHERE id=?', (json.dumps(job), state, self.now(), job_id))
             self.event(db, job, state, job['revision'] + 1, self.now())
             self.conversations.engineering_projection(db, job, state)
@@ -501,6 +504,7 @@ class EngineeringStore:
             now = self.now()
             job.update(updated_at=now, finished_at=now, cancellation_requested=False, cancellation_outcome='confirmed',
                        message='Gateway work stopped. Operations dispatched before cancellation retain their recorded or uncertain outcomes.')
+            batch_control(job, 'CANCELLED', 'cancellation_confirmed')
             changed = db.execute("UPDATE engineering_jobs SET state='CANCELLED',revision=revision+1,lease=NULL,data=? WHERE id=? AND state='CANCELLING' AND revision=?", (json.dumps(job), job['id'], job['revision']))
             if changed.rowcount:
                 self.event(db, job, 'CANCELLED', job['revision'] + 1, now)
@@ -517,6 +521,7 @@ class EngineeringStore:
             'The PR head changed outside this job. Review the new commit before continuing.' if changed_head else
             'Merge readiness changed. Waiting for current checks, reviews and policy.'))
         job['data'] = dict(job['data'], readiness=evidence)
+        batch_control(job, state, 'readiness_changed')
         def update(db):
             changed = db.execute('UPDATE engineering_jobs SET state=?,revision=revision+1,next_at=?,data=? WHERE id=? AND revision=? AND state=? AND lease IS NULL',
                                  (state, self.now(), json.dumps(job), job['id'], job['revision'], 'MERGE_READY'))

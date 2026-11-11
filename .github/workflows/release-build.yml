@@ -45,7 +45,9 @@ jobs:
     if: github.event_name == 'pull_request' || needs.release_intent.outputs.publish == 'true'
     name: Validate exact release commit
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    # The measured cold debug phases took 77 minutes, and production lint alone
+    # took 27 minutes. Reserve time for release generation, compilation and lint.
+    timeout-minutes: 150
     outputs:
       tag: ${{ steps.version.outputs.tag }}
       prerelease: ${{ steps.version.outputs.prerelease }}

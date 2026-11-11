@@ -139,13 +139,13 @@ internal fun GatewayJobsScreen(model: GatewayJobsViewModel, onOpenConversation: 
                                 progress.readableLabel,
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.testTag("gateway_full_batch_progress"),
-                            )
+                                modifier = Modifier.testTag("gateway_full_batch_progress")
+                            )9196
                             progress.currentState?.let {
                                 Text(
                                     it.replace('_', ' ').replaceFirstChar(Char::uppercase),
-                                    style = MaterialTheme.typography.bodySmall,
-                                )
+                                    style = MaterialTheme.typography.bodySmall
+                                )9493
                             }
                         }
                         if (job.repository != null) {

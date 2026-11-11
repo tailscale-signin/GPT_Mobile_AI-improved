@@ -37,8 +37,8 @@ class GatewayFullBatchContractTest {
             chatId = 1,
             requestId = "fixed",
             executionMode = "full",
-            batchPolicyVersion = 1,
-        )
+            batchPolicyVersion = 1
+        )1711
         val frozen = json.decodeFromString<GatewayEngineeringRequest>(json.encodeToString(request))
         assertEquals("full", frozen.executionMode)
         assertEquals(1, frozen.batchPolicyVersion)

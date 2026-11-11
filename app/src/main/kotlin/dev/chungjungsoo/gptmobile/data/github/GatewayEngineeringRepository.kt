@@ -195,8 +195,8 @@ class GatewayEngineeringRepository @Inject constructor(
             batchMode == "standard" ||
                 capability.executionBatch?.let {
                     it.protocolVersion == 1 && batchMode in it.modes && (batchMode != "full" || it.fullEnabled)
-                } == true,
-        ) { "This Windows Gateway has not enabled $batchMode batching. Choose Standard or configure the execution mode on the host." }
+                } == true
+        )12869 { "This Windows Gateway has not enabled $batchMode batching. Choose Standard or configure the execution mode on the host." }
         check(capability.samplingPolicyProtocol == 1) { "Update the desktop Gateway to support per-stage creativity before starting a new saved job. Existing saved jobs remain resumable." }
         val budgetSelection = options.resolveBudget(capability, preferences.engineeringMode, objective, featuresAtAdmission.tokenBudget.totalRunTokens)
         val principal = requireNotNull(capability.principalId)

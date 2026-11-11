@@ -92,15 +92,15 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
                 OutlinedButton(
                     onClick = { batchModeOpen = true },
                     enabled = state.profileUid != null && state.profileSettings.engineeringGatewayProfileUid != null,
-                    modifier = Modifier.testTag("github_batch_mode"),
-                ) {
+                    modifier = Modifier.testTag("github_batch_mode")
+                )6722 {
                     Text(
                         when (state.profileSettings.executionBatchMode) {
                             "smart" -> "Smart Batch"
                             "full" -> "Full Integration Batch"
                             else -> "Standard"
-                        },
-                    )
+                        }
+                    )7032
                 }
                 DropdownMenu(expanded = batchModeOpen, onDismissRequest = { batchModeOpen = false }) {
                     listOf("standard" to "Standard", "smart" to "Smart Batch", "full" to "Full Integration Batch").forEach { (mode, name) ->
@@ -109,15 +109,15 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
                             onClick = {
                                 batchModeOpen = false
                                 onSettings(state.profileSettings.copy(executionBatchMode = mode))
-                            },
-                        )
+                            }
+                        )7632
                     }
                 }
                 Text(
                     "Full Batch requires an explicitly enabled Windows Gateway. This changes only newly admitted jobs, not saved work. GitHub permissions and merge approvals are unchanged.",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )8047
                 GitHubGatewayConnectionCheck(
                     dev.chungjungsoo.gptmobile.data.github.engineeringGatewayProfile(state.profiles, state.profileSettings.engineeringGatewayProfileUid)?.uid
                 ) { inspection = it to true }

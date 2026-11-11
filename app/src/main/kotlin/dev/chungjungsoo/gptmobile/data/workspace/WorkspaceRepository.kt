@@ -61,6 +61,12 @@ class WorkspaceRepository @Inject constructor(val database: ChatDatabaseV2, priv
             put("outputCap", constraints.outputLimit(platform.maxTokens)?.let { kotlinx.serialization.json.JsonPrimitive(it) } ?: kotlinx.serialization.json.JsonNull)
             put("allowTools", kotlinx.serialization.json.JsonPrimitive(constraints.allowTools))
             put("allowReasoning", kotlinx.serialization.json.JsonPrimitive(constraints.allowReasoning))
+            constraints.githubSampling?.let { sampling ->
+                put("githubSampling", json.encodeToJsonElement(dev.chungjungsoo.gptmobile.data.github.GitHubSamplingSettings.serializer(), sampling))
+                put("samplingStage", kotlinx.serialization.json.JsonPrimitive(dev.chungjungsoo.gptmobile.data.github.GitHubSamplingPolicy.stage(kind).name))
+                put("requestedTemperature", platform.temperature?.let { kotlinx.serialization.json.JsonPrimitive(it) } ?: kotlinx.serialization.json.JsonNull)
+                put("samplingObservation", kotlinx.serialization.json.JsonPrimitive("REQUESTED_NOT_CONFIRMED"))
+            }
             put(
                 "turns",
                 kotlinx.serialization.json.JsonArray(

@@ -1,5 +1,6 @@
 """Durable engineering state machine and supervisor. No model can grant approval."""
 from v14.engineering_scope import accepted_scope
+from v14.adaptive_sampling import validate_policy
 import json
 import re
 import threading
@@ -38,10 +39,12 @@ def principal_authorized(config, principal, devices):
 
 
 def validate_request(request):
-    allowed = {'repository', 'branch', 'base', 'objective', 'model', 'duration_hours', 'repair_attempts', 'chat_id', 'request_id', 'acceptance', 'profile_id', 'memory_mode', 'execution_binding_id', 'execution_budget', 'task_scope', 'scope', 'profile_name', 'source_branch', 'source_sha', 'conversation_id', 'client_conversation_id', 'command_id', 'expected_revision', 'draft_repair'}
+    allowed = {'repository', 'branch', 'base', 'objective', 'model', 'duration_hours', 'repair_attempts', 'chat_id', 'request_id', 'acceptance', 'profile_id', 'memory_mode', 'execution_binding_id', 'execution_budget', 'task_scope', 'scope', 'profile_name', 'source_branch', 'source_sha', 'conversation_id', 'client_conversation_id', 'command_id', 'expected_revision', 'draft_repair', 'sampling_policy'}
     if not isinstance(request, dict) or set(request) - allowed:
         raise ValueError('Unsupported engineering request fields')
     result = dict(request)
+    if 'sampling_policy' in result:
+        result['sampling_policy'] = validate_policy(result['sampling_policy'])
     if 'scope' in result:
         result['task_scope'] = accepted_scope(result)
         result.pop('scope')
@@ -378,6 +381,19 @@ class EngineeringStore:
                 raise ExecutionBindingError('EXECUTION_OWNER_CHANGED', 'The execution lease or job state changed; no new operation was dispatched.')
         self.tx(read)
 
+    def save_adaptive_planning(self, job, value):
+        raw, _ = canonical_json(value, maximum_bytes=128 * 1024)
+        def save(db):
+            row = db.execute('SELECT data,state,revision,lease FROM engineering_jobs WHERE id=? AND principal=?', (job['id'], job['principal'])).fetchone()
+            epoch = db.execute('SELECT epoch FROM engineering_owner_epochs WHERE job_id=?', (job['id'],)).fetchone()
+            if not row or tuple(row[1:]) != (job['state'], job['revision'], job.get('_execution_lease')) or row[3] is None or not epoch or epoch[0] != job.get('_owner_epoch'):
+                raise ExecutionBindingError('EXECUTION_OWNER_CHANGED', 'The planning checkpoint owner changed.')
+            stored = json.loads(row[0])
+            stored.setdefault('data', {})['adaptive_planning'] = json.loads(raw)
+            db.execute('UPDATE engineering_jobs SET data=? WHERE id=? AND lease=?', (json.dumps(stored), job['id'], job['_execution_lease']))
+        self.tx(save)
+        job['data']['adaptive_planning'] = json.loads(raw)
+
     def record_model_attempt(self, job, record):
         raw, _ = canonical_json(record, maximum_bytes=128 * 1024)
         def save(db):
@@ -539,6 +555,7 @@ class EngineeringService:
         self.thread = None
         self.authorized = lambda job: True
         backend.model_executor = self.execute_model
+        backend.save_adaptive_planning = self.store.save_adaptive_planning
         backend.before_mutation = self.validate_mutation
         backend.operations = self.operations
 

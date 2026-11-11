@@ -19,7 +19,8 @@ data class GitHubChatProfileOverride(
     val allowCloudEngineeringMemory: Boolean = false,
     val workflowPreset: String = "heavy_work",
     val quickWorkflows: List<GitHubQuickWorkflow> = GitHubQuickWorkflow.defaults,
-    val engineeringGatewayProfileUid: String? = null
+    val engineeringGatewayProfileUid: String? = null,
+    val sampling: GitHubSamplingSettings = GitHubSamplingSettings()
 )
 
 /** Request-local copies: GitHub preferences never rewrite ordinary chat profiles or provider grants. */

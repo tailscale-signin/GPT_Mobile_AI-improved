@@ -4579,6 +4579,7 @@ class ChatRepositoryImpl(
         val savedGatewayConversation = latestUser?.takeIf { agentPersistenceDao.getChatRoom(it.chatId)?.isTemporary == false }
             ?.let { gatewayConversations?.requestBinding(it.chatId, platform.uid, platform.apiUrl, platform.model) }
         val requestConstraints = RequestConstraints(
+            githubSampling = dev.chungjungsoo.gptmobile.data.github.GitHubChatPolicy.settings(settingRepository.getFeatureSettings(), platform.uid, chatToolConfig?.github)?.sampling,
             restoredGatewayJob = restoredGatewayJob?.waiting,
             gatewayNewStageAfterTerminal = restoredGatewayJob?.verifiedTerminal == true,
             originalRequestLineage = latestUser?.content?.let { dev.chungjungsoo.gptmobile.data.research.researchHash(it) },
@@ -4909,13 +4910,17 @@ class ChatRepositoryImpl(
                     "GITHUB_PROFILE_LOCKED: The request no longer matches the selected AI profile. Saved work remains available; no substitute profile was dispatched."
                 }
             }
-            val invocationPlatform = if (textOnly && kind.startsWith("github-") && extraInstruction.isNotBlank()) {
-                requestPlatform.withSystemPrompt(extraInstruction)
-            } else if (extraInstruction.isBlank()) {
-                requestPlatform
-            } else {
-                requestPlatform.withSystemPrompt(requestPlatform.systemPrompt.orEmpty() + "\n" + extraInstruction)
-            }
+            val stageInstruction = requestConstraints.githubSampling?.let { dev.chungjungsoo.gptmobile.data.github.GitHubSamplingPolicy.instruction(dev.chungjungsoo.gptmobile.data.github.GitHubSamplingPolicy.stage(kind)) }.orEmpty()
+            val stagePlatform = dev.chungjungsoo.gptmobile.data.github.GitHubSamplingPolicy.platform(requestPlatform, requestConstraints.githubSampling, kind)
+            val invocationPlatform = (
+                if (textOnly && kind.startsWith("github-") && extraInstruction.isNotBlank()) {
+                    stagePlatform.withSystemPrompt(extraInstruction)
+                } else if (extraInstruction.isBlank()) {
+                    stagePlatform
+                } else {
+                    stagePlatform.withSystemPrompt(stagePlatform.systemPrompt.orEmpty() + "\n" + extraInstruction)
+                }
+                ).let { if (stageInstruction.isEmpty()) it else it.withSystemPrompt(it.systemPrompt.orEmpty() + "\n" + stageInstruction) }
             kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.CombinedWriterDispatchGuard]?.validatePreparedRequest(invocationPlatform, turns)
             factVault?.validateRecall(recalled, latestUser?.chatId ?: 0, platform.isPrivateDestination())
             require(
@@ -5520,10 +5525,43 @@ class ChatRepositoryImpl(
             } else {
                 initiallySelectedSession
             }
+            val explorationRole = requestConstraints.githubSampling?.takeIf { it.mode == dev.chungjungsoo.gptmobile.data.github.GitHubCreativityMode.ADAPTIVE }
+                ?.let { dev.chungjungsoo.gptmobile.data.github.GitHubSamplingPolicy.explorationRole(githubEffectiveTask) }
+            val adaptiveSession = if (explorationRole != null && verifiedEvidence != null && latestUser != null) {
+                val adaptiveBinding = dev.chungjungsoo.gptmobile.data.research.researchHash("${verifiedEvidence.checkpointBinding()}:${dispatchAuthority.revision}:${requestConstraints.githubSampling}:$githubEffectiveTask")
+                val adaptiveKey = "github-adaptive:$adaptiveBinding"
+                dev.chungjungsoo.gptmobile.data.github.GitHubAdaptiveSession(
+                    selectedSession,
+                    explorationRole,
+                    adaptiveBinding,
+                    open = { role, instruction ->
+                        val planningTurns = listOf(ConversationTurn(latestUser.copy(content = githubEffectiveTask, attachments = emptyList()), null, true))
+                        openPrimarySession(planningTurns, role, textOnly = true, passOutputTokens = 3072, extraInstruction = instruction)
+                    },
+                    continueWith = { instruction ->
+                        val planned = openPrimarySession(contextPlan.turns, "primary", extraInstruction = "Accepted task: $githubEffectiveTask\n$instruction")
+                        catalog?.let { planned.withToolCatalog(it) } ?: planned
+                    },
+                    load = {
+                        dispatchAuthority.validate()
+                        check(validateSavedEvidence())
+                        workspace?.protectedSynthesisCheckpoint(adaptiveKey)
+                    },
+                    save = { value ->
+                        dispatchAuthority.validate()
+                        check(validateSavedEvidence())
+                        val store = checkNotNull(workspace) { "The planning checkpoint store is unavailable." }
+                        store.saveProtectedSynthesisCheckpoint(adaptiveKey, latestUser.chatId, runId, value)
+                        check(store.protectedSynthesisCheckpoint(adaptiveKey) == value)
+                    }
+                )
+            } else {
+                selectedSession
+            }
             val githubContinuedSession = if (verifiedEvidence != null && latestUser != null) {
                 val checkpointKey = "github-output:${verifiedEvidence.checkpointBinding()}"
                 dev.chungjungsoo.gptmobile.data.agent.GitHubOutputContinuationSession(
-                    selectedSession,
+                    adaptiveSession,
                     maxCharacters = budgetSettings.responseCharacterLimit.takeIf { it > 0 }?.coerceAtMost(1_048_576) ?: 1_048_576,
                     continuationRevision = dev.chungjungsoo.gptmobile.data.research.researchHash("${platform.uid}:${platform.model}:${platform.apiUrl}:${dispatchAuthority.revision}:${limits.contextTokens}:$resolvedOutputCap"),
                     recoveryRevision = runId,
@@ -5586,7 +5624,7 @@ class ChatRepositoryImpl(
                     catalog?.let { reopened.withToolCatalog(it) } ?: reopened
                 }
             } else {
-                selectedSession
+                adaptiveSession
             }
             val reviewEvidence = if (chatToolConfig?.github != null && platform.compatibleType == ClientType.LLAMA && !dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.isGreeting(githubEffectiveTask) && !dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.matches(githubEffectiveTask) && !dev.chungjungsoo.gptmobile.data.github.GitHubTaskCoverage.matches(githubEffectiveTask)) {
                 dev.chungjungsoo.gptmobile.data.github.GitHubReviewEvidence().also { review ->

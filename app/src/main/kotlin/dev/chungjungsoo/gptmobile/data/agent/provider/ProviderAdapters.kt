@@ -370,12 +370,15 @@ class OpenAICompatibleAdapter @Inject constructor(
         } else {
             null
         }
+        val sampledProfile = dev.chungjungsoo.gptmobile.data.github.GitHubSamplingPolicy.platform(platform, constraints.githubSampling, constraints.requestRole)
         val effectiveTemperature = when {
+            constraints.githubSampling != null -> sampledProfile.temperature
             isOpenRouter && parsedOpenRouterOptions?.temperature != null -> parsedOpenRouterOptions.temperature
             isOllama && parsedOllamaOptions != null -> parsedOllamaOptions.temperature ?: platform.temperature
             else -> platform.temperature
         }
         val effectiveTopP = when {
+            constraints.githubSampling != null -> null
             isOpenRouter && parsedOpenRouterOptions?.topP != null -> parsedOpenRouterOptions.topP
             isOllama && parsedOllamaOptions != null -> parsedOllamaOptions.topP ?: platform.topP
             else -> platform.topP
@@ -490,7 +493,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                 null
             },
             sessionId = openRouterSessionId,
-            options = parsedOllamaOptions
+            options = parsedOllamaOptions?.let { if (constraints.githubSampling == null) it else it.copy(temperature = effectiveTemperature, topP = null) }
         ).let { baseRequest ->
             if (isNvidia) {
                 NvidiaRequestPolicy.prepare(baseRequest, platform.reasoning || constraints.maximizeReasoning, constraints.allowReasoning)

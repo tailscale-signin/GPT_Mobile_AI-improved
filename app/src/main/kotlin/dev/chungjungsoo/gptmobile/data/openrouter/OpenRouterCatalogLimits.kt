@@ -4,7 +4,7 @@ import java.net.URI
 
 /** Catalog hints are not confirmation of the eventual routed server settings. */
 internal object OpenRouterCatalogLimits {
-    data class Limits(val context: Int?, val output: Int?, val reasoningControlAdvertised: Boolean = false)
+    data class Limits(val context: Int?, val output: Int?, val reasoningControlAdvertised: Boolean = false, val temperatureSupported: Boolean? = null)
     private data class Snapshot(val time: Long, val models: Map<String, Limits>)
 
     @Volatile private var snapshot = Snapshot(0, emptyMap())
@@ -23,7 +23,8 @@ internal object OpenRouterCatalogLimits {
                 model.id to Limits(
                     model.contextLength?.takeIf { it > 0 },
                     model.topProvider?.maxCompletionTokens?.takeIf { it > 0 },
-                    model.supportedParameters.orEmpty().any { it == "reasoning" || it == "reasoning_effort" }
+                    model.supportedParameters.orEmpty().any { it == "reasoning" || it == "reasoning_effort" },
+                    model.supportedParameters?.contains("temperature")
                 )
             }
         )
@@ -35,6 +36,6 @@ internal object OpenRouterCatalogLimits {
         if (now() - current.time !in 0..3_600_000) return null
         val limits = current.models[model] ?: return null
         // The aggregate context is a ceiling; top-provider output is only a default-route hint.
-        return if (routing.isNullOrBlank() || routing == "{}") limits else limits.copy(output = null, reasoningControlAdvertised = false)
+        return if (routing.isNullOrBlank() || routing == "{}") limits else limits.copy(output = null, reasoningControlAdvertised = false, temperatureSupported = null)
     }
 }

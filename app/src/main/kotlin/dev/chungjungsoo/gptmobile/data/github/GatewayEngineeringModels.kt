@@ -14,6 +14,7 @@ data class GatewayEngineeringCapabilities(
     val service: String,
     @SerialName("protocol_version") val protocolVersion: Int,
     val enabled: Boolean = false,
+    @SerialName("sampling_policy_protocol") val samplingPolicyProtocol: Int = 0,
     @SerialName("principal_id") val principalId: String? = null,
     @SerialName("gateway_version") val gatewayVersion: String? = null,
     @SerialName("server_build") val serverBuild: String? = null,
@@ -158,7 +159,8 @@ data class GatewayEngineeringRequest(
     @SerialName("source_branch") val sourceBranch: String? = null,
     @SerialName("source_sha") val sourceSha: String? = null,
     @SerialName("execution_budget") val executionBudget: GatewayEngineeringBudget? = null,
-    @SerialName("draft_repair") val draftRepair: GitHubDraftRepair? = null
+    @SerialName("draft_repair") val draftRepair: GitHubDraftRepair? = null,
+    @SerialName("sampling_policy") val samplingPolicy: GitHubSamplingSettings? = null
 )
 
 @Serializable

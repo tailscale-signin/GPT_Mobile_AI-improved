@@ -240,5 +240,8 @@
       "sha256": "26c4b146a31fac29e1897f987448b06b2b139ea30f6a620c01ec5885a8071612"
     }
   ],
-  "formal_ledger_promotions": 0
+  "formal_ledger_promotions": 0,
+  "published_commit": "79249cfb76a5eb7ed6f9ad6151d054122fd909db",
+  "published_tree": "89f807d5fc6aec5a725a5b3795364e803c0e873f",
+  "source_parent_note": "source_parent is the local validation parent before connector publication; published_commit contains the reviewed changes after preserving the concurrent instrumentation fixture correction."
 }

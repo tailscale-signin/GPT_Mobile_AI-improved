@@ -189,6 +189,7 @@ class GatewayEngineeringRepository @Inject constructor(
         val capability = client.capabilities(gateway.engineeringConfig())
         if (runId != null) check(capability.supportsDurableChat) { "This gateway does not support durable chat admission. Update it before sending this saved turn." }
         capability.requireJobReadiness()
+        check(capability.samplingPolicyProtocol == 1) { "Update the desktop Gateway to support per-stage creativity before starting a new saved job. Existing saved jobs remain resumable." }
         val budgetSelection = options.resolveBudget(capability, preferences.engineeringMode, objective, featuresAtAdmission.tokenBudget.totalRunTokens)
         val principal = requireNotNull(capability.principalId)
         val frozenConfig = gateway.engineeringConfig()
@@ -218,7 +219,7 @@ class GatewayEngineeringRepository @Inject constructor(
                 memoryMode = preferences.engineeringMemory, executionBindingId = admission.bindingId, taskScope = taskScope,
                 clientConversationId = if (capability.supportsDurableChat) conversations.clientConversationId(chatId) else null, conversationId = remote?.conversationId,
                 expectedRevision = remote?.revision?.takeIf { it >= 0 }, sourceBranch = sourceBranch, sourceSha = sourceSha,
-                executionBudget = budgetSelection.effectiveBudget, draftRepair = draftRepair
+                executionBudget = budgetSelection.effectiveBudget, draftRepair = draftRepair, samplingPolicy = preferences.sampling
             ).let { request ->
                 if (capability.admissionPreflightProtocol == 1) {
                     val preflight = client.preflight(identity?.let { frozenConfig.withGatewayIdentity(it) } ?: frozenConfig, request)

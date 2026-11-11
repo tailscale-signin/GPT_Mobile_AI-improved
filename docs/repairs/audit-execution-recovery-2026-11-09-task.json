@@ -234,5 +234,26 @@
     ],
     "remaining": "Actual route opening with both packs, microphone permission variants and a spoken turn on the ASUS phone remain unmeasured. No native crash cause or latency target is claimed verified.",
     "validation": "App and test compilation, 461 fast host checks, 302 targeted JVM/Robolectric tests passed with zero failures or skips. Repaired the concurrent extraction-limit test fixture to supply retained evidence."
+  },
+  "adaptive_creativity_followup": {
+    "state": "LOCAL_VALIDATION_PASSED",
+    "source_parent": "79249cfb76a5eb7ed6f9ad6151d054122fd909db",
+    "base_sha": "3a1f44bb3dff7dbe10a839f1cad7b408b34aadeb",
+    "default": "ADAPTIVE",
+    "manual_available": true,
+    "selected_profile_preserved": true,
+    "sampling_policy_protocol": 1,
+    "formal_promotions": 0,
+    "scope": [
+      "GitHub per-stage sampling and settings",
+      "Bounded options and evidence-based selection with saved stages",
+      "Provider support and advanced-options precedence",
+      "Durable Gateway sampling admission and physical request checks"
+    ],
+    "android_tests": 266,
+    "gateway_tests": 749,
+    "gateway_skips": 1,
+    "fast_host_tests": 461,
+    "receipt": "evidence/audit-execution-recovery-2026-11-09/adaptive-creativity-validation.json"
   }
 }

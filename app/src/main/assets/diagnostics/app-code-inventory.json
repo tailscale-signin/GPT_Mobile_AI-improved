@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "26d61536fbdfea20fbd423d25cf173ea5ee14edbc7ef350f650c477189ee2cc2",
-  "file_count": 2442,
-  "indexed_line_count": 385583,
+  "source_digest": "26f43d7789a0252319756ea271f0fc6650ddccf6168bd41bdcd0cb00bb713a91",
+  "file_count": 2443,
+  "indexed_line_count": 385687,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -40,13 +40,13 @@
       "id": "chat_ui",
       "label": "Chat, rendering and interaction",
       "file_count": 517,
-      "indexed_line_count": 91582
+      "indexed_line_count": 91619
     },
     {
       "id": "accessibility_and_localization",
       "label": "Accessibility, themes and UI resources",
       "file_count": 197,
-      "indexed_line_count": 9162
+      "indexed_line_count": 9164
     },
     {
       "id": "agent_execution",
@@ -129,8 +129,8 @@
     {
       "id": "diagnostics_and_export",
       "label": "Diagnostics, statistics and sharing",
-      "file_count": 74,
-      "indexed_line_count": 8481
+      "file_count": 75,
+      "indexed_line_count": 8546
     },
     {
       "id": "benchmark",
@@ -5299,6 +5299,13 @@
       "indexed_lines": 66
     },
     {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportGitHubFallback.kt",
+      "area_id": "diagnostics_and_export",
+      "kind": "source",
+      "sha256": "e6ab641b7ab28ab083a67c539d051847750f06f659c963786e6b360456759169",
+      "indexed_lines": 53
+    },
+    {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidents.kt",
       "area_id": "diagnostics_and_export",
       "kind": "source",
@@ -5309,8 +5316,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportWorker.kt",
       "area_id": "diagnostics_and_export",
       "kind": "source",
-      "sha256": "f9ed51a2d41c3a6aaa9f4438dbb41d0e958dbe1e93d4574959a39fe26d2df8af",
-      "indexed_lines": 77
+      "sha256": "9c10ecc334efdcf2bd5799f1456ab143e960397c31c9b4f9fbbfedbd91118ad1",
+      "indexed_lines": 89
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/JavaHeapWorkGate.kt",
@@ -13961,15 +13968,15 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/IssueReportHost.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "66c12f1143efb6c2c1d73d901f8271853632d35048f55426c8ed1a256b151857",
-      "indexed_lines": 199
+      "sha256": "1286cf935603731aaa99b1976e349d53068f66de40a6a9e592fff9a105e646fc",
+      "indexed_lines": 210
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/IssueReportViewModel.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "e39d9a6f1d7d9f846d7df20a3e1922b6732bcd09c2b09e0582a68d884673d2d9",
-      "indexed_lines": 132
+      "sha256": "780e1a2b8b41510f20a9a816cfbc8bd900b371f0eb74103de8d85dd0cefb3a38",
+      "indexed_lines": 158
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/KnowledgeSourceActivity.kt",
@@ -16033,8 +16040,8 @@
       "path": "app/src/main/res/values/strings.xml",
       "area_id": "accessibility_and_localization",
       "kind": "ui_resource",
-      "sha256": "8b267c139ec49e78aa834550a261c4f1ee7ff3ed9e25a7a6c8fac3568cb467f6",
-      "indexed_lines": 1214
+      "sha256": "5c62240db331a88b7fd8c610afa09a42fb76aaacc498b9a699f4adc972c04a1c",
+      "indexed_lines": 1216
     },
     {
       "path": "app/src/main/res/values/strings_v0950.xml",

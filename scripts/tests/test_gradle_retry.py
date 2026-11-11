@@ -57,6 +57,11 @@ class GradleRetryTest(unittest.TestCase):
     def test_dependency_throttling_is_retryable(self):
         self.assertTrue(retry.retryable(['Could not resolve dependency.', 'Received status code 429 from server: Too Many Requests']))
         self.assertTrue(retry.retryable(['Could not GET resource.', 'HTTP 503']))
+        self.assertTrue(retry.retryable([
+            'Downloading https://services.gradle.org/distributions/gradle-9.8.0-bin.zip',
+            'java.io.IOException: Server returned HTTP response code: 500 for URL: '
+            'https://github.com/gradle/gradle-distributions/releases/download/v9.8.0/gradle-9.8.0-bin.zip',
+        ]))
 
     def test_compilation_assertions_and_authentication_are_not_retried(self):
         for lines in [
@@ -95,6 +100,22 @@ class GradleRetryTest(unittest.TestCase):
             fake.chmod(0o755)
             self.assertEqual(0, retry.run(['testDebugUnitTest', '--no-daemon'], delay_seconds=0, executable=str(fake)))
             self.assertEqual(['testDebugUnitTest --no-daemon'] * 2, counter.read_text().splitlines())
+
+    def test_gradle_wrapper_distribution_500_recovers_without_losing_arguments(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            counter = root / 'count'
+            fake = root / 'gradlew'
+            fake.write_text('#!/bin/sh\n' +
+                            f'echo "$*" >> "{counter}"\n' +
+                            f'if [ "$(wc -l < "{counter}")" -eq 1 ]; then\n' +
+                            ' echo "Downloading https://services.gradle.org/distributions/gradle-9.8.0-bin.zip"\n' +
+                            ' echo "Server returned HTTP response code: 500 for URL: https://github.com/gradle/gradle-distributions/releases/download/v9.8.0/gradle-9.8.0-bin.zip"\n' +
+                            ' exit 1\nfi\nexit 0\n')
+            fake.chmod(0o755)
+            arguments = [':app:prepareMemoryModel', ':core-domain:jvmTest', '--configuration-cache']
+            self.assertEqual(0, retry.run(arguments, delay_seconds=0, executable=str(fake)))
+            self.assertEqual([' '.join(arguments)] * 2, counter.read_text().splitlines())
 
     def test_persistent_throttling_stops_after_three_attempts(self):
         with tempfile.TemporaryDirectory() as directory:

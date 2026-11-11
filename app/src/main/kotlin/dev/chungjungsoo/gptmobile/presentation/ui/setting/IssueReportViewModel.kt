@@ -8,6 +8,7 @@ import androidx.work.WorkManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReport
+import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportGitHubFallback
 import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidents
 import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportWorker
 import dev.chungjungsoo.gptmobile.data.diagnostics.LocalDiagnosticsPolicy
@@ -29,6 +30,7 @@ class IssueReportViewModel @Inject constructor(@ApplicationContext private val c
     private val mutableManual = MutableStateFlow(false)
     private val mutableError = MutableStateFlow<Notice?>(null)
     private val queuedChannel = Channel<Unit>(Channel.CONFLATED)
+    private val mutableBrowserDraft = MutableStateFlow<BrowserDraft?>(null)
     private val mutableReceipts = MutableStateFlow<List<Receipt>>(emptyList())
     private val announced = MutableStateFlow<Set<String>>(emptySet())
     private val preferences by lazy { context.getSharedPreferences("issue_report_receipts", Context.MODE_PRIVATE) }
@@ -36,7 +38,9 @@ class IssueReportViewModel @Inject constructor(@ApplicationContext private val c
     internal val manual = mutableManual.asStateFlow()
     internal val error = mutableError.asStateFlow()
     internal val queued = queuedChannel.receiveAsFlow()
+    internal val browserDraft = mutableBrowserDraft.asStateFlow()
     internal val receipts = mutableReceipts.asStateFlow()
+    internal val submitsDirectly = IssueReportWorker.configured
     internal val currentIncident = combine(
         IssueReportIncidents.pending,
         LocalDiagnosticsPolicy.state,
@@ -51,10 +55,11 @@ class IssueReportViewModel @Inject constructor(@ApplicationContext private val c
                     work.mapNotNull { info ->
                         val id = info.id.toString()
                         val number = info.outputData.getInt(IssueReportWorker.ISSUE_NUMBER, 0)
+                        val fallbackUrl = info.outputData.getString(IssueReportWorker.FALLBACK_URL)
                         when {
                             id in seen -> null
-                            info.state == WorkInfo.State.SUCCEEDED && number > 0 -> Receipt(id, number)
-                            info.state == WorkInfo.State.FAILED -> Receipt(id, null)
+                            info.state == WorkInfo.State.SUCCEEDED && number > 0 -> Receipt(id, number, null)
+                            info.state == WorkInfo.State.FAILED -> Receipt(id, null, fallbackUrl)
                             else -> null
                         }
                     }
@@ -100,20 +105,39 @@ class IssueReportViewModel @Inject constructor(@ApplicationContext private val c
         }
     }
 
+    internal fun completeBrowserDraft(draft: BrowserDraft, opened: Boolean) {
+        if (!mutableBrowserDraft.compareAndSet(draft, null)) return
+        if (!opened) {
+            mutableError.value = Notice.BrowserUnavailable
+            return
+        }
+        if (draft.incidentId == null) {
+            mutableManual.value = false
+        } else {
+            viewModelScope.launch { IssueReportIncidents.dismiss(draft.incidentId) }
+        }
+    }
+
     private fun clearError() {
         mutableError.value = null
     }
 
     private fun enqueue(incidentId: String? = null, buildReport: () -> IssueReport) {
+        if (mutableBrowserDraft.value != null) return
         if (!mutableSaving.compareAndSet(expect = false, update = true)) return
         viewModelScope.launch {
             try {
                 clearError()
+                val report = buildReport()
                 if (!IssueReportWorker.configured) {
-                    mutableError.value = Notice.Unavailable
+                    mutableBrowserDraft.value = BrowserDraft(
+                        reportId = report.reportId,
+                        url = IssueReportGitHubFallback.url(report),
+                        incidentId = incidentId
+                    )
                     return@launch
                 }
-                withContext(Dispatchers.IO) { IssueReportWorker.enqueue(context, buildReport()) }
+                withContext(Dispatchers.IO) { IssueReportWorker.enqueue(context, report) }
                 if (incidentId == null) mutableManual.value = false else IssueReportIncidents.dismiss(incidentId)
                 queuedChannel.trySend(Unit)
             } catch (cancelled: CancellationException) {
@@ -126,7 +150,9 @@ class IssueReportViewModel @Inject constructor(@ApplicationContext private val c
         }
     }
 
-    internal enum class Notice { Unavailable, SaveFailed }
+    internal enum class Notice { BrowserUnavailable, SaveFailed }
 
-    internal data class Receipt(val id: String, val number: Int?)
+    internal data class BrowserDraft(val reportId: String, val url: String, val incidentId: String?)
+
+    internal data class Receipt(val id: String, val number: Int?, val fallbackUrl: String?)
 }

@@ -68,6 +68,13 @@ internal fun IssueReportHost(
             launch {
                 viewModel.queued.collect { snackbar.showSnackbar(resources.getString(R.string.issue_report_queued)) }
             }
+            launch {
+                viewModel.browserDraft.filterNotNull().collect { draft ->
+                    val opened = runCatching { uriHandler.openUri(draft.url) }.isSuccess
+                    viewModel.completeBrowserDraft(draft, opened)
+                    if (opened) snackbar.showSnackbar(resources.getString(R.string.issue_report_finish_on_github))
+                }
+            }
             viewModel.receipts.map { it.firstOrNull() }.distinctUntilChanged().filterNotNull().collect { receipt ->
                 val number = receipt.number
                 if (number != null) {
@@ -80,7 +87,15 @@ internal fun IssueReportHost(
                         runCatching { uriHandler.openUri("$ISSUE_TRACKER/$number") }
                     }
                 } else {
-                    snackbar.showSnackbar(resources.getString(R.string.issue_report_send_failed))
+                    val fallbackUrl = receipt.fallbackUrl
+                    val action = snackbar.showSnackbar(
+                        message = resources.getString(R.string.issue_report_send_failed),
+                        actionLabel = fallbackUrl?.let { resources.getString(R.string.issue_report_open_github) },
+                        duration = if (fallbackUrl == null) SnackbarDuration.Long else SnackbarDuration.Indefinite
+                    )
+                    if (action == SnackbarResult.ActionPerformed && fallbackUrl != null) {
+                        runCatching { uriHandler.openUri(fallbackUrl) }
+                    }
                 }
                 viewModel.acknowledge(receipt)
             }
@@ -94,6 +109,7 @@ internal fun IssueReportHost(
         ManualIssueDialog(
             saving = saving,
             error = error,
+            submitsDirectly = viewModel.submitsDirectly,
             onDismiss = viewModel::closeManual,
             onSubmit = viewModel::submitManual
         )
@@ -115,7 +131,7 @@ internal fun IssueReportHost(
                 },
                 confirmButton = {
                     Button(onClick = { viewModel.submitIncident(report) }, enabled = !saving) {
-                        Text(stringResource(R.string.issue_report_yes))
+                        Text(stringResource(if (viewModel.submitsDirectly) R.string.issue_report_yes else R.string.issue_report_open_github))
                     }
                 }
             )
@@ -127,13 +143,13 @@ internal fun IssueReportHost(
 private fun ManualIssueDialog(
     saving: Boolean,
     error: IssueReportViewModel.Notice?,
+    submitsDirectly: Boolean,
     onDismiss: () -> Unit,
     onSubmit: (String, String, Boolean) -> Unit
 ) {
     var title by rememberSaveable { mutableStateOf("") }
     var description by rememberSaveable { mutableStateOf("") }
     var includeDiagnostics by rememberSaveable { mutableStateOf(false) }
-    val uriHandler = LocalUriHandler.current
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.issue_report_title)) },
@@ -170,11 +186,6 @@ private fun ManualIssueDialog(
                     style = MaterialTheme.typography.bodySmall
                 )
                 SubmissionError(error)
-                if (error == IssueReportViewModel.Notice.Unavailable) {
-                    TextButton(onClick = { runCatching { uriHandler.openUri(ISSUE_TRACKER) } }) {
-                        Text(stringResource(R.string.issue_report_view))
-                    }
-                }
             }
         },
         dismissButton = {
@@ -182,7 +193,7 @@ private fun ManualIssueDialog(
         },
         confirmButton = {
             Button(onClick = { onSubmit(title, description, includeDiagnostics) }, enabled = !saving && title.isNotBlank() && description.isNotBlank()) {
-                Text(stringResource(R.string.issue_report_submit))
+                Text(stringResource(if (submitsDirectly) R.string.issue_report_submit else R.string.issue_report_open_github))
             }
         }
     )
@@ -191,7 +202,7 @@ private fun ManualIssueDialog(
 @Composable
 private fun SubmissionError(error: IssueReportViewModel.Notice?) {
     val message = when (error) {
-        IssueReportViewModel.Notice.Unavailable -> R.string.issue_report_unavailable
+        IssueReportViewModel.Notice.BrowserUnavailable -> R.string.issue_report_browser_unavailable
         IssueReportViewModel.Notice.SaveFailed -> R.string.issue_report_save_failed
         else -> return
     }

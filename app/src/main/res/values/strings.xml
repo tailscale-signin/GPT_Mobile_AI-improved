@@ -1203,12 +1203,14 @@
     <string name="issue_report_debug_public">Posts a public GitHub issue with redacted app events and device details.</string>
     <string name="issue_report_cancel">Cancel</string>
     <string name="issue_report_submit">Submit</string>
+    <string name="issue_report_open_github">Open GitHub</string>
     <string name="issue_report_no">No</string>
     <string name="issue_report_yes">Yes</string>
     <string name="issue_report_view">View on GitHub</string>
     <string name="issue_report_posted">Issue #%1$d created</string>
     <string name="issue_report_queued">Report queued for sending.</string>
-    <string name="issue_report_unavailable">Issue reporting is unavailable in this build.</string>
+    <string name="issue_report_finish_on_github">Finish submitting the prefilled report on GitHub.</string>
+    <string name="issue_report_browser_unavailable">Couldn’t open GitHub. Install or enable a browser, then try again.</string>
     <string name="issue_report_save_failed">Couldn’t save the report. Try again.</string>
-    <string name="issue_report_send_failed">GitHub couldn’t accept the report.</string>
+    <string name="issue_report_send_failed">Automatic sending failed. You can still submit the prefilled report on GitHub.</string>
 </resources>

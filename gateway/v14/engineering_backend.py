@@ -11,15 +11,17 @@ import datetime
 import difflib
 import hashlib
 import json
+import math
 import os
 import re
 import threading
 import time
+from types import SimpleNamespace
 from urllib.parse import quote, urlsplit
 
 import requests
 
-from v14.batch import BatchExecutor, BatchJournal, digest
+from v14.batch import BatchExecutor, BatchJournal, deferred_read, digest
 from v14.github import ImmutableGitHubReads
 from v14.engineering_validation import validate as validate_checkout, patch_identity
 from v14.execution_binding import ExecutionBindingError
@@ -572,6 +574,16 @@ class GitHubEngineeringBackend:
             batch_id = 'read_' + str(job['revision'])
             receipts = self.journal.open(job['principal'], job['id'], batch_id, nodes, digest([data['actor_id'], root, data['head_sha']]))
             results = self.batch.execute(nodes, read, receipts, lambda value: self.journal.save(job['principal'], job['id'], batch_id, value), cancel_event=cancellation)
+            # Outer engineering supervision owns the durable provider wait.
+            # Bubble up the original cooldown instead of treating a rate-limited
+            # nested read as a permanent missing source file.
+            waiting = [item['error'] for item in results.values() if deferred_read(item)]
+            if waiting:
+                until = max(item['retry_at'] for item in waiting)
+                failure = requests.HTTPError('GitHub read batch is awaiting provider capacity')
+                failure.response = SimpleNamespace(status_code=429, headers={
+                    'Retry-After': str(max(1, math.ceil(until - time.time())))})
+                raise failure
             files = {node['arguments']['path']: results[node['id']] for node in nodes}
             if any('content' not in value for value in files.values()):
                 raise ValueError('Some source files could not be inspected')

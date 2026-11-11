@@ -105,7 +105,7 @@ class AndroidSpeechCatalogRecoveryTest {
         }
     }
 
-    @Test fun nullVoiceQueryRetiresTheEngineOnceAndExplicitRecheckInitializesAnotherGeneration() {
+    @Test fun nullVoiceQueryForgetsTheDisconnectedEngineAndExplicitRecheckInitializesAnotherGeneration() {
         val callbacks = mutableListOf<TextToSpeech.OnInitListener>()
         val first = mock(TextToSpeech::class.java)
         val second = mock(TextToSpeech::class.java)
@@ -119,7 +119,7 @@ class AndroidSpeechCatalogRecoveryTest {
         callbacks[0].onInit(TextToSpeech.SUCCESS)
         shadowOf(Looper.getMainLooper()).idle()
         assertEquals(SpeechVoiceCatalogState.UNAVAILABLE, audio.voiceCatalogState.value)
-        verify(first, times(1)).shutdown()
+        verify(first, never()).shutdown()
         audio.prepareVoices()
         assertEquals(2, callbacks.size)
         callbacks[1].onInit(TextToSpeech.SUCCESS)
@@ -131,7 +131,7 @@ class AndroidSpeechCatalogRecoveryTest {
         verify(second, never()).shutdown()
         audio.close()
         audio.close()
-        verify(first, times(1)).shutdown()
+        verify(first, never()).shutdown()
         verify(second, times(1)).shutdown()
         verify(first, never()).stop()
         verify(second, never()).stop()
@@ -179,11 +179,11 @@ class AndroidSpeechCatalogRecoveryTest {
             assertTrue(failures.single().contains("disconnected"))
             assertEquals(SpeechVoiceCatalogState.UNAVAILABLE, audio.voiceCatalogState.value)
             verify(engine, never()).speak(any(CharSequence::class.java), eq(TextToSpeech.QUEUE_ADD), isNull(), anyString())
-            verify(engine, times(1)).shutdown()
+            verify(engine, never()).shutdown()
         } finally {
             audio.close()
         }
-        verify(engine, times(1)).shutdown()
+        verify(engine, never()).shutdown()
     }
 
     @Test fun aThrownVoiceQueryHasTheSameBoundedRecoveryAsAnUnboundResult() {
@@ -198,8 +198,8 @@ class AndroidSpeechCatalogRecoveryTest {
         requireNotNull(callback).onInit(TextToSpeech.SUCCESS)
         shadowOf(Looper.getMainLooper()).idle()
         assertEquals(SpeechVoiceCatalogState.UNAVAILABLE, audio.voiceCatalogState.value)
-        verify(engine, times(1)).shutdown()
+        verify(engine, never()).shutdown()
         audio.close()
-        verify(engine, times(1)).shutdown()
+        verify(engine, never()).shutdown()
     }
 }

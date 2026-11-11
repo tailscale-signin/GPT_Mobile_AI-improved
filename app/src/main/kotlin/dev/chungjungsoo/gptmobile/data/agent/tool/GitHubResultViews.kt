@@ -59,7 +59,6 @@ internal class GitHubResultViews(
         }
     }
 
-    @Synchronized
     fun present(scope: String, operation: String, modelName: String, upstream: AgentToolResult, request: JsonObject = JsonObject(emptyMap()), maxPageBytes: Int = pageBytes): AgentToolResult {
         val pageBytes = minOf(this.pageBytes, maxPageBytes.coerceAtLeast(2048))
         fun value(content: ToolResultContent): JsonElement? = when (content) {
@@ -92,7 +91,6 @@ internal class GitHubResultViews(
                 if (continuations.size == 1) put("continuation_call", continuations.single().getValue("call"))
             }
         }
-        purge()
         var metadataBytes = 0
         val metadata = JsonObject(
             (value as? JsonObject).orEmpty().filter { (key, item) ->
@@ -126,12 +124,10 @@ internal class GitHubResultViews(
         val context = JsonObject((defaults + (value as? JsonObject).orEmpty() + request).filterKeys { it in SAVED_CONTEXT_KEYS })
         val retained = buffer.bytes + metadata.toString().toByteArray().size * 2L + lastContinuations.sumOf { it.toString().toByteArray().size * 2L + 256 } + context.toString().toByteArray().size * 2L + sourceRecovery.toString().toByteArray().size * 2L + 1024
         if (retained > capacityBytes) return compressed(scope, upstream, operation, modelName, value, request, pageBytes, display)
-        while (entries.isNotEmpty() && (entries.size >= 32 || retainedBytes + retained > capacityBytes)) evict(entries.keys.first())
         val entry = Entry(scope, operation, modelName, fragments, metadata, lastContinuations, now() + 10 * 60_000, retained.toInt(), upstream.isError, upstream.errorCode, pageBytes, context, sourceRecovery)
-        entries[id] = entry
-        retainedBytes += entry.bytes
         if (small.toString().toByteArray().size <= pageBytes) {
             authorize(entry, small)
+            store(id, entry)
             return upstream.copy(
                 content = ToolResultContent.Json(small),
                 executionReceipt = JsonObject(
@@ -147,6 +143,7 @@ internal class GitHubResultViews(
         }
         val first = page(id, entry, 0, modelName)
         authorize(entry, first)
+        store(id, entry)
         // The verifier consumes the complete durable source, not each display fragment.
         // Keep its exact remote recipes outside the model-visible page. If those
         // recipes are themselves too large, preserve the existing paged fallback.
@@ -637,16 +634,12 @@ internal class GitHubResultViews(
         val cost = compressed.size.toLong() + metadata.toString().encodeToByteArray().size * 2L +
             continuations.sumOf { it.toString().encodeToByteArray().size * 2L + 256 } + context.toString().encodeToByteArray().size * 2L + recovery.toString().encodeToByteArray().size * 2L + 1024
         if (cost > capacityBytes) return overflow(upstream, operation, modelName, value, request)
-        purge()
-        while (entries.isNotEmpty() && (entries.size >= 32 || retainedBytes + cost > capacityBytes)) evict(entries.keys.first())
         val id = UUID.randomUUID().toString()
         val entry = Entry(
             scope, operation, modelName, emptyList(), metadata, continuations, now() + 10 * 60_000, cost.toInt(),
             upstream.isError, upstream.errorCode, pageBytes, context, recovery,
             compressedSource = compressed, sourceCharacters = source.length, sourceSha256 = GitHubRepositoryStateStore.digest(source)
         )
-        entries[id] = entry
-        retainedBytes += entry.bytes
         val summary = if (display == value) {
             null
         } else {
@@ -666,6 +659,7 @@ internal class GitHubResultViews(
         }
         val first = summary?.takeIf { it.toString().encodeToByteArray().size <= pageBytes } ?: page(id, entry, 0, modelName)
         authorize(entry, first)
+        store(id, entry)
         return upstream.copy(
             content = ToolResultContent.Json(first),
             retainedContent = upstream.retainedContent ?: upstream.content,
@@ -796,6 +790,16 @@ internal class GitHubResultViews(
             put("tool", name)
             put("arguments", args)
         }
+    }
+
+    @Synchronized
+    private fun store(id: String, entry: Entry) {
+        purge()
+        while (entries.isNotEmpty() && (entries.size >= 32 || retainedBytes + entry.bytes > capacityBytes)) {
+            evict(entries.keys.first())
+        }
+        entries[id] = entry
+        retainedBytes += entry.bytes
     }
 
     private fun purge() {

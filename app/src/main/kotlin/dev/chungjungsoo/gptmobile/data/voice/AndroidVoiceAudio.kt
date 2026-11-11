@@ -155,7 +155,10 @@ class AndroidVoiceAudio internal constructor(
         val failed = playbackError
         val wasPlaying = operation?.first == "tts"
         event("tts_catalog_unavailable")
-        releaseSpeech(SpeechVoiceCatalogState.UNAVAILABLE)
+        // A null/throwing voice query is Android's observable signal that this
+        // initialized binder has already disconnected. Calling shutdown() again
+        // only performs another failed binder transaction and logs "not bound".
+        releaseSpeech(SpeechVoiceCatalogState.UNAVAILABLE, knownUnbound = true)
         if (wasPlaying) {
             terminal("catalog_unavailable")
             stop()
@@ -714,7 +717,8 @@ class AndroidVoiceAudio internal constructor(
 
     private fun releaseSpeech(
         catalogState: SpeechVoiceCatalogState = SpeechVoiceCatalogState.UNINITIALIZED,
-        awaitLateInitialization: Boolean = true
+        awaitLateInitialization: Boolean = true,
+        knownUnbound: Boolean = false
     ) {
         speechInitializationTimeout?.let(main::removeCallbacks)
         speechInitializationTimeout = null
@@ -735,17 +739,28 @@ class AndroidVoiceAudio internal constructor(
         if (previous != null) {
             val (engine, version, initialization) = previous
             event("tts_engine_retired · engineInstance=$version · activeOwnedEngines=${activeSpeechOwners.decrementAndGet()} · state=${speechState.name}")
-            when (initialization?.result?.get()) {
-                TextToSpeech.SUCCESS -> retireInitializedSpeech(initialization, "retired")
-                null -> {
-                    // shutdown() before onInit(SUCCESS) produces Android's misleading
-                    // "not bound" warning. Defer until a late successful bind, if one arrives.
-                    initialization?.retireAfterInitialization = awaitLateInitialization
-                    event("tts_shutdown_deferred · engineInstance=$version · awaitingInitialization=$awaitLateInitialization")
+            if (knownUnbound) {
+                initialization?.engine = null
+                speechWork.execute {
+                    if (configuredEngine === engine) {
+                        configuredEngine = null
+                        configuredSpeech = null
+                    }
                 }
-                else -> {
-                    initialization.engine = null
-                    event("tts_shutdown_skipped · engineInstance=$version · reason=initialization_failed")
+                event("tts_shutdown_skipped · engineInstance=$version · reason=already_disconnected")
+            } else {
+                when (initialization?.result?.get()) {
+                    TextToSpeech.SUCCESS -> retireInitializedSpeech(initialization, "retired")
+                    null -> {
+                        // shutdown() before onInit(SUCCESS) produces Android's misleading
+                        // "not bound" warning. Defer until a late successful bind, if one arrives.
+                        initialization?.retireAfterInitialization = awaitLateInitialization
+                        event("tts_shutdown_deferred · engineInstance=$version · awaitingInitialization=$awaitLateInitialization")
+                    }
+                    else -> {
+                        initialization.engine = null
+                        event("tts_shutdown_skipped · engineInstance=$version · reason=initialization_failed")
+                    }
                 }
             }
         }

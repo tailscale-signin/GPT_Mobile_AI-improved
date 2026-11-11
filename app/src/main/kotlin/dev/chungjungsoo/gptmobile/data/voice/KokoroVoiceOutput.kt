@@ -289,10 +289,10 @@ internal class KokoroVoiceOutput(
                     if (active !== playback) return
                     var callbackFrames = 0L
                     var invalidBatch = false
-                    val generated = model.engine.generateWithCallback(part, playback.voice.speakerId, speed) { samples ->
+                    fun streamSamples(samples: FloatArray): Int {
                         callbackFrames += samples.size
                         if (callbackFrames > sampleRate * 30L) invalidBatch = true
-                        if (invalidBatch || active !== playback) {
+                        return if (invalidBatch || active !== playback) {
                             0
                         } else if (samples.isEmpty() || queuePcm(playback, samples, part.length)) {
                             1
@@ -300,6 +300,15 @@ internal class KokoroVoiceOutput(
                             0
                         }
                     }
+
+                    // sherpa-onnx JNI resolves the boxed Function1 callback signature by name.
+                    // A callable reference preserves invoke(FloatArray): Integer on every target ABI.
+                    val generated = model.engine.generateWithCallback(
+                        part,
+                        playback.voice.speakerId,
+                        speed,
+                        callback = ::streamSamples
+                    )
                     if (active !== playback) return
                     check(!invalidBatch && generated.sampleRate == sampleRate)
                     if (callbackFrames == 0L) {

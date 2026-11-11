@@ -2037,6 +2037,9 @@ class GitHubTool(
             errorCode = code,
             dispatched = false,
             executionReceipt = buildJsonObject {
+                // An open circuit rejects before any GitHub request is dispatched,
+                // so the exact call is safe to replay after its durable cooldown.
+                if (code == "GITHUB_CIRCUIT_OPEN") put("replay_safe", true)
                 if (retryAfterMillis > 0) put("retry_not_before_ms", now + retryAfterMillis.coerceAtMost(Long.MAX_VALUE - now))
             }
         )

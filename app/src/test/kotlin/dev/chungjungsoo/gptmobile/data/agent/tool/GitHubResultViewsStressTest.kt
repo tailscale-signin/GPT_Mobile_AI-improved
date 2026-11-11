@@ -292,6 +292,19 @@ class GitHubResultViewsStressTest {
         assertTrue(ToolArgumentValidator.errors(args, GitHubOperationTool.definition("github_context").inputSchema).isEmpty())
     }
 
+    @Test fun presentationSerializationDoesNotHoldTheSavedViewMonitor() {
+        val method = GitHubResultViews::class.java.getDeclaredMethod(
+            "present",
+            String::class.java,
+            String::class.java,
+            String::class.java,
+            AgentToolResult::class.java,
+            JsonObject::class.java,
+            Integer.TYPE
+        )
+        assertFalse(java.lang.reflect.Modifier.isSynchronized(method.modifiers))
+    }
+
     @Test fun presentationCapacityRetainsBoundedOriginalAndSeparateUpstreamOutcome() {
         val source = ToolResultContent.Json(
             buildJsonObject {

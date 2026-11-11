@@ -11,6 +11,22 @@ class VoiceSessionTest {
         var done: (() -> Unit)? = null
         var stopped = 0
         var closed = false
+        override var streamsReplies = false
+        var opened = 0
+        var sealed = 0
+        override fun openReply(complete: () -> Unit, error: (String) -> Unit): VoiceReplyPlayback? {
+            if (!streamsReplies) return null
+            opened++
+            done = complete
+            return object : VoiceReplyPlayback {
+                override fun enqueue(text: String) {
+                    spoken += text
+                }
+                override fun finish() {
+                    sealed++
+                }
+            }
+        }
         override fun listen(listener: VoiceAudio.Listener) {
             listeners += listener
             listener.ready()
@@ -43,6 +59,34 @@ class VoiceSessionTest {
             session.resume()
         }
         assertTrue(audio.listeners.isEmpty())
+    }
+
+    @Test fun `stream playback starts at a stable first clause and enqueues the rest in one reply`() {
+        audio.streamsReplies = true
+        start()
+        audio.listeners.last().final("Tell me more")
+        session.streamReply("run", "Here is the short answer, ")
+        assertEquals(listOf("Here is the short answer, "), audio.spoken)
+        session.streamReply("run", "Here is the short answer, with more detail. ")
+        session.reply("run", "Here is the short answer, with more detail. The last sentence.")
+        assertEquals(1, audio.opened)
+        assertEquals(1, audio.sealed)
+        assertEquals(listOf("Here is the short answer, ", "with more detail. ", "The last sentence."), audio.spoken)
+        assertEquals(1, audio.listeners.size)
+        audio.done?.invoke()
+        assertEquals(2, audio.listeners.size)
+    }
+
+    @Test fun `interrupt fences late callbacks from the prior reply stream`() {
+        audio.streamsReplies = true
+        start()
+        audio.listeners.last().final("Tell me more")
+        session.streamReply("run", "Here is the short answer, ")
+        val stale = audio.done
+        session.interrupt()
+        stale?.invoke()
+        assertEquals(2, audio.listeners.size)
+        assertEquals(VoicePhase.LISTENING, session.state.phase)
     }
 
     @Test fun `partial results never submit and final callbacks submit once`() {

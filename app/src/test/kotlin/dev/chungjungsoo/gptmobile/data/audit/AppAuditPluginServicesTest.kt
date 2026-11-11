@@ -18,6 +18,13 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ProviderConnection
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionAuthType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
+import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringBinding
+import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringCapabilities
+import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringClient
+import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringReadiness
+import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringRequest
+import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringStore
+import dev.chungjungsoo.gptmobile.data.github.GatewayExecutionSelection
 import dev.chungjungsoo.gptmobile.data.marketplace.MarketplacePackageStore
 import dev.chungjungsoo.gptmobile.data.marketplace.NativeEndpointConfig
 import dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceCatalog
@@ -50,6 +57,7 @@ import io.mockk.mockk
 import javax.net.ssl.SSLHandshakeException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.JsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -57,6 +65,36 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AppAuditPluginServicesTest {
+    @Test
+    fun equivalentSavedBindingsKeepTheirFrozenIdentityAndRequireExplicitReadiness() = runBlocking {
+        val client = mockk<GatewayEngineeringClient>()
+        val store = mockk<GatewayEngineeringStore>()
+        val setup = Setup(engineering = client, store = store)
+        val selected = profile()
+        val route = selected.copy(uid = "engineering", apiUrl = "http://127.0.0.1:8098/v1", token = null, secretRef = null)
+        val selection = GatewayExecutionSelection(selected.uid, "revision", "provider", "provider-revision", "LLAMA", selected.apiUrl, "model", JsonObject(emptyMap()), "PRIVATE")
+        val request = GatewayEngineeringRequest("owner/repo", "work", "main", "Read checks", "model", chatId = 1, requestId = "job-1", profileId = selected.uid, executionBindingId = "bind_" + "a".repeat(32))
+        val first = GatewayEngineeringBinding(route.uid, route.apiUrl, request, principalId = "principal", executionSelection = selection, gatewayId = "gateway")
+        val second = first.copy(request = request.copy(requestId = "job-2"), syncedRevision = 3)
+        var saved = listOf(first, second)
+        coEvery { store.bindings(includeUpdates = false) } coAnswers { saved }
+        coEvery { setup.settings.fetchPlatformV2s() } returns listOf(selected, route)
+        val entry = setup.source.plan(AppAuditOptions(true, listOf(selected.uid))).single {
+            it.componentId == AppAuditPluginProbeSource.ENGINEERING_GATEWAY_COMPONENT && it.probeId == AppAuditPluginProbeSource.GATEWAY_CAPABILITIES
+        }
+        saved = saved.reversed()
+        val advertised = GatewayEngineeringCapabilities("engineering-gateway", 1, enabled = true, principalId = "principal", gatewayId = "gateway")
+        coEvery { client.capabilities(any(), forceRefresh = true) } returns advertised
+        val firstCheck = setup.source.execute(entry, context())
+        assertEquals("GATEWAY_ENGINEERING_READINESS_UNAVAILABLE", firstCheck.reasonCode)
+        assertEquals(AppAuditOutcome.BLOCKED, firstCheck.outcome)
+        coEvery { client.capabilities(any(), forceRefresh = true) } returns advertised.copy(readiness = GatewayEngineeringReadiness(schemaVersion = 1, ready = true))
+        val secondCheck = setup.source.execute(entry, context())
+        assertEquals("GATEWAY_ENGINEERING_GITHUB_UNVERIFIED", secondCheck.reasonCode)
+        assertEquals(AppAuditOutcome.BLOCKED, secondCheck.outcome)
+        coVerify(exactly = 0) { client.bindingCapabilities(any(), any(), any()) }
+    }
+
     @Test
     fun unchangedFrozenPlanSurvivesNewServiceAndProcessLocalGeneration() = runBlocking {
         val setup = Setup()
@@ -782,7 +820,7 @@ class AppAuditPluginServicesTest {
         return McpDiscoveryReceipt(emptyList(), McpDiscoverySource.FRESH)
     }
 
-    private class Setup(val gateway: GatewayAPI = mockk()) {
+    private class Setup(val gateway: GatewayAPI = mockk(), engineering: GatewayEngineeringClient? = null, store: GatewayEngineeringStore? = null) {
         val settings = mockk<SettingRepository>()
         val connections = mockk<ToolConnectionRepository>()
         val native = mockk<NativeMarketplaceRegistry>()
@@ -790,7 +828,7 @@ class AppAuditPluginServicesTest {
         val resolver = mockk<AgentToolResolver>()
         val mcp = mockk<McpClientManager>()
         val vault = mockk<SecretVault>()
-        val services = AppAuditPluginServices(settings, connections, native, packages, resolver, mcp, gateway, vault)
+        val services = AppAuditPluginServices(settings, connections, native, packages, resolver, mcp, gateway, vault, engineering, store)
         val source = AppAuditPluginProbeSource(services::inventory, services::target)
 
         init {

@@ -140,7 +140,9 @@ class AgentToolResolver @Inject constructor(
                 return McpDiscoveryReceipt(it, McpDiscoverySource.CACHED)
             }
         }
-        val config = mcpConfig(connection)
+        val audit = kotlinx.coroutines.currentCoroutineContext()[McpDiscoveryContext]?.trigger == McpDiscoveryTrigger.AUDIT_REFRESH
+        val config = mcpConfig(connection, allowOAuthRefresh = !audit)
+        if (audit) return mcpClientManager.listToolsWithReceipt(config, forceRefresh, awaitCompletion, passiveBackoff)
         return withMcpDiscoveryOAuthRefresh(
             initial = config,
             oauth = connection.authType == ToolConnectionAuthType.OAUTH,
@@ -1722,7 +1724,8 @@ class AgentToolResolver @Inject constructor(
     suspend fun mcpConfig(
         connection: ToolConnection,
         forceOAuthRefresh: Boolean = false,
-        rejectedAuthorizationHeader: String? = null
+        rejectedAuthorizationHeader: String? = null,
+        allowOAuthRefresh: Boolean = true
     ): McpConnectionConfig {
         val revisionBefore = mcpConfigurationRevision(connection, secretVault)
         val endpoint = try {
@@ -1742,7 +1745,8 @@ class AgentToolResolver @Inject constructor(
             ToolConnectionAuthType.OAUTH -> mcpOAuthCoordinator.authorizationHeader(
                 connection,
                 forceOAuthRefresh,
-                rejectedAuthorizationHeader
+                rejectedAuthorizationHeader,
+                allowRefresh = allowOAuthRefresh
             )
 
             else -> throw McpLocalValidationException(McpLocalValidationRule.AUTH_TYPE_UNSUPPORTED)

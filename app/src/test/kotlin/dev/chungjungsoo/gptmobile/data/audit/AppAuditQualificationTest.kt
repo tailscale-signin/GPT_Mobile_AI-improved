@@ -186,6 +186,27 @@ class AppAuditQualificationTest {
     }
 
     @Test
+    fun emptyCatalogueRequiresReviewingToolExposureAndKeepsMetadataEvidence() {
+        val original = fixture(1, 1)
+        val run = original.copy(
+            results = original.results.map {
+                if (it.entryId != "discovery-0") {
+                    it
+                } else {
+                    it.copy(
+                        observation = it.observation.copy(reasonCode = "MCP_EMPTY_CATALOG", metrics = listOf(AppAuditMetric(AppAuditMetricName.TOOL_COUNT, 0.0)))
+                    )
+                }
+            }
+        )
+        val check = qualification(run)["checks"]!!.jsonArray.first().jsonObject
+        assertEquals("VERIFIED", check["discoveryReadiness"]!!.jsonPrimitive.content)
+        assertEquals("NO_TOOLS_ADVERTISED", check["readiness"]!!.jsonPrimitive.content)
+        assertEquals("0", check["defaultMaxToolCalls"]!!.jsonPrimitive.content)
+        assertEquals("CHECK_TOOL_EXPOSURE_OR_EXCLUDE_RESOURCE_ONLY_CONNECTION", check["nextAction"]!!.jsonPrimitive.content)
+    }
+
+    @Test
     fun selectedGenerationAndDeviceMeasurementKeepExplicitSeparateRequirements() {
         val original = fixture(0, 0)
         val revision = "a".repeat(64)

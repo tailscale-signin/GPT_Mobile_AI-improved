@@ -175,6 +175,15 @@ internal fun VoiceEntryScreen(state: VoiceEntryState, origin: Offset, select: (S
 
 @Composable
 internal fun VoiceChatScreen(onEnd: () -> Unit, onOpenChat: () -> Unit, model: ChatViewModel = hiltViewModel(), voiceSettings: VoicePreferencesViewModel = hiltViewModel()) {
+    val modelStores by voiceSettings.modelStores.collectAsStateWithLifecycle()
+    val stores = modelStores
+    if (stores == null) {
+        BackHandler(onBack = onEnd)
+        Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator()
+        }
+        return
+    }
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val lifecycleState by lifecycle.currentStateFlow.collectAsStateWithLifecycle()
@@ -184,8 +193,12 @@ internal fun VoiceChatScreen(onEnd: () -> Unit, onOpenChat: () -> Unit, model: C
     val runs by model.agentRunsById.collectAsStateWithLifecycle()
     val profiles by model.platformsInApp.collectAsStateWithLifecycle()
     val activeProfiles by model.activePlatformUids.collectAsStateWithLifecycle()
-    val privateSpeech = profiles.firstOrNull { it.uid in activeProfiles }?.isPrivateDestination() == true ||
-        (messages.userMessages + messages.assistantMessages.flatten()).any { it.containsLocalOnlyMemory() || it.timeline.any { item -> item.personalData.any { provenance -> provenance.localOnly } } }
+    val privateSpeech = remember(profiles, activeProfiles, messages) {
+        profiles.firstOrNull { it.uid in activeProfiles }?.isPrivateDestination() == true ||
+            (messages.userMessages.asSequence() + messages.assistantMessages.asSequence().flatten()).any {
+                it.containsLocalOnlyMemory() || it.timeline.any { item -> item.personalData.any { provenance -> provenance.localOnly } }
+            }
+    }
     val approvals by model.pendingToolApprovals.collectAsStateWithLifecycle(emptyList())
     val inputs by model.pendingMcpInput.collectAsStateWithLifecycle()
     val consent by model.pendingFreeToolConsent.collectAsStateWithLifecycle()
@@ -199,14 +212,15 @@ internal fun VoiceChatScreen(onEnd: () -> Unit, onOpenChat: () -> Unit, model: C
     var retainedPending by rememberSaveable { mutableStateOf(false) }
     var retainedMuted by rememberSaveable { mutableStateOf(false) }
     val systemAudio = remember(model) { AndroidVoiceAudio(context.applicationContext) }
-    val localRecognition = remember(model, voiceSettings) { MoonshineVoiceRecognizer(context.applicationContext, voiceSettings.localModels) }
-    val kokoroOutput = remember(systemAudio, voiceSettings) {
-        KokoroVoiceOutput(context.applicationContext, voiceSettings.kokoroModels, systemAudio::playbackAttributes) { systemAudio.speechRate }
+    val localRecognition = remember(model, stores) { MoonshineVoiceRecognizer(context.applicationContext, stores.moonshine) }
+    val kokoroOutput = remember(systemAudio, stores) {
+        KokoroVoiceOutput(context.applicationContext, stores.kokoro, systemAudio::playbackAttributes) { systemAudio.speechRate }
     }
     val audio = remember(systemAudio, localRecognition, kokoroOutput) {
         VoicePluginAudio(systemAudio, localRecognition, kokoroOutput, systemAudio::speakOffline, systemAudio::releaseRecognition)
     }
-    val localModel by voiceSettings.localModelState.collectAsStateWithLifecycle()
+    val localModel by stores.moonshine.state.collectAsStateWithLifecycle()
+    val kokoroModel by stores.kokoro.state.collectAsStateWithLifecycle()
     val session = remember(model, audio) {
         VoiceSession(audio, submit = { text ->
             afterMessage = model.groupedMessages.value.assistantMessages.flatten().maxOfOrNull { it.id } ?: 0
@@ -246,6 +260,7 @@ internal fun VoiceChatScreen(onEnd: () -> Unit, onOpenChat: () -> Unit, model: C
     var allowOnline by rememberSaveable { mutableStateOf(false) }
     var voiceName by rememberSaveable { mutableStateOf("") }
     var kokoroVoice by rememberSaveable { mutableStateOf<KokoroVoice?>(null) }
+    var kokoroThreads by rememberSaveable { mutableIntStateOf(2) }
     var editBeforeSend by rememberSaveable { mutableStateOf(false) }
     var automatic by rememberSaveable { mutableStateOf(true) }
     var spokenReplies by rememberSaveable { mutableStateOf(true) }
@@ -265,11 +280,13 @@ internal fun VoiceChatScreen(onEnd: () -> Unit, onOpenChat: () -> Unit, model: C
                 rate = saved.rate
                 voiceName = saved.voice
                 kokoroVoice = saved.kokoroVoice
+                kokoroThreads = saved.kokoroThreads
                 preferencesInitialized = true
             }
             audio.recognitionBackend = recognitionBackend
             localRecognition.languageTag = language
             audio.kokoroVoice = kokoroVoice
+            kokoroOutput.threadCount = kokoroThreads
             if (session.states.value.speaker != spokenReplies) session.speaker()
             // Configure before permitting the first listen, including after restoring the screen.
             systemAudio.languageTag = language
@@ -301,6 +318,7 @@ internal fun VoiceChatScreen(onEnd: () -> Unit, onOpenChat: () -> Unit, model: C
         systemAudio.selectedVoice = voiceName.takeIf(String::isNotBlank)
         systemAudio.speechRate = rate
         audio.kokoroVoice = kokoroVoice
+        kokoroOutput.threadCount = kokoroThreads
         session.editBeforeSend = editBeforeSend
         session.autoContinue = automatic
     }
@@ -326,8 +344,16 @@ internal fun VoiceChatScreen(onEnd: () -> Unit, onOpenChat: () -> Unit, model: C
         remaining = 0
     }
     LaunchedEffect(state.transcript) { draft = state.transcript }
-    LaunchedEffect(settingsOpen) {
-        if (settingsOpen) voiceSettings.kokoroModels.refresh()
+    LaunchedEffect(settingsOpen, preferencesApplied, kokoroVoice != null) {
+        if (settingsOpen || preferencesApplied && kokoroVoice != null && kokoroModel.status == LocalVoiceModelStatus.CHECKING) stores.kokoro.refresh()
+    }
+    LaunchedEffect(preferencesApplied, enabled, spokenReplies, language, kokoroVoice, kokoroThreads, kokoroModel.status, lifecycleState) {
+        if (!preferencesApplied) return@LaunchedEffect
+        if (enabled && spokenReplies && LocalVoiceModelStore.supportsLanguage(language) && lifecycleState == Lifecycle.State.RESUMED) {
+            kokoroVoice?.let(kokoroOutput::prewarm)
+        } else {
+            kokoroOutput.releaseWarmModel()
+        }
     }
     LaunchedEffect(settingsOpen, routeOpen, transcriptOpen, language, allowOnline, privateSpeech, recognitionBackend, recognitionReady, preferencesApplied) {
         if (!preferencesApplied) return@LaunchedEffect
@@ -360,7 +386,7 @@ internal fun VoiceChatScreen(onEnd: () -> Unit, onOpenChat: () -> Unit, model: C
         if (permission) session.resume() else permissionRequest.launch(Manifest.permission.RECORD_AUDIO)
     }
     fun savePreferences() {
-        voiceSettings.save(VoicePreferences(language, allowOnline, captions, editBeforeSend, automatic, rate, voiceName, recognitionBackend, kokoroVoice, spokenReplies))
+        voiceSettings.save(VoicePreferences(language, allowOnline, captions, editBeforeSend, automatic, rate, voiceName, recognitionBackend, kokoroVoice, spokenReplies, kokoroThreads))
     }
     fun selectRecognitionBackend(backend: VoiceRecognitionBackend) {
         if (backend == recognitionBackend) return
@@ -394,6 +420,7 @@ internal fun VoiceChatScreen(onEnd: () -> Unit, onOpenChat: () -> Unit, model: C
                 Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> {
                     session.access(currentEnabled, permission, false)
                     systemAudio.releaseRecognition()
+                    kokoroOutput.releaseWarmModel()
                 }
                 else -> Unit
             }
@@ -443,7 +470,6 @@ internal fun VoiceChatScreen(onEnd: () -> Unit, onOpenChat: () -> Unit, model: C
         else -> "Ready when you are"
     }
     if (settingsOpen) {
-        val kokoroModel by voiceSettings.kokoroModels.state.collectAsStateWithLifecycle()
         var previewError by remember { mutableStateOf<String?>(null) }
         VoiceSettingsPage(::closeSettings) {
             Text("AI profile", style = MaterialTheme.typography.titleSmall)
@@ -521,6 +547,7 @@ internal fun VoiceChatScreen(onEnd: () -> Unit, onOpenChat: () -> Unit, model: C
             KokoroPlaybackCard(
                 state = kokoroModel,
                 voice = kokoroVoice,
+                threads = kokoroThreads,
                 english = LocalVoiceModelStore.supportsLanguage(language),
                 previewError = previewError,
                 select = { selected ->
@@ -529,10 +556,17 @@ internal fun VoiceChatScreen(onEnd: () -> Unit, onOpenChat: () -> Unit, model: C
                     audio.kokoroVoice = selected
                     savePreferences()
                 },
+                selectThreads = { selected ->
+                    audio.stop()
+                    kokoroThreads = selected
+                    kokoroOutput.threadCount = selected
+                    savePreferences()
+                },
                 install = voiceSettings::installKokoroModel,
                 cancel = voiceSettings::cancelKokoroInstall,
                 remove = {
                     audio.stop()
+                    kokoroOutput.releaseWarmModel()
                     previewError = null
                     voiceSettings.removeKokoroModel()
                 },

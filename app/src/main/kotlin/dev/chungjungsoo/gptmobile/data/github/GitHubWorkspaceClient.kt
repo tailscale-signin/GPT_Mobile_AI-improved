@@ -2597,7 +2597,7 @@ class GitHubWorkspaceClient(
             return cached.value
         }
         return GitHubReadRetry.run(readOnly = method == HttpMethod.Get) {
-            scheduler.execute(if (method == HttpMethod.Get) cacheKey else null, priority = requestPriority) {
+            scheduler.execute(if (method == HttpMethod.Get && !forceLive) cacheKey else null, priority = requestPriority) {
                 try {
                     check(!credential.authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
                     // Queued reads may have passed their first check before another

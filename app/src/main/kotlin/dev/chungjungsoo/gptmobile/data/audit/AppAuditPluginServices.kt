@@ -18,9 +18,11 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionAuthType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
 import dev.chungjungsoo.gptmobile.data.github.GatewayAdmissionException
+import dev.chungjungsoo.gptmobile.data.github.GatewayAdmissionReason
 import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringBinding
 import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringClient
 import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringStore
+import dev.chungjungsoo.gptmobile.data.github.GatewayExecutionRejected
 import dev.chungjungsoo.gptmobile.data.github.GatewayScopeIdentity
 import dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy
 import dev.chungjungsoo.gptmobile.data.github.engineeringConfig
@@ -44,6 +46,8 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 
@@ -166,10 +170,10 @@ internal class AppAuditPluginServices @Inject constructor(
                 val gatewayUid = features.githubProfileOverrides[uid]?.engineeringGatewayProfileUid
                 if (targetKey?.startsWith(AppAuditPluginProbeSource.GATEWAY_TARGET_PREFIX) != true) {
                     val bindings = savedJobs.filter { (it.executionSelection?.profileUid ?: it.request.profileId) == uid }
-                    val boundTargets = bindings.distinctBy { listOf(it.profileUid, it.endpoint, it.request.executionBindingId, it.gatewayId, it.principalId) }
+                    val boundTargets = bindings.associateBy(::savedJobAuditIdentity)
                     if (boundTargets.isNotEmpty()) {
-                        boundTargets.forEach { binding ->
-                            val key = "${AppAuditPluginProbeSource.ENGINEERING_GATEWAY_TARGET_PREFIX}$uid:${appAuditTargetDigest(binding.request.requestId)}"
+                        boundTargets.toSortedMap().forEach { (identity, binding) ->
+                            val key = "${AppAuditPluginProbeSource.ENGINEERING_GATEWAY_TARGET_PREFIX}$uid:$identity"
                             if (targetKey == null || targetKey == key) add(engineeringTarget(key, profiles, binding.profileUid, binding))
                         }
                     } else if (!gatewayUid.isNullOrBlank()) {
@@ -213,25 +217,34 @@ internal class AppAuditPluginServices @Inject constructor(
         }.map { target -> target.copy(snapshotCurrent = { ReadinessInvalidation.epoch == epoch }) }
     }
 
+    private fun savedJobAuditIdentity(binding: GatewayEngineeringBinding): String {
+        val selection = binding.executionSelection
+        val bindingId = binding.request.executionBindingId?.takeIf(SAVED_BINDING_ID::matches)
+        val requestId = binding.request.requestId.takeIf {
+            bindingId == null || selection == null || binding.gatewayId.isNullOrBlank() || binding.principalId.isNullOrBlank()
+        }
+        val fields = listOf(binding.profileUid, binding.endpoint, binding.gatewayId, binding.principalId, bindingId, selection?.profileRevision, requestId)
+        return appAuditTargetDigest(JsonArray(fields.map { it?.let(::JsonPrimitive) ?: JsonNull }).toString())
+    }
+
     private suspend fun engineeringTarget(key: String, profiles: List<PlatformV2>, gatewayUid: String?, binding: GatewayEngineeringBinding?): AppAuditPluginTarget {
         val profile = engineeringGatewayProfile(profiles, gatewayUid)?.takeIf { binding == null || it.apiUrl.trimEnd('/') == binding.endpoint }
         val credential = profile?.let { gatewayCredentialIdentity(it) }
-        val fingerprint = appAuditTargetDigest("${profile?.copy(token = null)}:$gatewayUid:$credential:${binding?.endpoint}:${binding?.gatewayId}:${binding?.principalId}:${binding?.request?.executionBindingId}:${binding?.executionSelection?.profileRevision}")
-        // This target always has a concrete digest. Keep the audit metadata API
-        // nullable for genuinely unconfigured targets, but do not pass a nullable
-        // revision into a live engineering probe.
-        val revision = appAuditConfigurationRevision(fingerprint) ?: fingerprint
+        val fingerprint = appAuditTargetDigest("${profile?.copy(token = null)}:$key:$gatewayUid:$credential")
+        val revision = appAuditConfigurationRevision(fingerprint).takeIf { credential != null }
         return AppAuditPluginTarget(
             key, AppAuditPluginKind.GATEWAY, AppAuditPluginProbeSource.ENGINEERING_GATEWAY_COMPONENT,
-            configured = profile != null && credential != null,
+            configured = profile != null && revision != null,
             enabled = profile != null,
             fingerprint = fingerprint,
             unavailableReason = if (profile == null) "GATEWAY_ENGINEERING_PROFILE_REQUIRED" else "PLUGIN_CREDENTIAL_IDENTITY_UNAVAILABLE",
-            liveRead = profile?.let { saved ->
+            liveRead = if (profile != null && revision != null) {
                 { beforeDispatch ->
                     beforeDispatch()
-                    engineeringCapabilities(saved, binding, revision)
+                    engineeringCapabilities(profile, binding, revision)
                 }
+            } else {
+                null
             },
             configurationRevision = revision
         )
@@ -245,10 +258,10 @@ internal class AppAuditPluginServices @Inject constructor(
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
-            val status = (failure as? GatewayAdmissionException)?.httpStatus
+            val status = engineeringFailureStatus(failure)
             return AppAuditObservation(
                 AppAuditOutcome.FAIL,
-                "GATEWAY_CAPABILITY_UNAVAILABLE",
+                engineeringFailureReason(failure),
                 "gateway_capabilities",
                 AppAuditEvidenceKind.LIVE_METADATA,
                 AppAuditObservationSource.LIVE,
@@ -257,7 +270,13 @@ internal class AppAuditPluginServices @Inject constructor(
                 configurationRevision = revision
             )
         }
-        val identityMatches = binding == null || capability.principalId == binding.principalId && (binding.gatewayId == null || capability.gatewayId == binding.gatewayId)
+        val installation = binding?.gatewayId?.takeIf(String::isNotBlank)
+        val principal = binding?.principalId?.takeIf(String::isNotBlank)
+        val identityMatches = binding == null ||
+            installation != null &&
+            principal != null &&
+            capability.principalId == principal &&
+            capability.gatewayId == installation
         val githubConfigured = capability.readiness?.checks?.hostGithubConnection?.let {
             when (it) {
                 "configured" -> true
@@ -266,30 +285,61 @@ internal class AppAuditPluginServices @Inject constructor(
             }
         }
         val selection = binding?.executionSelection
-        val bindingId = binding?.request?.executionBindingId
-        val modelReady = if (identityMatches && selection != null && bindingId != null) {
-            val installation = binding.gatewayId
-            val principal = binding.principalId
-            val boundConfig = if (installation != null && principal != null) config.withGatewayIdentity(GatewayScopeIdentity(installation, principal)) else config
-            safely { client.bindingCapabilities(boundConfig, selection, bindingId) } != null
-        } else {
-            null
-        }
+        val bindingId = binding?.request?.executionBindingId?.takeIf(SAVED_BINDING_ID::matches)
         val reason = when {
+            binding != null && (installation == null || principal == null) -> "GATEWAY_SAVED_JOB_IDENTITY_UNAVAILABLE"
             !identityMatches -> "GATEWAY_ENGINEERING_IDENTITY_CHANGED"
             githubConfigured == false -> "GATEWAY_ENGINEERING_GITHUB_REQUIRED"
-            !capability.enabled || capability.readiness?.ready == false -> "GATEWAY_ENGINEERING_NOT_READY"
-            modelReady == false -> "GATEWAY_SAVED_MODEL_NOT_READY"
-            else -> "GATEWAY_ENGINEERING_CAPABILITY_VERIFIED"
+            capability.readiness == null -> "GATEWAY_ENGINEERING_READINESS_UNAVAILABLE"
+            !capability.enabled || !capability.readiness.ready -> "GATEWAY_ENGINEERING_NOT_READY"
+            githubConfigured != true -> "GATEWAY_ENGINEERING_GITHUB_UNVERIFIED"
+            binding != null && (selection == null || bindingId == null) -> "GATEWAY_SAVED_BINDING_UNAVAILABLE"
+            else -> null
         }
-        return AppAuditObservation(
-            if (reason == "GATEWAY_ENGINEERING_CAPABILITY_VERIFIED") AppAuditOutcome.PASS else AppAuditOutcome.BLOCKED,
-            reason, "gateway_capabilities", AppAuditEvidenceKind.LIVE_METADATA, AppAuditObservationSource.LIVE, AppAuditDispatchEvidence.CONFIRMED,
-            observedAtEpochMs = System.currentTimeMillis(), configurationRevision = revision,
+        fun observation(blocker: String? = null, modelReady: Boolean? = null, status: Int? = 200) = AppAuditObservation(
+            if (blocker == null) AppAuditOutcome.PASS else AppAuditOutcome.BLOCKED,
+            blocker ?: "GATEWAY_ENGINEERING_CAPABILITY_VERIFIED",
+            "gateway_capabilities", AppAuditEvidenceKind.LIVE_METADATA, AppAuditObservationSource.LIVE, AppAuditDispatchEvidence.CONFIRMED,
+            httpStatus = status, observedAtEpochMs = System.currentTimeMillis(), configurationRevision = revision,
             remoteIdentity = safeAuditRemoteIdentity(AppAuditRemoteIdentity(version = capability.gatewayVersion)),
-            gatewayReadiness = AppAuditGatewayReadiness(binding != null, capability.readiness?.ready, githubConfigured, modelReady)
-                .takeIf { identityMatches }
+            gatewayReadiness = AppAuditGatewayReadiness(binding != null, capability.readiness?.ready, githubConfigured, modelReady).takeIf { identityMatches }
         )
+        if (reason != null || binding == null) return observation(reason)
+        val boundConfig = config.withGatewayIdentity(GatewayScopeIdentity(requireNotNull(installation), requireNotNull(principal)))
+        return try {
+            client.bindingCapabilities(boundConfig, requireNotNull(selection), requireNotNull(bindingId))
+            observation(modelReady = true)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            val blocker = engineeringFailureReason(failure)
+            observation(blocker, false.takeIf { blocker == "GATEWAY_SAVED_MODEL_NOT_READY" }, engineeringFailureStatus(failure))
+        }
+    }
+
+    private fun engineeringFailureStatus(failure: Exception): Int? = when (failure) {
+        is GatewayAdmissionException -> failure.httpStatus
+        is GatewayExecutionRejected -> failure.httpStatus
+        else -> null
+    }
+
+    private fun engineeringFailureReason(failure: Exception): String = when (failure) {
+        is GatewayAdmissionException -> when {
+            failure.reason in setOf(GatewayAdmissionReason.IDENTITY_MISMATCH, GatewayAdmissionReason.SOURCE_MISMATCH, GatewayAdmissionReason.TRANSPORT_IDENTITY_REQUIRED) -> "GATEWAY_ENGINEERING_IDENTITY_CHANGED"
+            failure.httpStatus in setOf(401, 403) || failure.reason == GatewayAdmissionReason.MISSING_SCOPE -> "GATEWAY_ENGINEERING_AUTHENTICATION_REQUIRED"
+            failure.reason in setOf(GatewayAdmissionReason.TRANSPORT_INTERRUPTED, GatewayAdmissionReason.INVALID_CONNECTION) -> "GATEWAY_ENGINEERING_TRANSPORT_UNAVAILABLE"
+            failure.reason == GatewayAdmissionReason.UNSUPPORTED_CONTRACT -> "GATEWAY_ENGINEERING_ROUTE_UNAVAILABLE"
+            else -> "GATEWAY_CAPABILITY_UNAVAILABLE"
+        }
+        is GatewayExecutionRejected -> when (failure.code) {
+            "EXECUTION_BINDING_REVOKED", "EXECUTION_METADATA_DENIED" -> "GATEWAY_ENGINEERING_AUTHENTICATION_REQUIRED"
+            "EXECUTION_CONFIGURATION_CHANGED", "EXECUTION_BINDING_CORRUPT", "EXECUTION_SELECTION_MISMATCH" -> "GATEWAY_ENGINEERING_IDENTITY_CHANGED"
+            "EXECUTION_BACKEND_UNAVAILABLE", "EXECUTION_ENDPOINT_UNAVAILABLE", "EXECUTION_METADATA_DEADLINE" -> "GATEWAY_ENGINEERING_TRANSPORT_UNAVAILABLE"
+            "EXECUTION_MODEL_UNAVAILABLE", "EXECUTION_MODEL_NOT_LOADED", "EXECUTION_MODEL_LOADING", "EXECUTION_MODEL_MISMATCH",
+            "EXECUTION_MODEL_REVISION_CHANGED", "EXECUTION_MODEL_IDENTITY_INVALID" -> "GATEWAY_SAVED_MODEL_NOT_READY"
+            else -> "GATEWAY_SAVED_BINDING_UNAVAILABLE"
+        }
+        else -> "GATEWAY_CAPABILITY_UNAVAILABLE"
     }
 
     private suspend fun gatewayCredentialIdentity(profile: PlatformV2): String? {
@@ -400,7 +450,7 @@ internal class AppAuditPluginServices @Inject constructor(
                 else -> AppAuditDispatchEvidence.UNKNOWN
             }
             val prerequisiteBlocked = dispatch == AppAuditDispatchEvidence.NOT_DISPATCHED &&
-                presentation.errorCode in setOf("MCP_LOCAL_CREDENTIAL_MISSING", "MCP_LOCAL_CREDENTIAL_INVALID")
+                presentation.errorCode in setOf("MCP_LOCAL_CREDENTIAL_MISSING", "MCP_LOCAL_CREDENTIAL_INVALID", "MCP_LOCAL_CREDENTIAL_REFRESH_REQUIRED")
             AppAuditObservation(
                 if (cached || prerequisiteBlocked || !dispatched && source == McpDiscoverySource.SHARED) AppAuditOutcome.BLOCKED else AppAuditOutcome.FAIL,
                 presentation.errorCode?.takeIf { it in AppAuditPluginProbeSource.reasonCodes } ?: "MCP_DISCOVERY_UNAVAILABLE",
@@ -492,6 +542,7 @@ internal class AppAuditPluginServices @Inject constructor(
 
     private companion object {
         val RECORD_REVISION = Regex("[a-f0-9]{64}")
+        val SAVED_BINDING_ID = Regex("bind_[a-f0-9]{32}")
         val FRESH_CONTRACT_RECHECK_CODES = setOf(
             "MCP_PROTOCOL_VERSION_UNSUPPORTED", "MCP_INITIALIZATION_SCHEMA_INVALID", "MCP_DISCOVERY_SCHEMA_INVALID", "MCP_DISCOVERY_CONFIGURATION",
             "MCP_CATALOG_SCHEMA_INVALID", "MCP_CATALOG_LIMIT_EXCEEDED", "MCP_RESPONSE_ID_MISMATCH", "MCP_RESPONSE_SCHEMA_INVALID", "MCP_ENDPOINT_CONFIGURATION"

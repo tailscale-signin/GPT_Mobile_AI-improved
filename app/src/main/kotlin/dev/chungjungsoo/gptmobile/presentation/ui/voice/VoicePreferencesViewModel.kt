@@ -10,6 +10,7 @@ import dev.chungjungsoo.gptmobile.data.voice.KokoroVoice
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelStore
 import dev.chungjungsoo.gptmobile.data.voice.VoicePreferenceWriter
 import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionBackend
+import java.io.File
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -28,15 +29,17 @@ internal data class VoicePreferences(
     val voice: String = "",
     val recognitionBackend: VoiceRecognitionBackend = VoiceRecognitionBackend.LOCAL_MOONSHINE,
     val kokoroVoice: KokoroVoice? = null,
-    val spokenReplies: Boolean = true
+    val spokenReplies: Boolean = true,
+    val kokoroThreads: Int = 2
 )
+
+internal data class VoiceModelStores(val moonshine: LocalVoiceModelStore, val kokoro: LocalVoiceModelStore)
 
 /** No preference open/read/write may block composition or microphone startup. */
 @HiltViewModel
 internal class VoicePreferencesViewModel @Inject constructor(@ApplicationContext private val context: Context) : ViewModel() {
-    val localModels = LocalVoiceModelStore(context)
-    val localModelState = localModels.state
-    val kokoroModels = KokoroModelPack.store(context)
+    private val _modelStores = MutableStateFlow<VoiceModelStores?>(null)
+    val modelStores = _modelStores.asStateFlow()
     private var modelInstall: Job? = null
     private var kokoroInstall: Job? = null
     private val _preferences = MutableStateFlow<VoicePreferences?>(null)
@@ -50,12 +53,20 @@ internal class VoicePreferencesViewModel @Inject constructor(@ApplicationContext
                 .putString("voice", value.voice)
                 .putString("recognition_backend", value.recognitionBackend.name)
                 .putString("kokoro_voice", value.kokoroVoice?.name)
-                .putBoolean("spoken_replies", value.spokenReplies).apply()
+                .putBoolean("spoken_replies", value.spokenReplies)
+                .putInt("kokoro_threads", value.kokoroThreads).apply()
         }
     }
 
     init {
-        viewModelScope.launch { localModels.refresh() }
+        viewModelScope.launch {
+            val stores = withContext(Dispatchers.IO) {
+                val directory = File(context.noBackupFilesDir, "voice-models")
+                VoiceModelStores(LocalVoiceModelStore(directory), KokoroModelPack.store(directory))
+            }
+            _modelStores.value = stores
+            stores.moonshine.refresh()
+        }
         viewModelScope.launch {
             val loaded = withContext(Dispatchers.IO) {
                 val saved = context.getSharedPreferences("voice_presentation", Context.MODE_PRIVATE)
@@ -69,7 +80,8 @@ internal class VoicePreferencesViewModel @Inject constructor(@ApplicationContext
                     voice = saved.getString("voice", "").orEmpty(),
                     recognitionBackend = VoiceRecognitionBackend.fromSaved(saved.getString("recognition_backend", null)),
                     kokoroVoice = KokoroVoice.fromSaved(saved.getString("kokoro_voice", null)),
-                    spokenReplies = saved.getBoolean("spoken_replies", true)
+                    spokenReplies = saved.getBoolean("spoken_replies", true),
+                    kokoroThreads = saved.getInt("kokoro_threads", 2).coerceIn(2, 4)
                 )
             }
             _preferences.compareAndSet(null, loaded)
@@ -83,35 +95,37 @@ internal class VoicePreferencesViewModel @Inject constructor(@ApplicationContext
 
     fun installLocalModel() {
         if (modelInstall?.isActive == true) return
+        val localModels = _modelStores.value?.moonshine ?: return
         modelInstall = viewModelScope.launch { localModels.install() }
     }
 
     fun cancelLocalModelInstall() {
-        localModels.cancelInstall()
+        _modelStores.value?.moonshine?.cancelInstall()
         modelInstall?.cancel()
     }
 
     fun removeLocalModel() {
-        viewModelScope.launch { localModels.remove() }
+        viewModelScope.launch { _modelStores.value?.moonshine?.remove() }
     }
 
     fun installKokoroModel() {
         if (kokoroInstall?.isActive == true) return
+        val kokoroModels = _modelStores.value?.kokoro ?: return
         kokoroInstall = viewModelScope.launch { kokoroModels.install() }
     }
 
     fun cancelKokoroInstall() {
-        kokoroModels.cancelInstall()
+        _modelStores.value?.kokoro?.cancelInstall()
         kokoroInstall?.cancel()
     }
 
     fun removeKokoroModel() {
-        viewModelScope.launch { kokoroModels.remove() }
+        viewModelScope.launch { _modelStores.value?.kokoro?.remove() }
     }
 
     override fun onCleared() {
-        localModels.cancelInstall()
-        kokoroModels.cancelInstall()
+        _modelStores.value?.moonshine?.cancelInstall()
+        _modelStores.value?.kokoro?.cancelInstall()
         super.onCleared()
     }
 }

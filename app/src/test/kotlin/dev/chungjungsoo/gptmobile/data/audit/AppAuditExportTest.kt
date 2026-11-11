@@ -102,6 +102,15 @@ class AppAuditExportTest {
     }
 
     @Test
+    fun exportsDistinctInferenceAndSavedJobGatewayChecks() = runBlocking {
+        val inference = entry("inference").copy(probeId = AppAuditPluginProbeSource.GATEWAY_CAPABILITIES, componentId = "gateway_connection")
+        val engineering = entry("engineering").copy(probeId = AppAuditPluginProbeSource.GATEWAY_CAPABILITIES, componentId = AppAuditPluginProbeSource.ENGINEERING_GATEWAY_COMPONENT)
+        val plan = export(batch(run(listOf(inference, engineering))))["checks"]!!.jsonArray.map { it.jsonObject }
+        assertEquals(listOf("gateway_connection", "engineering_gateway_connection"), plan.map { it["componentId"]!!.jsonPrimitive.content })
+        assertEquals(listOf("Inference Gateway capability contract", "Saved jobs Gateway readiness"), plan.map { it["label"]!!.jsonPrimitive.content })
+    }
+
+    @Test
     fun configurationAndCacheDoNotEarnMeasuredPassScore() = runBlocking {
         val config = entry("config").copy(evidenceKind = AppAuditEvidenceKind.CONFIGURATION)
         val cached = entry("cached")

@@ -107,6 +107,7 @@ internal fun appAuditModelProfileUid(entry: AppAuditPlanEntry): String? = entry.
     ?.takeIf { it.isNotBlank() && it.length <= 160 && it.none(Char::isISOControl) }
 
 internal fun appAuditConnectionActionLabel(item: AppAuditEntryPresentation): String = when (item.result?.reasonCode ?: item.entry.reasonCode) {
+    "MCP_LOCAL_CREDENTIAL_REFRESH_REQUIRED" -> "Reconnect saved connection"
     "MCP_LOCAL_CREDENTIAL_MISSING", "MCP_LOCAL_CREDENTIAL_INVALID", "PLUGIN_CREDENTIAL_IDENTITY_UNAVAILABLE",
     "MCP_AUTHENTICATION_REQUIRED", "AUTHENTICATION_FAILED" -> "Repair credentials and reconnect"
     else -> "Open connection settings and checks"
@@ -200,7 +201,8 @@ internal fun appAuditReasonCodeMessage(code: String?): String? = when (code) {
     "SERVICE_INTERRUPTION" -> "Android background tracking was interrupted. Recorded evidence is retained; only remaining checks can resume."
     "EXTERNAL_HARNESS_REQUIRED" -> "Requires an external test harness; this in-app audit has not measured it."
     "INVENTORY_UNAVAILABLE" -> "The configured inventory could not be inspected. Its runtime behavior is unverified."
-    "MCP_DISCOVERY_VERIFIED", "MCP_EMPTY_CATALOG" -> "This check covers catalogue metadata. Individual plugin tools were not executed."
+    "MCP_DISCOVERY_VERIFIED" -> "This check covers catalogue metadata. Individual plugin tools were not executed."
+    "MCP_EMPTY_CATALOG" -> "No tools advertised. Review tool exposure on the server or exclude this connection from tool execution if it is intentionally resource-only."
     "GATEWAY_CAPABILITY_VERIFIED" -> "This check covers gateway capability metadata. Model and task execution were not measured."
     "PLUGIN_CONFIGURATION_ONLY" -> "Configuration was inspected; plugin runtime behavior was not established."
     "PLUGIN_EXECUTION_NOT_EXERCISED" -> "Tool execution was outside this audit. This result does not verify tool behavior."
@@ -217,8 +219,17 @@ internal fun appAuditReasonCodeMessage(code: String?): String? = when (code) {
     "MCP_LOCAL_AUTH_TYPE_INVALID" -> "The saved authentication type is unsupported. Choose a supported authentication method in this connection's settings before checking again."
     "MCP_LOCAL_CONNECTION_INVALID" -> "The saved connection identity is invalid. Open the intended connection's settings and save it again before checking discovery."
     "MCP_LOCAL_CREDENTIAL_MISSING", "MCP_LOCAL_CREDENTIAL_INVALID" -> "The saved credential is missing or invalid. Replace it or sign in again in this connection's settings. This local rejection did not send an MCP request."
+    "MCP_LOCAL_CREDENTIAL_REFRESH_REQUIRED" -> "Refresh required. Reconnect this saved connection to renew its OAuth token, then start a new audit."
     "MCP_BACKOFF_ACTIVE" -> "The connection is still in its recovery cooldown. This audit does not bypass the retry policy."
     "GATEWAY_PROFILE_UNAVAILABLE", "GATEWAY_PROFILE_UNSUPPORTED" -> "The explicitly selected gateway profile is unavailable or unsupported. Select the intended saved gateway profile for a new audit."
+    "GATEWAY_ENGINEERING_PROFILE_REQUIRED" -> "Restore the saved job's engineering Gateway connection before checking it."
+    "GATEWAY_ENGINEERING_CAPABILITY_VERIFIED" -> "The engineering Gateway reported readiness for this connection. Task execution remains untested."
+    "GATEWAY_ENGINEERING_READINESS_UNAVAILABLE", "GATEWAY_ENGINEERING_NOT_READY" -> "The engineering Gateway did not report ready. Check its saved-job service status."
+    "GATEWAY_ENGINEERING_GITHUB_REQUIRED", "GATEWAY_ENGINEERING_GITHUB_UNVERIFIED" -> "Verify the GitHub connection on the engineering Gateway host, then check readiness again."
+    "GATEWAY_ENGINEERING_AUTHENTICATION_REQUIRED" -> "The Gateway or its configured backend denied access. Review the saved connection and its permissions."
+    "GATEWAY_ENGINEERING_TRANSPORT_UNAVAILABLE", "GATEWAY_ENGINEERING_ROUTE_UNAVAILABLE" -> "The engineering Gateway or its configured backend could not answer the readiness request. Check the saved endpoint and service."
+    "GATEWAY_ENGINEERING_IDENTITY_CHANGED", "GATEWAY_SAVED_JOB_IDENTITY_UNAVAILABLE", "GATEWAY_SAVED_BINDING_UNAVAILABLE" -> "The original saved job binding could not be verified. Open the job and review its Gateway, account, and model."
+    "GATEWAY_SAVED_MODEL_NOT_READY" -> "The saved job's exact model is not ready. Check its load status on the desktop Gateway."
     "CONNECTION_REFUSED", "DNS_FAILED", "DNS_RECOVERY", "ROUTE_UNAVAILABLE", "TLS_FAILURE" -> "The configured service could not be reached securely. Check its connection settings before retrying."
     else -> null
 }

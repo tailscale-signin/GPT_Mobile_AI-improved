@@ -86,11 +86,14 @@ class GitHubRepositoryLiveReadTest {
     }
 
     @Test fun aLocalOnlyOperationExplicitlyReportsThatForcedTransportWasNotPerformed() {
-        val receipt = GitHubDispatchAccounting(forceLiveReads = true, record = {})
-            .finish(AgentToolResult("local", ToolResultContent.Text("Retained local state"), false), false).executionReceipt!!
+        val result = GitHubDispatchAccounting(forceLiveReads = true, record = {})
+            .finish(AgentToolResult("local", ToolResultContent.Text("Retained local state"), false), false)
+        assertTrue(result.isError)
+        assertEquals("GITHUB_LIVE_OBSERVATION_REQUIRED", result.errorCode)
+        val receipt = result.executionReceipt!!
         assertEquals(JsonPrimitive(false), receipt["live_read_performed"])
         assertEquals(JsonPrimitive("NOT_PERFORMED"), receipt["live_read_status"])
-        assertEquals(JsonPrimitive("LOCAL_OR_REPLAYED"), receipt["phase"])
+        assertEquals(JsonPrimitive("PREFLIGHT_REJECTED"), receipt["phase"])
     }
 
     @Test fun limitAndEofReadsPreserveExactContinuationAndRejectConflictingBounds() = runTest {

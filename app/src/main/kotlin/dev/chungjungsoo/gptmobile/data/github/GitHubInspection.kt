@@ -28,10 +28,11 @@ internal class GitHubInspection(private val get: suspend (String) -> JsonElement
         }
     } catch (cancelled: CancellationException) {
         throw cancelled
-    } catch (_: Exception) {
+    } catch (failure: Exception) {
         buildJsonObject {
             put("available", false)
             put("state", "unknown")
+            put("http_status", (failure as? GitHubRequestRejected)?.status?.takeIf { it in 100..599 })
             put("reason", "Endpoint unavailable or access denied; no permission or absence inferred.")
         }
     }
@@ -68,8 +69,8 @@ internal class GitHubInspection(private val get: suspend (String) -> JsonElement
             "search_issues" -> {
                 val repository = root.removePrefix("/repos/")
                 val query = required("query")
-                val scopes = Regex("(?i)(?:^|\\s)repo:([^\\s]+)").findAll(query).map { it.groupValues[1] }.toList()
-                require(issueSearchQualifier.containsMatchIn(query) && query.length <= 512 && scopes.all { it.equals(repository, true) }) { "Use an issue or PR qualifier in the selected repository." }
+                val scopes = Regex("(?i)(?:^|\\s)(-?(?:repo|org|user):[^\\s]+)").findAll(query).map { it.groupValues[1] }.toList()
+                require(issueSearchQualifier.containsMatchIn(query) && query.length <= 512 && scopes.all { it.equals("repo:$repository", true) }) { "Use an issue or PR qualifier in the selected repository." }
                 val perPage = args.s("per_page").ifBlank { "30" }.toInt().also { require(it in 1..100) }
                 val response = get("/search/issues?q=${segment("$query repo:$repository")}&per_page=$perPage&page=$page").jsonObject
                 val items = (response["items"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()

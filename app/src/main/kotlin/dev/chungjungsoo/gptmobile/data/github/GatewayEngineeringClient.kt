@@ -27,10 +27,13 @@ import io.ktor.utils.io.readLine
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
@@ -45,11 +48,12 @@ class GatewayEngineeringClient internal constructor(
     private val json = Json { ignoreUnknownKeys = true }
     private data class CapabilityAttempt(val capability: GatewayEngineeringCapabilities? = null, val failure: GatewayAdmissionException? = null)
     private val capabilityCache = RouteCapabilityCache<CapabilityAttempt>({ System.nanoTime() / 1_000_000 }, positiveTtl = 10_000, negativeTtl = 60_000)
-    private fun capabilityKey(config: ProviderRequestConfig) = "${GatewayClientDiagnostics.routeIdentity(config)}|${LocalServiceHealth.networkEpoch}|${GatewayClientDiagnostics.capabilityEpoch(config)}"
+    private fun capabilityKey(config: ProviderRequestConfig) = "${selectionDigest(JsonPrimitive(config.buildEndpoint("gateway/engineering/capabilities")))}|${GatewaySurfacePolicy.identity(config)}"
 
     private suspend fun request(config: ProviderRequestConfig, path: String, body: String? = null, approval: Boolean = false, root: String = "gateway/engineering"): String {
         val diagnostic = GatewayClientDiagnostics.withHeaders(config, model = "", knownGateway = true)
         val endpoint = config.buildEndpoint("$root/$path")
+        val bindingRead = body == null && path.startsWith("bindings/") && path.endsWith("/capabilities")
         val exchange: suspend () -> String = {
             gatewayClientExchange(diagnostic, "engineering", safeRead = body == null, method = if (body == null) "GET" else "POST") { headers ->
                 val repositoryRequest = path == "repository-operations" || path.startsWith("repository-operations/")
@@ -78,7 +82,11 @@ class GatewayEngineeringClient internal constructor(
                         if (path == "capabilities") throw gatewayAdmissionFailure(response.status.value, GatewayAdmissionSurface.CAPABILITIES, response.headers["X-Gateway-Admission-Error"], payload)
                         val error = runCatching { json.parseToJsonElement(payload) as? JsonObject }.getOrNull()
                         val detail = error?.get("error") as? JsonObject ?: error?.get("detail") as? JsonObject ?: error
-                        val code = detail?.get("code")?.jsonPrimitive?.content
+                        val code = (detail?.get("code") as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
+                        val executionRejection = code?.takeIf { it.matches(Regex("(?:EXECUTION|SELECTED_ONLY|INFERENCE)_[A-Z0-9_]{1,80}")) }
+                        if (bindingRead && (response.status.value in setOf(401, 403) || executionRejection == null)) {
+                            throw gatewayAdmissionFailure(response.status.value, GatewayAdmissionSurface.CAPABILITIES, response.headers["X-Gateway-Admission-Error"], payload)
+                        }
                         if (path == "graph" && code == "graph_connection_required" && response.status.value in setOf(412, 503)) {
                             val readiness = runCatching { error?.get("readiness")?.let { json.decodeFromJsonElement(GatewayEngineeringReadiness.serializer(), it) } }.getOrNull()
                             val missing = GatewayGraphPrerequisite.missing(GatewayEngineeringCapabilities("engineering-gateway", 1, readiness = readiness))
@@ -100,8 +108,8 @@ class GatewayEngineeringClient internal constructor(
                             }
                             throw GatewayEngineeringRequestRejected(response.status.value, message)
                         }
-                        if (code != null && code.matches(Regex("(?:EXECUTION|SELECTED_ONLY|INFERENCE)_[A-Z0-9_]{1,80}"))) {
-                            throw GatewayExecutionRejected(code, response.status.value)
+                        if (executionRejection != null) {
+                            throw GatewayExecutionRejected(executionRejection, response.status.value)
                         }
                     }
                     check(response.status.isSuccess()) {
@@ -124,7 +132,6 @@ class GatewayEngineeringClient internal constructor(
 
     /** Explicit repair check: discard stale admission evidence before reading this exact saved route. */
     suspend fun refreshCapabilities(config: ProviderRequestConfig): GatewayEngineeringCapabilities {
-        GatewaySurfacePolicy.shared.invalidate(GatewaySurfacePolicy.identity(config), GatewaySurfacePolicy.Surface.CAPABILITIES)
         LocalServiceHealth.checkAgain(config.apiUrl)
         return capabilities(config, forceRefresh = true)
     }
@@ -139,7 +146,6 @@ class GatewayEngineeringClient internal constructor(
 
     suspend fun capabilities(config: ProviderRequestConfig, forceRefresh: Boolean = false): GatewayEngineeringCapabilities {
         val attempt = capabilityCache.getOrLoad(capabilityKey(config), forceRefresh = forceRefresh) {
-            if (GatewaySurfacePolicy.shared.rememberedStatus(GatewaySurfacePolicy.identity(config), GatewaySurfacePolicy.Surface.CAPABILITIES) != null) return@getOrLoad null
             val payload = try {
                 request(config, "capabilities")
             } catch (_: UnsupportedEngineeringGateway) {
@@ -149,13 +155,7 @@ class GatewayEngineeringClient internal constructor(
             } catch (failure: GatewayAdmissionException) {
                 return@getOrLoad CapabilityAttempt(failure = failure)
             } catch (failure: Exception) {
-                val causes = generateSequence<Throwable>(failure) { it.cause?.takeUnless { cause -> cause === it } }.take(8).toList()
-                val reason = when {
-                    causes.any { it is javax.net.ssl.SSLException || it is java.security.cert.CertificateException } -> GatewayAdmissionReason.INVALID_CONNECTION
-                    causes.any { it is java.io.IOException || it is LocalServiceUnavailableException || it.javaClass.simpleName in setOf("HttpRequestTimeoutException", "ConnectTimeoutException", "SocketTimeoutException") } -> GatewayAdmissionReason.TRANSPORT_INTERRUPTED
-                    else -> GatewayAdmissionReason.INVALID_RESPONSE
-                }
-                return@getOrLoad CapabilityAttempt(failure = GatewayAdmissionException(reason, null, null, GatewayAdmissionSurface.CAPABILITIES))
+                return@getOrLoad CapabilityAttempt(failure = capabilityReadFailure(failure))
             }
             val capability = try {
                 json.decodeFromString<GatewayEngineeringCapabilities>(payload)
@@ -192,10 +192,44 @@ class GatewayEngineeringClient internal constructor(
 
     suspend fun bindingCapabilities(config: ProviderRequestConfig, selection: GatewayExecutionSelection, bindingId: String): GatewayExecutionAdmission {
         require(bindingId.matches(Regex("bind_[a-f0-9]{32}")))
-        return json.decodeFromString<GatewayExecutionAdmission>(request(config, "bindings/$bindingId/capabilities")).also {
-            it.verify(selection)
-            check(it.bindingId == bindingId) { "The gateway execution binding changed." }
+        val payload = try {
+            request(config, "bindings/$bindingId/capabilities")
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: GatewayAdmissionException) {
+            throw failure
+        } catch (failure: GatewayExecutionRejected) {
+            throw failure
+        } catch (failure: Exception) {
+            throw capabilityReadFailure(failure)
         }
+        val admission = try {
+            json.decodeFromString<GatewayExecutionAdmission>(payload)
+        } catch (_: SerializationException) {
+            throw GatewayAdmissionException(GatewayAdmissionReason.INVALID_RESPONSE, 200, null, GatewayAdmissionSurface.CAPABILITIES)
+        }
+        val expectedInstallation = config.extraHeaders.entries.firstOrNull { it.key.equals("X-Gateway-Installation-ID", true) }?.value
+        try {
+            admission.verifySelection(selection)
+            check(admission.bindingId == bindingId)
+            if (expectedInstallation != null) check(admission.binding["gateway_installation_id"] == JsonPrimitive(expectedInstallation))
+        } catch (_: IllegalStateException) {
+            throw GatewayAdmissionException(GatewayAdmissionReason.IDENTITY_MISMATCH, 200, null, GatewayAdmissionSurface.CAPABILITIES)
+        } catch (_: IllegalArgumentException) {
+            throw GatewayAdmissionException(GatewayAdmissionReason.INVALID_RESPONSE, 200, null, GatewayAdmissionSurface.CAPABILITIES)
+        }
+        if (!admission.provesModel(selection)) throw GatewayExecutionRejected("EXECUTION_MODEL_MISMATCH", 200)
+        return admission
+    }
+
+    private fun capabilityReadFailure(failure: Exception): GatewayAdmissionException {
+        val causes = generateSequence<Throwable>(failure) { it.cause?.takeUnless { cause -> cause === it } }.take(8).toList()
+        val reason = when {
+            causes.any { it is javax.net.ssl.SSLException || it is java.security.cert.CertificateException } -> GatewayAdmissionReason.INVALID_CONNECTION
+            causes.any { it is java.io.IOException || it is LocalServiceUnavailableException || it.javaClass.simpleName in setOf("HttpRequestTimeoutException", "ConnectTimeoutException", "SocketTimeoutException") } -> GatewayAdmissionReason.TRANSPORT_INTERRUPTED
+            else -> GatewayAdmissionReason.INVALID_RESPONSE
+        }
+        return GatewayAdmissionException(reason, null, null, GatewayAdmissionSurface.CAPABILITIES)
     }
 
     suspend fun requireGraphReady(config: ProviderRequestConfig): String = capabilities(config).requireGraphReadiness()

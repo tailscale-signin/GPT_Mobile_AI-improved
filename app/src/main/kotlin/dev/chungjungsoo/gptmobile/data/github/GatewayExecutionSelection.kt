@@ -39,8 +39,12 @@ data class GatewayExecutionAdmission(val binding: JsonObject, val capabilities: 
 
     fun verify(selection: GatewayExecutionSelection) {
         verifySelection(selection)
-        check(capabilities["requested_model_id"]?.jsonPrimitive?.content == selection.requestedModelId && capabilities["reported_model_id"]?.jsonPrimitive?.content == selection.requestedModelId) { "The configured backend did not prove the exact selected model identity." }
+        check(provesModel(selection)) { "The configured backend did not prove the exact selected model identity." }
     }
+
+    internal fun provesModel(selection: GatewayExecutionSelection): Boolean =
+        capabilities["requested_model_id"] == JsonPrimitive(selection.requestedModelId) &&
+            capabilities["reported_model_id"] == JsonPrimitive(selection.requestedModelId)
 
     /** Local identity comparison does not claim fresh backend capability evidence. */
     fun verifySelection(selection: GatewayExecutionSelection) {

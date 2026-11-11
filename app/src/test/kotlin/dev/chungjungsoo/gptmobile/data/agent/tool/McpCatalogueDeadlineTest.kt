@@ -273,6 +273,7 @@ class McpCatalogueDeadlineTest {
                 }
                 respond(
                     buildJsonObject {
+                        put("jsonrpc", "2.0")
                         put("id", body.getValue("id"))
                         put("result", result)
                     }.toString(),
@@ -311,6 +312,7 @@ class McpCatalogueDeadlineTest {
                 }
                 respond(
                     buildJsonObject {
+                        put("jsonrpc", "2.0")
                         put("id", body.getValue("id"))
                         put("result", result)
                     }.toString(),

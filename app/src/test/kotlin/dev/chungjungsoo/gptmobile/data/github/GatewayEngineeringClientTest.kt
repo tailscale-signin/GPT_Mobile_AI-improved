@@ -93,21 +93,27 @@ class GatewayEngineeringClientTest {
         followRedirects = false
     }
 
-    @Test fun aConfirmedDirectRouteSkipsEngineeringDiscoveryUntilItsIdentityChanges() = runTest {
+    @Test fun engineeringDiscoveryUsesItsOwnAuthenticatedRouteAndCanRefreshNegativeEvidence() = runTest {
         val direct = config.copy(apiUrl = "https://confirmed-direct.example/v1")
         GatewaySurfacePolicy.shared.observe(GatewaySurfacePolicy.identity(direct), GatewaySurfacePolicy.Surface.CAPABILITIES, 404)
         var calls = 0
         http(
             MockEngine {
                 calls++
-                respond("""{"service":"engineering-gateway","protocol_version":1,"enabled":true,"principal_id":"new-account"}""")
+                if (calls == 1) {
+                    respond("", HttpStatusCode.NotFound)
+                } else {
+                    respond("""{"service":"engineering-gateway","protocol_version":1,"enabled":true,"principal_id":"new-account"}""")
+                }
             }
         ).use { http ->
             val client = GatewayEngineeringClient(http)
             assertTrue(runCatching { client.capabilities(direct) }.exceptionOrNull() is GatewayGraphUnavailableException)
-            assertEquals(0, calls)
-            assertEquals("new-account", client.principal(direct.copy(token = "new-token")))
+            assertTrue(runCatching { client.capabilities(direct) }.exceptionOrNull() is GatewayGraphUnavailableException)
             assertEquals(1, calls)
+            assertEquals("new-account", client.capabilities(direct, forceRefresh = true).principalId)
+            assertEquals("new-account", client.principal(direct.copy(token = "new-token")))
+            assertEquals(3, calls)
         }
     }
 

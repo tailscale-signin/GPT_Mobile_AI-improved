@@ -1,5 +1,11 @@
 package dev.chungjungsoo.gptmobile.data.voice
 
+/** Main-thread input for one reply. stop() on the owning VoiceAudio cancels the stream. */
+interface VoiceReplyPlayback {
+    fun enqueue(text: String)
+    fun finish()
+}
+
 /** Versioned boundary shared by installed local recognition and Android speech. */
 interface VoiceAudio {
     interface Listener {
@@ -16,6 +22,8 @@ interface VoiceAudio {
     fun retryAfterMillis(): Long = 0
     fun listen(listener: Listener)
     fun speak(text: String, complete: () -> Unit, error: (String) -> Unit)
+    val streamsReplies: Boolean get() = false
+    fun openReply(complete: () -> Unit, error: (String) -> Unit): VoiceReplyPlayback? = null
     fun stop()
     fun close()
 }
@@ -69,6 +77,8 @@ class VoiceSession(
     private var streamComplete = false
     private var streamAudio = true
     private var playbackSequence = 0L
+    private var replyPlayback: VoiceReplyPlayback? = null
+    private var playbackFinished = false
     private fun resetStream() {
         streamId = null
         speechBuffer = VoiceSpeechBuffer()
@@ -76,6 +86,8 @@ class VoiceSession(
         chunkPlaying = false
         streamComplete = false
         streamAudio = true
+        replyPlayback = null
+        playbackFinished = false
     }
     var editBeforeSend = false
     var autoContinue = false
@@ -135,6 +147,8 @@ class VoiceSession(
         generation++
         queuedSpeech.clear()
         chunkPlaying = false
+        replyPlayback = null
+        playbackFinished = false
         if (streamId != null) streamAudio = false
         audio.stop()
     }
@@ -246,7 +260,7 @@ class VoiceSession(
         }
         update(state.copy(reply = text))
         streamComplete = complete
-        val chunks = speechBuffer.append(text, complete)
+        val chunks = speechBuffer.append(text, complete, earlyStart = audio.streamsReplies)
         if (chunks == null) {
             stopAudio()
             update(state.copy(phase = VoicePhase.THINKING, notice = "The response was revised. The current answer is available in chat."))
@@ -262,6 +276,28 @@ class VoiceSession(
             if (streamComplete) {
                 waiting = false
                 if (engaged) continueTurn() else pause()
+            }
+            return
+        }
+        if (replyPlayback == null && queuedSpeech.isNotEmpty() && audio.streamsReplies) {
+            val ticket = generation
+            replyPlayback = audio.openReply(
+                complete = {
+                    if (ticket == generation && replyPlayback != null) {
+                        replyPlayback = null
+                        waiting = false
+                        continueTurn()
+                    }
+                },
+                error = { message -> if (ticket == generation) fail(message) }
+            )
+            if (replyPlayback != null) update(state.copy(phase = VoicePhase.SPEAKING))
+        }
+        replyPlayback?.let { playback ->
+            while (replyPlayback === playback) playback.enqueue(queuedSpeech.removeFirstOrNull() ?: break)
+            if (replyPlayback === playback && streamComplete && !playbackFinished) {
+                playbackFinished = true
+                playback.finish()
             }
             return
         }
@@ -297,6 +333,11 @@ class VoiceSession(
     fun reply(id: String, text: String, failed: Boolean = false) {
         if (!waiting || id == lastReply || state.phase == VoicePhase.CLOSED) return
         if (streamId == id && !failed && text.isNotBlank()) {
+            lastReply = id
+            streamReply(id, text, complete = true)
+            return
+        }
+        if (streamId == null && !failed && text.isNotBlank() && audio.streamsReplies) {
             lastReply = id
             streamReply(id, text, complete = true)
             return

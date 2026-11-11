@@ -29,9 +29,11 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
         if (!numberedRemotePage(args)) return null
         val key = key(operation, args)
         val end = ends[key]
-        if (page(args) == 1 && (end != null || args["verify_live"] == JsonPrimitive(true))) {
-            ends.remove(key)
-            traversals.remove(key)
+        if (args["verify_live"] == JsonPrimitive(true) || page(args) == 1 && end != null) {
+            if (page(args) == 1) {
+                ends.remove(key)
+                traversals.remove(key)
+            }
             return null
         }
         if (end == null) return null

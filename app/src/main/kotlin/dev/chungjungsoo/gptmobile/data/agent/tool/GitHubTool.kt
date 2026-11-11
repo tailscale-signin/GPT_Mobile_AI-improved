@@ -643,7 +643,7 @@ class GitHubTool(
         }
         repositoryScope?.let { selected ->
             val action = (arguments["action"] as? JsonPrimitive)?.content.orEmpty()
-            if (action in setOf("search_repositories", "search_issues", "search_code", "list_repositories") || (action == "build_index" && !selected.prepareIndex)) {
+            if (action in setOf("search_repositories", "search_code", "list_repositories") || (action == "build_index" && !selected.prepareIndex)) {
                 return AgentToolResult(callId, ToolResultContent.Text("This programmer conversation uses the selected repository only. Use pinned repository search; index preparation requires its workspace option."), true, errorCode = "REPOSITORY_SCOPE_MISMATCH", dispatched = false)
             }
             val sourceRead = repository.first != null && repository.second != null && targetPolicy.suppliedRead(action, "${repository.first}/${repository.second}")
@@ -2210,7 +2210,9 @@ class GitHubTool(
         val credential = requestCredential()
         val resourcePath = url.removePrefix(BASE_URL)
         credential.refAvailability.requireAvailable(resourcePath)
-        scheduler.execute("$url:$durableIdentity:${dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore.digest(credential.token)}") {
+        val forceLive = kotlinx.coroutines.currentCoroutineContext()[GitHubDispatchAccounting]?.forceLiveReads == true
+        val sharedKey = if (forceLive) null else "$url:$durableIdentity:${dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore.digest(credential.token)}"
+        scheduler.execute(sharedKey) {
             check(!credential.authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
             credential.refAvailability.requireAvailable(resourcePath)
             rateLimits.requireAvailable(if (url.contains("/search/")) "search" else "core")

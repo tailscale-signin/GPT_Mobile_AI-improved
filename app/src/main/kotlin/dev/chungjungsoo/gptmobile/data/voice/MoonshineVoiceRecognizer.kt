@@ -44,7 +44,7 @@ internal class MoonshineVoiceRecognizer internal constructor(
     private val captureFactory: () -> LocalVoiceCapture,
     private val worker: ExecutorService
 ) : VoiceRecognitionInput {
-    constructor(context: Context, modelStore: LocalVoiceModelStore = LocalVoiceModelStore(context)) : this(
+    constructor(context: Context, modelStore: LocalVoiceModelStore) : this(
         modelsReady = modelStore::acquireUse,
         modelDirectory = modelStore::modelDirectory,
         releaseModel = modelStore::releaseUse,

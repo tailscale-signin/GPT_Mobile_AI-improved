@@ -776,7 +776,7 @@ internal class GitHubVerifiedSession(
                         }
                     } else {
                         originalFailure?.failureDetails ?: buildJsonObject {
-                            put("failed_stage", "acceptance_verification")
+                            put("failed_stage", if (extractionCode?.startsWith("GITHUB_EXTRACTION_") == true) "claim_extraction" else "acceptance_verification")
                             val stop = delivered["stop_reason"] as? JsonObject
                             put("stop_reason", stop?.get("code") ?: kotlinx.serialization.json.JsonPrimitive("UNVERIFIED_ACCEPTANCE_CRITERIA"))
                             stop?.let { put("acceptance_stop", it) }
@@ -805,6 +805,7 @@ internal class GitHubVerifiedSession(
         withTimeoutOrNull(90_000) {
             val response = StringBuilder()
             var verifiedComplete = false
+            var finishReason: String? = null
             openVerifier(request).streamRound(emptyList(), emptyList()).collect { event ->
                 when (event) {
                     is ProviderEvent.TextDelta -> {
@@ -812,10 +813,14 @@ internal class GitHubVerifiedSession(
                         response.append(event.text)
                     }
                     is ProviderEvent.Completed -> verifiedComplete = true
+                    is ProviderEvent.Usage -> event.finishReason?.let { finishReason = it }
                     is ProviderEvent.Failed -> throw ExtractionFailed(event)
                     is ProviderEvent.ToolCall, is ProviderEvent.ToolResult -> error("Evidence formatting attempted an operation")
                     else -> Unit
                 }
+            }
+            if (finishReason?.lowercase() in setOf("length", "max_tokens", "max_output_tokens", "token_limit")) {
+                return@withTimeoutOrNull partial(receipts, epoch, "GITHUB_EXTRACTION_OUTPUT_LIMIT")
             }
             check(verifiedComplete) { "Claim extraction was interrupted" }
             withContext(computationDispatcher) {
@@ -860,6 +865,7 @@ internal class GitHubVerifiedSession(
                 )
             )
             put("candidate", draft)
+            put("claim_selection", "Return only the smallest set of evidenced claims that covers the requested requirements. Prioritize specific unresolved requirements over restating observations.")
             put("catalog", JsonArray(catalog))
             put("retained_receipts", receipts.size)
             put("omitted_from_context", receipts.size - catalog.size)

@@ -18,6 +18,7 @@ internal enum class McpLocalValidationRule(val diagnosticCode: String, val field
     CREDENTIAL_REQUIRED("MCP_LOCAL_CREDENTIAL_MISSING", "credential", "Save the required credential or reconnect this service in Plugins/Tools."),
     CREDENTIAL_UNAVAILABLE("MCP_LOCAL_CREDENTIAL_INVALID", "credential", "The saved credential cannot be read. Update it or reconnect this service in Plugins/Tools."),
     CREDENTIAL_REAUTHORIZATION_REQUIRED("MCP_LOCAL_CREDENTIAL_INVALID", "credential", "The saved OAuth grant requires reauthorization. Reconnect this service in Plugins/Tools."),
+    CREDENTIAL_REFRESH_REQUIRED("MCP_LOCAL_CREDENTIAL_REFRESH_REQUIRED", "credential", "The saved OAuth access token needs renewal. Reconnect this exact connection, then start a new audit."),
     CREDENTIAL_FORMAT_INVALID("MCP_LOCAL_CREDENTIAL_INVALID", "credential", "The saved credential contains unsupported characters. Update it in Plugins/Tools."),
     AUTHORIZATION_REQUIRED("MCP_LOCAL_CREDENTIAL_MISSING", "authorization", "The MCP authorization header must not be blank. Update the saved credential."),
     AUTHORIZATION_FORMAT_INVALID("MCP_LOCAL_CREDENTIAL_INVALID", "authorization", "The MCP authorization header contains unsupported characters. Update the saved credential."),

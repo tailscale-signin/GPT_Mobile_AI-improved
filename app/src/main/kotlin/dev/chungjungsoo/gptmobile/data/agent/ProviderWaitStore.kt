@@ -218,7 +218,7 @@ class ProviderWaitStore @Inject constructor(
                 profile?.enabled == true &&
                     (!participant || profile.uid in room?.activePlatform.orEmpty()) &&
                     ConfiguredDispatchAuthority.profileRevision(profile) == registered &&
-                    ConfiguredDispatchAuthority.policyRevision(settings.getFeatureSettings(), profile.uid, saved.chatId) == policy &&
+                    ConfiguredDispatchAuthority.matchesPolicyRevision(policy, settings.getFeatureSettings(), profile.uid, saved.chatId) &&
                     settings.providerPermissionRevision(profile.copy(model = model)) == permission &&
                     !settings.providerActivationRequired(profile.copy(model = model))
             val capturedAuthorityValid = try {

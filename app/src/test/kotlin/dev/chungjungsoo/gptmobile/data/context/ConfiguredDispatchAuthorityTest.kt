@@ -2,15 +2,18 @@ package dev.chungjungsoo.gptmobile.data.context
 
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
+import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
 import dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision
 import dev.chungjungsoo.gptmobile.data.network.bindAuthority
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
+import dev.chungjungsoo.gptmobile.data.research.researchHash
 import io.mockk.coEvery
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -46,6 +49,33 @@ class ConfiguredDispatchAuthorityTest {
         assertEquals(ConfiguredDispatchAuthority.policyRevision(before, "p", 1), ConfiguredDispatchAuthority.policyRevision(defaults, "p", 1))
         val revoked = before.copy(toolPluginStates = mapOf("news" to !before.isToolPluginEnabled("news")))
         assertFalse(ConfiguredDispatchAuthority.policyRevision(before, "p", 1) == ConfiguredDispatchAuthority.policyRevision(revoked, "p", 1))
+    }
+
+    @Test fun voiceChatTogglePreservesActiveAndLegacyGitHubAuthority() = runTest {
+        val settings = mockk<SettingRepository>()
+        val profile = PlatformV2(uid = "profile", name = "Profile", model = "model")
+        val scope = dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext("connection", "owner", "repo", "main", "a".repeat(40), profile.uid)
+        var features = AppFeatureSettings(conversationGitHub = mapOf(7 to scope))
+        coEvery { settings.fetchPlatformV2s() } returns listOf(profile)
+        coEvery { settings.getFeatureSettings() } answers { features }
+        coEvery { settings.providerActivationRequired(any()) } returns false
+        coEvery { settings.providerPermissionRevision(any()) } returns "accepted"
+        val guard = ConfiguredDispatchAuthority.capture(settings, profile, 7)
+        val authority = requireNotNull(guard.authority)
+
+        features = features.withToolPluginEnabled(ToolPluginId.VOICE_CHAT, true)
+        guard.validate()
+        authority.validate(settings)
+
+        val oldTools = ToolPluginPolicyProjection.project(features.toolPluginStates, ToolPluginId.optInServices)
+        val oldFields = JsonObject(ConfiguredDispatchAuthority.policyFields(features, profile.uid, 7) + ("tools" to oldTools))
+        val oldAuthority = authority.copy(policyRevision = researchHash(oldFields.toString()))
+        features = features.withToolPluginEnabled(ToolPluginId.VOICE_CHAT, false)
+        oldAuthority.validate(settings)
+
+        features = features.withToolPluginEnabled(ToolPluginId.GITHUB, false)
+        assertTrue(runCatching { guard.validate() }.exceptionOrNull() is DispatchPolicyChangedException)
+        assertTrue(runCatching { oldAuthority.validate(settings) }.exceptionOrNull() is ProviderWaitAuthorityChanged)
     }
 
     @Test fun outputIncreasesAreHarmlessButDecreasesAndCredentialChangesRequireReview() {

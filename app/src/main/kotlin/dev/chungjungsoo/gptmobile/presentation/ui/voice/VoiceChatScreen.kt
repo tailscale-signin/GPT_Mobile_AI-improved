@@ -101,7 +101,6 @@ import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
 import dev.chungjungsoo.gptmobile.data.model.isPrivateDestination
 import dev.chungjungsoo.gptmobile.data.voice.AndroidVoiceAudio
 import dev.chungjungsoo.gptmobile.data.voice.KokoroVoice
-import dev.chungjungsoo.gptmobile.data.voice.KokoroVoiceOutput
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelStatus
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelStore
 import dev.chungjungsoo.gptmobile.data.voice.MoonshineVoiceRecognizer
@@ -112,6 +111,7 @@ import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionBackend
 import dev.chungjungsoo.gptmobile.data.voice.VoiceRecoveryAction
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSession
 import dev.chungjungsoo.gptmobile.data.voice.VoiceState
+import dev.chungjungsoo.gptmobile.data.voice.createKokoroVoiceOutput
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDropdownMenu as DropdownMenu
 import dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatViewModel
 import dev.chungjungsoo.gptmobile.presentation.ui.home.NewChatRevealPanel
@@ -227,7 +227,7 @@ internal fun VoiceChatScreen(onEnd: () -> Unit, onOpenChat: () -> Unit, model: C
     val systemAudio = remember(model) { AndroidVoiceAudio(context.applicationContext) }
     val localRecognition = remember(model, stores) { MoonshineVoiceRecognizer(context.applicationContext, stores.moonshine) }
     val kokoroOutput = remember(systemAudio, stores) {
-        KokoroVoiceOutput(context.applicationContext, stores.kokoro, systemAudio::playbackAttributes) { systemAudio.speechRate }
+        createKokoroVoiceOutput(context.applicationContext, stores.kokoro, systemAudio::playbackAttributes) { systemAudio.speechRate }
     }
     val audio = remember(systemAudio, localRecognition, kokoroOutput) {
         VoicePluginAudio(systemAudio, localRecognition, kokoroOutput, systemAudio::speakOffline, systemAudio::releaseRecognition)
@@ -294,7 +294,7 @@ internal fun VoiceChatScreen(onEnd: () -> Unit, onOpenChat: () -> Unit, model: C
             audio.recognitionBackend = recognitionBackend
             localRecognition.languageTag = language
             audio.kokoroVoice = kokoroVoice
-            kokoroOutput.threadCount = kokoroThreads
+            kokoroOutput?.configureThreads(kokoroThreads)
             if (session.states.value.speaker != spokenReplies) session.speaker()
             // Configure before permitting the first listen, including after restoring the screen.
             systemAudio.languageTag = language
@@ -326,7 +326,7 @@ internal fun VoiceChatScreen(onEnd: () -> Unit, onOpenChat: () -> Unit, model: C
         systemAudio.selectedVoice = voiceName.takeIf(String::isNotBlank)
         systemAudio.speechRate = rate
         audio.kokoroVoice = kokoroVoice
-        kokoroOutput.threadCount = kokoroThreads
+        kokoroOutput?.configureThreads(kokoroThreads)
         session.editBeforeSend = editBeforeSend
         session.autoContinue = automatic
     }
@@ -360,9 +360,9 @@ internal fun VoiceChatScreen(onEnd: () -> Unit, onOpenChat: () -> Unit, model: C
         if (enabled && voiceReady && spokenReplies && LocalVoiceModelStore.supportsLanguage(language) && lifecycleState == Lifecycle.State.RESUMED) {
             // Opening the route only starts recognition. Native warmup begins after decoder release,
             // while an accepted reply is generating; the worker gate also fences preview/retry races.
-            if (state.phase == VoicePhase.THINKING && state.awaitingReply && admission?.stage == dev.chungjungsoo.gptmobile.data.voice.VoiceAdmissionStage.ACCEPTED) kokoroVoice?.let(kokoroOutput::prewarm)
+            if (state.phase == VoicePhase.THINKING && state.awaitingReply && admission?.stage == dev.chungjungsoo.gptmobile.data.voice.VoiceAdmissionStage.ACCEPTED) kokoroVoice?.let { kokoroOutput?.prewarm(it) }
         } else {
-            kokoroOutput.releaseWarmModel()
+            kokoroOutput?.releaseWarmModel()
         }
     }
     LaunchedEffect(settingsOpen, routeOpen, transcriptOpen, language, allowOnline, privateSpeech, recognitionBackend, recognitionReady, preferencesApplied) {
@@ -437,7 +437,7 @@ internal fun VoiceChatScreen(onEnd: () -> Unit, onOpenChat: () -> Unit, model: C
                 Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> {
                     session.access(currentEnabled, permission, false)
                     systemAudio.releaseRecognition()
-                    kokoroOutput.releaseWarmModel()
+                    kokoroOutput?.releaseWarmModel()
                 }
                 else -> Unit
             }
@@ -587,21 +587,25 @@ internal fun VoiceChatScreen(onEnd: () -> Unit, onOpenChat: () -> Unit, model: C
                 selectThreads = { selected ->
                     audio.stop()
                     kokoroThreads = selected
-                    kokoroOutput.threadCount = selected
+                    kokoroOutput?.configureThreads(selected)
                     savePreferences()
                 },
                 install = voiceSettings::installKokoroModel,
                 cancel = voiceSettings::cancelKokoroInstall,
                 remove = {
                     audio.stop()
-                    kokoroOutput.releaseWarmModel()
+                    kokoroOutput?.releaseWarmModel()
                     previewError = null
                     voiceSettings.removeKokoroModel()
                 },
                 preview = { selected ->
                     audio.stop()
-                    previewError = null
-                    kokoroOutput.speak("Hello. This is your Kokoro voice. I am ready when you are.", selected, {}, { message, _ -> previewError = message })
+                    if (kokoroOutput == null) {
+                        previewError = "Kokoro playback is unavailable on this device."
+                    } else {
+                        previewError = null
+                        kokoroOutput.speak("Hello. This is your Kokoro voice. I am ready when you are.", selected, {}, { message, _ -> previewError = message })
+                    }
                 }
             )
             val voices by systemAudio.voiceChoices.collectAsStateWithLifecycle()

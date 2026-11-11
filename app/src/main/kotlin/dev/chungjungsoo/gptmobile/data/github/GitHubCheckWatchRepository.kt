@@ -104,9 +104,30 @@ class GitHubCheckWatchRepository @Inject constructor(
         val connection = requireNotNull(connections.getConnection(watch.connectionUid)) { "GitHub connection removed." }
         val permission = GitHubAuthorizationIdentity.permission(connection.authType, connection.toolPolicy, connection.approvedReadTools, connection.endpointUrl)
         require(connection.type == "GITHUB" && (if (watch.permissionRevision.isBlank()) connection.updatedAt == watch.connectionUpdatedAt else watch.permissionRevision == permission)) { "GitHub permissions changed; start a new watch." }
+        val savedFeatures = settings.getFeatureSettings()
+        val scope = savedFeatures.conversationGitHub[watch.chatId]?.takeIf {
+            it.connectionUid == watch.connectionUid &&
+                it.mainProfileUid == watch.profileUid &&
+                it.owner.equals(watch.owner, ignoreCase = true) &&
+                it.repo.equals(watch.repo, ignoreCase = true)
+        }
+        val features = GitHubChatPolicy.features(savedFeatures, watch.profileUid, scope)
         val profile = settings.fetchPlatformV2s().firstOrNull { it.uid == watch.profileUid }
-        val features = settings.getFeatureSettings()
-        require(profile != null && profile.enabled && !profile.disableAllTools && !profile.disableRemoteTools && features.isToolPluginEnabledForProfile(watch.profileUid, ToolPluginId.GITHUB) && features.isToolPluginEnabledForProfile(watch.profileUid, ToolPluginId.connection(watch.connectionUid))) { "GitHub access for this profile is disabled." }
+            ?.let { GitHubChatPolicy.platform(it, features, scope) }
+        if (profile == null ||
+            !profile.enabled ||
+            profile.disableAllTools ||
+            profile.disableRemoteTools ||
+            !features.isToolPluginEnabledForProfile(watch.profileUid, ToolPluginId.GITHUB) ||
+            !features.isToolPluginEnabledForProfile(watch.profileUid, ToolPluginId.connection(watch.connectionUid))
+        ) {
+            throw GitHubReadValidation(
+                "PERMISSION_DENIED",
+                buildJsonObject {
+                    put("message", "GitHub access for this profile is disabled. Review GitHub tool settings before watching checks.")
+                }
+            )
+        }
         return apiFactory.createForEndpoint(connection.endpointUrl) { auth.accessToken(connection) }
     }
 

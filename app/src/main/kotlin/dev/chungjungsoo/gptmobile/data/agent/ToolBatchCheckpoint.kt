@@ -47,14 +47,16 @@ data class ToolBatchRecoverySnapshot(
     val objectiveMillis: Long?,
     val objectiveStatus: String,
     val completedCount: Int = 0,
-    val unknownCount: Int = 0,
+    val unsettledCalls: List<ProviderEvent.ToolCall> = emptyList(),
     val queuedCount: Int = 0,
     val rejectedCount: Int = 0,
     val failedCount: Int = 0,
     val jobContext: ToolBatchJobContext? = null,
     val completedExchanges: List<AgentToolExchange> = emptyList(),
     val consumedCallIds: Set<String> = emptySet()
-)
+) {
+    val unknownCount: Int get() = unsettledCalls.size
+}
 
 /** Durable dispatch receipts. A crash after dispatch is unknown, never permission to repeat a side effect. */
 class ToolBatchCheckpoint(private val file: File?, private val binding: String, private val initialJob: ToolBatchJobContext? = null) {
@@ -219,7 +221,7 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
                 objectiveMillis = objective?.maximumMillis,
                 objectiveStatus = objective?.assess(elapsed) ?: "NOT_CONFIGURED",
                 completedCount = state.entries.values.count { it.result?.let { result -> !result.error && result.code !in ToolResultEnvelope.unknownOutcomeCodes } == true },
-                unknownCount = state.entries.values.count { it.started && it.result == null || it.result?.code in ToolResultEnvelope.unknownOutcomeCodes },
+                unsettledCalls = state.entries.values.filter { it.started && it.result == null || it.result?.code in ToolResultEnvelope.unknownOutcomeCodes }.map { it.call.event() },
                 queuedCount = state.entries.values.count { !it.started && it.result == null },
                 rejectedCount = state.entries.values.count { it.result?.let { result -> result.error && !result.dispatched && result.code !in ToolResultEnvelope.unknownOutcomeCodes } == true },
                 failedCount = state.entries.values.count { it.result?.let { result -> result.error && result.dispatched && result.code !in ToolResultEnvelope.unknownOutcomeCodes } == true },

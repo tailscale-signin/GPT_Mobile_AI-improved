@@ -418,6 +418,43 @@ class ToolBatchCheckpointTest {
         assertEquals(1, count)
     }
 
+    @Test fun interruptedCiReadDoesNotMaskAnApprovalRequiredAfterReplay() = runBlocking {
+        val journal = ToolBatchCheckpoint(null, "same-github-task")
+        val read = ProviderEvent.ToolCall(
+            "ci-read",
+            "github_ci__github_api",
+            buildJsonObject {
+                put("action", "run")
+                put("run_id", 42)
+            }
+        )
+        journal.enqueue(listOf(read))
+        try {
+            journal.execute(read) { throw CancellationException("Interrupted after the CI read started") }
+        } catch (_: CancellationException) { }
+        assertEquals(1, journal.recoverySnapshot().unknownCount)
+
+        var reads = 0
+        val tool = object : AgentTool {
+            override val definition = AgentToolDefinition(read.name, "Read workflow run", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                reads++
+                return AgentToolResult(callId, ToolResultContent.Text("Workflow run observed"), false)
+            }
+        }
+        val session = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                assertTrue(exchanges.flatMap { it.results }.any { it.callId == read.callId && !it.isError })
+                emit(ProviderEvent.Failed("Approve the staged change.", errorCode = "WAITING_FOR_APPROVAL", taskOutcome = "WAITING_FOR_APPROVAL"))
+            }
+        }
+        val events = AgentRunner(AgentRunLimits(githubTask = true), journal).run(session, listOf(tool)).toList()
+        val failure = events.filterIsInstance<AgentRunEvent.Provider>().mapNotNull { it.event as? ProviderEvent.Failed }.single()
+        assertEquals("WAITING_FOR_APPROVAL", failure.errorCode)
+        assertEquals(1, reads)
+        assertEquals(0, journal.recoverySnapshot().unknownCount)
+    }
+
     @Test fun deferredReplayCannotReplaceAnInFlightWriteReceipt() = runBlocking {
         val checkpoint = ToolBatchCheckpoint(null, "grant")
         val call = ProviderEvent.ToolCall("one", "write", JsonObject(emptyMap()))

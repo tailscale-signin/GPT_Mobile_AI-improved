@@ -6,6 +6,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
+import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository
 import dev.chungjungsoo.gptmobile.data.workspace.WorkspaceDao
@@ -134,6 +135,39 @@ class GitHubCheckWatchConcurrencyTest {
         coVerify(exactly = 0) { fixture.dao.save(any()) }
     }
 
+    @Test fun checkWatchUsesTheLiveGitHubChatPolicyForItsBoundRepository() = runBlocking {
+        val scope = GitHubConversationContext("connection", "owner", "repo", "main", head, "profile")
+        val features = AppFeatureSettings(
+            toolPluginStates = mapOf(ToolPluginId.GITHUB to false),
+            conversationGitHub = mapOf(1 to scope)
+        )
+        val profile = PlatformV2(uid = "profile", name = "Profile", disableRemoteTools = true)
+        val reads = AtomicInteger(0)
+        val fixture = fixture(
+            api {
+                reads.incrementAndGet()
+                run("completed", "success")
+            },
+            features = features,
+            profile = profile
+        )
+        val result = fixture.repository.subscribe("connection", "profile", 1, inlineArguments(5))
+        assertEquals(JsonPrimitive("PASSED"), result["status"])
+        assertTrue(reads.get() > 0)
+
+        val priorReads = reads.get()
+        val unrelated = JsonObject(inlineArguments(5) + ("repo" to JsonPrimitive("another-repo")))
+        val unrelatedFailure = runCatching { fixture.repository.subscribe("connection", "profile", 1, unrelated) }.exceptionOrNull()
+        assertEquals("PERMISSION_DENIED", (unrelatedFailure as? GitHubReadValidation)?.code)
+
+        coEvery { fixture.settings.getFeatureSettings() } returns features.copy(
+            githubProfileOverrides = mapOf("profile" to GitHubChatProfileOverride(githubTools = false))
+        )
+        val disabledFailure = runCatching { fixture.repository.subscribe("connection", "profile", 1, inlineArguments(5)) }.exceptionOrNull()
+        assertEquals("PERMISSION_DENIED", (disabledFailure as? GitHubReadValidation)?.code)
+        assertEquals(priorReads, reads.get())
+    }
+
     @Test fun serializedGenerationsSurviveRestartAndLegacyRecordsAdvanceSafely() {
         val legacy = watch()
         val restoredLegacy = json.decodeFromString<GitHubCheckWatch>(json.encodeToString(legacy))
@@ -193,7 +227,13 @@ class GitHubCheckWatchConcurrencyTest {
     private fun watch() = GitHubCheckWatch("watch", 1, "connection", "profile", "owner", "repo", runId = 42, headSha = head, connectionUpdatedAt = 1)
     private fun record(watch: GitHubCheckWatch) = WorkspaceRecord(watch.id, "github_checks", "watch", json.encodeToString(watch), 1)
 
-    private fun fixture(api: GitHubEngineeringApi, temporary: Boolean = false, initial: WorkspaceRecord = record(watch())): Fixture {
+    private fun fixture(
+        api: GitHubEngineeringApi,
+        temporary: Boolean = false,
+        initial: WorkspaceRecord = record(watch()),
+        features: AppFeatureSettings = AppFeatureSettings(),
+        profile: PlatformV2 = PlatformV2(uid = "profile", name = "Profile")
+    ): Fixture {
         val workspace = mockk<WorkspaceRepository>(relaxed = true)
         val stored = AtomicReference(initial)
         val dao = mockk<WorkspaceDao>()
@@ -211,22 +251,15 @@ class GitHubCheckWatchConcurrencyTest {
             every { endpointUrl } returns null
         }
         val connections = mockk<ToolConnectionRepository> { coEvery { getConnection("connection") } returns connection }
-        val profile = mockk<PlatformV2> {
-            every { uid } returns "profile"
-            every { enabled } returns true
-            every { disableAllTools } returns false
-            every { disableRemoteTools } returns false
-        }
-        val features = mockk<AppFeatureSettings> { every { isToolPluginEnabledForProfile(any(), any()) } returns true }
         val settings = mockk<SettingRepository> {
             coEvery { fetchPlatformV2s() } returns listOf(profile)
             coEvery { getFeatureSettings() } returns features
         }
         val factory = mockk<GitHubEngineeringApiFactory> { every { createForEndpoint(any(), any()) } returns api }
-        return Fixture(GitHubCheckWatchRepository(mockk(relaxed = true), workspace, connections, settings, mockk(), factory), workspace, dao, stored)
+        return Fixture(GitHubCheckWatchRepository(mockk(relaxed = true), workspace, connections, settings, mockk(), factory), workspace, dao, stored, settings)
     }
 
-    private inner class Fixture(val repository: GitHubCheckWatchRepository, val workspace: WorkspaceRepository, val dao: WorkspaceDao, val record: AtomicReference<WorkspaceRecord>) {
+    private inner class Fixture(val repository: GitHubCheckWatchRepository, val workspace: WorkspaceRepository, val dao: WorkspaceDao, val record: AtomicReference<WorkspaceRecord>, val settings: SettingRepository) {
         fun retained(): GitHubCheckWatch = json.decodeFromString(record.get().payload)
     }
 }

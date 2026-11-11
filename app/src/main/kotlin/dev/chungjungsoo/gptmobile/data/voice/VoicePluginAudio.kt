@@ -13,6 +13,8 @@ internal enum class KokoroVoice(val speakerId: Int, val label: String, val lexic
 internal interface KokoroOutput {
     fun speak(text: String, voice: KokoroVoice, complete: () -> Unit, error: (String, canFallback: Boolean) -> Unit)
     fun openReply(voice: KokoroVoice, complete: () -> Unit, error: (String, canFallback: Boolean) -> Unit): VoiceReplyPlayback? = null
+    fun configureThreads(value: Int) = Unit
+    fun prewarm(voice: KokoroVoice) = Unit
     fun releaseWarmModel() = Unit
     fun stop()
     fun close()

@@ -2,11 +2,13 @@ package dev.chungjungsoo.gptmobile.data.context
 
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
+import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.data.research.researchHash
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.put
@@ -113,8 +115,14 @@ internal object ConfiguredDispatchAuthority {
     /** Display toggles, colors and wait settings apply independently and never invalidate answer bytes. */
     internal fun policyRevision(features: AppFeatureSettings, uid: String, chatId: Int?): String = researchHash(policyFields(features, uid, chatId).toString())
 
-    /** Scope accounting to this writer; another contributor's quote/ceiling cannot revoke it. */
-    internal fun legacyPolicyRevision(features: AppFeatureSettings, uid: String, chatId: Int?): String = researchHash(policyFields(features, uid, chatId, scopeProfile = false).toString())
+    internal fun matchesPolicyRevision(revision: String, features: AppFeatureSettings, uid: String, chatId: Int?, scopeProfile: Boolean = true): Boolean {
+        val fields = policyFields(features, uid, chatId, scopeProfile)
+        if (researchHash(fields.toString()) == revision) return true
+        // Older waits included the Voice Chat switch when enabled. Only that UI
+        // switch may differ from the current dispatch policy.
+        val legacyTools = ToolPluginPolicyProjection.project(features.toolPluginStates + (ToolPluginId.VOICE_CHAT to true), ToolPluginId.optInServices)
+        return researchHash(JsonObject(fields + ("tools" to legacyTools)).toString()) == revision
+    }
 
     internal fun policyFields(features: AppFeatureSettings, uid: String, chatId: Int?, scopeProfile: Boolean = true) =
         buildJsonObject {
@@ -126,7 +134,8 @@ internal object ConfiguredDispatchAuthority {
             put("plugins", Json.encodeToJsonElement(features.pluginExecution))
             // Persisting an explicit default is not a permission change. Keep
             // every nondefault grant/revocation, including opt-in services.
-            put("tools", ToolPluginPolicyProjection.project(features.toolPluginStates, dev.chungjungsoo.gptmobile.data.model.ToolPluginId.optInServices))
+            // Voice Chat gates microphone UI and supplies text through normal chat admission.
+            put("tools", ToolPluginPolicyProjection.project(features.toolPluginStates - ToolPluginId.VOICE_CHAT, ToolPluginId.optInServices))
             put("remoteMcp", features.remoteMcpConnections)
             put("location", features.deviceLocationTool)
             put("assist", features.localAssist)

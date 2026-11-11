@@ -21,6 +21,20 @@ import java.util.UUID
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.locks.ReentrantLock
+import kotlin.concurrent.withLock
+
+internal fun createKokoroVoiceOutput(
+    context: Context,
+    models: LocalVoiceModelStore,
+    attributes: () -> AudioAttributes,
+    rate: () -> Float
+): KokoroOutput? = try {
+    KokoroVoiceOutput(context, models, attributes, rate)
+} catch (error: LinkageError) {
+    AppLogRecorder.record("VoiceEngine", "kokoro_startup_failed · type=${error.javaClass.simpleName}", "W")
+    null
+}
 
 /** The synthesis worker owns the JNI model. The output worker drains one track per reply. */
 @Suppress("DEPRECATION")
@@ -35,7 +49,9 @@ internal class KokoroVoiceOutput(
     private val main = Handler(Looper.getMainLooper())
     private val synthesis = Executors.newSingleThreadExecutor { task -> Thread(task, "KokoroSynthesis").apply { isDaemon = true } }
     private val output = Executors.newSingleThreadExecutor { task -> Thread(task, "KokoroPlayback").apply { isDaemon = true } }
-    private var closed = false
+
+    @Volatile private var closed = false
+
     private var warmupGeneration = 0L
     private var loaded: LoadedModel? = null
 
@@ -43,13 +59,14 @@ internal class KokoroVoiceOutput(
 
     @Volatile private var warmupRequest: ModelKey? = null
 
-    var threadCount: Int = 2
-        set(value) {
-            val bounded = value.coerceIn(2, 4)
-            if (field == bounded) return
-            field = bounded
-            releaseWarmModel()
-        }
+    private var threadCount = 2
+
+    override fun configureThreads(value: Int) {
+        val bounded = value.coerceIn(2, 4)
+        if (threadCount == bounded) return
+        threadCount = bounded
+        releaseWarmModel()
+    }
 
     private data class ModelKey(val lexicon: String, val threads: Int)
     private class LoadedModel(val key: ModelKey, val engine: OfflineTts, val words: Set<String>) {
@@ -68,6 +85,9 @@ internal class KokoroVoiceOutput(
         val startedAt = SystemClock.elapsedRealtime()
         val segments = ArrayBlockingQueue<String>(MAX_SEGMENTS)
         val pcm = ArrayBlockingQueue<FloatArray>(MAX_PCM_BATCHES)
+
+        // D8 can emit invalid monitor regions for inlined synchronized blocks in playback cleanup.
+        val trackLock = ReentrantLock()
 
         @Volatile var lastProgress = startedAt
 
@@ -105,7 +125,7 @@ internal class KokoroVoiceOutput(
         }
     }
 
-    fun prewarm(voice: KokoroVoice) {
+    override fun prewarm(voice: KokoroVoice) {
         if (closed || !models.isInstalled()) return
         val key = ModelKey(voice.lexicon, threadCount)
         if (warmupRequest == key) return
@@ -272,13 +292,15 @@ internal class KokoroVoiceOutput(
                 .setTransferMode(AudioTrack.MODE_STREAM).setBufferSizeInBytes(maxOf(minBytes, sampleRate)).build()
             try {
                 check(track.state == AudioTrack.STATE_INITIALIZED)
-                synchronized(playback) {
-                    if (active !== playback) return
+                val registered = playback.trackLock.withLock {
+                    if (active !== playback) return@withLock false
                     playback.track = track
+                    true
                 }
+                if (!registered) return
                 writeReply(track, playback, sampleRate)
             } finally {
-                synchronized(playback) {
+                playback.trackLock.withLock {
                     playback.underruns = runCatching { track.underrunCount }.getOrNull()
                     playback.track = null
                     silence(track)
@@ -305,7 +327,7 @@ internal class KokoroVoiceOutput(
             if (samples == null) {
                 if (playback.synthesisDone && playback.pcm.isEmpty() && playedFrames(track, playback) >= framesWritten) return
                 if (playing && playedFrames(track, playback) >= framesWritten) {
-                    synchronized(playback) { if (active === playback) track.pause() }
+                    playback.trackLock.withLock { if (active === playback) track.pause() }
                     playing = false
                 }
                 continue
@@ -313,7 +335,7 @@ internal class KokoroVoiceOutput(
             var offset = 0
             val startThreshold = minOf(primeFrames, samples.size)
             while (offset < samples.size) {
-                val written = synchronized(playback) {
+                val written = playback.trackLock.withLock {
                     if (active !== playback) return
                     if (!playing && offset == 0) track.setStartThresholdInFrames(startThreshold)
                     track.write(samples, offset, samples.size - offset, AudioTrack.WRITE_NON_BLOCKING).also { count ->
@@ -418,7 +440,7 @@ internal class KokoroVoiceOutput(
         main.removeCallbacks(playback.watchdog)
         playback.segments.clear()
         playback.pcm.clear()
-        val underruns = synchronized(playback) {
+        val underruns = playback.trackLock.withLock {
             playback.track?.let { track ->
                 playback.underruns = runCatching { track.underrunCount }.getOrNull()
                 silence(track)

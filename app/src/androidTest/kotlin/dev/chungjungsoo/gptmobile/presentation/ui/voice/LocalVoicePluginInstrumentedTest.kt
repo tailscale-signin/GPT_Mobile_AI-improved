@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.voice
 
 import ai.moonshine.voice.JNI
+import android.media.AudioAttributes
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -15,9 +16,14 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.test.platform.app.InstrumentationRegistry
+import dev.chungjungsoo.gptmobile.data.voice.KokoroModelPack
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelState
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelStatus
+import dev.chungjungsoo.gptmobile.data.voice.createKokoroVoiceOutput
+import java.io.File
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 
@@ -28,6 +34,19 @@ class LocalVoicePluginInstrumentedTest {
     @Test fun packagedNativeSpeechRuntimeMatchesItsJavaApi() {
         JNI.ensureLibraryLoaded()
         assertEquals(JNI.MOONSHINE_HEADER_VERSION, JNI.moonshineGetVersion())
+    }
+
+    @Test fun kokoroPlaybackClassVerifiesBeforeAnyModelIsInstalled() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        var created = false
+        instrumentation.runOnMainSync {
+            val models = KokoroModelPack.store(File(context.cacheDir, "voice-output-class-load"))
+            val output = createKokoroVoiceOutput(context, models, { AudioAttributes.Builder().build() }, { 1f })
+            created = output != null
+            output?.close()
+        }
+        assertTrue("Android must load the packaged Kokoro playback class when Voice Chat opens", created)
     }
 
     @Test fun modelInstallRequiresExplicitAction() {

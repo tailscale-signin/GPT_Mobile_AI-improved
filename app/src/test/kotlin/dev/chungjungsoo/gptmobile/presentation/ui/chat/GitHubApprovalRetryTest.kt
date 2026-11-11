@@ -7,8 +7,10 @@ import org.junit.Test
 
 class GitHubApprovalRetryTest {
     @Test fun unchangedApprovalDirectsTheUserToTheExactCardWithoutOpeningGenericRetry() {
-        val message = gitHubApprovalRetryBlock("WAITING_FOR_APPROVAL: The staged patch is retained.", pendingCard = true)
-        assertTrue(message?.contains("approve or reject the saved patch") == true)
+        val message = requireNotNull(gitHubApprovalRetryBlock("WAITING_FOR_APPROVAL: The staged patch is retained.", pendingCard = true))
+        assertTrue(message.contains("existing approval card"))
+        assertTrue(message.contains("Approve & Commit, Reject"))
+        assertTrue(message.contains("Continue and Retry are paused"))
         assertTrue(gitHubApprovalRetryBlock("Review the saved change to continue.", pendingCard = true) != null)
     }
 

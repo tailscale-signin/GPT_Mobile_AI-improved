@@ -34,8 +34,8 @@ class GitHubCommitApprovalDialogTest {
         every { model.notice } returns MutableStateFlow("")
         compose.setContent { MaterialTheme { GitHubChatApprovalCard(model) {} } }
         compose.onNodeWithText("Review proposed changes").assertIsDisplayed()
-        compose.onNodeWithText("Task task · owner/repo · feature").assertIsDisplayed()
-        compose.onNodeWithText("Risk: build and CI are not verified by this approval.").assertIsDisplayed()
+        compose.onNodeWithText("Task task · owner/repo · feature", substring = true).assertIsDisplayed()
+        compose.onNodeWithText("Risk: build and CI are not verified by this approval.", substring = true).assertIsDisplayed()
         compose.onNodeWithText("@@ changed text @@\n- 41\n+ 42").assertDoesNotExist()
         compose.onNodeWithText("Details").performClick()
         compose.onNodeWithText("@@ changed text @@\n- 41\n+ 42").assertIsDisplayed()

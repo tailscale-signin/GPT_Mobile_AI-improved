@@ -506,14 +506,16 @@ class AndroidVoiceAudio internal constructor(
                             fail("The speech engine is unavailable. Captions remain available.", retireEngine = true)
                             return@work
                         }
-                        val voices = engine.voices
+                        val voices = runCatching { engine.voices?.toSet() }.getOrNull()
                         if (voices == null) {
-                            fail("The speech engine disconnected. Review Android speech settings, then recheck spoken replies. Captions remain available.", retireEngine = true)
+                            main.post {
+                                if (ticket == generation) unavailableSpeechCatalog(engine, engineVersion)
+                            }
                             return@work
                         }
                         main.post {
                             if (!closed && engineVersion == speechGeneration && tts === engine) {
-                                installedVoices = voices.toSet()
+                                installedVoices = voices
                                 mutableVoices.value = this@AndroidVoiceAudio.voices()
                                 mutableVoiceCatalog.value = if (voices.isEmpty()) SpeechVoiceCatalogState.EMPTY else SpeechVoiceCatalogState.AVAILABLE
                             }

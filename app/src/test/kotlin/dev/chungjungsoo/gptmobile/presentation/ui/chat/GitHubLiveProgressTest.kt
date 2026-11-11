@@ -194,26 +194,35 @@ class GitHubLiveProgressTest {
             }
         }
 
-        compose.mainClock.advanceTimeBy(1, ignoreFrameDuration = true)
+        val clock = compose.mainClock
+        // LaunchedEffect starts its tween on a frame. Allow the frame boundary
+        // while checking the full entry and both halves of the replacement.
+        clock.advanceTimeByFrame()
+        val entryStart = clock.currentTime
         assertEquals("Reading the first file", transition.text.value)
         assertEquals(0f, transition.opacity.value, 0.01f)
-        compose.mainClock.advanceTimeBy(500, ignoreFrameDuration = true)
+        clock.advanceTimeBy(500)
         assertTrue(transition.opacity.value in 0.45f..0.55f)
-        compose.mainClock.advanceTimeBy(500, ignoreFrameDuration = true)
-        assertEquals(1f, transition.opacity.value, 0.01f)
+        clock.advanceTimeUntil(550) { transition.opacity.value == 1f }
+        assertTrue(clock.currentTime - entryStart in 992..1048)
 
         compose.runOnIdle { text = "Reading the updated file" }
-        compose.mainClock.advanceTimeBy(249, ignoreFrameDuration = true)
+        compose.waitForIdle()
+        val refreshStart = clock.currentTime
+        clock.advanceTimeBy(208)
         assertEquals("Reading the first file", transition.text.value)
-        assertEquals(0f, transition.opacity.value, 0.01f)
-        compose.mainClock.advanceTimeBy(1, ignoreFrameDuration = true)
+        assertTrue(transition.opacity.value in 0.1f..0.4f)
+        clock.advanceTimeUntil(100) { transition.text.value == "Reading the updated file" }
+        assertTrue(clock.currentTime - refreshStart in 240..304)
         assertEquals("Reading the updated file", transition.text.value)
-        assertEquals(0f, transition.opacity.value, 0.01f)
-        compose.mainClock.advanceTimeBy(250, ignoreFrameDuration = true)
-        assertEquals(1f, transition.opacity.value, 0.01f)
+        assertTrue(transition.opacity.value <= 0.07f)
+        clock.advanceTimeBy(112)
+        assertTrue(transition.opacity.value in 0.3f..0.6f)
+        clock.advanceTimeUntil(200) { transition.opacity.value == 1f }
+        assertTrue(clock.currentTime - refreshStart in 496..576)
 
         compose.runOnIdle { active = false }
-        compose.mainClock.advanceTimeBy(1, ignoreFrameDuration = true)
+        clock.advanceTimeByFrame()
         assertEquals(1f, transition.opacity.value, 0.01f)
     }
 

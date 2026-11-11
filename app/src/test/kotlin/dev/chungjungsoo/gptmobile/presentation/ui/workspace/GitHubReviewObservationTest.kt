@@ -66,12 +66,16 @@ class GitHubReviewObservationTest {
     }
 
     @Test fun automaticPatchLeavesProtectedDestinationsAndHighImpactChangesForReview() {
-        val source = GitHubFileProposal("src/Answer.kt", "41", "42")
-        assertTrue(eligibleAutomaticPatch("fix/answer", "main", listOf(source)))
+        val fixtureId = "a".repeat(20)
+        val fixtureBranch = "codex-self-test/$fixtureId"
+        val source = GitHubFileProposal("docs/codex-self-test/$fixtureId/answer.md", "41", "42")
+        assertTrue(eligibleAutomaticPatch(fixtureBranch, "main", listOf(source)))
+        assertFalse(eligibleAutomaticPatch("fix/answer", "main", listOf(source)))
         assertFalse(eligibleAutomaticPatch("main", "main", listOf(source)))
-        assertFalse(eligibleAutomaticPatch("fix/answer", "", listOf(source)))
-        assertFalse(eligibleAutomaticPatch("fix/answer", "main", listOf(source.copy(delete = true))))
-        assertFalse(eligibleAutomaticPatch("fix/answer", "main", listOf(source.copy(path = ".github/workflows/android.yml"))))
+        assertFalse(eligibleAutomaticPatch(fixtureBranch, fixtureBranch, listOf(source)))
+        assertFalse(eligibleAutomaticPatch(fixtureBranch, "", listOf(source)))
+        assertFalse(eligibleAutomaticPatch(fixtureBranch, "main", listOf(source.copy(delete = true))))
+        assertFalse(eligibleAutomaticPatch(fixtureBranch, "main", listOf(source.copy(path = ".github/workflows/android.yml"))))
     }
 
     @Test fun invalidationWhileBusyIsDeliveredAfterTheActionFinishes() = runBlocking {

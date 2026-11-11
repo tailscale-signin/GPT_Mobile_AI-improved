@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "68748369c983b9d1caebc556e3b173c9d87cafb4adf104db3cf3e3f50f9cc3e3",
+  "source_digest": "d80affa88c0b74db892df66b875815fbd8cd39eb94b32ab698d6898924ba6a88",
   "file_count": 2443,
-  "indexed_line_count": 385691,
+  "indexed_line_count": 385698,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -40,7 +40,7 @@
       "id": "chat_ui",
       "label": "Chat, rendering and interaction",
       "file_count": 517,
-      "indexed_line_count": 91623
+      "indexed_line_count": 91628
     },
     {
       "id": "accessibility_and_localization",
@@ -148,7 +148,7 @@
       "id": "voice_and_media",
       "label": "Voice and media",
       "file_count": 18,
-      "indexed_line_count": 3378
+      "indexed_line_count": 3380
     },
     {
       "id": "portable_domain",
@@ -11056,8 +11056,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidVoiceAudio.kt",
       "area_id": "voice_and_media",
       "kind": "source",
-      "sha256": "cffcf2e4c2b1fa63701077bf58bd639dea1d10599ba81181f5eb0a59d35631ee",
-      "indexed_lines": 866
+      "sha256": "b70641952d490184cf6d6eeb42ab28966588e48e6499d4406b56154b6cfcce41",
+      "indexed_lines": 868
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroModelPack.kt",
@@ -12575,8 +12575,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubProgressMotion.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "c61d3bcc3bcfbee6c261c1c08d140857d4125bba781510b0de757f7d4f098431",
-      "indexed_lines": 135
+      "sha256": "ac472f9470cfed8840cc0c97a0f03d54895a0f609b294a84672a06e1910d737f",
+      "indexed_lines": 140
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubPromptAnchor.kt",

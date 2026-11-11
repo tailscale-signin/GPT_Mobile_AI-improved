@@ -17,6 +17,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.MotionDurationScale
 import androidx.compose.ui.geometry.Offset
@@ -66,7 +67,11 @@ internal fun rememberGitHubActivePreviewTransition(text: String, active: Boolean
             opacity.animateTo(1f, tween(halfRefresh, easing = LinearEasing))
         }
     }
-    return GitHubActivePreviewTransition(displayedText, opacity.asState())
+    return if (enabled) {
+        GitHubActivePreviewTransition(displayedText, opacity.asState())
+    } else {
+        GitHubActivePreviewTransition(rememberUpdatedState(text), rememberUpdatedState(1f))
+    }
 }
 
 /** Fade an arriving item once, without changing its measured position or replaying its text. */

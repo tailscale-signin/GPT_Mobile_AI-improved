@@ -4,6 +4,7 @@ import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
 import io.ktor.client.plugins.sse.SSE
+import io.ktor.client.request.HttpRequestData
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.content.TextContent
 import io.ktor.http.headersOf
@@ -25,18 +26,23 @@ class ModernMcpTransportTest {
     @org.junit.After fun clearEndpointHealth() = dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.networkChanged()
 
     private fun obj(value: String) = Json.parseToJsonElement(value).jsonObject
+    private fun rpcError(request: HttpRequestData, error: String) = buildJsonObject {
+        put("jsonrpc", "2.0")
+        put("id", obj((request.body as TextContent).text).getValue("id"))
+        put("error", obj(error))
+    }.toString()
     private val config = McpConnectionConfig("modern", "https://example.com/mcp", false, "Bearer secret")
 
     @Test fun modernUnknownMethodAndMissingRouteHaveDistinctRepairRulesAndRemainPaused() = runBlocking {
         for ((body, rule) in listOf(
-            """{"jsonrpc":"2.0","error":{"code":-32601,"message":"private server detail"}}""" to "DISCOVERY_METHOD_SUPPORTED_REQUIRED",
+            """{"code":-32601,"message":"private server detail"}""" to "DISCOVERY_METHOD_SUPPORTED_REQUIRED",
             "<html>private missing route</html>" to "ENDPOINT_ROUTE_REQUIRED"
         )) {
             val methods = mutableListOf<String>()
             HttpClient(
                 MockEngine { request ->
                     methods += Json.parseToJsonElement((request.body as TextContent).text).jsonObject.getValue("method").jsonPrimitive.content
-                    respond(body, HttpStatusCode.NotFound)
+                    respond(if (body.startsWith("{")) rpcError(request, body) else body, HttpStatusCode.NotFound)
                 }
             ).use { client ->
                 val manager = McpClientManager(client, modern = ModernMcpTransport(client))
@@ -109,7 +115,7 @@ class ModernMcpTransportTest {
                 val method = body.getValue("method").jsonPrimitive.content
                 methods += method
                 when (method) {
-                    "server/discover" -> respond("""{"error":{"code":-32000,"message":"Session required"}}""", HttpStatusCode.BadRequest, headersOf("Content-Type", "application/json"))
+                    "server/discover" -> respond(rpcError(request, """{"code":-32000,"message":"Session required"}"""), HttpStatusCode.BadRequest, headersOf("Content-Type", "application/json"))
                     "notifications/initialized" -> respond("", HttpStatusCode.Accepted)
                     else -> {
                         val result = when (method) {
@@ -166,9 +172,9 @@ class ModernMcpTransportTest {
         var requests = 0
         var now = 1_000L
         HttpClient(
-            MockEngine {
+            MockEngine { request ->
                 requests++
-                respond("""{"jsonrpc":"2.0","error":{"code":-32601,"message":"Method not found"}}""", HttpStatusCode.BadRequest, headersOf("Content-Type", "application/json"))
+                respond(rpcError(request, """{"code":-32601,"message":"Method not found"}"""), HttpStatusCode.BadRequest, headersOf("Content-Type", "application/json"))
             }
         ).use { client ->
             val transport = ModernMcpTransport(client, nowMs = { now })
@@ -251,10 +257,10 @@ class ModernMcpTransportTest {
         for (status in listOf(HttpStatusCode.OK, HttpStatusCode.BadRequest)) {
             var requests = 0
             HttpClient(
-                MockEngine {
+                MockEngine { request ->
                     requests++
                     respond(
-                        """{"error":{"code":-32601,"message":"Method not found"}}""",
+                        rpcError(request, """{"code":-32601,"message":"Method not found"}"""),
                         status,
                         headers = headersOf("Content-Type", "application/json")
                     )
@@ -289,7 +295,7 @@ class ModernMcpTransportTest {
             assertFalse(ModernMcpTransport(client).supports(config))
         }
         for (code in listOf(-32020, -32021, -32600, -32602, -32700)) {
-            HttpClient(MockEngine { respond("""{"error":{"code":$code,"message":"Invalid request"}}""", HttpStatusCode.BadRequest) }).use { client ->
+            HttpClient(MockEngine { request -> respond(rpcError(request, """{"code":$code,"message":"Invalid request"}"""), HttpStatusCode.BadRequest) }).use { client ->
                 assertTrue(runCatching { ModernMcpTransport(client).supports(config) }.exceptionOrNull() is McpProtocolConfigurationException)
             }
         }
@@ -307,7 +313,7 @@ class ModernMcpTransportTest {
             """{"supported":["2025-06-18"],"requested":"different"}""" to false,
             """{"supported":["2025-06-18"]}""" to false
         )) {
-            HttpClient(MockEngine { respond("""{"error":{"code":-32022,"message":"UnsupportedProtocolVersion","data":$data}}""", HttpStatusCode.BadRequest) }).use { client ->
+            HttpClient(MockEngine { request -> respond(rpcError(request, """{"code":-32022,"message":"UnsupportedProtocolVersion","data":$data}"""), HttpStatusCode.BadRequest) }).use { client ->
                 val result = runCatching { ModernMcpTransport(client).supports(config) }
                 if (accepted) assertEquals(false, result.getOrThrow()) else assertTrue(result.exceptionOrNull() is McpProtocolConfigurationException)
             }
@@ -412,7 +418,12 @@ class ModernMcpTransportTest {
                 val body = Json.parseToJsonElement((request.body as TextContent).text).jsonObject
                 methods += body.getValue("method").jsonPrimitive.content
                 assertEquals(config.authorizationHeader, request.headers["Authorization"])
-                respond("""{"jsonrpc":"2.0","id":null,"error":{"code":-32000,"message":"Malformed endpoint request"}}""", HttpStatusCode.BadRequest, headersOf("Content-Type", "application/json"))
+                val reply = if (methods.last() == "server/discover") {
+                    rpcError(request, """{"code":-32000,"message":"Session required"}""")
+                } else {
+                    """{"jsonrpc":"2.0","id":null,"error":{"code":-32000,"message":"Malformed endpoint request"}}"""
+                }
+                respond(reply, HttpStatusCode.BadRequest, headersOf("Content-Type", "application/json"))
             }
         ) { install(SSE) }.use { client ->
             val manager = McpClientManager(client, modern = ModernMcpTransport(client))
@@ -448,6 +459,7 @@ class ModernMcpTransportTest {
                     val result = if (method == "server/discover") obj("""{"supportedVersions":["2026-07-28"],"capabilities":{"tools":{}}}""") else obj(catalogue)
                     respond(
                         buildJsonObject {
+                            put("jsonrpc", "2.0")
                             put("id", body.getValue("id"))
                             put("result", result)
                         }.toString(),
@@ -476,11 +488,12 @@ class ModernMcpTransportTest {
                 val method = body.getValue("method").jsonPrimitive.content
                 methods += method
                 if (method == "tools/call") {
-                    respond("""{"error":{"code":-32602,"message":"Invalid params"}}""", HttpStatusCode.BadRequest, headersOf("Content-Type", "application/json"))
+                    respond(rpcError(request, """{"code":-32602,"message":"Invalid params"}"""), HttpStatusCode.BadRequest, headersOf("Content-Type", "application/json"))
                 } else {
                     val result = if (method == "server/discover") obj("""{"supportedVersions":["2026-07-28"],"capabilities":{"tools":{}}}""") else obj("""{"tools":[{"name":"write","inputSchema":{"type":"object"}}]}""")
                     respond(
                         buildJsonObject {
+                            put("jsonrpc", "2.0")
                             put("id", body.getValue("id"))
                             put("result", result)
                         }.toString(),
@@ -528,6 +541,7 @@ class ModernMcpTransportTest {
             }
             respond(
                 buildJsonObject {
+                    put("jsonrpc", "2.0")
                     put("id", body.getValue("id"))
                     put("result", result)
                 }.toString(),
@@ -538,6 +552,28 @@ class ModernMcpTransportTest {
             val manager = McpClientManager(client, modern = ModernMcpTransport(client))
             assertTrue(runCatching { manager.callTool(config, "write", JsonObject(emptyMap())) }.isFailure)
             assertEquals(1, calls)
+        }
+    }
+
+    @Test fun malformedJsonAndSseEnvelopesCannotEstablishDiscovery() = runBlocking {
+        for (sse in listOf(false, true)) {
+            for ((payload, rule) in listOf(
+                """{"result":{}}""" to "JSON_RPC_VERSION_REQUIRED",
+                """{"jsonrpc":2.0,"result":{}}""" to "JSON_RPC_VERSION_REQUIRED",
+                """{"jsonrpc":"2.0","result":{},"error":{}}""" to "RESPONSE_RESULT_OR_ERROR_REQUIRED",
+                """{"jsonrpc":"2.0","error":{"code":"-32601","message":"unknown method"}}""" to "ERROR_OBJECT_REQUIRED"
+            )) {
+                HttpClient(
+                    MockEngine { request ->
+                        val frame = JsonObject(obj(payload) + ("id" to obj((request.body as TextContent).text).getValue("id")))
+                        respond(if (sse) "data: $frame\n\n" else frame.toString(), headers = headersOf("Content-Type", if (sse) "text/event-stream" else "application/json"))
+                    }
+                ).use { client ->
+                    val failure = runCatching { ModernMcpTransport(client).supports(config) }.exceptionOrNull() as? McpProtocolConfigurationException
+                    assertEquals(rule, failure?.validationRule)
+                    assertEquals(200, failure?.httpStatus)
+                }
+            }
         }
     }
 }

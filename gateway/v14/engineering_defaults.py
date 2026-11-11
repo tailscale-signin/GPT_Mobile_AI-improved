@@ -19,6 +19,8 @@ def retained_request_defaults(request, accepted):
     result = dict(request)
     if 'duration_hours' not in result:
         result['duration_hours'] = accepted.get('duration_hours', 3)
+    if 'sampling_policy' not in result and 'sampling_policy' in accepted:
+        result['sampling_policy'] = dict(accepted['sampling_policy'])
     if 'execution_budget' in accepted:
         result['execution_budget'] = dict(accepted['execution_budget'], **result.get('execution_budget', {}))
     return result

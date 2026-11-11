@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.agent.tool
 
+import io.modelcontextprotocol.kotlin.sdk.types.Tool
 import java.security.MessageDigest
 import kotlin.coroutines.AbstractCoroutineContextElement
 import kotlin.coroutines.CoroutineContext
@@ -8,9 +9,17 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
 /** Identifies who requested metadata refresh; never grants permission or bypasses a health gate. */
-internal class McpDiscoveryContext(val trigger: McpDiscoveryTrigger) : AbstractCoroutineContextElement(Key) {
+internal class McpDiscoveryContext(
+    val trigger: McpDiscoveryTrigger,
+    val beforeOwnedDispatch: (suspend () -> Unit)? = null,
+    val onSource: (McpDiscoverySource) -> Unit = {}
+) : AbstractCoroutineContextElement(Key) {
     companion object Key : CoroutineContext.Key<McpDiscoveryContext>
 }
+
+internal enum class McpDiscoverySource { FRESH, SHARED, CACHED }
+
+internal data class McpDiscoveryReceipt(val tools: List<Tool>, val source: McpDiscoverySource)
 
 internal enum class McpDiscoveryTrigger { AUTOMATIC_RESOLUTION, AUTOMATIC_HEALTH, USER_RECONNECT, AUDIT_REFRESH, OAUTH_REFRESH, EXPLICIT_UNSPECIFIED }
 

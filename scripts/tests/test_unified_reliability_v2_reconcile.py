@@ -1,4 +1,6 @@
 """Fail-closed CI reconciliation tests; component proof is never case acceptance."""
+from datetime import datetime, timedelta, timezone
+import hashlib
 import json
 from pathlib import Path
 import sys
@@ -21,6 +23,10 @@ class UnifiedV2ReconciliationTest(unittest.TestCase):
         self.scope.mkdir()
         self.results = self.root / "junit"
         self.results.mkdir()
+        self.now = datetime(2026, 11, 10, 15, 0, tzinfo=timezone.utc)
+        self.since = self.now - timedelta(minutes=10)
+        self.sha = "a" * 40
+        self.run = "https://github.com/example/project/actions/runs/123/attempts/2"
         self.cases = [
             dict(id=f"{prefix}{i:02}", fixture="Synthetic", assertion="Full acceptance",
                  outcome="NOT_RUN", commit=None, evidence=[])
@@ -46,16 +52,30 @@ class UnifiedV2ReconciliationTest(unittest.TestCase):
         (self.scope / "tasks.json").write_text(json.dumps(self.tasks))
         (self.scope / "acceptance-tests.json").write_text(json.dumps(self.cases))
 
-    def junit(self, state="PASS"):
+    def junit(self, state="PASS", method="noFakeAttempt", observed=None, filename="TEST-AcceptanceProbe.xml"):
         result = ("<failure message='failed'/>" if state == "FAIL" else
                   "<skipped/>" if state == "SKIP" else "")
-        (self.results / "TEST-AcceptanceProbe.xml").write_text(
-            "<testsuite><testcase classname='dev.example.AcceptanceProbe' "
-            f"name='noFakeAttempt'>{result}</testcase></testsuite>"
+        observed = observed or self.now - timedelta(minutes=1)
+        (self.results / filename).write_text(
+            f"<testsuite tests='2' timestamp='{observed.isoformat()}'>"
+            f"<testcase classname='dev.example.AcceptanceProbe' name='{method}'>{result}</testcase>"
+            f"<testcase classname='dev.example.OtherProbe' name='{filename}'/></testsuite>"
         )
 
-    def run_report(self, directory=None):
-        return r.reconcile(self.scope, self.mapping, directory)
+    def qualification(self):
+        classes, errors = r.junit_observations(self.results.glob("TEST-*.xml"), self.since, self.now)
+        return {"schema_version": 1, "kind": "APP_AUDIT_SOURCE_HARNESS_OBSERVATIONS",
+                "checkout": {"commit": self.sha}, "report_errors": errors,
+                "execution_environment": {"github_repository": "example/project", "github_run_id": "123",
+                                          "github_run_attempt": "2"},
+                "execution_window_start": self.since.isoformat(), "collected_at": self.now.isoformat(),
+                "junit_receipt": r.current_junit_receipt(classes, errors)}
+
+    def run_report(self, directory=None, **overrides):
+        parameters = dict(source_sha=self.sha, run_url=self.run,
+                          qualification=self.qualification() if directory is not None else None)
+        parameters.update(overrides)
+        return r.reconcile(self.scope, self.mapping, directory, **parameters)
 
     def test_observed_component_pass_does_not_promote_case_or_task(self):
         self.junit()
@@ -80,8 +100,8 @@ class UnifiedV2ReconciliationTest(unittest.TestCase):
                     self.junit(state)
                     source = self.results
                 else:
-                    source = self.root / "empty"
-                    source.mkdir(exist_ok=True)
+                    self.junit(method="unrelated")
+                    source = self.results
                 report = self.run_report(source)
                 self.assertEqual(0, report["summary"]["not_run_with_partial_component_proof"])
                 self.assertEqual("NOT_FULLY_OBSERVED", next(
@@ -94,7 +114,13 @@ class UnifiedV2ReconciliationTest(unittest.TestCase):
         with ZipFile(archive, "w") as z:
             z.write(self.results / "TEST-AcceptanceProbe.xml",
                     arcname="app/build/test-results/testDebugUnitTest/TEST-AcceptanceProbe.xml")
-        report = self.run_report(archive)
+        with self.assertRaisesRegex(ValueError, "artifact SHA-256"):
+            self.run_report(archive)
+        with self.assertRaisesRegex(ValueError, "mismatch"):
+            self.run_report(archive, artifact_sha256="b" * 64)
+        artifact_digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+        report = self.run_report(archive, artifact_sha256=artifact_digest)
+        self.assertEqual(artifact_digest, report["junit_receipt"]["artifact_sha256"])
         self.assertEqual(1, report["summary"]["not_run_with_partial_component_proof"])
         candidate = next(row["component_candidate"] for row in report["cases"]
                          if row["case_id"] == "IX05")
@@ -102,14 +128,26 @@ class UnifiedV2ReconciliationTest(unittest.TestCase):
 
     def test_repeated_failing_test_cannot_be_misrepresented_as_pass(self):
         self.junit("PASS")
-        (self.results / "TEST-B.xml").write_text(
-            "<testsuite><testcase classname='dev.example.AcceptanceProbe' "
-            "name='noFakeAttempt'><failure/></testcase></testsuite>"
-        )
-        report = self.run_report(self.results)
-        status = next(v["component_candidate"]["named_tests"][0]["result"]
-                      for v in report["cases"] if v["case_id"] == "IX05")
-        self.assertEqual("FAIL", status)
+        qualification = self.qualification()
+        self.junit("FAIL", filename="TEST-B.xml")
+        with self.assertRaisesRegex(ValueError, "duplicate"):
+            self.run_report(self.results, qualification=qualification)
+
+    def test_stale_modified_and_wrong_attempt_reports_cannot_be_current(self):
+        self.junit()
+        qualification = self.qualification()
+        with self.assertRaisesRegex(ValueError, "requires"):
+            self.run_report(self.results, qualification=None)
+        with self.assertRaisesRegex(ValueError, "workflow attempt"):
+            self.run_report(self.results, run_url=self.run[:-1] + "1")
+        with self.assertRaisesRegex(ValueError, "tested SHA"):
+            self.run_report(self.results, source_sha="b" * 40)
+        self.junit(observed=self.since - timedelta(days=1))
+        with self.assertRaisesRegex(ValueError, "stale"):
+            self.run_report(self.results, qualification=qualification)
+        self.junit(method="anotherTest")
+        with self.assertRaisesRegex(ValueError, "digest"):
+            self.run_report(self.results, qualification=qualification)
 
     def test_duplicate_unknown_or_empty_fixture_mapping_fails_closed(self):
         payload = json.loads(self.mapping.read_text())

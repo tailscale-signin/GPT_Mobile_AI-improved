@@ -23,12 +23,14 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -245,15 +247,36 @@ class McpClientManager internal constructor(
         }
     }
 
-    suspend fun listTools(config: McpConnectionConfig, forceRefresh: Boolean = false, awaitCompletion: Boolean = false, passiveBackoff: Boolean = false): List<Tool> {
+    suspend fun listTools(config: McpConnectionConfig, forceRefresh: Boolean = false, awaitCompletion: Boolean = false, passiveBackoff: Boolean = false): List<Tool> =
+        listToolsWithReceipt(config, forceRefresh, awaitCompletion, passiveBackoff).tools
+
+    internal suspend fun listToolsWithReceipt(config: McpConnectionConfig, forceRefresh: Boolean, awaitCompletion: Boolean, passiveBackoff: Boolean): McpDiscoveryReceipt {
         val discoveryContext = kotlinx.coroutines.currentCoroutineContext()[McpDiscoveryContext]
             ?: McpDiscoveryContext(if (forceRefresh) McpDiscoveryTrigger.EXPLICIT_UNSPECIFIED else McpDiscoveryTrigger.AUTOMATIC_RESOLUTION)
+        return if (discoveryContext.beforeOwnedDispatch == null) {
+            acquireCatalogue(config, forceRefresh, awaitCompletion, passiveBackoff, discoveryContext, catalogueScope)
+        } else {
+            // Joining existing work does not transfer ownership. A producer started here
+            // remains a child of the bounded audit probe and stops with that probe.
+            supervisorScope { acquireCatalogue(config, forceRefresh, awaitCompletion, passiveBackoff, discoveryContext, this) }
+        }
+    }
+
+    private suspend fun acquireCatalogue(
+        config: McpConnectionConfig,
+        forceRefresh: Boolean,
+        awaitCompletion: Boolean,
+        passiveBackoff: Boolean,
+        discoveryContext: McpDiscoveryContext,
+        producerScope: CoroutineScope
+    ): McpDiscoveryReceipt {
         fun recordDecision(decision: McpDiscoveryDecision) = AppLogRecorder.record("MCP", mcpDiscoveryDiagnostic(config, discoveryContext.trigger, forceRefresh, decision))
+        fun cached(tools: List<Tool>) = McpDiscoveryReceipt(tools, McpDiscoverySource.CACHED).also { discoveryContext.onSource(it.source) }
         recordDecision(McpDiscoveryDecision.REQUESTED)
         val policyEpoch = dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.epoch
         protocolFailures[config.connectionUid]?.takeIf { !forceRefresh && it.first == config.catalogueIdentity() }?.let { (_, failure) ->
             recordDecision(McpDiscoveryDecision.PAUSED_CONFIGURATION)
-            if (passiveBackoff && !awaitCompletion) return emptyList()
+            if (passiveBackoff && !awaitCompletion) return cached(emptyList())
             throw failure
         }
         if (!forceRefresh && healthSnapshot(config.connectionUid).state == McpConnectionHealthState.AUTHENTICATION_REQUIRED && providerCooldowns[config.connectionUid]?.first == config.validatedKey()) {
@@ -266,7 +289,7 @@ class McpClientManager internal constructor(
         ready?.let {
             recordDecision(McpDiscoveryDecision.LIVE_CACHE)
             catalogueIdentities[config.connectionUid] = policyEpoch to key
-            return it.value
+            return cached(it.value)
         }
         val connectionHealth = healthSnapshot(config.connectionUid)
         if (passiveBackoff &&
@@ -278,7 +301,7 @@ class McpClientManager internal constructor(
             recordDecision(McpDiscoveryDecision.WAITING_BACKOFF)
             // Optional discovery must not wait on a known-down endpoint. Its existing
             // health controller owns recovery; execution still validates live access.
-            return peekToolsForConnection(config.connectionUid, config.endpointUrl, config.allowCleartext).orEmpty()
+            return cached(peekToolsForConnection(config.connectionUid, config.endpointUrl, config.allowCleartext).orEmpty())
         }
         // Restore metadata only for the exact endpoint and credential identity. A saved
         // schema is never a handshake/authorization receipt; live calls still validate.
@@ -304,16 +327,20 @@ class McpClientManager internal constructor(
         } else {
             null
         }
-        val producer = synchronized(catalogueProducers) {
+        val (producer, source) = synchronized(catalogueProducers) {
             // Awaiters can observe a terminal producer before its completion handler
             // removes it. Only share live discovery; explicit refresh must not inherit
             // an already-completed failure from that cleanup window.
-            catalogueProducers[key]?.takeUnless { it.isCompleted }?.also {
+            val shared = catalogueProducers[key]?.takeUnless { it.isCompleted }
+            if (shared != null) {
                 recordDecision(McpDiscoveryDecision.SHARED_PRODUCER)
-            } ?: catalogueScope.async(context = discoveryContext, start = kotlinx.coroutines.CoroutineStart.LAZY) {
+                return@synchronized shared to McpDiscoverySource.SHARED
+            }
+            val owned = producerScope.async(context = discoveryContext, start = kotlinx.coroutines.CoroutineStart.LAZY) {
                 recordDecision(McpDiscoveryDecision.START_ACQUISITION)
                 withTimeout(catalogueTimeoutMs) {
                     val epoch = catalogue.epoch
+                    discoveryContext.beforeOwnedDispatch?.invoke()
                     val tools = fetchCatalogue(config, forceRefresh).toList()
                     kotlinx.coroutines.currentCoroutineContext().ensureActive()
                     val bytes = validateMcpCatalogue(tools)
@@ -335,9 +362,11 @@ class McpClientManager internal constructor(
                 catalogueProducers[key] = next
                 next.invokeOnCompletion { synchronized(catalogueProducers) { catalogueProducers.remove(key, next) } }
             }
+            owned to McpDiscoverySource.FRESH
         }
+        discoveryContext.onSource(source)
         producer.start()
-        if (restored != null) return restored
+        if (restored != null) return cached(restored)
         // Interactive resolution may use a cached snapshot, but a health check must
         // observe the completed catalogue before claiming the endpoint has no tools.
         val result = if (awaitCompletion) {
@@ -348,10 +377,10 @@ class McpClientManager internal constructor(
                 throw McpCatalogueTimeoutException(catalogueTimeoutMs)
             }
         } else {
-            withTimeoutOrNull(2_000L) { producer.await() } ?: catalogue.peek(key)?.value.orEmpty()
+            withTimeoutOrNull(2_000L) { producer.await() } ?: return cached(catalogue.peek(key)?.value.orEmpty())
         }
         if (catalogue.peek(key) != null) catalogueIdentities[config.connectionUid] = policyEpoch to key
-        return result
+        return McpDiscoveryReceipt(result, source)
     }
 
     private suspend fun fetchCatalogue(config: McpConnectionConfig, forceRefresh: Boolean): List<Tool> {

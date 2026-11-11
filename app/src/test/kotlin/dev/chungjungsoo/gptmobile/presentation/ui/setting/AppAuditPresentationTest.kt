@@ -25,6 +25,8 @@ class AppAuditPresentationTest {
         assertTrue(reason("DISCOVERY_METHOD_SUPPORTED_REQUIRED").contains("rejected server/discover"))
         assertTrue(reason("ENDPOINT_ROUTE_REQUIRED").contains("URL path"))
         assertTrue(reason("CREDENTIAL_REAUTHORIZATION_REQUIRED").contains("new sign-in"))
+        assertTrue(reason("RESPONSE_ID_MATCH_REQUIRED").contains("exact value and JSON type"))
+        assertTrue(reason("RESPONSE_ID_MATCH_REQUIRED").contains("both success and error responses"))
     }
 
     @Test fun measuredScoreCannotHideUnexercisedConfiguredCachedOrBlockedInventory() {
@@ -54,7 +56,7 @@ class AppAuditPresentationTest {
         assertEquals(75.0, result.score.score!!, 0.0)
         assertEquals("Passing weight 3 / measured weight 4", result.weightText)
         assertEquals("Exercised 2/8 planned checks · Verified passes 1/8 planned checks", result.coverageText)
-        assertEquals("Measured checks 1/2 passed · Planned checks verified 1/8 · 1 failed · 1 blocked · 0 unavailable · 2 untested · 1 canceled", result.coverageSummaryText)
+        assertEquals("1 of 2 measured checks passed · 1 failed · 1 blocked · 0 unavailable · 2 untested · 1 canceled", result.coverageSummaryText)
         assertTrue(result.countsText.contains("Passed 3 · Failed 1 · Blocked 1"))
         assertTrue(result.countsText.contains("Untested or pending 2"))
         assertTrue(result.countsText.contains("Canceled 1"))
@@ -94,7 +96,7 @@ class AppAuditPresentationTest {
         )
         assertEquals(100.0, presentation.score.score!!, 0.0)
         assertEquals(55, presentation.summary.passed)
-        assertEquals("Measured checks 26/26 passed · Planned checks verified 26/120 · 1 failed · 5 blocked · 10 unavailable · 49 untested", presentation.coverageSummaryText)
+        assertEquals("26 of 26 measured checks passed · 1 failed · 5 blocked · 10 unavailable · 49 untested", presentation.coverageSummaryText)
     }
 
     @Test fun pendingAndExternalChecksRemainDistinguishableFromFailures() {

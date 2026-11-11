@@ -34,6 +34,7 @@ internal fun ChatExportDialog(
     includeUserMessages: Boolean = false,
     diagnosticNotice: String? = null,
     onReducedDebugExport: (() -> Unit)? = null,
+    onFullDebugExport: (() -> Unit)? = null,
     onResumeDebugExport: (() -> Unit)? = null,
     onExport: (ChatExportFormat) -> Unit
 ) {
@@ -61,12 +62,21 @@ internal fun ChatExportDialog(
                 if (debugMode) {
                     diagnosticNotice?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                     ExportFormatCard(
-                        "Debug export",
+                        "Diagnostic summary",
                         ".debug.zip",
-                        "Conversation records and diagnostic evidence",
+                        "Latest verdict, failures and approval state",
                         Icons.Rounded.Description,
-                        "Captures stored conversation, tool, research, profile and log records in independent sections. The manifest reports exact record counts, capture times, memory measurements and any omissions. Oversized records and unavailable sources are reported explicitly. Credentials are redacted; the file can contain private conversation data."
+                        "Includes run, tool and log evidence with timing and any omissions. Credentials are redacted."
                     ) { onExport(ChatExportFormat.DEBUG) }
+                    onFullDebugExport?.let { full ->
+                        ExportFormatCard(
+                            "Full diagnostic history",
+                            ".debug.zip",
+                            "Include conversation and workspace checkpoints",
+                            Icons.Rounded.Description,
+                            "Includes retained conversation, workspace, answer and research records. Full captures can take longer and may span multiple parts."
+                        ) { full() }
+                    }
                     onReducedDebugExport?.let { reduced ->
                         ExportFormatCard(
                             "Low-memory diagnostics",

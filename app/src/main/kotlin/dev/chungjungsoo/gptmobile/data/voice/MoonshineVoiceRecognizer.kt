@@ -44,7 +44,7 @@ internal class MoonshineVoiceRecognizer internal constructor(
     private val captureFactory: () -> LocalVoiceCapture,
     private val worker: ExecutorService
 ) : VoiceRecognitionInput {
-    constructor(context: Context, modelStore: LocalVoiceModelStore = LocalVoiceModelStore(context)) : this(
+    constructor(context: Context, modelStore: LocalVoiceModelStore) : this(
         modelsReady = modelStore::acquireUse,
         modelDirectory = modelStore::modelDirectory,
         releaseModel = modelStore::releaseUse,
@@ -129,7 +129,9 @@ internal class MoonshineVoiceRecognizer internal constructor(
         }
     }
 
-    private fun recognize(run: CaptureRun) {
+    private fun recognize(run: CaptureRun) = VoiceNativeEngineGate.exclusive { recognizeExclusive(run) }
+
+    private fun recognizeExclusive(run: CaptureRun) {
         var decoder: LocalSpeechDecoder? = null
         var missingModel = false
         var modelAcquired = false
@@ -141,6 +143,7 @@ internal class MoonshineVoiceRecognizer internal constructor(
             }
             modelAcquired = true
             if (run.cancelled.get()) return
+            engineEvent(run, "start")
             decoder = decoderFactory()
             decoder.start(modelDirectory()) { event ->
                 if (!run.cancelled.get()) {
@@ -160,6 +163,7 @@ internal class MoonshineVoiceRecognizer internal constructor(
                     }
                 }
             }
+            engineEvent(run, "ready")
             if (run.cancelled.get()) return
             val capture = captureFactory()
             run.capture = capture
@@ -189,6 +193,8 @@ internal class MoonshineVoiceRecognizer internal constructor(
             // All decoder calls, including release, are on this serial worker, after accept/finish returned.
             runCatching { decoder?.close() }
             if (modelAcquired) releaseModel()
+            if (run.failure.get() != null) engineEvent(run, "failure")
+            if (decoder != null) engineEvent(run, "released")
             run.audio.clear()
             VoiceMicrophoneLease.release(run.lease)
             deliver(run) {
@@ -201,6 +207,10 @@ internal class MoonshineVoiceRecognizer internal constructor(
                 }
             }
         }
+    }
+
+    private fun engineEvent(run: CaptureRun, stage: String) {
+        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("VoiceEngine", "moonshine_$stage · engineId=${run.lease}")
     }
 
     private fun record(run: CaptureRun, capture: LocalVoiceCapture) {

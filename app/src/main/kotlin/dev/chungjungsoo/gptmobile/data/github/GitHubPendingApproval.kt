@@ -110,6 +110,21 @@ internal object GitHubPendingApproval {
                 val previous = pending[id]?.first ?: return@forEach
                 if (resolutionMatches(previous, receipt)) {
                     pending.remove(id)
+                } else if (receipt["trusted"] == JsonPrimitive(true) &&
+                    receipt["success"] == JsonPrimitive(true) &&
+                    receipt["verification_eligible"] != JsonPrimitive(false) &&
+                    receipt["binding"] == previous["binding"] &&
+                    receipt["repository"] == previous["repository"] &&
+                    receipt.text("tool").substringBefore("__") == "github_context" &&
+                    result.text("approval_state") in setOf("WAITING_FOR_APPROVAL", "EXACT_PATCH_APPROVAL_PENDING", "APPROVED_AWAITING_DISPATCH", "PUBLICATION_AWAITING_REMOTE_VERIFICATION", "NATIVE_APPROVAL_STATE_UNAVAILABLE")
+                ) {
+                    val descriptor = requireNotNull(pending[id]).second
+                    pending[id] = previous to JsonObject(
+                        descriptor + mapOf(
+                            "native_state" to JsonPrimitive(result.text("native_state").ifBlank { "UNKNOWN" }),
+                            "approval_state" to JsonPrimitive(result.text("approval_state"))
+                        )
+                    )
                 }
             }
         }

@@ -1,5 +1,11 @@
 package dev.chungjungsoo.gptmobile.data.voice
 
+/** Main-thread input for one reply. stop() on the owning VoiceAudio cancels the stream. */
+interface VoiceReplyPlayback {
+    fun enqueue(text: String)
+    fun finish()
+}
+
 /** Versioned boundary shared by installed local recognition and Android speech. */
 interface VoiceAudio {
     interface Listener {
@@ -16,6 +22,8 @@ interface VoiceAudio {
     fun retryAfterMillis(): Long = 0
     fun listen(listener: Listener)
     fun speak(text: String, complete: () -> Unit, error: (String) -> Unit)
+    val streamsReplies: Boolean get() = false
+    fun openReply(complete: () -> Unit, error: (String) -> Unit): VoiceReplyPlayback? = null
     fun stop()
     fun close()
 }
@@ -43,7 +51,8 @@ class VoiceSession(
     private val audio: VoiceAudio,
     private val submit: (String) -> Boolean,
     private val changed: (VoiceState) -> Unit,
-    private val now: () -> Long = { System.nanoTime() / 1_000_000 }
+    private val now: () -> Long = { System.nanoTime() / 1_000_000 },
+    private val awaitsAdmission: Boolean = false
 ) {
     companion object {
         const val API_VERSION = 2
@@ -69,6 +78,8 @@ class VoiceSession(
     private var streamComplete = false
     private var streamAudio = true
     private var playbackSequence = 0L
+    private var replyPlayback: VoiceReplyPlayback? = null
+    private var playbackFinished = false
     private fun resetStream() {
         streamId = null
         speechBuffer = VoiceSpeechBuffer()
@@ -76,6 +87,8 @@ class VoiceSession(
         chunkPlaying = false
         streamComplete = false
         streamAudio = true
+        replyPlayback = null
+        playbackFinished = false
     }
     var editBeforeSend = false
     var autoContinue = false
@@ -106,13 +119,32 @@ class VoiceSession(
         if (prompt.isEmpty()) return
         resetStream()
         waiting = true
-        draftPending = false
+        draftPending = awaitsAdmission
         update(state.copy(phase = VoicePhase.THINKING, transcript = prompt, level = 0f))
         if (!submit(prompt)) {
             draftPending = true
             fail("Could not send this turn. Open chat to review your profile and connection.")
         }
     }
+    fun admission(stage: VoiceAdmissionStage, reason: String? = null) {
+        if (!waiting || state.phase == VoicePhase.CLOSED) return
+        when (stage) {
+            VoiceAdmissionStage.CHECKING -> draftPending = true
+            VoiceAdmissionStage.QUEUED, VoiceAdmissionStage.ACCEPTED -> draftPending = false
+            VoiceAdmissionStage.FAILED -> {
+                draftPending = true
+                fail("This message was not accepted. Your words are kept; open chat to review the connection or retry. ${reason.orEmpty()}")
+                return
+            }
+        }
+        update(state)
+    }
+
+    fun permissionDenied() {
+        fail("Microphone access is off. Allow it in Android app permissions to use voice chat.")
+        update(state.copy(recoveryAction = VoiceRecoveryAction.MICROPHONE_PERMISSION))
+    }
+
     fun restore(transcript: String, reply: String, review: Boolean, pending: Boolean) {
         if (state.phase != VoicePhase.PAUSED || engaged) return
         waiting = pending
@@ -135,6 +167,8 @@ class VoiceSession(
         generation++
         queuedSpeech.clear()
         chunkPlaying = false
+        replyPlayback = null
+        playbackFinished = false
         if (streamId != null) streamAudio = false
         audio.stop()
     }
@@ -151,6 +185,11 @@ class VoiceSession(
 
     fun resume() {
         if (!accessAllowed() || state.phase in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING, VoicePhase.REVIEWING)) return
+        if (waiting) {
+            engaged = true
+            update(state.copy(phase = VoicePhase.THINKING, level = 0f))
+            return
+        }
         // Reviewing preserved text never touches the recognizer and must stay usable
         // during its cooldown, including after an error or session recreation.
         if (draftPending) {
@@ -246,7 +285,7 @@ class VoiceSession(
         }
         update(state.copy(reply = text))
         streamComplete = complete
-        val chunks = speechBuffer.append(text, complete)
+        val chunks = speechBuffer.append(text, complete, earlyStart = audio.streamsReplies)
         if (chunks == null) {
             stopAudio()
             update(state.copy(phase = VoicePhase.THINKING, notice = "The response was revised. The current answer is available in chat."))
@@ -262,6 +301,30 @@ class VoiceSession(
             if (streamComplete) {
                 waiting = false
                 if (engaged) continueTurn() else pause()
+            }
+            return
+        }
+        if (replyPlayback == null && queuedSpeech.isNotEmpty() && audio.streamsReplies) {
+            val ticket = generation
+            val opened = audio.openReply(
+                complete = {
+                    if (ticket == generation && replyPlayback != null) {
+                        replyPlayback = null
+                        waiting = false
+                        continueTurn()
+                    }
+                },
+                error = { message -> if (ticket == generation) playbackFailed(message) }
+            )
+            if (ticket != generation) return
+            replyPlayback = opened
+            if (replyPlayback != null) update(state.copy(phase = VoicePhase.SPEAKING))
+        }
+        replyPlayback?.let { playback ->
+            while (replyPlayback === playback) playback.enqueue(queuedSpeech.removeFirstOrNull() ?: break)
+            if (replyPlayback === playback && streamComplete && !playbackFinished) {
+                playbackFinished = true
+                playback.finish()
             }
             return
         }
@@ -284,8 +347,18 @@ class VoiceSession(
                 chunkPlaying = false
                 pumpSpeech()
             }
-        }, error = { message -> if (generation == ticket && sequence == playbackSequence) fail(message) })
+        }, error = { message -> if (generation == ticket && sequence == playbackSequence) playbackFailed(message) })
     }
+    private fun playbackFailed(message: String) {
+        // Audio can fail while the model is still streaming. Keep its turn and captions alive.
+        stopAudio()
+        streamAudio = false
+        engaged = false
+        automaticRetry = false
+        if (streamComplete) waiting = false
+        update(state.copy(phase = if (waiting) VoicePhase.THINKING else VoicePhase.ERROR, notice = message, level = 0f))
+    }
+
     fun interrupt() {
         if (state.phase == VoicePhase.CLOSED) return
         waiting = false
@@ -301,9 +374,15 @@ class VoiceSession(
             streamReply(id, text, complete = true)
             return
         }
+        if (streamId == null && !failed && text.isNotBlank() && audio.streamsReplies) {
+            lastReply = id
+            streamReply(id, text, complete = true)
+            return
+        }
         waiting = false
         lastReply = id
         if (failed || text.isBlank()) {
+            if (text.isNotBlank()) update(state.copy(reply = text))
             fail("This turn did not finish. Open chat to review it or try again.")
             return
         }

@@ -247,7 +247,9 @@ class GitHubToolContractsTest {
             }
         )
         try {
-            val tool = GitHubOperationTool("github_issue", GitHubTool("token", http), "issue-list")
+            // The no-token path exercises the bounded REST fallback. Authenticated
+            // GraphQL issue pagination is covered independently by GitHubTargetedInventoryTest.
+            val tool = GitHubOperationTool("github_issue", GitHubTool("", http), "issue-list")
             val first = data(tool.execute("issues", call("list", """, "state":"all"""")))
             assertEquals(JsonPrimitive(0), first["data"]!!.jsonObject["returned"])
             assertEquals(JsonPrimitive(true), first["data"]!!.jsonObject["has_more"])

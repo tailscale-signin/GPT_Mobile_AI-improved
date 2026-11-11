@@ -111,6 +111,9 @@ class ApiStateFlowExtensionsTest {
         assertEquals(1, counters.size)
         assertEquals("github-check-counts", counters.single().progressId)
         assertTrue(counters.single().content.startsWith("Checks: 3/8"))
+        val betweenUpdates = timeline.single { it.content == "Reading a file." }
+        assertTrue(timeline.indexOf(counters.single()) < timeline.indexOf(betweenUpdates))
+        assertTrue(requireNotNull(counters.single().progressSequence) > requireNotNull(betweenUpdates.progressSequence))
     }
 
     @Test fun duplicatePreviewsAreSuppressedAcrossSummariesAndCheckpointEvents() = runBlocking {

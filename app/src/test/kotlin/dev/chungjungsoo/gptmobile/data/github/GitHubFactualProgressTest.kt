@@ -20,14 +20,14 @@ class GitHubFactualProgressTest {
             tokenBudget = 0,
             now = { clock }
         )
-        clock = 15_000
+        clock = 45_000
         narrator.beforeRound(Long.MAX_VALUE)
         assertEquals(1, summaries.size)
         assertFalse(summaries.single().modelAuthored)
         assertTrue(summaries.single().text.contains("Workflow results are retained"))
         assertFalse(summaries.single().text.contains("10"))
         assertTrue(summaries.single().text.contains("evaluate remaining requirements"))
-        clock += 15_000
+        clock += 45_000
         narrator.beforeRound()
         assertEquals(1, summaries.size)
     }

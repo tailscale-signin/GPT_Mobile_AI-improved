@@ -16,22 +16,25 @@ internal object ToolArgumentValidator {
     fun errors(arguments: JsonObject, schema: JsonObject): List<String> = validate(arguments, schema, "$", 0).take(12)
 
     /** Give the model the failed constraint, never a second copy of the whole tool catalog. */
-    fun repairMessage(toolName: String, errors: List<String>, schema: JsonObject): String {
+    fun repairMessage(toolName: String, errors: List<String>, schema: JsonObject, arguments: JsonObject? = null): String {
         val guidance = when (toolName.substringBefore("__")) {
             "github_write" ->
                 "Each files item must contain its own non-empty repository-relative path. " +
                     "For a replacement supply path and complete content; for a deletion supply path, delete=true and the observed expected_blob_sha. " +
                     "Use the observed expected_head_sha and the observed blob SHA for existing files. Find missing paths and SHAs with GitHub read/search; do not guess them. "
-            "github_pr" ->
+            "github_pr" -> if (arguments?.get("action") != JsonPrimitive("list") && errors.any { "pull_number" in it }) {
                 "Use action=list to discover an existing pull_number before headers, context, comments or reviews. " +
                     "Use the exact field name pull_number, not number or pr_number. Writes need the observed expected_head_sha. "
+            } else {
+                ""
+            }
             "github_search" ->
                 "Use the search schema for a new query. For another page, use the last result's exact continuation_call. "
             else -> ""
         }
         val declared = (schema["properties"] as? JsonObject).orEmpty().keys.sorted().joinToString(", ").take(1000)
-        return "Invalid arguments. No action was dispatched. " + guidance + errors.joinToString("; ").take(3000) +
-            ". Submit at most one corrected proposal with a new call ID; never repeat unchanged invalid arguments. " +
+        return "Invalid arguments. " + errors.joinToString("; ").take(3000) +
+            ". No action was dispatched. " + guidance + "Submit one corrected proposal with a new call ID. " +
             "Declared fields: " + declared
     }
 
@@ -44,7 +47,7 @@ internal object ToolArgumentValidator {
                 buildJsonObject {
                     put("schema", "gptmobile.arguments.v2")
                     put("operation", toolName)
-                    put("message", repairMessage(toolName, validationErrors, schema))
+                    put("message", repairMessage(toolName, validationErrors, schema, arguments))
                     put("validation_errors", JsonArray(validationErrors.map(::JsonPrimitive)))
                     put("state", "PRECHECK_REJECTED")
                     put("dispatched", false)

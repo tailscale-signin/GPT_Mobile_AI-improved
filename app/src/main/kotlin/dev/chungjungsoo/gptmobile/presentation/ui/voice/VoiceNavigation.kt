@@ -22,8 +22,8 @@ internal fun NavGraphBuilder.voiceNavigation(navController: NavHostController, o
         LaunchedEffect(state.route) {
             state.route?.let { route -> navController.navigate(route) { popUpTo(Route.VOICE_ENTRY) { inclusive = true } } }
         }
-        LaunchedEffect(state.loaded, state.selected) {
-            if (state.loaded && state.selected.isNotBlank() && state.error == null) model.start(enable = true)
+        LaunchedEffect(state.loaded, state.selected, state.enabled) {
+            if (state.loaded && state.enabled && state.selected.isNotBlank() && state.error == null) model.start()
         }
         VoiceEntryScreen(
             state,

@@ -81,6 +81,23 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 class ProviderAdaptersTest {
+    @Test fun adaptiveOverridesOllamaAdvancedSamplingOnWireWithoutChangingProfile() = runBlocking {
+        val original = platform(ClientType.OLLAMA).copy(temperature = .9f, topP = .8f, ollamaOptions = "{\"temperature\":1.2,\"top_p\":0.7}")
+        val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(emptyFlow(), emptyFlow())))
+        val adapter = OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
+        adapter.openSession(turns(), original, RequestConstraints(githubSampling = dev.chungjungsoo.gptmobile.data.github.GitHubSamplingSettings()).forRole("github-decision-selection"))
+            .streamRound(emptyList(), emptyList()).toList()
+        assertEquals(.1f, api.chatRequests.first().temperature)
+        assertNull(api.chatRequests.first().topP)
+        assertEquals(.1f, api.chatRequests.first().options?.temperature)
+        assertNull(api.chatRequests.first().options?.topP)
+        assertEquals(original.model, api.chatRequests.first().model)
+        adapter.openSession(turns(), original, RequestConstraints()).streamRound(emptyList(), emptyList()).toList()
+        assertEquals(1.2f, api.chatRequests.last().temperature)
+        assertEquals(.7f, api.chatRequests.last().topP)
+        assertEquals(.9f, original.temperature)
+    }
+
     @Test fun gatewayReservationCallbackIsKeptOnlyForVisibleConversationRoles() = runBlocking {
         val reservation: suspend (String) -> Unit = {}
         val original = RequestConstraints(

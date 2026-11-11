@@ -298,7 +298,7 @@ class AppAuditRunnerTest {
             val originalPlan = h.audit.plan
             h.batch = h.batch.copy(audit = if (changeSource) h.audit.copy(sourceInventoryDigest = "changed") else h.audit.copy(limits = h.audit.limits.copy(maxExecutedProbes = 2)))
             h.run()
-            assertEquals(BenchmarkBatchState.COMPLETED_WITH_FAILURES, h.batch.state)
+            assertEquals(BenchmarkBatchState.COMPLETED_WITH_BLOCKERS, h.batch.state)
             assertEquals(originalPlan, h.audit.plan)
             assertTrue(h.audit.results.all { it.outcome == AppAuditOutcome.BLOCKED && !it.attempted })
         }

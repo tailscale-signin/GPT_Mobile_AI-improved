@@ -12,6 +12,8 @@ internal enum class KokoroVoice(val speakerId: Int, val label: String, val lexic
 
 internal interface KokoroOutput {
     fun speak(text: String, voice: KokoroVoice, complete: () -> Unit, error: (String, canFallback: Boolean) -> Unit)
+    fun openReply(voice: KokoroVoice, complete: () -> Unit, error: (String, canFallback: Boolean) -> Unit): VoiceReplyPlayback? = null
+    fun releaseWarmModel() = Unit
     fun stop()
     fun close()
 }
@@ -30,6 +32,7 @@ internal class VoicePluginAudio(
         set(value) {
             if (closed || field == value) return
             stop()
+            if (value == null || value.lexicon != field?.lexicon) kokoro?.releaseWarmModel()
             field = value
         }
     var recognitionBackend: VoiceRecognitionBackend = VoiceRecognitionBackend.LOCAL_MOONSHINE
@@ -41,6 +44,47 @@ internal class VoicePluginAudio(
         }
 
     override fun retryAfterMillis(): Long = if (recognitionBackend == VoiceRecognitionBackend.ANDROID_SPEECH_SERVICE) system.retryAfterMillis() else 0
+
+    override val streamsReplies: Boolean get() = !closed && kokoro != null && kokoroVoice != null && LocalVoiceModelStore.supportsLanguage(local.languageTag)
+
+    override fun openReply(complete: () -> Unit, error: (String) -> Unit): VoiceReplyPlayback? {
+        if (!streamsReplies) return null
+        val output = kokoro ?: return null
+        val voice = kokoroVoice ?: return null
+        local.stop()
+        system.stop()
+        val ticket = ++playbackGeneration
+        val fallbackText = StringBuilder()
+        var useFallback = false
+        var finished = false
+        fun current() = !closed && playbackGeneration == ticket
+        fun finishFallback() {
+            offlineSpeech(fallbackText.toString(), { if (current()) complete() }, { if (current()) error(it) })
+        }
+        val reply = output.openReply(voice, complete = { if (current()) complete() }, error = { message, canFallback ->
+            if (current()) {
+                if (canFallback) {
+                    useFallback = true
+                    if (finished) finishFallback()
+                } else {
+                    error(message)
+                }
+            }
+        }) ?: return null
+        return object : VoiceReplyPlayback {
+            override fun enqueue(text: String) {
+                if (finished || !current()) return
+                fallbackText.append(text)
+                if (!useFallback) reply.enqueue(text)
+            }
+
+            override fun finish() {
+                if (finished || !current()) return
+                finished = true
+                if (useFallback) finishFallback() else reply.finish()
+            }
+        }
+    }
 
     override fun listen(listener: VoiceAudio.Listener) {
         if (closed) return

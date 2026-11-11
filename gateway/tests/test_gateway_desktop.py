@@ -26,6 +26,7 @@ from v14 import VERSION
 from v14.config import Config
 from v14.maintenance import prepare
 from v14.service import ServiceState, LoadGuard
+from v14.state_lock import StateDirectoryAlreadyOwned
 
 
 def bundle(path, number='15.0.1'):
@@ -109,6 +110,26 @@ class SettingsTests(unittest.TestCase):
                     atomic_json(path, {'old':False})
             self.assertEqual({'old':True}, json.loads(path.read_text()))
             self.assertEqual([path], list(Path(temp).iterdir()))
+
+    def test_control_request_retries_transient_windows_response_sharing_violation(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            response = json.dumps({'id': 'accepted-id', 'accepted': True})
+            reads = iter([PermissionError('response is being replaced'), response])
+
+            def read_text(path, *args, **kwargs):
+                if path.name == 'response.json':
+                    value = next(reads)
+                    if isinstance(value, OSError):
+                        raise value
+                    return value
+                return Path.read_text(path, *args, **kwargs)
+
+            with patch('desktop.manager.uuid.uuid4', return_value=SimpleNamespace(hex='accepted-id')), \
+                    patch('desktop.manager.Path.read_text', autospec=True, side_effect=read_text), \
+                    patch('desktop.manager.StateDirectoryLock.acquire', side_effect=StateDirectoryAlreadyOwned('running')), \
+                    patch('desktop.manager.time.sleep'):
+                self.assertEqual({'id': 'accepted-id', 'accepted': True}, request(root, 'restart', timeout=1))
 
 
     def test_settings_preflight_rejects_invalid_origin_without_writing_installation(self):

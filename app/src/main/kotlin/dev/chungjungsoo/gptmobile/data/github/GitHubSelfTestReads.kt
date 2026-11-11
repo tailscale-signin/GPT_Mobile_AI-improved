@@ -49,8 +49,16 @@ internal object GitHubSelfTestReads {
         }
         val job = jobs.firstOrNull { it["steps"] is JsonArray } ?: jobs.firstOrNull()
         val pr = records("github_pr", "list", "pull_requests", "items").firstOrNull()
+            ?: listOf("headers", "context").firstNotNullOfOrNull { action ->
+                roots("github_pr", action).firstNotNullOfOrNull { root ->
+                    ((root["pull_request"] as? JsonObject) ?: root).takeIf { it["number"] is JsonPrimitive }
+                }
+            }
         val issue = records("github_issue", "list", "items", "issues").firstOrNull { "pull_request" !in it }
         val release = records("github_release", "list", "items", "releases").firstOrNull()
+            ?: roots("github_release", "status").firstNotNullOfOrNull { root ->
+                ((root["release"] as? JsonObject) ?: root).takeIf { it["tag_name"] is JsonPrimitive }
+            }
         val tag = records("github_release", "tags", "items", "tags").firstOrNull()
         val paths = records("github_search", "search", "matches", "results", "files", "items")
         val path = paths.firstNotNullOfOrNull { it["path"] as? JsonPrimitive }
@@ -71,7 +79,7 @@ internal object GitHubSelfTestReads {
             listOf("resolve", "index", "efficiency", "capabilities", "repository", "recovery").forEach { recipe("github_context", it) }
             if (sha != null) {
                 recipe("github_context", "commit", "commit_sha" to sha)
-                recipe("github_context", "commit_search", "query" to sha)
+                recipe("github_context", "commit_search", "query" to JsonPrimitive("hash:${sha.content}"))
                 recipe("github_context", "changes", "base_sha" to sha, "commit_sha" to sha)
             }
             if (branch != null) listOf("branch", "branch_dependencies").forEach { recipe("github_context", it, "branch" to branch) }
@@ -99,7 +107,7 @@ internal object GitHubSelfTestReads {
             listOf("tags", "list").forEach { recipe("github_release", it) }
             (release?.get("tag_name") ?: tag?.get("name"))?.let { recipe("github_release", "status", "tag_name" to it) }
             tag?.get("name")?.let { recipe("github_release", "tag", "tag_name" to it) }
-            release?.get("tag_name")?.let { recipe("github_release", "detail", "tag_name" to it) }
+            (release?.get("tag_name") ?: tag?.get("name"))?.let { recipe("github_release", "detail", "tag_name" to it) }
             // Actions inventory includes deleted and generated workflows. Discover definitions
             // from the pinned source tree instead of assuming the first live ID exists there.
             if (sha != null) recipe("github_ci", "definitions", "commit_sha" to sha)
@@ -111,7 +119,7 @@ internal object GitHubSelfTestReads {
                 recipe("github_ci", "job", "job_id" to id, "run_id" to job["run_id"], "expected_head_sha" to sha?.takeIf { runId != null && job["run_id"] == runId })
                 recipe("github_ci", "logs", "job_id" to id, "run_id" to job["run_id"], "expected_head_sha" to sha?.takeIf { runId != null && job["run_id"] == runId }, "start_line" to JsonPrimitive(1), "end_line" to JsonPrimitive(40))
             }
-            pr?.get("number")?.let { id -> listOf("headers", "context", "comments", "reviews").forEach { recipe("github_pr", it, "pull_number" to id) } }
+            pr?.get("number")?.let { id -> listOf("headers", "context", "comments", "reviews", "threads").forEach { recipe("github_pr", it, "pull_number" to id) } }
             issue?.get("number")?.let { id -> listOf("headers", "context", "comments", "history").forEach { recipe("github_issue", it, "issue_number" to id) } }
         }
         for ((name, args) in recipes) {

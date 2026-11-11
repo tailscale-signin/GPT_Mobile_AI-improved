@@ -22,9 +22,11 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.intOrNull
@@ -391,73 +393,122 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
         }.execute { response ->
             // Any actual HTTP response proves this host is reachable, even an auth or protocol error.
             dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared.success(URI(config.endpointUrl).host)
+            val status = response.status.value
+            val successful = status in 200..299
             val channel = response.bodyAsChannel()
             val streaming = response.headers["Content-Type"].orEmpty().startsWith("text/event-stream")
             val buffer = StringBuilder()
             var bytes = 0
             var envelope: JsonObject? = null
-            while (envelope == null) {
-                val line = if (streaming) {
-                    withMcpStreamIdleDeadline(30_000L) { channel.readUTF8Line(1_048_576) }
-                } else {
-                    channel.readUTF8Line(1_048_576)
+            fun readMessage(): JsonObject? {
+                val parsed = try {
+                    json.parseToJsonElement(buffer.toString())
+                } catch (_: kotlinx.serialization.SerializationException) {
+                    if (successful) throw McpIncompleteResponseException(method, bytes)
+                    return null
                 }
-                if (line == null) {
-                    if (buffer.isNotEmpty()) envelope = runCatching { json.parseToJsonElement(buffer.toString()).jsonObject }.getOrNull()
-                    break
-                }
-                bytes += line.toByteArray().size
-                check(bytes <= 4_194_304) { "MCP response exceeded 4 MB." }
-                if (!streaming) {
-                    buffer.append(line)
-                    continue
-                }
-                if (line.isEmpty() && buffer.isNotEmpty()) {
-                    val event = json.parseToJsonElement(buffer.toString()).jsonObject
-                    buffer.clear()
-                    if (event["id"] == JsonPrimitive(id)) {
-                        envelope = event
+                val message = parsed as? JsonObject
+                if (message == null && successful) throw invalidRpcEnvelope(status, "RESPONSE_OBJECT_REQUIRED", "response")
+                return message
+            }
+            try {
+                while (envelope == null) {
+                    val line = if (streaming) {
+                        withMcpStreamIdleDeadline(30_000L) { channel.readUTF8Line(1_048_576) }
                     } else {
-                        check(event["id"] == null) { "Unexpected server request or mismatched MCP response." }
+                        channel.readUTF8Line(1_048_576)
                     }
-                } else if (line.startsWith("data:")) {
-                    if (buffer.isNotEmpty()) buffer.append('\n')
-                    buffer.append(line.removePrefix("data:").removePrefix(" "))
+                    if (line == null) {
+                        if (buffer.isNotEmpty()) envelope = readMessage()
+                        break
+                    }
+                    bytes += line.toByteArray().size
+                    check(bytes <= 4_194_304) { "MCP response exceeded 4 MB." }
+                    if (!streaming) {
+                        buffer.append(line)
+                        continue
+                    }
+                    if (line.isEmpty() && buffer.isNotEmpty()) {
+                        envelope = readMessage()?.takeUnless(::isRpcNotification)
+                        buffer.clear()
+                    } else if (line.startsWith("data:")) {
+                        if (buffer.isNotEmpty()) buffer.append('\n')
+                        buffer.append(line.removePrefix("data:").removePrefix(" "))
+                    }
                 }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                if (successful) throw failure
+                throw rpcFailure(status, method, null)
             }
-            val responseId = envelope?.get("id")
-            if (responseId != null && responseId !is kotlinx.serialization.json.JsonNull && responseId != JsonPrimitive(id)) {
-                throw McpProtocolConfigurationException("MCP_RESPONSE_ID_MISMATCH", "The server returned a response for a different request. Check the MCP bridge and proxy routing.", response.status.value, "RESPONSE_ID_MATCH_REQUIRED", "id")
-            }
-            val error = envelope?.get("error") as? JsonObject
-            if (response.status.value !in 200..299 || error != null) {
-                val quota = isMcpQuotaFailure((error?.get("message") as? JsonPrimitive)?.content.orEmpty())
-                val code = (error?.get("code") as? JsonPrimitive)?.intOrNull
-                val guidance = when {
-                    response.status.value in setOf(401, 403) -> "Reconnect or update the MCP credential in Manage connection."
-                    response.status.value == 404 && code == -32601 -> "The endpoint answered JSON-RPC but does not implement $method. Check which MCP protocol the bridge actually supports. A recognized modern unknown-method error cannot select legacy initialization automatically; repair the bridge's protocol negotiation, then reconnect."
-                    response.status.value == 404 -> "No supported MCP response was returned at this path. Check the endpoint URL and running service, then reconnect. This does not establish which protocol the server implements."
-                    code == -32020 -> "The server rejected request metadata headers; check protocol compatibility and proxy header forwarding."
-                    code == -32021 -> "The server requires a client capability this app has not enabled."
-                    code == -32022 -> "The server rejected the requested protocol version."
-                    response.status.value == 400 -> "The endpoint rejected the request; validate the MCP endpoint, initialization handshake and protocol schema."
-                    else -> "Check the MCP service and connection settings."
+            if (!successful) {
+                val error = envelope?.takeIf { frame -> RPC_RESPONSE_FIELDS.any(frame::containsKey) }?.let { frame ->
+                    try {
+                        validateRpcEnvelope(frame, id, status)
+                    } catch (invalid: McpProtocolConfigurationException) {
+                        // A malformed RPC rejection cannot authorize HTTP 400's legacy handshake.
+                        if (status == 400) throw invalid
+                        null
+                    }
                 }
-                val message = if (quota) "MCP provider quota exhausted. Try later or configure provider credentials." else "MCP $method failed (HTTP ${response.status.value}, code=${code ?: "unavailable"}). $guidance"
-                throw ModernMcpError(
-                    response.status.value,
-                    code,
-                    message,
-                    (error?.get("data") as? JsonObject)?.get("supported"),
-                    quota,
-                    ((error?.get("data") as? JsonObject)?.get("requested") as? JsonPrimitive)?.content
-                )
+                throw rpcFailure(status, method, error)
             }
-            if (envelope == null) throw McpIncompleteResponseException(method, bytes)
-            if (responseId != JsonPrimitive(id)) throw McpProtocolConfigurationException("MCP_RESPONSE_ID_MISMATCH", "The server response omitted its matching request ID. Check the MCP bridge and proxy routing.", response.status.value, "RESPONSE_ID_MATCH_REQUIRED", "id")
-            val result = envelope.get("result") as? JsonObject ?: throw McpProtocolConfigurationException("MCP_RESPONSE_SCHEMA_INVALID", "The server response omitted its result object. Check the MCP response schema.", response.status.value, "RESULT_OBJECT_REQUIRED", "result")
-            RpcResponse(result, response.status.value)
+            val frame = envelope ?: throw McpIncompleteResponseException(method, bytes)
+            validateRpcEnvelope(frame, id, status)?.let { throw rpcFailure(status, method, it) }
+            RpcResponse(frame.getValue("result") as JsonObject, status)
         }
+    }
+
+    private fun isRpcNotification(frame: JsonObject): Boolean =
+        frame["jsonrpc"] == JsonPrimitive("2.0") &&
+            "id" !in frame &&
+            "result" !in frame &&
+            "error" !in frame &&
+            (frame["method"] as? JsonPrimitive)?.let { it.isString && it.content.isNotBlank() } == true
+
+    private fun validateRpcEnvelope(frame: JsonObject, id: String, status: Int): JsonObject? {
+        val responseId = frame["id"]
+        if (responseId != null && responseId != JsonNull && responseId != JsonPrimitive(id)) {
+            throw McpProtocolConfigurationException("MCP_RESPONSE_ID_MISMATCH", "The server returned a response for a different request. Check the MCP bridge and proxy routing.", status, "RESPONSE_ID_MATCH_REQUIRED", "id")
+        }
+        if (frame["jsonrpc"] != JsonPrimitive("2.0")) throw invalidRpcEnvelope(status, "JSON_RPC_VERSION_REQUIRED", "jsonrpc")
+        if (responseId != JsonPrimitive(id)) {
+            throw McpProtocolConfigurationException("MCP_RESPONSE_ID_MISMATCH", "The server response omitted its matching request ID. Check the MCP bridge and proxy routing.", status, "RESPONSE_ID_MATCH_REQUIRED", "id")
+        }
+        if ("method" in frame || "result" in frame && "error" in frame) throw invalidRpcEnvelope(status, "RESPONSE_RESULT_OR_ERROR_REQUIRED", "response")
+        if ("error" !in frame) {
+            if (frame["result"] !is JsonObject) throw invalidRpcEnvelope(status, "RESULT_OBJECT_REQUIRED", "result")
+            return null
+        }
+        val error = frame["error"] as? JsonObject ?: throw invalidRpcEnvelope(status, "ERROR_OBJECT_REQUIRED", "error")
+        val code = error["code"] as? JsonPrimitive
+        val message = error["message"] as? JsonPrimitive
+        if (code == null || code.isString || code.intOrNull == null || message?.isString != true) {
+            throw invalidRpcEnvelope(status, "ERROR_OBJECT_REQUIRED", "error")
+        }
+        return error
+    }
+
+    private fun invalidRpcEnvelope(status: Int, rule: String, field: String) =
+        McpProtocolConfigurationException("MCP_RESPONSE_SCHEMA_INVALID", "The MCP endpoint returned an invalid JSON-RPC response. Check the server or bridge response schema.", status, rule, field)
+
+    private fun rpcFailure(status: Int, method: String, error: JsonObject?): ModernMcpError {
+        val quota = isMcpQuotaFailure((error?.get("message") as? JsonPrimitive)?.content.orEmpty())
+        val code = (error?.get("code") as? JsonPrimitive)?.intOrNull
+        val guidance = when {
+            status in setOf(401, 403) -> "Reconnect or update the MCP credential in Manage connection."
+            status == 404 && code == -32601 -> "The endpoint answered JSON-RPC but does not implement $method. Verify the MCP protocol and repair the bridge's negotiation, then reconnect."
+            status == 404 -> "Check the configured MCP endpoint path and running service."
+            code == -32020 -> "The server rejected request metadata headers; check protocol compatibility and proxy header forwarding."
+            code == -32021 -> "The server requires a client capability this app has not enabled."
+            code == -32022 -> "The server rejected the requested protocol version."
+            status == 400 -> "The endpoint rejected the request; validate the MCP endpoint, initialization handshake and protocol schema."
+            else -> "Check the MCP service and connection settings."
+        }
+        val message = if (quota) "MCP provider quota exhausted. Try later or configure provider credentials." else "MCP $method failed (HTTP $status, code=${code ?: "unavailable"}). $guidance"
+        val data = error?.get("data") as? JsonObject
+        return ModernMcpError(status, code, message, data?.get("supported"), quota, (data?.get("requested") as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull)
     }
 
     private fun isLocalMcpEndpoint(url: String): Boolean {
@@ -474,6 +525,7 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
     }
     companion object {
         const val VERSION = "2026-07-28"
+        private val RPC_RESPONSE_FIELDS = setOf("jsonrpc", "id", "result", "error")
         private val MODERN_VALIDATION_ERRORS = setOf(-32020, -32021, -32022, -32600, -32602, -32700)
         private val LEGACY_VERSIONS = setOf("2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25")
         private const val DISCOVERY_CACHE_MS = 60 * 60 * 1000L

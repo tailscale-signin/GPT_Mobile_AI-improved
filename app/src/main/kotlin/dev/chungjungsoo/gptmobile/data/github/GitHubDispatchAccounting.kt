@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.github
 
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
+import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope
 import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
 import java.util.UUID
@@ -171,7 +172,18 @@ internal class GitHubDispatchAccounting(
         emit("REQUEST_EXECUTION_STATE · state=OPERATION_TERMINAL · invocationId=$invocationId · phase=$phase · readRequests=$reads · readResponses=$readResponses · mutationRequests=$mutations · acceptedMutations=$accepted · rejectedMutations=$rejected · unknownMutations=$unknown · taskCompletion=NOT_MEASURED")
     }
 
-    @Synchronized fun finish(result: AgentToolResult, mutation: Boolean): AgentToolResult {
+    @Synchronized fun finish(candidate: AgentToolResult, mutation: Boolean): AgentToolResult {
+        val liveObserved = reads > 0 && readResponses == reads && observationMismatches == 0
+        val result = if (forceLiveReads && !mutation && !candidate.isError && !liveObserved) {
+            candidate.copy(
+                content = ToolResultContent.Text("A fresh GitHub response was not verified for this request. Run the exact read again with verify_live=true."),
+                isError = true,
+                dispatched = reads > 0,
+                errorCode = "GITHUB_LIVE_OBSERVATION_REQUIRED"
+            )
+        } else {
+            candidate
+        }
         val uncertain = unknown > 0 || result.errorCode in ToolResultEnvelope.unknownOutcomeCodes
         val phase = when {
             uncertain -> "OUTCOME_UNKNOWN"
@@ -192,11 +204,11 @@ internal class GitHubDispatchAccounting(
                 put("invocation_id", invocationId)
                 put("phase", phase)
                 put("live_read_requested", forceLiveReads)
-                put("live_read_performed", reads > 0 && readResponses == reads && observationMismatches == 0)
+                put("live_read_performed", liveObserved)
                 put(
                     "live_read_status",
                     when {
-                        reads > 0 && readResponses == reads && observationMismatches == 0 -> "PERFORMED"
+                        liveObserved -> "PERFORMED"
                         reads > 0 -> "RESPONSE_NOT_FULLY_OBSERVED"
                         forceLiveReads -> "NOT_PERFORMED"
                         else -> "NOT_REQUESTED"
@@ -212,6 +224,15 @@ internal class GitHubDispatchAccounting(
                 put("unobserved_read_requests", pending.values.count { !it.mutation })
                 put("observation_mismatches", observationMismatches)
                 put("cached_read_observations", cachedReads)
+                put(
+                    "read_source",
+                    when {
+                        liveObserved && cachedReads > 0 -> "MIXED"
+                        liveObserved -> "LIVE"
+                        cachedReads > 0 -> "RETAINED"
+                        else -> "UNVERIFIED"
+                    }
+                )
                 (oldestCacheObservation ?: oldestImmutableObservation?.takeIf { reads == 0 })?.let { put("source_observed_at_ms", it) }
                 put("mutation_requests", mutations)
                 put("accepted_mutations", accepted)

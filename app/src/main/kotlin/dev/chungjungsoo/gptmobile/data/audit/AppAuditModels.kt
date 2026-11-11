@@ -21,13 +21,21 @@ enum class AppAuditPrerequisite { READY, NOT_CONFIGURED, UNSUPPORTED, PERMISSION
 enum class AppAuditDispatchEvidence { NOT_ATTEMPTED, NOT_DISPATCHED, ATTEMPTED, CONFIRMED, UNKNOWN }
 
 @Serializable
-enum class AppAuditObservationSource { CONFIGURATION, FIXTURE, LIVE, CACHE, NONE }
+enum class AppAuditObservationSource { CONFIGURATION, FIXTURE, LIVE, CACHE, NONE, SHARED }
 
 @Serializable
 enum class AppAuditRemoteService { GATEWAY }
 
 @Serializable
 enum class AppAuditRemoteIdentitySource { DECLARED_CAPABILITIES }
+
+@Serializable
+data class AppAuditGatewayReadiness(
+    val savedBinding: Boolean,
+    val engineeringReady: Boolean?,
+    val hostGitHubConfigured: Boolean?,
+    val selectedModelReady: Boolean?
+)
 
 /** A server declaration read from metadata; it does not verify remote source or execution. */
 @Serializable
@@ -125,7 +133,8 @@ data class AppAuditObservation(
     val validationField: String? = null,
     val observedAtEpochMs: Long? = null,
     val configurationRevision: String? = null,
-    val remoteIdentity: AppAuditRemoteIdentity? = null
+    val remoteIdentity: AppAuditRemoteIdentity? = null,
+    val gatewayReadiness: AppAuditGatewayReadiness? = null
 ) {
     init {
         require(appAuditIdentifier(reasonCode) && appAuditIdentifier(stage))

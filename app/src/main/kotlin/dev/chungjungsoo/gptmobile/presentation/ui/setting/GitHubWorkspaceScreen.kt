@@ -1,6 +1,11 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
 import android.content.ClipData
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -28,6 +33,8 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Commit
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Description
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.Launch
@@ -64,6 +71,9 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -72,13 +82,13 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
+import dev.chungjungsoo.gptmobile.data.github.GitHubDraftRepair
 import dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthConfiguration
 import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDialog as Dialog
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDropdownMenu as DropdownMenu
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import dev.chungjungsoo.gptmobile.presentation.common.diagnosticFrameTiming
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.jsonObject
 
@@ -151,32 +161,16 @@ fun GitHubWorkspaceScreen(
     val commitReview: dev.chungjungsoo.gptmobile.presentation.ui.workspace.GitHubReviewViewModel = hiltViewModel()
     val pendingCommit by commitReview.pendingEngineeringTask.collectAsStateWithLifecycle()
     val savedEngineeringTasks by commitReview.engineeringTasks.collectAsStateWithLifecycle()
-    val publishedContinuations by commitReview.publishedContinuations.collectAsStateWithLifecycle()
     val nativeDecisions by commitReview.decisionReceipts.collectAsStateWithLifecycle()
     val pendingEngineeringRun by commitReview.selectedEngineeringRun.collectAsStateWithLifecycle()
     val approvalChatId = visibleProgrammer.chatId
-    val latestApprovalRun = visibleProgrammer.runs.lastOrNull()
     LaunchedEffect(commandContext, approvalChatId) {
         commitReview.restrictTo(commandContext, approvalChatId)
         if (commandContext != null) commitReview.observeWorkspaceApproval(commandContext)
     }
-    LaunchedEffect(commandContext, approvalChatId, pendingCommit, pendingEngineeringRun?.patchDigest, visibleProgrammer.decisionMode, latestApprovalRun?.status, latestApprovalRun?.terminalError) {
-        val task = pendingEngineeringRun?.takeIf { it.taskId == pendingCommit } ?: return@LaunchedEffect
-        if (approvalChatId == null || visibleProgrammer.decisionMode != dev.chungjungsoo.gptmobile.data.github.GitHubDecisionMode.AUTO_APPROVE) return@LaunchedEffect
-        commitReview.busy.first { !it }
-        commitReview.approveAutomatically(task.taskId, task.patchDigest, approvalChatId) { sha ->
-            if (commitReview.review.value?.branch == commandContext?.ref) viewModel.acceptPublishedCommit(sha)
-        }
-    }
-    LaunchedEffect(publishedContinuations, visibleProgrammer.chatId, visibleProgrammer.submitting, visibleProgrammer.error, commandContext) {
-        if (commandContext != null && !visibleProgrammer.submitting && visibleProgrammer.error == null) {
-            publishedContinuations.firstOrNull { it.chatId == visibleProgrammer.chatId }?.let { publication ->
-                if (publication.branch == commandContext.ref) viewModel.acceptPublishedCommit(publication.sha)
-                programmer.continueAfterCommit(publication.sha, publication.branch, publication) {
-                    commitReview.publicationContinuationQueued(publication.taskId, publication.sha)
-                }
-            }
-        }
+    LaunchedEffect(nativeDecisions, approvalChatId, commandContext?.ref) {
+        nativeDecisions.lastOrNull { it.chatId == approvalChatId && it.branch == commandContext?.ref && it.sha != null }
+            ?.sha?.let(viewModel::acceptPublishedCommit)
     }
     val buildsViewModel: GitHubBuildsViewModel = hiltViewModel()
     val buildsState by buildsViewModel.state.collectAsStateWithLifecycle()
@@ -186,6 +180,9 @@ fun GitHubWorkspaceScreen(
     val workspaceScroll = rememberScrollState()
     val setupScroll = rememberScrollState()
     var tab by rememberSaveable { mutableIntStateOf(3) }
+    var chatHeaderExpanded by rememberSaveable(connection.connectionUid) { mutableStateOf(false) }
+    val collapsibleHeader = tab == GitHubWorkspaceDestination.CHAT.id && !state.setupRequired && (state.selection != null || savedContext != null)
+    val headerExpanded = !collapsibleHeader || chatHeaderExpanded
     var exportChatId by rememberSaveable { mutableStateOf<Int?>(null) }
     var recoveryRequest by remember(visibleProgrammer.chatId) { mutableStateOf<dev.chungjungsoo.gptmobile.presentation.ui.workspace.GitHubRecoveryRequest?>(null) }
     LaunchedEffect(tab, state.commitDetail) { workspaceScroll.scrollTo(0) }
@@ -261,9 +258,14 @@ fun GitHubWorkspaceScreen(
                 },
                 containerColor = MaterialTheme.colorScheme.surface,
                 topBar = {
-                    Column {
-                        TopAppBar(
-                            title = {
+                    TopAppBar(
+                        expandedHeight = if (collapsibleHeader) 48.dp else 64.dp,
+                        title = {
+                            AnimatedVisibility(
+                                visible = headerExpanded,
+                                enter = slideInVertically { -it },
+                                exit = slideOutVertically { -it }
+                            ) {
                                 Column {
                                     Text(state.selection?.fullName ?: "Set up GitHub", style = MaterialTheme.typography.titleLarge.copy(fontSize = MaterialTheme.typography.titleLarge.fontSize * 0.7f), color = MaterialTheme.colorScheme.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     Text(
@@ -274,11 +276,26 @@ fun GitHubWorkspaceScreen(
                                         overflow = TextOverflow.Ellipsis
                                     )
                                 }
-                            },
-                            navigationIcon = { IconButton(onClick = { close() }, enabled = !state.busy) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Close workspace") } },
-                            actions = {}
-                        )
-                    }
+                            }
+                        },
+                        navigationIcon = { IconButton(onClick = { close() }, enabled = !state.busy) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Close workspace") } },
+                        actions = {
+                            if (collapsibleHeader) {
+                                IconButton(
+                                    onClick = { chatHeaderExpanded = !chatHeaderExpanded },
+                                    modifier = Modifier.testTag("github_chat_header_toggle").semantics {
+                                        stateDescription = if (chatHeaderExpanded) "Expanded" else "Collapsed"
+                                    }
+                                ) {
+                                    Icon(
+                                        if (chatHeaderExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                                        if (chatHeaderExpanded) "Collapse GitHub workspace header" else "Expand GitHub workspace header",
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+                        }
+                    )
                 },
                 bottomBar = {}
             ) { padding ->
@@ -332,20 +349,29 @@ fun GitHubWorkspaceScreen(
                         add(GitHubWorkspaceDestination.STATUS.id to "Status")
                         add(GitHubWorkspaceDestination.SETTINGS.id to "Settings")
                     }
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        workspaceTabs.forEach { (id, label) ->
-                            val selected = tab == id || id == 5 && tab in setOf(0, 1, 4)
-                            OutlinedButton(
-                                onClick = { if (!editorDirty) tab = id },
-                                modifier = Modifier.weight(1f).heightIn(min = 48.dp),
-                                shape = RoundedCornerShape(14.dp),
-                                border = BorderStroke(if (selected) 1.5.dp else 1.dp, MaterialTheme.colorScheme.primary.copy(alpha = if (selected) 1f else 0.35f)),
-                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
-                                colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(containerColor = Color.Transparent)
-                            ) { Text(label, style = MaterialTheme.typography.labelLarge) }
+                    AnimatedVisibility(
+                        visible = headerExpanded,
+                        enter = expandVertically(expandFrom = Alignment.Top) + slideInVertically { -it },
+                        exit = shrinkVertically(shrinkTowards = Alignment.Top) + slideOutVertically { -it }
+                    ) {
+                        Column(Modifier.fillMaxWidth()) {
+                            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                workspaceTabs.forEach { (id, label) ->
+                                    val selected = tab == id || id == 5 && tab in setOf(0, 1, 4)
+                                    OutlinedButton(
+                                        onClick = { if (!editorDirty) tab = id },
+                                        modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                                        shape = RoundedCornerShape(14.dp),
+                                        border = BorderStroke(if (selected) 1.5.dp else 1.dp, MaterialTheme.colorScheme.primary.copy(alpha = if (selected) 1f else 0.35f)),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                                        colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(containerColor = Color.Transparent)
+                                    ) { Text(label, style = MaterialTheme.typography.labelLarge) }
+                                }
+                            }
+                            Column(Modifier.padding(horizontal = 16.dp)) { GitHubChatProgress(state, visibleProgrammer, engineeringJob) }
+                            visibleProgrammer.chatId?.takeIf { collapsibleHeader && commandContext != null }?.let { GitHubChatChecks(it) }
                         }
                     }
-                    Column(Modifier.padding(horizontal = 16.dp)) { GitHubChatProgress(state, visibleProgrammer, engineeringJob) }
                     Column(Modifier.weight(1f).then(if (tab in setOf(3, 4, 6)) Modifier else Modifier.verticalScroll(workspaceScroll)).padding(if (tab in setOf(3, 4, 6)) 0.dp else 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         if (state.selection == null && tab !in setOf(3, 5, 6)) {
                             WorkspaceEmpty(Icons.Rounded.FolderOpen, "Your code, within reach", "Choose a repository above to browse files, prepare changes and review pull requests.")
@@ -361,7 +387,6 @@ fun GitHubWorkspaceScreen(
                                 3 -> {
                                     val chatId = visibleProgrammer.chatId
                                     if (chatId != null && commandContext != null) {
-                                        GitHubChatChecks(chatId)
                                         androidx.compose.foundation.layout.Box(Modifier.weight(1f)) {
                                             GitHubChatConversation(
                                                 chatId = chatId,
@@ -488,7 +513,7 @@ fun GitHubWorkspaceScreen(
                                     }
                                     val statusModel: GitHubLiveStatusViewModel = hiltViewModel()
                                     val queueRepair: ((GitHubDraftRepair) -> Unit)? = if (commandContext != null && !visibleProgrammer.submitting) {
-                                        { repair -> programmer.repairDraft(repair) { tab = 3 } }
+                                        { repair -> programmer.repairDraft(repair, onOpenConversation) }
                                     } else {
                                         null
                                     }

@@ -52,7 +52,6 @@ with the repository's Android toolchain:
       --tests 'dev.chungjungsoo.gptmobile.data.agent.CombinedSynthesisPlannerTest'
 
     python3 scripts/unified_reliability_v2_reconcile.py \
-      --junit-dir app/build/test-results/testDebugUnitTest \
       --source-sha "$(git rev-parse HEAD)" \
       --output build/reports/unified-reliability-v2/reconciliation.json
 
@@ -60,9 +59,13 @@ The existing PR Validation job runs this reconciliation after the JVM test
 step and uploads the JSON alongside raw JUnit XML. A failed/missing candidate
 probe is a regression signal, not permission to edit the ledgers. If no JUnit
 results are present, the report uses NOT_OBSERVED instead of inventing PASS.
-Artifact paths and XML SHA-256 digests permit independent reviewer readback.
-A current run's checked-out SHA may be a PR merge revision, not its head; the
-report explicitly records the actual checkout.
+The local command produces the scope inventory. To reconcile a CI artifact,
+pass the downloaded ZIP as `--junit-dir`, its GitHub artifact digest as
+`--artifact-sha256`, the companion qualification JSON as `--qualification`,
+the tested `--source-sha` and the exact `/actions/runs/<run>/attempts/<attempt>`
+`--run-url`. The collector binds the execution window and canonical XML hashes
+to that attempt. The tested SHA is the checkout commit. For PRs the collector
+also verifies both ordered merge parents against the event payload.
 
 ## Evidence needed for a formal PASS
 

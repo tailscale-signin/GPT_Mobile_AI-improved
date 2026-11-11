@@ -74,18 +74,20 @@ internal fun appAuditQualificationPlan(
                         configurationResult?.outcome == AppAuditOutcome.PASS -> "READY"
                         else -> configurationResult?.outcome?.name ?: "CHECK_REQUIRED"
                     }
-                    val credentialBlocked = discoveryResult?.observation?.let {
-                        it.validationRule == "CREDENTIAL_REAUTHORIZATION_REQUIRED" ||
-                            it.failureCategory == "AUTHENTICATION_REQUIRED" ||
-                            it.reasonCode.startsWith("MCP_LOCAL_CREDENTIAL_") ||
-                            it.reasonCode in setOf("MCP_AUTHENTICATION_REQUIRED", "AUTHENTICATION_FAILED")
-                    } == true
+                    val credentialRefreshRequired = discoveryResult?.reasonCode == "MCP_LOCAL_CREDENTIAL_REFRESH_REQUIRED"
+                    val credentialBlocked = !credentialRefreshRequired &&
+                        discoveryResult?.observation?.let {
+                            it.validationRule == "CREDENTIAL_REAUTHORIZATION_REQUIRED" ||
+                                it.failureCategory == "AUTHENTICATION_REQUIRED" ||
+                                it.reasonCode.startsWith("MCP_LOCAL_CREDENTIAL_") ||
+                                it.reasonCode in setOf("MCP_AUTHENTICATION_REQUIRED", "AUTHENTICATION_FAILED")
+                        } == true
                     val discoveryReadiness = when {
                         discovery == null -> if (entry.sourceAreaIds.contains("mcp_plugins") && entry.evidenceKind == AppAuditEvidenceKind.TOOL_EXECUTION) "CHECK_REQUIRED" else "NOT_REQUIRED"
                         discoveryResult?.observation?.configChanged == true -> "CONFIGURATION_CHANGED"
                         discoveryResult == null -> "CHECK_REQUIRED"
+                        discoveryResult.observationSource in setOf(AppAuditObservationSource.CACHE, AppAuditObservationSource.SHARED) -> "FRESH_CHECK_REQUIRED"
                         discoveryResult.outcome != AppAuditOutcome.PASS -> discoveryResult.outcome.name
-                        discoveryResult.observationSource == AppAuditObservationSource.CACHE -> "FRESH_CHECK_REQUIRED"
                         discoveryResult.observationSource != AppAuditObservationSource.LIVE || discoveryResult.dispatchEvidence != AppAuditDispatchEvidence.CONFIRMED -> "CHECK_REQUIRED"
                         discoveryResult.observation.configurationRevision != discovery.configurationRevision || discoveryResult.observation.observedAtEpochMs == null -> "OBSERVATION_IDENTITY_REQUIRED"
                         else -> "VERIFIED"
@@ -96,14 +98,20 @@ internal fun appAuditQualificationPlan(
                     }
                     val revision = safeAuditConfigurationRevision(entry.configurationRevision)
                     val family = qualificationFamily(entry)
+                    val noToolsAdvertised = discoveryReadiness == "VERIFIED" &&
+                        discovery?.probeId == AppAuditPluginProbeSource.MCP_DISCOVERY &&
+                        discoveryResult?.reasonCode == "MCP_EMPTY_CATALOG" &&
+                        discoveryResult.observation.metrics.any { it.name == AppAuditMetricName.TOOL_COUNT && it.value == 0.0 }
                     val readiness = when {
                         !buildBound -> "BUILD_IDENTITY_UNAVAILABLE"
                         configuration?.prerequisite in setOf(AppAuditPrerequisite.NOT_CONFIGURED, AppAuditPrerequisite.UNSUPPORTED) -> "CONFIGURATION_REQUIRED"
                         configuration?.prerequisite == AppAuditPrerequisite.PERMISSION_REQUIRED -> "ENABLE_PERMISSION_REQUIRED"
                         entry.evidenceKind in TARGET_EXECUTION_KINDS && revision == null -> "CONFIGURATION_IDENTITY_UNAVAILABLE"
                         entry.evidenceKind in TARGET_EXECUTION_KINDS && configurationReadiness != "READY" -> "CONFIGURATION_CHECK_REQUIRED"
+                        entry.evidenceKind in TARGET_EXECUTION_KINDS && credentialRefreshRequired -> "CREDENTIAL_REFRESH_REQUIRED"
                         entry.evidenceKind in TARGET_EXECUTION_KINDS && credentialBlocked -> "CREDENTIAL_REAUTHORIZATION_REQUIRED"
                         entry.evidenceKind in TARGET_EXECUTION_KINDS && discoveryReadiness !in setOf("NOT_REQUIRED", "VERIFIED") -> "DISCOVERY_RECHECK_REQUIRED"
+                        entry.evidenceKind == AppAuditEvidenceKind.TOOL_EXECUTION && noToolsAdvertised -> "NO_TOOLS_ADVERTISED"
                         entry.evidenceKind == AppAuditEvidenceKind.TOOL_EXECUTION -> "TARGET_FIXTURE_REQUIRED"
                         entry.evidenceKind == AppAuditEvidenceKind.MODEL_EXECUTION -> "MODEL_BENCHMARK_REQUIRED"
                         else -> "EXTERNAL_HARNESS_REQUIRED"
@@ -135,12 +143,11 @@ internal fun appAuditQualificationPlan(
                         put("configurationReadiness", configurationReadiness)
                         put(
                             "credentialReadiness",
-                            if (credentialBlocked) {
-                                "REAUTHORIZATION_REQUIRED"
-                            } else if (discoveryReadiness == "VERIFIED") {
-                                "METADATA_CHECK_PASSED"
-                            } else {
-                                "NOT_VERIFIED"
+                            when {
+                                credentialRefreshRequired -> "REFRESH_REQUIRED"
+                                credentialBlocked -> "REAUTHORIZATION_REQUIRED"
+                                discoveryReadiness == "VERIFIED" -> "METADATA_CHECK_PASSED"
+                                else -> "NOT_VERIFIED"
                             }
                         )
                         put("discoveryCheckId", discovery?.id?.let(checkIds::get)?.takeIf { it.matches(Regex("check-[1-9][0-9]*")) })
@@ -151,8 +158,11 @@ internal fun appAuditQualificationPlan(
                             when (readiness) {
                                 "CONFIGURATION_REQUIRED" -> "CONFIGURE_EXACT_TARGET_THEN_START_NEW_AUDIT"
                                 "ENABLE_PERMISSION_REQUIRED" -> "REVIEW_OPTIONAL_PLUGIN_PERMISSION_THEN_START_NEW_AUDIT"
+                                "CREDENTIAL_REFRESH_REQUIRED" -> "RECONNECT_SAVED_CONNECTION_THEN_START_NEW_AUDIT"
                                 "CREDENTIAL_REAUTHORIZATION_REQUIRED" -> "REAUTHORIZE_SAVED_CONNECTION_THEN_RECHECK"
+                                "NO_TOOLS_ADVERTISED" -> "CHECK_TOOL_EXPOSURE_OR_EXCLUDE_RESOURCE_ONLY_CONNECTION"
                                 "DISCOVERY_RECHECK_REQUIRED" -> when (discoveryResult?.observation?.validationRule) {
+                                    "RESPONSE_ID_MATCH_REQUIRED" -> "REPAIR_MCP_RESPONSE_ID_CORRELATION_THEN_RECONNECT"
                                     "PROTOCOL_VERSIONS_ARRAY_REQUIRED", "PROTOCOL_VERSIONS_NONEMPTY_REQUIRED", "PROTOCOL_VERSION_FORMAT_REQUIRED" -> "REPAIR_MCP_DISCOVERY_SCHEMA_THEN_RECONNECT"
                                     "DISCOVERY_METHOD_SUPPORTED_REQUIRED" -> "REPAIR_MCP_PROTOCOL_NEGOTIATION_THEN_RECONNECT"
                                     "ENDPOINT_ROUTE_REQUIRED" -> "CORRECT_MCP_ENDPOINT_THEN_RECONNECT"
@@ -163,7 +173,7 @@ internal fun appAuditQualificationPlan(
                             }
                         )
                         put("currentOutcome", results[entry.id]?.outcome?.name ?: "PENDING")
-                        put("defaultMaxToolCalls", if (entry.evidenceKind == AppAuditEvidenceKind.TOOL_EXECUTION) JsonPrimitive(1) else JsonNull)
+                        put("defaultMaxToolCalls", if (entry.evidenceKind == AppAuditEvidenceKind.TOOL_EXECUTION) JsonPrimitive(if (noToolsAdvertised) 0 else 1) else JsonNull)
                         put("perFixtureTimeoutMs", run.limits.perProbeTimeoutMs)
                         put("requirements", JsonArray(qualificationRequirements(entry, family).map(::JsonPrimitive)))
                         put("namedHarnesses", JsonArray(qualificationHarnesses(entry, family).map(::JsonPrimitive)))

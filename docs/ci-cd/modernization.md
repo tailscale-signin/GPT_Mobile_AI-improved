@@ -12,15 +12,15 @@ has passed. The full Android build needs JDK 21 and Android SDK 37, absent from 
 
 | # | Requirement | Implementation / evidence | Remaining gate |
 |---|---|---|---|
-| 1 | Document workflows / checks | `.github/workflows/README.md` inventories all actual workflows | Configure required checks in GitHub |
+| 1 | Document workflows / checks | `.github/workflows/README.md` inventories the workflows. GitHub requires the aggregate and CodeQL checks on main | Review check identity if workflows change |
 | 2 | Reuse setup without nested entry points | Local setup-android composite used by PR validation | Broader migration can follow measured parity |
 | 3 | Gradle cache and dependency verification | setup-gradle with SHA pin, wrapper validation, PR read-only cache; existing verification metadata retained | Review changed dependency checksums; no blind regeneration |
 | 4 | Independent parallel jobs | Repository/gateway contracts and Kotlin formatting run beside Android validation | Measure warm/cold run changes |
 | 5 | Concurrency and timeouts | Every runner workflow has explicit bounded jobs/concurrency | Tune from collected timings |
 | 6 | Failure summaries and artifacts | First failure, repeat grouping, redaction, bounded JSON; explicit artifact retention | Review full Android CI diagnostics |
 | 7 | Pin Actions | All third-party uses pinned; policy rejects floating refs | Dependabot pin review |
-| 8 | Protect main | Reviewed candidate ruleset in `main-ruleset.json` | Admin API unavailable; not applied |
-| 9 | Block unverified merges | Aggregate gate rejects missing/skipped/cancelled; app requires current GitHub merge rules and successful checks | Activate main ruleset; Android tests |
+| 8 | Protect main | Active GitHub ruleset 27005122 requires a pull request and current checks and blocks force-push and deletion | Apply the approval and review-thread requirements from `main-ruleset.json` |
+| 9 | Block unverified merges | Aggregate gate rejects missing/skipped/cancelled. App requires current GitHub merge rules and successful checks | Android tests |
 | 10 | Merge queue / verified auto-merge | merge_group trigger; app refuses blocked/unknown states | Queue/auto-merge disabled; repository admin configuration required |
 | 11 | Stale/conflicting branches | GraphQL BEHIND/CONFLICTS, head/base revalidation; watch detects moved head | Device/UI review |
 | 12 | Review ownership / templates / size | CODEOWNERS, evidence-based template, size warning script | Independent reviewer needed for owner-authored approvals |
@@ -53,9 +53,11 @@ This is a stacked change for review against the original feature branch. Keep th
 this PR draft until the relevant Android and security/device checks pass. No main merge or
 release is part of this change. Use the exact head SHA when reviewing CI evidence.
 
-After a successful run, apply the candidate ruleset through repository Settings → Rules,
-review its one-review requirement with the owner, require `Required verification` from GitHub
-Actions, disallow force-push/deletion and enable strict currency. Add merge queue only if the
+GitHub's effective rules endpoint confirms the active ruleset on main, with strict
+`Required verification` and `Analyze (java-kotlin)` checks from GitHub Actions.
+`Required verification` includes the unit, lint, formatting and repository contract jobs.
+After a rules change, recheck `GET /repos/{owner}/{repo}/rules/branches/main` for the
+effective pull request and status check rules. Add merge queue only if the
 account/repository plan supports it. A missing administration capability must be reported,
 never interpreted as an unprotected or safe branch. Do not disable protections to unblock CI.
 

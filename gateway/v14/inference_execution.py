@@ -10,6 +10,7 @@ import os
 import time
 import uuid
 
+from v14.adaptive_sampling import resolve_policy, generation_parameters
 from v14.execution_binding import ExecutionBindingError, canonical, fingerprint
 from v14.inference_budget import fit_engineering_payload, plan_tokens, stage_reserves
 from v14.inference_scheduler import admission_context, bound_invocation
@@ -47,6 +48,7 @@ class BoundModelInvocation:
         self.physical_count, self.observed_count = 0, 0
         self.initial_budget = self.compaction = None
         self.started = time.monotonic()
+        self.sampling_policy = resolve_policy(job['request'], role)
 
     def stopped(self):
         return self.cancellation is not None and self.cancellation.is_set()
@@ -68,6 +70,7 @@ class BoundModelInvocation:
         rejected_override = os.getenv('GATEWAY_ENGINEERING_REVIEW_MODEL')
         return {'schema_version': 1, 'attempt_id': 'attempt_' + uuid.uuid4().hex,
                 'job_id': self.job['id'], 'binding_id': self.binding['binding_id'],
+                'sampling_policy': copy.deepcopy(self.sampling_policy),
                 'binding_revision': fingerprint(self.binding), 'role': self.role,
                 'phase': self.job['state'], 'job_revision': self.job['revision'],
                 'boot_id': self.service.bindings.boot_id, 'owner_epoch': self.job['_owner_epoch'],
@@ -104,7 +107,11 @@ class BoundModelInvocation:
                 raise ExecutionBindingError('EXECUTION_DESTINATION_MISMATCH', 'The physical inference destination differs from the accepted selection.')
             if payload.get('tools') or payload.get('cache_prompt') is not False:
                 raise ExecutionBindingError('EXECUTION_OWNER_MISMATCH', 'Bounded engineering inference cannot dispatch delegated tools or unscoped prompt caches.')
-            selected = self.binding['generation_parameters']
+            if resolve_policy(self.job['request'], self.role) != self.sampling_policy:
+                raise ExecutionBindingError('EXECUTION_PARAMETERS_CHANGED', 'The accepted sampling policy changed.')
+            selected = generation_parameters(self.binding['generation_parameters'], self.sampling_policy)
+            if self.sampling_policy is not None and payload.get('top_p') is not None:
+                raise ExecutionBindingError('EXECUTION_PARAMETERS_CHANGED', 'Adaptive sampling varies temperature alone.')
             for key in ('temperature', 'top_p', 'top_k', 'repeat_penalty', 'seed'):
                 if key in selected and payload.get(key) != selected[key]:
                     raise ExecutionBindingError('EXECUTION_PARAMETERS_CHANGED', 'A transport attempted to replace a selected generation parameter.')
@@ -169,7 +176,9 @@ class BoundModelInvocation:
         request = copy.deepcopy(payload)
         request['messages'] = normalize_backend_messages(request.get('messages', []))
         request.update(model=self.binding['requested_model_id'], cache_prompt=False)
-        selected = self.binding['generation_parameters']
+        selected = generation_parameters(self.binding['generation_parameters'], self.sampling_policy)
+        if self.sampling_policy is not None:
+            request.pop('top_p', None)
         for key in ('temperature', 'top_p', 'top_k', 'repeat_penalty', 'max_tokens', 'seed'):
             if key in selected:
                 request[key] = selected[key]

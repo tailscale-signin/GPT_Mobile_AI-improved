@@ -80,7 +80,11 @@ def request(root, action, timeout=50):
                     else:
                         stop_lock.release()
                 return result
-        except (FileNotFoundError, json.JSONDecodeError):
+        # On Windows the writer's atomic replacement can briefly leave the
+        # destination unreadable to another process. Treat that sharing
+        # violation like the other incomplete-response states and retry until
+        # the bounded control deadline instead of failing a valid stop.
+        except (OSError, json.JSONDecodeError):
             pass
         # No supervisor: remove our request so it cannot stop a future launch.
         lock = StateDirectoryLock(root / 'manager.sqlite3')

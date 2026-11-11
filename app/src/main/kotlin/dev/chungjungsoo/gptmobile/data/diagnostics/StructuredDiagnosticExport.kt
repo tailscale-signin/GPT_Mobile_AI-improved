@@ -99,6 +99,9 @@ internal fun structuredDiagnosticLine(
         put("processSessionId", text("processSessionId"))
         put("workerGenerationId", text("workerGenerationId"))
         put("nativeOperationId", text("nativeOperationId") ?: text("operationId"))
+        if (match?.groupValues?.get(3) == "VoiceTiming" && eventName.startsWith("kokoro_")) {
+            put("voicePlaybackId", text("playbackId")?.takeIf { it.matches(Regex("[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}")) })
+        }
         put("operationId", text("operation_id") ?: text("operationId"))
         put("retryAttempt", number("retry_attempt"))
         put("terminationRequested", (parsedFields["terminationRequested"] as? JsonPrimitive)?.booleanOrNull)

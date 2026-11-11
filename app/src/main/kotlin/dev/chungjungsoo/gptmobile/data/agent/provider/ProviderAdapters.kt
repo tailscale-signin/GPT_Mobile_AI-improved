@@ -370,12 +370,15 @@ class OpenAICompatibleAdapter @Inject constructor(
         } else {
             null
         }
+        val sampledProfile = dev.chungjungsoo.gptmobile.data.github.GitHubSamplingPolicy.platform(platform, constraints.githubSampling, constraints.requestRole)
         val effectiveTemperature = when {
+            constraints.githubSampling != null -> sampledProfile.temperature
             isOpenRouter && parsedOpenRouterOptions?.temperature != null -> parsedOpenRouterOptions.temperature
             isOllama && parsedOllamaOptions != null -> parsedOllamaOptions.temperature ?: platform.temperature
             else -> platform.temperature
         }
         val effectiveTopP = when {
+            constraints.githubSampling != null -> null
             isOpenRouter && parsedOpenRouterOptions?.topP != null -> parsedOpenRouterOptions.topP
             isOllama && parsedOllamaOptions != null -> parsedOllamaOptions.topP ?: platform.topP
             else -> platform.topP
@@ -400,6 +403,11 @@ class OpenAICompatibleAdapter @Inject constructor(
         val effectiveRepetitionPenalty = if (isOpenRouter) parsedOpenRouterOptions?.repetitionPenalty else null
         val effectiveSeed = if (isOpenRouter) parsedOpenRouterOptions?.seed else null
         val effectiveStop = if (isOllama && parsedOllamaOptions != null) parsedOllamaOptions.stop else null
+        val lowExtractionReasoning = isOpenRouter &&
+            constraints.requestRole == "github-claim-extraction" &&
+            (constraints.reasoningModeOverride == null || constraints.reasoningModeOverride == dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO) &&
+            dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterCatalogLimits
+                .forRequest(platform.compatibleType.name, platform.apiUrl, platform.model, platform.openRouterRouting)?.reasoningControlAdvertised == true
 
         fun requestConfiguration(activeKey: String, requestTools: List<ChatFunctionTool>?, freshOnce: Boolean, llamaGatewayHeaders: Map<String, String>): ProviderRequestConfig = ProviderRequestConfig(
             apiUrl = platform.apiUrl,
@@ -470,12 +478,22 @@ class OpenAICompatibleAdapter @Inject constructor(
             parallelToolCalls = ProviderToolBatchPolicy.parallelToolCalls(platform.compatibleType, !requestTools.isNullOrEmpty()),
             provider = parsedRouting,
             reasoning = if (isOpenRouter || config.freeProvider == dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.KILO) {
-                if ((platform.reasoning || constraints.maximizeReasoning) && constraints.allowReasoning) OpenRouterReasoning(effort = if (constraints.maximizeReasoning) "high" else "medium") else OpenRouterReasoning(enabled = false)
+                if ((platform.reasoning || constraints.maximizeReasoning) && constraints.allowReasoning) {
+                    OpenRouterReasoning(
+                        effort = when {
+                            lowExtractionReasoning -> "low"
+                            constraints.maximizeReasoning -> "high"
+                            else -> "medium"
+                        }
+                    )
+                } else {
+                    OpenRouterReasoning(enabled = false)
+                }
             } else {
                 null
             },
             sessionId = openRouterSessionId,
-            options = parsedOllamaOptions
+            options = parsedOllamaOptions?.let { if (constraints.githubSampling == null) it else it.copy(temperature = effectiveTemperature, topP = null) }
         ).let { baseRequest ->
             if (isNvidia) {
                 NvidiaRequestPolicy.prepare(baseRequest, platform.reasoning || constraints.maximizeReasoning, constraints.allowReasoning)

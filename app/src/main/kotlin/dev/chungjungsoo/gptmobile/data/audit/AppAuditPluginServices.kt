@@ -5,15 +5,29 @@ import dev.chungjungsoo.gptmobile.data.agent.tool.McpBackoffException
 import dev.chungjungsoo.gptmobile.data.agent.tool.McpClientManager
 import dev.chungjungsoo.gptmobile.data.agent.tool.McpConnectionHealth
 import dev.chungjungsoo.gptmobile.data.agent.tool.McpConnectionHealthState
+import dev.chungjungsoo.gptmobile.data.agent.tool.McpDiscoveryContext
+import dev.chungjungsoo.gptmobile.data.agent.tool.McpDiscoverySource
+import dev.chungjungsoo.gptmobile.data.agent.tool.McpDiscoveryTrigger
 import dev.chungjungsoo.gptmobile.data.agent.tool.mcpConfigurationRevision
 import dev.chungjungsoo.gptmobile.data.agent.tool.mcpFailurePresentation
+import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkStorageFailure
 import dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplaceCatalog
 import dev.chungjungsoo.gptmobile.data.catalog.MarketplaceRuntime
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionAuthType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
+import dev.chungjungsoo.gptmobile.data.github.GatewayAdmissionException
+import dev.chungjungsoo.gptmobile.data.github.GatewayAdmissionReason
+import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringBinding
+import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringClient
+import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringStore
+import dev.chungjungsoo.gptmobile.data.github.GatewayExecutionRejected
+import dev.chungjungsoo.gptmobile.data.github.GatewayScopeIdentity
 import dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy
+import dev.chungjungsoo.gptmobile.data.github.engineeringConfig
+import dev.chungjungsoo.gptmobile.data.github.engineeringGatewayProfile
+import dev.chungjungsoo.gptmobile.data.github.withGatewayIdentity
 import dev.chungjungsoo.gptmobile.data.marketplace.MarketplacePackageStore
 import dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceRegistry
 import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
@@ -31,6 +45,9 @@ import dev.chungjungsoo.gptmobile.data.security.SecretVault
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 
@@ -46,12 +63,14 @@ internal class AppAuditPluginServices @Inject constructor(
     private val resolver: AgentToolResolver,
     private val mcp: McpClientManager,
     private val gateway: GatewayAPI,
-    private val secretVault: SecretVault
+    private val secretVault: SecretVault,
+    private val engineeringGateway: GatewayEngineeringClient? = null,
+    private val engineeringStore: GatewayEngineeringStore? = null
 ) {
     suspend fun inventory(selectedProfileIds: List<String>): List<AppAuditPluginTarget> = inventory(selectedProfileIds, null)
 
     suspend fun target(key: String): AppAuditPluginTarget? = inventory(
-        if (key.startsWith(AppAuditPluginProbeSource.GATEWAY_TARGET_PREFIX)) listOf(key.removePrefix(AppAuditPluginProbeSource.GATEWAY_TARGET_PREFIX)) else emptyList(),
+        listOfNotNull(AppAuditPluginProbeSource.selectedGatewayProfileId(key)),
         key
     ).singleOrNull { it.key == key }
 
@@ -74,6 +93,11 @@ internal class AppAuditPluginServices @Inject constructor(
         val configuredConnections = if (targetKey == null || targetKey.startsWith("connection:")) connections.listConnections() else emptyList()
         // Do not resolve model credentials when the user selected no profile target.
         val profiles = if (selectedProfileIds.isEmpty()) emptyList() else settings.fetchPlatformV2s()
+        val savedJobs = if (selectedProfileIds.isEmpty() || targetKey?.startsWith(AppAuditPluginProbeSource.GATEWAY_TARGET_PREFIX) == true) {
+            emptyList()
+        } else {
+            engineeringStore?.bindings(includeUpdates = false).orEmpty()
+        }
         return buildList {
             ToolServiceCatalog.integrated.filter { targetKey == null || targetKey == "integrated:${it.id}" }.forEach { service ->
                 val enabled = features.isToolPluginEnabled(service.id)
@@ -135,7 +159,7 @@ internal class AppAuditPluginServices @Inject constructor(
                             else -> "PLUGIN_NOT_CONFIGURED"
                         },
                         liveReadPrecheck = if (isMcp) recoveryBlock(connection, configurationRevision) else null,
-                        liveRead = if (isMcp) ({ discover(connection, configurationRevision) }) else null,
+                        liveRead = if (isMcp) ({ beforeDispatch -> discover(connection, configurationRevision, beforeDispatch) }) else null,
                         configurationRevision = configurationRevision
                     )
                 )
@@ -143,6 +167,22 @@ internal class AppAuditPluginServices @Inject constructor(
             selectedProfileIds.distinct().sorted().forEach { uid ->
                 val profile = profiles.singleOrNull { it.uid == uid }
                 val eligible = profile?.let(::appAuditGatewayProfileEligible) == true
+                val gatewayUid = features.githubProfileOverrides[uid]?.engineeringGatewayProfileUid
+                if (targetKey?.startsWith(AppAuditPluginProbeSource.GATEWAY_TARGET_PREFIX) != true) {
+                    val bindings = savedJobs.filter { (it.executionSelection?.profileUid ?: it.request.profileId) == uid }
+                    val boundTargets = bindings.associateBy(::savedJobAuditIdentity)
+                    if (boundTargets.isNotEmpty()) {
+                        boundTargets.toSortedMap().forEach { (identity, binding) ->
+                            val key = "${AppAuditPluginProbeSource.ENGINEERING_GATEWAY_TARGET_PREFIX}$uid:$identity"
+                            if (targetKey == null || targetKey == key) add(engineeringTarget(key, profiles, binding.profileUid, binding))
+                        }
+                    }
+                    if (!gatewayUid.isNullOrBlank()) {
+                        val key = AppAuditPluginProbeSource.ENGINEERING_GATEWAY_TARGET_PREFIX + uid
+                        if (targetKey == null || targetKey == key) add(engineeringTarget(key, profiles, gatewayUid, null))
+                    }
+                }
+                if (targetKey != null && targetKey != AppAuditPluginProbeSource.GATEWAY_TARGET_PREFIX + uid) return@forEach
                 if (targetKey == null && !eligible) return@forEach
                 val credentialIdentity = if (eligible) gatewayCredentialIdentity(requireNotNull(profile)) else "not-selected"
                 // Credential plaintext is never serialized or hashed into an audit record.
@@ -161,12 +201,149 @@ internal class AppAuditPluginServices @Inject constructor(
                             !eligible -> "GATEWAY_PROFILE_UNSUPPORTED"
                             else -> "PLUGIN_CREDENTIAL_IDENTITY_UNAVAILABLE"
                         },
-                        liveRead = if (eligible) ({ capabilities(requireNotNull(profile), configurationRevision) }) else null,
-                        configurationRevision = configurationRevision
+                        liveRead = if (eligible) {
+                            (
+                                { beforeDispatch ->
+                                    beforeDispatch()
+                                    capabilities(requireNotNull(profile), configurationRevision)
+                                }
+                                )
+                        } else {
+                            null
+                        },
+                        configurationRevision = configurationRevision,
+                        settingsProfileUid = profile?.uid
                     )
                 )
             }
         }.map { target -> target.copy(snapshotCurrent = { ReadinessInvalidation.epoch == epoch }) }
+    }
+
+    private fun savedJobAuditIdentity(binding: GatewayEngineeringBinding): String {
+        val selection = binding.executionSelection
+        val bindingId = binding.request.executionBindingId?.takeIf(SAVED_BINDING_ID::matches)
+        val requestId = binding.request.requestId.takeIf {
+            bindingId == null || selection == null || binding.gatewayId.isNullOrBlank() || binding.principalId.isNullOrBlank()
+        }
+        val fields = listOf(binding.profileUid, binding.endpoint, binding.gatewayId, binding.principalId, bindingId, selection?.profileRevision, requestId)
+        return appAuditTargetDigest(JsonArray(fields.map { it?.let(::JsonPrimitive) ?: JsonNull }).toString())
+    }
+
+    private suspend fun engineeringTarget(key: String, profiles: List<PlatformV2>, gatewayUid: String?, binding: GatewayEngineeringBinding?): AppAuditPluginTarget {
+        val profile = engineeringGatewayProfile(profiles, gatewayUid)?.takeIf { binding == null || it.apiUrl.trimEnd('/') == binding.endpoint }
+        val credential = profile?.let { gatewayCredentialIdentity(it) }
+        val fingerprint = appAuditTargetDigest("${profile?.copy(token = null)}:$key:$gatewayUid:$credential")
+        val revision = appAuditConfigurationRevision(fingerprint).takeIf { credential != null }
+        return AppAuditPluginTarget(
+            key, AppAuditPluginKind.GATEWAY,
+            if (binding == null) AppAuditPluginProbeSource.CURRENT_ENGINEERING_GATEWAY_COMPONENT else AppAuditPluginProbeSource.ENGINEERING_GATEWAY_COMPONENT,
+            configured = profile != null && revision != null,
+            enabled = profile != null,
+            fingerprint = fingerprint,
+            unavailableReason = if (profile == null) "GATEWAY_ENGINEERING_PROFILE_REQUIRED" else "PLUGIN_CREDENTIAL_IDENTITY_UNAVAILABLE",
+            liveRead = if (profile != null && revision != null) {
+                { beforeDispatch ->
+                    beforeDispatch()
+                    engineeringCapabilities(profile, binding, revision)
+                }
+            } else {
+                null
+            },
+            configurationRevision = revision,
+            settingsProfileUid = profile?.uid
+        )
+    }
+
+    private suspend fun engineeringCapabilities(profile: PlatformV2, binding: GatewayEngineeringBinding?, revision: String): AppAuditObservation {
+        val client = requireNotNull(engineeringGateway)
+        val config = profile.engineeringConfig().copy(requestRole = "app-audit-engineering")
+        val capability = try {
+            client.capabilities(config, forceRefresh = true)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            val status = engineeringFailureStatus(failure)
+            return AppAuditObservation(
+                AppAuditOutcome.FAIL,
+                engineeringFailureReason(failure),
+                "gateway_capabilities",
+                AppAuditEvidenceKind.LIVE_METADATA,
+                AppAuditObservationSource.LIVE,
+                if (status == null) AppAuditDispatchEvidence.UNKNOWN else AppAuditDispatchEvidence.CONFIRMED,
+                httpStatus = status,
+                configurationRevision = revision
+            )
+        }
+        val installation = binding?.gatewayId?.takeIf(String::isNotBlank)
+        val principal = binding?.principalId?.takeIf(String::isNotBlank)
+        val identityMatches = binding == null ||
+            installation != null &&
+            principal != null &&
+            capability.principalId == principal &&
+            capability.gatewayId == installation
+        val githubConfigured = capability.readiness?.checks?.hostGithubConnection?.let {
+            when (it) {
+                "configured" -> true
+                "missing" -> false
+                else -> null
+            }
+        }
+        val selection = binding?.executionSelection
+        val bindingId = binding?.request?.executionBindingId?.takeIf(SAVED_BINDING_ID::matches)
+        val reason = when {
+            binding != null && (installation == null || principal == null) -> "GATEWAY_SAVED_JOB_IDENTITY_UNAVAILABLE"
+            !identityMatches -> "GATEWAY_ENGINEERING_IDENTITY_CHANGED"
+            githubConfigured == false -> "GATEWAY_ENGINEERING_GITHUB_REQUIRED"
+            capability.readiness == null -> "GATEWAY_ENGINEERING_READINESS_UNAVAILABLE"
+            !capability.enabled || !capability.readiness.ready -> "GATEWAY_ENGINEERING_NOT_READY"
+            githubConfigured != true -> "GATEWAY_ENGINEERING_GITHUB_UNVERIFIED"
+            binding != null && (selection == null || bindingId == null) -> "GATEWAY_SAVED_BINDING_UNAVAILABLE"
+            else -> null
+        }
+        fun observation(blocker: String? = null, modelReady: Boolean? = null, status: Int? = 200) = AppAuditObservation(
+            if (blocker == null) AppAuditOutcome.PASS else AppAuditOutcome.BLOCKED,
+            blocker ?: "GATEWAY_ENGINEERING_CAPABILITY_VERIFIED",
+            "gateway_capabilities", AppAuditEvidenceKind.LIVE_METADATA, AppAuditObservationSource.LIVE, AppAuditDispatchEvidence.CONFIRMED,
+            httpStatus = status, observedAtEpochMs = System.currentTimeMillis(), configurationRevision = revision,
+            remoteIdentity = safeAuditRemoteIdentity(AppAuditRemoteIdentity(version = capability.gatewayVersion)),
+            gatewayReadiness = AppAuditGatewayReadiness(binding != null, capability.readiness?.ready, githubConfigured, modelReady).takeIf { identityMatches }
+        )
+        if (reason != null || binding == null) return observation(reason)
+        val boundConfig = config.withGatewayIdentity(GatewayScopeIdentity(requireNotNull(installation), requireNotNull(principal)))
+        return try {
+            client.bindingCapabilities(boundConfig, requireNotNull(selection), requireNotNull(bindingId))
+            observation(modelReady = true)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            val blocker = engineeringFailureReason(failure)
+            observation(blocker, false.takeIf { blocker == "GATEWAY_SAVED_MODEL_NOT_READY" }, engineeringFailureStatus(failure))
+        }
+    }
+
+    private fun engineeringFailureStatus(failure: Exception): Int? = when (failure) {
+        is GatewayAdmissionException -> failure.httpStatus
+        is GatewayExecutionRejected -> failure.httpStatus
+        else -> null
+    }
+
+    private fun engineeringFailureReason(failure: Exception): String = when (failure) {
+        is GatewayAdmissionException -> when {
+            failure.reason in setOf(GatewayAdmissionReason.IDENTITY_MISMATCH, GatewayAdmissionReason.SOURCE_MISMATCH, GatewayAdmissionReason.TRANSPORT_IDENTITY_REQUIRED) -> "GATEWAY_ENGINEERING_IDENTITY_CHANGED"
+            failure.httpStatus in setOf(401, 403) || failure.reason == GatewayAdmissionReason.MISSING_SCOPE -> "GATEWAY_ENGINEERING_AUTHENTICATION_REQUIRED"
+            failure.reason in setOf(GatewayAdmissionReason.TRANSPORT_INTERRUPTED, GatewayAdmissionReason.INVALID_CONNECTION) -> "GATEWAY_ENGINEERING_TRANSPORT_UNAVAILABLE"
+            failure.reason == GatewayAdmissionReason.UNSUPPORTED_CONTRACT -> "GATEWAY_ENGINEERING_ROUTE_UNAVAILABLE"
+            else -> "GATEWAY_CAPABILITY_UNAVAILABLE"
+        }
+        is GatewayExecutionRejected -> when (failure.code) {
+            "EXECUTION_BINDING_REVOKED", "EXECUTION_METADATA_DENIED" -> "GATEWAY_ENGINEERING_AUTHENTICATION_REQUIRED"
+            "EXECUTION_CONFIGURATION_CHANGED", "EXECUTION_BINDING_CORRUPT", "EXECUTION_SELECTION_MISMATCH" -> "GATEWAY_ENGINEERING_IDENTITY_CHANGED"
+            "EXECUTION_BACKEND_UNAVAILABLE", "EXECUTION_ENDPOINT_UNAVAILABLE", "EXECUTION_METADATA_DEADLINE" -> "GATEWAY_ENGINEERING_TRANSPORT_UNAVAILABLE"
+            "EXECUTION_MODEL_UNAVAILABLE", "EXECUTION_MODEL_NOT_LOADED", "EXECUTION_MODEL_LOADING", "EXECUTION_MODEL_MISMATCH",
+            "EXECUTION_MODEL_REVISION_CHANGED", "EXECUTION_MODEL_IDENTITY_INVALID" -> "GATEWAY_SAVED_MODEL_NOT_READY"
+            else -> "GATEWAY_SAVED_BINDING_UNAVAILABLE"
+        }
+        else -> "GATEWAY_CAPABILITY_UNAVAILABLE"
     }
 
     private suspend fun gatewayCredentialIdentity(profile: PlatformV2): String? {
@@ -224,28 +401,44 @@ internal class AppAuditPluginServices @Inject constructor(
         return null
     }
 
-    private suspend fun discover(connection: ToolConnection, configurationRevision: String?): AppAuditObservation {
+    private suspend fun discover(connection: ToolConnection, configurationRevision: String?, beforeDispatch: suspend () -> Unit): AppAuditObservation {
         recoveryBlock(connection, configurationRevision)?.let { return it }
         val startedAt = System.currentTimeMillis()
+        var source: McpDiscoverySource? = null
+        var dispatched = false
         return try {
-            val tools = kotlinx.coroutines.withContext(dev.chungjungsoo.gptmobile.data.agent.tool.McpDiscoveryContext(dev.chungjungsoo.gptmobile.data.agent.tool.McpDiscoveryTrigger.AUDIT_REFRESH)) {
-                resolver.discoverMcpTools(connection, forceRefresh = true, awaitCompletion = true)
+            val context = McpDiscoveryContext(McpDiscoveryTrigger.AUDIT_REFRESH, beforeOwnedDispatch = {
+                beforeDispatch()
+                dispatched = true
+            }, onSource = { source = it })
+            val receipt = withContext(context) {
+                resolver.discoverMcpToolsWithReceipt(connection, forceRefresh = true, awaitCompletion = true)
             }
             val stableRevision = configurationRevision?.takeIf { it == mcpConfigurationRevision(connection, secretVault) }
+            val fresh = receipt.source == McpDiscoverySource.FRESH
             AppAuditObservation(
-                AppAuditOutcome.PASS,
-                if (tools.isEmpty()) "MCP_EMPTY_CATALOG" else "MCP_DISCOVERY_VERIFIED",
+                if (fresh) AppAuditOutcome.PASS else AppAuditOutcome.UNTESTED,
+                when (receipt.source) {
+                    McpDiscoverySource.FRESH -> if (receipt.tools.isEmpty()) "MCP_EMPTY_CATALOG" else "MCP_DISCOVERY_VERIFIED"
+                    McpDiscoverySource.SHARED -> "MCP_DISCOVERY_SHARED"
+                    McpDiscoverySource.CACHED -> "MCP_DISCOVERY_CACHED"
+                },
                 stage = "mcp_discovery",
                 evidenceKind = AppAuditEvidenceKind.LIVE_METADATA,
-                observationSource = AppAuditObservationSource.LIVE,
-                dispatchEvidence = AppAuditDispatchEvidence.CONFIRMED,
-                metrics = listOf(AppAuditMetric(AppAuditMetricName.TOOL_COUNT, tools.size.toDouble())),
-                observedAtEpochMs = System.currentTimeMillis(),
+                observationSource = when (receipt.source) {
+                    McpDiscoverySource.FRESH -> AppAuditObservationSource.LIVE
+                    McpDiscoverySource.SHARED -> AppAuditObservationSource.SHARED
+                    McpDiscoverySource.CACHED -> AppAuditObservationSource.CACHE
+                },
+                dispatchEvidence = if (fresh) AppAuditDispatchEvidence.CONFIRMED else AppAuditDispatchEvidence.NOT_DISPATCHED,
+                metrics = listOf(AppAuditMetric(AppAuditMetricName.TOOL_COUNT, receipt.tools.size.toDouble())),
+                observedAtEpochMs = System.currentTimeMillis().takeIf { fresh },
                 configurationRevision = stableRevision
             )
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
+            if (failure is BenchmarkStorageFailure || failure is AppAuditAdmissionRejected || failure is AppAuditPluginConfigurationChanged || failure is AppAuditPluginReadBlocked) throw failure
             val cached = generateSequence<Throwable>(failure) { it.cause?.takeUnless { cause -> cause === it } }.take(8).any { it is McpBackoffException }
             val health = mcp.healthSnapshot(connection.connectionUid)
             // A new local rejection must not inherit an older server failure's HTTP status,
@@ -256,19 +449,20 @@ internal class AppAuditPluginServices @Inject constructor(
                 presentation.phase == "local_validation" && it == mcpConfigurationRevision(connection, secretVault)
             }
             val dispatch = when {
-                cached || presentation.dispatchEvidence == "NOT_DISPATCHED" -> AppAuditDispatchEvidence.NOT_DISPATCHED
+                !dispatched || cached || presentation.dispatchEvidence == "NOT_DISPATCHED" -> AppAuditDispatchEvidence.NOT_DISPATCHED
                 presentation.dispatchEvidence == "CONFIRMED" -> AppAuditDispatchEvidence.CONFIRMED
                 else -> AppAuditDispatchEvidence.UNKNOWN
             }
             val prerequisiteBlocked = dispatch == AppAuditDispatchEvidence.NOT_DISPATCHED &&
-                presentation.errorCode in setOf("MCP_LOCAL_CREDENTIAL_MISSING", "MCP_LOCAL_CREDENTIAL_INVALID")
+                presentation.errorCode in setOf("MCP_LOCAL_CREDENTIAL_MISSING", "MCP_LOCAL_CREDENTIAL_INVALID", "MCP_LOCAL_CREDENTIAL_REFRESH_REQUIRED")
             AppAuditObservation(
-                if (cached || prerequisiteBlocked) AppAuditOutcome.BLOCKED else AppAuditOutcome.FAIL,
+                if (cached || prerequisiteBlocked || !dispatched && source == McpDiscoverySource.SHARED) AppAuditOutcome.BLOCKED else AppAuditOutcome.FAIL,
                 presentation.errorCode?.takeIf { it in AppAuditPluginProbeSource.reasonCodes } ?: "MCP_DISCOVERY_UNAVAILABLE",
                 stage = "mcp_discovery",
                 evidenceKind = AppAuditEvidenceKind.LIVE_METADATA,
                 observationSource = when {
                     cached -> AppAuditObservationSource.CACHE
+                    !dispatched && source == McpDiscoverySource.SHARED -> AppAuditObservationSource.SHARED
                     dispatch == AppAuditDispatchEvidence.NOT_DISPATCHED -> AppAuditObservationSource.NONE
                     else -> AppAuditObservationSource.LIVE
                 },
@@ -352,6 +546,7 @@ internal class AppAuditPluginServices @Inject constructor(
 
     private companion object {
         val RECORD_REVISION = Regex("[a-f0-9]{64}")
+        val SAVED_BINDING_ID = Regex("bind_[a-f0-9]{32}")
         val FRESH_CONTRACT_RECHECK_CODES = setOf(
             "MCP_PROTOCOL_VERSION_UNSUPPORTED", "MCP_INITIALIZATION_SCHEMA_INVALID", "MCP_DISCOVERY_SCHEMA_INVALID", "MCP_DISCOVERY_CONFIGURATION",
             "MCP_CATALOG_SCHEMA_INVALID", "MCP_CATALOG_LIMIT_EXCEEDED", "MCP_RESPONSE_ID_MISMATCH", "MCP_RESPONSE_SCHEMA_INVALID", "MCP_ENDPOINT_CONFIGURATION"

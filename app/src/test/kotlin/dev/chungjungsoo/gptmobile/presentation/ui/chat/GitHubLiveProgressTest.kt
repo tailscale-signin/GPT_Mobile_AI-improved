@@ -120,6 +120,9 @@ class GitHubLiveProgressTest {
         layouts.clear()
         compose.onNodeWithTag("github_latest_preview").performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
         assertEquals(2, layouts.single().lineCount)
+        assertEquals(colors.onSurface.copy(alpha = 1f), layouts.single().layoutInput.style.color)
+        layouts.clear()
+        compose.onNodeWithTag("github_previous_preview").performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
         assertEquals(colors.onSurface.copy(alpha = 0.5f), layouts.single().layoutInput.style.color)
 
         compose.runOnIdle { timeline = timeline + line("The files are available; checking the next step.", true) }
@@ -163,6 +166,20 @@ class GitHubLiveProgressTest {
         val layouts = mutableListOf<TextLayoutResult>()
         compose.onNodeWithText("Check 3/8").performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
         assertEquals(1, layouts.single().lineCount)
+    }
+
+    @Test fun updatedCounterBecomesActiveInItsExistingPosition() {
+        val checks = line("Checks: 1/103 complete").copy(progressSequence = 1)
+        val files = line("Files: 1/3 complete").copy(progressSequence = 2)
+        var timeline by mutableStateOf(listOf(checks, files))
+        compose.setContent { MaterialTheme { GitHubLiveProgressCard(timeline) } }
+        val original = compose.onNodeWithText(checks.content).fetchSemanticsNode()
+        compose.onNodeWithTag("github_latest_preview").assertTextEquals(files.content)
+        compose.runOnIdle { timeline = listOf(checks.copy(content = "Checks: 2/103 complete", progressSequence = 3), files) }
+        val updated = compose.onNodeWithTag("github_latest_preview").assertTextEquals("Checks: 2/103 complete").fetchSemanticsNode()
+        assertEquals(original.id, updated.id)
+        assertEquals(original.boundsInRoot.top, updated.boundsInRoot.top, 0.1f)
+        compose.onAllNodesWithTag("github_preview_row").assertCountEquals(2)
     }
 
     @Test fun detailedSummariesRemainCompleteInCompactActivity() {

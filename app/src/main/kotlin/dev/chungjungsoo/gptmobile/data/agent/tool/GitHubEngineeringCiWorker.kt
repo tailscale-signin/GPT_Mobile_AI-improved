@@ -12,15 +12,21 @@ import dagger.assisted.AssistedInject
 class GitHubEngineeringCiWorker @AssistedInject constructor(
     @Assisted appContext: Context,
     @Assisted parameters: WorkerParameters,
-    private val controller: GitHubEngineeringController
+    private val controller: GitHubEngineeringController,
+    private val approvalRecovery: dev.chungjungsoo.gptmobile.data.github.GitHubNativeApprovalRecovery
 ) : CoroutineWorker(appContext, parameters) {
     override suspend fun doWork(): Result {
         dev.chungjungsoo.gptmobile.presentation.StartupRecoveryGate.await()
         if (inputData.getBoolean(KEY_RECOVER, false)) {
             controller.recover()
+            approvalRecovery.scheduleOutstanding()
             return Result.success()
         }
         val taskId = inputData.getString(KEY_TASK_ID) ?: return Result.failure()
+        if (inputData.getBoolean(KEY_APPROVAL, false)) {
+            return if (approvalRecovery.resume(taskId) || runAttemptCount >= 8) Result.success() else Result.retry()
+        }
+        if (!approvalRecovery.resume(taskId, allowApproval = false)) controller.scheduleApprovalRecovery(taskId)
         return when (controller.pollCi(taskId)) {
             EngineeringWorkerOutcome.VERIFIED -> Result.success()
             EngineeringWorkerOutcome.CANCELLED -> Result.failure(androidx.work.workDataOf("outcome" to "cancelled"))
@@ -31,5 +37,6 @@ class GitHubEngineeringCiWorker @AssistedInject constructor(
     companion object {
         const val KEY_TASK_ID = "engineering_task_id"
         const val KEY_RECOVER = "engineering_recover"
+        const val KEY_APPROVAL = "engineering_approval"
     }
 }

@@ -1,0 +1,347 @@
+{
+  "schema": "repository.local-validation.v1",
+  "collected_at": "2026-11-11T05:33:10.636516+00:00",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "branch": "fix/audit-execution-recovery-2026-11-09",
+  "worktree_parent": "2a75e9e0985c57d197190b0f6bb16e4141e97acf",
+  "base_sha": "3a1f44bb3dff7dbe10a839f1cad7b408b34aadeb",
+  "source_sha256": {
+    "app/src/main/assets/diagnostics/app-code-inventory.json": "ebe3abe26ce9da9ef129521a494bd935258288a2b03b502f61dc521a9dcf267d",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderAdapters.kt": "ff159b935a28e99c568e57a56ccb154866886c1aed69faee7b382a2b3e95f8f7",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditPluginProbeSource.kt": "d6e639c61c6abcddddfcf0aa08373cbd3e68157d8e425238e21a70ac3ec8fad2",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditPluginServices.kt": "089770459892c21c06686b38a5954a2ae57d01ecea37378fd4c116f8483c8fab",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditSourceInventory.kt": "1159a3b9248f49835564427334e2c9c4ccb7fe3362e1d432a5e6f455b73b2d87",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceBook.kt": "91b7894e2685afd69cc8daaba6ff4d6108e412cdf98b973bd7a9a963fef57926",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidencePolicy.kt": "8364ee1302f5ca2fc8faf5c3839f64067c417564bd2fd430d0e5dea193126c18",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSession.kt": "e485928e998c8dcb2837657ee076af5ae98b2ad1d72bac1624173ef1b891c577",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/openrouter/OpenRouterCatalogLimits.kt": "6d0361eceb78323c6a8b6878869d9749ec2bcbcc154bbcd2a870cc042b330b9d",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ChatRepositoryImpl.kt": "4af83533fd8cd5ca733289eb85b65a9645aa5346436127d1bb8d38857027bdcb",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatScreen.kt": "9e75fdca066b0067a55424625369cb2a05af83233bef1b000a60bceaea4181ac",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditPluginServicesTest.kt": "18b736ef30ce3650e30fdf414d3c350d081835470f8133ce2670e0010ecdddda",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubOwnedFixturesTest.kt": "c30ab06ac429b1c25391d6701cbad9a96fa68895f7afc9684a8c566aeaaf3b9d",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSessionTest.kt": "244c29db9b1a4f6d1e4fc65b37a5bc1284b0abc6742828c036424f0e57a987aa",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/openrouter/OpenRouterCatalogLimitsTest.kt": "f8400dcb18f92f2155b132089bad2ab4a3016534aeffe3a53da7547a9359a0bc",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubClaimBatches.kt": "25a630907ed1027f6a2940d8751b2983eaa3a32790cc60cbc0e4a0650f99448a"
+  },
+  "android_production_compile": "PASS",
+  "android_unit_test_compile": "PASS",
+  "canonical_fast_tests": 461,
+  "targeted_android_jvm_tests": {
+    "tests": 399,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "suites": [
+    {
+      "name": "dev.chungjungsoo.gptmobile.data.agent.provider.GitHubReasoningPolicyTest",
+      "tests": 9,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "report_sha256": "4927cebf6996fb2dcb52ecaeba98dfa853e66179c30f08ea84bb49d5b6f3c88b"
+    },
+    {
+      "name": "dev.chungjungsoo.gptmobile.data.agent.tool.GitHubLiveVerificationTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "report_sha256": "ebd02866d7c55af11d94ecaf3de7b3698351b1e2c23480e86f0204a5e91398a1"
+    },
+    {
+      "name": "dev.chungjungsoo.gptmobile.data.agent.tool.McpCatalogueDeadlineTest",
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "report_sha256": "bab14c24272fe1f4fb803ea756128b79001bdc2e463c3819ea1e9fd9c62454ac"
+    },
+    {
+      "name": "dev.chungjungsoo.gptmobile.data.agent.tool.McpDiscoveryOAuthRefreshTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "report_sha256": "a3d3841991b33fd0fa97c7c09dedc21863a274cc2bb10fe50d19c9e66839189a"
+    },
+    {
+      "name": "dev.chungjungsoo.gptmobile.data.agent.tool.ModernMcpTransportTest",
+      "tests": 21,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "report_sha256": "b6ed4c817ff436c92dc1152f423a96afcec39bad9231527a326d4a173a60b57e"
+    },
+    {
+      "name": "dev.chungjungsoo.gptmobile.data.audit.AppAuditPluginProbeSourceTest",
+      "tests": 14,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "report_sha256": "cc47ca8ad56e08ae52e1341fd1035a5340307a378b7af129e51268e72081bbce"
+    },
+    {
+      "name": "dev.chungjungsoo.gptmobile.data.audit.AppAuditPluginServicesTest",
+      "tests": 31,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "report_sha256": "cbb18a73953a21e151ba18c6806f2e718cf8c198bcc391821d9cc9d323b4779a"
+    },
+    {
+      "name": "dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringClientTest",
+      "tests": 19,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "report_sha256": "590008d62865b43922ec30e5c8d362d8f0a52a4b1d0b7b6675fc686420a89ebd"
+    },
+    {
+      "name": "dev.chungjungsoo.gptmobile.data.github.GitHubAuditEvidenceTest",
+      "tests": 15,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "report_sha256": "0c8349bf29bbb6f582c8b8656a08c0d43e4797ddd6289426976c3aee56fc60e4"
+    },
+    {
+      "name": "dev.chungjungsoo.gptmobile.data.github.GitHubChatDecisionsTest",
+      "tests": 10,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "report_sha256": "01464fdd3f81fa86d21e066fba86eb3053d32faf2221fdfaecc75c9bd30fd6da"
+    },
+    {
+      "name": "dev.chungjungsoo.gptmobile.data.github.GitHubChatProgressTest",
+      "tests": 21,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "report_sha256": "3f261189f77d7c0dd80130ce22e4525a1f29ed880c14114d0736693c27552239"
+    },
+    {
+      "name": "dev.chungjungsoo.gptmobile.data.github.GitHubFactualProgressTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "report_sha256": "d6614c4099f41cc8f097195c5a625ce625069afc4954ffb2f8acdc4994f2fb3a"
+    },
+    {
+      "name": "dev.chungjungsoo.gptmobile.data.github.GitHubOwnedFixturesTest",
+      "tests": 16,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "report_sha256": "515040b29c838267616f13efda34834f3769af233cee937e94d53fe6c0955be6"
+    },
+    {
+      "name": "dev.chungjungsoo.gptmobile.data.github.GitHubProgressNarratorTest",
+      "tests": 11,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "report_sha256": "eef98a7b7931cb53dd863fa7e889833dd3fa73f388d00bb899bf5e5c340100a9"
+    },
+    {
+      "name": "dev.chungjungsoo.gptmobile.data.github.GitHubVerifiedSessionTest",
+      "tests": 27,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "report_sha256": "09c6e95cb485151bca62ca60368836c6116b24e63b63d2e4240dab7273e5ff93"
+    },
+    {
+      "name": "dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAvailabilityReadinessTest",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "report_sha256": "385a757370adb586e6964bbb8a0ac17e7ac16c5387d5381758a3e21a22c7559f"
+    },
+    {
+      "name": "dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterCatalogLimitsTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "report_sha256": "001971014e8b0ad02ceafe4e6aef2bae55f7460ca8656134ae35bd50913c5c78"
+    },
+    {
+      "name": "dev.chungjungsoo.gptmobile.data.voice.AndroidRecognitionRecoveryTest",
+      "tests": 12,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "report_sha256": "c12ad01dd285743a56fc31b6c5a63462aea82531702bbc7b3fc36eec77bbd916"
+    },
+    {
+      "name": "dev.chungjungsoo.gptmobile.data.voice.AndroidSpeechCatalogRecoveryTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "report_sha256": "d4e4094eec4c1fe41dd3e989acac6c3f133f4255e9bfe8bdeeb2381a83783c96"
+    },
+    {
+      "name": "dev.chungjungsoo.gptmobile.data.voice.AndroidSpeechQualificationTest",
+      "tests": 9,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "report_sha256": "9d8d7799027aab5cec1ce31555d62e2ff3f339dd40e44d542531d504d8264257"
+    },
+    {
+      "name": "dev.chungjungsoo.gptmobile.data.voice.AndroidVoiceAudioTest",
+      "tests": 12,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "report_sha256": "acea83108a6c20035c71cb55a2f21929fa1397ac3462dff8c48dedf0ac1ac43f"
+    },
+    {
+      "name": "dev.chungjungsoo.gptmobile.data.voice.KokoroSpeechTextTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "report_sha256": "fefcbf5063c782deaa5dc37976a36ed5609a7ea25089ee25c790ff16096ba95f"
+    },
+    {
+      "name": "dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelStoreTest",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "report_sha256": "1355ba3d35e08e966fb4d274300f7b061dabcd3cabc963558b393caab09a5329"
+    },
+    {
+      "name": "dev.chungjungsoo.gptmobile.data.voice.MoonshineVoiceRecognizerTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "report_sha256": "6c9e0dd230cd9aac693dddaf4a925b6322c720f62edd94b68629ad31f32e87c3"
+    },
+    {
+      "name": "dev.chungjungsoo.gptmobile.data.voice.RecognitionStartGateTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "report_sha256": "08b2d1c2d67b3453da94dfdd990e0de1a2901fac5f95de34389f4bd51becc689"
+    },
+    {
+      "name": "dev.chungjungsoo.gptmobile.data.voice.VoiceContinuousListeningTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "report_sha256": "6df89630081493a12fcfe8138031662ebc2dd836f4cacf26eaa934940d9c6c62"
+    },
+    {
+      "name": "dev.chungjungsoo.gptmobile.data.voice.VoicePluginAudioTest",
+      "tests": 11,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "report_sha256": "3a9b0d2c25b19bb3ab13a59f1073087ecce612762091f25d54eb008b5d97e438"
+    },
+    {
+      "name": "dev.chungjungsoo.gptmobile.data.voice.VoicePreferenceWriterTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "report_sha256": "0328ef78c354b6e29c3fdd9fc76552b27103aa7535f1f01c19ef01597db7cab5"
+    },
+    {
+      "name": "dev.chungjungsoo.gptmobile.data.voice.VoiceRecoveryTest",
+      "tests": 14,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "report_sha256": "bc933c9884fb00939304cf5f231e995fd7a0d8d403da044c4e7641379402d183"
+    },
+    {
+      "name": "dev.chungjungsoo.gptmobile.data.voice.VoiceSessionTest",
+      "tests": 15,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "report_sha256": "90e67a290e5f3f1079e9a9ea1506597d327519b52d1381960e4a89eb512fb65f"
+    },
+    {
+      "name": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBufferTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "report_sha256": "6db8ac33c8d02b51ac66d7ffcf02fae6095292eb9afe2118dc7fc4eb5a29e834"
+    },
+    {
+      "name": "dev.chungjungsoo.gptmobile.presentation.ui.chat.GitHubDecisionCardTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "report_sha256": "f6b8a21b0f28b33872a27b4ee459aec120e2e12793fc71b2f2186772f845a067"
+    },
+    {
+      "name": "dev.chungjungsoo.gptmobile.presentation.ui.chat.GitHubLiveProgressTest",
+      "tests": 15,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "report_sha256": "ccbe76d70c8d6113a3db7898e83296165d842d4ca6f2f39653ddd93e0dd11ffb"
+    },
+    {
+      "name": "dev.chungjungsoo.gptmobile.presentation.ui.workspace.GitHubApprovalSummaryLayoutTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "report_sha256": "230191e233b7eb2f6d39c7aa0f8784d1f5f83d527bb094118f86bd9aba45dc9e"
+    },
+    {
+      "name": "dev.chungjungsoo.gptmobile.presentation.ui.workspace.GitHubCommitApprovalDialogTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "report_sha256": "ca434bf77293fa7388f42aefeeaa79da10147472158cf0f851f1855931cb9962"
+    },
+    {
+      "name": "dev.chungjungsoo.gptmobile.util.ApiStateFlowExtensionsTest",
+      "tests": 46,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "report_sha256": "7875146d6a1ccd4dcdfd792d8b72596724cb58123f9fc1e28eda153c17fa9111"
+    }
+  ],
+  "validation_recovery": [
+    "The first selected run exposed one fixture assertion expecting the replaced generic error. The final assertion verifies the explicit waiting state, preserved fixture and no mutation.",
+    "The Android API 32 Robolectric dependency was initially absent. Downloaded its published JAR/POM and verified publisher SHA-512 values before rerunning the affected speech suite."
+  ],
+  "runtime": {
+    "java": 21,
+    "android_sdk": 37,
+    "gradle": "9.8.0",
+    "robolectric_dependency_verification": "publisher SHA-512",
+    "test_agent": "pinned Byte Buddy Java agent",
+    "build_config_sha": "23518a107e96bbb1a373a61f6f433ce0bd0f1a58",
+    "build_identity_note": "JVM-only validation reused BuildConfig identity. Tested changed source is bound by the hashes above. This is not an APK or device attestation."
+  },
+  "formal_acceptance_promotions": 0,
+  "pending": [
+    "Fresh published-head CI",
+    "Physical ASUS device and Kokoro measurements",
+    "Exact installed APK attestation",
+    "Deployed Gateway job lifecycle",
+    "Saved MCP/OAuth repair and named live fixtures",
+    "Remaining full Unified Reliability v2 qualification"
+  ]
+}

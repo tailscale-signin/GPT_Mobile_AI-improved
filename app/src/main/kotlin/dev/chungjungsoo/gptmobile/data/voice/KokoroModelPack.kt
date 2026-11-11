@@ -1,6 +1,5 @@
 package dev.chungjungsoo.gptmobile.data.voice
 
-import android.content.Context
 import java.io.File
 import java.io.IOException
 import kotlinx.coroutines.currentCoroutineContext
@@ -35,8 +34,8 @@ internal object KokoroModelPack {
         file("LICENSE", 11_358, "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30")
     )
 
-    fun store(context: Context) = LocalVoiceModelStore(
-        File(context.applicationContext.noBackupFilesDir, "voice-models/$REVISION"),
+    fun store(voiceModelsDirectory: File) = LocalVoiceModelStore(
+        File(voiceModelsDirectory, REVISION),
         listOf(archive),
         expandedAssets = files,
         expandArchive = ::unpack,

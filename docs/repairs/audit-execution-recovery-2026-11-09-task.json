@@ -177,5 +177,83 @@
     "status": "FORMATTED_FRESH_ANDROID_COMPILATION_REQUIRED",
     "intent": "Implement the new diagnostic projection in the sole concrete recorder-test DAO fake; preserve production DAO behavior.",
     "validation_receipt": "docs/repairs/evidence/audit-execution-recovery-2026-11-09/diagnostic-dao-fake-validation.json"
+  },
+  "voice_chat_and_claim_recovery_followup": {
+    "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+    "base_branch": "main",
+    "base_sha": "3a1f44bb3dff7dbe10a839f1cad7b408b34aadeb",
+    "working_branch": "fix/audit-execution-recovery-2026-11-09",
+    "parent_head": "2a75e9e0985c57d197190b0f6bb16e4141e97acf",
+    "pull_request": 817,
+    "intent": "Complete the requested audit, durable recovery and voice improvements. Restore chronological GitHub prompts, collapse the top controls, show quick decision actions, make the active preview opaque, update real operation counts in place, and reduce summary frequency to 45 seconds after the initial update. Save validated claim-extraction batches and recheck audit credentials at dispatch admission.",
+    "state": "LOCAL_CHECKS_PASS_FRESH_PUBLISHED_HEAD_CI_REQUIRED",
+    "acceptance": [
+      "The original prompt is shown chronologically without internal workspace metadata.",
+      "Only the active preview is fully opaque. Its measured counter updates reuse a stable row.",
+      "The first summary remains immediate. Later updates wait at least 45 seconds and require meaningful new evidence.",
+      "A collapsed GitHub header preserves back navigation and exposes a themed animated expand control.",
+      "Bound approval and user-decision cards expose review or response actions and preserve exact write approval.",
+      "Voice settings persist recognition, playback, listening and Kokoro thread preferences. Warm reply streaming retains a bounded PCM queue.",
+      "Claim-extraction failure preserves validated batches and the private draft, and Continue resumes the unfinished batch under the same authority.",
+      "MCP audit dispatch revalidates the configuration snapshot and local credential precheck after the durable admission marker."
+    ],
+    "live_qualification": "Pending physical ASUS device, exact APK attestation, deployed Gateway and saved OAuth/MCP connections. No ledger case promoted.",
+    "validation_receipt": "docs/repairs/evidence/audit-execution-recovery-2026-11-09/voice-claim-ui-validation.json",
+    "canonical_fast_tests": 461,
+    "android_jvm_tests": 399,
+    "android_jvm_failures": 0,
+    "remediation_record": "docs/repairs/voice-chat-recovery-followup-2026-11-11.md"
+  },
+  "gateway_targets_and_continuous_speech_followup": {
+    "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+    "base_branch": "main",
+    "base_sha": "3a1f44bb3dff7dbe10a839f1cad7b408b34aadeb",
+    "working_branch": "fix/audit-execution-recovery-2026-11-09",
+    "parent_head": "b8c94ad902078b57a669b0ba316497d598daf3eb",
+    "intent": "Implement the additional 139-check audit source findings: always include current engineering Gateway and retained job bindings separately, bind direct settings/readiness actions to their original target, preserve request-correlation guidance, and emit bounded stable Kokoro continuation chunks.",
+    "state": "LOCAL_VALIDATION_PASSED",
+    "acceptance": [
+      "A retained job on Gateway A cannot suppress readiness for current Gateway B.",
+      "Settings navigation and a bounded readiness check use the exact original audit binding and refuse stale configuration.",
+      "The JSON qualification plan and audit UI retain RESPONSE_ID_MATCH_REQUIRED repair guidance.",
+      "Long punctuation-free replies emit stable continuation chunks, preserving exact text and preventing duplicate speech."
+    ],
+    "live_qualification": "Still requires actual saved MCP endpoints/OAuth, deployed Gateway GitHub setup, named fixtures, exact APK and physical ASUS performance measurements.",
+    "validation": "461 fast host checks and 130 targeted Android JVM/Robolectric tests passed; compilation passed. Physical-device and deployed-service qualification pending."
+  },
+  "voice_startup_and_admission_followup": {
+    "parent": "0a53a3303c6ed41bd6efbb2713e64fab1d96a590",
+    "state": "LOCAL_VALIDATION_PASSED",
+    "changes": [
+      "Defer Kokoro warmup until accepted reply generation and fence native startup behind decoder release. Record per-engine startup outcomes.",
+      "Recover individually malformed saved preferences and missing/deleted conversations. Gate capture on the loaded room and selected profile, defaulting to private speech.",
+      "Require explicit Enable & start on first use. Preserve direct entry after enablement.",
+      "Track checking, queued, accepted and failed voice requests; retain drafts through admission and bind reply captions to accepted turn/run IDs.",
+      "Keep captions alive when playback fails; expose direct microphone retry and the app-permission repair action.",
+      "Unify spoken replies across settings and the Audio dialog. Persist through an application-owned serialized writer."
+    ],
+    "remaining": "Actual route opening with both packs, microphone permission variants and a spoken turn on the ASUS phone remain unmeasured. No native crash cause or latency target is claimed verified.",
+    "validation": "App and test compilation, 461 fast host checks, 302 targeted JVM/Robolectric tests passed with zero failures or skips. Repaired the concurrent extraction-limit test fixture to supply retained evidence."
+  },
+  "adaptive_creativity_followup": {
+    "state": "LOCAL_VALIDATION_PASSED",
+    "source_parent": "79249cfb76a5eb7ed6f9ad6151d054122fd909db",
+    "base_sha": "3a1f44bb3dff7dbe10a839f1cad7b408b34aadeb",
+    "default": "ADAPTIVE",
+    "manual_available": true,
+    "selected_profile_preserved": true,
+    "sampling_policy_protocol": 1,
+    "formal_promotions": 0,
+    "scope": [
+      "GitHub per-stage sampling and settings",
+      "Bounded options and evidence-based selection with saved stages",
+      "Provider support and advanced-options precedence",
+      "Durable Gateway sampling admission and physical request checks"
+    ],
+    "android_tests": 266,
+    "gateway_tests": 749,
+    "gateway_skips": 1,
+    "fast_host_tests": 461,
+    "receipt": "evidence/audit-execution-recovery-2026-11-09/adaptive-creativity-validation.json"
   }
 }

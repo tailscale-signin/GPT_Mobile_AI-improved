@@ -360,11 +360,12 @@ object StagedDiagnosticCapture {
             put("criticalEvidenceAvailable", receipts.any { it["critical"] == JsonPrimitive(true) && (it.long("evidenceRecords") ?: 0) > 0 })
             put("emptyCriticalEvidence", emptyCritical)
             put("retryRecommended", retry)
-            put("resumable", continuationAvailable || retryableCollectionFailure)
+            val canResume = continuationAvailable || retryableCollectionFailure
+            put("resumable", canResume)
             put("resumeSupported", options.resumable)
             put(
                 "recoveryAction",
-                if (continuationAvailable) {
+                if (canResume) {
                     "RESUME_UNFINISHED_COLLECTION"
                 } else if (retry) {
                     "NEW_CAPTURE_REQUIRED"

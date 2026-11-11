@@ -6,7 +6,9 @@ import java.util.concurrent.atomic.AtomicBoolean
 /** Submission receipt only; durable run IDs own subsequent execution and completion. */
 internal class SendAttemptTrace(
     val requestId: String = UUID.randomUUID().toString(),
-    private val record: (String) -> Unit = { AppLogRecorder.record("Send", it) }
+    private val record: (String) -> Unit = { AppLogRecorder.record("Send", it) },
+    private val onOutcome: (String) -> Unit = {},
+    private val onAccepted: (List<String>, Int, Int) -> Unit = { _, _, _ -> }
 ) {
     private val closed = AtomicBoolean()
 
@@ -15,11 +17,17 @@ internal class SendAttemptTrace(
     }
 
     fun finish(reason: String) {
-        if (closed.compareAndSet(false, true)) record("SEND_SUBMISSION_OUTCOME · requestId=$requestId · reason=$reason")
+        if (closed.compareAndSet(false, true)) {
+            record("SEND_SUBMISSION_OUTCOME · requestId=$requestId · reason=$reason")
+            onOutcome(reason)
+        }
     }
+
+    fun queuedContinuation() = SendAttemptTrace(requestId, record, onOutcome, onAccepted)
 
     fun accepted(runIds: List<String>, chatId: Int, messageId: Int) {
         if (!closed.compareAndSet(false, true)) return
+        onAccepted(runIds, chatId, messageId)
         runIds.forEach { runId -> record("SEND_DURABLY_ACCEPTED · requestId=$requestId · runId=$runId · chatId=$chatId · messageId=$messageId · dispatched=false") }
         record("SEND_SUBMISSION_OUTCOME · requestId=$requestId · reason=DURABLY_ACCEPTED")
     }

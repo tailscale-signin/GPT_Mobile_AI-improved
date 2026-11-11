@@ -92,6 +92,9 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
                 ) { inspection = it to true }
             }
         }
+        GitHubCreativitySettings(state.profileSettings.sampling, state.profileUid != null) {
+            onSettings(state.profileSettings.copy(sampling = it))
+        }
         GitHubProfileOverrides(state.profileSettings, state.profileUid != null, state.profiles.firstOrNull { it.uid == state.profileUid }?.maxToolCalls, onSettings)
         GitHubWorkflowSettings(state.profileSettings.quickWorkflows, state.profileUid != null) {
             onSettings(state.profileSettings.copy(quickWorkflows = it))
@@ -144,7 +147,7 @@ private fun GitHubDecisionSettings(mode: GitHubDecisionMode, enabled: Boolean, o
                 when (mode) {
                     GitHubDecisionMode.ASK -> "Review each patch and choose how to answer each question."
                     GitHubDecisionMode.SUGGESTED -> "Use the suggested option when one is available. Review proposed commits yourself."
-                    GitHubDecisionMode.AUTO_APPROVE -> "Use suggested choices and approve eligible working-branch patches while this workspace is open. Deletions, workflow changes, and changes that require hardware verification still ask."
+                    GitHubDecisionMode.AUTO_APPROVE -> "Use suggested choices and approve eligible working-branch patches through saved task recovery. Deletions, workflow changes, and changes that require hardware verification still ask."
                 },
                 style = MaterialTheme.typography.bodySmall
             )

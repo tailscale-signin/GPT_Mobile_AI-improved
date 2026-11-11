@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.agent.provider
 /** Per-request hard constraints take precedence over saved provider preferences. */
 data class RequestConstraints(
     val maxOutputTokens: Int? = null,
+    val githubSampling: dev.chungjungsoo.gptmobile.data.github.GitHubSamplingSettings? = null,
     val allowTools: Boolean = true,
     val allowReasoning: Boolean = true,
     val reasoningModeOverride: dev.chungjungsoo.gptmobile.data.context.ReasoningMode? = null,

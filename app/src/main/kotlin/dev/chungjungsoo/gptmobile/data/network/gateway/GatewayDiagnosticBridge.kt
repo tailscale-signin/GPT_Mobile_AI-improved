@@ -11,6 +11,9 @@ import java.io.File
 import java.io.IOException
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.locks.ReentrantReadWriteLock
+import kotlin.concurrent.read
+import kotlin.concurrent.write
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -41,7 +44,9 @@ internal object GatewayDiagnosticBridge {
     private data class Pending(val route: String, val occurredAt: Long, val fields: JsonObject)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val lock = Any()
-    private val storageLock = Any()
+
+    // A purge excludes all storage use. Each spool serializes its own committed writes.
+    private val storageLock = ReentrantReadWriteLock()
     private val privacyEpoch = AtomicLong()
     private val routes = linkedMapOf<String, Route>()
     private val queue = Channel<Pending>(256)
@@ -84,16 +89,17 @@ internal object GatewayDiagnosticBridge {
                 }
                 val pending = mutableListOf<Pending>()
                 repeat(64) { queue.tryReceive().getOrNull()?.let(pending::add) }
+                val byRoute = pending.groupBy(Pending::route) { it.occurredAt to it.fields }
                 val selected = synchronized(lock) { routes.toMap() }
                 val epoch = privacyEpoch.get()
                 for ((key, route) in selected) {
                     if (!allowed) break
-                    val events = pending.filter { it.route == key }.map { it.occurredAt to it.fields }
+                    val events = byRoute[key].orEmpty()
                     if (route.spool == null || events.isNotEmpty() || route.dropped.get() > 0) {
                         var retained = false
                         route.storage.run({ allowed && epoch == privacyEpoch.get() && knownRoute(key, route) }) { permitted ->
                             try {
-                                synchronized(storageLock) {
+                                storageLock.read {
                                     if (permitted()) {
                                         val spool = route.spool ?: GatewayDiagnosticSpool(File(root, "$key/capture.jsonl"), boot).also { route.spool = it }
                                         val losses = route.dropped.getAndSet(0)
@@ -128,7 +134,7 @@ internal object GatewayDiagnosticBridge {
                         val job = launch(start = CoroutineStart.LAZY) {
                             route.synchronization.run({ allowed && epoch == privacyEpoch.get() && active == key && knownRoute(key, route) }) { permitted ->
                                 GatewayDiagnosticSync(spool, GatewayDiagnosticHttpTransport(http, route.config, permitted), permitted) { change ->
-                                    synchronized(storageLock) { if (permitted()) change() }
+                                    storageLock.read { if (permitted()) change() }
                                 }.once()
                             }
                         }
@@ -280,7 +286,10 @@ internal object GatewayDiagnosticBridge {
         val remote = File.createTempFile("gateway-remote-", ".zip", destination.parentFile)
         fun permitted() = epoch == privacyEpoch.get() && !AppLogRecorder.privateSessionActive
         try {
-            synchronized(storageLock) { spool.export(device, inventory) }
+            storageLock.read {
+                if (!permitted()) throw IOException("DIAGNOSTIC_CAPTURE_REVOKED")
+                spool.export(device, inventory)
+            }
             var gateway: File? = null
             var failure: String? = "DIAGNOSTIC_SOURCE_UNAVAILABLE"
             if (route.protocol == 2 && route.gatewayEnabled && allowed) {
@@ -314,7 +323,7 @@ internal object GatewayDiagnosticBridge {
     fun clear() {
         pause()
         scope.launch {
-            synchronized(storageLock) {
+            storageLock.write {
                 synchronized(lock) {
                     routes.clear()
                     active = null

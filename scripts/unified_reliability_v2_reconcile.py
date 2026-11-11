@@ -14,58 +14,86 @@ import xml.etree.ElementTree as ET
 from zipfile import ZipFile, is_zipfile
 
 from check_unified_reliability_v2 import validate
+from collect_app_audit_qualification import (
+    MAX_REPORT_BYTES, current_junit_receipt, junit_observations, observe_junit_reports,
+    parse_xml, timestamp,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 SCOPE = ROOT / "docs/implementation/unified-reliability-v2"
 CANDIDATES = SCOPE / "component-fixtures.json"
 SHA = re.compile(r"^[0-9a-f]{40}$")
-MAX_XML_BYTES = 6_000_000
+ARTIFACT_SHA = re.compile(r"^[0-9a-f]{64}$")
+RUN_URL = re.compile(r"https://github\.com/([\w.-]+/[\w.-]+)/actions/runs/([1-9]\d*)/attempts/([1-9]\d*)")
+MAX_REPORTS = 4096
+MAX_ARCHIVE_XML_BYTES = 256 * 1024 * 1024
 
 
-def _junit_tests(directory):
-    """Index exact (class, method) pairs and XML digests; no suite inference."""
-    if directory is None:
-        return {}
-    if not directory.exists():
-        raise ValueError(f"Missing JUnit source: {directory}")
-    tests = {}
+def _artifact_junit_observations(source, since, until, artifact_sha256):
+    if not artifact_sha256 or not ARTIFACT_SHA.fullmatch(artifact_sha256):
+        raise ValueError("An imported JUnit archive requires the GitHub artifact SHA-256")
+    # Hash and inspect the same open artifact without extracting any paths.
+    with source.open("rb") as artifact:
+        if hashlib.file_digest(artifact, "sha256").hexdigest() != artifact_sha256:
+            raise ValueError("JUnit artifact SHA-256 mismatch")
+        artifact.seek(0)
+        with ZipFile(artifact) as archive:
+            reports = [entry for entry in archive.infolist() if not entry.is_dir()
+                       and Path(entry.filename).match("TEST-*.xml")]
+            if (len(reports) > MAX_REPORTS or sum(entry.file_size for entry in reports) > MAX_ARCHIVE_XML_BYTES
+                    or any(entry.file_size > MAX_REPORT_BYTES for entry in reports)):
+                raise ValueError("JUnit archive exceeds collection bounds")
 
-    def add_xml(name, data):
-        if len(data) > MAX_XML_BYTES:
-            raise ValueError(f"JUnit XML exceeds safe limit: {name}")
-        digest = hashlib.sha256(data).hexdigest()
-        for case in ET.fromstring(data).iter("testcase"):
-            key = (case.get("classname", ""), case.get("name", ""))
-            if not all(key):
-                continue
-            outcome = ("FAIL" if case.find("failure") is not None or
-                       case.find("error") is not None else
-                       "SKIP" if case.find("skipped") is not None else "PASS")
-            tests.setdefault(key, []).append({
-                "outcome": outcome, "xml_sha256": digest, "junit_file": name,
-            })
+            def inputs():
+                for entry in reports:
+                    yield Path(entry.filename).name, lambda: parse_xml(archive.read(entry))
 
-    if directory.is_dir():
-        for path in sorted(directory.rglob("TEST-*.xml")):
-            add_xml(str(path.relative_to(directory)), path.read_bytes())
-    elif directory.is_file() and is_zipfile(directory):
-        # Inspect GitHub Actions ZIP in memory; never extract untrusted paths.
-        with ZipFile(directory) as archive:
-            for entry in archive.infolist():
-                if not Path(entry.filename).name.startswith("TEST-") or not entry.filename.endswith(".xml"):
-                    continue
-                if entry.file_size > MAX_XML_BYTES:
-                    raise ValueError(f"JUnit XML exceeds safe limit: {entry.filename}")
-                add_xml(entry.filename, archive.read(entry))
+            return observe_junit_reports(inputs(), since, until)
+
+
+def _junit_tests(source, qualification, source_sha, run_url, artifact_sha256):
+    """Bind parsed test cases to the collector's CI attempt and exact report bytes."""
+    run = RUN_URL.fullmatch(run_url or "")
+    if not run or source_sha == "UNKNOWN" or not isinstance(qualification, dict):
+        raise ValueError("JUnit evidence requires a tested SHA, exact run attempt URL and qualification receipt")
+    repository, run_id, attempt = run.groups()
+    environment = qualification.get("execution_environment", {})
+    if (qualification.get("schema_version") != 1
+            or qualification.get("kind") != "APP_AUDIT_SOURCE_HARNESS_OBSERVATIONS"
+            or qualification.get("checkout", {}).get("commit") != source_sha
+            or (environment.get("github_repository"), environment.get("github_run_id"),
+                environment.get("github_run_attempt")) != (repository, run_id, attempt)):
+        raise ValueError("JUnit qualification receipt does not match the tested SHA and workflow attempt")
+    since = timestamp(qualification.get("execution_window_start") or "")
+    until = timestamp(qualification.get("collected_at") or "")
+    if source.is_dir():
+        paths = list(source.rglob("TEST-*.xml"))
+        if len(paths) > MAX_REPORTS:
+            raise ValueError("JUnit report count exceeds the collection bound")
+        classes, errors = junit_observations(paths, since, until)
+    elif is_zipfile(source):
+        classes, errors = _artifact_junit_observations(source, since, until, artifact_sha256)
     else:
-        raise ValueError(f"JUnit source must be a directory or ZIP archive: {directory}")
-    return tests
+        raise ValueError("JUnit source must be a directory or ZIP archive")
+    receipt = current_junit_receipt(classes, errors)
+    if not receipt or receipt != qualification.get("junit_receipt") or qualification.get("report_errors") != []:
+        raise ValueError("JUnit reports are stale, duplicate, invalid, or differ from the qualification digest")
+    tests = {}
+    for cases in classes.values():
+        for case in cases:
+            outcome = {"FAILURE": "FAIL", "ERROR": "FAIL", "SKIPPED": "SKIP"}.get(case["outcome"], "PASS")
+            tests[(case["class_name"], case["name"])] = [{
+                "outcome": outcome, "xml_sha256": case["report_sha256"], "junit_file": case["report_name"],
+            }]
+    return tests, dict(receipt, workflow_run_id=run_id, workflow_run_attempt=attempt,
+                       artifact_sha256=artifact_sha256, execution_window_start=since.isoformat(),
+                       execution_window_end=until.isoformat())
 
 
 def reconcile(scope=SCOPE, candidates=CANDIDATES, junit_dir=None,
-              source_sha="UNKNOWN", run_url=None):
+              source_sha="UNKNOWN", run_url=None, qualification=None, artifact_sha256=None):
     """Return evidence inventory without promoting any stored outcome."""
-    if source_sha != "UNKNOWN" and not SHA.fullmatch(source_sha):
+    if source_sha != "UNKNOWN" and (not SHA.fullmatch(source_sha) or source_sha == "0" * 40):
         raise ValueError("Source SHA must be a real 40-character lowercase hex digest")
     tasks = json.loads((scope / "tasks.json").read_text(encoding="utf-8"))
     cases = json.loads((scope / "acceptance-tests.json").read_text(encoding="utf-8"))
@@ -84,7 +112,8 @@ def reconcile(scope=SCOPE, candidates=CANDIDATES, junit_dir=None,
         raise ValueError("Duplicate candidate mapping")
     if any(item["case_id"] not in expected_cases for item in items):
         raise ValueError("Candidate names an unknown acceptance case")
-    known = _junit_tests(junit_dir)
+    known, receipt = (_junit_tests(junit_dir, qualification, source_sha, run_url, artifact_sha256)
+                      if junit_dir is not None else ({}, None))
     candidate_by_id = {}
     for item in items:
         if not item.get("remaining_assertions") or not item.get("tests"):
@@ -133,7 +162,8 @@ def reconcile(scope=SCOPE, candidates=CANDIDATES, junit_dir=None,
     return {
         "schema": "unified-reliability-v2-reconciliation.v1",
         "source_sha": source_sha, "run_url": run_url,
-        "junit_evidence_scope": "CURRENT_RUN_NAMED_JVM_TESTS" if junit_dir else "NONE",
+        "junit_evidence_scope": "CURRENT_RUN_NAMED_JVM_TESTS" if receipt else "NONE",
+        "junit_receipt": receipt,
         "summary": {
             "tasks": len(tasks), "task_statuses": dict(sorted(task_statuses.items())),
             "cases": len(cases), "case_outcomes": dict(sorted(statuses.items())),
@@ -154,13 +184,19 @@ def main(argv=None):
     parser.add_argument("--junit-dir", type=Path)
     parser.add_argument("--source-sha", default="UNKNOWN")
     parser.add_argument("--run-url")
+    parser.add_argument("--qualification", type=Path)
+    parser.add_argument("--artifact-sha256", help="Expected GitHub artifact digest (hex, without sha256:)")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--fail-on-candidate-regression", action="store_true")
     args = parser.parse_args(argv)
     # Validate historical receipts and ledger invariants before publishing a report.
     validate()
-    report = reconcile(junit_dir=args.junit_dir, source_sha=args.source_sha,
-                       run_url=args.run_url)
+    try:
+        qualification = json.loads(args.qualification.read_text()) if args.qualification else None
+        report = reconcile(junit_dir=args.junit_dir, source_sha=args.source_sha, run_url=args.run_url,
+                           qualification=qualification, artifact_sha256=args.artifact_sha256)
+    except (OSError, TypeError, ValueError, ET.ParseError) as error:
+        parser.error(str(error))
     args.output.parent.mkdir(parents=True, exist_ok=True)
     tmp = args.output.with_name(args.output.name + ".tmp")
     tmp.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")

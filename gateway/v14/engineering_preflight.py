@@ -52,7 +52,17 @@ def preflight(request, *, runner=None):
         return result
     result['checks']['validation_policy'] = 'ready'
     result['policy_sha256'] = hashlib.sha256(json.dumps(policy, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
-    if not result['acceptance']:
+    if not result['acceptance'] and request.get('draft_repair'):
+        try:
+            result['acceptance'] = validate_request(dict(request, acceptance=policy.get('draft_repair_requirements', []))).get('acceptance', [])
+        except (ValueError, TypeError, KeyError):
+            result['acceptance'] = []
+        if result['acceptance']:
+            result['acceptance_source'] = 'HOST_DRAFT_REPAIR_CONTRACT'
+        else:
+            block('acceptance', 'ACCEPTANCE_CONTRACT_REQUIRED',
+                  'Supply approved repair requirements or configure draft_repair_requirements in this repository validation policy.', 'DEFINE_ACCEPTANCE_REQUIREMENTS')
+    elif not result['acceptance']:
         templates = policy.get('acceptance_templates', [])
         matches = []
         valid = isinstance(templates, list) and len(templates) <= 32

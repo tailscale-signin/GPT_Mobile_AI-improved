@@ -180,7 +180,7 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
                 }
 
                 is ApiState.ActivitySummary -> {
-                    buffer.observeProgress(chunk.text)
+                    buffer.observeProgress(chunk.text, chunk.invocationId)
                     buffer.updateActivitySummary(chunk)
                     buffer.publishNow(onUpdate)
                 }
@@ -317,6 +317,7 @@ private class StreamingMessageBuffer(
     private val outputPublications = OutputPublicationTracker()
     private val timeline = mutableListOf<AssistantTimelineItem>()
     private var githubProgress = false
+    private var progressSequence = restoredTimeline.maxOfOrNull { it.progressSequence ?: 0L } ?: 0L
     private var githubRoundAwaitingAnswer = false
     private val githubAnswerPrefix = StringBuilder()
     private var pendingTimelineIndex = -1
@@ -389,12 +390,10 @@ private class StreamingMessageBuffer(
         )
         if (githubProgress) {
             if (timeline.none { it.statusSummary && it.content == item.content.take(1200) }) {
-                timeline += item.copy(content = item.content.take(1200), progressCheckpoint = true)
+                timeline += item.copy(content = item.content.take(1200), progressCheckpoint = true, progressSequence = ++progressSequence)
             }
             chunk.preview?.takeIf(String::isNotBlank)?.let { preview ->
-                if (!repeatsGitHubPreview(preview)) {
-                    timeline += AssistantTimelineItem(AssistantTimelineItemType.NOTICE, content = preview.take(4000), progressCheckpoint = true)
-                }
+                appendProgress(preview, modelAuthored = false)
             }
             boundGitHubProgress()
         } else {
@@ -545,7 +544,9 @@ private class StreamingMessageBuffer(
         val liveKey = if (githubProgress && !modelAuthored) dev.chungjungsoo.gptmobile.data.github.GitHubProgressPresentation.liveKey(text) else null
         if (liveKey != null) {
             val index = timeline.indexOfLast { it.progressCheckpoint && dev.chungjungsoo.gptmobile.data.github.GitHubProgressPresentation.liveKey(it.content) == liveKey }
-            val item = AssistantTimelineItem(AssistantTimelineItemType.NOTICE, content = text.take(4000), progressCheckpoint = true, progressId = liveKey)
+            val current = text.take(4000)
+            if (timeline.getOrNull(index)?.content == current) return
+            val item = AssistantTimelineItem(AssistantTimelineItemType.NOTICE, content = current, progressCheckpoint = true, progressId = liveKey, progressSequence = ++progressSequence)
             if (index < 0) timeline += item else timeline[index] = item
             boundGitHubProgress()
             timelineVersion++
@@ -558,13 +559,14 @@ private class StreamingMessageBuffer(
         val last = timeline.getOrNull(lastIndex)
         if (modelAuthored && last?.progressCheckpoint == true && (!githubProgress || last.modelAuthored) && !last.statusSummary) {
             val combined = (if (last.modelAuthored) last.content else "") + text
-            timeline[lastIndex] = last.copy(content = if (githubProgress) combined.takeLast(4000) else combined, modelAuthored = true)
+            timeline[lastIndex] = last.copy(content = if (githubProgress) combined.takeLast(4000) else combined, modelAuthored = true, progressSequence = if (githubProgress) ++progressSequence else null)
         } else {
             timeline += AssistantTimelineItem(
                 AssistantTimelineItemType.NOTICE,
                 content = if (githubProgress) text.take(4000) else text,
                 progressCheckpoint = true,
-                modelAuthored = modelAuthored
+                modelAuthored = modelAuthored,
+                progressSequence = if (githubProgress) ++progressSequence else null
             )
         }
         boundGitHubProgress()

@@ -160,7 +160,7 @@ suspend fun writeAppAuditExport(output: OutputStream, batch: BenchmarkBatch, sou
                     put("id", ids.getValue(entry.id))
                     put("sourceId", safeSource(entry.sourceId))
                     put("probeId", safeProbe(entry.probeId))
-                    put("label", safeAuditLabel(entry.probeId))
+                    put("label", safeAuditLabel(entry.probeId, entry.componentId))
                     put("componentId", safeComponent(entry.componentId))
                     put("targetAlias", entry.targetId?.let(targets::get))
                     put("sourceAreaIds", JsonArray(entry.sourceAreaIds.take(MAX_SOURCE_AREAS).map { JsonPrimitive(safeArea(it)) }))
@@ -202,6 +202,17 @@ suspend fun writeAppAuditExport(output: OutputStream, batch: BenchmarkBatch, sou
                     put("configurationRevision", safeAuditConfigurationRevision(observation.configurationRevision))
                     put("remoteServiceIdentity", appAuditRemoteIdentityJson(observation.remoteIdentity) ?: JsonNull)
                     put("remoteServiceIdentityStatus", appAuditRemoteIdentityStatus(observation.remoteIdentity))
+                    observation.gatewayReadiness?.let { gateway ->
+                        put(
+                            "engineeringGatewayReadiness",
+                            buildJsonObject {
+                                put("savedBinding", gateway.savedBinding)
+                                put("engineeringReady", gateway.engineeringReady?.let(::JsonPrimitive) ?: JsonNull)
+                                put("hostGitHubConfigured", gateway.hostGitHubConfigured?.let(::JsonPrimitive) ?: JsonNull)
+                                put("selectedModelReady", gateway.selectedModelReady?.let(::JsonPrimitive) ?: JsonNull)
+                            }
+                        )
+                    }
                     put("remoteSourceIndependentlyVerified", false)
                     put(
                         "metrics",
@@ -384,9 +395,10 @@ private fun safeRunId(value: String): String = value.takeIf { it.matches(Regex("
 private fun safeArea(value: String): String = value.takeIf { id -> AppAuditSourceInventory.areas.any { it.id == id } } ?: "unknown_source_area"
 private fun safeSource(value: String): String = value.takeIf { it in setOf("local-contracts", "plugins", "source-inventory", "behavior", "appearance", "research_contract", "memory_contract", "selected_models") } ?: "unknown_source"
 private fun safeProbe(value: String): String = value.takeIf { it in AUDIT_LABELS } ?: "unknown_probe"
-private fun safeAuditLabel(probe: String): String = AUDIT_LABELS[probe] ?: "Unrecognized audit check"
+private fun safeAuditLabel(probe: String, component: String): String =
+    AppAuditPluginProbeSource.label(probe, component) ?: AUDIT_LABELS[probe] ?: "Unrecognized audit check"
 private fun safeComponent(value: String): String = value.takeIf {
-    it in setOf("mcp_connection", "configured_connection", "gateway_connection", "selected_model", "plugins", "local-contracts") ||
+    it in setOf("mcp_connection", "configured_connection", "gateway_connection", AppAuditPluginProbeSource.ENGINEERING_GATEWAY_COMPONENT, AppAuditPluginProbeSource.CURRENT_ENGINEERING_GATEWAY_COMPONENT, "selected_model", "plugins", "local-contracts") ||
         safeArea(it) == it ||
         dev.chungjungsoo.gptmobile.data.model.ToolServiceCatalog.integrated.any { service -> service.id == it } ||
         dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplaceCatalog.packages.any { entry -> "marketplace:${entry.id}" == it }

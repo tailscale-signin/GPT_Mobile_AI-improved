@@ -500,7 +500,7 @@ class AgentToolResolverTest {
             val manager = mockk<McpClientManager>(relaxed = true)
             val expected = DispatchPolicyChangedException(listOf("tool_inventory"))
             coEvery { manager.peekToolsForConnection(any(), any(), any()) } returns null
-            coEvery { manager.listTools(any(), any(), any(), any()) } throws expected
+            coEvery { manager.listToolsWithReceipt(any(), any(), any(), any()) } throws expected
             val resolver = resolver(dao = dao, settings = ResolverFakeSettingRepository(listOf(profile)), managerOverride = manager)
             val message = dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(id = 42, chatId = 7, content = "Use echo", platformType = null)
             val connectionErrors = mutableListOf<String>()
@@ -511,7 +511,7 @@ class AgentToolResolverTest {
             assertTrue(failure is DispatchPolicyChangedException)
             assertEquals(expected.fields, (failure as DispatchPolicyChangedException).fields)
             assertTrue(connectionErrors.isEmpty())
-            coVerify(exactly = 1) { manager.listTools(any(), any(), any(), any()) }
+            coVerify(exactly = 1) { manager.listToolsWithReceipt(any(), any(), any(), any()) }
         }
     }
 
@@ -1412,6 +1412,23 @@ class AgentToolResolverTest {
     private fun amazonEnabled() = dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings()
         .withToolPluginEnabled(ToolPluginId.AMAZON_SEARCH, true)
         .withProfileToolPluginEnabled("profile", ToolPluginId.AMAZON_SEARCH, true)
+
+    @Test fun auditDiscoveryReportsExpiredOAuthWithoutRefreshingOrDispatching() = runBlocking {
+        val credential = McpOAuthCredential("client", "https://issuer.example/token", "https://mcp.example/mcp", "expired", "Bearer", "refresh", 1)
+        val reference = "connection_audit-oauth"
+        val vault = ResolverFakeSecretVault(mapOf(reference to NetworkClient.json.encodeToString(McpOAuthCredential.serializer(), credential).encodeToByteArray()))
+        val connection = connection("audit-oauth", ToolConnectionType.MCP, credential.resource, reference, ToolConnectionAuthType.OAUTH)
+        val repository = ToolConnectionRepository(ResolverFakeToolConnectionDao(), vault)
+        val manager = mockk<McpClientManager>()
+        val oauth = mockk<McpOAuthClient>()
+        val resolver = AgentToolResolver(repository, ResolverFakeSettingRepository(), vault, NetworkClient(CIO), manager, McpOAuthCoordinator(oauth, repository, vault, manager), mockk())
+        val failure = kotlinx.coroutines.withContext(McpDiscoveryContext(McpDiscoveryTrigger.AUDIT_REFRESH)) {
+            runCatching { resolver.discoverMcpToolsWithReceipt(connection, forceRefresh = true, awaitCompletion = true) }.exceptionOrNull()
+        }
+        assertEquals(McpLocalValidationRule.CREDENTIAL_REFRESH_REQUIRED, (failure as? McpLocalValidationException)?.rule)
+        io.mockk.coVerify(exactly = 0) { oauth.refresh(any()) }
+        io.mockk.coVerify(exactly = 0) { manager.listToolsWithReceipt(any(), any(), any(), any()) }
+    }
 
     private fun resolver(
         dao: ResolverFakeToolConnectionDao = ResolverFakeToolConnectionDao(),

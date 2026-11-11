@@ -43,7 +43,11 @@ class LocalVoiceModelStore internal constructor(
     private val sourceFactory: () -> LocalVoiceAssetSource
 ) {
     constructor(context: Context) : this(
-        File(context.applicationContext.noBackupFilesDir, "voice-models/moonshine-tiny-en-20260821"),
+        File(context.applicationContext.noBackupFilesDir, "voice-models")
+    )
+
+    internal constructor(voiceModelsDirectory: File) : this(
+        File(voiceModelsDirectory, "moonshine-tiny-en-20260821"),
         MODEL_ASSETS,
         sourceFactory = ::HttpsVoiceAssetSource
     )

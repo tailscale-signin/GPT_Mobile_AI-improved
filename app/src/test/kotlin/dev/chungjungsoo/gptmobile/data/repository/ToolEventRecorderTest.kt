@@ -438,6 +438,7 @@ private class FakeAgentRunDao :
     override suspend fun replaceMeasuredUsage(runId: String, inputTokens: Int?, outputTokens: Int?, totalTokens: Int?): Int = 0
     override suspend fun rawGetById(runId: String): AgentRun? = getById(runId)
     override suspend fun rawGetByChatId(chatId: Int): List<AgentRun> = getByChatId(chatId)
+    override suspend fun sessionAuditRuns(chatId: Int, currentRunId: String): List<AgentRun> = emptyList()
     override suspend fun rawCombinedTerminalOwners(): List<AgentRun> = combinedTerminalOwners()
     override suspend fun rawGetRecoverableGatewayRuns(): List<AgentRun> = getRecoverableGatewayRuns()
     override fun rawObserveByChatId(chatId: Int): Flow<List<AgentRun>> = observeByChatId(chatId)
@@ -503,6 +504,7 @@ private class FakeAgentPersistenceDao :
     override suspend fun rawSynthesisRunsForTurn(chatId: Int, userId: Int): List<AgentRun> = synthesisRunsForTurn(chatId, userId)
     override suspend fun rawGetCompletedRuns(chatId: Int): List<AgentRun> = getCompletedRuns(chatId)
     override suspend fun rawGetIncompleteRuns(chatId: Int, userMessageIds: List<Int>): List<AgentRun> = getIncompleteRuns(chatId, userMessageIds)
+    override suspend fun sessionAuditToolFailures(runIds: List<String>): List<dev.chungjungsoo.gptmobile.data.github.GitHubSessionToolFailure> = emptyList()
     override suspend fun rawRecoveryRun(runId: String): AgentRun? = recoveryRun(runId)
 
     override suspend fun synthesisRunsForTurn(chatId: Int, userId: Int): List<AgentRun> = unused()

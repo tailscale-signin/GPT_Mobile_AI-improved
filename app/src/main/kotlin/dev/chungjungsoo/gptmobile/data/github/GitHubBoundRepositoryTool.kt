@@ -18,7 +18,8 @@ internal class GitHubBoundRepositoryTool(
     private val delegate: AgentTool,
     repository: GitHubRepositoryContext,
     private val connectionMatches: Boolean = true,
-    private val readSources: Set<String> = emptySet()
+    private val readSources: Set<String> = emptySet(),
+    private val readOnly: Boolean = false
 ) : PreparableAgentTool,
     OwnedAgentTool {
     private val repository = normalizeGitHubRepository(repository.owner, repository.repo).let { (owner, repo) ->
@@ -31,10 +32,11 @@ internal class GitHubBoundRepositoryTool(
 
     override fun withChildBudget(bind: (AgentTool) -> AgentTool): AgentTool =
         GitHubBoundRepositoryTool(
-            delegate.withChildBudget { child -> bind(GitHubBoundRepositoryTool(child, repository, connectionMatches, readSources)) },
+            delegate.withChildBudget { child -> bind(GitHubBoundRepositoryTool(child, repository, connectionMatches, readSources, readOnly)) },
             repository,
             connectionMatches,
-            readSources
+            readSources,
+            readOnly
         )
 
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult = try {
@@ -71,6 +73,9 @@ internal class GitHubBoundRepositoryTool(
             GitHubOperationTool.nativeArguments(definition.name, arguments) ?: return arguments
         }
         val action = (native["action"] as? JsonPrimitive)?.content.orEmpty()
+        if (readOnly && !GitHubTargetPolicy.isReadAction(action) && action != "read_saved_result") {
+            throw Rejected("PERMISSION_DENIED", "This session audit permits read-only GitHub observations.", null)
+        }
         if (action in GitHubRepositoryLifecycle.actions) {
             if (!connectionMatches) throw Rejected("GITHUB_REPOSITORY_TARGET_MISMATCH", "Select the intended GitHub account before creating or importing a repository.", null)
             return arguments // Exact administrative approval binds the explicit destination fields.

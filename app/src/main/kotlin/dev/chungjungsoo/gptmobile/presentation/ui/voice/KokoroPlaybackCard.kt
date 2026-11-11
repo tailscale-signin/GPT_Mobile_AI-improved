@@ -25,9 +25,11 @@ import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelStatus
 internal fun KokoroPlaybackCard(
     state: LocalVoiceModelState,
     voice: KokoroVoice?,
+    threads: Int,
     english: Boolean,
     previewError: String?,
     select: (KokoroVoice?) -> Unit,
+    selectThreads: (Int) -> Unit,
     install: () -> Unit,
     cancel: () -> Unit,
     remove: () -> Unit,
@@ -73,6 +75,14 @@ internal fun KokoroPlaybackCard(
                 if (!english) Text("Set the speech language to English to use Kokoro.", style = MaterialTheme.typography.bodySmall)
                 KokoroVoice.entries.forEach { option ->
                     FilterChip(selected = voice == option, onClick = { select(option) }, label = { Text(option.label) }, enabled = english)
+                }
+                if (voice != null) {
+                    Text("Synthesis threads", style = MaterialTheme.typography.labelMedium)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        (2..4).forEach { count ->
+                            FilterChip(selected = threads == count, onClick = { selectThreads(count) }, label = { Text(count.toString()) })
+                        }
+                    }
                 }
                 Row {
                     voice?.let { selected ->

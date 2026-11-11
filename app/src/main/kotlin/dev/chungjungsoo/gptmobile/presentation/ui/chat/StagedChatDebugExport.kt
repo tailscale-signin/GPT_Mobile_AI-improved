@@ -40,7 +40,8 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.put
 
-internal fun diagnosticCaptureIdentity(chatId: Int): String = "${BuildConfig.APPLICATION_ID}:$chatId:${BuildConfig.APP_COMMIT}:staged-v4"
+internal fun diagnosticCaptureIdentity(chatId: Int, fullHistory: Boolean = false): String =
+    "${BuildConfig.APPLICATION_ID}:$chatId:${BuildConfig.APP_COMMIT}:staged-v4" + if (fullHistory) "" else "-summary"
 
 /** UI snapshots are small references; history comes from bounded database/file producers. */
 internal suspend fun writeStagedChatDiagnostics(
@@ -56,13 +57,23 @@ internal suspend fun writeStagedChatDiagnostics(
     research: ResearchSessionStore?,
     reducedMemory: Boolean,
     resume: Boolean,
+    fullHistory: Boolean = false,
     workspace: dev.chungjungsoo.gptmobile.data.workspace.WorkspaceRepository? = null,
     stillAuthorized: () -> Unit
 ): DiagnosticCaptureResult = DiagnosticExportGate.run {
     withContext(Dispatchers.IO) {
         val guard = DiagnosticCaptureStorage.guard(room.id)
         val workDirectory = if (room.isTemporary) File(context.cacheDir, "temporary-diagnostic-capture-${UUID.randomUUID()}") else DiagnosticCaptureStorage.directory(context, room.id)
-        val identity = diagnosticCaptureIdentity(room.id)
+        val resumed = if (resume && !room.isTemporary) {
+            listOf(false, true).firstNotNullOfOrNull { full ->
+                val candidate = diagnosticCaptureIdentity(room.id, full)
+                StagedDiagnosticCapture.findResumableSession(workDirectory, candidate)?.let { Triple(it, candidate, full) }
+            } ?: error("No unfinished diagnostic capture is available for this conversation.")
+        } else {
+            null
+        }
+        val includeHistory = resumed?.third ?: fullHistory
+        val identity = resumed?.second ?: diagnosticCaptureIdentity(room.id, includeHistory)
         var sessionDirectory: File? = null
         val options = DiagnosticCaptureOptions(
             reducedMemory = reducedMemory,
@@ -161,7 +172,8 @@ internal suspend fun writeStagedChatDiagnostics(
                 sink.emit(
                     buildJsonObject {
                         put("kind", "latest_state_projection")
-                        put("scope", "Latest retained run verdict, accepted policy fragments, tool receipt, pending work, and GitHub verification/review/budget/output/task checkpoints. Full history follows in independently cursor-backed stages.")
+                        put("scope", "Latest retained run verdict, accepted policy fragments, tool receipt, pending work, and GitHub verification/review/budget/output/task checkpoints.")
+                        put("fullHistorySelected", includeHistory)
                         put("capturedAtMillis", System.currentTimeMillis())
                     },
                     evidence = false
@@ -252,7 +264,9 @@ internal suspend fun writeStagedChatDiagnostics(
                 }
             }
         )
-        listOf("tool_receipts", "invocations", "runs", "conversation", "workspace", "answer_segments", "combined_documents", "research_database").forEach { section ->
+        val sections = listOf("tool_receipts", "invocations", "runs") +
+            if (includeHistory) listOf("conversation", "workspace", "answer_segments", "combined_documents", "research_database") else emptyList()
+        sections.forEach { section ->
             stages += DiagnosticCaptureStage(section, "${section.replace('_', '-')}.jsonl", resumableRecords = true) { sink ->
                 database.capture(room.id, section, maximumCharacters, {
                     authorized()
@@ -404,7 +418,7 @@ internal suspend fun writeStagedChatDiagnostics(
         }
         try {
             authorized()
-            val session = if (resume && !room.isTemporary) StagedDiagnosticCapture.findResumableSession(workDirectory, identity) ?: error("No unfinished diagnostic capture is available for this conversation.") else null
+            val session = resumed?.first
             if (session != null) sessionDirectory = File(workDirectory, "diagnostic-capture-checkpoints/$session")
             val result = session?.let { StagedDiagnosticCapture.pendingArchive(workDirectory, identity, it) }
                 ?: StagedDiagnosticCapture.capture(workDirectory, identity, stages, options, session)

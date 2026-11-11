@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.model
 
 import dev.chungjungsoo.gptmobile.data.agent.CombinedExecutionContext
 import dev.chungjungsoo.gptmobile.data.delegation.DelegationPolicyResolver
+import dev.chungjungsoo.gptmobile.data.github.GitHubDraftRepair
 import kotlinx.serialization.Serializable
 
 /**
@@ -32,7 +33,8 @@ data class ChatMcpToolConfig(
     val delegation: ConversationDelegationSettings? = null,
     val research: MultiSearchResearchSelection? = null,
     val combined: CombinedExecutionContext? = null,
-    val github: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext? = null
+    val github: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext? = null,
+    val githubDraftRepair: GitHubDraftRepair? = null
 ) {
     fun effectiveDelegation(defaults: ModelDelegationSettings): ModelDelegationSettings =
         (delegation?.applyTo(defaults) ?: defaults.normalized()).let { research?.applyTo(it) ?: it }

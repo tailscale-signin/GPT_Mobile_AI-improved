@@ -506,7 +506,7 @@ internal class GitHubOperationTool(
                     "recovery" -> "recovery_context"
                     else -> return null
                 }
-                "github_search" -> "search_repository"
+                "github_search" -> if (dev.chungjungsoo.gptmobile.data.github.GitHubInspection.issueSearchQualifier.containsMatchIn((args["query"] as? JsonPrimitive)?.content.orEmpty())) "search_issues" else "search_repository"
                 "github_read" -> "read_ranges"
                 "github_stage_patch" -> "stage_patch"
                 "github_watch_checks" -> "watch_checks"

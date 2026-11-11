@@ -71,8 +71,81 @@ class ProfileBenchmarkViewModel @Inject constructor(
     persistenceDao: AgentPersistenceDao,
     savedState: SavedStateHandle,
     @param:ApplicationContext private val context: Context,
-    private val auditModels: AppAuditSelectedModelServices
+    private val auditModels: AppAuditSelectedModelServices,
+    auditSources: Set<@JvmSuppressWildcards dev.chungjungsoo.gptmobile.data.audit.AppAuditProbeSource>
 ) : ViewModel() {
+    private val auditPlugins = auditSources.filterIsInstance<dev.chungjungsoo.gptmobile.data.audit.AppAuditPluginProbeSource>().singleOrNull()
+    private val mutableGatewayCheck = MutableStateFlow<AppAuditEntryPresentation?>(null)
+    internal val gatewayCheck = mutableGatewayCheck.asStateFlow()
+    private var gatewayCheckJob: kotlinx.coroutines.Job? = null
+
+    internal fun openAuditGatewaySettings(entry: AppAuditPlanEntry, open: (String) -> Unit) {
+        viewModelScope.launch {
+            val uid = try {
+                withContext(Dispatchers.IO) { auditPlugins?.gatewaySettingsProfile(entry) }
+            } catch (failure: Exception) {
+                if (failure is CancellationException) throw failure
+                null
+            }
+            if (uid == null || profiles.value.none { it.uid == uid }) {
+                mutableError.value = "This audit's Gateway binding has changed or is unavailable. Start a new audit to identify the current connection."
+            } else {
+                open(uid)
+            }
+        }
+    }
+
+    internal fun checkAuditGateway(entry: AppAuditPlanEntry) {
+        val source = auditPlugins ?: return
+        if (execution.isRunning ||
+            gatewayCheckJob?.isActive == true ||
+            entry.sourceId != source.sourceId ||
+            entry.probeId != dev.chungjungsoo.gptmobile.data.audit.AppAuditPluginProbeSource.GATEWAY_CAPABILITIES
+        ) {
+            return
+        }
+        mutableGatewayCheck.value = AppAuditEntryPresentation(entry, null, active = true, includedInScore = false)
+        gatewayCheckJob = viewModelScope.launch {
+            val started = System.currentTimeMillis()
+            var admitted = false
+            fun unavailable(code: String) = dev.chungjungsoo.gptmobile.data.audit.AppAuditObservation(
+                dev.chungjungsoo.gptmobile.data.audit.AppAuditOutcome.BLOCKED,
+                code,
+                stage = "gateway_capabilities",
+                evidenceKind = dev.chungjungsoo.gptmobile.data.audit.AppAuditEvidenceKind.LIVE_METADATA,
+                dispatchEvidence = if (admitted) dev.chungjungsoo.gptmobile.data.audit.AppAuditDispatchEvidence.UNKNOWN else dev.chungjungsoo.gptmobile.data.audit.AppAuditDispatchEvidence.NOT_DISPATCHED
+            )
+            val observation = try {
+                withContext(Dispatchers.IO) {
+                    kotlinx.coroutines.withTimeoutOrNull(15_000) {
+                        source.execute(
+                            entry.copy(selected = true),
+                            dev.chungjungsoo.gptmobile.data.audit.AppAuditProbeContext(dev.chungjungsoo.gptmobile.data.audit.AppAuditLimits(maxNetworkProbes = 1)) {
+                                check(!admitted)
+                                admitted = true
+                            }
+                        )
+                    }
+                } ?: unavailable("PROBE_TIMEOUT")
+            } catch (failure: Exception) {
+                if (failure is CancellationException) throw failure
+                unavailable("GATEWAY_CAPABILITY_UNAVAILABLE")
+            }
+            val finished = System.currentTimeMillis()
+            mutableGatewayCheck.value = AppAuditEntryPresentation(
+                entry,
+                dev.chungjungsoo.gptmobile.data.audit.AppAuditResult(entry.id, observation, started, finished, (finished - started).coerceAtLeast(0), attempted = admitted),
+                active = false,
+                includedInScore = false
+            )
+        }
+    }
+
+    internal fun dismissAuditGatewayCheck() {
+        gatewayCheckJob?.cancel()
+        mutableGatewayCheck.value = null
+    }
+
     val profiles = settings.observePlatformV2s().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     private val selectedUid = MutableStateFlow(savedState.get<String>("profileUid").orEmpty())
     val selected = combine(profiles, selectedUid) { list, uid -> list.firstOrNull { it.uid == uid } ?: list.firstOrNull() }

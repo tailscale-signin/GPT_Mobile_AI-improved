@@ -1,13 +1,10 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
-import dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord
+import dev.chungjungsoo.gptmobile.data.github.GitHubApprovalBinding
 
 /** This is a UI action guard, not permission: resolved cards still allow saved-state reconciliation. */
 internal fun gitHubApprovalRetryBlock(failure: String?, pendingCard: Boolean): String? =
-    if (pendingCard &&
-        failure != null &&
-        (failure.trim() == "Review the saved change to continue." || ProfileFailureRecord.classify(failure).category == "WAITING_FOR_APPROVAL")
-    ) {
+    if (pendingCard && GitHubApprovalBinding.isApprovalPause(failure)) {
         "Review the proposed changes card above to approve or reject the saved patch. Retrying does not change its approval."
     } else {
         null

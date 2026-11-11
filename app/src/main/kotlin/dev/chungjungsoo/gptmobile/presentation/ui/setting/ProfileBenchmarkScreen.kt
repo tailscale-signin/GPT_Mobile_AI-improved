@@ -89,7 +89,8 @@ fun ProfileBenchmarkScreen(
     onUsage: () -> Unit,
     viewModel: ProfileBenchmarkViewModel = hiltViewModel(),
     embedded: Boolean = false,
-    onOpenAuditConnection: ((String) -> Unit)? = null
+    onOpenAuditConnection: ((String) -> Unit)? = null,
+    onOpenAuditGatewayProfile: ((String) -> Unit)? = null
 ) {
     val debugMode by viewModel.debugMode.collectAsStateWithLifecycle()
     val exporting by viewModel.exporting.collectAsStateWithLifecycle()
@@ -137,6 +138,33 @@ fun ProfileBenchmarkScreen(
     val auditModelCandidates by viewModel.auditModelCandidates.collectAsStateWithLifecycle()
     val auditTargetNames by viewModel.auditTargetNames.collectAsStateWithLifecycle()
     val auditLabelWarning by viewModel.auditLabelWarning.collectAsStateWithLifecycle()
+    val gatewayCheck by viewModel.gatewayCheck.collectAsStateWithLifecycle()
+    gatewayCheck?.let { inspection ->
+        AlertDialog(
+            onDismissRequest = viewModel::dismissAuditGatewayCheck,
+            title = { Text("Gateway readiness") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(inspection.entry.label, style = MaterialTheme.typography.titleSmall)
+                    if (inspection.active) LinearProgressIndicator(Modifier.fillMaxWidth())
+                    Text(appAuditReason(inspection))
+                    inspection.result?.let { result ->
+                        Text("${appAuditOutcomeLabel(result.outcome)} · ${benchmarkResultDate(result.finishedAtEpochMs)}", style = MaterialTheme.typography.bodySmall)
+                        result.observation.gatewayReadiness?.let { readiness ->
+                            fun state(value: Boolean?) = when (value) {
+                                true -> "Ready"
+                                false -> "Blocked"
+                                null -> "Not verified"
+                            }
+                            Text("Engineering service · ${state(readiness.engineeringReady)}\nHost GitHub connection · ${state(readiness.hostGitHubConfigured)}\nSaved model · ${state(readiness.selectedModelReady)}", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                    Text("This check uses the audit's exact saved connection. Earlier audit results remain unchanged. If its configuration changed, start a new audit.", style = MaterialTheme.typography.bodySmall)
+                }
+            },
+            confirmButton = { TextButton(onClick = viewModel::dismissAuditGatewayCheck) { Text(if (inspection.active) "Cancel check" else "Done") } }
+        )
+    }
     var allowAuditNetworkReads by rememberSaveable { mutableStateOf(false) }
     var auditProfileIds by rememberSaveable { mutableStateOf(emptyList<String>()) }
     var selectedAuditId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -382,7 +410,9 @@ fun ProfileBenchmarkScreen(
                             }
                         } else {
                             null
-                        }
+                        },
+                        onOpenGatewaySettings = onOpenAuditGatewayProfile?.let { open -> { entry -> viewModel.openAuditGatewaySettings(entry, open) } },
+                        onCheckGateway = if (ready && session == null) viewModel::checkAuditGateway else null
                     )
                 }
             } else if (tab == 6) {

@@ -4,6 +4,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.longOrNull
 
 /** Select relevant evidence, with explicit omission counts. The full encrypted receipts remain authoritative. */
 internal object GitHubVerificationCatalog {
@@ -31,9 +32,11 @@ internal object GitHubVerificationCatalog {
                     "omitted_excerpt_count" to JsonPrimitive(excerpts.size - selectedExcerpts.size)
                 )
             )
-        }.sortedByDescending { receipt ->
-            (receipt["facts"] as? JsonObject).orEmpty().entries.maxOfOrNull { score(it.key, it.value) } ?: 0
-        }
+        }.sortedWith(
+            compareByDescending<JsonObject> { receipt ->
+                (receipt["facts"] as? JsonObject).orEmpty().entries.maxOfOrNull { score(it.key, it.value) } ?: 0
+            }.thenByDescending { (it["observed_at_ms"] as? JsonPrimitive)?.longOrNull ?: 0 }
+        )
         // Cover each operation before spending the context on repeated reads of one file.
         val groups = ranked.groupBy { "${it["tool"]}:${(it["arguments"] as? JsonObject)?.get("action")}" }
         return groups.values.map { it.first() } + groups.values.flatMap { it.drop(1) }

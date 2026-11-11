@@ -37,8 +37,6 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
     private var lastSummaryKey = ""
     private var lastSummaryRevision = -1L
     private var modelSummaryRetained = false
-    private val modelProgress = StringBuilder()
-    private var modelInvocationId: String? = null
     private val terminalCalls = mutableSetOf<Pair<String, String>>()
     private val activeCalls = mutableSetOf<Pair<String, String>>()
     private val blockedCalls = mutableSetOf<Pair<String, String>>()
@@ -54,57 +52,51 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
     /** A single monotonic clock owns all public preview and summary admission. */
     @Synchronized internal fun tick(): List<ApiState> = buildList {
         val at = now()
-        if (initial || at - lastSummaryAt >= SUMMARY_INTERVAL_MS) {
-            val generated = pendingSummary.takeIf { it?.modelAuthored == true || pendingSummaryRevision == revision }
-            val candidate = generated ?: if (!modelSummaryRetained && (initial || revision != lastSummaryRevision)) {
-                ApiState.ActivitySummary(if (initial) summary else GitHubProgressNarrator.factualSummary(summarySnapshot()))
-            } else {
-                null
-            }
-            val key = candidate?.text?.let(GitHubProgressPresentation::lineKey)
-            if (candidate != null && key != lastSummaryKey && candidate.text.isNotBlank()) {
-                summary = candidate.text
-                add(candidate)
-                lastSummaryKey = requireNotNull(key)
-                lastSummaryRevision = revision
-                modelSummaryRetained = candidate.modelAuthored
-            }
-            pendingSummary = null
-            initial = false
-            lastSummaryAt = at
-        }
-        val key = GitHubProgressPresentation.lineKey(activity)
+        admitSummary(at, allowFallback = true)?.let(::add)
         val liveKey = GitHubProgressPresentation.liveKey(activity)
-        val changed = if (liveKey != null) livePreviews[liveKey] != key else key !in previews
-        if (activity.isNotBlank() && at - lastPreviewAt >= PREVIEW_INTERVAL_MS && changed) {
+        if (liveKey != null) {
+            if (admitCounter(liveKey, activity)) add(ApiState.ProgressCheckpoint(activity))
+        } else if (activity.isNotBlank() && at - lastPreviewAt >= PREVIEW_INTERVAL_MS && previews.add(GitHubProgressPresentation.lineKey(activity))) {
             add(ApiState.ProgressCheckpoint(activity))
-            if (liveKey != null) livePreviews[liveKey] = key else previews.add(key)
             if (previews.size > 256) previews.remove(previews.first())
             lastPreviewAt = at
         }
     }
 
-    /** A completed selected-profile update is public before the next tool round starts. */
+    private fun admitSummary(at: Long, allowFallback: Boolean): ApiState.ActivitySummary? {
+        if (!initial && at - lastSummaryAt < SUMMARY_INTERVAL_MS) return null
+        val generated = pendingSummary.takeIf { it?.modelAuthored == true || pendingSummaryRevision == revision }
+        pendingSummary = null
+        val candidate = generated ?: if (allowFallback && !modelSummaryRetained && (initial || revision != lastSummaryRevision)) {
+            ApiState.ActivitySummary(if (initial) summary else GitHubProgressNarrator.factualSummary(summarySnapshot()))
+        } else {
+            return null
+        }
+        lastSummaryRevision = revision
+        val key = GitHubProgressPresentation.lineKey(candidate.text)
+        if (key.isBlank() || key == lastSummaryKey) return null
+        summary = candidate.text
+        lastSummaryKey = key
+        lastSummaryAt = at
+        modelSummaryRetained = candidate.modelAuthored
+        initial = false
+        return candidate
+    }
+
+    private fun admitCounter(liveKey: String, text: String): Boolean {
+        val key = GitHubProgressPresentation.lineKey(text)
+        if (livePreviews[liveKey] == key) return false
+        livePreviews[liveKey] = key
+        return true
+    }
+
     @Synchronized fun forward(event: ApiState): ApiState? {
         observe(event)
         return when (event) {
-            // Public model prose has already been separated from reasoning.
-            // Preserve its chunks so the UI can show the actual update, rather
-            // than replacing it with the ticker's operation-count template.
-            is ApiState.ProgressCheckpoint -> event.takeIf { it.modelAuthored }
-            is ApiState.ActivitySummary -> {
-                val generated = pendingSummary.takeIf { it?.modelAuthored == true || pendingSummaryRevision == revision } ?: return null
-                pendingSummary = null
-                val key = GitHubProgressPresentation.lineKey(generated.text)
-                if (key == lastSummaryKey) return null
-                summary = generated.text
-                lastSummaryKey = key
-                lastSummaryRevision = revision
-                lastSummaryAt = now()
-                modelSummaryRetained = generated.modelAuthored
-                initial = false
-                generated
+            is ApiState.ProgressCheckpoint -> event.takeIf {
+                !event.modelAuthored && GitHubProgressPresentation.liveKey(event.text)?.let { admitCounter(it, event.text) } == true
             }
+            is ApiState.ActivitySummary -> admitSummary(now(), allowFallback = false)
             else -> event
         }
     }
@@ -135,7 +127,6 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
                         if (terminalKey in terminalCalls) return
                         terminalKey?.let(blockedCalls::remove)
                         terminalKey?.takeUnless { it in terminalCalls }?.let(activeCalls::add)
-                        modelProgress.clear()
                         activity = operationSummary(name, progress.toolArgs)
                         nextStep = operation.next
                         revision++
@@ -180,27 +171,17 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
                         rememberStep(observation(name, false, false, progress.toolArgs))
                     }
                 }
+                val counter = listOfNotNull(progress.message, progress.ui?.title).firstOrNull { GitHubProgressPresentation.liveKey(it) != null }
+                if (counter != null) activity = counter
             }
-            is ApiState.ProgressCheckpoint -> {
-                if (event.modelAuthored && event.text.isNotBlank()) {
-                    if (event.invocationId != modelInvocationId) modelProgress.clear()
-                    modelInvocationId = event.invocationId
-                    modelProgress.append(event.text.take((2400 - modelProgress.length).coerceAtLeast(0)))
-                    summary = modelProgress.toString()
-                    modelSummaryRetained = true
-                    pendingSummary = null
-                    lastSummaryAt = now()
-                    initial = false
-                } else if (event.text.isNotBlank() && !GitHubProgressPresentation.isGenericProgress(event.text)) {
-                    if (activity != event.text) revision++
-                    activity = event.text
-                }
+            is ApiState.ProgressCheckpoint -> if (!event.modelAuthored && event.text.isNotBlank() && !GitHubProgressPresentation.isGenericProgress(event.text)) {
+                if (activity != event.text && GitHubProgressPresentation.liveKey(event.text) == null) revision++
+                activity = event.text
             }
-            is ApiState.ActivitySummary -> if (event.text.isNotBlank() && (event.modelAuthored || !modelSummaryRetained && !GitHubProgressPresentation.isGenericProgress(event.text))) {
+            is ApiState.ActivitySummary -> if (event.text.isNotBlank() && (event.modelAuthored || !modelSummaryRetained && pendingSummary?.modelAuthored != true && !GitHubProgressPresentation.isGenericProgress(event.text))) {
                 pendingSummary = event
                 pendingSummaryRevision = revision
             }
-            ApiState.GitHubRoundStarted -> modelProgress.clear()
             is ApiState.Success -> {
                 activity = "Putting the response together."
                 nextStep = "present the supported findings and identify any remaining work"
@@ -234,7 +215,7 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
 
     companion object {
         const val PREVIEW_INTERVAL_MS = 3_000L
-        const val SUMMARY_INTERVAL_MS = 15_000L
+        const val SUMMARY_INTERVAL_MS = 45_000L
         private data class Operation(val preview: String, val subject: String, val next: String, val mutation: Boolean = false)
 
         /** Only these bounded request identifiers enter public progress; result bodies stay private. */

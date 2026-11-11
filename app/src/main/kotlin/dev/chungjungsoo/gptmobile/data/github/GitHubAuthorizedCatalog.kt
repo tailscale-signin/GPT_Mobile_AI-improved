@@ -142,6 +142,7 @@ internal object GitHubAuthorizedCatalog {
             put("verified_github_names", JsonArray(verifiedGithubNames.map(::JsonPrimitive)))
             put("contract_scope", "REQUESTED_GITHUB_TOOLS")
             put("receipt_ids", JsonArray(ids))
+            put("retained_page_receipt_ids", JsonArray(pages.mapNotNull { it["receipt_id"] }.takeLast(64)))
             if (contractChanges.isNotEmpty()) {
                 put("contract_change_count", contractChanges.size)
                 put("contract_changes", JsonArray(contractChanges.take(32)))

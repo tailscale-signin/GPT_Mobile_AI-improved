@@ -18,6 +18,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -32,12 +33,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Build
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ChatBubbleOutline
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.MicOff
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Subtitles
 import androidx.compose.material.icons.rounded.VolumeOff
 import androidx.compose.material.icons.rounded.VolumeUp
@@ -46,6 +48,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
@@ -75,6 +78,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -160,7 +164,7 @@ internal fun VoiceEntryScreen(state: VoiceEntryState, origin: Offset, select: (S
                     if (state.profiles.isEmpty()) {
                         Button(onClick = settings) { Text("Set up an AI profile") }
                     } else {
-                        Button(onClick = start, modifier = Modifier.testTag("voice_enable_start")) { Text(if (state.enabled) "Start voice chat" else "Enable voice chat") }
+                        Button(onClick = start, modifier = Modifier.testTag("voice_enable_start")) { Text(if (state.enabled) "Start voice chat" else "Enable & start") }
                     }
                 }
                 state.error?.let { Text(it, Modifier.padding(top = 16.dp), color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center) }
@@ -172,46 +176,67 @@ internal fun VoiceEntryScreen(state: VoiceEntryState, origin: Offset, select: (S
 
 @Composable
 internal fun VoiceChatScreen(onEnd: () -> Unit, onOpenChat: () -> Unit, model: ChatViewModel = hiltViewModel(), voiceSettings: VoicePreferencesViewModel = hiltViewModel()) {
+    val roomError by model.roomLoadError.collectAsStateWithLifecycle()
+    if (roomError != null) {
+        BackHandler(onBack = onEnd)
+        Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).safeDrawingPadding().padding(24.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("Conversation unavailable", style = MaterialTheme.typography.headlineSmall)
+            Text(roomError.orEmpty(), Modifier.padding(vertical = 16.dp), textAlign = TextAlign.Center)
+            Button(onClick = onEnd, modifier = Modifier.testTag("voice_missing_room_back")) { Text("Back to chats") }
+        }
+        return
+    }
+    val modelStores by voiceSettings.modelStores.collectAsStateWithLifecycle()
+    val stores = modelStores
+    if (stores == null) {
+        BackHandler(onBack = onEnd)
+        Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator()
+        }
+        return
+    }
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val lifecycleState by lifecycle.currentStateFlow.collectAsStateWithLifecycle()
     val loaded by model.isLoaded.collectAsStateWithLifecycle()
+    val roomReady by model.voiceRoomReady.collectAsStateWithLifecycle()
+    val admission by model.voiceAdmission.collectAsStateWithLifecycle()
+    val saveError by voiceSettings.saveError.collectAsStateWithLifecycle()
     val features by model.featureSettings.collectAsStateWithLifecycle()
     val messages by model.groupedMessages.collectAsStateWithLifecycle()
     val runs by model.agentRunsById.collectAsStateWithLifecycle()
     val profiles by model.platformsInApp.collectAsStateWithLifecycle()
     val activeProfiles by model.activePlatformUids.collectAsStateWithLifecycle()
-    val privateSpeech = profiles.firstOrNull { it.uid in activeProfiles }?.isPrivateDestination() == true ||
-        (messages.userMessages + messages.assistantMessages.flatten()).any { it.containsLocalOnlyMemory() || it.timeline.any { item -> item.personalData.any { provenance -> provenance.localOnly } } }
+    val selectedProfile = activeProfiles.singleOrNull()?.let { uid -> profiles.singleOrNull { it.uid == uid && it.enabled } }
+    val voiceReady = loaded && roomReady && selectedProfile != null
+    val privateSpeech = remember(voiceReady, selectedProfile, messages) {
+        !voiceReady ||
+            selectedProfile?.isPrivateDestination() != false ||
+            (messages.userMessages.asSequence() + messages.assistantMessages.asSequence().flatten()).any {
+                it.containsLocalOnlyMemory() || it.timeline.any { item -> item.personalData.any { provenance -> provenance.localOnly } }
+            }
+    }
     val approvals by model.pendingToolApprovals.collectAsStateWithLifecycle(emptyList())
     val inputs by model.pendingMcpInput.collectAsStateWithLifecycle()
     val consent by model.pendingFreeToolConsent.collectAsStateWithLifecycle()
-    val providerNotice by model.freeProviderNotice.collectAsStateWithLifecycle()
-    val notice by model.attachmentNotice.collectAsStateWithLifecycle()
-    var priorPhase by remember { mutableStateOf(VoicePhase.PAUSED) }
-    var afterMessage by rememberSaveable { mutableIntStateOf(Int.MAX_VALUE) }
     var retainedTranscript by rememberSaveable { mutableStateOf("") }
     var retainedReply by rememberSaveable { mutableStateOf("") }
     var retainedReview by rememberSaveable { mutableStateOf(false) }
     var retainedPending by rememberSaveable { mutableStateOf(false) }
     var retainedMuted by rememberSaveable { mutableStateOf(false) }
     val systemAudio = remember(model) { AndroidVoiceAudio(context.applicationContext) }
-    val localRecognition = remember(model, voiceSettings) { MoonshineVoiceRecognizer(context.applicationContext, voiceSettings.localModels) }
-    val kokoroOutput = remember(systemAudio, voiceSettings) {
-        KokoroVoiceOutput(context.applicationContext, voiceSettings.kokoroModels, systemAudio::playbackAttributes) { systemAudio.speechRate }
+    val localRecognition = remember(model, stores) { MoonshineVoiceRecognizer(context.applicationContext, stores.moonshine) }
+    val kokoroOutput = remember(systemAudio, stores) {
+        KokoroVoiceOutput(context.applicationContext, stores.kokoro, systemAudio::playbackAttributes) { systemAudio.speechRate }
     }
     val audio = remember(systemAudio, localRecognition, kokoroOutput) {
         VoicePluginAudio(systemAudio, localRecognition, kokoroOutput, systemAudio::speakOffline, systemAudio::releaseRecognition)
     }
-    val localModel by voiceSettings.localModelState.collectAsStateWithLifecycle()
+    val localModel by stores.moonshine.state.collectAsStateWithLifecycle()
+    val kokoroModel by stores.kokoro.state.collectAsStateWithLifecycle()
     val session = remember(model, audio) {
-        VoiceSession(audio, submit = { text ->
-            afterMessage = model.groupedMessages.value.assistantMessages.flatten().maxOfOrNull { it.id } ?: 0
-            model.submitVoiceTranscript(text)
-        }, changed = {
-            if (it.hasDraft || it.phase == VoicePhase.ERROR) model.checkpointVoiceDraft(it.transcript)
-            if (it.phase == VoicePhase.THINKING && priorPhase != VoicePhase.THINKING && it.awaitingReply) model.checkpointVoiceDraft("")
-            priorPhase = it.phase
+        VoiceSession(audio, submit = model::submitVoiceTranscript, awaitsAdmission = true, changed = {
+            if (it.hasDraft) model.checkpointVoiceDraft(it.transcript)
             // Disposal closes audio; preserve the paused draft for rotation and text handoff.
             if (it.phase != VoicePhase.CLOSED) {
                 retainedTranscript = it.transcript
@@ -230,12 +255,12 @@ internal fun VoiceChatScreen(onEnd: () -> Unit, onOpenChat: () -> Unit, model: C
     val enabled = features.isToolPluginEnabled(ToolPluginId.VOICE_CHAT)
     val savedPreferences by voiceSettings.preferences.collectAsStateWithLifecycle()
     var preferencesApplied by remember { mutableStateOf(false) }
-    val currentEnabled by rememberUpdatedState(enabled && preferencesApplied)
+    val currentEnabled by rememberUpdatedState(enabled && preferencesApplied && voiceReady)
     var permission by remember { mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) }
     var started by remember { mutableStateOf(false) }
     var resumeWhenReady by remember { mutableStateOf(false) }
     var captions by rememberSaveable { mutableStateOf(true) }
-    var settingsOpen by remember { mutableStateOf(false) }
+    var settingsOpen by rememberSaveable { mutableStateOf(false) }
     var transcriptOpen by remember { mutableStateOf(false) }
     var draft by rememberSaveable { mutableStateOf("") }
     var language by rememberSaveable { mutableStateOf(java.util.Locale.getDefault().toLanguageTag()) }
@@ -243,23 +268,34 @@ internal fun VoiceChatScreen(onEnd: () -> Unit, onOpenChat: () -> Unit, model: C
     var allowOnline by rememberSaveable { mutableStateOf(false) }
     var voiceName by rememberSaveable { mutableStateOf("") }
     var kokoroVoice by rememberSaveable { mutableStateOf<KokoroVoice?>(null) }
+    var kokoroThreads by rememberSaveable { mutableIntStateOf(2) }
     var editBeforeSend by rememberSaveable { mutableStateOf(false) }
-    val automatic = true
-    var rate by remember { androidx.compose.runtime.mutableFloatStateOf(1f) }
+    var automatic by rememberSaveable { mutableStateOf(true) }
+    var spokenReplies by rememberSaveable { mutableStateOf(true) }
+    var rate by rememberSaveable { androidx.compose.runtime.mutableFloatStateOf(1f) }
+    var preferencesInitialized by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(savedPreferences) {
         val saved = savedPreferences ?: return@LaunchedEffect
         if (!preferencesApplied) {
-            language = saved.language
-            recognitionBackend = saved.recognitionBackend
+            if (!preferencesInitialized) {
+                language = saved.language
+                recognitionBackend = saved.recognitionBackend
+                allowOnline = saved.online
+                captions = saved.captions
+                editBeforeSend = saved.review
+                automatic = saved.automatic
+                spokenReplies = saved.spokenReplies
+                rate = saved.rate
+                voiceName = saved.voice
+                kokoroVoice = saved.kokoroVoice
+                kokoroThreads = saved.kokoroThreads
+                preferencesInitialized = true
+            }
             audio.recognitionBackend = recognitionBackend
             localRecognition.languageTag = language
-            allowOnline = saved.online
-            captions = saved.captions
-            editBeforeSend = saved.review
-            rate = saved.rate
-            voiceName = saved.voice
-            kokoroVoice = saved.kokoroVoice
             audio.kokoroVoice = kokoroVoice
+            kokoroOutput.threadCount = kokoroThreads
+            if (session.states.value.speaker != spokenReplies) session.speaker()
             // Configure before permitting the first listen, including after restoring the screen.
             systemAudio.languageTag = language
             systemAudio.allowOnlineSpeech = allowOnline && !privateSpeech
@@ -290,6 +326,7 @@ internal fun VoiceChatScreen(onEnd: () -> Unit, onOpenChat: () -> Unit, model: C
         systemAudio.selectedVoice = voiceName.takeIf(String::isNotBlank)
         systemAudio.speechRate = rate
         audio.kokoroVoice = kokoroVoice
+        kokoroOutput.threadCount = kokoroThreads
         session.editBeforeSend = editBeforeSend
         session.autoContinue = automatic
     }
@@ -315,18 +352,25 @@ internal fun VoiceChatScreen(onEnd: () -> Unit, onOpenChat: () -> Unit, model: C
         remaining = 0
     }
     LaunchedEffect(state.transcript) { draft = state.transcript }
-    LaunchedEffect(settingsOpen) {
-        if (settingsOpen) voiceSettings.kokoroModels.refresh()
+    LaunchedEffect(settingsOpen, preferencesApplied, kokoroVoice != null) {
+        if (settingsOpen || preferencesApplied && kokoroVoice != null && kokoroModel.status == LocalVoiceModelStatus.CHECKING) stores.kokoro.refresh()
     }
-    DisposableEffect(settingsOpen, audio) {
-        onDispose { if (settingsOpen) audio.stop() }
+    LaunchedEffect(preferencesApplied, enabled, voiceReady, spokenReplies, language, kokoroVoice, kokoroThreads, kokoroModel.status, lifecycleState, state.phase, state.awaitingReply, admission?.stage) {
+        if (!preferencesApplied) return@LaunchedEffect
+        if (enabled && voiceReady && spokenReplies && LocalVoiceModelStore.supportsLanguage(language) && lifecycleState == Lifecycle.State.RESUMED) {
+            // Opening the route only starts recognition. Native warmup begins after decoder release,
+            // while an accepted reply is generating; the worker gate also fences preview/retry races.
+            if (state.phase == VoicePhase.THINKING && state.awaitingReply && admission?.stage == dev.chungjungsoo.gptmobile.data.voice.VoiceAdmissionStage.ACCEPTED) kokoroVoice?.let(kokoroOutput::prewarm)
+        } else {
+            kokoroOutput.releaseWarmModel()
+        }
     }
     LaunchedEffect(settingsOpen, routeOpen, transcriptOpen, language, allowOnline, privateSpeech, recognitionBackend, recognitionReady, preferencesApplied) {
         if (!preferencesApplied) return@LaunchedEffect
         // Apply privacy and engine changes before a retained recognizer can start again.
         applyAudioConfiguration()
         if (settingsOpen || kokoroVoice == null) systemAudio.prepareVoices()
-        if (recognitionReady && !settingsOpen && !routeOpen && !transcriptOpen && started && !state.muted && state.recoveryAction == null && lifecycleState == Lifecycle.State.RESUMED) {
+        if (automatic && voiceReady && recognitionReady && !settingsOpen && !routeOpen && !transcriptOpen && started && !state.muted && state.recoveryAction == null && lifecycleState == Lifecycle.State.RESUMED) {
             if (state.phase == VoicePhase.PAUSED) {
                 audio.stop()
                 session.resume()
@@ -342,17 +386,22 @@ internal fun VoiceChatScreen(onEnd: () -> Unit, onOpenChat: () -> Unit, model: C
         permission = granted
         session.access(currentEnabled, granted, lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
         resumeWhenReady = granted
-        if (!granted) session.fail("Microphone access is off. Allow it in Android app permissions to use voice chat.")
+        if (!granted) session.permissionDenied()
     }
     fun listen() {
-        if (!enabled || !loaded || !preferencesApplied || !recognitionReady && !state.hasDraft) return
+        if (!enabled || !voiceReady || !preferencesApplied || !recognitionReady && !state.hasDraft) return
         applyAudioConfiguration()
         permission = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
-        session.access(enabled && preferencesApplied, permission, lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
+        session.access(enabled && preferencesApplied && voiceReady, permission, lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
         if (permission) session.resume() else permissionRequest.launch(Manifest.permission.RECORD_AUDIO)
     }
     fun savePreferences() {
-        voiceSettings.save(VoicePreferences(language, allowOnline, captions, editBeforeSend, automatic, rate, voiceName, recognitionBackend, kokoroVoice))
+        voiceSettings.save(VoicePreferences(language, allowOnline, captions, editBeforeSend, automatic, rate, voiceName, recognitionBackend, kokoroVoice, spokenReplies, kokoroThreads))
+    }
+    fun setSpokenReplies(value: Boolean) {
+        spokenReplies = value
+        if (session.states.value.speaker != value) session.speaker()
+        savePreferences()
     }
     fun selectRecognitionBackend(backend: VoiceRecognitionBackend) {
         if (backend == recognitionBackend) return
@@ -362,15 +411,22 @@ internal fun VoiceChatScreen(onEnd: () -> Unit, onOpenChat: () -> Unit, model: C
         savePreferences()
     }
     fun end() {
+        if (preferencesApplied) savePreferences()
         session.close()
         model.cancelActiveRuns()
         onEnd()
     }
     fun openChat() {
+        if (preferencesApplied) savePreferences()
         session.close()
         onOpenChat()
     }
-    BackHandler { end() }
+    fun closeSettings() {
+        audio.stop()
+        savePreferences()
+        settingsOpen = false
+    }
+    BackHandler { if (settingsOpen) closeSettings() else end() }
     DisposableEffect(lifecycle, session) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
@@ -381,6 +437,7 @@ internal fun VoiceChatScreen(onEnd: () -> Unit, onOpenChat: () -> Unit, model: C
                 Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> {
                     session.access(currentEnabled, permission, false)
                     systemAudio.releaseRecognition()
+                    kokoroOutput.releaseWarmModel()
                 }
                 else -> Unit
             }
@@ -391,30 +448,30 @@ internal fun VoiceChatScreen(onEnd: () -> Unit, onOpenChat: () -> Unit, model: C
             session.close()
         }
     }
-    LaunchedEffect(enabled, loaded, preferencesApplied, lifecycleState, resumeWhenReady, recognitionReady, recognitionBackend) {
-        session.access(enabled && preferencesApplied, permission, lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
-        if (enabled && loaded && preferencesApplied && recognitionReady && !settingsOpen && !routeOpen && !transcriptOpen && state.recoveryAction == null && lifecycleState == Lifecycle.State.RESUMED && (!started || resumeWhenReady || !state.muted && state.phase == VoicePhase.PAUSED)) {
+    LaunchedEffect(enabled, voiceReady, preferencesApplied, lifecycleState, resumeWhenReady, recognitionReady, recognitionBackend, settingsOpen) {
+        session.access(enabled && preferencesApplied && voiceReady, permission, lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
+        if (enabled && voiceReady && preferencesApplied && recognitionReady && !settingsOpen && !routeOpen && !transcriptOpen && state.recoveryAction == null && lifecycleState == Lifecycle.State.RESUMED && (!started || resumeWhenReady || automatic && !state.muted && state.phase == VoicePhase.PAUSED)) {
             started = true
             resumeWhenReady = false
             listen()
         }
     }
-    LaunchedEffect(messages, runs) {
-        val reply = messages.assistantMessages.flatten().filter { it.id > afterMessage }.maxByOrNull { it.id }
-        val run = reply?.currentRunId?.let(runs::get)
-        if (reply != null && run != null && run.status !in setOf(AgentRunStatus.COMPLETED, AgentRunStatus.FAILED, AgentRunStatus.CANCELED, AgentRunStatus.INTERRUPTED, AgentRunStatus.PARTIAL, AgentRunStatus.EVIDENCE_MISSING, AgentRunStatus.BLOCKED)) session.streamReply(run.runId, dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(reply.content))
-        if (reply != null && run != null && run.status in setOf(AgentRunStatus.COMPLETED, AgentRunStatus.FAILED, AgentRunStatus.CANCELED, AgentRunStatus.INTERRUPTED, AgentRunStatus.PARTIAL, AgentRunStatus.EVIDENCE_MISSING, AgentRunStatus.BLOCKED)) {
-            session.reply(run.runId, dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(reply.content), run.status != AgentRunStatus.COMPLETED)
+    LaunchedEffect(admission, messages, runs) {
+        val accepted = admission ?: return@LaunchedEffect
+        session.admission(accepted.stage, accepted.reason)
+        val (run, reply) = accepted.reply(messages.assistantMessages.flatten(), runs) ?: return@LaunchedEffect
+        val text = dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(reply.content)
+        if (run.status in AgentRunStatus.terminal) {
+            session.reply(run.runId, text, run.status != AgentRunStatus.COMPLETED)
+        } else {
+            session.streamReply(run.runId, text)
         }
-    }
-    LaunchedEffect(providerNotice, notice) {
-        if (state.phase == VoicePhase.THINKING) (providerNotice ?: notice)?.let(session::fail)
     }
     val waitingApproval = approvals.isNotEmpty() || inputs.isNotEmpty() || consent != null
     val profileName = profiles.firstOrNull { it.uid in activeProfiles }?.let { it.name.ifBlank { it.model } } ?: "Your AI profile"
     val status = when {
         !enabled -> "Voice chat is turned off"
-        !loaded || !preferencesApplied -> "Getting ready"
+        !voiceReady || !preferencesApplied -> "Getting ready"
         waitingApproval -> "Your attention is needed"
         state.phase == VoicePhase.REVIEWING -> "Review your message"
         !recognitionReady -> "Set up local speech"
@@ -422,12 +479,169 @@ internal fun VoiceChatScreen(onEnd: () -> Unit, onOpenChat: () -> Unit, model: C
         state.recoveryAction != null -> "Speech setup needs attention"
         state.phase == VoicePhase.STARTING -> "Starting microphone"
         state.phase == VoicePhase.FINALIZING -> "Finishing your words"
+        state.phase == VoicePhase.THINKING && admission?.stage == dev.chungjungsoo.gptmobile.data.voice.VoiceAdmissionStage.CHECKING -> "Checking your AI profile"
+        state.phase == VoicePhase.THINKING && admission?.stage == dev.chungjungsoo.gptmobile.data.voice.VoiceAdmissionStage.QUEUED -> "Message queued"
         state.phase == VoicePhase.THINKING -> "Thinking"
         state.phase == VoicePhase.SPEAKING -> "Speaking"
         state.muted -> "Microphone muted"
         state.phase == VoicePhase.LISTENING -> "Listening"
         state.phase == VoicePhase.ERROR -> "Let’s try again"
         else -> "Ready when you are"
+    }
+    if (settingsOpen) {
+        var previewError by remember { mutableStateOf<String?>(null) }
+        VoiceSettingsPage(::closeSettings) {
+            Text("AI profile", style = MaterialTheme.typography.titleSmall)
+            profiles.filter { it.enabled }.forEach { profile ->
+                TextButton(onClick = {
+                    session.pause()
+                    model.selectVoiceProfile(profile.uid) { changed ->
+                        if (changed) closeSettings()
+                    }
+                }, enabled = !state.awaitingReply) {
+                    Text((if (profile.uid in activeProfiles) "Selected · " else "") + profile.name)
+                }
+            }
+            saveError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            VoiceSettingsSection("Speech recognition")
+            VoiceRecognitionBackend.entries.forEach { backend ->
+                TextButton(onClick = { selectRecognitionBackend(backend) }) {
+                    Text((if (recognitionBackend == backend) "Selected · " else "") + backend.title)
+                }
+            }
+            if (recognitionBackend == VoiceRecognitionBackend.LOCAL_MOONSHINE) {
+                LocalVoiceSetupCard(localModel, voiceSettings::installLocalModel, voiceSettings::cancelLocalModelInstall, {
+                    session.pause()
+                    voiceSettings.removeLocalModel()
+                }, showRemove = true)
+            }
+            OutlinedTextField(language, {
+                session.recognitionConfigurationChanged()
+                language = it.take(35)
+                savePreferences()
+            }, label = { Text("Language tag") }, supportingText = { Text(if (recognitionBackend == VoiceRecognitionBackend.LOCAL_MOONSHINE) "This local model supports English: en-CA, en-US or en-GB." else "For example en-CA or fr-CA") })
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Allow online Android speech", Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurface)
+                val androidSpeech = kokoroVoice == null || recognitionBackend == VoiceRecognitionBackend.ANDROID_SPEECH_SERVICE
+                Switch(allowOnline && !privateSpeech && androidSpeech, {
+                    session.recognitionConfigurationChanged()
+                    allowOnline = it
+                    savePreferences()
+                }, enabled = !privateSpeech && androidSpeech)
+            }
+            Text(
+                if (privateSpeech) {
+                    "This private chat requires on device speech. Change the chat destination explicitly to use online speech."
+                } else if (kokoroVoice != null) {
+                    if (recognitionBackend == VoiceRecognitionBackend.LOCAL_MOONSHINE) {
+                        "Moonshine recognition and Kokoro playback work offline."
+                    } else {
+                        "This switch controls Android speech recognition. Kokoro and its fallback play offline."
+                    }
+                } else if (recognitionBackend == VoiceRecognitionBackend.LOCAL_MOONSHINE) {
+                    "Moonshine recognition always stays on this phone. This switch controls whether Android spoken replies can use the network."
+                } else {
+                    "Off uses Android on device recognition and an offline TTS voice. No silent network fallback."
+                },
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            VoiceSettingsSection("Conversation")
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Review before sending", Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurface)
+                Switch(editBeforeSend, {
+                    editBeforeSend = it
+                    savePreferences()
+                })
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Live captions", Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurface)
+                Switch(captions, {
+                    captions = it
+                    savePreferences()
+                })
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Spoken replies", Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurface)
+                Switch(spokenReplies, ::setSpokenReplies)
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Listen again after replies", Modifier.weight(1f))
+                Switch(automatic, {
+                    automatic = it
+                    savePreferences()
+                })
+            }
+            VoiceSettingsSection("Playback")
+            KokoroPlaybackCard(
+                state = kokoroModel,
+                voice = kokoroVoice,
+                threads = kokoroThreads,
+                english = LocalVoiceModelStore.supportsLanguage(language),
+                previewError = previewError,
+                select = { selected ->
+                    previewError = null
+                    kokoroVoice = selected
+                    audio.kokoroVoice = selected
+                    savePreferences()
+                },
+                selectThreads = { selected ->
+                    audio.stop()
+                    kokoroThreads = selected
+                    kokoroOutput.threadCount = selected
+                    savePreferences()
+                },
+                install = voiceSettings::installKokoroModel,
+                cancel = voiceSettings::cancelKokoroInstall,
+                remove = {
+                    audio.stop()
+                    kokoroOutput.releaseWarmModel()
+                    previewError = null
+                    voiceSettings.removeKokoroModel()
+                },
+                preview = { selected ->
+                    audio.stop()
+                    previewError = null
+                    kokoroOutput.speak("Hello. This is your Kokoro voice. I am ready when you are.", selected, {}, { message, _ -> previewError = message })
+                }
+            )
+            val voices by systemAudio.voiceChoices.collectAsStateWithLifecycle()
+            val catalog by systemAudio.voiceCatalogState.collectAsStateWithLifecycle()
+            if (kokoroVoice == null) {
+                Text("Android voices", style = MaterialTheme.typography.titleSmall)
+                Text("Best installed voices appear first. Preview a voice to hear its character and pacing.", style = MaterialTheme.typography.bodySmall)
+                voices.forEach { (name, label) ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        TextButton(onClick = {
+                            voiceName = name
+                            savePreferences()
+                        }, modifier = Modifier.weight(1f)) { Text((if (voiceName == name) "Selected · " else "") + label) }
+                        TextButton(onClick = {
+                            systemAudio.selectedVoice = name
+                            audio.speak("Hello. I am ready to help. We can talk naturally, at your pace.", {}, { })
+                        }) { Text("Preview") }
+                    }
+                }
+                when (catalog) {
+                    SpeechVoiceCatalogState.CHECKING -> Text("Checking the speech engine…", style = MaterialTheme.typography.bodySmall)
+                    SpeechVoiceCatalogState.UNAVAILABLE -> {
+                        Text("The speech engine is disconnected or unavailable. Review Android speech settings, then recheck.", style = MaterialTheme.typography.bodySmall)
+                        TextButton(onClick = { systemAudio.prepareVoices() }) { Text("Recheck speech engine") }
+                    }
+                    SpeechVoiceCatalogState.EMPTY -> Text("The speech engine returned an empty voice catalog. Install a voice for the selected language.", style = MaterialTheme.typography.bodySmall)
+                    else -> if (voices.size < 3) Text("Install additional voices for this language to choose from at least three distinct voices.", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            TextButton(onClick = {
+                runCatching { context.startActivity(android.content.Intent(android.speech.tts.TextToSpeech.Engine.ACTION_INSTALL_TTS_DATA)) }
+                    .onFailure { runCatching { context.startActivity(android.content.Intent("com.android.settings.TTS_SETTINGS")) } }
+            }) { Text("Install or manage voices") }
+            Text("Speech rate · ${String.format(LocalLocale.current.platformLocale, "%.1f", rate)}×")
+            Slider(rate, {
+                rate = it
+                savePreferences()
+            }, valueRange = .5f..2f)
+        }
+        return
     }
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).safeDrawingPadding().padding(24.dp).testTag("voice_chat_screen"), horizontalAlignment = Alignment.CenterHorizontally) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -441,7 +655,7 @@ internal fun VoiceChatScreen(onEnd: () -> Unit, onOpenChat: () -> Unit, model: C
                 if (state.hasDraft) model.checkpointVoiceDraft(draft)
                 session.pause()
                 settingsOpen = true
-            }, enabled = preferencesApplied) { Icon(Icons.Rounded.Build, "Voice settings", tint = MaterialTheme.colorScheme.primary) }
+            }, enabled = preferencesApplied) { Icon(Icons.Rounded.Settings, "Voice settings", tint = MaterialTheme.colorScheme.primary) }
         }
         Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
             VoiceWave(
@@ -483,7 +697,7 @@ internal fun VoiceChatScreen(onEnd: () -> Unit, onOpenChat: () -> Unit, model: C
                 }
             }
             if (state.hasDraft && state.phase != VoicePhase.REVIEWING) {
-                TextButton(onClick = ::listen, enabled = enabled && loaded && preferencesApplied) { Text("Review captured text") }
+                TextButton(onClick = ::listen, enabled = enabled && voiceReady && preferencesApplied) { Text("Review captured text") }
             }
             if (state.phase == VoicePhase.REVIEWING) {
                 OutlinedTextField(draft, {
@@ -521,17 +735,27 @@ internal fun VoiceChatScreen(onEnd: () -> Unit, onOpenChat: () -> Unit, model: C
                 if (state.muted) {
                     session.mute()
                     listen()
+                } else if (state.phase in setOf(VoicePhase.PAUSED, VoicePhase.ERROR)) {
+                    listen()
                 } else {
                     session.mute()
                 }
             },
-            enabled = enabled && loaded && preferencesApplied && recognitionReady,
+            enabled = enabled && voiceReady && preferencesApplied && recognitionReady,
             modifier = Modifier.size(128.dp).testTag("voice_microphone_toggle"),
             colors = IconButtonDefaults.filledIconButtonColors(
                 containerColor = if (!state.muted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh,
                 contentColor = if (!state.muted) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
             )
-        ) { Icon(if (state.muted) Icons.Rounded.MicOff else Icons.Rounded.Mic, if (state.muted) "Turn microphone on" else "Turn microphone off", Modifier.size(52.dp)) }
+        ) {
+            val label = when {
+                state.muted -> "Turn microphone on"
+                state.phase == VoicePhase.ERROR -> "Retry microphone"
+                state.phase == VoicePhase.PAUSED -> "Start listening"
+                else -> "Turn microphone off"
+            }
+            Icon(if (state.muted) Icons.Rounded.MicOff else Icons.Rounded.Mic, label, Modifier.size(52.dp))
+        }
         Text(
             if (!recognitionReady || state.muted) {
                 "Microphone off"
@@ -555,141 +779,6 @@ internal fun VoiceChatScreen(onEnd: () -> Unit, onOpenChat: () -> Unit, model: C
             }
         }
     }
-    if (settingsOpen) {
-        val kokoroModel by voiceSettings.kokoroModels.state.collectAsStateWithLifecycle()
-        var previewError by remember { mutableStateOf<String?>(null) }
-        dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog(
-            onDismissRequest = { settingsOpen = false },
-            title = { Text("Voice settings", color = MaterialTheme.colorScheme.onSurface) },
-            text = {
-                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("AI profile", style = MaterialTheme.typography.titleSmall)
-                    profiles.filter { it.enabled }.forEach { profile ->
-                        TextButton(onClick = {
-                            session.pause()
-                            model.selectVoiceProfile(profile.uid) { changed ->
-                                if (changed) settingsOpen = false
-                            }
-                        }, enabled = !state.awaitingReply) {
-                            Text((if (profile.uid in activeProfiles) "Selected · " else "") + profile.name)
-                        }
-                    }
-                    Text("Speech recognition", style = MaterialTheme.typography.titleSmall)
-                    VoiceRecognitionBackend.entries.forEach { backend ->
-                        TextButton(onClick = { selectRecognitionBackend(backend) }) {
-                            Text((if (recognitionBackend == backend) "Selected · " else "") + backend.title)
-                        }
-                    }
-                    if (recognitionBackend == VoiceRecognitionBackend.LOCAL_MOONSHINE) {
-                        LocalVoiceSetupCard(localModel, voiceSettings::installLocalModel, voiceSettings::cancelLocalModelInstall, {
-                            session.pause()
-                            voiceSettings.removeLocalModel()
-                        }, showRemove = true)
-                    }
-                    OutlinedTextField(language, {
-                        session.recognitionConfigurationChanged()
-                        language = it.take(35)
-                    }, label = { Text("Language tag") }, supportingText = { Text(if (recognitionBackend == VoiceRecognitionBackend.LOCAL_MOONSHINE) "This local model supports English: en-CA, en-US or en-GB." else "For example en-CA or fr-CA") })
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Allow online Android speech", Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurface)
-                        val androidSpeech = kokoroVoice == null || recognitionBackend == VoiceRecognitionBackend.ANDROID_SPEECH_SERVICE
-                        Switch(allowOnline && !privateSpeech && androidSpeech, {
-                            session.recognitionConfigurationChanged()
-                            allowOnline = it
-                        }, enabled = !privateSpeech && androidSpeech)
-                    }
-                    Text(
-                        if (privateSpeech) {
-                            "This private chat requires on device speech. Change the chat destination explicitly to use online speech."
-                        } else if (kokoroVoice != null) {
-                            if (recognitionBackend == VoiceRecognitionBackend.LOCAL_MOONSHINE) {
-                                "Moonshine recognition and Kokoro playback work offline."
-                            } else {
-                                "This switch controls Android speech recognition. Kokoro and its fallback play offline."
-                            }
-                        } else if (recognitionBackend == VoiceRecognitionBackend.LOCAL_MOONSHINE) {
-                            "Moonshine recognition always stays on this phone. This switch controls whether Android spoken replies can use the network."
-                        } else {
-                            "Off uses Android on device recognition and an offline TTS voice. No silent network fallback."
-                        },
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Review before sending", Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurface)
-                        Switch(editBeforeSend, { editBeforeSend = it })
-                    }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Live captions", Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurface)
-                        Switch(captions, { captions = it })
-                    }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Spoken replies", Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurface)
-                        Switch(state.speaker, { session.speaker() })
-                    }
-                    KokoroPlaybackCard(
-                        state = kokoroModel,
-                        voice = kokoroVoice,
-                        english = LocalVoiceModelStore.supportsLanguage(language),
-                        previewError = previewError,
-                        select = { selected ->
-                            previewError = null
-                            kokoroVoice = selected
-                            audio.kokoroVoice = selected
-                            savePreferences()
-                        },
-                        install = voiceSettings::installKokoroModel,
-                        cancel = voiceSettings::cancelKokoroInstall,
-                        remove = {
-                            audio.stop()
-                            previewError = null
-                            voiceSettings.removeKokoroModel()
-                        },
-                        preview = { selected ->
-                            audio.stop()
-                            previewError = null
-                            kokoroOutput.speak("Hello. This is your Kokoro voice. I am ready when you are.", selected, {}, { message, _ -> previewError = message })
-                        }
-                    )
-                    val voices by systemAudio.voiceChoices.collectAsStateWithLifecycle()
-                    val catalog by systemAudio.voiceCatalogState.collectAsStateWithLifecycle()
-                    if (kokoroVoice == null) {
-                        Text("Android voices", style = MaterialTheme.typography.titleSmall)
-                        Text("Best installed voices appear first. Preview a voice to hear its character and pacing.", style = MaterialTheme.typography.bodySmall)
-                        voices.forEach { (name, label) ->
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                TextButton(onClick = { voiceName = name }, modifier = Modifier.weight(1f)) { Text((if (voiceName == name) "Selected · " else "") + label) }
-                                TextButton(onClick = {
-                                    systemAudio.selectedVoice = name
-                                    audio.speak("Hello. I am ready to help. We can talk naturally, at your pace.", {}, { })
-                                }) { Text("Preview") }
-                            }
-                        }
-                        when (catalog) {
-                            SpeechVoiceCatalogState.CHECKING -> Text("Checking the speech engine…", style = MaterialTheme.typography.bodySmall)
-                            SpeechVoiceCatalogState.UNAVAILABLE -> {
-                                Text("The speech engine is disconnected or unavailable. Review Android speech settings, then recheck.", style = MaterialTheme.typography.bodySmall)
-                                TextButton(onClick = { systemAudio.prepareVoices() }) { Text("Recheck speech engine") }
-                            }
-                            SpeechVoiceCatalogState.EMPTY -> Text("The speech engine returned an empty voice catalog. Install a voice for the selected language.", style = MaterialTheme.typography.bodySmall)
-                            else -> if (voices.size < 3) Text("Install additional voices for this language to choose from at least three distinct voices.", style = MaterialTheme.typography.bodySmall)
-                        }
-                    }
-                    TextButton(onClick = {
-                        runCatching { context.startActivity(android.content.Intent(android.speech.tts.TextToSpeech.Engine.ACTION_INSTALL_TTS_DATA)) }
-                            .onFailure { runCatching { context.startActivity(android.content.Intent("com.android.settings.TTS_SETTINGS")) } }
-                    }) { Text("Install or manage voices") }
-                    Text("Speech rate", color = MaterialTheme.colorScheme.onSurface)
-                    Slider(rate, { rate = it }, valueRange = .5f..2f)
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    savePreferences()
-                    settingsOpen = false
-                }) { Text("Done") }
-            }
-        )
-    }
     if (transcriptOpen) {
         dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog(onDismissRequest = { transcriptOpen = false }, title = { Text("Transcript", color = MaterialTheme.colorScheme.onSurface) }, text = {
             androidx.compose.foundation.text.selection.SelectionContainer {
@@ -710,7 +799,7 @@ internal fun VoiceChatScreen(onEnd: () -> Unit, onOpenChat: () -> Unit, model: C
                         routeOpen = false
                     }) { Text(name) }
                 }
-                TextButton(onClick = { session.speaker() }) { Text(if (state.speaker) "Turn spoken replies off" else "Turn spoken replies on") }
+                TextButton(onClick = { setSpokenReplies(!spokenReplies) }) { Text(if (state.speaker) "Turn spoken replies off" else "Turn spoken replies on") }
                 TextButton(onClick = { context.startActivity(android.content.Intent(android.provider.Settings.ACTION_SOUND_SETTINGS)) }) { Text("Android sound settings") }
             }
         }, confirmButton = { TextButton(onClick = { routeOpen = false }) { Text("Done") } })
@@ -761,4 +850,27 @@ internal fun VoiceWave(state: VoiceState, modifier: Modifier = Modifier) {
             drawRoundRect(Brush.verticalGradient(listOf(primary, secondary)), Offset(x, center.y - height / 2), Size(width, height), CornerRadius(width / 2), alpha = if (active) 1f else .45f)
         }
     }
+}
+
+@Composable
+internal fun VoiceSettingsPage(onDone: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
+    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).safeDrawingPadding().testTag("voice_settings_page")) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onDone) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to voice chat") }
+            Text("Voice settings", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
+            TextButton(onClick = onDone) { Text("Done") }
+        }
+        HorizontalDivider()
+        Column(
+            Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            content = content
+        )
+    }
+}
+
+@Composable
+private fun VoiceSettingsSection(title: String) {
+    HorizontalDivider(Modifier.padding(top = 8.dp))
+    Text(title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
 }

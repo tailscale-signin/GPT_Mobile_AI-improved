@@ -83,7 +83,7 @@ def install_engineering_routes(app, service):
                     'repair_attempts': 5, 'explicit_merge_approval': True, 'approval_ttl_seconds': 1800,
                     'notifications': 'android_background_sync', 'batch_reads': True,
                     'execution_binding_protocol': 1, 'routing_policy': 'SELECTED_ONLY',
-                    'execution_owner': 'GATEWAY', 'retry_owner': 'GATEWAY', 'admission_preflight_protocol': 1,
+                    'execution_owner': 'GATEWAY', 'retry_owner': 'GATEWAY', 'admission_preflight_protocol': 1, 'sampling_policy_protocol': 1,
                     'code_graph': {'schema_version': 1, 'supported': True,
                                    'configured': readiness.get('checks', {}).get('graph_host_github_connection') == 'configured',
                                    'enabled': readiness['graph_ready'], 'incremental': True, 'source_level_only': True}}

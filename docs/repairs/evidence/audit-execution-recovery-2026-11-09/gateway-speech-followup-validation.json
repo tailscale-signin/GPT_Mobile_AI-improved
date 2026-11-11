@@ -1,0 +1,76 @@
+{
+  "base": "b8c94ad902078b57a669b0ba316497d598daf3eb",
+  "scope": "Gateway target inventory and repair actions, MCP response correlation guidance, bounded speech continuation",
+  "environment": "Local Android JVM/Robolectric; no physical device or deployed service execution",
+  "compileDebugKotlin": "PASS",
+  "compileDebugUnitTestKotlin": "PASS",
+  "fast_host_tests": 461,
+  "targeted_tests": 130,
+  "suites": [
+    {
+      "suite": "dev.chungjungsoo.gptmobile.data.audit.AppAuditExportTest",
+      "tests": 21,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "51486f1002d6cb4f4640bbac2cecd12bc3c38544268b271883bd4f48462434dc"
+    },
+    {
+      "suite": "dev.chungjungsoo.gptmobile.data.audit.AppAuditPluginProbeSourceTest",
+      "tests": 14,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "f498bef21c6979b3fcd6e20d06d1862a2dedadb202eb418778d4a3f04a16d1cb"
+    },
+    {
+      "suite": "dev.chungjungsoo.gptmobile.data.audit.AppAuditPluginServicesTest",
+      "tests": 31,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "9b0705907c5b814818a828a9d4403cff5ad199f673d041fe76fb7416bb860dbc"
+    },
+    {
+      "suite": "dev.chungjungsoo.gptmobile.data.audit.AppAuditQualificationTest",
+      "tests": 12,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "ebfec421d130f817dbc5b087f50ea434dd14cd17b8f7d5b72ebcb3ed88136170"
+    },
+    {
+      "suite": "dev.chungjungsoo.gptmobile.data.voice.VoiceSessionTest",
+      "tests": 15,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "c8471e8a8e15c0ff2db3a41cc7422dbfaa084ec603e3ab9361b36fe45f612ba3"
+    },
+    {
+      "suite": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBufferTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "7183173147ae74f9d29e7f50794574efa24c58d9896afe3c612b39ff81b80161"
+    },
+    {
+      "suite": "dev.chungjungsoo.gptmobile.presentation.ui.setting.AppAuditContentTest",
+      "tests": 17,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "eae21b3a7cf15b70164ae814a214dcb29e57374d3c853411edbd836f3a852147"
+    },
+    {
+      "suite": "dev.chungjungsoo.gptmobile.presentation.ui.setting.AppAuditPresentationTest",
+      "tests": 16,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "ce8072e5c28f5cbcbcd0ee8f01fcf5e5e64de42d2f692586f26bda7e994dae13"
+    }
+  ],
+  "formal_ledger_promotions": 0
+}

@@ -46,14 +46,14 @@ class GitHubProgressNarratorTest {
             now = { clock },
             deterministic = false
         )
-        clock = 14_999
+        clock = 44_999
         narrator.beforeRound()
         assertEquals(0, calls)
-        clock = 15_000
+        clock = 45_000
         narrator.beforeRound()
         assertEquals(1, calls)
         assertTrue(summaries.single().modelAuthored)
-        clock = 30_000
+        clock = 90_000
         narrator.beforeRound()
         assertEquals(1, calls)
         revision++
@@ -84,13 +84,13 @@ class GitHubProgressNarratorTest {
         )
         val work = session(ProviderEvent.TextDelta("Repository result"), ProviderEvent.Completed)
         val wrapped = GitHubProgressSession(work, beforeRound = { narrator.beforeRound() }) {}
-        clock = 15_000
+        clock = 45_000
         assertEquals(listOf(ProviderEvent.TextDelta("Repository result"), ProviderEvent.Completed), wrapped.streamRound(emptyList(), emptyList()).toList())
-        clock = 30_000
+        clock = 90_000
         wrapped.streamRound(emptyList(), emptyList()).toList()
         assertEquals("No fallback or repeat attempt for unchanged evidence", 1, calls)
         repeat(7) {
-            clock += 15_000
+            clock += 45_000
             revision++
             assertEquals(listOf(ProviderEvent.TextDelta("Repository result"), ProviderEvent.Completed), wrapped.streamRound(emptyList(), emptyList()).toList())
         }
@@ -121,15 +121,15 @@ class GitHubProgressNarratorTest {
                 deterministic = false
             )
             val firstRun = narrator()
-            clock = 15_000
+            clock = 45_000
             firstRun.beforeRound()
             revision++
-            clock += 15_000
+            clock += 45_000
             firstRun.beforeRound()
             assertEquals(1, calls)
             assertTrue(summaries.isEmpty())
             val nextRun = narrator()
-            clock += 15_000
+            clock += 45_000
             nextRun.beforeRound()
             assertEquals(2, calls)
             assertEquals(prose, summaries.single().text)
@@ -157,7 +157,7 @@ class GitHubProgressNarratorTest {
             now = { clock },
             deterministic = false
         )
-        clock = 15_000
+        clock = 45_000
         limited.beforeRound()
         reserved.beforeRound()
     }
@@ -177,7 +177,7 @@ class GitHubProgressNarratorTest {
             now = { clock },
             deterministic = false
         )
-        clock = 15_000
+        clock = 45_000
         narrator.beforeRound(workReplayTokens = 4000)
         assertEquals("Retained tool evidence owns the remaining request budget", 0, calls)
         narrator.beforeRound(workReplayTokens = 0)
@@ -215,11 +215,11 @@ class GitHubProgressNarratorTest {
                 emit(ProviderEvent.Completed)
             }
         }
-        clock = 15_000
+        clock = 45_000
         val wrapped = GitHubProgressSession(work, beforeRound = { narrator.beforeRound() }) {}
         wrapped.streamRound(emptyList(), emptyList()).toList()
         revision++
-        clock += 15_000
+        clock += 45_000
         wrapped.streamRound(emptyList(), emptyList()).toList()
         assertEquals(2, workRounds)
         assertEquals(1, narrationCalls)
@@ -241,7 +241,7 @@ class GitHubProgressNarratorTest {
             now = { clock },
             deterministic = false
         )
-        clock = 15_000
+        clock = 45_000
         try {
             narrator.beforeRound()
             error("Cancellation was swallowed")
@@ -275,7 +275,7 @@ class GitHubProgressNarratorTest {
             publish = { summaries += it },
             now = { clock }
         )
-        clock = 15_000
+        clock = 45_000
         narrator.beforeRound()
         assertTrue(summaries.isEmpty())
     }
@@ -296,7 +296,7 @@ class GitHubProgressNarratorTest {
             now = { clock },
             deterministic = false
         )
-        clock = 15_000
+        clock = 45_000
         narrator.beforeRound()
         assertTrue(summaries.isEmpty())
     }

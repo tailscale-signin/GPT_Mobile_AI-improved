@@ -59,6 +59,15 @@ class GitHubEngineeringController @Inject constructor(
     private suspend fun head(api: GitHubEngineeringApi, task: EngineeringTaskRow) = JSONObject(api.request("${root(task)}/git/ref/heads/${GitHubEngineeringApi.segment(task.workingBranch)}")).getJSONObject("object").getString("sha")
 
     internal suspend fun recent(): List<EngineeringTaskRow> = dao.recentTasks()
+    internal suspend fun task(taskId: String): EngineeringTaskRow? = ledger.task(taskId)
+    internal suspend fun recoveryTasks(): List<EngineeringTaskRow> = (ledger.activeTasks() + recent()).distinctBy { it.taskId }
+    internal fun scheduleApprovalRecovery(taskId: String) {
+        try {
+            workQueue.enqueueApproval(taskId)
+        } catch (_: RuntimeException) {
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("GitHub", "NATIVE_APPROVAL_RECOVERY_SCHEDULING_DEFERRED", "W")
+        }
+    }
     internal fun observeChanges() = database.invalidationTracker.createFlow("engineering_tasks", "engineering_runs", emitInitialState = true)
     internal suspend fun events(taskId: String): List<EngineeringEventRow> = dao.events(taskId)
     internal suspend fun run(taskId: String): EngineeringRunRow? = dao.run(taskId)
@@ -215,20 +224,22 @@ class GitHubEngineeringController @Inject constructor(
         prepare(uid, owner, repo, args.getString("branch"), base, files, args.getString("message"))
     }
 
-    /** Called only by the explicit Android review confirmation, never registered as an AI tool. */
-    internal suspend fun approve(taskId: String, expectedDigest: String) {
+    /** Review confirmation or an independently verified, explicitly enabled automatic decision. */
+    internal suspend fun approve(taskId: String, expectedDigest: String, automaticAuthority: (suspend () -> Boolean)? = null) {
         val task = requireNotNull(ledger.task(taskId))
         withRepositoryLock(task) {
+            val current = requireNotNull(ledger.task(taskId))
             val run = requireNotNull(dao.run(taskId))
-            require(task.state == EngineeringState.AWAITING_APPROVAL.name || task.state == EngineeringState.COMMITTING.name)
-            require(expectedDigest == run.patchDigest && run.patchDigest == GitHubEngineeringAuthorization.digest(task, run))
+            require(current.state == EngineeringState.AWAITING_APPROVAL.name || current.state == EngineeringState.COMMITTING.name)
+            require(expectedDigest == run.patchDigest && run.patchDigest == GitHubEngineeringAuthorization.digest(current, run))
             val api = api(run.connectionUid)
             val actor = actor(api)
             check(head(api, task) == task.baseSha) { "Branch moved; approval cannot apply" }
+            check(automaticAuthority == null || current.state == EngineeringState.AWAITING_APPROVAL.name && !run.approvalRevoked && automaticAuthority()) { "Automatic approval authority changed before publication." }
             val now = System.currentTimeMillis()
             database.withEngineeringTransaction {
                 dao.saveRun(run.copy(approvedActor = actor, approvedAtEpochMs = now, approvalExpiresAtEpochMs = now + 30 * 60_000L, approvalRevoked = false))
-                if (task.state == EngineeringState.AWAITING_APPROVAL.name) advance(taskId, EngineeringEvidence.APPROVAL_GRANTED, "$actor|${run.patchDigest}|$now")
+                if (current.state == EngineeringState.AWAITING_APPROVAL.name) advance(taskId, EngineeringEvidence.APPROVAL_GRANTED, "$actor|${run.patchDigest}|$now")
             }
         }
     }
@@ -250,9 +261,10 @@ class GitHubEngineeringController @Inject constructor(
         }
     }
 
-    internal suspend fun execute(taskId: String): String = withContext(Dispatchers.IO) {
+    internal suspend fun execute(taskId: String, automaticAuthority: (suspend () -> Boolean)? = null): String = withContext(Dispatchers.IO) {
         val task = requireNotNull(ledger.task(taskId))
         withRepositoryLock(task) {
+            check(automaticAuthority?.invoke() != false) { "Automatic approval authority changed before dispatch." }
             val run = requireNotNull(dao.run(taskId))
             val api = api(run.connectionUid)
             val identity = actor(api)
@@ -326,6 +338,7 @@ class GitHubEngineeringController @Inject constructor(
             when (EngineeringRemoteReconciliation.verify(snapshot, remoteHead, evidence)) {
                 is GitSagaReconciliation.ReadyToUpdateRef -> {
                     GitHubEngineeringAuthorization.requireApproval(requireNotNull(ledger.task(taskId)), requireNotNull(dao.run(taskId)), actor(api), System.currentTimeMillis())
+                    check(automaticAuthority?.invoke() != false) { "Automatic approval authority changed before the ref update." }
                     check(head(api, task) == task.baseSha) { "Branch moved immediately before ref update" }
                     api.request("${root(task)}/git/refs/heads/${GitHubEngineeringApi.segment(task.workingBranch)}", "PATCH", JSONObject().put("sha", snapshot.commitSha).put("force", false))
                 }

@@ -12,6 +12,11 @@ internal fun classifyDiagnostic(level: String?, tag: String?, message: String): 
     val text = diagnosticEventMessage(message).lowercase()
     val capturedTag = capturedAndroidPrefix.find(diagnosticRecorderPayload(message))?.groupValues?.get(1)?.trim()?.lowercase()
     val gatewayAdmission = classifyGatewayAdmission(tag, text)
+    val transcriptionCode = if (tag == "Android" && capturedTag == "moonshinejni") {
+        moonshineTranscriptionCode.find(text)?.groupValues?.get(1)?.toIntOrNull()
+    } else {
+        null
+    }
     return when {
         // An attributed fatal event must never be downgraded by a vendor setting,
         // optional model feature, or benign platform phrase elsewhere in its stack.
@@ -21,6 +26,12 @@ internal fun classifyDiagnostic(level: String?, tag: String?, message: String): 
         tag == "ProcessExit" && Regex("(?:^| · )reasoncode=6(?: · |$)").containsMatchIn(text) ->
             DiagnosticClassification("historical_anr", "warning", true, "inspect_same_process_anr_receipt")
         tag == "ProcessExit" -> DiagnosticClassification("historical_process_exit", "info", false, "use_os_exit_reason_without_attributing_nearby_exceptions")
+        transcriptionCode == 0 -> DiagnosticClassification("native_transcription_success", "info", false)
+        transcriptionCode != null -> DiagnosticClassification("native_operation_failure", "error", true, "inspect_operation_receipt")
+        tag == "Android" && capturedTag == "sherpa-onnx" && kokoroConfiguration.any(text::contains) ->
+            DiagnosticClassification("native_voice_configuration", "info", false)
+        tag == "VoiceTiming" && text.startsWith("kokoro_terminal") && Regex("(?:^| · )reason=(?:timeout|engine_failed|synthesis_failed|audio_failed|text_queue_full|memory_pressure)(?: · |$)").containsMatchIn(text) ->
+            DiagnosticClassification("voice_playback_failure", "warning", true, "review_playback_timing_and_selected_voice")
         tag == "Android" && capturedTag == "androidruntime" && text.startsWith("process:") -> DiagnosticClassification("crash_context", "info", false)
         tag == "VoiceRecognition" && Regex("(?:^| · )errorcode=speech_service_(?:start_failed|start_timeout|unavailable)(?: · |$)").containsMatchIn(text) ->
             DiagnosticClassification("speech_service_start", "warning", true, "check_service_availability_and_respect_binding_cooldown")
@@ -172,6 +183,8 @@ private fun significantFrameWindow(message: String): Boolean {
 private fun diagnosticRecorderPayload(message: String): String = message.replace(Regex("^(?:(?:eventId=[A-Za-z0-9_.:-]+|monoNs=[0-9]+|bootMs=(?:[0-9]+|unknown)|processId=-?[0-9]+|processName=[A-Za-z0-9_.:-]+|processSessionId=[A-Za-z0-9_.:-]+)(?: · | +))+"), "")
 
 private val capturedAndroidPrefix = Regex("^[VDIWEF]/([^(:]+)(?:\\(\\s*([0-9]+)\\))?:\\s*")
+private val moonshineTranscriptionCode = Regex("\\btranscription error:\\s*(-?[0-9]+)\\s*$")
+private val kokoroConfiguration = setOf("offlinettsconfig(", "offlinettsmodelconfig(", "offlinettskokoromodelconfig(")
 
 internal fun diagnosticStructuredEvent(message: String): StructuredDiagnosticEvent? =
     parseStructuredDiagnosticEvent(diagnosticRecorderPayload(message).replace(capturedAndroidPrefix, ""))

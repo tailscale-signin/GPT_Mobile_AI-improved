@@ -518,6 +518,89 @@ class GitHubVerifiedSessionTest {
         }
     }
 
+    @Test fun claimExtractionResumesTheFailedBatchWithoutRegeneratingTheDraft() = runBlocking {
+        val stored = mutableMapOf<String, JsonObject>()
+        fun book() = GitHubEvidenceBook("b", "o/r", "main", emptySet(), now = { 1000 }, load = { stored[it] }, save = { key, value -> stored[key] = value })
+        val task = "Explain the change\n- Document the source\n- Explain the effect\n- List the remaining work\n- Give the result"
+        val requests = mutableListOf<Int>()
+        val response = """{"claims":[{"kind":"not_measured","subject":"Feature acceptance"}]}"""
+        fun batch(prompt: String): Int = Json.parseToJsonElement(prompt).jsonObject.getValue("batch").toString().toInt().also(requests::add)
+        val privateDraft = "Private draft for the accepted request ".repeat(2_000)
+        assertTrue(privateDraft.length > 64_000)
+        val initial = GitHubVerifiedSession(answer(privateDraft), book(), task, { 8192 }, { prompt ->
+            if (batch(prompt) == 1) {
+                answer(response)
+            } else {
+                object : AgentProviderSession {
+                    override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) =
+                        flowOf(ProviderEvent.TextDelta("{\"claims\":["), ProviderEvent.Usage(finishReason = "length"), ProviderEvent.Completed)
+                }
+            }
+        }, {}, {}, { 1000 })
+        val first = initial.streamRound(emptyList(), emptyList()).toList().last() as ProviderEvent.Failed
+        assertEquals("GITHUB_EXTRACTION_OUTPUT_LIMIT", first.errorCode)
+        assertEquals(listOf(1, 2), requests)
+
+        val unavailableDraft = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = error("The saved draft must be reused")
+        }
+        val resumed = GitHubVerifiedSession(unavailableDraft, book(), task, { 8192 }, { prompt ->
+            assertEquals(2, batch(prompt))
+            answer(response)
+        }, {}, {}, { 1000 }, currentRequest = "Continue")
+        val delivered = resumed.streamRound(emptyList(), emptyList()).toList()
+        assertEquals(listOf(1, 2, 2), requests)
+        assertTrue(delivered.any { it is ProviderEvent.TextDelta })
+        val checkpoint = stored.entries.single { it.key.startsWith("claim_extraction_current_") }.value
+        assertEquals(JsonPrimitive(false), checkpoint["pending"])
+        assertEquals(2, checkpoint.getValue("batches").jsonArray.size)
+    }
+
+    @Test fun extractionBatchLimitCannotSilentlyDropRequirements() = runBlocking {
+        val task = (1..(GitHubClaimBatches.REQUIREMENTS_PER_BATCH * GitHubClaimBatches.MAX_BATCHES + 1))
+            .joinToString("\n") { "Requirement $it must remain covered" }
+        var extractions = 0
+        val book = GitHubEvidenceBook("b", "o/r", "main", setOf("github_context"))
+        book.observe(
+            ProviderEvent.ToolCall("context", "github_context", Json.parseToJsonElement("""{"action":"resolve"}""").jsonObject),
+            AgentToolResult("context", ToolResultContent.Json(Json.parseToJsonElement("""{"data":{"repository":{"full_name":"o/r"}}}""").jsonObject), false)
+        )
+        val gate = GitHubVerifiedSession(
+            answer("Private draft"),
+            book,
+            task,
+            { 8192 },
+            {
+                extractions++
+                error("An incomplete bounded plan must not be dispatched")
+            },
+            {},
+            {}
+        )
+
+        val events = gate.streamRound(emptyList(), emptyList()).toList()
+        assertEquals(0, extractions)
+        val failure = events.last() as ProviderEvent.Failed
+        assertEquals(failure.message, "GITHUB_EXTRACTION_UNAVAILABLE", failure.errorCode)
+        assertEquals("PARTIAL", failure.taskOutcome)
+    }
+
+    @Test fun claimBatchesRemapCoverageAfterDeduplicatingSharedFacts() {
+        fun answer(value: String) = Json.parseToJsonElement(value).jsonObject
+        val first = GitHubClaimBatches.validate(
+            answer("""{"claims":[{"kind":"fact","receipt_id":"result","pointer":"/number","value":816}],"requirement_claims":{"one":[0]}}"""),
+            GitHubClaimBatches.Request("", setOf("one"))
+        )
+        val second = GitHubClaimBatches.validate(
+            answer("""{"claims":[{"kind":"fact","receipt_id":"result","pointer":"/state","value":"open"},{"kind":"fact","receipt_id":"result","pointer":"/number","value":816}],"requirement_claims":{"two":[0,1]}}"""),
+            GitHubClaimBatches.Request("", setOf("two"))
+        )
+        val combined = GitHubClaimBatches.combine(listOf(first, second))
+        assertEquals(2, combined.getValue("claims").jsonArray.size)
+        assertEquals(answer("""{"one":[0],"two":[1,0]}"""), combined["requirement_claims"])
+        assertTrue(runCatching { GitHubClaimBatches.validate(second, GitHubClaimBatches.Request("", setOf("one"))) }.isFailure)
+    }
+
     @Test fun newestReceiptPrefixFitsBudgetAndShrinkingCapacityPreventsDispatch() = runBlocking {
         for (shrink in listOf(false, true)) {
             var limits = 0

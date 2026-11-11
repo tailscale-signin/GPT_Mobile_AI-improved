@@ -12,6 +12,7 @@ internal object GitHubTaskContinuity {
     ).trim()
 
     fun diagnostic(text: String): Boolean {
+        if (sessionAudit(text)) return true
         val prompt = request(text)
         // The subject must be the assistant or this conversation. A polite "can you
         // explain why CI stopped" still asks for repository evidence, not old diagnostics.
@@ -24,6 +25,11 @@ internal object GitHubTaskContinuity {
         return Regex("(?i)\\b$explanation$subject\\s+$auxiliary$problem\\b").containsMatchIn(prompt) ||
             Regex("(?i)\\bwhat happened to $subject\\s*[?.!]*$").containsMatchIn(prompt)
     }
+
+    fun sessionAudit(text: String): Boolean = request(text).length <= 300 &&
+        Regex(
+            "^(?:(?:list|find|show|identify|examine|review|audit|summarize) (?:me )?(?:all |the )?(?:issues|errors|failures|problems|bugs) (?:with|in|from|for) (?:this|the current|our) (?:github )?(?:session|chat|conversation)|audit (?:this|the current) (?:github )?(?:session|chat|conversation))(?: (?:using|with) github)?(?: and (?:offer|list|suggest) (?:fixes|solutions))?$"
+        ).matches(normalized(text))
 
     /** This identifies a resume request only. The claimed commit is verified by read receipts. */
     fun publishedCommit(text: String): String? = Regex(

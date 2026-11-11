@@ -67,12 +67,12 @@ class GatewayChatSubmissionTest {
     @Test
     fun normalSendPreservesSelectedModelDestinationAndOriginalTurnIds() = runTest {
         supported()
-        coEvery { engineering.submitTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } returns binding
+        coEvery { engineering.submitTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } returns binding
 
         assertNotNull(service.submitIfSupported(request))
 
         coVerify(exactly = 1) {
-            engineering.submitTurn(4, context, "trunk", "fix/selected", "Fix the failing parser test", "stable-command", 8, 9, "stable-command", "implement", "chat-selected-model", null, any())
+            engineering.submitTurn(4, context, "trunk", "fix/selected", "Fix the failing parser test", "stable-command", 8, 9, "stable-command", "implement", "chat-selected-model", null, null, any())
         }
     }
 
@@ -87,26 +87,26 @@ class GatewayChatSubmissionTest {
         coVerify(exactly = 0) { engineering.submitBoundTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
         coVerify(exactly = 0) { engineering.supportsDurableChat(any()) }
         coVerify(exactly = 0) { workspace.defaultBranch(any()) }
-        coVerify(exactly = 0) { engineering.submitTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+        coVerify(exactly = 0) { engineering.submitTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
     }
 
     @Test
     fun lostCreateResponseWithSavedCommandReturnsUnconfirmedHandoffAndNeverAProviderFallback() = runTest {
         supported()
         coEvery { engineering.bindings(4) } returnsMany listOf(emptyList(), listOf(binding))
-        coEvery { engineering.submitTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } throws IllegalStateException("reply lost")
+        coEvery { engineering.submitTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } throws IllegalStateException("reply lost")
 
         val handoff = requireNotNull(service.submitIfSupported(request))
 
         assertFalse(handoff.accepted)
-        coVerify(exactly = 1) { engineering.submitTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+        coVerify(exactly = 1) { engineering.submitTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
     }
 
     @Test
     fun definitiveRejectionDoesNotLeaveTheChatWaitingForAJobThatWasNeverAccepted() = runTest {
         supported()
         coEvery { engineering.bindings(4) } returnsMany listOf(emptyList(), listOf(binding))
-        coEvery { engineering.submitTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } throws GatewayEngineeringRequestRejected(409, "Conversation changed")
+        coEvery { engineering.submitTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } throws GatewayEngineeringRequestRejected(409, "Conversation changed")
 
         try {
             service.submitIfSupported(request)
@@ -120,7 +120,7 @@ class GatewayChatSubmissionTest {
     fun rejectionAfterAnEarlierUncertainAttemptPreservesReadOnlyReconciliation() = runTest {
         supported()
         coEvery { engineering.bindings(4) } returnsMany listOf(emptyList(), listOf(binding))
-        coEvery { engineering.submitTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } throws GatewayEngineeringRequestRejected(409, "Conversation changed", commandOutcomeUnknown = true)
+        coEvery { engineering.submitTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } throws GatewayEngineeringRequestRejected(409, "Conversation changed", commandOutcomeUnknown = true)
 
         val handoff = requireNotNull(service.submitIfSupported(request))
 
@@ -132,7 +132,7 @@ class GatewayChatSubmissionTest {
         supported()
         val accepted = binding.copy(job = GatewayEngineeringJob("job", "owner/repo", "fix/selected", state = "RUNNING", revision = 1, createdAt = 1.0, deadline = 2.0, message = "Working"))
         coEvery { engineering.bindings(4) } returnsMany listOf(emptyList(), listOf(accepted))
-        coEvery { engineering.submitTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } throws GatewayEngineeringRequestRejected(409, "Already accepted")
+        coEvery { engineering.submitTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } throws GatewayEngineeringRequestRejected(409, "Already accepted")
 
         assertTrue(requireNotNull(service.submitIfSupported(request)).accepted)
     }
@@ -161,7 +161,7 @@ class GatewayChatSubmissionTest {
 
         coVerify(exactly = 0) { workspace.defaultBranch(any()) }
         coVerify(exactly = 0) { engineering.supportsDurableChat(any()) }
-        coVerify(exactly = 0) { engineering.submitTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+        coVerify(exactly = 0) { engineering.submitTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
     }
 
     @Test
@@ -174,7 +174,7 @@ class GatewayChatSubmissionTest {
         supported()
         coEvery { engineering.supportsDurableChat("profile") } returns false
         assertNull(service.submitIfSupported(request))
-        coVerify(exactly = 0) { engineering.submitTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+        coVerify(exactly = 0) { engineering.submitTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
     }
 
     @Test
@@ -194,7 +194,7 @@ class GatewayChatSubmissionTest {
         }
         coVerify(exactly = 0) { engineering.conversationWriteBlocker(any()) }
         coVerify(exactly = 0) { engineering.submitBoundTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
-        coVerify(exactly = 0) { engineering.submitTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+        coVerify(exactly = 0) { engineering.submitTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
     }
 
     @Test
@@ -224,8 +224,8 @@ class GatewayChatSubmissionTest {
     fun originalTurnCarriesTheCurrentMasterPermissionThroughSuspendedAdmission() = runTest {
         supported()
         var allowed = true
-        coEvery { engineering.submitTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } coAnswers {
-            val check = arg<() -> Boolean>(12)
+        coEvery { engineering.submitTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } coAnswers {
+            val check = arg<() -> Boolean>(13)
             assertTrue(check())
             allowed = false
             assertFalse(check())
@@ -249,19 +249,19 @@ class GatewayChatSubmissionTest {
         } catch (expected: IllegalStateException) {
             assertEquals("gateway unavailable", expected.message)
         }
-        coVerify(exactly = 0) { engineering.submitTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+        coVerify(exactly = 0) { engineering.submitTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
     }
 
     @Test
     fun defaultBranchImplementationKeepsItsPinnedSourceForTheServerWorkingBranch() = runTest {
         supported()
         coEvery { workspace.defaultBranch(context) } returns context.ref
-        coEvery { engineering.submitTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } returns binding
+        coEvery { engineering.submitTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } returns binding
 
         assertNotNull(service.submitIfSupported(request))
 
         coVerify(exactly = 1) {
-            engineering.submitTurn(4, context, context.ref, context.ref, "Fix the failing parser test", "stable-command", 8, 9, "stable-command", "implement", "chat-selected-model", null, any())
+            engineering.submitTurn(4, context, context.ref, context.ref, "Fix the failing parser test", "stable-command", 8, 9, "stable-command", "implement", "chat-selected-model", null, null, any())
         }
     }
 
@@ -288,7 +288,7 @@ class GatewayChatSubmissionTest {
         coEvery { settings.getFeatureSettings() } returns AppFeatureSettings()
         assertNull(service.submitIfSupported(request))
         coVerify(exactly = 0) { engineering.supportsDurableChat(any()) }
-        coVerify(exactly = 0) { engineering.submitTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+        coVerify(exactly = 0) { engineering.submitTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
     }
 
     @Test
@@ -300,6 +300,6 @@ class GatewayChatSubmissionTest {
         } catch (expected: IllegalStateException) {
             assertEquals(true, expected.message.orEmpty().contains("explicitly forbids"))
         }
-        coVerify(exactly = 0) { engineering.submitTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+        coVerify(exactly = 0) { engineering.submitTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
     }
 }

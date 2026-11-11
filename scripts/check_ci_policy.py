@@ -1,10 +1,27 @@
 #!/usr/bin/env python3
 """Dependency-free checks for workflow discovery, Action pins and required gate."""
+import json
 import re
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def check_ruleset(payload):
+    errors = []
+    rules = {rule.get('type'): rule.get('parameters', {}) for rule in payload.get('rules', [])}
+    pull_request = rules.get('pull_request', {})
+    if pull_request.get('required_approving_review_count', 0) < 1:
+        errors.append('main-ruleset.json: at least one approving review is required')
+    for field in ('dismiss_stale_reviews_on_push', 'require_last_push_approval', 'required_review_thread_resolution'):
+        if pull_request.get(field) is not True:
+            errors.append(f'main-ruleset.json: {field} must remain enabled')
+    required = {item.get('context') for item in rules.get('required_status_checks', {}).get('required_status_checks', [])}
+    for context in ('Required verification', 'Analyze (java-kotlin)'):
+        if context not in required:
+            errors.append(f'main-ruleset.json: missing required check {context}')
+    return errors
 
 
 def check_text(text, path):
@@ -48,6 +65,10 @@ def main():
             errors.append(f'pr-validation.yml missing {required.strip()}')
     if 'paths-ignore:' in canonical or re.search(r'^    paths:', canonical, re.M):
         errors.append('Required verification must run for every change')
+    try:
+        errors.extend(check_ruleset(json.loads((ROOT / 'docs/ci-cd/main-ruleset.json').read_text())))
+    except (OSError, TypeError, ValueError, json.JSONDecodeError):
+        errors.append('main-ruleset.json: valid candidate ruleset required')
     print('\n'.join(errors) if errors else 'CI policy passed')
     return bool(errors)
 

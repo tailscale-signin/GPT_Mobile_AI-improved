@@ -77,7 +77,8 @@ class McpOAuthCoordinator @Inject constructor(
     suspend fun authorizationHeader(
         connection: ToolConnection,
         forceRefresh: Boolean = false,
-        rejectedAuthorizationHeader: String? = null
+        rejectedAuthorizationHeader: String? = null,
+        allowRefresh: Boolean = true
     ): String {
         val credentialMutex = credentialMutex(connection.connectionUid)
         credentialMutex.lock()
@@ -92,12 +93,13 @@ class McpOAuthCoordinator @Inject constructor(
             if (rejectedCredentials[connection.connectionUid] == fingerprint) {
                 throw McpLocalValidationException(McpLocalValidationRule.CREDENTIAL_REAUTHORIZATION_REQUIRED)
             }
-            rejectedCredentials.remove(connection.connectionUid)
+            if (allowRefresh) rejectedCredentials.remove(connection.connectionUid)
             val currentHeader = "${credential.tokenType} ${credential.accessToken}"
             val isExpired = credential.expiresAtEpochSeconds?.let { it <= nowEpochSeconds() + REFRESH_SKEW_SECONDS } == true
             val shouldRefreshRejected = forceRefresh && (rejectedAuthorizationHeader == null || rejectedAuthorizationHeader == currentHeader)
             if (isExpired || shouldRefreshRejected) {
                 if (credential.refreshToken.isNullOrBlank()) throw McpLocalValidationException(McpLocalValidationRule.CREDENTIAL_REAUTHORIZATION_REQUIRED)
+                if (!allowRefresh) throw McpLocalValidationException(McpLocalValidationRule.CREDENTIAL_REFRESH_REQUIRED)
                 refreshBackoff[connection.connectionUid]?.takeIf { it.first == fingerprint && it.second > System.currentTimeMillis() }?.let { throw McpBackoffException(connection.connectionUid, it.second) }
                 credential = try {
                     oauthClient.refresh(credential)

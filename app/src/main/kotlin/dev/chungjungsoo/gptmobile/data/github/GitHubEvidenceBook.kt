@@ -544,6 +544,33 @@ internal class GitHubEvidenceBook(
         return text to verdict
     }
 
+    private fun claimBatchKey() = "claim_extraction_current_" + digest(binding).take(24)
+
+    suspend fun retainedClaimExtraction(context: String): JsonObject? = load(claimBatchKey())?.takeIf { saved ->
+        saved["schema"] == JsonPrimitive("github.claim-extraction.v1") &&
+            saved["binding"] == JsonPrimitive(binding) &&
+            saved["context"] == JsonPrimitive(context) &&
+            saved["authorization"] == (authorizationDigest?.let(::JsonPrimitive) ?: kotlinx.serialization.json.JsonNull)
+    }
+
+    suspend fun retainClaimBatches(context: String, plan: String, draft: String, batches: List<JsonObject>, pending: Boolean) {
+        require(batches.size <= GitHubClaimBatches.MAX_BATCHES)
+        require(draft.length <= 1_048_576) { "Claim extraction draft exceeds the accepted session bound" }
+        save(
+            claimBatchKey(),
+            buildJsonObject {
+                put("schema", "github.claim-extraction.v1")
+                put("binding", binding)
+                put("context", context)
+                put("plan", plan)
+                put("authorization", authorizationDigest)
+                put("pending", pending)
+                if (pending) put("draft", draft)
+                put("batches", JsonArray(batches))
+            }
+        )
+    }
+
     suspend fun retainPolicy(revision: String, tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition>) {
         val policy = buildJsonObject {
             put("schema", "github.policy-snapshot.v1")
@@ -714,7 +741,7 @@ internal class GitHubEvidenceBook(
     }
 
     companion object {
-        fun currentSnapshot(id: String): Boolean = id.matches(Regex("(?:verification|checklist|answer)_current_[a-f0-9]{24}"))
+        fun currentSnapshot(id: String): Boolean = id.matches(Regex("(?:verification|checklist|answer|claim_extraction)_current_[a-f0-9]{24}"))
 
         /** Preparing a verdict does not prove that its visible delivery completed. */
         fun publishedChecklistDigest(checkpoint: JsonObject?): JsonPrimitive? =

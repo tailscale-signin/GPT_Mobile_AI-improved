@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -69,6 +70,21 @@ class WorkflowPolicyTest(unittest.TestCase):
         policy = module('check_ci_policy')
         self.assertTrue(policy.check_text('uses: example/action@v4', '.github/actions/example/action.yml'))
         self.assertFalse(policy.check_text('uses: example/action@' + 'a' * 40, '.github/actions/example/action.yml'))
+
+    def test_candidate_ruleset_keeps_review_and_security_gates(self):
+        policy = module('check_ci_policy')
+        ruleset = json.loads((SCRIPTS.parent / 'docs/ci-cd/main-ruleset.json').read_text())
+        self.assertEqual([], policy.check_ruleset(ruleset))
+        pull_request = next(rule for rule in ruleset['rules'] if rule['type'] == 'pull_request')
+        weakened = json.loads(json.dumps(ruleset))
+        weakened_pull_request = next(rule for rule in weakened['rules'] if rule['type'] == 'pull_request')
+        weakened_pull_request['parameters'].update(
+            required_approving_review_count=0,
+            dismiss_stale_reviews_on_push=False,
+            require_last_push_approval=False,
+            required_review_thread_resolution=False,
+        )
+        self.assertGreaterEqual(len(policy.check_ruleset(weakened)), 4)
 
 
 class WorkflowHealthTest(unittest.TestCase):

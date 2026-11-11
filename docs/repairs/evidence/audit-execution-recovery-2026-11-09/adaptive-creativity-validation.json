@@ -1,0 +1,188 @@
+{
+  "source_parent": "79249cfb76a5eb7ed6f9ad6151d054122fd909db",
+  "scope": "Adaptive GitHub settings, stage sampling, provider serialization, saved planning and Gateway execution; existing authorization, review, admission and startup regressions",
+  "environment": "Host JVM/Robolectric and local HTTP Gateway fixtures; no phone or deployed Windows Gateway",
+  "compileDebugKotlin": "PASS",
+  "compileDebugUnitTestKotlin": "PASS",
+  "fast_host_tests": 461,
+  "android": {
+    "tests": 266,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "android_suites": [
+    {
+      "suite": "dev.chungjungsoo.gptmobile.data.agent.provider.ProviderAdaptersTest",
+      "tests": 79,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "9b4db529c401b4349cd9c3941658cdbeab034b8c35fcacd45824432e685594ce"
+    },
+    {
+      "suite": "dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthorityTest",
+      "tests": 19,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "0a54063cd90e5b5044b16590a6484c6d9b827c74c9fc9b1fa13e5d6edbdfec09"
+    },
+    {
+      "suite": "dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringBudgetTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "7b88cc77b58461f4bb418aec2bfa00675ad4d576af636b79697e9c77e0976d36"
+    },
+    {
+      "suite": "dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringClientTest",
+      "tests": 19,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "1c28afd10ff08b329b23794ed3ad630c124774388b6dff0c37410afa6363580b"
+    },
+    {
+      "suite": "dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringModelsTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "aeee206d0838d5db431d511059cbfc8e49238fc1f79f7a446b3a17a348fdc24c"
+    },
+    {
+      "suite": "dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringStoreTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "f2f2b76009f95a29ac8ca7895cd73a3a64abc3e43c5f15d202c8ce17ddf06a47"
+    },
+    {
+      "suite": "dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringSubmissionTest",
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "e0c049a6941b9f120862758455d3a2f266f3c1a9cc4a59aa0d64c450d598df65"
+    },
+    {
+      "suite": "dev.chungjungsoo.gptmobile.data.github.GitHubAdaptiveSessionTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "af4b8f4c8128a49c13216ffadbdeaaa1bbee2dfa06de19b0f2f95d4fe7887444"
+    },
+    {
+      "suite": "dev.chungjungsoo.gptmobile.data.github.GitHubChatPolicyTest",
+      "tests": 9,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "2ac04ad104550d3872df8acdd7fc31a482415bcdb8f0982ce38a359793f99d93"
+    },
+    {
+      "suite": "dev.chungjungsoo.gptmobile.data.github.GitHubReviewedSessionTest",
+      "tests": 29,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "57fae30c310c4759022a32a58bebbc33b1993eb25f0fb9aa4d664e7d35fb4de0"
+    },
+    {
+      "suite": "dev.chungjungsoo.gptmobile.data.github.GitHubSamplingPolicyTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "d55d01585b86b2d2790eb400871626d9d3c3432f9cbdbf224fd91cbf0d977625"
+    },
+    {
+      "suite": "dev.chungjungsoo.gptmobile.data.github.GitHubVerifiedSessionTest",
+      "tests": 28,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "7dd5c37dd94bf5398f176260c455de214c5bcee2d6e9956af789d570bda014aa"
+    },
+    {
+      "suite": "dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterCatalogLimitsTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "352fbd51578fa5c410e3e60f8da43b5be84cdf2a061f83541ee2a2e9cf5d87c6"
+    },
+    {
+      "suite": "dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatViewModelStartupTest",
+      "tests": 36,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "fecba2e136cbf76c0b64de44664e51091cf62caa8ac574178602013b189727aa"
+    },
+    {
+      "suite": "dev.chungjungsoo.gptmobile.presentation.ui.chat.GatewayEngineeringBudgetStatusTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "d093cd04876f17b6c76dc3fbd1ba8d82033081d0c9d5efb3c941c5f7a8f850cd"
+    },
+    {
+      "suite": "dev.chungjungsoo.gptmobile.presentation.ui.setting.GitHubCreativitySettingsTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "d185a08ed36006788148e8e1435d980889f75a15bf3b76ab525c8372568df653"
+    },
+    {
+      "suite": "dev.chungjungsoo.gptmobile.presentation.ui.setting.GitHubProgrammerViewModelTest",
+      "tests": 15,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "aa5ab438fb6af74dcaf590d6428deaae61b32d6076ade0e0ee57d25a02987e10"
+    }
+  ],
+  "gateway": {
+    "suite_executions": 59,
+    "test_executions": 749,
+    "skipped": 1,
+    "failures": 0,
+    "node_tests": 7
+  },
+  "ktlint": "PASS",
+  "formal_promotions": 0,
+  "live_device_qualification": "PENDING",
+  "logs": [
+    {
+      "name": "android-817-adaptive-final-compile.log",
+      "sha256": "2d1371e53bda34af81ea0580065852547cc6c305966617f4cd12bb468cf9cc1d"
+    },
+    {
+      "name": "android-817-adaptive-final-test-compile.log",
+      "sha256": "3758c94dbf74c3b91e7e89d1fae50fa3709c675b905120b62ab14597ca4704d5"
+    },
+    {
+      "name": "android-817-adaptive-tests.log",
+      "sha256": "3772abfd7c895f51b764d491cde1fc79178f8ad1adaa6566f707592b35250ec8"
+    },
+    {
+      "name": "gateway-adaptive-qualified.log",
+      "sha256": "97e7f8d48cfb185a2ad107eaf2b80b39487b17f6c92e87480553e8a29c61b990"
+    },
+    {
+      "name": "fast-817-adaptive.log",
+      "sha256": "3239d5f8d1b3667c76bfaacd14147412de68e30f2ea1e50fad167c919d1714ba"
+    },
+    {
+      "name": "ktlint-817-adaptive-final.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ]
+}

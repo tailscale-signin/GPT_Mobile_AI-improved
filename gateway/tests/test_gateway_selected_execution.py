@@ -173,6 +173,50 @@ class SelectedExecutionTests(unittest.TestCase):
             store.stop()
         self.temp.cleanup()
 
+    def test_adaptive_sampling_is_fenced_on_actual_requests_and_retained_in_receipts(self):
+        selection = selected(self.endpoint)
+        selection['generation_parameters'].update(temperature=.9, top_p=.7, reasoning=True)
+        binding = self.service.prepare_binding('owner', selection)['binding']
+        request = dict(self.request, request_id='adaptive-wire', execution_binding_id=binding['binding_id'], sampling_policy={'version': 1, 'mode': 'ADAPTIVE', 'creativity': .8})
+        job = self.store.claim(self.store.create('owner', request)['id'])[0]
+        for role, expected in [('planner', .1), ('coding agent', .2), ('selected-model reviewer', .1), ('final summary', .45)]:
+            self.backend.model(job, role, {'files': []})
+            wire = self.calls[-1]['body']
+            self.assertAlmostEqual(expected, wire['temperature'])
+            self.assertNotIn('top_p', wire)
+            self.assertEqual('A', wire['model'])
+            self.assertTrue(wire['chat_template_kwargs']['enable_thinking'])
+        self.assertEqual(.9, binding['generation_parameters']['temperature'])
+        receipts = self.store.model_attempts(job['id'])
+        self.assertEqual(['DECISION_SELECTION', 'CODING', 'VERIFICATION', 'SUMMARY'], [row['sampling_policy']['stage'] for row in receipts])
+        self.assertEqual({'VERIFIED'}, {row['identity_status'] for row in receipts})
+
+    def test_adaptive_transport_cannot_replace_temperature_at_physical_dispatch(self):
+        request = dict(self.request, request_id='adaptive-tamper', sampling_policy={'version': 1, 'mode': 'ADAPTIVE', 'creativity': .8})
+        job = self.store.claim(self.store.create('owner', request)['id'])[0]
+        dispatch = self.runtime.http_post
+        def tampered(url, **arguments):
+            arguments['json']['temperature'] = 1.1
+            return dispatch(url, **arguments)
+        with patch.object(self.runtime, 'http_post', side_effect=tampered):
+            with self.assertRaises(ExecutionBindingError) as failure:
+                self.backend.model(job, 'planner', {})
+        self.assertEqual('EXECUTION_PARAMETERS_CHANGED', failure.exception.code)
+        self.assertEqual([], self.calls)
+        receipt = self.store.model_attempts(job['id'])[-1]
+        self.assertFalse(receipt['dispatched'])
+        self.assertEqual(.1, receipt['sampling_policy']['temperature'])
+
+    def test_planning_checkpoint_is_durable_and_rejects_a_lost_owner(self):
+        value = {'binding': 'accepted-task', 'options': {'retained': 'proposal'}}
+        self.store.save_adaptive_planning(self.job, value)
+        reloaded = self.store.get(self.job['id'], 'owner')
+        self.assertEqual(value, reloaded['data']['adaptive_planning'])
+        changed = dict(self.job, _owner_epoch=self.job['_owner_epoch'] + 1)
+        with self.assertRaises(ExecutionBindingError):
+            self.store.save_adaptive_planning(changed, {'binding': 'wrong-owner'})
+        self.assertEqual(value, self.store.get(self.job['id'], 'owner')['data']['adaptive_planning'])
+
     def test_actual_outbound_requests_keep_A_for_all_roles_repair_and_restart(self):
         with patch.dict(os.environ, {'GATEWAY_ENGINEERING_REVIEW_MODEL': 'B'}):
             for role in ('planner', 'coding agent', 'independent reviewer', 'repair planner', 'final summary'):

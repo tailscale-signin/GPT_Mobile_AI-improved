@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 import importlib.util
 import json
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -186,6 +187,36 @@ class AppAuditQualificationEvidenceTest(unittest.TestCase):
     def test_timezone_offsets_are_compared_as_instants(self):
         observed = self.fresh.astimezone(timezone(timedelta(hours=3))).isoformat()
         self.assertEqual("PASS", self.harness(self.collect([self.junit(observed=observed)]))["status"])
+
+    def test_shallow_checkout_records_and_verifies_both_pr_merge_parents(self):
+        repository = self.root / "repository"
+        repository.mkdir()
+
+        def git(cwd, *args):
+            return subprocess.check_output(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", *args],
+                                           cwd=cwd, text=True, stderr=subprocess.PIPE).strip()
+
+        git(repository, "init", "-b", "main")
+        git(repository, "commit", "--allow-empty", "-m", "base")
+        base = git(repository, "rev-parse", "HEAD")
+        git(repository, "switch", "-c", "topic")
+        git(repository, "commit", "--allow-empty", "-m", "head")
+        head = git(repository, "rev-parse", "HEAD")
+        git(repository, "switch", "main")
+        git(repository, "merge", "--no-ff", "topic", "-m", "merge")
+        shallow = self.root / "shallow"
+        git(self.root, "clone", "--depth=1", repository.as_uri(), str(shallow))
+        self.assertEqual("", git(shallow, "show", "-s", "--format=%P", "HEAD"))
+        event = self.root / "event.json"
+        event.write_text(json.dumps({"pull_request": {"base": {"sha": base}, "head": {"sha": head}}}))
+        environment = {"GITHUB_EVENT_NAME": "pull_request", "GITHUB_EVENT_PATH": str(event),
+                       "GITHUB_SHA": git(shallow, "rev-parse", "HEAD")}
+        result = COLLECTOR.checkout_identity(shallow, environment)
+        self.assertEqual([base, head], result["parents"])
+        self.assertEqual(result["parents"], result["pull_request_event_parents"])
+        event.write_text(json.dumps({"pull_request": {"base": {"sha": head}, "head": {"sha": base}}}))
+        with self.assertRaisesRegex(ValueError, "parents differ"):
+            COLLECTOR.checkout_identity(shallow, environment)
 
     def test_jvm_reports_do_not_qualify_device_or_external_command_fixtures(self):
         self.write_catalog({"connections": [ALPHA, DEVICE, COMMAND]})

@@ -917,7 +917,11 @@ internal class GitHubVerifiedSession(
 
     private fun verificationRequests(draft: String, receipts: Map<String, JsonObject>): List<GitHubClaimBatches.Request>? {
         val hardLimit = inputLimit()
-        val groups = GitHubRequestCompletion.requirements(task).distinct().chunked(GitHubClaimBatches.REQUIREMENTS_PER_BATCH).take(GitHubClaimBatches.MAX_BATCHES)
+        val groups = GitHubRequestCompletion.requirements(task).distinct().chunked(GitHubClaimBatches.REQUIREMENTS_PER_BATCH)
+        // Never let the extraction bound silently remove acceptance criteria. A task
+        // that exceeds the bounded batch plan remains incomplete until it is split or
+        // a larger, explicitly supported plan is introduced.
+        if (groups.size > GitHubClaimBatches.MAX_BATCHES) return null
         val catalog by lazy { JsonArray(GitHubEvidencePolicy.catalog(receipts).reversed()) }
         val requests = groups.mapIndexed { index, requirements ->
             val candidate = if (groups.size == 1) draft else draftExcerpt(draft, requirements)

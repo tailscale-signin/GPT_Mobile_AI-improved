@@ -525,7 +525,9 @@ class GitHubVerifiedSessionTest {
         val requests = mutableListOf<Int>()
         val response = """{"claims":[{"kind":"not_measured","subject":"Feature acceptance"}]}"""
         fun batch(prompt: String): Int = Json.parseToJsonElement(prompt).jsonObject.getValue("batch").toString().toInt().also(requests::add)
-        val initial = GitHubVerifiedSession(answer("Private draft for the accepted request"), book(), task, { 8192 }, { prompt ->
+        val privateDraft = "Private draft for the accepted request ".repeat(2_000)
+        assertTrue(privateDraft.length > 64_000)
+        val initial = GitHubVerifiedSession(answer(privateDraft), book(), task, { 8192 }, { prompt ->
             if (batch(prompt) == 1) {
                 answer(response)
             } else {
@@ -552,6 +554,30 @@ class GitHubVerifiedSessionTest {
         val checkpoint = stored.entries.single { it.key.startsWith("claim_extraction_current_") }.value
         assertEquals(JsonPrimitive(false), checkpoint["pending"])
         assertEquals(2, checkpoint.getValue("batches").jsonArray.size)
+    }
+
+    @Test fun extractionBatchLimitCannotSilentlyDropRequirements() = runBlocking {
+        val task = (1..(GitHubClaimBatches.REQUIREMENTS_PER_BATCH * GitHubClaimBatches.MAX_BATCHES + 1))
+            .joinToString("\n") { "Requirement $it must remain covered" }
+        var extractions = 0
+        val gate = GitHubVerifiedSession(
+            answer("Private draft"),
+            GitHubEvidenceBook("b", "o/r", "main", emptySet()),
+            task,
+            { 8192 },
+            {
+                extractions++
+                error("An incomplete bounded plan must not be dispatched")
+            },
+            {},
+            {}
+        )
+
+        val events = gate.streamRound(emptyList(), emptyList()).toList()
+        assertEquals(0, extractions)
+        val failure = events.last() as ProviderEvent.Failed
+        assertEquals("GITHUB_EXTRACTION_UNAVAILABLE", failure.errorCode)
+        assertEquals("PARTIAL", failure.taskOutcome)
     }
 
     @Test fun claimBatchesRemapCoverageAfterDeduplicatingSharedFacts() {

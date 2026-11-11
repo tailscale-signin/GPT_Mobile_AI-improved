@@ -555,6 +555,7 @@ internal class GitHubEvidenceBook(
 
     suspend fun retainClaimBatches(context: String, plan: String, draft: String, batches: List<JsonObject>, pending: Boolean) {
         require(batches.size <= GitHubClaimBatches.MAX_BATCHES)
+        require(draft.length <= 1_048_576) { "Claim extraction draft exceeds the accepted session bound" }
         save(
             claimBatchKey(),
             buildJsonObject {
@@ -564,7 +565,7 @@ internal class GitHubEvidenceBook(
                 put("plan", plan)
                 put("authorization", authorizationDigest)
                 put("pending", pending)
-                if (pending && draft.length <= 64_000) put("draft", draft)
+                if (pending) put("draft", draft)
                 put("batches", JsonArray(batches))
             }
         )

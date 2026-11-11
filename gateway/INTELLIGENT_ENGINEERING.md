@@ -64,8 +64,10 @@ dispatch intents, receipts and update events. Back it up with the gateway
 stopped; retained source and logs require the same protection as the repository.
 
 Autonomous execution uses a GitHub credential configured on the selected gateway
-host. The phone's native GitHub connection remains on the phone. Host credential
-selection follows this order:
+host. The phone's native GitHub connection remains on the phone. On Windows,
+**Gateway Settings → GitHub** can verify a token and save it in the current user's
+Windows Credential Manager. A token saved there takes precedence. When no
+desktop token is saved, host credential selection follows this order:
 
 1. `GATEWAY_ENGINEERING_GITHUB_SERVER` selects one existing enabled MCP entry from
    that gateway's configured MCP file. Its protected `env` supplies
@@ -114,7 +116,12 @@ engineering's `host_github_connection`: read-only host GitHub configuration can
 serve source maps without authorizing engineering writes. The graph adapter
 allows GitHub GET/HEAD requests only, with no request body or engineering job.
 Lockdown-filtered connections remain unavailable because the graph does not
-implement that filter. These local checks leave GitHub network/repository access
+implement that filter. Windows enables public repository maps by default. The
+graph verifies public visibility on GitHub before accessing the public cache and
+checks source files against the pinned Git tree. Network clients with only tool
+access can use this public path. Private maps and saved engineering operations
+retain the existing network engineering permission and host credentials.
+These local checks leave GitHub network/repository access
 and model inference unverified until the corresponding operation runs. A working
 chat endpoint therefore cannot establish engineering readiness. Android caches
 the handshake for ten seconds by authenticated route, network generation and

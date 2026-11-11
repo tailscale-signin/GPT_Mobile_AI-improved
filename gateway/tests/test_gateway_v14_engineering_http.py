@@ -1,9 +1,11 @@
 import json
 import hashlib
 import hmac
+import io
 import os
 import sys
 import unittest
+import zipfile
 from unittest.mock import patch
 from pathlib import Path
 from types import SimpleNamespace
@@ -16,6 +18,10 @@ from v14.engineering_backend import GitHubEngineeringBackend
 from v14.identity import Admission
 from v14.config import Config
 import test_gateway_v14_engineering as fixtures
+from v14.code_graph.public_github import PublicGitHubReader
+from v14.code_graph.service import GraphService
+from v14.engineering_backend import blob_sha
+from requests import Response
 
 
 class EngineeringHTTPTests(unittest.TestCase):
@@ -282,6 +288,76 @@ class EngineeringHTTPTests(unittest.TestCase):
                 graph.assert_not_called()
             dispatch.assert_not_called()
             read.assert_not_called()
+
+    def test_public_map_builds_without_host_credentials_or_network_engineering_grant(self):
+        backend = PublicGitHubReader()
+        self.addCleanup(backend.close)
+        self.service.public_graph = GraphService(self.store, backend, public=True)
+        app = FastAPI()
+        app.add_middleware(Admission, config=Config(mode='open_network', host='0.0.0.0',
+                                                  allowed_hosts=('testserver',), allowed_origins=(),
+                                                  public_repository_maps=True))
+        install_engineering_routes(app, self.service)
+        sha = 'c' * 40
+        source = b'def map_this():\n    return True\n'
+        archive = io.BytesIO()
+        with zipfile.ZipFile(archive, 'w') as zipped:
+            zipped.writestr('repo-' + sha + '/code.py', source)
+        repository = 'owner/repo'
+        url = 'https://api.github.com/repos/' + repository
+        archive_url = f'https://codeload.github.com/{repository}/zip/{sha}'
+        fixtures_by_url = {
+            url: {'full_name': repository, 'private': False, 'visibility': 'public'},
+            url + '/git/ref/heads/main': {'object': {'sha': sha}},
+            url + '/git/trees/' + sha + '?recursive=1': {'truncated': False, 'tree': [
+                {'path': 'code.py', 'type': 'blob', 'mode': '100644', 'size': len(source), 'sha': blob_sha(source)}]},
+            archive_url: archive.getvalue()
+        }
+        requests_made = []
+
+        def fetch(target, **options):
+            self.assertFalse(options['allow_redirects'])
+            self.assertNotIn('Authorization', options.get('headers') or {})
+            requests_made.append(target)
+            payload = fixtures_by_url.get(target)
+            response = Response()
+            response.url = target
+            response.status_code = 200 if payload is not None else 404
+            response._content = payload if isinstance(payload, bytes) else json.dumps(payload).encode()
+            response._content_consumed = True
+            return response
+
+        payload = {'repository': repository, 'branch': 'main', 'commit_sha': sha}
+        graph = '/v1/gateway/engineering/graph'
+        with TestClient(app) as client, patch('v14.code_graph.public_github.requests.get', side_effect=fetch), \
+                patch.object(self.service.graph, 'execute') as private, patch.object(self.backend, 'available') as host:
+            capabilities = client.get('/v1/gateway/engineering/capabilities').json()
+            self.assertTrue(capabilities['code_graph']['enabled'])
+            self.assertEqual('public_only', capabilities['code_graph']['access'])
+            self.assertFalse(capabilities['enabled'])
+            self.assertNotIn('host_github_connection', capabilities['readiness']['checks'])
+            self.assertEqual(403, client.post('/v1/gateway/engineering/jobs', json=self.request).status_code)
+            self.assertEqual('NOT_INDEXED', client.post(graph, json=dict(payload, action='status')).json()['status'])
+            indexed = client.post(graph, json=dict(payload, action='index'))
+            self.assertEqual(200, indexed.status_code, indexed.text)
+            self.assertEqual(1, indexed.json()['processed_files'])
+            self.assertFalse(indexed.json()['has_more'])
+            query = client.post(graph, json=dict(payload, action='query', query='map_this'))
+            self.assertIn('map_this', query.text)
+            node = next(node for node in query.json()['nodes'] if node['name'] == 'map_this')
+            self.assertEqual('code.py', node['path'])
+            self.assertTrue(node['url'].endswith('/' + sha + '/code.py#L1'))
+            self.assertEqual(403, client.post(graph, json=dict(payload, action='note')).status_code)
+            self.assertEqual(403, client.post(graph, json=dict(payload, action='provider')).status_code)
+            fixtures_by_url.pop(url)
+            hidden = client.post(graph, json=dict(payload, action='query', query='map_this'))
+            self.assertEqual(412, hidden.status_code)
+            self.assertEqual('missing', hidden.json()['readiness']['checks']['graph_host_github_connection'])
+            self.assertNotIn('map_this', hidden.text)
+            private.assert_not_called()
+            host.assert_not_called()
+        self.assertEqual(1, requests_made.count(archive_url))
+        self.assertFalse(any('/git/blobs/' in target or target.endswith('/user') for target in requests_made))
 
     def test_lost_create_receipt_recovers_same_terminal_job_when_new_work_is_unavailable(self):
         created = self.client.post('/gateway/engineering/jobs', json=self.request, headers=self.headers)

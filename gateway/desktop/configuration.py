@@ -90,6 +90,21 @@ def load(root):
     return validate(json.loads((Path(root) / 'settings.json').read_text(encoding='utf-8')))
 
 
+def public_repository_maps(root):
+    # A separate preference keeps settings.json readable by rollback releases.
+    try:
+        value = json.loads((Path(root) / 'data' / 'github-settings.json').read_text(encoding='utf-8'))
+    except FileNotFoundError:
+        return True
+    except (OSError, ValueError):
+        return False
+    return isinstance(value, dict) and value.get('public_repository_maps') is True
+
+
+def save_public_repository_maps(root, enabled):
+    atomic_json(Path(root) / 'data' / 'github-settings.json', {'public_repository_maps': enabled})
+
+
 def control_host(cfg):
     host = cfg['bind_host']
     return {'0.0.0.0': '127.0.0.1', '::': '::1'}.get(host, host)
@@ -120,6 +135,7 @@ def environment(root, cfg, management_token=''):
                GATEWAY_ALLOWED_HOSTS=json.dumps(hosts),
                GATEWAY_ALLOWED_ORIGINS=json.dumps([] if cfg['access'] == 'network' else ['http://' + h for h in hosts]),
                GATEWAY_REMOTE_ENGINEERING=str(cfg['engineering']).lower(), GATEWAY_MANAGEMENT_TOKEN=management_token,
+               GATEWAY_PUBLIC_REPOSITORY_MAPS=str(public_repository_maps(root)).lower(), GATEWAY_DESKTOP_ROOT=str(root),
                GATEWAY_ACTIVITY_STATE=str(data / 'activity.json'),
                GATEWAY_DEBUG_MODE=str(cfg['debug_mode']).lower(), GATEWAY_DEBUG_LOG=str(root / 'logs' / 'gateway-debug.jsonl'),
                GATEWAY_JOB_DB=str(data / 'jobs.sqlite3'), GATEWAY_AUTH_DB=str(data / 'auth.sqlite3'),

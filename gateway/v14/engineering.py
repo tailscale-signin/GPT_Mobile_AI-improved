@@ -536,7 +536,7 @@ class EngineeringSupervisor:
 
 
 class EngineeringService:
-    def __init__(self, store, backend):
+    def __init__(self, store, backend, *, public_repository_maps=False):
         self.store, self.backend = store, backend
         self.capabilities = InferenceCapabilities(store.runtime)
         self.bindings = ExecutionBindings(store, store.runtime, self.capabilities)
@@ -549,6 +549,10 @@ class EngineeringService:
         from v14.code_graph.service import GraphService
         graph_reader = getattr(backend, 'graph_reader', None)
         self.graph = GraphService(store, graph_reader() if callable(graph_reader) else backend, self.evidence)
+        self.public_graph = None
+        if public_repository_maps:
+            from v14.code_graph.public_github import PublicGitHubReader
+            self.public_graph = GraphService(store, PublicGitHubReader(), public=True)
         backend.record_evidence = lambda job, payload: self.evidence.append(job, 'github_api', payload)
         backend.recall_memory = self.memory.recall
         backend.recall_graph = self.graph.recall
@@ -673,7 +677,7 @@ class EngineeringService:
                 receipts.append(dict(row['payload'], receipt_id=row['receipt_id']))
         return completion_gate(job, readiness, merged, semantic_receipts=receipts)
 
-    def readiness(self):
+    def readiness(self, *, public_only=False):
         """Local engineering prerequisites; this never implies model or GitHub API success."""
         from v14.engineering_preflight import configuration_status
         runtime = self.store.runtime
@@ -689,15 +693,17 @@ class EngineeringService:
                         db.close()
             except (sqlite3.Error, OSError, ValueError):
                 journal = 'unavailable'
-        configured = bool(self.backend.available())
-        graph_configured = bool(self.graph.backend.available())
-        worker = self.thread is not None and self.thread.is_alive() and not self.stop.is_set()
+        configured = not public_only and bool(self.backend.available())
+        graph_connection = ('configured' if not public_only and self.graph.backend.available()
+                            else 'public_only' if self.public_graph is not None else 'missing')
+        graph_configured = graph_connection != 'missing'
+        worker = not public_only and self.thread is not None and self.thread.is_alive() and not self.stop.is_set()
         draining = bool(getattr(runtime, 'gateway_draining', False))
         graph_ready = journal == 'ready' and graph_configured and not draining
         return {'schema_version': 1, 'ready': journal == 'ready' and configured and worker and not draining, 'graph_ready': graph_ready,
                 'saved_results': journal in {'ready', 'write_failed'},
                 'checks': {'journal': journal, 'host_github_connection': 'configured' if configured else 'missing',
-                           'graph_host_github_connection': 'configured' if graph_configured else 'missing',
+                           'graph_host_github_connection': graph_connection,
                            'worker': 'running' if worker else 'unavailable', 'draining': draining,
                            'validation_policy': configuration_status(), 'acceptance': 'requires_objective_preflight'},
                 'implementation_ready': None, 'implementation_preflight_required': True,
@@ -1031,6 +1037,8 @@ class EngineeringService:
                     self.backend.cancel()
                     if self.thread:
                         await asyncio.to_thread(self.thread.join, 15)
+                    if self.public_graph is not None:
+                        self.public_graph.backend.close()
         return lifecycle
 
 

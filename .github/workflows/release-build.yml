@@ -69,16 +69,19 @@ jobs:
             echo "::error::Configure the repository Actions variable ISSUE_REPORT_ORIGIN after deploying the hosted issue-report service. Production release validation requires issue reporting."
             exit 1
           fi
+      - name: Validate Unified Reliability evidence consistency
+        run: python3 scripts/check_unified_reliability_v2.py
       - name: Validate reviewed release scope and truthful milestone evidence
+        if: github.event_name != 'pull_request'
         run: |
           set -euo pipefail
-          python3 scripts/check_unified_reliability_v2.py
           MODE=$(python3 scripts/check_release_scope.py --commit "$GITHUB_SHA")
           if [[ "$MODE" == full ]]; then
             python3 scripts/check_unified_reliability_v2.py --require-done
           fi
       - name: Check release version before building
         id: version
+        if: github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

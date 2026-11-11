@@ -183,7 +183,15 @@ class GitHubTaskTrustTest {
             put("task_outcome", "PARTIAL")
             put("completion_verified", false)
         }
-        evidence.retainAnswer("Verified file reading finished; implementation remains blocked.", verdict)
+        val (receipts, epoch) = evidence.snapshot()
+        assertTrue(
+            evidence.retainAnswerIfCurrent(
+                "Verified file reading finished; implementation remains blocked.",
+                verdict,
+                epoch,
+                receipts.keys
+            )
+        )
         val provider = object : AgentProviderSession {
             override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = error("Writing retry must not invoke model operations")
         }
@@ -303,7 +311,15 @@ class GitHubTaskTrustTest {
             put("verification_failure", "GITHUB_TASK_INCOMPLETE")
         }
         val book = GitHubEvidenceBook("expired", "o/r", "feature", setOf(read.name), load = { saved[it] }, save = { key, value -> saved[key] = value }, latestVerdict = { verdict })
-        book.retainAnswer("The saved report contains the verified source observations.", verdict)
+        val (receipts, epoch) = book.snapshot()
+        assertTrue(
+            book.retainAnswerIfCurrent(
+                "The saved report contains the verified source observations.",
+                verdict,
+                epoch,
+                receipts.keys
+            )
+        )
         val provider = object : AgentProviderSession {
             override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): kotlinx.coroutines.flow.Flow<ProviderEvent> = error("Retained delivery cannot invoke the provider")
         }

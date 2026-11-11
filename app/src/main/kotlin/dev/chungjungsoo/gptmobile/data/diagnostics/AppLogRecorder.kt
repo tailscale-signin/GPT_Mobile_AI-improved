@@ -600,8 +600,10 @@ object AppLogRecorder {
                         ""
                     }
                     val voice = if (exit.reason == android.app.ApplicationExitInfo.REASON_CRASH_NATIVE) {
-                        " · " + (voiceBreadcrumbs.correlate(exit.pid, exit.timestamp)?.fields(exit.timestamp)
-                            ?: "voiceNativeCorrelation=none · voiceNativeAttribution=unverified")
+                        " · " + (
+                            voiceBreadcrumbs.correlate(exit.pid, exit.timestamp)?.fields(exit.timestamp)
+                                ?: "voiceNativeCorrelation=none · voiceNativeAttribution=unverified"
+                            )
                     } else {
                         ""
                     }

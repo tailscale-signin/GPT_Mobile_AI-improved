@@ -17,6 +17,7 @@ import requests
 class GitHubApiRateWait(requests.HTTPError):
     def __init__(self, seconds):
         super().__init__('GitHub API capacity is temporarily unavailable')
+        self.dispatched = False
         self.response = SimpleNamespace(status_code=429, headers={
             'Retry-After': str(max(1, math.ceil(seconds)))})
 

@@ -5758,7 +5758,7 @@ class ChatRepositoryImpl(
                     resumeCommitSha = dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.publishedCommit(originalUserRequest),
                     resumeRequestKey = "${user.chatId}:${user.id}",
                     resumeClaimExtraction = restoreGatewayHandoffRequested,
-                    awaitOwnedDescendants = await@ { maxWaitMillis ->
+                    awaitOwnedDescendants = await@{ maxWaitMillis ->
                         val ledger = invocationLedger ?: return@await true
                         val currentInvocation = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]
                             ?.diagnosticInvocationId ?: return@await true

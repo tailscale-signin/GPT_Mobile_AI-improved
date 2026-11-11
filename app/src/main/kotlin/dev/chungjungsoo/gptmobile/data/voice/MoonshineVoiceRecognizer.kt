@@ -90,6 +90,7 @@ internal class MoonshineVoiceRecognizer internal constructor(
         @Volatile var cancelSilenceDeadline: (() -> Unit)? = null
 
         @Volatile var cancelTurnDeadline: (() -> Unit)? = null
+
         @Volatile var transcript = ""
     }
 

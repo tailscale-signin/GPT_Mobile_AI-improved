@@ -152,24 +152,22 @@ internal class GitHubOutputContinuationSession(
         val receiptBoundary = receipts.completed
         val settledCallIds = receipts.settledCallIds
 
-        suspend fun save(state: String, text: String = draft, resumable: Boolean = state == "OUTPUT_LIMIT", pendingCalls: List<ProviderEvent.ToolCall> = emptyList(), failure: ProviderEvent.Failed? = null): JsonObject {
-            return persistCheckpoint(
-                state,
-                text,
-                resumable,
-                pendingCalls,
-                failure,
-                evidenceDigest,
-                providerEvidenceDigest,
-                attempts,
-                interruptionAttempts,
-                receiptBoundary,
-                settledCallIds,
-                claimContinuation,
-                pendingApproval,
-                needsContinuation
-            )
-        }
+        suspend fun save(state: String, text: String = draft, resumable: Boolean = state == "OUTPUT_LIMIT", pendingCalls: List<ProviderEvent.ToolCall> = emptyList(), failure: ProviderEvent.Failed? = null): JsonObject = persistCheckpoint(
+            state,
+            text,
+            resumable,
+            pendingCalls,
+            failure,
+            evidenceDigest,
+            providerEvidenceDigest,
+            attempts,
+            interruptionAttempts,
+            receiptBoundary,
+            settledCallIds,
+            claimContinuation,
+            pendingApproval,
+            needsContinuation
+        )
 
         if (pendingApproval || unresolvedOutcome) {
             save(if (pendingApproval) "WAITING_FOR_APPROVAL" else "RECONCILIATION_REQUIRED", resumable = false)

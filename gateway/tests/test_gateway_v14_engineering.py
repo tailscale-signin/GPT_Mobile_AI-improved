@@ -15,6 +15,7 @@ from v14.engineering import EngineeringStore, EngineeringService, EngineeringSup
 from v14.engineering_defaults import DEFAULT_EXECUTION_BUDGET, LEGACY_EXECUTION_BUDGET
 from v14.engineering_backend import prepare_changes, blob_sha
 from v14.execution_binding import ExecutionBindingError, fingerprint
+from v14.github_api_governor import GitHubApiRateWait
 
 
 class Backend:
@@ -450,6 +451,35 @@ class DurableEngineeringTests(unittest.TestCase):
                     self.service.tick(job['id'])
                 self.assertEqual(['PLAN'], calls)
                 self.assertFalse(self.store.get(job['id'])['data']['blocked_reason']['retryable'])
+
+    def test_api_cooldown_before_dispatch_preserves_the_mutation_stage(self):
+        job = self.store.create('owner', self.request)
+        for _ in range(4):
+            self.service.tick(job['id'])
+        self.assertEqual('COMMIT', self.store.get(job['id'])['state'])
+        self.backend.physical_operation_journal = True
+        original_step = self.backend.step
+
+        def wait_for_capacity(claimed, phase):
+            self.assertEqual('COMMIT', phase)
+            claimed['data']['execution_integrity'] = 'VERIFIED'
+            self.service.operations.prepare(claimed, 'PATCH', '/repos/owner/repo/git/refs/heads/feature/job', {'sha': 'a' * 40})
+            raise GitHubApiRateWait(60)
+
+        self.backend.step = wait_for_capacity
+        self.service.tick(job['id'])
+        waiting = self.store.get(job['id'])
+        self.assertEqual('COMMIT', waiting['state'])
+        self.assertEqual('PREPARED', waiting['data']['latest_operation']['state'])
+        self.assertFalse(waiting['data']['latest_operation']['dispatched'])
+        self.assertEqual('RETRY_AFTER', waiting['provider_wait']['source'])
+        self.assertNotIn(job['id'], self.store.due())
+
+        self.time = waiting['provider_wait']['retry_at'] + .1
+        self.backend.step = original_step
+        self.service.tick(job['id'])
+        self.assertEqual('OPEN_PR', self.store.get(job['id'])['state'])
+        self.assertNotIn('reconcile:COMMIT', self.backend.calls)
 
     def test_validation_failure_after_dispatch_preserves_unknown_outcome_and_never_replays_write(self):
         job = self.store.create('owner', self.request)

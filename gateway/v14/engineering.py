@@ -895,6 +895,10 @@ class EngineeringService:
                 http_status == 403 and
                 ('retry-after' in lowered_headers or lowered_headers.get('x-ratelimit-remaining') == '0')
             )
+            mutation = job['state'] in MUTATIONS
+            before_dispatch = (mutation and getattr(self.backend, 'physical_operation_journal', False)
+                               and not self.operations.dispatched(job))
+            deferred_write = before_dispatch and rate_limited
             model_readiness_wait = (
                 isinstance(error, ExecutionBindingError) and
                 error.code in {'EXECUTION_MODEL_NOT_LOADED', 'EXECUTION_MODEL_LOADING'}
@@ -911,12 +915,12 @@ class EngineeringService:
                 phase = 'NEEDS_INPUT'
                 job['message'] = 'The retained phase is outside this read-only task scope. No repository operation was dispatched.'
                 output.update(error_code='TASK_SCOPE_READ_ONLY', dispatched=False)
-            elif job['state'] in MUTATIONS and getattr(self.backend, 'physical_operation_journal', False) and not self.operations.dispatched(job):
+            elif before_dispatch and not deferred_write:
                 phase = 'NEEDS_INPUT'
                 output['dispatched'] = False
                 job['message'] = 'The write was rejected before dispatch. Confirmed work is retained. ' + str(getattr(error, 'code', type(error).__name__))
                 job['data']['blocked_reason'] = {'code': getattr(error, 'code', 'OPERATION_PRECHECK_REJECTED'), 'retryable': False, 'dispatched': False}
-            elif job['state'] in MUTATIONS:
+            elif mutation and not deferred_write:
                 recovered = None
                 try:
                     recovered = self.backend.reconcile(job, job['state'])
@@ -945,6 +949,8 @@ class EngineeringService:
                 available = retry_at < job['deadline'] - job['request'].get('execution_budget', {}).get('final_seconds', 30)
                 output.update(error_code='ENGINEERING_RATE_LIMIT_WAIT', http_status=http_status, retryable=available,
                               retry_at=retry_at, retry_source=source, attempts=attempts)
+                if deferred_write:
+                    output['dispatched'] = False
                 if available:
                     job['provider_wait'] = {'retry_at': retry_at, 'source': source, 'attempts': attempts}
                     job['message'] = 'Waiting for provider capacity. The saved step will resume automatically.'

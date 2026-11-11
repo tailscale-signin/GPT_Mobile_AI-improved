@@ -478,6 +478,12 @@ object AppLogRecorder {
                         incidents.finishIndex()
                     }
                     val duplicateReferences = DiagnosticExportDeduplicator()
+                    val nativeVoiceBreadcrumbs = NativeVoiceBreadcrumbIndex()
+                    snapshot.sources.forEach { source ->
+                        runCatching {
+                            source.file.bufferedReader().useLines { lines -> lines.forEach(nativeVoiceBreadcrumbs::observe) }
+                        }
+                    }
                     target.bufferedWriter().use { output ->
                         val summary = if (structured) DiagnosticExportSummary(incidentCorrelationLimited = incidents.correlationLimited) else null
                         fun writeLine(line: String) {
@@ -487,7 +493,7 @@ object AppLogRecorder {
                         if (structured) writeLine(structuredDiagnosticLine("${Instant.now()} I/Export: version=${BuildConfig.VERSION_NAME} · build=${BuildConfig.VERSION_CODE} · package=${BuildConfig.APPLICATION_ID} · appCommit=${BuildConfig.APP_COMMIT} · variant=${BuildConfig.BUILD_TYPE} · droppedRecords=${droppedRecords.get()} · vendor_log_available=false · process=${Process.myPid()}"))
                         val buildMetadata = "${Instant.now()} I/AndroidBuild: ${androidBuildDiagnostic()}"
                         writeLine(if (structured) structuredDiagnosticLine(buildMetadata) else buildMetadata)
-                        historicalExitMetadata(context).forEach { line ->
+                        historicalExitMetadata(context, nativeVoiceBreadcrumbs).forEach { line ->
                             writeLine(if (structured) structuredDiagnosticLine(line, "android_exit_history", exportedAtMillis = exportedAt) else line)
                         }
                         val logAvailability = "${Instant.ofEpochMilli(snapshot.capturedAtMillis)} I/DiagnosticLogCapture: retainedRecords=${snapshot.recordCount} · retainedBytes=${snapshot.byteCount} · trackingEnabled=${snapshot.trackingEnabled} · omissionReason=${snapshot.omissionReason ?: "none"} · sourceFailures=${snapshot.sourceFailures.size} · droppedRecords=${snapshot.droppedRecords} · droppedCriticalRecords=${snapshot.droppedCriticalRecords} · duplicateTracking=BOUNDED_WINDOW"
@@ -570,8 +576,8 @@ object AppLogRecorder {
         }.onFailure { record("AnrTraceSummary", "coverage=unavailable · reason=trace_access_failed", "W") }
     }
 
-    /** Bounded platform metadata and app-owned process names; no traces or system descriptions. */
-    private fun historicalExitMetadata(context: Context): List<String> {
+    /** Bounded platform metadata plus sanitized native evidence; raw tombstones are discarded. */
+    private fun historicalExitMetadata(context: Context, voiceBreadcrumbs: NativeVoiceBreadcrumbIndex): List<String> {
         val prefix = "${Instant.now()} I/ProcessExit: "
         if (android.os.Build.VERSION.SDK_INT < 30) return listOf(prefix + "coverage=unsupported")
         return try {
@@ -583,7 +589,23 @@ object AppLogRecorder {
             } else {
                 exits.map { exit ->
                     val evidence = androidProcessExitEvidence(exit.reason)
-                    "${Instant.ofEpochMilli(exit.timestamp)} I/ProcessExit: coverage=available · exitTime=${exit.timestamp} · occurredAtMillis=${exit.timestamp} · processId=${exit.pid} · processName=${exit.processName?.takeIf { it == context.packageName || it.startsWith(context.packageName + ":") } ?: "unknown"} · workerExitConfirmed=true · workerExitEvidence=ANDROID_APPLICATION_EXIT_INFO · reasonCode=${exit.reason} · osExitReasonName=${evidence.name} · statusCode=${exit.status} · cause=${evidence.cause} · processCrashConfirmed=${evidence.crashConfirmed ?: "unknown"} · importance=${exit.importance} · pssKb=${exit.pss} · rssKb=${exit.rss}"
+                    val native = if (exit.reason == android.app.ApplicationExitInfo.REASON_CRASH_NATIVE) {
+                        val traceEvidence = try {
+                            nativeCrashTraceEvidence(exit.traceInputStream)
+                        } catch (_: Exception) {
+                            NativeCrashTraceEvidence("unavailable", "trace_access_failed")
+                        }
+                        " · ${traceEvidence.fields()}"
+                    } else {
+                        ""
+                    }
+                    val voice = if (exit.reason == android.app.ApplicationExitInfo.REASON_CRASH_NATIVE) {
+                        " · " + (voiceBreadcrumbs.correlate(exit.pid, exit.timestamp)?.fields(exit.timestamp)
+                            ?: "voiceNativeCorrelation=none · voiceNativeAttribution=unverified")
+                    } else {
+                        ""
+                    }
+                    "${Instant.ofEpochMilli(exit.timestamp)} I/ProcessExit: coverage=available · exitTime=${exit.timestamp} · occurredAtMillis=${exit.timestamp} · processId=${exit.pid} · processName=${exit.processName?.takeIf { it == context.packageName || it.startsWith(context.packageName + ":") } ?: "unknown"} · workerExitConfirmed=true · workerExitEvidence=ANDROID_APPLICATION_EXIT_INFO · reasonCode=${exit.reason} · osExitReasonName=${evidence.name} · statusCode=${exit.status} · cause=${evidence.cause} · processCrashConfirmed=${evidence.crashConfirmed ?: "unknown"} · importance=${exit.importance} · pssKb=${exit.pss} · rssKb=${exit.rss}$native$voice"
                 }
             }
         } catch (_: Exception) {

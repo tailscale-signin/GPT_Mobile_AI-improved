@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from v14.engineering import EngineeringStore, EngineeringService, EngineeringSupervisor, public_job, validate_request, principal_authorized, digest
 from v14.engineering_defaults import DEFAULT_EXECUTION_BUDGET, LEGACY_EXECUTION_BUDGET
 from v14.engineering_backend import prepare_changes, blob_sha
-from v14.execution_binding import fingerprint
+from v14.execution_binding import ExecutionBindingError, fingerprint
 
 
 class Backend:
@@ -277,6 +277,72 @@ class DurableEngineeringTests(unittest.TestCase):
         self.assertEqual('READ', resumed['state'])
         self.assertNotIn('provider_wait', resumed)
         self.assertEqual([(job['id'], 'PLAN'), (job['id'], 'PLAN')], attempts)
+
+    def test_repeated_provider_cooldowns_keep_the_durable_job_until_its_deadline(self):
+        job = self.store.create('owner', self.request)
+        response = requests.Response()
+        response.status_code = 429
+        response.headers['Retry-After'] = '1'
+        self.backend.step = lambda *args: (_ for _ in ()).throw(requests.HTTPError('fixture rate limit', response=response))
+        for attempt in range(1, 11):
+            self.service.tick(job['id'])
+            waiting = self.store.get(job['id'])
+            self.assertEqual('PLAN', waiting['state'])
+            self.assertEqual(attempt, waiting['provider_wait']['attempts'])
+            self.assertEqual('RETRY_AFTER', waiting['provider_wait']['source'])
+            self.assertEqual(0, waiting['stalls'])
+            self.time = waiting['provider_wait']['retry_at'] + .1
+        self.assertNotIn('blocked_reason', self.store.get(job['id'])['data'])
+
+    def test_secondary_provider_limit_uses_the_same_durable_wait(self):
+        job = self.store.create('owner', self.request)
+        response = requests.Response()
+        response.status_code = 403
+        response.headers['X-RateLimit-Remaining'] = '0'
+        response.headers['Retry-After'] = '45'
+        self.backend.step = lambda *args: (_ for _ in ()).throw(requests.HTTPError('fixture secondary limit', response=response))
+
+        self.service.tick(job['id'])
+
+        waiting = self.store.get(job['id'])
+        self.assertEqual('PLAN', waiting['state'])
+        self.assertEqual('RETRY_AFTER', waiting['provider_wait']['source'])
+        self.assertGreaterEqual(waiting['provider_wait']['retry_at'], self.time + 45)
+        self.assertEqual(0, waiting['stalls'])
+        self.assertNotIn('blocked_reason', waiting['data'])
+
+    def test_selected_model_readiness_wait_resumes_the_same_bound_stage(self):
+        job = self.store.create('owner', self.request)
+        original_probe = self.service.capabilities._probe
+
+        def not_loaded(*_args, **_kwargs):
+            error = ExecutionBindingError(
+                'EXECUTION_MODEL_NOT_LOADED',
+                'The exact selected model is advertised but not loaded.',
+                503,
+            )
+            error.retryable = True
+            raise error
+
+        self.service.capabilities._probe = not_loaded
+        self.service.capabilities.cache.clear()
+        self.service.tick(job['id'])
+        waiting = self.store.get(job['id'])
+        self.assertEqual('PLAN', waiting['state'])
+        self.assertEqual('MODEL_READINESS', waiting['provider_wait']['source'])
+        self.assertIn('exact selected model', waiting['message'])
+        self.assertNotIn('blocked_reason', waiting['data'])
+        self.assertEqual(0, waiting['stalls'])
+        self.assertEqual([], self.backend.calls)
+
+        self.time = waiting['provider_wait']['retry_at'] + .1
+        self.service.capabilities._probe = original_probe
+        self.service.capabilities.cache.clear()
+        self.service.tick(job['id'])
+        resumed = self.store.get(job['id'])
+        self.assertEqual('READ', resumed['state'])
+        self.assertNotIn('provider_wait', resumed)
+        self.assertEqual(['PLAN'], self.backend.calls)
 
     def test_stop_during_provider_cooldown_prevents_due_dispatch(self):
         job = self.store.create('owner', self.request)

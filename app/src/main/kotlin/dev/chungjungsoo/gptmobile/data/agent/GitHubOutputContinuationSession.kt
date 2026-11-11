@@ -3,8 +3,10 @@ package dev.chungjungsoo.gptmobile.data.agent
 import dev.chungjungsoo.gptmobile.data.agent.tool.isProviderOutputLimitFailure
 import dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
@@ -81,55 +83,10 @@ internal class GitHubOutputContinuationSession(
             emitAll(delegate.streamRound(tools, exchanges))
             return@flow
         }
-        val evidenceDigest = GitHubEvidenceBook.digest(
-            exchanges.joinToString("\n") { exchange ->
-                exchange.calls.joinToString { "${it.callId}:${it.name}:${it.arguments}" } + "\n" + exchange.results.joinToString { "${it.callId}:${it.isError}:${it.dispatched}:${it.content}" }
-            }
-        )
-        val providerEvidenceDigest by lazy {
-            val receipts = exchanges.flatMap { exchange ->
-                exchange.calls.mapNotNull { call ->
-                    val result = exchange.results.firstOrNull { it.callId == call.callId } ?: return@mapNotNull null
-                    ToolHandoffReceipt.from(call, result, originalAvailable = false)
-                }
-            }.sortedBy { it.invocationFingerprint }
-            GitHubEvidenceBook.digest(
-                JsonArray(
-                    receipts.map { receipt ->
-                        buildJsonObject {
-                            put("invocation", receipt.invocationFingerprint)
-                            put("result", receipt.sourceResultSha256 ?: receipt.projectionSha256)
-                            put("dispatched", receipt.dispatched)
-                            put("requires_reconciliation", receipt.requiresReconciliation)
-                            receipt.errorCode?.let { put("error", it) }
-                        }
-                    }
-                ).toString()
-            )
-        }
-        val previous = checkpointMutex.withLock {
-            val saved = readCheckpoint() ?: currentCheckpoint
-            if (!providerCheckpointValidated && expectedProviderCheckpoint != null) {
-                check(saved != null && expectedProviderCheckpoint.matches(saved) && saved["provider_evidence_digest"] == JsonPrimitive(providerEvidenceDigest)) {
-                    "PROVIDER_WAIT_CHECKPOINT_CHANGED"
-                }
-                providerCheckpointValidated = true
-            }
-            if (saved == null || saved["state"] !in GitHubToolHandoff.states) {
-                saved
-            } else {
-                val replayReceipts = exchanges.flatMap { exchange ->
-                    exchange.calls.mapNotNull { call ->
-                        exchange.results.firstOrNull { it.callId == call.callId }?.let { ToolHandoffReceipt.from(call, it, originalAvailable = false) }
-                    }
-                }
-                val durable = durableToolReceipts(GitHubToolHandoff.pending(saved))
-                val updated = GitHubToolHandoff.reconcile(saved, replayReceipts + durable, reconciledCallIds())
-                if (updated != saved) saveCheckpoint(updated)
-                currentCheckpoint = updated
-                updated
-            }
-        }
+        val evidence = continuationEvidenceDigests(exchanges)
+        val evidenceDigest = evidence.full
+        val providerEvidenceDigest = evidence.provider
+        val previous = loadCheckpointForRound(evidence.receipts, providerEvidenceDigest)
         val reconciled = reconciledCallIds()
         val sameEvidence = if (previous?.get("state") == JsonPrimitive("WAITING_PROVIDER_LIMIT")) {
             previous["provider_evidence_digest"] == JsonPrimitive(providerEvidenceDigest)
@@ -191,53 +148,27 @@ internal class GitHubOutputContinuationSession(
         }
         val pendingApproval = dev.chungjungsoo.gptmobile.data.github.GitHubPendingApproval.waiting(exchanges)
         val unresolvedOutcome = exchanges.any { exchange -> exchange.results.any { result -> result.callId !in reconciled && (result.errorCode in ToolResultEnvelope.unknownOutcomeCodes || result.executionReceipt?.get("requires_reconciliation") == JsonPrimitive(true) || GatewayOutcomeRecovery.requiresReconciliation("", result.errorCode)) } }
-        val retainedReceipts = (previous?.get("completed_results") as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
-            .associateByTo(linkedMapOf()) { (it["call_id"] as? JsonPrimitive)?.contentOrNull.orEmpty() }
-        exchanges.forEach { exchange ->
-            exchange.calls.forEach { call ->
-                exchange.results.firstOrNull { it.callId == call.callId }?.let { result ->
-                    val projection = ToolHandoffReceipt.from(call, result, originalAvailable = false).json()
-                    val merged = retainedReceipts[call.callId].orEmpty() + projection
-                    retainedReceipts[call.callId] = JsonObject(merged + ("source_hash_available" to JsonPrimitive(merged["source_result_sha256"] != null)))
-                }
-            }
-        }
-        val receiptBoundary = JsonArray(retainedReceipts.values.toList())
-        val settledCallIds = (previous?.get("reconciled_call_ids") as? JsonArray).orEmpty()
-            .mapNotNullTo(linkedSetOf()) { (it as? JsonPrimitive)?.contentOrNull } + reconciled
+        val receipts = continuationReceiptBoundary(previous, evidence.receipts, reconciled)
+        val receiptBoundary = receipts.completed
+        val settledCallIds = receipts.settledCallIds
 
         suspend fun save(state: String, text: String = draft, resumable: Boolean = state == "OUTPUT_LIMIT", pendingCalls: List<ProviderEvent.ToolCall> = emptyList(), failure: ProviderEvent.Failed? = null): JsonObject {
-            val checkpoint = buildJsonObject {
-                put("schema", "github.output-checkpoint.v1")
-                put("evidence_digest", evidenceDigest)
-                if (state == "WAITING_PROVIDER_LIMIT") put("provider_evidence_digest", providerEvidenceDigest)
-                put("state", state)
-                put("draft", text)
-                put("continuations", attempts)
-                put("continuation_revision", continuationRevision)
-                put("recovery_revision", recoveryRevision)
-                put("interruption_attempts", interruptionAttempts)
-                put("context", checkpointContext)
-                put("completed_results", receiptBoundary)
-                put("reconciled_call_ids", JsonArray(settledCallIds.sorted().map(::JsonPrimitive)))
-                put("resume_kind", if (claimContinuation) "OUTPUT_CONTINUATION" else "AFTER_TOOL_RESULTS")
-                put("resume_allowed", resumable)
-                put("tool_actions_replayed", false)
-                put("draft_kind", if (text.isBlank()) "NO_VISIBLE_DRAFT" else "UNVERIFIED_VISIBLE_DRAFT")
-                put("user_input_required", pendingApproval)
-                if (pendingApproval) put("blocking_condition", "WAITING_FOR_APPROVAL")
-                if (pendingCalls.isNotEmpty()) {
-                    put("pending_calls", JsonArray(pendingCalls.map { JsonPrimitive(callDigest(it)) }))
-                    put("handoff_continuation", needsContinuation)
-                }
-                failure?.let {
-                    it.errorCode?.let { code -> put("failure_code", code) }
-                    it.failureDetails?.let { details -> put("failure_details", details) }
-                }
-            }
-            saveCheckpoint(checkpoint)
-            currentCheckpoint = checkpoint
-            return checkpoint
+            return persistCheckpoint(
+                state,
+                text,
+                resumable,
+                pendingCalls,
+                failure,
+                evidenceDigest,
+                providerEvidenceDigest,
+                attempts,
+                interruptionAttempts,
+                receiptBoundary,
+                settledCallIds,
+                claimContinuation,
+                pendingApproval,
+                needsContinuation
+            )
         }
 
         if (pendingApproval || unresolvedOutcome) {
@@ -317,64 +248,16 @@ internal class GitHubOutputContinuationSession(
                 // empty visible draft before the provider can emit reasoning or lose the process.
                 save("GENERATING", resumable = true)
             }
-            val segment = StringBuilder()
-            val publicProgress = GitHubPublicProgress(publishProgress)
-            val segmentLineage = dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineageAccumulator()
-            val calls = mutableListOf<ProviderEvent.ToolCall>()
-            val admission = ToolRoundAdmission()
-            var completed = false
-            var finishReason: String? = null
-            var failure: ProviderEvent.Failed? = null
-            var receivedToolResult = false
-            var savedAt = 0
-            try {
-                active.streamRound(tools, if (needsContinuation) emptyList() else exchanges).stopAtUnknownGatewayOutcome().withSummedRequestUsage().collect { event ->
-                    when (event) {
-                        is ProviderEvent.TextDelta -> {
-                            check(draft.length.toLong() + segment.length + event.text.length <= maxCharacters) { "GitHub draft exceeded its retention allowance; completed evidence remains saved." }
-                            segment.append(publicProgress.accept(event))
-                            segmentLineage.append(event.lineage)
-                            if (segment.length - savedAt >= 4096) {
-                                save("WRITING", draft + continuationSuffix(draft, segment.toString()), resumable = calls.isEmpty() && !receivedToolResult)
-                                savedAt = segment.length
-                            }
-                        }
-                        is ProviderEvent.ToolCall -> {
-                            if (!admission.admit(event)) throw ToolBatchOversizeException()
-                            calls += event
-                            save("TOOL_CALL_BUFFERED", draft + continuationSuffix(draft, segment.toString()))
-                        }
-                        is ProviderEvent.ToolResult -> {
-                            receivedToolResult = true
-                            save("TOOL_RESULT_OBSERVED", draft + continuationSuffix(draft, segment.toString()))
-                            emit(event)
-                        }
-                        is ProviderEvent.Usage -> {
-                            finishReason = event.finishReason ?: finishReason
-                            emit(event)
-                        }
-                        is ProviderEvent.Failed -> if (failure == null) failure = event
-                        ProviderEvent.Completed -> completed = true
-                        else -> emit(event)
-                    }
-                }
-                segment.append(publicProgress.finish())
-            } catch (error: Exception) {
-                withContext(NonCancellable) {
-                    try {
-                        save(
-                            if (error is CancellationException) "CANCELLED" else "INTERRUPTED",
-                            draft + continuationSuffix(draft, segment.toString()),
-                            resumable = calls.isEmpty() && !receivedToolResult && !GatewayOutcomeRecovery.requiresReconciliation(error.message.orEmpty())
-                        )
-                    } catch (storage: Exception) {
-                        error.addSuppressed(storage)
-                    }
-                }
-                throw error
+            val generated = collectSegment(active, tools, if (needsContinuation) emptyList() else exchanges, draft) { state, text, resumable ->
+                save(state, text, resumable)
             }
-            val novel = if (needsContinuation) continuationSuffix(draft, segment.toString()) else segment.toString()
-            if (novel.isNotEmpty()) draftLineage.append(segmentLineage.lineage)
+            val calls = generated.calls
+            val completed = generated.completed
+            val finishReason = generated.finishReason
+            val failure = generated.failure
+            val receivedToolResult = generated.receivedToolResult
+            val novel = if (needsContinuation) continuationSuffix(draft, generated.text) else generated.text
+            if (novel.isNotEmpty()) draftLineage.append(generated.lineage)
             draft += novel
             val limited = finishReason?.lowercase() in setOf("length", "max_tokens", "output_limit") || failure?.let { isProviderOutputLimitFailure(it.message) } == true
             val safeBoundary = !receivedToolResult &&
@@ -434,6 +317,195 @@ internal class GitHubOutputContinuationSession(
         }
     }
 
+    /**
+     * Keep provider collection out of the continuation state machine's generated
+     * method. Besides avoiding the ART/JVM method-size cliff, this boundary makes
+     * the persistence rule explicit: a partial segment is durably checkpointed
+     * before cancellation or another exception escapes.
+     */
+    private suspend fun FlowCollector<ProviderEvent>.collectSegment(
+        active: AgentProviderSession,
+        tools: List<AgentToolDefinition>,
+        exchanges: List<AgentToolExchange>,
+        draft: String,
+        checkpoint: suspend (state: String, text: String, resumable: Boolean) -> Unit
+    ): GeneratedSegment {
+        val segment = StringBuilder()
+        val publicProgress = GitHubPublicProgress(publishProgress)
+        val segmentLineage = dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineageAccumulator()
+        val calls = mutableListOf<ProviderEvent.ToolCall>()
+        val admission = ToolRoundAdmission()
+        var completed = false
+        var finishReason: String? = null
+        var failure: ProviderEvent.Failed? = null
+        var receivedToolResult = false
+        var savedAt = 0
+        try {
+            active.streamRound(tools, exchanges).stopAtUnknownGatewayOutcome().withSummedRequestUsage().collect { event ->
+                when (event) {
+                    is ProviderEvent.TextDelta -> {
+                        check(draft.length.toLong() + segment.length + event.text.length <= maxCharacters) { "GitHub draft exceeded its retention allowance; completed evidence remains saved." }
+                        segment.append(publicProgress.accept(event))
+                        segmentLineage.append(event.lineage)
+                        if (segment.length - savedAt >= CHECKPOINT_CHARACTER_INTERVAL) {
+                            checkpoint("WRITING", draft + continuationSuffix(draft, segment.toString()), calls.isEmpty() && !receivedToolResult)
+                            savedAt = segment.length
+                        }
+                    }
+                    is ProviderEvent.ToolCall -> {
+                        if (!admission.admit(event)) throw ToolBatchOversizeException()
+                        calls += event
+                        checkpoint("TOOL_CALL_BUFFERED", draft + continuationSuffix(draft, segment.toString()), false)
+                    }
+                    is ProviderEvent.ToolResult -> {
+                        receivedToolResult = true
+                        checkpoint("TOOL_RESULT_OBSERVED", draft + continuationSuffix(draft, segment.toString()), false)
+                        emit(event)
+                    }
+                    is ProviderEvent.Usage -> {
+                        finishReason = event.finishReason ?: finishReason
+                        emit(event)
+                    }
+                    is ProviderEvent.Failed -> if (failure == null) failure = event
+                    ProviderEvent.Completed -> completed = true
+                    else -> emit(event)
+                }
+            }
+            segment.append(publicProgress.finish())
+        } catch (error: Exception) {
+            withContext(NonCancellable) {
+                try {
+                    checkpoint(
+                        if (error is CancellationException) "CANCELLED" else "INTERRUPTED",
+                        draft + continuationSuffix(draft, segment.toString()),
+                        calls.isEmpty() && !receivedToolResult && !GatewayOutcomeRecovery.requiresReconciliation(error.message.orEmpty())
+                    )
+                } catch (storage: Exception) {
+                    error.addSuppressed(storage)
+                }
+            }
+            throw error
+        }
+        return GeneratedSegment(segment.toString(), segmentLineage.lineage, calls, completed, finishReason, failure, receivedToolResult)
+    }
+
+    private suspend fun loadCheckpointForRound(
+        replayReceipts: List<ToolHandoffReceipt>,
+        providerEvidenceDigest: String
+    ): JsonObject? = checkpointMutex.withLock {
+        val saved = readCheckpoint() ?: currentCheckpoint
+        if (!providerCheckpointValidated && expectedProviderCheckpoint != null) {
+            check(saved != null && expectedProviderCheckpoint.matches(saved) && saved["provider_evidence_digest"] == JsonPrimitive(providerEvidenceDigest)) {
+                "PROVIDER_WAIT_CHECKPOINT_CHANGED"
+            }
+            providerCheckpointValidated = true
+        }
+        if (saved == null || saved["state"] !in GitHubToolHandoff.states) {
+            saved
+        } else {
+            val durable = durableToolReceipts(GitHubToolHandoff.pending(saved))
+            val updated = GitHubToolHandoff.reconcile(saved, replayReceipts + durable, reconciledCallIds())
+            if (updated != saved) saveCheckpoint(updated)
+            currentCheckpoint = updated
+            updated
+        }
+    }
+
+    private suspend fun continuationReceiptBoundary(
+        previous: JsonObject?,
+        current: List<ToolHandoffReceipt>,
+        reconciled: Set<String>
+    ): ContinuationReceiptBoundary = withContext(Dispatchers.Default) {
+        val retained = (previous?.get("completed_results") as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
+            .associateByTo(linkedMapOf()) { (it["call_id"] as? JsonPrimitive)?.contentOrNull.orEmpty() }
+        current.forEach { receipt ->
+            val projection = receipt.json()
+            val merged = retained[receipt.callId].orEmpty() + projection
+            retained[receipt.callId] = JsonObject(merged + ("source_hash_available" to JsonPrimitive(merged["source_result_sha256"] != null)))
+        }
+        val settled = (previous?.get("reconciled_call_ids") as? JsonArray).orEmpty()
+            .mapNotNullTo(linkedSetOf()) { (it as? JsonPrimitive)?.contentOrNull } + reconciled
+        ContinuationReceiptBoundary(JsonArray(retained.values.toList()), settled)
+    }
+
+    private suspend fun persistCheckpoint(
+        state: String,
+        text: String,
+        resumable: Boolean,
+        pendingCalls: List<ProviderEvent.ToolCall>,
+        failure: ProviderEvent.Failed?,
+        evidenceDigest: String,
+        providerEvidenceDigest: String,
+        attempts: Int,
+        interruptionAttempts: Int,
+        receiptBoundary: JsonArray,
+        settledCallIds: Set<String>,
+        claimContinuation: Boolean,
+        pendingApproval: Boolean,
+        needsContinuation: Boolean
+    ): JsonObject {
+        val checkpoint = buildJsonObject {
+            put("schema", "github.output-checkpoint.v1")
+            put("evidence_digest", evidenceDigest)
+            if (state == "WAITING_PROVIDER_LIMIT") put("provider_evidence_digest", providerEvidenceDigest)
+            put("state", state)
+            put("draft", text)
+            put("continuations", attempts)
+            put("continuation_revision", continuationRevision)
+            put("recovery_revision", recoveryRevision)
+            put("interruption_attempts", interruptionAttempts)
+            put("context", checkpointContext)
+            put("completed_results", receiptBoundary)
+            put("reconciled_call_ids", JsonArray(settledCallIds.sorted().map(::JsonPrimitive)))
+            put("resume_kind", if (claimContinuation) "OUTPUT_CONTINUATION" else "AFTER_TOOL_RESULTS")
+            put("resume_allowed", resumable)
+            put("tool_actions_replayed", false)
+            put("draft_kind", if (text.isBlank()) "NO_VISIBLE_DRAFT" else "UNVERIFIED_VISIBLE_DRAFT")
+            put("user_input_required", pendingApproval)
+            if (pendingApproval) put("blocking_condition", "WAITING_FOR_APPROVAL")
+            if (pendingCalls.isNotEmpty()) {
+                put("pending_calls", JsonArray(pendingCalls.map { JsonPrimitive(callDigest(it)) }))
+                put("handoff_continuation", needsContinuation)
+            }
+            failure?.let {
+                it.errorCode?.let { code -> put("failure_code", code) }
+                it.failureDetails?.let { details -> put("failure_details", details) }
+            }
+        }
+        saveCheckpoint(checkpoint)
+        currentCheckpoint = checkpoint
+        return checkpoint
+    }
+
+    /** Hashing raw retained evidence is CPU work and must not run on the UI collector. */
+    private suspend fun continuationEvidenceDigests(exchanges: List<AgentToolExchange>): ContinuationEvidenceDigests = withContext(Dispatchers.Default) {
+        val full = GitHubEvidenceBook.digest(
+            exchanges.joinToString("\n") { exchange ->
+                exchange.calls.joinToString { "${it.callId}:${it.name}:${it.arguments}" } + "\n" + exchange.results.joinToString { "${it.callId}:${it.isError}:${it.dispatched}:${it.content}" }
+            }
+        )
+        val receipts = exchanges.flatMap { exchange ->
+            exchange.calls.mapNotNull { call ->
+                val result = exchange.results.firstOrNull { it.callId == call.callId } ?: return@mapNotNull null
+                ToolHandoffReceipt.from(call, result, originalAvailable = false)
+            }
+        }
+        val provider = GitHubEvidenceBook.digest(
+            JsonArray(
+                receipts.sortedBy { it.invocationFingerprint }.map { receipt ->
+                    buildJsonObject {
+                        put("invocation", receipt.invocationFingerprint)
+                        put("result", receipt.sourceResultSha256 ?: receipt.projectionSha256)
+                        put("dispatched", receipt.dispatched)
+                        put("requires_reconciliation", receipt.requiresReconciliation)
+                        receipt.errorCode?.let { put("error", it) }
+                    }
+                }
+            ).toString()
+        )
+        ContinuationEvidenceDigests(full, provider, receipts)
+    }
+
     // Reconciliation above considers both replay and durable receipts. Rechecking
     // replay alone here would let stale success override an unknown durable effect.
     private fun handoffResolved(checkpoint: JsonObject): Boolean =
@@ -444,4 +516,29 @@ internal class GitHubOutputContinuationSession(
     // boundary. Hash their original fields; a provider-supplied fingerprint cannot
     // select the receipt identity that survives authorized aliasing and compaction.
     private fun callDigest(call: ProviderEvent.ToolCall): String = GitHubEvidenceBook.digest("${call.callId}:${call.name}:${call.arguments}")
+
+    private data class GeneratedSegment(
+        val text: String,
+        val lineage: dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage,
+        val calls: List<ProviderEvent.ToolCall>,
+        val completed: Boolean,
+        val finishReason: String?,
+        val failure: ProviderEvent.Failed?,
+        val receivedToolResult: Boolean
+    )
+
+    private data class ContinuationEvidenceDigests(
+        val full: String,
+        val provider: String,
+        val receipts: List<ToolHandoffReceipt>
+    )
+
+    private data class ContinuationReceiptBoundary(
+        val completed: JsonArray,
+        val settledCallIds: Set<String>
+    )
+
+    private companion object {
+        const val CHECKPOINT_CHARACTER_INTERVAL = 4096
+    }
 }

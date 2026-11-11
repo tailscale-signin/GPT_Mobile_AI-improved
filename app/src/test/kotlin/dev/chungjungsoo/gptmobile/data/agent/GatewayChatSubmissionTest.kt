@@ -91,6 +91,23 @@ class GatewayChatSubmissionTest {
     }
 
     @Test
+    fun cloudGitHubImplementationStaysOnItsSelectedAppRouteWithoutLocalModelReadiness() = runTest {
+        supported()
+        val cloud = request.platform.copy(
+            compatibleType = ClientType.OPENAI,
+            apiUrl = "https://api.example.test/v1",
+            model = "cloud-selected-model"
+        )
+
+        assertNull(service.submitIfSupported(request.copy(platform = cloud)))
+
+        coVerify(exactly = 0) { engineering.supportsDurableChat(any()) }
+        coVerify(exactly = 0) { engineering.submitBoundTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+        coVerify(exactly = 0) { engineering.submitTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+        coVerify(exactly = 0) { workspace.defaultBranch(any()) }
+    }
+
+    @Test
     fun lostCreateResponseWithSavedCommandReturnsUnconfirmedHandoffAndNeverAProviderFallback() = runTest {
         supported()
         coEvery { engineering.bindings(4) } returnsMany listOf(emptyList(), listOf(binding))

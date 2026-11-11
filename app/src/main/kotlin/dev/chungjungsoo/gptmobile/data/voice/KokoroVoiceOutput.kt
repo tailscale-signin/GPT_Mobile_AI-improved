@@ -29,11 +29,71 @@ internal fun createKokoroVoiceOutput(
     models: LocalVoiceModelStore,
     attributes: () -> AudioAttributes,
     rate: () -> Float
-): KokoroOutput? = try {
-    KokoroVoiceOutput(context, models, attributes, rate)
-} catch (error: LinkageError) {
-    AppLogRecorder.record("VoiceEngine", "kokoro_startup_failed · type=${error.javaClass.simpleName}", "W")
-    null
+): KokoroOutput = DeferredKokoroOutput {
+    try {
+        KokoroVoiceOutput(context, models, attributes, rate)
+    } catch (error: LinkageError) {
+        AppLogRecorder.record("VoiceEngine", "kokoro_startup_failed · type=${error.javaClass.simpleName}", "W")
+        null
+    }
+}
+
+/**
+ * Keeps sherpa-onnx/JNI completely out of Voice screen startup. Configuration and disposal are
+ * cheap until Kokoro is actually selected for warmup or playback.
+ */
+internal class DeferredKokoroOutput(private val factory: () -> KokoroOutput?) : KokoroOutput {
+    private val lock = Any()
+    private var attempted = false
+    private var closed = false
+    private var threads = 2
+    private var delegate: KokoroOutput? = null
+
+    private fun existing(): KokoroOutput? = synchronized(lock) { delegate }
+
+    private fun output(): KokoroOutput? = synchronized(lock) {
+        if (closed) return@synchronized null
+        if (!attempted) {
+            attempted = true
+            delegate = factory()?.also { it.configureThreads(threads) }
+        }
+        delegate
+    }
+
+    override fun speak(text: String, voice: KokoroVoice, complete: () -> Unit, error: (String, Boolean) -> Unit) {
+        output()?.speak(text, voice, complete, error)
+            ?: error("Kokoro playback is unavailable. Using the installed Android voice instead.", true)
+    }
+
+    override fun openReply(voice: KokoroVoice, complete: () -> Unit, error: (String, Boolean) -> Unit): VoiceReplyPlayback? =
+        output()?.openReply(voice, complete, error)
+
+    override fun configureThreads(value: Int) {
+        val bounded = value.coerceIn(2, 4)
+        synchronized(lock) { threads = bounded }
+        existing()?.configureThreads(bounded)
+    }
+
+    override fun prewarm(voice: KokoroVoice) {
+        output()?.prewarm(voice)
+    }
+
+    override fun releaseWarmModel() {
+        existing()?.releaseWarmModel()
+    }
+
+    override fun stop() {
+        existing()?.stop()
+    }
+
+    override fun close() {
+        val current = synchronized(lock) {
+            if (closed) return
+            closed = true
+            delegate.also { delegate = null }
+        }
+        current?.close()
+    }
 }
 
 /** The synthesis worker owns the JNI model. The output worker drains one track per reply. */

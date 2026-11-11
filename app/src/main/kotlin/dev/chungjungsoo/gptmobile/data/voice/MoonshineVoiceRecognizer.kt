@@ -25,6 +25,7 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.sqrt
 
@@ -72,10 +73,14 @@ internal class MoonshineVoiceRecognizer internal constructor(
 
     private class CaptureRun(val listener: VoiceAudio.Listener) {
         val lease = "local-voice:${UUID.randomUUID()}"
+        val startedAt = android.os.SystemClock.elapsedRealtime()
         val cancelled = AtomicBoolean()
         val ending = AtomicBoolean()
         val speechDetected = AtomicBoolean()
+        val partialDetected = AtomicBoolean()
+        val acceptedChunks = AtomicInteger()
         val failure = AtomicReference<String?>()
+        val failureCode = AtomicReference<String?>()
         val audio = ArrayBlockingQueue<FloatArray>(40)
 
         @Volatile var capture: LocalVoiceCapture? = null
@@ -85,7 +90,7 @@ internal class MoonshineVoiceRecognizer internal constructor(
         @Volatile var cancelSilenceDeadline: (() -> Unit)? = null
 
         @Volatile var cancelTurnDeadline: (() -> Unit)? = null
-        var transcript = ""
+        @Volatile var transcript = ""
     }
 
     override fun listen(listener: VoiceAudio.Listener) {
@@ -109,6 +114,7 @@ internal class MoonshineVoiceRecognizer internal constructor(
             return
         }
         active = run
+        engineEvent(run, "queued")
         try {
             worker.execute { recognize(run) }
         } catch (_: java.util.concurrent.RejectedExecutionException) {
@@ -129,7 +135,10 @@ internal class MoonshineVoiceRecognizer internal constructor(
         }
     }
 
-    private fun recognize(run: CaptureRun) = VoiceNativeEngineGate.exclusive { recognizeExclusive(run) }
+    private fun recognize(run: CaptureRun) {
+        engineEvent(run, "native_gate_wait")
+        VoiceNativeEngineGate.exclusive { recognizeExclusive(run) }
+    }
 
     private fun recognizeExclusive(run: CaptureRun) {
         var decoder: LocalSpeechDecoder? = null
@@ -143,27 +152,37 @@ internal class MoonshineVoiceRecognizer internal constructor(
             }
             modelAcquired = true
             if (run.cancelled.get()) return
-            engineEvent(run, "start")
+            engineEvent(run, "native_gate_acquired")
+            engineEvent(run, "decoder_create")
             decoder = decoderFactory()
+            engineEvent(run, "model_load_start")
             decoder.start(modelDirectory()) { event ->
                 if (!run.cancelled.get()) {
                     when (event) {
                         LocalSpeechEvent.Speech -> {
-                            run.speechDetected.set(true)
+                            if (run.speechDetected.compareAndSet(false, true)) engineEvent(run, "speech_detected")
                             run.cancelSilenceDeadline?.invoke()
                         }
                         is LocalSpeechEvent.Partial -> {
                             run.transcript = event.text.take(8000)
+                            if (run.partialDetected.compareAndSet(false, true)) engineEvent(run, "first_partial")
                             deliver(run) { run.listener.partial(event.text.take(8000)) }
                         }
                         is LocalSpeechEvent.Final -> {
                             run.transcript = event.text.take(8000)
+                            engineEvent(run, "final_transcript")
+                            requestEnd(run)
+                        }
+                        is LocalSpeechEvent.Failure -> {
+                            run.failureCode.compareAndSet(null, event.code)
+                            run.failure.compareAndSet(null, "Local speech stopped unexpectedly. Your captured text is retained; tap to try again.")
+                            engineEvent(run, "decoder_callback_failure")
                             requestEnd(run)
                         }
                     }
                 }
             }
-            engineEvent(run, "ready")
+            engineEvent(run, "model_load_complete")
             if (run.cancelled.get()) return
             val capture = captureFactory()
             run.capture = capture
@@ -173,16 +192,24 @@ internal class MoonshineVoiceRecognizer internal constructor(
             while (!run.cancelled.get() && run.failure.get() == null && (!run.ending.get() || run.audio.isNotEmpty())) {
                 val samples = run.audio.poll(100, TimeUnit.MILLISECONDS) ?: continue
                 decoder.accept(samples)
+                run.acceptedChunks.incrementAndGet()
             }
             requestEnd(run)
             // stop is capture-only. It never calls native stop/free from this thread's callers.
             joinCapture(run)
-            if (!run.cancelled.get() && run.failure.get() == null) decoder.finish()
+            if (!run.cancelled.get() && run.failure.get() == null) {
+                engineEvent(run, "decoder_finish_start")
+                decoder.finish()
+                engineEvent(run, "decoder_finish_complete")
+            }
         } catch (_: SecurityException) {
+            run.failureCode.compareAndSet(null, "MICROPHONE_PERMISSION_CHANGED")
             run.failure.compareAndSet(null, "Microphone permission changed. Allow microphone access in Android settings and try again.")
         } catch (_: LinkageError) {
+            run.failureCode.compareAndSet(null, "NATIVE_RUNTIME_LINKAGE")
             run.failure.compareAndSet(null, "The local speech runtime could not load on this device. Select the Android speech service or update the app.")
         } catch (failure: Exception) {
+            run.failureCode.compareAndSet(null, if (failure is LocalVoiceCaptureException) "MICROPHONE_CAPTURE_FAILED" else "LOCAL_DECODER_FAILED")
             run.failure.compareAndSet(null, if (failure is LocalVoiceCaptureException) failure.message else "Local speech stopped unexpectedly. Your captured text is retained; tap to try again.")
         } finally {
             run.ending.set(true)
@@ -191,7 +218,10 @@ internal class MoonshineVoiceRecognizer internal constructor(
             run.cancelSilenceDeadline?.invoke()
             run.cancelTurnDeadline?.invoke()
             // All decoder calls, including release, are on this serial worker, after accept/finish returned.
+            if (decoder != null) engineEvent(run, "decoder_close_start")
             runCatching { decoder?.close() }
+                .onFailure { run.failureCode.compareAndSet(null, "DECODER_CLOSE_FAILED") }
+            if (decoder != null) engineEvent(run, "decoder_close_complete")
             if (modelAcquired) releaseModel()
             if (run.failure.get() != null) engineEvent(run, "failure")
             if (decoder != null) engineEvent(run, "released")
@@ -210,7 +240,13 @@ internal class MoonshineVoiceRecognizer internal constructor(
     }
 
     private fun engineEvent(run: CaptureRun, stage: String) {
-        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("VoiceEngine", "moonshine_$stage · engineId=${run.lease}")
+        val message = "moonshine_$stage · stage=$stage · nativeOperationId=${run.lease} · engineId=${run.lease} · durationMs=${android.os.SystemClock.elapsedRealtime() - run.startedAt} · cancelled=${run.cancelled.get()} · ending=${run.ending.get()} · acceptedChunks=${run.acceptedChunks.get()} · queuedChunks=${run.audio.size} · transcriptChars=${run.transcript.length} · failureCode=${run.failureCode.get() ?: "none"}"
+        if (stage in nativeBoundaryStages) {
+            // Persist before entering the native call; a SIGABRT cannot drain the async queue.
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.checkpoint("VoiceEngine", message)
+        } else {
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("VoiceEngine", message)
+        }
     }
 
     private fun record(run: CaptureRun, capture: LocalVoiceCapture) {
@@ -238,10 +274,12 @@ internal class MoonshineVoiceRecognizer internal constructor(
                 deliver(run) { run.listener.level((rms * 4).coerceIn(0f, 1f)) }
             }
         } catch (_: SecurityException) {
+            run.failureCode.compareAndSet(null, "MICROPHONE_PERMISSION_CHANGED")
             run.failure.compareAndSet(null, "Microphone permission changed. Allow microphone access and try again.")
             requestEnd(run)
         } catch (failure: Exception) {
             if (!run.cancelled.get() && !run.ending.get()) {
+                run.failureCode.compareAndSet(null, if (failure is LocalVoiceCaptureException) "MICROPHONE_CAPTURE_FAILED" else "MICROPHONE_READ_FAILED")
                 run.failure.compareAndSet(null, failure.message?.takeIf { failure is LocalVoiceCaptureException } ?: "The microphone could not record audio. Check your audio route and try again.")
                 requestEnd(run)
             }
@@ -282,6 +320,7 @@ internal class MoonshineVoiceRecognizer internal constructor(
 
     companion object {
         private val main by lazy { Handler(Looper.getMainLooper()) }
+        private val nativeBoundaryStages = setOf("model_load_start", "decoder_finish_start", "decoder_close_start")
     }
 }
 
@@ -289,6 +328,7 @@ internal sealed interface LocalSpeechEvent {
     data object Speech : LocalSpeechEvent
     data class Partial(val text: String) : LocalSpeechEvent
     data class Final(val text: String) : LocalSpeechEvent
+    data class Failure(val code: String) : LocalSpeechEvent
 }
 
 internal interface LocalSpeechDecoder {
@@ -300,6 +340,7 @@ internal interface LocalSpeechDecoder {
 
 /** Uses only the file-based API verified in Maven 0.1.5. A fresh stream cannot inherit prior line IDs. */
 private class MoonshineDecoder : LocalSpeechDecoder {
+    private val open = AtomicBoolean(true)
     private val transcriber = Transcriber(
         listOf(
             TranscriberOption("return_audio_data", "false"),
@@ -312,19 +353,28 @@ private class MoonshineDecoder : LocalSpeechDecoder {
 
     override fun start(directory: File, events: (LocalSpeechEvent) -> Unit) {
         val lines = linkedMapOf<Long, String>()
-        fun text(): String = lines.values.filter(String::isNotBlank).joinToString(" ").take(8000)
+        val lineLock = Any()
+        fun emit(event: LocalSpeechEvent) {
+            try {
+                events(event)
+            } catch (_: Exception) {
+                // No application exception may escape a Moonshine/JNI callback thread.
+                if (event !is LocalSpeechEvent.Failure) runCatching { events(LocalSpeechEvent.Failure("MOONSHINE_LISTENER_ERROR")) }
+            }
+        }
+        fun update(id: Long, value: String): String = synchronized(lineLock) {
+            lines[id] = value
+            lines.values.filter(String::isNotBlank).joinToString(" ").take(8000)
+        }
         transcriber.addListener { event ->
+            if (!open.get()) return@addListener
             when (event) {
-                is TranscriptEvent.LineStarted -> events(LocalSpeechEvent.Speech)
-                is TranscriptEvent.LineTextChanged -> {
-                    lines[event.line.id] = event.line.text.orEmpty()
-                    events(LocalSpeechEvent.Partial(text()))
-                }
-                is TranscriptEvent.LineCompleted -> {
-                    lines[event.line.id] = event.line.text.orEmpty()
-                    events(LocalSpeechEvent.Final(text()))
-                }
-                is TranscriptEvent.Error -> throw IOException("Local decoder failed.", event.cause)
+                is TranscriptEvent.LineStarted -> emit(LocalSpeechEvent.Speech)
+                is TranscriptEvent.LineTextChanged -> emit(LocalSpeechEvent.Partial(update(event.line.id, event.line.text.orEmpty())))
+                is TranscriptEvent.LineCompleted -> emit(LocalSpeechEvent.Final(update(event.line.id, event.line.text.orEmpty())))
+                // A listener can run on Moonshine's native callback thread. Never throw across
+                // that JNI boundary: signal the serial owner so it can stop and release safely.
+                is TranscriptEvent.Error -> emit(LocalSpeechEvent.Failure("MOONSHINE_CALLBACK_ERROR"))
             }
         }
         transcriber.loadFromFiles(directory.absolutePath, JNI.MOONSHINE_MODEL_ARCH_TINY_STREAMING)
@@ -333,7 +383,9 @@ private class MoonshineDecoder : LocalSpeechDecoder {
 
     override fun accept(samples: FloatArray) = transcriber.addAudio(samples, 16_000)
     override fun finish() = transcriber.stop()
-    override fun close() = transcriber.close()
+    override fun close() {
+        if (open.compareAndSet(true, false)) transcriber.close()
+    }
 }
 
 internal interface LocalVoiceCapture {

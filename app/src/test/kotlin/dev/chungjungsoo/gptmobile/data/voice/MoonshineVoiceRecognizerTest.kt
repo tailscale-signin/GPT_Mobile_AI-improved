@@ -103,6 +103,29 @@ class MoonshineVoiceRecognizerTest {
         }
     }
 
+    @Test fun decoderCallbackFailureStopsCaptureWithoutThrowingAcrossTheCallback() {
+        val decoder = FakeDecoder {
+            events(LocalSpeechEvent.Speech)
+            events(LocalSpeechEvent.Failure("MOONSHINE_CALLBACK_ERROR"))
+        }
+        val fixture = Fixture(decoder)
+        try {
+            fixture.audio.listen(fixture.listener)
+            assertTrue(fixture.capture.started.await(3, TimeUnit.SECONDS))
+            fixture.capture.chunks.add(FloatArray(1600))
+            assertTrue(decoder.closed.await(3, TimeUnit.SECONDS))
+            fixture.worker.shutdown()
+            assertTrue(fixture.worker.awaitTermination(3, TimeUnit.SECONDS))
+            fixture.drain()
+            assertTrue(fixture.finals.isEmpty())
+            assertTrue(fixture.errors.single().contains("stopped unexpectedly"))
+            assertTrue(fixture.capture.closed)
+            assertEquals(1, fixture.releases.get())
+        } finally {
+            fixture.close()
+        }
+    }
+
     @Test fun silenceDeadlineStopsCaptureAndNeverSendsAnEmptyTurn() {
         val decoder = FakeDecoder()
         val fixture = Fixture(decoder)

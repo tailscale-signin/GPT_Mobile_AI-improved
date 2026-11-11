@@ -138,10 +138,11 @@ internal object GitHubRunAcceptance {
     }
 
     /** One bounded record per criterion preserves readable blockers when the surrounding log is truncated. */
-    fun diagnosticLines(assessment: Assessment): List<String> {
+    fun diagnosticLines(assessment: Assessment, runId: String? = null): List<String> {
         val projection = assessment.diagnostics?.takeIf(GitHubAcceptanceDiagnostics::valid) ?: return listOf(
             buildJsonObject {
                 put("schema", "github.acceptance-summary.v1")
+                runId?.let { put("run_id", it) }
                 put("status", "NOT_RETAINED")
                 put("required", assessment.requiredCriteria)
                 put("verified", assessment.verifiedCriteria)
@@ -155,6 +156,7 @@ internal object GitHubRunAcceptance {
             add(
                 buildJsonObject {
                     put("schema", "github.acceptance-summary.v1")
+                    runId?.let { put("run_id", it) }
                     put("verification", assessment.verification)
                     put("total", total)
                     put("included", rows.size)
@@ -168,6 +170,7 @@ internal object GitHubRunAcceptance {
                 add(
                     buildJsonObject {
                         put("schema", "github.acceptance-criterion.v1")
+                        runId?.let { put("run_id", it) }
                         put("criterion", row)
                         put("criterion_sha256", GitHubEvidenceBook.digest(row.toString()))
                         put("criteria_sha256", digest)

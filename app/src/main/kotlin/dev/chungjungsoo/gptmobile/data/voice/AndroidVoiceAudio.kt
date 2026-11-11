@@ -57,6 +57,16 @@ class AndroidVoiceAudio internal constructor(
     private var pendingSpeech: (() -> Unit)? = null
     private var playbackError: ((String) -> Unit)? = null
     private var speechInitializationTimeout: Runnable? = null
+    private class SpeechInitialization(val generation: Long) {
+        val result = java.util.concurrent.atomic.AtomicReference<Int?>()
+        val handled = java.util.concurrent.atomic.AtomicBoolean()
+        val shutdown = java.util.concurrent.atomic.AtomicBoolean()
+
+        @Volatile var engine: TextToSpeech? = null
+
+        @Volatile var retireAfterInitialization = false
+    }
+    private var speechInitialization: SpeechInitialization? = null
     companion object {
         private val sharedRecognitionGate = RecognitionStartGate()
         private val nextRecognizerInstance = java.util.concurrent.atomic.AtomicLong()
@@ -614,6 +624,8 @@ class AndroidVoiceAudio internal constructor(
         speechState = SpeechEngineState.INITIALIZING
         mutableVoiceCatalog.value = SpeechVoiceCatalogState.CHECKING
         val initialization = ++speechGeneration
+        val initializationLease = SpeechInitialization(initialization)
+        speechInitialization = initializationLease
         // Voice-settings discovery also binds TTS without a pending utterance.
         // A missing initialization callback must not leave its catalogue checking forever.
         speechInitializationTimeout = Runnable {
@@ -630,37 +642,20 @@ class AndroidVoiceAudio internal constructor(
             }
         }.also { main.postDelayed(it, 10_000) }
         try {
-            tts = speechFactory(context) { status ->
-                main.post {
-                    if (closed || initialization != speechGeneration || speechState != SpeechEngineState.INITIALIZING) return@post
-                    speechInitializationTimeout?.let(main::removeCallbacks)
-                    speechInitializationTimeout = null
-                    speechState = if (status == TextToSpeech.SUCCESS) SpeechEngineState.READY else SpeechEngineState.UNINITIALIZED
-                    event("tts_initialization_result · engineInstance=$initialization · state=${speechState.name}")
-                    val pending = pendingSpeech
-                    pendingSpeech = null
-                    if (speechReady) {
-                        if (pending != null) {
-                            watchdog?.let(main::removeCallbacks)
-                            watchdog = null
-                            pending.invoke()
-                        } else {
-                            prepareVoices()
-                        }
-                    } else {
-                        val failed = playbackError
-                        playbackError = null
-                        releaseSpeech(SpeechVoiceCatalogState.UNAVAILABLE)
-                        if (pending != null) {
-                            terminal("initialization_failed")
-                            stop()
-                            failed?.invoke("Text-to-speech is unavailable. Install a voice or continue with captions.")
-                        }
-                    }
-                }
+            val engine = speechFactory(context) listener@{ status ->
+                // Android may deliver duplicate or late callbacks. Only the first result owns
+                // this engine; a late successful bind is shut down after it becomes bound.
+                if (!initializationLease.result.compareAndSet(null, status)) return@listener
+                dispatchSpeechInitialization(initializationLease, status)
             }
+            initializationLease.engine = engine
+            tts = engine
             event("tts_engine_created · engineInstance=$initialization · activeOwnedEngines=${activeSpeechOwners.incrementAndGet()} · state=INITIALIZING")
+            // Test doubles and vendor engines may call onInit before their constructor returns.
+            // Re-dispatch after publishing engine/tts; handled fences the normal async path.
+            initializationLease.result.get()?.let { dispatchSpeechInitialization(initializationLease, it) }
         } catch (_: Exception) {
+            speechInitialization = null
             val failed = playbackError
             val pending = pendingSpeech
             pendingSpeech = null
@@ -676,14 +671,61 @@ class AndroidVoiceAudio internal constructor(
         }
     }
 
-    private fun releaseSpeech(catalogState: SpeechVoiceCatalogState = SpeechVoiceCatalogState.UNINITIALIZED) {
+    private fun dispatchSpeechInitialization(initialization: SpeechInitialization, status: Int) {
+        main.post {
+            val initializedEngine = initialization.engine ?: return@post
+            if (!initialization.handled.compareAndSet(false, true)) return@post
+            if (initialization.retireAfterInitialization || closed || initialization.generation != speechGeneration || speechState != SpeechEngineState.INITIALIZING || tts !== initializedEngine) {
+                if (status == TextToSpeech.SUCCESS) {
+                    retireInitializedSpeech(initialization, "late_initialization")
+                } else {
+                    // No Binder connection exists, and no later callback can supersede the
+                    // first terminal result. Break the listener/engine reference cycle.
+                    initialization.engine = null
+                }
+                return@post
+            }
+            speechInitializationTimeout?.let(main::removeCallbacks)
+            speechInitializationTimeout = null
+            speechState = if (status == TextToSpeech.SUCCESS) SpeechEngineState.READY else SpeechEngineState.UNINITIALIZED
+            event("tts_initialization_result · engineInstance=${initialization.generation} · state=${speechState.name}")
+            val pending = pendingSpeech
+            pendingSpeech = null
+            if (speechReady) {
+                if (pending != null) {
+                    watchdog?.let(main::removeCallbacks)
+                    watchdog = null
+                    pending.invoke()
+                } else {
+                    prepareVoices()
+                }
+            } else {
+                val failed = playbackError
+                playbackError = null
+                releaseSpeech(SpeechVoiceCatalogState.UNAVAILABLE, awaitLateInitialization = false)
+                if (pending != null) {
+                    terminal("initialization_failed")
+                    stop()
+                    failed?.invoke("Text-to-speech is unavailable. Install a voice or continue with captions.")
+                }
+            }
+        }
+    }
+
+    private fun releaseSpeech(
+        catalogState: SpeechVoiceCatalogState = SpeechVoiceCatalogState.UNINITIALIZED,
+        awaitLateInitialization: Boolean = true
+    ) {
         speechInitializationTimeout?.let(main::removeCallbacks)
         speechInitializationTimeout = null
         val previous = synchronized(speechStateLock) {
-            val retired = tts?.let { it to speechGeneration }
+            val retired = tts?.let { engine ->
+                Triple(engine, speechGeneration, speechInitialization?.takeIf { it.engine === engine })
+            }
             speechGeneration++
             speechState = if (closed) SpeechEngineState.CLOSED else SpeechEngineState.UNINITIALIZED
             tts = null
+            speechInitialization = null
             retired
         }
         installedVoices = emptySet()
@@ -691,16 +733,42 @@ class AndroidVoiceAudio internal constructor(
         voiceQueryInFlight = null
         mutableVoiceCatalog.value = catalogState
         if (previous != null) {
-            val (engine, version) = previous
+            val (engine, version, initialization) = previous
             event("tts_engine_retired · engineInstance=$version · activeOwnedEngines=${activeSpeechOwners.decrementAndGet()} · state=${speechState.name}")
-            speechWork.execute {
-                if (configuredEngine === engine) {
-                    configuredEngine = null
-                    configuredSpeech = null
+            when (initialization?.result?.get()) {
+                TextToSpeech.SUCCESS -> retireInitializedSpeech(initialization, "retired")
+                null -> {
+                    // shutdown() before onInit(SUCCESS) produces Android's misleading
+                    // "not bound" warning. Defer until a late successful bind, if one arrives.
+                    initialization?.retireAfterInitialization = awaitLateInitialization
+                    event("tts_shutdown_deferred · engineInstance=$version · awaitingInitialization=$awaitLateInitialization")
                 }
-                runCatching { engine.shutdown() }
+                else -> {
+                    initialization.engine = null
+                    event("tts_shutdown_skipped · engineInstance=$version · reason=initialization_failed")
+                }
             }
         }
+    }
+
+    private fun retireInitializedSpeech(initialization: SpeechInitialization, reason: String) {
+        val engine = initialization.engine ?: return
+        if (!initialization.shutdown.compareAndSet(false, true)) return
+        val cleanup = Runnable {
+            if (configuredEngine === engine) {
+                configuredEngine = null
+                configuredSpeech = null
+            }
+            runCatching { engine.shutdown() }
+        }
+        try {
+            speechWork.execute(cleanup)
+        } catch (_: java.util.concurrent.RejectedExecutionException) {
+            // A close can retire the worker before a late platform callback. This one bounded
+            // Binder cleanup is preferable to retaining an initialized engine for the process.
+            cleanup.run()
+        }
+        event("tts_shutdown_dispatched · engineInstance=${initialization.generation} · reason=$reason")
     }
 
     override fun stop() {

@@ -26,6 +26,25 @@ import org.robolectric.annotation.LooperMode
 @Config(manifest = Config.NONE, sdk = [34])
 @LooperMode(LooperMode.Mode.PAUSED)
 class AndroidSpeechCatalogRecoveryTest {
+    @Test fun synchronousInitializationCallbackIsHandledAfterTheEngineIsPublished() {
+        val engine = mock(TextToSpeech::class.java)
+        `when`(engine.voices).thenReturn(emptySet())
+        val audio = AndroidVoiceAudio(RuntimeEnvironment.getApplication(), java.util.concurrent.Executor { it.run() }) { _, callback ->
+            callback.onInit(TextToSpeech.SUCCESS)
+            engine
+        }
+        try {
+            audio.prepareVoices()
+            shadowOf(Looper.getMainLooper()).idle()
+            assertEquals(SpeechVoiceCatalogState.EMPTY, audio.voiceCatalogState.value)
+            verify(engine, times(1)).voices
+            verify(engine, never()).shutdown()
+        } finally {
+            audio.close()
+        }
+        verify(engine, times(1)).shutdown()
+    }
+
     @Test fun catalogOnlyInitializationTimeoutRetiresOnceAndExplicitRecheckCanRecover() {
         val callbacks = mutableListOf<TextToSpeech.OnInitListener>()
         val first = mock(TextToSpeech::class.java)
@@ -42,13 +61,14 @@ class AndroidSpeechCatalogRecoveryTest {
             main.idleFor(Duration.ofSeconds(11))
             assertEquals(SpeechVoiceCatalogState.UNAVAILABLE, audio.voiceCatalogState.value)
             assertEquals(1, callbacks.size)
-            verify(first, times(1)).shutdown()
+            verify(first, never()).shutdown()
             verify(first, never()).stop()
 
             audio.prepareVoices()
             assertEquals(2, callbacks.size)
             callbacks[0].onInit(TextToSpeech.SUCCESS)
             main.idle()
+            verify(first, times(1)).shutdown()
             assertEquals(SpeechVoiceCatalogState.CHECKING, audio.voiceCatalogState.value)
             verify(first, never()).voices
             callbacks[1].onInit(TextToSpeech.SUCCESS)

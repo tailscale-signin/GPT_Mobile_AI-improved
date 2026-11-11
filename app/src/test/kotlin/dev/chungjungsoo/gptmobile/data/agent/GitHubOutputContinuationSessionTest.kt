@@ -19,6 +19,24 @@ class GitHubOutputContinuationSessionTest {
         override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flowOf(*events)
     }
 
+    @Test fun extractedSegmentCollectorCheckpointsLargeDraftWithoutDuplicatingPublishedText() = runBlocking {
+        val body = "verified evidence\n" + "x".repeat(5_000)
+        val checkpoints = mutableListOf<JsonObject>()
+
+        val output = GitHubOutputContinuationSession(
+            delegate = session(ProviderEvent.TextDelta(body), ProviderEvent.Completed),
+            saveCheckpoint = { checkpoints += it }
+        ) { _, _, _ -> error("A complete segment must not reopen the provider") }
+            .streamRound(emptyList(), emptyList())
+            .toList()
+
+        assertEquals(body, output.filterIsInstance<ProviderEvent.TextDelta>().single().text)
+        assertEquals(ProviderEvent.Completed, output.last())
+        assertTrue(checkpoints.any { it["state"] == JsonPrimitive("WRITING") && it["draft"] == JsonPrimitive(body) })
+        assertEquals(JsonPrimitive("COMPLETED"), checkpoints.last()["state"])
+        assertEquals(JsonPrimitive(body), checkpoints.last()["draft"])
+    }
+
     @Test fun usageIsAdditiveAcrossRequestsAndKeepsMeasuredSourcesSeparate() = runBlocking {
         val output = GitHubOutputContinuationSession(session(ProviderEvent.TextDelta("First"), ProviderEvent.Usage(outputTokens = 4096, cumulative = true, finishReason = "length"), limited)) { _, _, _ ->
             session(ProviderEvent.TextDelta(" second"), ProviderEvent.Usage(outputTokens = 1024, cumulative = true), ProviderEvent.Completed)

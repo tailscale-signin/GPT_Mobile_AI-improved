@@ -889,13 +889,22 @@ class EngineeringService:
             response = getattr(error, 'response', None)
             http_status = getattr(response, 'status_code', None)
             http_status = http_status if type(http_status) is int else None
-            rate_limited = http_status == 429
+            response_headers = getattr(response, 'headers', None) or {}
+            lowered_headers = {str(key).lower(): str(value) for key, value in response_headers.items()}
+            rate_limited = http_status == 429 or (
+                http_status == 403 and
+                ('retry-after' in lowered_headers or lowered_headers.get('x-ratelimit-remaining') == '0')
+            )
+            model_readiness_wait = (
+                isinstance(error, ExecutionBindingError) and
+                error.code in {'EXECUTION_MODEL_NOT_LOADED', 'EXECUTION_MODEL_LOADING'}
+            )
             host_interrupted = isinstance(error, InterruptedError) and (self.stop.is_set() or getattr(self.store.runtime, 'gateway_draining', False))
-            recovery_delay = None if rate_limited else retry_delay(error, 0)
+            recovery_delay = None if rate_limited or model_readiness_wait else retry_delay(error, 0)
             transient = recovery_delay is not None
             if not host_interrupted:
                 job['connection_retries'] = job.get('connection_retries', 0) + 1 if transient else 0
-            if not transient and not rate_limited and not host_interrupted:
+            if not transient and not rate_limited and not model_readiness_wait and not host_interrupted:
                 job['stalls'] += 1
             # Mutations stay uncertain; no automatic replay after a lost response.
             if accepted_scope(job['request']) != 'implement' and job['state'] not in {'PLAN', 'READ'}:
@@ -928,10 +937,13 @@ class EngineeringService:
             elif rate_limited:
                 attempts = previous_wait.get('attempts', 0) + 1
                 now = self.store.now()
-                wait, source = provider_rate_limit_delay(getattr(response, 'headers', None) or {}, attempts, now)
+                wait, source = provider_rate_limit_delay(response_headers, attempts, now)
                 retry_at = now + wait
-                available = attempts <= 8 and retry_at < job['deadline'] - job['request'].get('execution_budget', {}).get('final_seconds', 30)
-                output.update(error_code='ENGINEERING_RATE_LIMIT_WAIT', http_status=429, retryable=available,
+                # A durable job owns provider cooldown recovery until its accepted
+                # deadline. An arbitrary retry-count ceiling converted a healthy
+                # long-running job into NEEDS_INPUT during extended 429 windows.
+                available = retry_at < job['deadline'] - job['request'].get('execution_budget', {}).get('final_seconds', 30)
+                output.update(error_code='ENGINEERING_RATE_LIMIT_WAIT', http_status=http_status, retryable=available,
                               retry_at=retry_at, retry_source=source, attempts=attempts)
                 if available:
                     job['provider_wait'] = {'retry_at': retry_at, 'source': source, 'attempts': attempts}
@@ -940,6 +952,25 @@ class EngineeringService:
                 else:
                     phase = 'NEEDS_INPUT'
                     job['message'] = 'The provider wait reached the job budget. Confirmed work is saved for review.'
+                    job['data']['blocked_reason'] = dict(output)
+            elif model_readiness_wait:
+                attempts = previous_wait.get('attempts', 0) + 1
+                now = self.store.now()
+                # Model loading and host-controlled model preparation are not job
+                # cancellation conditions. Keep the exact selected binding and
+                # retry the same non-mutating stage without substituting a model.
+                wait = min(300, 5 * 2 ** min(6, max(0, attempts - 1)))
+                retry_at = now + wait
+                available = retry_at < job['deadline'] - job['request'].get('execution_budget', {}).get('final_seconds', 30)
+                output.update(error_code=error.code, retryable=available,
+                              retry_at=retry_at, retry_source='MODEL_READINESS', attempts=attempts)
+                if available:
+                    job['provider_wait'] = {'retry_at': retry_at, 'source': 'MODEL_READINESS', 'attempts': attempts}
+                    job['message'] = 'Waiting for the exact selected model. The saved step will resume automatically after host preparation completes.'
+                    delay = wait
+                else:
+                    phase = 'NEEDS_INPUT'
+                    job['message'] = 'The selected model remained unavailable through the accepted job deadline. Confirmed work is saved for review.'
                     job['data']['blocked_reason'] = dict(output)
             elif isinstance(error, ExecutionBindingError):
                 phase = 'NEEDS_INPUT'

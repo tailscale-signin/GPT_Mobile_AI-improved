@@ -556,6 +556,95 @@ class GitHubVerifiedSessionTest {
         assertEquals(2, checkpoint.getValue("batches").jsonArray.size)
     }
 
+    @Test fun evidenceArrivingDuringVerificationCannotPublishAStaleCompletion() = runBlocking {
+        var published: JsonObject? = null
+        var verifierCalls = 0
+        var descendantCompleted = false
+        val book = GitHubEvidenceBook("b", "o/r", "main", setOf("github_context"), now = { 1000L })
+        book.observe(
+            ProviderEvent.ToolCall("checks", "github_context", Json.parseToJsonElement("""{"action":"checks"}""").jsonObject),
+            AgentToolResult("checks", ToolResultContent.Json(Json.parseToJsonElement("""{"checks":1}""")), false)
+        )
+        val checksReceipt = book.snapshot().first.keys.single()
+        val gate = GitHubVerifiedSession(
+            answer("One repository check was observed."),
+            book,
+            "Explain the observed repository check count",
+            { 8192 },
+            {
+                verifierCalls++
+                // Simulate a slower owned operation completing while claim
+                // extraction is inspecting the earlier receipt epoch.
+                if (!descendantCompleted) {
+                    descendantCompleted = true
+                    book.observe(
+                        ProviderEvent.ToolCall("status", "github_context", Json.parseToJsonElement("""{"action":"status"}""").jsonObject),
+                        AgentToolResult("status", ToolResultContent.Json(Json.parseToJsonElement("""{"commit_sha":"${"a".repeat(40)}"}""")), false)
+                    )
+                }
+                answer("""{"claims":[{"kind":"fact","receipt_id":"$checksReceipt","pointer":"/checks","value":1}]}""")
+            },
+            {},
+            {},
+            now = { 1000L },
+            onPublication = { published = it }
+        )
+
+        val events = gate.streamRound(emptyList(), emptyList()).toList()
+
+        assertEquals(2, verifierCalls)
+        assertEquals(ProviderEvent.Completed, events.last())
+        assertEquals(JsonPrimitive(true), published?.get("completion_verified"))
+        assertEquals(JsonPrimitive(1), published?.get("verification_restarts"))
+        assertEquals(JsonPrimitive(true), published?.get("owned_descendants_settled"))
+        assertFalse(published?.get("verification_failure") == JsonPrimitive("GITHUB_EVIDENCE_ADVANCED_DURING_VERIFICATION"))
+    }
+
+    @Test fun terminalPublicationAwaitsAnOwnedDescendantReceiptBeforeSnapshotting() = runBlocking {
+        var published: JsonObject? = null
+        var waits = 0
+        var verifierCalls = 0
+        val book = GitHubEvidenceBook("b", "o/r", "main", setOf("github_context"), now = { 1000L })
+        book.observe(
+            ProviderEvent.ToolCall("checks", "github_context", Json.parseToJsonElement("""{"action":"checks"}""").jsonObject),
+            AgentToolResult("checks", ToolResultContent.Json(Json.parseToJsonElement("""{"checks":1}""")), false)
+        )
+        val checksReceipt = book.snapshot().first.keys.single()
+        val gate = GitHubVerifiedSession(
+            answer("One repository check was observed."),
+            book,
+            "Explain the observed repository check count",
+            { 8192 },
+            {
+                verifierCalls++
+                answer("""{"claims":[{"kind":"fact","receipt_id":"$checksReceipt","pointer":"/checks","value":1}]}""")
+            },
+            {},
+            {},
+            now = { 1000L },
+            onPublication = { published = it },
+            awaitOwnedDescendants = { limit ->
+                waits++
+                assertEquals(30_000L, limit)
+                // The child becomes terminal only after its final durable receipt
+                // is visible to the accepted run.
+                book.observe(
+                    ProviderEvent.ToolCall("status", "github_context", Json.parseToJsonElement("""{"action":"status"}""").jsonObject),
+                    AgentToolResult("status", ToolResultContent.Json(Json.parseToJsonElement("""{"commit_sha":"${"b".repeat(40)}"}""")), false)
+                )
+                true
+            }
+        )
+
+        val events = gate.streamRound(emptyList(), emptyList()).toList()
+
+        assertEquals(1, waits)
+        assertEquals(1, verifierCalls)
+        assertEquals(ProviderEvent.Completed, events.last())
+        assertEquals(JsonPrimitive(true), published?.get("owned_descendants_settled"))
+        assertEquals(JsonPrimitive(2), (published?.get("execution_ledger") as? JsonObject)?.get("receipt_count"))
+    }
+
     @Test fun extractionBatchLimitCannotSilentlyDropRequirements() = runBlocking {
         val task = (1..(GitHubClaimBatches.REQUIREMENTS_PER_BATCH * GitHubClaimBatches.MAX_BATCHES + 1))
             .joinToString("\n") { "Requirement $it must remain covered" }

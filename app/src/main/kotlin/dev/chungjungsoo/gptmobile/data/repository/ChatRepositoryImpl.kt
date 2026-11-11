@@ -5758,6 +5758,21 @@ class ChatRepositoryImpl(
                     resumeCommitSha = dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.publishedCommit(originalUserRequest),
                     resumeRequestKey = "${user.chatId}:${user.id}",
                     resumeClaimExtraction = restoreGatewayHandoffRequested,
+                    awaitOwnedDescendants = await@ { maxWaitMillis ->
+                        val ledger = invocationLedger ?: return@await true
+                        val currentInvocation = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]
+                            ?.diagnosticInvocationId ?: return@await true
+                        fun settled(rows: Map<String, dev.chungjungsoo.gptmobile.data.accounting.ModelInvocation>) =
+                            rows.values.none { invocation -> invocation.parentRunId == runId && invocation.id != currentInvocation }
+                        if (settled(ledger.active.value)) {
+                            true
+                        } else {
+                            kotlinx.coroutines.withTimeoutOrNull(maxWaitMillis.coerceAtLeast(1L)) {
+                                ledger.active.first(::settled)
+                                true
+                            } == true
+                        }
+                    },
                     gatewayDiagnostic = gatewayDiagnostics?.let { diagnostics ->
                         { diagnostics.run(platform.uid, "${user.chatId}:${user.id}") { send(ApiState.ProgressCheckpoint(it)) } }
                     },
@@ -6889,8 +6904,11 @@ class ChatRepositoryImpl(
                 )
             )
             acceptance?.let {
-                dev.chungjungsoo.gptmobile.data.github.GitHubRunAcceptance.diagnosticLines(it).forEach { line ->
-                    AppLogRecorder.record("GitHubAcceptance", "ACCEPTANCE_CRITERION · runId=$runId · $line")
+                dev.chungjungsoo.gptmobile.data.github.GitHubRunAcceptance.diagnosticLines(it, runId).forEach { line ->
+                    // Keep the protected acceptance payload as one complete JSON object. Prefixing
+                    // it with a legacy key/value field made the JSON part of fields.runId and
+                    // prevented both the run identity and criterion from surviving export.
+                    AppLogRecorder.record("GitHubAcceptance", line)
                 }
             }
             settleCombinedStage(runId, message, status, terminalError)

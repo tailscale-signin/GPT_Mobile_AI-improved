@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.agent.tool
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
+import dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -72,11 +73,61 @@ class GitHubResultViewsStressTest {
         val expired = data(views.read("scope", "github_read", "github_read__connection", issued, "expired"))
         assertEquals(JsonPrimitive("EXPIRED"), expired["reason"])
         assertEquals(recipe, expired["recovery_call"])
+        assertEquals(recipe, expired["source_recovery_call"])
+        val identity = expired.getValue("recovery_identity").jsonObject
+        assertEquals(JsonPrimitive("github.saved-view-recovery.v1"), identity["schema"])
+        assertEquals(JsonPrimitive(issued.substringBefore(':')), identity["view_id"])
+        assertEquals(JsonPrimitive(issued), identity["view_cursor"])
+        assertEquals(JsonPrimitive(GitHubRepositoryStateStore.digest(issued)), identity["cursor_sha256"])
+        assertEquals(JsonPrimitive(GitHubRepositoryStateStore.digest("scope")), identity["scope_sha256"])
+        assertEquals(JsonPrimitive("github_read"), identity["operation"])
+        assertEquals(JsonPrimitive("github_read__connection"), identity["model_tool"])
+        assertEquals(JsonPrimitive("github_read"), identity["original_operation"])
+        assertEquals(JsonPrimitive("github_read"), identity["requested_operation"])
+        assertEquals(JsonPrimitive("github_read__connection"), identity["original_model_tool"])
+        assertEquals(JsonPrimitive("github_read__connection"), identity["requested_model_tool"])
+        assertEquals(JsonPrimitive(true), identity["source_recovery_available"])
+        assertEquals(JsonPrimitive(false), identity["mutation_replay_allowed"])
+        assertEquals(
+            Json.parseToJsonElement("""{"tool":"github_context__connection","arguments":{"action":"recovery","owner":"o","repo":"r"}}"""),
+            expired["scoped_recovery_call"]
+        )
+        val expiredWrongOperation = data(views.read("scope", "github_pr", "github_pr__connection", issued, "expired-wrong-operation"))
+        val expiredWrongIdentity = expiredWrongOperation.getValue("recovery_identity").jsonObject
+        assertEquals(JsonPrimitive(issued), expiredWrongIdentity["view_cursor"])
+        assertEquals(JsonPrimitive("github_read"), expiredWrongIdentity["original_operation"])
+        assertEquals(JsonPrimitive("github_pr"), expiredWrongIdentity["requested_operation"])
         val foreign = data(views.read("other", "github_read", "github_read__connection", issued, "foreign"))
         assertEquals(JsonPrimitive("UNAVAILABLE_IN_AUTHORIZED_SCOPE"), foreign["reason"])
         assertFalse(foreign.containsKey("recovery_call"))
+        assertFalse(foreign.containsKey("recovery_identity"))
+        assertFalse(foreign.containsKey("scoped_recovery_call"))
         val mutation = data(views.present("scope", "github_commit", "github_commit", raw, request))
         assertFalse(mutation.containsKey("source_recovery_call"))
+    }
+
+    @Test fun wrongOperationReturnsTheFullIssuedIdentityAndOriginatingRoute() {
+        val views = GitHubResultViews(pageBytes = 2048)
+        val raw = AgentToolResult("raw", ToolResultContent.Json(JsonPrimitive("saved ".repeat(1000))), false)
+        val request = Json.parseToJsonElement("""{"owner":"o","repo":"r","evidence_id":"source"}""").jsonObject
+        val first = data(views.present("scope", "github_read", "github_read__connection", raw, request))
+        val issued = first.getValue("recovery_call").jsonObject.getValue("arguments").jsonObject.getValue("view_cursor").jsonPrimitive.content
+
+        val rejected = data(views.read("scope", "github_pr", "github_pr__connection", issued, "wrong-operation"))
+
+        assertEquals(JsonPrimitive("WRONG_OPERATION"), rejected["reason"])
+        assertEquals(
+            Json.parseToJsonElement("""{"tool":"github_read__connection","arguments":{"view_cursor":"$issued"}}"""),
+            rejected["correction_call"]
+        )
+        val identity = rejected.getValue("recovery_identity").jsonObject
+        assertEquals(JsonPrimitive(issued.substringBefore(':')), identity["view_id"])
+        assertEquals(JsonPrimitive(issued), identity["view_cursor"])
+        assertEquals(JsonPrimitive("github_read"), identity["original_operation"])
+        assertEquals(JsonPrimitive("github_pr"), identity["requested_operation"])
+        assertEquals(JsonPrimitive("github_read__connection"), identity["original_model_tool"])
+        assertEquals(JsonPrimitive("github_pr__connection"), identity["requested_model_tool"])
+        assertEquals(JsonPrimitive(false), identity["mutation_replay_allowed"])
     }
     private fun data(result: AgentToolResult) = (result.content as ToolResultContent.Json).value.jsonObject
     private fun cursor(page: JsonObject) = page["continuation_call"]!!.jsonObject["arguments"]!!.jsonObject["view_cursor"]!!.jsonPrimitive.content

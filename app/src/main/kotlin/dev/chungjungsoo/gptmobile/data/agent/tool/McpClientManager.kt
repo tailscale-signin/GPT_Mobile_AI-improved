@@ -131,17 +131,18 @@ class McpClientManager internal constructor(
 
     private suspend fun modernTransport(config: McpConnectionConfig, refresh: Boolean = false): ModernMcpTransport? {
         val key = config.validatedKey()
+        val quarantineIdentity = config.quarantineIdentity()
         protocolFailures[config.connectionUid]?.let { (identity, failure) ->
-            if (!refresh && identity == config.catalogueIdentity()) throw failure
+            if (!refresh && identity == quarantineIdentity) throw failure
             protocolFailures.remove(config.connectionUid)
             resetHealth(config.connectionUid)
         }
         val previousKey = transportConfigurationKeys.put(config.connectionUid, key)
         if (previousKey != null && previousKey != key) resetHealth(config.connectionUid)
         if (refresh) dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.checkAgain(config.endpointUrl)
-        configurationFailures[config.connectionUid]?.let { failedKey ->
-            if (!refresh && failedKey == key) throw McpEndpointConfigurationException()
-            configurationFailures.remove(config.connectionUid, failedKey)
+        configurationFailures[config.connectionUid]?.let { failedIdentity ->
+            if (!refresh && failedIdentity == quarantineIdentity) throw McpEndpointConfigurationException()
+            configurationFailures.remove(config.connectionUid, failedIdentity)
             resetHealth(config.connectionUid)
         }
         providerCooldowns[config.connectionUid]?.let { (blockedKey, until) ->
@@ -193,7 +194,9 @@ class McpClientManager internal constructor(
         val validatedKey = endpointUrl?.let { McpConnectionConfig(uid, it, allowCleartext).validatedKey() }
         val health = healthSnapshot(uid)
         if (health.state == McpConnectionHealthState.AUTHENTICATION_REQUIRED || protocolFailures.containsKey(uid)) return null
-        if (validatedKey != null && configurationFailures[uid] == validatedKey) return null
+        // A quarantined endpoint must never expose a stale schema as executable. The
+        // next acquisition with a changed configuration revision clears this gate.
+        if (validatedKey != null && configurationFailures.containsKey(uid)) return null
         val identity = catalogueIdentities[uid]?.takeIf {
             it.first == dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.epoch &&
                 (validatedKey == null || it.second.substringBefore('|') == validatedKey.substringBefore('|'))
@@ -274,7 +277,7 @@ class McpClientManager internal constructor(
         fun cached(tools: List<Tool>) = McpDiscoveryReceipt(tools, McpDiscoverySource.CACHED).also { discoveryContext.onSource(it.source) }
         recordDecision(McpDiscoveryDecision.REQUESTED)
         val policyEpoch = dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.epoch
-        protocolFailures[config.connectionUid]?.takeIf { !forceRefresh && it.first == config.catalogueIdentity() }?.let { (_, failure) ->
+        protocolFailures[config.connectionUid]?.takeIf { !forceRefresh && it.first == config.quarantineIdentity() }?.let { (_, failure) ->
             recordDecision(McpDiscoveryDecision.PAUSED_CONFIGURATION)
             if (passiveBackoff && !awaitCompletion) return cached(emptyList())
             throw failure
@@ -403,10 +406,10 @@ class McpClientManager internal constructor(
             if (error is McpEndpointConfigurationException && error.httpStatus == null) throw error
             if (error is McpProtocolConfigurationException) {
                 val previous = protocolFailures[config.connectionUid]
-                if (previous?.first == config.catalogueIdentity() && previous.second === error) throw error
+                if (previous?.first == config.quarantineIdentity() && previous.second === error) throw error
                 healthOrder.publish(observation) {
                     if (protocolFailures.size >= 64) protocolFailures.keys.firstOrNull()?.let(protocolFailures::remove)
-                    protocolFailures[config.connectionUid] = config.catalogueIdentity() to error
+                    protocolFailures[config.connectionUid] = config.quarantineIdentity() to error
                 }
             }
             if (error !is McpProtocolConfigurationException) dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.recordFailure(config.endpointUrl, error)
@@ -749,6 +752,7 @@ class McpClientManager internal constructor(
                     when (it.diagnosticCode) {
                         "MCP_INITIALIZATION_SCHEMA_INVALID" -> "initialization"
                         "MCP_DISCOVERY_SCHEMA_INVALID", "MCP_PROTOCOL_VERSION_UNSUPPORTED", "MCP_DISCOVERY_CONFIGURATION" -> "protocol_negotiation"
+                        "MCP_CATALOG_CONFIGURATION", "MCP_CATALOG_SCHEMA_INVALID", "MCP_CATALOG_LIMIT_EXCEEDED" -> "catalogue"
                         else -> null
                     }
                 } ?: when (failureClass) {
@@ -841,6 +845,9 @@ class McpClientManager internal constructor(
     suspend fun close(connectionUid: String) {
         healthOrder.invalidate(connectionUid)
         protocolFailures.remove(connectionUid)
+        configurationFailures.remove(connectionUid)
+        providerCooldowns.remove(connectionUid)
+        transportConfigurationKeys.remove(connectionUid)
         resetHealth(connectionUid)
         statistics?.observeHealth(connectionUid, "NOT_CHECKED", "CONFIG_CHANGED", nowMs())
         modern?.close(connectionUid)
@@ -850,6 +857,9 @@ class McpClientManager internal constructor(
 
     suspend fun closeAll() {
         protocolFailures.clear()
+        configurationFailures.clear()
+        providerCooldowns.clear()
+        transportConfigurationKeys.clear()
         clearReadinessCache()
         healthOrder.invalidateAll().forEach { uid ->
             resetHealth(uid)
@@ -992,7 +1002,8 @@ class McpClientManager internal constructor(
                             throw McpProtocolConfigurationException("MCP_INITIALIZATION_SCHEMA_INVALID", "The server rejected the initialize handshake (HTTP 400). Validate the endpoint path, initialization request schema and supported protocol version.", 400, "INITIALIZE_REQUEST_ACCEPTANCE_REQUIRED", "initialize")
                         }
                         if (generateSequence(error as Throwable) { it.cause }.any { it is StreamableHttpError && it.code == 404 }) {
-                            configurationFailures[config.connectionUid] = key
+                            if (configurationFailures.size >= 64) configurationFailures.keys.firstOrNull()?.let(configurationFailures::remove)
+                            configurationFailures[config.connectionUid] = config.quarantineIdentity()
                             throw McpEndpointConfigurationException(404)
                         }
                         throw error
@@ -1042,6 +1053,14 @@ class McpClientManager internal constructor(
 
     private fun McpConnectionConfig.catalogueIdentity(): String =
         ("catalog-v1|$connectionUid|$endpointUrl|$allowCleartext|${authorizationHeader.orEmpty().sha256()}|${googleApiKey.orEmpty().sha256()}").sha256()
+
+    /**
+     * Permanent discovery failures belong to one durable saved-configuration
+     * revision. Network changes do not repair HTTP 400/404 or invalid schemas, but
+     * editing/replacing the saved connection must immediately permit a fresh probe.
+     */
+    private fun McpConnectionConfig.quarantineIdentity(): String =
+        ("quarantine-v1|${catalogueIdentity()}|${configurationRevision?.takeIf { it.matches(Regex("[a-f0-9]{64}")) } ?: "unobserved"}").sha256()
 
     private fun McpConnectionConfig.validatedKey(): String {
         validateLocalConfiguration()

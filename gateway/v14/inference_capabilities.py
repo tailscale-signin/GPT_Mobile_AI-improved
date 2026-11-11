@@ -372,6 +372,10 @@ class InferenceCapabilities:
         error = ExecutionBindingError('EXECUTION_MODEL_LOADING' if loading else 'EXECUTION_MODEL_NOT_LOADED',
             'The exact selected model is loading; refresh its qualification when loading finishes.' if loading else
             'The exact selected model is advertised but not loaded. Prepare that model on the gateway host, then recheck its capabilities.', 503)
+        # This is a transient readiness observation, not a revoked selection or
+        # terminal job failure. Durable workers keep the exact binding and wait;
+        # callers that have not admitted a job can still surface the host action.
+        error.retryable = True
         error.observation = dict(failure('model_loading' if loading else 'model_not_loaded', 'selected_model'),
                                  modelAdvertised=True, modelLoaded=False, modelState=state)
         raise error

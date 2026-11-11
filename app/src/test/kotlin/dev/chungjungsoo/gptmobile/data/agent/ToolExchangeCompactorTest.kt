@@ -10,6 +10,17 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ToolExchangeCompactorTest {
+    @Test fun replayCompactionDiagnosticsUseHighWaterMarksInsteadOfEveryRound() {
+        val gate = ReplayCompactionLogGate(slowProjectionMicros = 50_000)
+
+        assertTrue(gate.shouldLog(rawTokens = 16_000, exchangeCount = 1, compactionMicros = 1_000))
+        assertTrue(!gate.shouldLog(rawTokens = 17_000, exchangeCount = 1, compactionMicros = 1_000))
+        assertTrue(gate.shouldLog(rawTokens = 18_000, exchangeCount = 2, compactionMicros = 1_000))
+        assertTrue(!gate.shouldLog(rawTokens = 19_000, exchangeCount = 3, compactionMicros = 1_000))
+        assertTrue(gate.shouldLog(rawTokens = 36_000, exchangeCount = 3, compactionMicros = 1_000))
+        assertTrue(gate.shouldLog(rawTokens = 37_000, exchangeCount = 3, compactionMicros = 50_000))
+    }
+
     @Test fun measurementCacheDoesNotPinDiscardedOversizedBodies() {
         val cache = ToolExchangeCompactor.RenderCache(maxCharacters = 1024, maxEntries = 256)
         fun measureDiscarded(index: Int): java.lang.ref.WeakReference<ToolResultContent> {
@@ -201,6 +212,63 @@ class ToolExchangeCompactorTest {
         assertTrue(texts.first().contains("omitted from primary replay", ignoreCase = true))
         assertTrue(texts.last().contains("result-7"))
         assertTrue(ToolExchangeCompactor.estimateTokens(compacted) < 2_000)
+    }
+
+    @Test
+    fun compact_projects_large_results_after_a_completed_provider_round() {
+        val consumedCall = ProviderEvent.ToolCall(
+            callId = "consumed",
+            name = "github_read",
+            arguments = buildJsonObject { put("path", "src/old.kt") }
+        )
+        val currentCall = ProviderEvent.ToolCall(
+            callId = "current",
+            name = "github_read",
+            arguments = buildJsonObject { put("path", "src/current.kt") }
+        )
+        val consumedBody = "verified-old-evidence\n" + "x".repeat(12_000)
+        val currentBody = "verified-current-evidence\n" + "y".repeat(1_200)
+        val exchanges = listOf(
+            AgentToolExchange(
+                listOf(consumedCall),
+                listOf(AgentToolResult(consumedCall.callId, ToolResultContent.Text(consumedBody), false))
+            ),
+            AgentToolExchange(
+                listOf(currentCall),
+                listOf(AgentToolResult(currentCall.callId, ToolResultContent.Text(currentBody), false))
+            )
+        )
+
+        val compacted = ToolExchangeCompactor.compact(
+            exchanges = exchanges,
+            maxReplayTokens = 8_000,
+            maxResultTokens = 4_000,
+            consumedCallIds = setOf(consumedCall.callId)
+        )
+
+        val consumedText = (compacted.first().results.single().content as ToolResultContent.Text).text
+        val currentText = (compacted.last().results.single().content as ToolResultContent.Text).text
+        assertTrue(consumedText.contains("already consumed by the model"))
+        assertEquals(currentBody, currentText)
+        assertEquals(listOf("consumed", "current"), compacted.flatMap { it.calls }.map { it.callId })
+        assertEquals(listOf("consumed", "current"), compacted.flatMap { it.results }.map { it.callId })
+        assertTrue(ToolExchangeCompactor.estimateTokens(compacted) < ToolExchangeCompactor.estimateTokens(exchanges))
+    }
+
+    @Test
+    fun compact_keeps_small_consumed_results_when_they_cost_less_than_a_projection() {
+        val call = ProviderEvent.ToolCall("small", "github_status", buildJsonObject { })
+        val result = AgentToolResult(call.callId, ToolResultContent.Text("state=green"), false)
+        val exchange = AgentToolExchange(listOf(call), listOf(result))
+
+        val compacted = ToolExchangeCompactor.compact(
+            exchanges = listOf(exchange),
+            maxReplayTokens = 1_000,
+            maxResultTokens = 512,
+            consumedCallIds = setOf(call.callId)
+        )
+
+        assertEquals(listOf(exchange), compacted)
     }
 
     @Test

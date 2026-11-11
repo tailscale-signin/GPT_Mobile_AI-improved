@@ -414,7 +414,9 @@ internal class GitHubEvidenceBook(
     suspend fun complete(): Boolean = mutex.withLock { !overflow }
 
     /** Page persistence can recover independently without invalidating an accepted mutation. */
-    suspend fun retentionStatus(): JsonObject = mutex.withLock {
+    suspend fun retentionStatus(): JsonObject = mutex.withLock { retentionStatusLocked() }
+
+    private fun retentionStatusLocked(): JsonObject {
         val views = records.values.mapNotNull { receipt ->
             val execution = receipt["execution"] as? JsonObject ?: return@mapNotNull null
             val status = (execution["saved_view_persistence"] as? JsonPrimitive)?.contentOrNull
@@ -452,7 +454,7 @@ internal class GitHubEvidenceBook(
                 )
             }
         }
-        buildJsonObject {
+        return buildJsonObject {
             put("review_projection_bytes", bytes)
             put("review_projection_limit_bytes", retentionLimitBytes)
             put("review_receipt_count", records.size)
@@ -662,8 +664,22 @@ internal class GitHubEvidenceBook(
         saveCurrent("checklist", JsonObject(checkpoint + ("binding" to JsonPrimitive(binding))))
     }
 
-    suspend fun retainVerdict(value: JsonObject): JsonObject {
-        val retention = retentionStatus()
+    suspend fun retainVerdict(value: JsonObject): JsonObject = mutex.withLock {
+        retainVerdictLocked(value)
+    }
+
+    /**
+     * A completion verdict is valid only for the exact receipt epoch that was
+     * rendered. The mutex makes this check and current-verdict persistence one
+     * operation, so a late child receipt cannot land between them.
+     */
+    suspend fun retainVerdictIfCurrent(value: JsonObject, expectedEpoch: Long, expectedReceiptIds: Set<String>): JsonObject? = mutex.withLock {
+        if (epoch != expectedEpoch || records.keys != expectedReceiptIds) return@withLock null
+        retainVerdictLocked(value)
+    }
+
+    private suspend fun retainVerdictLocked(value: JsonObject): JsonObject {
+        val retention = retentionStatusLocked()
         val limitation = if (retention["evidence_retention_complete"] == JsonPrimitive(false)) {
             buildJsonObject {
                 put("completion_verified", false)
@@ -674,7 +690,8 @@ internal class GitHubEvidenceBook(
         } else {
             JsonObject(emptyMap())
         }
-        val retained = GitHubAcceptanceLedger.attach(JsonObject(value + retention + limitation), snapshot().first)
+        val receipts = records.toMap()
+        val retained = GitHubAcceptanceLedger.attach(JsonObject(value + retention + limitation), receipts)
         val checklistComplete = (retained["acceptance_ledger"] as? JsonObject)?.get("completion_verified") == JsonPrimitive(true)
         val checked = if (retained["task_outcome"] == JsonPrimitive("COMPLETED") && !checklistComplete) {
             JsonObject(
@@ -689,7 +706,7 @@ internal class GitHubEvidenceBook(
         } else {
             retained
         }
-        val execution = GitHubExecutionLedger.attach(checked, snapshot().first)
+        val execution = GitHubExecutionLedger.attach(checked, receipts)
         val checkpoint = JsonObject(execution + ("task_state" to JsonPrimitive(GitHubTaskLifecycle.terminal(execution).name)))
         val durable = JsonObject(checkpoint + ("binding" to JsonPrimitive(binding)))
         saveCurrent("verification", durable)

@@ -63,6 +63,35 @@ class StructuredDiagnosticEventTest {
         assertEquals(JsonNull, lifecycle["errorCode"])
     }
 
+    @Test fun githubToolReceiptLiftsRunInvocationAndToolIdentity() {
+        val receipt = """{"schema":"github.dispatch.v1","run_id":"run-1","invocation_id":"invoke-1","tool_trace":{"schema":"github.trace.v1","call_id":"call-1","tool":"github_ci","action":"runs"}}"""
+        val row = Json.parseToJsonElement(
+            structuredDiagnosticLine("2026-11-11T12:00:00Z I/Tool: Finished · callId=call-1 · tool=github_ci · executionState=COMPLETED · executionReceipt=$receipt")
+        ).jsonObject
+        assertEquals(JsonPrimitive("run-1"), row["runId"])
+        assertEquals(JsonPrimitive("invoke-1"), row["invocationId"])
+        assertEquals(JsonPrimitive("github_ci"), row["toolName"])
+        assertEquals(JsonPrimitive("call-1"), row["toolCallId"])
+        assertEquals(JsonPrimitive("runs"), row["toolAction"])
+    }
+
+    @Test fun legacyToolLifecycleAndGitHubArgumentFailureKeepCanonicalIdentifiers() {
+        val started = Json.parseToJsonElement(
+            structuredDiagnosticLine("2026-11-11T12:00:00Z I/Tool: Started github_read__github_api · run run-legacy · call call-legacy")
+        ).jsonObject
+        assertEquals(JsonPrimitive("run-legacy"), started["runId"])
+        assertEquals(JsonPrimitive("github_read__github_api"), started["toolName"])
+        assertEquals(JsonPrimitive("call-legacy"), started["toolCallId"])
+
+        val failed = Json.parseToJsonElement(
+            structuredDiagnosticLine("2026-11-11T12:00:01Z E/GitHubTool: Request failed · callId=call-legacy · causalIncidentId=github:incident-1 · truncatedAtSource=false · GITHUB_INVALID_ARGUMENT · action=pr_context · Select pull request files, checks, or both.")
+        ).jsonObject
+        assertEquals(JsonPrimitive("GITHUB_INVALID_ARGUMENT"), failed["errorCode"])
+        assertEquals(JsonPrimitive(false), failed.getValue("fields").jsonObject["truncatedAtSource"])
+        assertEquals(JsonPrimitive("pr_context"), failed["toolAction"])
+        assertEquals(JsonPrimitive("call-legacy"), failed["toolCallId"])
+    }
+
     @Test fun privateFieldsAndUnsupportedObjectsCannotBreakOrEscapeTheStructuredRecord() {
         val event = structuredDiagnosticEventMessage(
             "READINESS",

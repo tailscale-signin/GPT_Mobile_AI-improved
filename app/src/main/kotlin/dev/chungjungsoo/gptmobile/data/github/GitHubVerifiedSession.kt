@@ -47,7 +47,8 @@ internal class GitHubVerifiedSession(
     private val remainingToolCalls: () -> Int? = { null },
     private val currentRequest: String = task,
     private val openExecutionContinuation: (suspend (String) -> AgentProviderSession)? = null,
-    private val resumeClaimExtraction: Boolean = false
+    private val resumeClaimExtraction: Boolean = false,
+    private val awaitOwnedDescendants: suspend (Long) -> Boolean = { true }
 ) : AgentProviderSession by delegate {
     override val handlesToolResultRecovery: Boolean = GitHubTestChecklist.integration(task) ||
         GitHubTaskContinuity.reportOnly(currentRequest) ||
@@ -543,10 +544,32 @@ internal class GitHubVerifiedSession(
         failureCode: String? = null,
         originalFailure: ProviderEvent.Failed? = null,
         continuationTools: List<AgentToolDefinition> = emptyList(),
-        continuationExchanges: List<AgentToolExchange> = emptyList()
+        continuationExchanges: List<AgentToolExchange> = emptyList(),
+        verificationRestart: Int = 0
     ): Flow<ProviderEvent> = flow {
         val verificationStarted = System.nanoTime()
+        suspend fun restartPublication(): Boolean {
+            if (verificationRestart >= MAX_VERIFICATION_RESTARTS) return false
+            validatePublication()
+            progress("New GitHub operation evidence arrived; verifying the updated receipts")
+            emitAll(
+                publish(
+                    draft = draft,
+                    failureCode = failureCode,
+                    originalFailure = originalFailure,
+                    continuationTools = continuationTools,
+                    continuationExchanges = continuationExchanges,
+                    verificationRestart = verificationRestart + 1
+                )
+            )
+            return true
+        }
         val publication = try {
+            // A delegated provider invocation owns all of its child tool work. Do
+            // not terminalize the parent while that invocation can still append a
+            // fixture cleanup or reconciliation receipt to this accepted run.
+            val descendantsSettled = awaitOwnedDescendants(OWNED_DESCENDANT_WAIT_MILLIS)
+            val publicationFailureCode = if (descendantsSettled) failureCode else "GITHUB_OWNED_DESCENDANTS_PENDING"
             validatePublication()
             val (receipts, epoch) = evidence.snapshot()
             val ciObservation = withContext(computationDispatcher) { GitHubCiObservationReport.render(task, receipts, now(), epoch) }
@@ -568,10 +591,42 @@ internal class GitHubVerifiedSession(
                 progress("Verifying factual claims against exact tool receipts")
                 withContext(computationDispatcher) { verificationRequests(draft, receipts) }
             }
-            val (renderedText, report) = status ?: coverage ?: ciObservation ?: if (requests == null) partial(receipts, epoch, failureCode ?: "GITHUB_EXTRACTION_UNAVAILABLE") else extract(requireNotNull(draft), requests, receipts, epoch)
+            val rendered = status ?: coverage ?: ciObservation ?: if (requests == null) partial(receipts, epoch, publicationFailureCode ?: "GITHUB_EXTRACTION_UNAVAILABLE") else extract(requireNotNull(draft), requests, receipts, epoch)
+            // Claim extraction and deterministic rendering can be slower than an
+            // owned tool receipt reaching the evidence book. Never publish a
+            // verdict for an older epoch after new repository evidence arrives.
+            // Restart below from the new durable receipts instead of cancelling
+            // that work or falsely completing against a stale ledger.
+            val latest = evidence.snapshot()
+            val evidenceAdvanced = latest.second != epoch || latest.first.keys != receipts.keys
+            if (evidenceAdvanced && restartPublication()) {
+                // Restart from the exact newer epoch in this same collection. A
+                // late owned cleanup must not force a second user-visible run, and
+                // the stale renderer is discarded before any verdict is retained.
+                return@flow
+            }
+            val publicationReceipts = if (evidenceAdvanced) latest.first else receipts
+            val publicationEpoch = if (evidenceAdvanced) latest.second else epoch
+            val (renderedText, report) = if (evidenceAdvanced) {
+                val (updatedText, updatedReport) = partial(publicationReceipts, publicationEpoch, "GITHUB_EVIDENCE_ADVANCED_DURING_VERIFICATION")
+                updatedText to JsonObject(
+                    updatedReport + buildJsonObject {
+                        put("verification_failure", "GITHUB_EVIDENCE_ADVANCED_DURING_VERIFICATION")
+                        put("verification_epoch_started", epoch)
+                        put("verification_epoch_observed", publicationEpoch)
+                        put("verification_receipts_started", receipts.size)
+                        put("verification_receipts_observed", publicationReceipts.size)
+                        put("resume_required", true)
+                        put("completion_verified", false)
+                        put("task_outcome", "PARTIAL")
+                    }
+                )
+            } else {
+                rendered
+            }
             val (checklist, progressDigest) = withContext(computationDispatcher) {
-                val checklist = if (coverage != null) GitHubTestChecklist.checkpoint(task, receipts, authorizedTools, remainingToolCalls()) else null
-                checklist to checklist?.let { GitHubTestChecklist.progressDigest(task, receipts, authorizedTools) }
+                val checklist = if (coverage != null) GitHubTestChecklist.checkpoint(task, publicationReceipts, authorizedTools, remainingToolCalls()) else null
+                checklist to checklist?.let { GitHubTestChecklist.progressDigest(task, publicationReceipts, authorizedTools) }
             }
             val previous = evidence.diagnostic()
             val previousProgressDigest = GitHubEvidenceBook.publishedChecklistDigest(previous)
@@ -586,24 +641,26 @@ internal class GitHubVerifiedSession(
             validatePublication()
             val retention = evidence.retentionStatus()
             val retentionComplete = retention["evidence_retention_complete"] == kotlinx.serialization.json.JsonPrimitive(true)
-            val partial = !retentionComplete || originalFailure != null || failureCode != null || report["task_outcome"] != kotlinx.serialization.json.JsonPrimitive("COMPLETED") || report["completion_verified"] != kotlinx.serialization.json.JsonPrimitive(true)
+            val partial = !retentionComplete || originalFailure != null || publicationFailureCode != null || report["task_outcome"] != kotlinx.serialization.json.JsonPrimitive("COMPLETED") || report["completion_verified"] != kotlinx.serialization.json.JsonPrimitive(true)
             val oversizedWithoutEvidence = draft != null && status == null && coverage == null && ciObservation == null && requests == null && receipts.isEmpty()
             check(!oversizedWithoutEvidence) { "No retained GitHub evidence is available for publication" }
             val retained = JsonObject(
                 report + buildJsonObject {
                     progressDigest?.let { put("checklist_progress_digest", it) }
+                    put("verification_restarts", verificationRestart)
+                    put("owned_descendants_settled", descendantsSettled)
                     put("progress_state", if (stalled) "BLOCKED_UNCHANGED" else "ADVANCED_OR_FIRST_REPORT")
                     if (checklist != null) {
                         put("test_checklist", checklist)
-                        val stop = if (originalFailure != null || failureCode != null) {
+                        val stop = if (originalFailure != null || publicationFailureCode != null) {
                             buildJsonObject {
-                                put("code", originalFailure?.errorCode ?: failureCode ?: "RECORDED_EXECUTION_FAILURE")
+                                put("code", originalFailure?.errorCode ?: publicationFailureCode ?: "RECORDED_EXECUTION_FAILURE")
                                 put("detail", originalFailure?.message ?: "The recorded failure interrupted this verification stage.")
                                 put("source", "RECORDED_EXECUTION_FAILURE")
                                 remainingToolCalls()?.let { put("remaining_tool_calls", it) }
                             }
                         } else {
-                            GitHubIntegrationReport.stopReason(task, receipts, authorizedTools, remainingToolCalls())
+                            GitHubIntegrationReport.stopReason(task, publicationReceipts, authorizedTools, remainingToolCalls())
                         }
                         put("stop_reason", stop)
                     }
@@ -641,7 +698,7 @@ internal class GitHubVerifiedSession(
                     if (partial && "verification_failure" !in report) {
                         put(
                             "verification_failure",
-                            failureCode ?: if (!retentionComplete) {
+                            publicationFailureCode ?: if (!retentionComplete) {
                                 "GITHUB_EVIDENCE_RETENTION_INCOMPLETE"
                             } else if (coverage != null || report["claims_verified"] == kotlinx.serialization.json.JsonPrimitive(true)) {
                                 "GITHUB_TASK_INCOMPLETE"
@@ -652,7 +709,7 @@ internal class GitHubVerifiedSession(
                     }
                 }
             )
-            val execution = GitHubExecutionLedger.attach(GitHubAcceptanceLedger.attach(retained, receipts), receipts)
+            val execution = GitHubExecutionLedger.attach(GitHubAcceptanceLedger.attach(retained, publicationReceipts), publicationReceipts)
             val executionLedger = execution["execution_ledger"] as? JsonObject
             val unresolved = executionLedger?.get("unresolved_remote_outcomes") as? kotlinx.serialization.json.JsonPrimitive
             val reconciliationRequired = unresolved?.content?.toIntOrNull()?.let { it > 0 } == true
@@ -668,12 +725,22 @@ internal class GitHubVerifiedSession(
                     if (reconciliationRequired && "verification_failure" !in execution) put("verification_failure", "RECONCILIATION_REQUIRED")
                 }
             )
-            evidence.retainVerdict(effectiveReport)
+            if (evidence.retainVerdictIfCurrent(effectiveReport, publicationEpoch, publicationReceipts.keys) == null) {
+                if (restartPublication()) return@flow
+                emit(
+                    ProviderEvent.Failed(
+                        "GitHub evidence continued changing while acceptance was being verified. All operation receipts remain durable; resume verification after the owned work settles.",
+                        errorCode = "GITHUB_EVIDENCE_ADVANCED_DURING_VERIFICATION",
+                        taskOutcome = "PARTIAL"
+                    )
+                )
+                return@flow
+            }
             val cause = originalFailure?.let {
                 val heading = if (it.failureDetails?.get("stop_reason") == kotlinx.serialization.json.JsonPrimitive("ACCEPTED_TASK_DEADLINE_REACHED")) "Time limit reached" else "Task paused"
                 "**$heading.** ${it.message}\n\n"
             }.orEmpty()
-            val failures = if (GitHubTaskCoverage.boundedDiagnostic(task)) withContext(computationDispatcher) { GitHubFailureSummary.render(receipts) } else ""
+            val failures = if (GitHubTaskCoverage.boundedDiagnostic(task)) withContext(computationDispatcher) { GitHubFailureSummary.render(publicationReceipts) } else ""
             val retentionNotice = if (retention["saved_view_retention_complete"] == kotlinx.serialization.json.JsonPrimitive(false)) {
                 "\n\n**Evidence retention incomplete:** Some saved result pages could not be durably retained. Accepted operation receipts remain recorded. Recover and persist the same captured result; do not repeat a mutation to regenerate its output."
             } else {
@@ -693,7 +760,13 @@ internal class GitHubVerifiedSession(
             } else {
                 ""
             }
-            Publication(cause + reconciliationNotice + approvalNotice + text + failures + retentionNotice, effectivePartial, effectiveReport)
+            Publication(
+                cause + reconciliationNotice + approvalNotice + text + failures + retentionNotice,
+                effectivePartial,
+                effectiveReport,
+                publicationEpoch,
+                publicationReceipts.keys
+            )
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
@@ -757,16 +830,29 @@ internal class GitHubVerifiedSession(
         } catch (failure: Exception) {
             throw ProgressCheckpointFailure(failure, originalFailure)
         }
-        emit(ProviderEvent.TextDelta(text, dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.APPLICATION_REPORT)))
-        val delivered = evidence.retainVerdict(
-            JsonObject(
+        val delivered = evidence.retainVerdictIfCurrent(
+            value = JsonObject(
                 report + buildJsonObject {
                     put("response_delivered", true)
                     put("response_sha256", GitHubEvidenceBook.digest(text))
                 }
-            )
+            ),
+            expectedEpoch = publication.epoch,
+            expectedReceiptIds = publication.receiptIds
         )
+        if (delivered == null) {
+            if (restartPublication()) return@flow
+            emit(
+                ProviderEvent.Failed(
+                    "GitHub evidence continued changing before the verified answer could be delivered. All operation receipts remain durable; resume verification after the owned work settles.",
+                    errorCode = "GITHUB_EVIDENCE_ADVANCED_DURING_VERIFICATION",
+                    taskOutcome = "PARTIAL"
+                )
+            )
+            return@flow
+        }
         onPublication(delivered)
+        emit(ProviderEvent.TextDelta(text, dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.APPLICATION_REPORT)))
         val unresolved = ((delivered["execution_ledger"] as? JsonObject)?.get("unresolved_remote_outcomes") as? kotlinx.serialization.json.JsonPrimitive)?.content?.toIntOrNull()?.let { it > 0 } == true
         val extractionCode = (delivered["failure_code"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.takeUnless { it == "null" }
         val waitingApproval = (delivered["execution_ledger"] as? JsonObject)?.get("recovery") == kotlinx.serialization.json.JsonPrimitive("WAITING_FOR_APPROVAL")
@@ -822,7 +908,13 @@ internal class GitHubVerifiedSession(
         }
     }
 
-    private data class Publication(val text: String, val partial: Boolean, val report: JsonObject)
+    private data class Publication(
+        val text: String,
+        val partial: Boolean,
+        val report: JsonObject,
+        val epoch: Long,
+        val receiptIds: Set<String>
+    )
 
     private suspend fun partial(receipts: Map<String, JsonObject>, epoch: Long, failureCode: String? = null): Pair<String, JsonObject> = withContext(computationDispatcher) {
         GitHubEvidencePolicy.partial(receipts, now(), epoch, task, failureCode)
@@ -986,5 +1078,10 @@ internal class GitHubVerifiedSession(
         return draft.lineSequence().take(2048).filter(String::isNotBlank).map { it.take(900) }.withIndex()
             .sortedByDescending { line -> terms.count { term -> line.value.contains(term, ignoreCase = true) } }
             .take(10).sortedBy { it.index }.joinToString("\n") { it.value }.take(3600)
+    }
+
+    private companion object {
+        const val OWNED_DESCENDANT_WAIT_MILLIS = 30_000L
+        const val MAX_VERIFICATION_RESTARTS = 2
     }
 }

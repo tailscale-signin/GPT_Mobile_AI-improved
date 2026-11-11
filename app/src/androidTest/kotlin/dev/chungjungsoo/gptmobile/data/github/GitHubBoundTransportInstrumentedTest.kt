@@ -206,7 +206,6 @@ class GitHubBoundTransportInstrumentedTest {
                     put("branch", branch)
                     put("base_sha", head)
                     put("commit_sha", head)
-                    put("verify_live", true)
                 }
                 assertTrue("Recovery is an ordinary authorized read, never a mutation replay", GitHubAuthorizationBoundary.isReplayableRead("github_context", recovery))
                 val beforeDeletion = bound("github_context", client()).execute("before-deletion", recovery)
@@ -235,7 +234,10 @@ class GitHubBoundTransportInstrumentedTest {
                 assertEquals(JsonPrimitive(1), first.executionReceipt?.get("read_http_failures"))
                 assertEquals(JsonPrimitive(1), first.executionReceipt?.get("accepted_mutations"))
                 val before = requests.size
-                val restored = bound("github_context", client()).execute("reconcile", recovery)
+                val restored = bound("github_context", client()).execute(
+                    "reconcile",
+                    JsonObject(recovery + ("verify_live" to JsonPrimitive(true)))
+                )
                 assertFalse("Unexpected synthetic reconciliation rejection: ${restored.content}", restored.isError)
                 assertEquals(before + 2, requests.size)
                 assertEquals(HttpMethod.Get to "$root/git/commits/$head", requests[before])

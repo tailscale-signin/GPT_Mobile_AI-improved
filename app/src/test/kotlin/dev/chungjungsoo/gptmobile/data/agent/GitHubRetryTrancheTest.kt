@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.agent
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -35,7 +36,10 @@ class GitHubRetryTrancheTest {
             override suspend fun execute(callId: String, arguments: JsonObject) = AgentToolResult(callId, ToolResultContent.Text("source"), false)
         }
         val events = mutableListOf<AgentRunEvent>()
-        AgentRunner(AgentRunLimits(githubTask = true, runTimeoutMillis = 1000)).run(session, listOf(tool)).collect { events += it }
+        AgentRunner(
+            AgentRunLimits(githubTask = true, runTimeoutMillis = 1000),
+            replayDispatcher = StandardTestDispatcher(testScheduler)
+        ).run(session, listOf(tool)).collect { events += it }
         assertEquals(1, fallbacks)
         assertEquals(2, round)
         assertTrue(events.any { it is AgentRunEvent.Provider && it.event is ProviderEvent.TextDelta })

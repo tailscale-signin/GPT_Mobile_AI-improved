@@ -515,9 +515,15 @@ internal class GitHubEvidenceBook(
     suspend fun acceptedTaskRequest(): String? = ((taskContract ?: load("task_contract"))?.get("requested_actions") as? JsonPrimitive)?.contentOrNull
 
     /** One bounded delivery snapshot, separate from immutable operation receipts and their verdict. */
-    suspend fun retainAnswer(text: String, verdict: JsonObject) {
+    suspend fun retainAnswerIfCurrent(
+        text: String,
+        verdict: JsonObject,
+        expectedEpoch: Long,
+        expectedReceiptIds: Set<String>
+    ): Boolean = mutex.withLock {
+        if (epoch != expectedEpoch || records.keys != expectedReceiptIds) return@withLock false
         require(text.isNotBlank() && text.length <= 1_048_576)
-        val receiptDigest = digest(snapshot().first.keys.sorted().joinToString("\n"))
+        val receiptDigest = digest(expectedReceiptIds.sorted().joinToString("\n"))
         saveCurrent(
             "answer",
             buildJsonObject {
@@ -529,6 +535,7 @@ internal class GitHubEvidenceBook(
                 put("verdict", verdict)
             }
         )
+        true
     }
 
     suspend fun retainedAnswer(): Pair<String, JsonObject>? {

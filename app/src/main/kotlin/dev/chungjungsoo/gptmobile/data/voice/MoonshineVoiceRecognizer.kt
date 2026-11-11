@@ -73,7 +73,7 @@ internal class MoonshineVoiceRecognizer internal constructor(
 
     private class CaptureRun(val listener: VoiceAudio.Listener) {
         val lease = "local-voice:${UUID.randomUUID()}"
-        val startedAt = android.os.SystemClock.elapsedRealtime()
+        val startedNanos = System.nanoTime()
         val cancelled = AtomicBoolean()
         val ending = AtomicBoolean()
         val speechDetected = AtomicBoolean()
@@ -241,7 +241,8 @@ internal class MoonshineVoiceRecognizer internal constructor(
     }
 
     private fun engineEvent(run: CaptureRun, stage: String) {
-        val message = "moonshine_$stage · stage=$stage · nativeOperationId=${run.lease} · engineId=${run.lease} · durationMs=${android.os.SystemClock.elapsedRealtime() - run.startedAt} · cancelled=${run.cancelled.get()} · ending=${run.ending.get()} · acceptedChunks=${run.acceptedChunks.get()} · queuedChunks=${run.audio.size} · transcriptChars=${run.transcript.length} · failureCode=${run.failureCode.get() ?: "none"}"
+        val durationMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - run.startedNanos)
+        val message = "moonshine_$stage · stage=$stage · nativeOperationId=${run.lease} · engineId=${run.lease} · durationMs=$durationMillis · cancelled=${run.cancelled.get()} · ending=${run.ending.get()} · acceptedChunks=${run.acceptedChunks.get()} · queuedChunks=${run.audio.size} · transcriptChars=${run.transcript.length} · failureCode=${run.failureCode.get() ?: "none"}"
         if (stage in nativeBoundaryStages) {
             // Persist before entering the native call; a SIGABRT cannot drain the async queue.
             dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.checkpoint("VoiceEngine", message)

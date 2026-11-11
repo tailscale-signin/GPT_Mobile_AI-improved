@@ -716,6 +716,7 @@ internal class GitHubVerifiedSession(
             val effectivePartial = partial || executionLedger?.get("requested_task") != kotlinx.serialization.json.JsonPrimitive("VERIFIED_COMPLETE") || execution["task_outcome"] != kotlinx.serialization.json.JsonPrimitive("COMPLETED")
             val effectiveReport = JsonObject(
                 execution + buildJsonObject {
+                    put("response_delivered", false)
                     if (effectivePartial) {
                         put("partial", true)
                         put("resume_required", true)
@@ -823,13 +824,25 @@ internal class GitHubVerifiedSession(
             }
             // A second prose-only answer is not progress, evidence or a reason to spend another round.
         }
-        try {
-            evidence.retainAnswer(text, report)
+        val prepared = try {
+            evidence.retainAnswerIfCurrent(text, report, publication.epoch, publication.receiptIds)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
             throw ProgressCheckpointFailure(failure, originalFailure)
         }
+        if (!prepared) {
+            if (restartPublication()) return@flow
+            emit(
+                ProviderEvent.Failed(
+                    "GitHub evidence continued changing before the verified answer could be delivered. All operation receipts remain durable; resume verification after the owned work settles.",
+                    errorCode = "GITHUB_EVIDENCE_ADVANCED_DURING_VERIFICATION",
+                    taskOutcome = "PARTIAL"
+                )
+            )
+            return@flow
+        }
+        emit(ProviderEvent.TextDelta(text, dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.APPLICATION_REPORT)))
         val delivered = evidence.retainVerdictIfCurrent(
             value = JsonObject(
                 report + buildJsonObject {
@@ -841,10 +854,9 @@ internal class GitHubVerifiedSession(
             expectedReceiptIds = publication.receiptIds
         )
         if (delivered == null) {
-            if (restartPublication()) return@flow
             emit(
                 ProviderEvent.Failed(
-                    "GitHub evidence continued changing before the verified answer could be delivered. All operation receipts remain durable; resume verification after the owned work settles.",
+                    "GitHub evidence changed during answer delivery. Resume verification to include the new receipts.",
                     errorCode = "GITHUB_EVIDENCE_ADVANCED_DURING_VERIFICATION",
                     taskOutcome = "PARTIAL"
                 )
@@ -852,7 +864,6 @@ internal class GitHubVerifiedSession(
             return@flow
         }
         onPublication(delivered)
-        emit(ProviderEvent.TextDelta(text, dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.APPLICATION_REPORT)))
         val unresolved = ((delivered["execution_ledger"] as? JsonObject)?.get("unresolved_remote_outcomes") as? kotlinx.serialization.json.JsonPrimitive)?.content?.toIntOrNull()?.let { it > 0 } == true
         val extractionCode = (delivered["failure_code"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.takeUnless { it == "null" }
         val waitingApproval = (delivered["execution_ledger"] as? JsonObject)?.get("recovery") == kotlinx.serialization.json.JsonPrimitive("WAITING_FOR_APPROVAL")

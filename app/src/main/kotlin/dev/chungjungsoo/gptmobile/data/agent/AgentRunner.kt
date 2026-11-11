@@ -6,6 +6,7 @@ import java.net.URI
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
@@ -111,7 +112,8 @@ class AgentRunner(
     private val initialToolCallCountOverride: Int? = null,
     private val onToolResultCommitted: (suspend (ProviderEvent.ToolCall, AgentToolResult) -> Unit)? = null,
     private val onToolResultsRestored: (suspend (List<AgentToolExchange>) -> Unit)? = null,
-    private val remainingTaskMillis: (suspend () -> Long?)? = null
+    private val remainingTaskMillis: (suspend () -> Long?)? = null,
+    private val replayDispatcher: CoroutineDispatcher = Dispatchers.Default
 ) {
     private val replayRenderCache = ToolExchangeCompactor.RenderCache()
     private val replayCompactionLogGate = ReplayCompactionLogGate()
@@ -122,7 +124,7 @@ class AgentRunner(
         maxReplayTokens: Int,
         maxResultTokens: Int,
         consumedCallIds: Set<String> = emptySet()
-    ): ReplayProjection = withContext(Dispatchers.Default) {
+    ): ReplayProjection = withContext(replayDispatcher) {
         val rawTokens = ToolExchangeCompactor.estimateTokens(exchanges, replayRenderCache)
         val started = System.nanoTime()
         val compacted = ToolExchangeCompactor.compact(
@@ -315,7 +317,7 @@ class AgentRunner(
                     if (recovery.finalize) {
                         executableToolByName = emptyMap()
                         finalResponseRequested = true
-                        instructFinalResponse(exchanges)
+                        instructFinalResponse(exchanges, consumedCallIds)
                     }
                     continue
                 }
@@ -337,7 +339,7 @@ class AgentRunner(
                 val calls = routeSearchCalls(resolvedCalls, executableToolByName)
                 savedResultRecovery.record(calls)
                 if (calls.isEmpty()) {
-                    val recovery = recoverRoundWithoutCalls(session, round, exchanges, exposedDefinitions, emptyAnswerRecoveryAttempted, finalResponseRequested) ?: return
+                    val recovery = recoverRoundWithoutCalls(session, round, exchanges, consumedCallIds, exposedDefinitions, emptyAnswerRecoveryAttempted, finalResponseRequested) ?: return
                     exposedDefinitions = recovery.definitions
                     emptyAnswerRecoveryAttempted = recovery.emptyAnswerRecoveryAttempted
                     finalResponseRequested = recovery.finalResponseRequested
@@ -374,7 +376,7 @@ class AgentRunner(
                     finalResponseRequested = true
                     exposedDefinitions = emptyList()
                     executableToolByName = emptyMap()
-                    instructFinalResponse(exchanges)
+                    instructFinalResponse(exchanges, consumedCallIds)
                     emit(AgentRunEvent.Notice(stalled ?: "GitHub operations failed for three consecutive rounds. Finishing with saved results and the remaining blockers.", persistent = false))
                 }
             }
@@ -581,6 +583,7 @@ class AgentRunner(
         session: AgentProviderSession,
         round: RoundResult,
         exchanges: MutableList<AgentToolExchange>,
+        consumedCallIds: MutableSet<String>,
         definitions: List<AgentToolDefinition>,
         emptyAnswerRecoveryAttempted: Boolean,
         finalResponseRequested: Boolean
@@ -597,7 +600,7 @@ class AgentRunner(
                 }
             }
             if (limits.githubTask && limits.combined?.requested?.singlePass != true && !session.handlesToolsInternally && !finalResponseRequested) {
-                instructFinalResponse(exchanges)
+                instructFinalResponse(exchanges, consumedCallIds)
                 emit(AgentRunEvent.Notice("The GitHub provider returned another empty round. Generating a text answer from the saved operation results.", persistent = false))
                 return EmptyRoundRecovery(emptyList(), emptyAnswerRecoveryAttempted, true)
             }
@@ -1832,10 +1835,14 @@ class AgentRunner(
 
     private fun appendFinalResponseInstruction(result: AgentToolResult): AgentToolResult = appendInstruction(result, FINAL_RESPONSE_INSTRUCTION)
 
-    private fun instructFinalResponse(exchanges: MutableList<AgentToolExchange>) {
+    private fun instructFinalResponse(exchanges: MutableList<AgentToolExchange>, consumedCallIds: MutableSet<String>) {
         val previous = exchanges.lastOrNull() ?: return
         val result = previous.results.lastOrNull() ?: return
-        exchanges[exchanges.lastIndex] = previous.copy(results = previous.results.dropLast(1) + appendInstruction(result, "Continue with a text answer and no further tool calls. Report verified outcomes from saved receipts, the concrete failure and any unfinished work. Do not claim changes were applied without a successful receipt or repeat a completed action."))
+        val updated = appendInstruction(result, "Continue with a text answer and no further tool calls. Report verified outcomes from saved receipts, the concrete failure and any unfinished work. Do not claim changes were applied without a successful receipt or repeat a completed action.")
+        if (updated === result) return
+        // The changed payload needs to reach the provider with its new instruction.
+        consumedCallIds.remove(result.callId)
+        exchanges[exchanges.lastIndex] = previous.copy(results = previous.results.dropLast(1) + updated)
     }
 
     private suspend fun executeBounded(

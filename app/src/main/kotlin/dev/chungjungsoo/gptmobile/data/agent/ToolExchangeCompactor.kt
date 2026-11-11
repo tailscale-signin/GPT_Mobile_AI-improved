@@ -116,10 +116,13 @@ internal object ToolExchangeCompactor {
         // A completed provider round proves that these exact bodies were already
         // delivered. Keep their call/result boundary, error metadata, and any
         // bounded semantic summary, but do not keep paying for a large raw body on
-        // every later round. Durable evidence remains in the checkpoint/evidence
-        // stores and is independent from this provider replay projection.
+        // every later round. Complete GitHub pages stay eligible for the bounded
+        // replay allowance so follow-up rounds can use their exact evidence.
         val consumedPayloads = BooleanArray(flattenedResults.size) { index ->
-            flattenedResults[index].callId in consumedCallIds && measurements[index].tokens > MIN_RESULT_TOKENS
+            val result = flattenedResults[index]
+            result.callId in consumedCallIds &&
+                measurements[index].tokens > MIN_RESULT_TOKENS &&
+                GitHubReplayRecovery.envelope(result.content)?.get("local_page_complete") != JsonPrimitive(true)
         }
         var resultIndex = 0
         var remaining = hardBudget

@@ -764,6 +764,28 @@ class EngineeringConversationTests(unittest.TestCase):
         with self.assertRaises(ConversationConflict):
             store.instruction('owner', job['conversation_id'], dict(instruction, content='Conflicting change'))
 
+    def test_batch_completion_with_queued_instruction_preserves_large_checkpoint(self):
+        self.request.update(execution_mode='full', batch_policy_version=1)
+        with patch('v14.engineering.authorize_request', return_value='full'):
+            job = self.store.create('owner', self.request)
+        claimed, lease, _ = self.store.claim(job['id'])
+        raw_result = 'result' * 24000
+        claimed['data']['raw_result'] = raw_result
+        conversations = self.store.conversations
+        conversation_id = job['conversation_id']
+        snapshot = conversations.snapshot('owner', conversation_id)
+        self.assertEqual('full', snapshot['execution_mode'])
+        conversations.instruction('owner', conversation_id, {
+            'kind': 'instruction', 'command_id': 'last-instruction',
+            'content': 'Inspect one more file', 'expected_revision': snapshot['revision']})
+
+        self.assertTrue(self.store.complete(claimed, lease, 'COMPLETED', {}))
+
+        saved = self.store.get(job['id'])
+        self.assertEqual('NEEDS_INPUT', saved['state'])
+        self.assertEqual('needs_attention', saved['data']['integration_batch']['state'])
+        self.assertEqual(raw_result, self.service.artifacts.json_value(saved, saved['data']['raw_result']))
+
     def test_paused_jobs_do_not_admit_instructions_that_cannot_be_consumed(self):
         job = self.store.create('owner', self.request)
         projection = self.store.conversations

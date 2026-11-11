@@ -115,7 +115,8 @@ data class GatewayConversationSnapshot(
     @SerialName("working_branch") val workingBranch: String? = null,
     @SerialName("history_complete") val historyComplete: Boolean = true,
     @SerialName("history_limitation") val historyLimitation: String? = null,
-    @SerialName("execution_binding") val executionBinding: JsonObject? = null
+    @SerialName("execution_binding") val executionBinding: JsonObject? = null,
+    @SerialName("execution_mode") val executionMode: String? = null
 )
 
 @Serializable

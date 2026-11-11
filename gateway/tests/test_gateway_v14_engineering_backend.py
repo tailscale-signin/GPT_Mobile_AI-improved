@@ -1,3 +1,4 @@
+import base64
 import copy
 import json
 import os
@@ -10,9 +11,11 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+import requests
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from v14.engineering import EngineeringSupervisor
-from v14.engineering_backend import GitHubEngineeringBackend, prepare_changes
+from v14.engineering_backend import GitHubEngineeringBackend, blob_sha, prepare_changes
 
 
 class EngineeringCredentialTests(unittest.TestCase):
@@ -378,6 +381,60 @@ class EngineeringBackendTests(unittest.TestCase):
                         backend.stopping.set()
                 self.assertEqual([1], attempts)
                 backend.journal.save.assert_not_called()
+
+    def test_read_cooldown_reuses_the_saved_batch_after_the_job_revision_changes(self):
+        contents = {'first.py': 'already read', 'second.py': 'temporarily limited'}
+        tree = {path: {'sha': blob_sha(value), 'mode': '100644'} for path, value in contents.items()}
+        by_sha = {tree[path]['sha']: value for path, value in contents.items()}
+        receipts = {}
+        journal = SimpleNamespace(
+            open=lambda principal, job_id, batch_id, plan, binding: copy.deepcopy(receipts.get(batch_id, {})),
+            save=lambda principal, job_id, batch_id, value: receipts.update({batch_id: copy.deepcopy(value)})
+        )
+        job = copy.deepcopy(self.job)
+        job['state'] = 'READ'
+        job['data'].update(plan={'paths': ['outdated.py']}, ci={'checks_failed': True})
+        limited_sha = tree['second.py']['sha']
+        calls = []
+
+        def backend(waiting):
+            client = GitHubEngineeringBackend(self.runtime)
+            client.identity = Mock(return_value={'id': job['data']['actor_id']})
+            client.tree = Mock(return_value=tree)
+            client.model = Mock(return_value={'paths': list(contents)})
+            client.journal = journal
+
+            def read(path, **kwargs):
+                sha = path.rsplit('/', 1)[1]
+                calls.append(sha)
+                if waiting and sha == limited_sha:
+                    response = requests.Response()
+                    response.status_code = 429
+                    response.headers['Retry-After'] = '600'
+                    raise requests.HTTPError('fixture cooldown', response=response)
+                content = by_sha[sha].encode()
+                return {'encoding': 'base64', 'size': len(content), 'content': base64.b64encode(content).decode()}
+
+            client.api = read
+            return client
+
+        first = backend(waiting=True)
+        with self.assertRaises(requests.HTTPError) as failure:
+            first.step(job, 'READ')
+        self.assertEqual(429, failure.exception.response.status_code)
+        first.model.assert_called_once()
+        batch_id, saved = next(iter(receipts.items()))
+        saved['1']['error']['retry_at'] = 0
+
+        resumed = json.loads(json.dumps(job))
+        resumed['revision'] += 1
+        second = backend(waiting=False)
+        result = second.step(resumed, 'READ')
+        second.model.assert_not_called()
+        self.assertEqual([batch_id], list(receipts))
+        self.assertEqual(1, calls.count(tree['first.py']['sha']))
+        self.assertEqual(2, calls.count(limited_sha))
+        self.assertEqual(contents, {path: value['content'] for path, value in result['files'].items()})
 
     def test_log_excerpt_keeps_actual_failure_tail_with_a_download_bound(self):
         response = Mock()

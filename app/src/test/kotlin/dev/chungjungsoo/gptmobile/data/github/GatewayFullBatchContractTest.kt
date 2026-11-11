@@ -14,6 +14,8 @@ class GatewayFullBatchContractTest {
         val old = json.decodeFromString<GatewayEngineeringCapabilities>("""{"service":"engineering-gateway","protocol_version":1}""")
         assertFalse(old.supportsFullBatch)
         assertEquals("standard", GitHubChatProfileOverride().executionBatchMode)
+        val saved = json.decodeFromString<GatewayConversationSnapshot>("""{"gateway_id":"host","principal_id":"user","conversation_id":"saved"}""")
+        assertEquals(null, saved.executionMode)
     }
 
     @Test fun fullModeRequiresAdvertisedCapability() {
@@ -42,6 +44,10 @@ class GatewayFullBatchContractTest {
         val frozen = json.decodeFromString<GatewayEngineeringRequest>(json.encodeToString(request))
         assertEquals("full", frozen.executionMode)
         assertEquals(1, frozen.batchPolicyVersion)
+        val saved = json.decodeFromString<GatewayConversationSnapshot>(
+            """{"gateway_id":"host","principal_id":"user","conversation_id":"saved","execution_mode":"full"}"""
+        )
+        assertEquals("full", saved.executionMode)
         val progress = json.decodeFromString<GatewayIntegrationBatchProgress>(
             """{"schema_version":1,"mode":"full","revision":4,"completed":3,"total":4,"current_phase":"CI","current_state":"waiting_rate_limit"}"""
         )

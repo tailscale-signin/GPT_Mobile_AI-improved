@@ -261,7 +261,8 @@ class EngineeringStore:
                 self.event(db, previous, 'CANCELLED', previous['revision'] + 1, now)
                 self.conversations.engineering_projection(db, previous, 'CANCELLED')
             conversation_binding = {key: request.get(key) for key in ('profile_id', 'profile_name', 'model', 'repository', 'branch', 'base', 'source_sha')}
-            conversation_binding.update(source_branch=request.get('source_branch', request['branch']), working_branch=request['branch'], execution_binding=binding)
+            conversation_binding.update(source_branch=request.get('source_branch', request['branch']), working_branch=request['branch'],
+                                        execution_binding=binding, execution_mode=request.get('execution_mode', 'standard'))
             receipt = self.conversations.admission(db, principal, request.get('command_id', request['request_id']), 'engineering', job['id'], request,
                 conversation_binding, request['objective'], now=now, replace_paused=replace_paused)
             previous = self.get_in_transaction(db, receipt.get('previous_job_id'), principal)
@@ -373,7 +374,8 @@ class EngineeringStore:
                 batch_transition(job, phase, dict(output, error_code='PENDING_INSTRUCTIONS'))
                 checkpoint.update(message=job['message'])
                 checkpoint.pop('finished_at', None)
-                checkpoint['data'] = artifacts.checkpoint(job, job['data'], 'checkpoint')
+                # The checkpoint shares the updated batch plan and already
+                # holds the artifact references prepared before this write.
                 payload, _ = canonical_json(checkpoint, maximum_bytes=4 * 1024 * 1024)
             # Keep every meaningful update, without thousands of identical CI
             # polls filling Android history during a multi-day job.

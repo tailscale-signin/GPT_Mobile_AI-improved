@@ -189,7 +189,8 @@ class GatewayEngineeringRepository @Inject constructor(
         val capability = client.capabilities(gateway.engineeringConfig())
         if (runId != null) check(capability.supportsDurableChat) { "This gateway does not support durable chat admission. Update it before sending this saved turn." }
         capability.requireJobReadiness()
-        val batchMode = if (savedBinding != null) savedBinding.request.executionMode ?: "standard" else preferences.executionBatchMode
+        val savedSnapshot = savedBinding?.snapshot?.let { Json { ignoreUnknownKeys = true }.decodeFromString<GatewayConversationSnapshot>(it) }
+        val batchMode = if (savedSnapshot != null) savedSnapshot.executionMode ?: "standard" else preferences.executionBatchMode
         check(batchMode in setOf("standard", "smart", "full")) { "Choose a supported Gateway execution mode." }
         check(
             batchMode == "standard" ||
@@ -205,7 +206,7 @@ class GatewayEngineeringRepository @Inject constructor(
         check(identity == null || identity.principalId == principal) { "The authenticated gateway account changed before binding admission." }
         if (savedBinding != null) check(savedBinding.principalId == principal && savedBinding.gatewayId == identity?.gatewayId) { "The original gateway or account changed. The saved conversation was retained." }
         val connection = profile.providerConnectionUid?.let { settings.getProviderConnection(it) }
-        val originalExecution = savedBinding?.snapshot?.let { Json { ignoreUnknownKeys = true }.decodeFromString<GatewayConversationSnapshot>(it).executionBinding }
+        val originalExecution = savedSnapshot?.executionBinding
         val privacyScope = originalExecution?.get("privacy_scope")?.jsonPrimitive?.content ?: "$principal/chat/$chatId/repository/$repository"
         val selection = executionSelection(profile, connection, privacyScope)
         check(settings.fetchPlatformV2s().singleOrNull { it.uid == gateway.uid && it.enabled }?.engineeringConfig() == frozenConfig) { "The gateway configuration changed before binding admission." }

@@ -22,7 +22,7 @@ permissions:
 
 jobs:
   reliability_v2_completion:
-    name: Unified Reliability v2 completion gate
+    name: Unified Reliability v2 scope / strict release gate
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -114,6 +114,35 @@ jobs:
           --coverage app/build/reports/jacoco/jacocoTestReport/jacocoTestReport.xml
           --output app-audit-source-qualification.json
 
+      - name: Reconcile v2 cases against exact named JVM regressions (no status promotion)
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          junit_args=()
+          if compgen -G 'app/build/test-results/testDebugUnitTest/TEST-*.xml' >/dev/null; then
+            junit_args=(--junit-dir app/build/test-results/testDebugUnitTest --fail-on-candidate-regression)
+          fi
+          python3 scripts/unified_reliability_v2_reconcile.py \
+            "${junit_args[@]}" \
+            --source-sha "$(git rev-parse HEAD)" \
+            --run-url "https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/attempts/${GITHUB_RUN_ATTEMPT}" \
+            --output build/reports/unified-reliability-v2/reconciliation.json
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          p = Path('build/reports/unified-reliability-v2/reconciliation.json')
+          report = json.loads(p.read_text())
+          s = report['summary']
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as f:
+              f.write('### Unified Reliability v2 — evidence inventory (not acceptance)\n')
+              f.write(f"Recorded: {s['case_outcomes'].get('PASS', 0)}/110 PASS; "
+                      f"{s['case_outcomes'].get('NOT_RUN', 0)} NOT_RUN; "
+                      f"{s['task_statuses'].get('DONE', 0)}/48 tasks DONE.\n\n")
+              f.write(f"{s['not_run_with_partial_component_proof']} outstanding cases have "
+                      "named partial-component probes in this run. None have been promoted.\n")
+          PY
+
       - name: Upload generated statistics schema and reports
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -126,6 +155,7 @@ jobs:
             app/schemas/dev.chungjungsoo.gptmobile.data.research.feature.ResearchDatabase/*.json
             app/build/test-results/testDebugUnitTest/*.xml
             app/build/reports/unified-runtime-paired.json
+            build/reports/unified-reliability-v2/reconciliation.json
             app-audit-test-started.txt
             app-audit-source-qualification.json
           if-no-files-found: warn

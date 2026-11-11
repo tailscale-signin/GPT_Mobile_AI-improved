@@ -100,10 +100,44 @@ class ReliabilityEvidenceGateTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'required acceptance case not passed'):
             gate.validate()
         self.passing_fixture()
+        with self.assertRaisesRegex(ValueError, 'reviewed structured task receipt'):
+            gate.validate()
+        task['evidence'] = ['evidence/task-proof.json']
+        (self.scope / 'evidence/task-proof.json').write_text(json.dumps({
+            'schema': 'unified-reliability-v2-task-verification.v1',
+            'task_id': 'V01',
+            'implementation_commits': ['a' * 40],
+            'acceptance_ids': ['IX01'],
+            'proof': {'reviewed': True, 'reviewer': 'fixture reviewer',
+                      'command': 'python3 -m unittest fixture',
+                      'artifact_sha256': 'b' * 64}
+        }))
+        self.save()
         self.assertEqual((48, 110), gate.validate())
         task['dependencies'] = ['V02']
         self.save()
         with self.assertRaisesRegex(ValueError, 'unfinished prerequisite task'):
+            gate.validate()
+
+    def test_a_code_path_or_unscoped_json_is_not_pass_evidence(self):
+        self.passing_fixture()
+        (self.root / 'scripts').mkdir()
+        (self.root / 'scripts' / 'fake.py').write_text('assert True')
+        self.case()['evidence'] = ['scripts/fake.py']
+        self.save()
+        with self.assertRaisesRegex(ValueError, 'scoped machine-readable'):
+            gate.validate()
+        (self.scope / 'evidence' / 'metadata.md').write_text('All green')
+        self.case()['evidence'] = ['evidence/metadata.md']
+        self.save()
+        with self.assertRaisesRegex(ValueError, 'scoped machine-readable'):
+            gate.validate()
+
+    def test_pass_requires_a_named_matching_test(self):
+        receipt = self.passing_fixture()
+        receipt['acceptance_fixtures']['IX01'][0].pop('test')
+        (self.scope / 'evidence/proof.json').write_text(json.dumps(receipt))
+        with self.assertRaisesRegex(ValueError, 'no passing case evidence'):
             gate.validate()
 
     def test_a_fake_non_hex_commit_cannot_satisfy_pass(self):

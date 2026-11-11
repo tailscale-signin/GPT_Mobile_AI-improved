@@ -22,6 +22,7 @@ from urllib.parse import quote, urlsplit
 import requests
 
 from v14.batch import BatchExecutor, BatchJournal, deferred_read, digest
+from v14.github_api_governor import GLOBAL_GITHUB_GOVERNOR
 from v14.github import ImmutableGitHubReads
 from v14.engineering_validation import validate as validate_checkout, patch_identity
 from v14.execution_binding import ExecutionBindingError
@@ -127,6 +128,7 @@ class GitHubEngineeringBackend:
         self.runtime = runtime
         self.reads = ImmutableGitHubReads(max_bytes=16 * 1024 * 1024, max_entries=256)
         self.batch = BatchExecutor()
+        self.github_governor = GLOBAL_GITHUB_GOVERNOR
         self.journal = BatchJournal(runtime)
         self.stopping = threading.Event()
         self.cancelled = lambda job_id: False
@@ -292,10 +294,12 @@ class GitHubEngineeringBackend:
         if mutating and job and job['data'].get('actor_id') is not None:
             # Bind each write to the account checked during planning, even if
             # the host credential changes between operations in one phase.
-            with requests.get('https://api.github.com/user', headers=headers, timeout=(10, 30), allow_redirects=False, stream=True) as identity:
-                identity.raise_for_status()
-                if self.read_response(identity, False).get('id') != job['data']['actor_id']:
-                    raise ValueError('GitHub account changed before dispatch')
+            with self.github_governor.lease(token, cancelled=lambda: self.stopping.is_set() or self.cancelled(job['id'])):
+                with requests.get('https://api.github.com/user', headers=headers, timeout=(10, 30), allow_redirects=False, stream=True) as identity:
+                    self.github_governor.observe(token, identity.status_code, identity.headers)
+                    identity.raise_for_status()
+                    if self.read_response(identity, False).get('id') != job['data']['actor_id']:
+                        raise ValueError('GitHub account changed before dispatch')
         if mutating and job:
             if not callable(self.before_mutation) or self.operations is None:
                 raise ExecutionBindingError('EXECUTION_BINDING_REQUIRED', 'A fenced execution binding is required before dependent writes.')
@@ -304,27 +308,30 @@ class GitHubEngineeringBackend:
                 return self.operations.service.artifacts.json_value(job, operation['response_ref'])
             self.operations.dispatch(job, operation)
         try:
-            with requests.request(method, 'https://api.github.com' + path, headers=headers, json=body,
-                                  timeout=(10, 60), allow_redirects=False, stream=True) as response:
-                if text and response.status_code == 302:
-                    location = response.headers.get('Location', '')
-                    parsed = urlsplit(location)
-                    if parsed.scheme != 'https' or parsed.username or not parsed.hostname or not (parsed.hostname.endswith('.blob.core.windows.net') or parsed.hostname.endswith('.actions.githubusercontent.com')):
-                        raise ValueError('Untrusted log download destination')
-                    # GitHub credentials never accompany the signed storage redirect.
-                    with requests.get(location, timeout=(10, 30), allow_redirects=False, stream=True) as download:
-                        download.raise_for_status()
-                        return recorded(self.read_response(download, True), download.status_code, True)
-                if response.status_code >= 400:
-                    failure = {'http_status': response.status_code, 'error': self.read_response(response, True)}
+            with self.github_governor.lease(token, mutating=mutating,
+                    cancelled=lambda: self.stopping.is_set() or (job is not None and self.cancelled(job['id']))):
+                with requests.request(method, 'https://api.github.com' + path, headers=headers, json=body,
+                                      timeout=(10, 60), allow_redirects=False, stream=True) as response:
+                    self.github_governor.observe(token, response.status_code, response.headers)
+                    if text and response.status_code == 302:
+                        location = response.headers.get('Location', '')
+                        parsed = urlsplit(location)
+                        if parsed.scheme != 'https' or parsed.username or not parsed.hostname or not (parsed.hostname.endswith('.blob.core.windows.net') or parsed.hostname.endswith('.actions.githubusercontent.com')):
+                            raise ValueError('Untrusted log download destination')
+                        # GitHub credentials never accompany the signed storage redirect.
+                        with requests.get(location, timeout=(10, 30), allow_redirects=False, stream=True) as download:
+                            download.raise_for_status()
+                            return recorded(self.read_response(download, True), download.status_code, True)
+                    if response.status_code >= 400:
+                        failure = {'http_status': response.status_code, 'error': self.read_response(response, True)}
+                        if operation:
+                            self.operations.finish(job, operation, failure, response.status_code)
+                        recorded(failure, response.status_code, False)
+                    response.raise_for_status()
+                    value = self.read_response(response, text)
                     if operation:
-                        self.operations.finish(job, operation, failure, response.status_code)
-                    recorded(failure, response.status_code, False)
-                response.raise_for_status()
-                value = self.read_response(response, text)
-                if operation:
-                    self.operations.finish(job, operation, value, response.status_code)
-                return recorded(value, response.status_code, True)
+                        self.operations.finish(job, operation, value, response.status_code)
+                    return recorded(value, response.status_code, True)
         except Exception as error:
             if operation:
                 self.operations.failed(job, operation, error)

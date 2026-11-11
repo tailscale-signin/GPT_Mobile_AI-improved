@@ -132,7 +132,14 @@ internal object GitHubRequestCompletion {
         val verified = claims.isNotEmpty() && claims.all { it["status"] in setOf(JsonPrimitive("VERIFIED"), JsonPrimitive("INFERRED")) }
         val requirements = requirements(task)
         val coverage = (answer["requirement_claims"] as? JsonObject).orEmpty()
-        val unanswered = (answer["questions"] as? JsonArray).orEmpty().isNotEmpty()
+        val pendingApprovals = GitHubPendingApproval.snapshot(receipts).isNotEmpty()
+        val pendingDecision = receipts.values.any { receipt ->
+            receipt["trusted"] == JsonPrimitive(true) &&
+                receipt["verification_eligible"] != JsonPrimitive(false) &&
+                receipt.text("tool").substringBefore("__") == "github_decide" &&
+                receipt.text("error_code") in setOf("GITHUB_DECISION_REQUIRED", "USER_INPUT_REQUIRED")
+        }
+        val unanswered = pendingApprovals || pendingDecision
         val comparisonMissing = GitHubReviewComparison.incompleteReason(task, receipts)
         val rows = requirements.map { requirement ->
             val selected = (coverage[id(requirement)] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.intOrNull }

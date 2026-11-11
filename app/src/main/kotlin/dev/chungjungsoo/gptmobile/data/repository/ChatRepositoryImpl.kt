@@ -1657,6 +1657,24 @@ class ChatRepositoryImpl(
         stage: dev.chungjungsoo.gptmobile.data.agent.AgentStageRequest?
     ): Flow<ApiState> = flow {
         retainToolAdmission(runId, platform, userMessages.lastOrNull()?.chatId, dev.chungjungsoo.gptmobile.data.agent.RunToolAdmissionStage.STAGE_NOT_REACHED)
+        val auditUser = userMessages.lastOrNull()
+        if (stage == null &&
+            chatToolConfig?.github?.mainProfileUid == platform.uid &&
+            auditUser != null &&
+            auditUser.attachments.isEmpty() &&
+            dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.sessionAudit(auditUser.content)
+        ) {
+            val report = withContext(Dispatchers.IO) {
+                val runs = agentRunDao.sessionAuditRuns(auditUser.chatId, runId)
+                val ids = runs.map { it.runId }
+                val failures = if (ids.isEmpty()) emptyList() else agentPersistenceDao.sessionAuditToolFailures(ids)
+                val journal = if (ids.isEmpty()) null else dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.snapshot(ids.toSet(), byteLimit = 512 * 1024, eventLimit = 500)
+                dev.chungjungsoo.gptmobile.data.github.GitHubSessionAudit.render(runs, failures, journal)
+            }
+            emit(ApiState.Success(report))
+            emit(ApiState.Done)
+            return@flow
+        }
         val boundStage = try {
             bindStageRequest(userMessages, platform, runId, chatToolConfig, stage)
         } catch (cancelled: CancellationException) {
@@ -4852,7 +4870,13 @@ class ChatRepositoryImpl(
         val requestConstraints = admission.requestConstraints
         fun bindGitHubTarget(resolved: ResolvedAgentTool): dev.chungjungsoo.gptmobile.data.agent.AgentTool =
             if (resolved.nativeGitHub && boundGitHubRepository != null) {
-                dev.chungjungsoo.gptmobile.data.github.GitHubBoundRepositoryTool(resolved.tool, boundGitHubRepository, resolved.connectionUid == boundGitHubConnection, dev.chungjungsoo.gptmobile.data.github.GitHubTargetPolicy.readSources(acceptanceRequest))
+                dev.chungjungsoo.gptmobile.data.github.GitHubBoundRepositoryTool(
+                    resolved.tool,
+                    boundGitHubRepository,
+                    resolved.connectionUid == boundGitHubConnection,
+                    dev.chungjungsoo.gptmobile.data.github.GitHubTargetPolicy.readSources(acceptanceRequest),
+                    readOnly = dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.diagnostic(originalUserRequest)
+                )
             } else if (boundGitHubRepository != null && dev.chungjungsoo.gptmobile.data.agent.AgentToolCapability.GITHUB in resolved.tool.definition.capabilities) {
                 dev.chungjungsoo.gptmobile.data.github.GitHubMcpRepositoryTool(
                     resolved.tool,
@@ -5449,8 +5473,9 @@ class ChatRepositoryImpl(
         // Exhausted execution budgets and writer-only stages must not erase the
         // still-authorized identity/contracts used to restore durable evidence.
         // Only runnerTools are executable; this catalog is a read-validation scope.
-        val evidenceCatalog = catalog ?: authorizedEvidenceTools.firstNotNullOfOrNull { it.progressiveCatalog }
-            ?.also { it.bindExecutionContracts(authorizedEvidenceTools.map { tool -> tool.tool.definition }) }
+        val canonicalEvidenceDefinitions = authorizedEvidenceTools.map { bindGitHubTarget(it).definition }
+        val evidenceCatalog = (catalog ?: authorizedEvidenceTools.firstNotNullOfOrNull { it.progressiveCatalog })
+            ?.also { it.bindExecutionContracts(canonicalEvidenceDefinitions) }
         val initiallySelectedSession = catalog?.let { groundedSession.withToolCatalog(it) } ?: groundedSession
         val (githubEffectiveTask, verifiedEvidence) = prepareGitHubTaskEvidence(
             platform, latestUser, runId, turnKey, chatToolConfig?.github,
@@ -5662,7 +5687,7 @@ class ChatRepositoryImpl(
                         )
                         openPrimarySession(continuation.turns, "github-execution-continuation", textOnly = false)
                     },
-                    authorizedTools = (authorizedEvidenceTools.map { it.tool.definition } + listOfNotNull(evidenceCatalog?.definition)).filter { it.modelVisible }.distinctBy { it.name },
+                    authorizedTools = (canonicalEvidenceDefinitions + listOfNotNull(evidenceCatalog?.definition)).filter { it.modelVisible }.distinctBy { it.name },
                     inputLimit = { (githubStageBudget("github-claim-extraction").input - dev.chungjungsoo.gptmobile.data.context.TextTokenEstimate.estimate(dev.chungjungsoo.gptmobile.data.github.GitHubEvidencePolicy.INSTRUCTION)).coerceAtLeast(0) },
                     openVerifier = { prompt ->
                         openPrimarySession(

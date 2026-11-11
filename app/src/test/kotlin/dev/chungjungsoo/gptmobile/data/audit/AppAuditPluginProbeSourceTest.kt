@@ -15,7 +15,8 @@ class AppAuditPluginProbeSourceTest {
         var reads = 0
         val source = AppAuditPluginProbeSource({
             listOf(
-                target().copy(liveRead = {
+                target().copy(liveRead = { dispatch ->
+                    dispatch()
                     reads++
                     live()
                 }),
@@ -42,7 +43,8 @@ class AppAuditPluginProbeSourceTest {
         var markers = 0
         val source = AppAuditPluginProbeSource({
             listOf(
-                target().copy(liveRead = {
+                target().copy(liveRead = { dispatch ->
+                    dispatch()
                     reads++
                     live()
                 })
@@ -61,7 +63,8 @@ class AppAuditPluginProbeSourceTest {
         val calls = mutableListOf<String>()
         val source = AppAuditPluginProbeSource({
             listOf(
-                target().copy(liveRead = {
+                target().copy(liveRead = { dispatch ->
+                    dispatch()
                     calls += "read"
                     live()
                 })
@@ -79,7 +82,8 @@ class AppAuditPluginProbeSourceTest {
     fun changedConfigurationRejectsBeforeMarkerWithoutReplacement() = runBlocking {
         var reads = 0
         var markers = 0
-        var target = target().copy(liveRead = {
+        var target = target().copy(liveRead = { dispatch ->
+            dispatch()
             reads++
             live()
         })
@@ -95,7 +99,8 @@ class AppAuditPluginProbeSourceTest {
     @Test
     fun markerSuspensionCannotAdmitChangedTarget() = runBlocking {
         var reads = 0
-        var target = target().copy(liveRead = {
+        var target = target().copy(liveRead = { dispatch ->
+            dispatch()
             reads++
             live()
         })
@@ -108,7 +113,8 @@ class AppAuditPluginProbeSourceTest {
     @Test
     fun postDispatchChangeRetainsObservedReceipt() = runBlocking {
         var target = target()
-        target = target.copy(liveRead = {
+        target = target.copy(liveRead = { dispatch ->
+            dispatch()
             target = target.copy(fingerprint = "changed")
             live()
         })
@@ -127,7 +133,8 @@ class AppAuditPluginProbeSourceTest {
             dispatchEvidence = AppAuditDispatchEvidence.UNKNOWN,
             retryable = false
         )
-        target = target.copy(liveRead = {
+        target = target.copy(liveRead = { dispatch ->
+            dispatch()
             target = target.copy(fingerprint = "changed")
             observed
         })
@@ -148,7 +155,8 @@ class AppAuditPluginProbeSourceTest {
         )
         val source = AppAuditPluginProbeSource({
             listOf(
-                target().copy(liveReadPrecheck = gate, liveRead = {
+                target().copy(liveReadPrecheck = gate, liveRead = { dispatch ->
+                    dispatch()
                     reads++
                     live()
                 })
@@ -164,7 +172,8 @@ class AppAuditPluginProbeSourceTest {
         var reads = 0
         val source = AppAuditPluginProbeSource({
             listOf(
-                target().copy(liveRead = {
+                target().copy(liveRead = { dispatch ->
+                    dispatch()
                     reads++
                     live()
                 })
@@ -180,7 +189,8 @@ class AppAuditPluginProbeSourceTest {
         var reads = 0
         val source = AppAuditPluginProbeSource({
             listOf(
-                target().copy(liveRead = {
+                target().copy(liveRead = { dispatch ->
+                    dispatch()
                     reads++
                     awaitCancellation()
                 })
@@ -196,7 +206,12 @@ class AppAuditPluginProbeSourceTest {
         val selections = mutableListOf<List<String>>()
         val source = AppAuditPluginProbeSource({ profiles ->
             selections += profiles
-            profiles.map { uid -> target("gateway:$uid").copy(kind = AppAuditPluginKind.GATEWAY, componentId = "gateway_connection", liveRead = { live() }) }
+            profiles.map { uid ->
+                target("gateway:$uid").copy(kind = AppAuditPluginKind.GATEWAY, componentId = "gateway_connection", liveRead = { dispatch ->
+                    dispatch()
+                    live()
+                })
+            }
         })
         assertTrue(source.plan(AppAuditOptions(allowNetworkReads = true)).isEmpty())
         val entry = source.plan(AppAuditOptions(allowNetworkReads = true, selectedProfileIds = listOf("selected", "selected"))).single { it.probeId == AppAuditPluginProbeSource.GATEWAY_CAPABILITIES }
@@ -232,7 +247,10 @@ class AppAuditPluginProbeSourceTest {
     fun targetedLookupsDoNotRepeatWholeInventory() = runBlocking {
         var inventories = 0
         var lookups = 0
-        val target = target().copy(liveRead = { live() })
+        val target = target().copy(liveRead = { dispatch ->
+            dispatch()
+            live()
+        })
         val source = AppAuditPluginProbeSource({
             inventories++
             listOf(target)

@@ -54,8 +54,10 @@ this PR draft until the relevant Android and security/device checks pass. No mai
 release is part of this change. Use the exact head SHA when reviewing CI evidence.
 
 After a successful run, apply the candidate ruleset through repository Settings → Rules,
-review its one-review requirement with the owner, require `Required verification` from GitHub
-Actions, disallow force-push/deletion and enable strict currency. Add merge queue only if the
+require `Required verification` and `Analyze (java-kotlin)` from GitHub Actions, disallow
+force-push/deletion and enable strict currency. `Required verification` includes the unit,
+lint, formatting and repository contract jobs. Verify `GET /repos/{owner}/{repo}/rules/branches/main`
+contains the effective pull request and status check rules. Add merge queue only if the
 account/repository plan supports it. A missing administration capability must be reported,
 never interpreted as an unprotected or safe branch. Do not disable protections to unblock CI.
 

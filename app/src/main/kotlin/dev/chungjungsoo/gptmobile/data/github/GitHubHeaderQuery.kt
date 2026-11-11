@@ -9,9 +9,9 @@ import kotlinx.serialization.json.put
 /** Fixed field selections keep bodies, diffs, review threads and user records off the wire. */
 internal object GitHubHeaderQuery {
     fun query(pullRequest: Boolean): String {
-        val selection = if (pullRequest) "pullRequest" else "issue"
+        val selection = if (pullRequest) "PullRequest" else "Issue"
         val fields = if (pullRequest) "isDraft merged headRefOid baseRefOid headRefName baseRefName" else "closed"
-        return "query(\$owner:String!,\$repo:String!,\$number:Int!){repository(owner:\$owner,name:\$repo){$selection(number:\$number){number title state url updatedAt $fields}}}"
+        return "query(\$owner:String!,\$repo:String!,\$number:Int!){repository(owner:\$owner,name:\$repo){issueOrPullRequest(number:\$number){__typename ... on $selection {number title state url updatedAt $fields}}}}"
     }
 
     private fun sanitizedCauses(errors: JsonArray): JsonArray = JsonArray(
@@ -72,7 +72,23 @@ internal object GitHubHeaderQuery {
                 }
             )
         }
-        val item = (((response["data"] as? JsonObject)?.get("repository") as? JsonObject)?.get(if (pullRequest) "pullRequest" else "issue") as? JsonObject)
+        val repository = (response["data"] as? JsonObject)?.get("repository") as? JsonObject
+        val item = (repository?.get("issueOrPullRequest") ?: repository?.get(if (pullRequest) "pullRequest" else "issue")) as? JsonObject
+        val typename = (item?.get("__typename") as? JsonPrimitive)?.content
+        if (typename != null && typename != if (pullRequest) "PullRequest" else "Issue") {
+            throw GitHubHeaderLookupFailure(
+                "GITHUB_RESOURCE_TYPE_MISMATCH",
+                buildJsonObject {
+                    put("error_code", "GITHUB_RESOURCE_TYPE_MISMATCH")
+                    put("resource_identity", identity)
+                    put("observed_resource_type", if (typename == "PullRequest") "pull_request" else "issue")
+                    put("next_action", if (typename == "PullRequest") "github_pr action=headers with pull_number" else "github_issue action=headers with issue_number")
+                    put("snapshot_verified", false)
+                    put("dispatched", true)
+                    put("retryable", false)
+                }
+            )
+        }
         if (item == null) {
             throw GitHubHeaderLookupFailure(
                 "GITHUB_RESOURCE_UNAVAILABLE",

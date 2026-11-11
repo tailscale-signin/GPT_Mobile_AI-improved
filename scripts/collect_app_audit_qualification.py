@@ -52,10 +52,12 @@ def catalog(root):
 
 
 def read_xml(path, allow_doctype=False, max_bytes=MAX_REPORT_BYTES):
-    if path.stat().st_size > max_bytes:
-        raise ValueError('REPORT_TOO_LARGE')
     with path.open('rb') as source:
         data = source.read(max_bytes + 1)
+    return parse_xml(data, allow_doctype, max_bytes)
+
+
+def parse_xml(data, allow_doctype=False, max_bytes=MAX_REPORT_BYTES):
     if len(data) > max_bytes:
         raise ValueError('REPORT_TOO_LARGE')
     # Gradle and JaCoCo emit UTF-8. Reject NUL bytes before parsing so
@@ -68,12 +70,21 @@ def read_xml(path, allow_doctype=False, max_bytes=MAX_REPORT_BYTES):
 
 
 def junit_observations(paths, since, now):
+    def inputs():
+        for path in sorted(paths):
+            yield path.name, lambda: read_xml(path)
+
+    return observe_junit_reports(inputs(), since, now)
+
+
+def observe_junit_reports(reports, since, now):
     """Inspect leaf test cases, rather than trusting a suite's green count."""
     classes = {}
     errors = []
-    for path in sorted(paths):
+    for report_name, read_report in reports:
         try:
-            report, report_hash = read_xml(path)
+            report, report_hash = read_report()
+            observations = []
             if report.tag not in ('testsuite', 'testsuites'):
                 raise ValueError('NOT_A_JUNIT_REPORT')
             # Validate aggregates as well as leaves. A passing child cannot
@@ -114,16 +125,58 @@ def junit_observations(paths, since, now):
                     outcome = terminal[0].upper() if terminal else 'PASS'
                     outcomes.append((owner, name, outcome))
                 for owner, name, outcome in outcomes:
-                    classes.setdefault(owner, []).append({
+                    observations.append({
                         'class_name': owner, 'name': name, 'outcome': outcome, 'current_run_timestamp': fresh,
-                        'report_sha256': report_hash, 'report_name': path.name,
+                        'report_sha256': report_hash, 'report_name': report_name,
                     })
+            for observation in observations:
+                classes.setdefault(observation['class_name'], []).append(observation)
         except (OSError, ET.ParseError, ValueError) as error:
             # Do not copy a test's exception, stdout, credentials or payload into
             # the qualification report. Its original report remains a separate artifact.
             reason = str(error) if isinstance(error, ValueError) and str(error).isupper() else 'INVALID_JUNIT_REPORT'
-            errors.append({'report_name': path.name, 'reason': reason})
+            errors.append({'report_name': report_name, 'reason': reason})
     return classes, errors
+
+
+def current_junit_receipt(classes, errors):
+    cases = [case for cases in classes.values() for case in cases]
+    if (not cases or errors or not all(case['current_run_timestamp'] for case in cases)
+            or len({(case['class_name'], case['name']) for case in cases}) != len(cases)
+            or not any(case['outcome'] != 'SKIPPED' for case in cases)):
+        return None
+    reports = sorted({(case['report_name'], case['report_sha256']) for case in cases})
+    if len({name for name, _ in reports}) != len(reports):
+        return None
+    return {'content_sha256': digest(json.dumps(reports, separators=(',', ':')).encode()),
+            'report_count': len(reports), 'case_count': len(cases)}
+
+
+def checkout_identity(root, environment):
+    def git(*args):
+        return subprocess.check_output(['git', *args], cwd=root, text=True)
+
+    commit = git('rev-parse', 'HEAD').strip()
+    # A shallow graft masks parents in `git show --format=%P`, even though the
+    # commit object contains the complete ordered list of parent headers.
+    headers = git('cat-file', 'commit', commit).split('\n\n', 1)[0].splitlines()
+    parents = [line.removeprefix('parent ') for line in headers if line.startswith('parent ')]
+    if environment.get('GITHUB_SHA') not in (None, commit):
+        raise ValueError('Checked-out commit differs from the workflow revision')
+    event_parents = None
+    if environment.get('GITHUB_EVENT_NAME') == 'pull_request':
+        try:
+            event = json.loads(Path(environment['GITHUB_EVENT_PATH']).read_text())['pull_request']
+            event_parents = [event['base']['sha'], event['head']['sha']]
+        except (KeyError, TypeError) as error:
+            raise ValueError('Pull request event lacks base/head revision identity') from error
+        if parents != event_parents:
+            raise ValueError('Tested merge parents differ from the pull request base/head revisions')
+    return {
+        'commit': commit, 'parents': parents, 'pull_request_event_parents': event_parents,
+        'tracked_files_clean': not git('status', '--porcelain', '--untracked-files=no').strip(),
+        'identity_meaning': 'Observed checkout and source hashes; not independent APK or deployed-service attestation.',
+    }
 
 
 def harness_observation(root, relative, classes, report_errors):
@@ -223,20 +276,15 @@ def collect(root, reports, since, now, coverage_path=None):
         statuses = {harness['status'] for harness in harnesses}
         status = 'FAIL' if 'FAIL' in statuses else 'PASS' if statuses == {'PASS'} else 'PARTIAL' if 'PASS' in statuses or 'PARTIAL' in statuses else 'NOT_QUALIFIED'
         areas.append({'source_area': area, 'named_harness_status': status, 'harnesses': harnesses})
-    all_cases = [case for cases in classes.values() for case in cases]
-    junit_current = (
-        bool(all_cases) and not errors
-        and all(case['current_run_timestamp'] for case in all_cases)
-        and len({(case['class_name'], case['name']) for case in all_cases}) == len(all_cases)
-        and any(case['outcome'] != 'SKIPPED' for case in all_cases)
-    )
+    junit_receipt = current_junit_receipt(classes, errors)
     return {
         'schema_version': 1, 'kind': 'APP_AUDIT_SOURCE_HARNESS_OBSERVATIONS',
         'collected_at': now.isoformat(), 'execution_window_start': since.isoformat() if since else None,
         'source_inventory_sha256': digest((root / INVENTORY).read_bytes()),
         'historical_audit_mutation': False, 'grants_execution': False, 'promotes_audit_score': False,
         'scope': 'Only listed named assertions reported in the current execution window. Area PASS is not complete subsystem, live-service, model or device qualification.',
-        'report_errors': errors, 'areas': areas, 'coverage': instrumented_coverage(coverage_path, since, now, junit_current),
+        'report_errors': errors, 'areas': areas, 'junit_receipt': junit_receipt,
+        'coverage': instrumented_coverage(coverage_path, since, now, junit_receipt is not None),
     }
 
 
@@ -264,14 +312,10 @@ def main():
             'github_run_id': os.environ.get('GITHUB_RUN_ID'),
             'github_run_attempt': os.environ.get('GITHUB_RUN_ATTEMPT'),
             'github_job': os.environ.get('GITHUB_JOB'),
+            'github_repository': os.environ.get('GITHUB_REPOSITORY'),
             'scope': 'Collector and CI job environment; not Android device or remote-service identity.',
         }
-        result['checkout'] = {
-            'commit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip(),
-            'parents': subprocess.check_output(['git', 'show', '-s', '--format=%P', 'HEAD'], cwd=ROOT, text=True).split(),
-            'tracked_files_clean': not subprocess.check_output(['git', 'status', '--porcelain', '--untracked-files=no'], cwd=ROOT, text=True).strip(),
-            'identity_meaning': 'Observed checkout and source hashes; not independent APK or deployed-service attestation.',
-        }
+        result['checkout'] = checkout_identity(ROOT, os.environ)
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps(result, indent=2) + '\n')
         print(json.dumps({'output': str(args.output), 'source_areas': len(result['areas']), 'reports': len(reports), 'report_errors': len(result['report_errors'])}))

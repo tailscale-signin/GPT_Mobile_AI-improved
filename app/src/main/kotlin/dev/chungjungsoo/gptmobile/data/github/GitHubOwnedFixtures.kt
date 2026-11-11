@@ -250,13 +250,30 @@ internal class GitHubOwnedFixtures(private val store: GitHubRepositoryStateStore
         require(arguments.text("commit_sha") in setOf(pending.text("expected_head_sha"), retained.text("head_sha"))) { "Fixture recovery head differs from the retained publication intent." }
         val id = approval?.text("engineering_task_id")
         val status = id?.let { approvalStatus(it) }
-        if (status?.text("state") == "AWAITING_APPROVAL") return JsonObject(requireNotNull(approval) + mapOf("cleanup_status" to JsonPrimitive("WAITING_FOR_APPROVAL"), "lifecycle_state" to JsonPrimitive("DELIBERATELY_RETAINED"), "lifecycle_reason" to JsonPrimitive("EXACT_PATCH_APPROVAL_PENDING"), "next_action" to JsonPrimitive("APPROVE_OR_CANCEL_EXISTING_PATCH")))
+        fun unresolved(state: String, next: String): JsonObject = JsonObject(
+            approval.orEmpty() + mapOf(
+                "branch" to JsonPrimitive(branch),
+                "head_sha" to pending.getValue("expected_head_sha"),
+                "native_state" to JsonPrimitive(status?.text("state")?.ifBlank { "UNKNOWN" } ?: "UNKNOWN"),
+                "approval_state" to JsonPrimitive(state),
+                "cleanup_status" to JsonPrimitive("WAITING_FOR_APPROVAL"),
+                "lifecycle_state" to JsonPrimitive("DELIBERATELY_RETAINED"),
+                "lifecycle_reason" to JsonPrimitive(state),
+                "next_action" to JsonPrimitive(next)
+            )
+        )
+        if (approval != null && status == null) return unresolved("NATIVE_APPROVAL_STATE_UNAVAILABLE", "OPEN_SAVED_APPROVAL")
+        if (status?.text("state") == "AWAITING_APPROVAL") return unresolved("EXACT_PATCH_APPROVAL_PENDING", "APPROVE_OR_CANCEL_EXISTING_PATCH")
+        if (status?.text("state") == "COMMITTING" && status["publication_may_have_started"] == JsonPrimitive(false)) {
+            return unresolved("APPROVED_AWAITING_DISPATCH", "RESUME_NATIVE_PUBLICATION")
+        }
         if (status?.get("cancelled_before_publication") == JsonPrimitive(true)) {
             val ref = read("$root/git/ref/heads/${GitHubWorkspaceClient.segment(branch)}") as? JsonObject
             require((ref?.get("object") as? JsonObject)?.text("sha") == pending.text("expected_head_sha")) { "Fixture changed after cancellation; its publication must be reconciled before cleanup." }
             val cancelled = buildJsonObject {
                 put("engineering_task_id", requireNotNull(id))
                 put("approval_state", "CANCELLED_BEFORE_PUBLICATION")
+                put("native_state", status.text("state"))
                 put("remote_mutation_performed", false)
                 put("branch", branch)
                 put("head_sha", pending.getValue("expected_head_sha"))
@@ -271,8 +288,10 @@ internal class GitHubOwnedFixtures(private val store: GitHubRepositoryStateStore
         }
         val recordedCommit = status?.get("published_commit_sha")
         val proofArguments = if (recordedCommit != null) JsonObject(pending + ("published_commit_sha" to recordedCommit)) else pending
-        val proof = checkNotNull(reconcile(proofArguments)) {
-            "FIXTURE_RECONCILE_REQUIRED · The live ref and commit do not verify the saved publication. The existing fixture and approval are retained."
+        val proof = reconcile(proofArguments) ?: if (approval != null) {
+            return unresolved("PUBLICATION_AWAITING_REMOTE_VERIFICATION", "RECONCILE_EXISTING_PUBLICATION")
+        } else {
+            error("FIXTURE_RECONCILE_REQUIRED · The live ref and commit do not verify the saved publication. The existing fixture and approval are retained.")
         }
         // The transport's reconciliation callback may already have accepted this exact receipt.
         if (saved(root, branch)?.get("pending_commit") != null) acceptCommit(root, pending, proof)

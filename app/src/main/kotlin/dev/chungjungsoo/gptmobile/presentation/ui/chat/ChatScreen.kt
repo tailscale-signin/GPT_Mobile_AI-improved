@@ -642,6 +642,10 @@ private fun ChatScreenContent(
             debugMode = debugMode,
             includeUserMessages = chatToolConfig.github != null,
             diagnosticNotice = diagnosticNotice,
+            onFullDebugExport = {
+                showExportOptions = false
+                scope.launch { exportChat(context, chatViewModel, ChatExportFormat.DEBUG, fullHistory = true) }
+            },
             onReducedDebugExport = {
                 showExportOptions = false
                 scope.launch { exportChat(context, chatViewModel, ChatExportFormat.DEBUG, reducedMemory = true) }
@@ -2293,7 +2297,7 @@ fun ChatDropdownMenu(
     }
 }
 
-private suspend fun exportChat(context: Context, chatViewModel: ChatViewModel, format: ChatExportFormat, reducedMemory: Boolean = false, resume: Boolean = false) {
+private suspend fun exportChat(context: Context, chatViewModel: ChatViewModel, format: ChatExportFormat, reducedMemory: Boolean = false, resume: Boolean = false, fullHistory: Boolean = false) {
     try {
         if (format == ChatExportFormat.DEBUG) {
             Toast.makeText(context, "Preparing detailed conversation diagnostics…", Toast.LENGTH_SHORT).show()
@@ -2301,7 +2305,7 @@ private suspend fun exportChat(context: Context, chatViewModel: ChatViewModel, f
         val file = if (format == ChatExportFormat.DEBUG) {
             withContext(Dispatchers.IO) {
                 val output = context.getExternalFilesDir(null) ?: File(context.cacheDir, "diagnostics").apply { mkdirs() }
-                chatViewModel.exportDebugFile(output, reducedMemory, resume)
+                chatViewModel.exportDebugFile(output, reducedMemory, resume, fullHistory)
             }
         } else {
             val (fileName, fileContent) = chatViewModel.exportChat(format)

@@ -12,9 +12,12 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
@@ -30,6 +33,43 @@ class McpCatalogueDeadlineTest {
     @org.junit.Before fun reset() = LocalServiceHealth.networkChanged()
 
     @org.junit.After fun cleanup() = LocalServiceHealth.networkChanged()
+
+    @Test fun auditOwnsItsProducerAndSharedCallerDoesNotMarkAnotherDispatch() = runBlocking {
+        val started = CompletableDeferred<Unit>()
+        val stopped = CompletableDeferred<Unit>()
+        val shared = CompletableDeferred<McpDiscoverySource>()
+        val client = HttpClient(MockEngine { error("No network request expected") })
+        val manager = McpClientManager(client)
+        val config = McpConnectionConfig("audit-owner", "https://audit-owner.example/mcp", false)
+        try {
+            val owner = async {
+                withContext(
+                    McpDiscoveryContext(McpDiscoveryTrigger.AUDIT_REFRESH, beforeOwnedDispatch = {
+                        started.complete(Unit)
+                        try {
+                            awaitCancellation()
+                        } finally {
+                            stopped.complete(Unit)
+                        }
+                    })
+                ) { manager.listToolsWithReceipt(config, forceRefresh = true, awaitCompletion = true, passiveBackoff = false) }
+            }
+            withTimeout(2000) { started.await() }
+            val reader = async {
+                withContext(McpDiscoveryContext(McpDiscoveryTrigger.AUDIT_REFRESH, beforeOwnedDispatch = { error("Shared reads cannot dispatch") }, onSource = { shared.complete(it) })) {
+                    manager.listToolsWithReceipt(config, forceRefresh = true, awaitCompletion = true, passiveBackoff = false)
+                }
+            }
+            assertEquals(McpDiscoverySource.SHARED, withTimeout(2000) { shared.await() })
+            reader.cancelAndJoin()
+            assertFalse(stopped.isCompleted)
+            owner.cancelAndJoin()
+            withTimeout(2000) { stopped.await() }
+        } finally {
+            manager.closeAll()
+            client.close()
+        }
+    }
 
     @Test fun independentDiscoveryIsConcurrentAndInteractiveTimeoutRetainsSingleFlightProducer() = runBlocking {
         val release = CompletableDeferred<Unit>()

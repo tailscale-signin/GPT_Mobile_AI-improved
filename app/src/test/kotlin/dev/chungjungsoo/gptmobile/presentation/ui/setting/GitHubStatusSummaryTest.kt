@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
+import dev.chungjungsoo.gptmobile.data.github.GitHubDraftRepair
 import dev.chungjungsoo.gptmobile.data.github.GitHubLiveProcess
 import dev.chungjungsoo.gptmobile.data.github.GitHubLiveStatus
 import kotlinx.serialization.json.Json

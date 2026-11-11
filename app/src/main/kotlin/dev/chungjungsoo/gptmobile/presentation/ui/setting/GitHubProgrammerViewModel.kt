@@ -13,6 +13,7 @@ import dev.chungjungsoo.gptmobile.data.github.GitHubChatDecisions
 import dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext
 import dev.chungjungsoo.gptmobile.data.github.GitHubDecisionMode
 import dev.chungjungsoo.gptmobile.data.github.GitHubDecisionPreference
+import dev.chungjungsoo.gptmobile.data.github.GitHubDraftRepair
 import dev.chungjungsoo.gptmobile.data.github.githubDecisionMode
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
 import dev.chungjungsoo.gptmobile.data.permissions.ToolApproval
@@ -70,7 +71,8 @@ class GitHubProgrammerViewModel @Inject constructor(
     private val connections: ToolConnectionRepository,
     private val drafts: dev.chungjungsoo.gptmobile.data.github.GitHubWorkspaceDraftStore,
     private val savedStateHandle: androidx.lifecycle.SavedStateHandle = androidx.lifecycle.SavedStateHandle(),
-    private val bootstrapper: dev.chungjungsoo.gptmobile.data.github.GitHubSessionBootstrapper? = null
+    private val bootstrapper: dev.chungjungsoo.gptmobile.data.github.GitHubSessionBootstrapper? = null,
+    private val approvalRecovery: dev.chungjungsoo.gptmobile.data.github.GitHubNativeApprovalRecovery? = null
 ) : ViewModel() {
     private val mutable = MutableStateFlow(GitHubProgrammerState())
     val state = mutable.asStateFlow()
@@ -354,6 +356,7 @@ class GitHubProgrammerViewModel @Inject constructor(
                         current.copy(githubDecisionPreferences = preferences)
                     }
                 }
+                if (mode == GitHubDecisionMode.AUTO_APPROVE) approvalRecovery?.scheduleOutstanding(chatId)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
@@ -385,17 +388,18 @@ class GitHubProgrammerViewModel @Inject constructor(
     }
 
     fun send(text: String, accepted: () -> Unit) {
-        sendCommand(text, null, accepted)
+        sendCommand(text, null, { accepted() })
     }
 
-    internal fun repairDraft(repair: GitHubDraftRepair, accepted: () -> Unit) {
+    internal fun repairDraft(repair: GitHubDraftRepair, accepted: (Int) -> Unit) {
         val context = mutable.value.context ?: return
         if (!"${context.owner}/${context.repo}".equals(repair.repository, true)) return
-        sendCommand(repair.command(), repair.key, accepted)
+        sendCommand(repair.command(), repair.key, accepted, repair = repair)
     }
 
-    private fun sendCommand(text: String, deduplicationKey: String?, accepted: () -> Unit, publication: dev.chungjungsoo.gptmobile.data.github.GitHubApprovalBinding.Continuation? = null) {
-        val context = mutable.value.context ?: return
+    private fun sendCommand(text: String, deduplicationKey: String?, accepted: (Int) -> Unit, publication: dev.chungjungsoo.gptmobile.data.github.GitHubApprovalBinding.Continuation? = null, repair: GitHubDraftRepair? = null) {
+        val workspace = mutable.value.context ?: return
+        val context = repair?.bind(workspace) ?: workspace
         if (text.isBlank() || mutable.value.submitting) return
         mutable.update { it.copy(submitting = true, error = null) }
         viewModelScope.launch(Dispatchers.IO) {
@@ -412,9 +416,23 @@ class GitHubProgrammerViewModel @Inject constructor(
                 dev.chungjungsoo.gptmobile.data.network.FreeProviderPreflight.check(profile)?.let { error(it.message) }
                 val connection = connections.getConnection(context.connectionUid) ?: error("The GitHub connection was removed.")
                 require(connection.type == "GITHUB" && connection.secretRef != null) { "Connect GitHub before starting an engineering task." }
-                var room = mutable.value.chatId?.let { database.agentPersistenceDao().getChatRoom(it) }?.takeIf { !it.isArchived && it.activePlatform == listOf(profile.uid) && features.conversationGitHub[it.id]?.sameWorkspace(context) == true }
+                var room = if (repair != null) {
+                    features.conversationGitHub.entries.firstNotNullOfOrNull { (id, saved) ->
+                        if (!saved.sameWorkspace(context) || saved.commitSha != repair.headSha) {
+                            null
+                        } else {
+                            database.agentPersistenceDao().getChatRoom(id)
+                                ?.takeIf { !it.isArchived && it.activePlatform == listOf(profile.uid) && it.title == repair.title }
+                        }
+                    }
+                } else {
+                    mutable.value.chatId?.let { database.agentPersistenceDao().getChatRoom(it) }?.takeIf { !it.isArchived && it.activePlatform == listOf(profile.uid) && features.conversationGitHub[it.id]?.sameWorkspace(context) == true }
+                }
                 if (publication != null) require(room?.id == publication.chatId) { "The original approval conversation or repository binding is unavailable. Restore that saved conversation before continuing." }
-                if (room == null) room = chats.createDraftChat(listOf(profile.uid), "STANDARD", context.repo, profile.uid)
+                if (room == null) {
+                    room = chats.createDraftChat(listOf(profile.uid), "STANDARD", repair?.title ?: context.repo, profile.uid)
+                    if (repair != null) chats.updateChatTitle(room, repair.title, isCustomized = true)
+                }
                 val chatId = room.id
                 val gatewaySelection = if (room.conversationMode == dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode.GATEWAY) {
                     val selected = checkNotNull(features.conversationGateway[chatId]) { "Restore this Gateway chat's original profile selection before continuing the approved task." }
@@ -427,11 +445,11 @@ class GitHubProgrammerViewModel @Inject constructor(
                 }
                 chats.saveChatPlatformModels(chatId, mapOf(profile.uid to profile.model))
                 settings.mutateFeatureSettings { it.copy(conversationGitHub = it.conversationGitHub + (chatId to context)) }
-                val tools = ChatMcpToolConfig(allowAllByDefault = false, enabledToolIds = setOf(context.connectionUid), github = context)
+                val tools = ChatMcpToolConfig(allowAllByDefault = false, enabledToolIds = setOf(context.connectionUid), github = context, githubDraftRepair = repair)
                 val prompt = "GitHub workspace: ${context.owner}/${context.repo}\nBranch: ${context.ref}\n\n" + text
                 queue.enqueue(chatId, prompt, PendingPromptPayload(profileUids = listOf(profile.uid), models = mapOf(profile.uid to profile.model), tools = tools, gateway = gatewaySelection), deduplicationKey)
-                if (mutable.value.context?.sameWorkspace(context) == true) observeConversation(chatId)
-                withContextMain(accepted)
+                if (repair == null && mutable.value.context?.sameWorkspace(context) == true) observeConversation(chatId)
+                withContextMain { accepted(chatId) }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
@@ -447,7 +465,7 @@ class GitHubProgrammerViewModel @Inject constructor(
         mutable.update { state ->
             if (publishedBranch == null || state.context?.ref == publishedBranch) state.copy(context = state.context?.copy(commitSha = sha, stagedFileCount = 0, recentCommits = emptyList(), observedAtMillis = System.currentTimeMillis())) else state
         }
-        sendCommand("Commit $sha was approved and published. Continue from the saved task using this exact commit. Subscribe with github_watch_checks when CI is pending; do not repeat the commit.", "github-approved-commit:$sha", accepted, publication)
+        sendCommand("Commit $sha was approved and published. Continue from the saved task using this exact commit. Subscribe with github_watch_checks when CI is pending; do not repeat the commit.", "github-approved-commit:$sha", { accepted() }, publication)
     }
 
     private suspend fun withContextMain(action: () -> Unit) = kotlinx.coroutines.withContext(Dispatchers.Main) { action() }

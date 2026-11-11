@@ -202,6 +202,17 @@ suspend fun writeAppAuditExport(output: OutputStream, batch: BenchmarkBatch, sou
                     put("configurationRevision", safeAuditConfigurationRevision(observation.configurationRevision))
                     put("remoteServiceIdentity", appAuditRemoteIdentityJson(observation.remoteIdentity) ?: JsonNull)
                     put("remoteServiceIdentityStatus", appAuditRemoteIdentityStatus(observation.remoteIdentity))
+                    observation.gatewayReadiness?.let { gateway ->
+                        put(
+                            "engineeringGatewayReadiness",
+                            buildJsonObject {
+                                put("savedBinding", gateway.savedBinding)
+                                put("engineeringReady", gateway.engineeringReady?.let(::JsonPrimitive) ?: JsonNull)
+                                put("hostGitHubConfigured", gateway.hostGitHubConfigured?.let(::JsonPrimitive) ?: JsonNull)
+                                put("selectedModelReady", gateway.selectedModelReady?.let(::JsonPrimitive) ?: JsonNull)
+                            }
+                        )
+                    }
                     put("remoteSourceIndependentlyVerified", false)
                     put(
                         "metrics",

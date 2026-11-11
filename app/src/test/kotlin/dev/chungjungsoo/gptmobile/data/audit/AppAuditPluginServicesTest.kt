@@ -4,7 +4,10 @@ import dev.chungjungsoo.gptmobile.data.agent.tool.AgentToolResolver
 import dev.chungjungsoo.gptmobile.data.agent.tool.McpClientManager
 import dev.chungjungsoo.gptmobile.data.agent.tool.McpConnectionHealth
 import dev.chungjungsoo.gptmobile.data.agent.tool.McpConnectionHealthState
+import dev.chungjungsoo.gptmobile.data.agent.tool.McpDiscoveryContext
 import dev.chungjungsoo.gptmobile.data.agent.tool.McpDiscoveryOAuthRefreshException
+import dev.chungjungsoo.gptmobile.data.agent.tool.McpDiscoveryReceipt
+import dev.chungjungsoo.gptmobile.data.agent.tool.McpDiscoverySource
 import dev.chungjungsoo.gptmobile.data.agent.tool.McpLocalValidationException
 import dev.chungjungsoo.gptmobile.data.agent.tool.McpLocalValidationRule
 import dev.chungjungsoo.gptmobile.data.agent.tool.McpProtocolConfigurationException
@@ -77,7 +80,7 @@ class AppAuditPluginServicesTest {
         val restarted = Setup()
         restarted.configure(listOf(connection))
         coEvery { restarted.settings.fetchPlatformV2s() } returns listOf(profile())
-        coEvery { restarted.resolver.discoverMcpTools(connection, forceRefresh = true, awaitCompletion = true) } returns emptyList()
+        coEvery { restarted.resolver.discoverMcpToolsWithReceipt(connection, forceRefresh = true, awaitCompletion = true) } coAnswers { freshMcpReceipt() }
         coEvery { restarted.gateway.getCapabilities(any(), forceRefresh = true) } returns null
         var markers = 0
         val results = entries.map { restarted.source.execute(it, context { markers++ }) }
@@ -134,7 +137,7 @@ class AppAuditPluginServicesTest {
             assertEquals(AppAuditPrerequisite.READY, entry.prerequisite)
             val current = connection.copy(secretRef = "other_unused_auth_ref")
             setup.configure(listOf(current))
-            coEvery { setup.resolver.discoverMcpTools(current, forceRefresh = true, awaitCompletion = true) } returns emptyList()
+            coEvery { setup.resolver.discoverMcpToolsWithReceipt(current, forceRefresh = true, awaitCompletion = true) } coAnswers { freshMcpReceipt() }
             assertEquals("MCP_EMPTY_CATALOG", setup.source.execute(entry, context()).reasonCode)
             coVerify(exactly = 0) { setup.vault.recordRevision("unused_auth_ref") }
             coVerify(exactly = 0) { setup.vault.recordRevision("other_unused_auth_ref") }
@@ -146,7 +149,7 @@ class AppAuditPluginServicesTest {
                 assertEquals(AppAuditDispatchEvidence.NOT_DISPATCHED, changed.dispatchEvidence)
                 assertEquals(0, markers)
             }
-            coVerify(exactly = 1) { setup.resolver.discoverMcpTools(current, forceRefresh = true, awaitCompletion = true) }
+            coVerify(exactly = 1) { setup.resolver.discoverMcpToolsWithReceipt(current, forceRefresh = true, awaitCompletion = true) }
         }
     }
 
@@ -327,9 +330,10 @@ class AppAuditPluginServicesTest {
         val connection = connection()
         var marked = false
         setup.configure(listOf(connection))
-        coEvery { setup.resolver.discoverMcpTools(connection, forceRefresh = true, awaitCompletion = true) } coAnswers {
+        coEvery { setup.resolver.discoverMcpToolsWithReceipt(connection, forceRefresh = true, awaitCompletion = true) } coAnswers {
+            val receipt = freshMcpReceipt()
             assertTrue(marked)
-            emptyList()
+            receipt
         }
         val entry = setup.source.plan(AppAuditOptions(allowNetworkReads = true)).single { it.probeId == AppAuditPluginProbeSource.MCP_DISCOVERY }
         val result = setup.source.execute(entry, context { marked = true })
@@ -337,7 +341,7 @@ class AppAuditPluginServicesTest {
         assertEquals("MCP_EMPTY_CATALOG", result.reasonCode)
         assertEquals(AppAuditEvidenceKind.LIVE_METADATA, result.evidenceKind)
         assertEquals(AppAuditDispatchEvidence.CONFIRMED, result.dispatchEvidence)
-        coVerify(exactly = 1) { setup.resolver.discoverMcpTools(connection, forceRefresh = true, awaitCompletion = true) }
+        coVerify(exactly = 1) { setup.resolver.discoverMcpToolsWithReceipt(connection, forceRefresh = true, awaitCompletion = true) }
         confirmVerified(setup.resolver)
         // Revalidation targets one connection and does not repeatedly verify every package.
         coVerify(exactly = 1) { setup.packages.downloadedIds() }
@@ -374,7 +378,10 @@ class AppAuditPluginServicesTest {
         val setup = Setup()
         val connection = connection()
         setup.configure(listOf(connection))
-        coEvery { setup.resolver.discoverMcpTools(connection, forceRefresh = true, awaitCompletion = true) } throws McpProtocolConfigurationException("MCP_DISCOVERY_SCHEMA_INVALID", "PRIVATE_SERVER_VALUE", 200, "PROTOCOL_VERSIONS_ARRAY_REQUIRED", "supportedVersions")
+        coEvery { setup.resolver.discoverMcpToolsWithReceipt(connection, forceRefresh = true, awaitCompletion = true) } coAnswers {
+            freshMcpReceipt()
+            throw McpProtocolConfigurationException("MCP_DISCOVERY_SCHEMA_INVALID", "PRIVATE_SERVER_VALUE", 200, "PROTOCOL_VERSIONS_ARRAY_REQUIRED", "supportedVersions")
+        }
         val entry = setup.source.plan(AppAuditOptions(allowNetworkReads = true)).single { it.probeId == AppAuditPluginProbeSource.MCP_DISCOVERY }
         val result = setup.source.execute(entry, context())
         assertEquals(AppAuditOutcome.FAIL, result.outcome)
@@ -593,7 +600,8 @@ class AppAuditPluginServicesTest {
             )
             every { setup.mcp.healthSnapshot(connection.connectionUid) } answers { health }
             var markers = 0
-            coEvery { setup.resolver.discoverMcpTools(connection, forceRefresh = true, awaitCompletion = true) } coAnswers {
+            coEvery { setup.resolver.discoverMcpToolsWithReceipt(connection, forceRefresh = true, awaitCompletion = true) } coAnswers {
+                freshMcpReceipt()
                 assertEquals(1, markers)
                 health = health.copy(lastFailureAtMs = System.currentTimeMillis())
                 throw McpProtocolConfigurationException(code, "PRIVATE_SERVER_VALUE", status.toInt(), rule, field)
@@ -614,7 +622,7 @@ class AppAuditPluginServicesTest {
             assertEquals(false, observation.retryable)
             assertFalse(observation.toString().contains("PRIVATE_SERVER_VALUE"))
             assertEquals(1, markers)
-            coVerify(exactly = 1) { setup.resolver.discoverMcpTools(connection, forceRefresh = true, awaitCompletion = true) }
+            coVerify(exactly = 1) { setup.resolver.discoverMcpToolsWithReceipt(connection, forceRefresh = true, awaitCompletion = true) }
             confirmVerified(setup.resolver)
         }
     }
@@ -658,13 +666,13 @@ class AppAuditPluginServicesTest {
             nextRetryAtMs = Long.MAX_VALUE,
             lastErrorCode = "MCP_PROTOCOL_VERSION_UNSUPPORTED"
         )
-        coEvery { setup.resolver.discoverMcpTools(connection, forceRefresh = true, awaitCompletion = true) } returns emptyList()
+        coEvery { setup.resolver.discoverMcpToolsWithReceipt(connection, forceRefresh = true, awaitCompletion = true) } coAnswers { freshMcpReceipt() }
         val entry = setup.source.plan(AppAuditOptions(true)).single { it.probeId == AppAuditPluginProbeSource.MCP_DISCOVERY }
         val observation = setup.source.execute(entry, context())
         assertEquals(AppAuditOutcome.PASS, observation.outcome)
         assertEquals(AppAuditObservationSource.LIVE, observation.observationSource)
         assertEquals(AppAuditDispatchEvidence.CONFIRMED, observation.dispatchEvidence)
-        coVerify(exactly = 1) { setup.resolver.discoverMcpTools(connection, forceRefresh = true, awaitCompletion = true) }
+        coVerify(exactly = 1) { setup.resolver.discoverMcpToolsWithReceipt(connection, forceRefresh = true, awaitCompletion = true) }
     }
 
     @Test
@@ -679,7 +687,7 @@ class AppAuditPluginServicesTest {
             lastErrorCode = "MCP_DISCOVERY_SCHEMA_INVALID",
             failureConfigurationRevision = "0".repeat(64)
         )
-        coEvery { setup.resolver.discoverMcpTools(connection, forceRefresh = true, awaitCompletion = true) } returns emptyList()
+        coEvery { setup.resolver.discoverMcpToolsWithReceipt(connection, forceRefresh = true, awaitCompletion = true) } coAnswers { freshMcpReceipt() }
         val entry = setup.source.plan(AppAuditOptions(true)).single { it.probeId == AppAuditPluginProbeSource.MCP_DISCOVERY }
         var markers = 0
         val observation = setup.source.execute(entry, context { markers++ })
@@ -688,7 +696,7 @@ class AppAuditPluginServicesTest {
         assertEquals(AppAuditObservationSource.LIVE, observation.observationSource)
         assertEquals(AppAuditDispatchEvidence.CONFIRMED, observation.dispatchEvidence)
         assertEquals(entry.configurationRevision, observation.configurationRevision)
-        coVerify(exactly = 1) { setup.resolver.discoverMcpTools(connection, forceRefresh = true, awaitCompletion = true) }
+        coVerify(exactly = 1) { setup.resolver.discoverMcpToolsWithReceipt(connection, forceRefresh = true, awaitCompletion = true) }
     }
 
     @Test
@@ -705,12 +713,12 @@ class AppAuditPluginServicesTest {
             failureConfigurationRevision = "0".repeat(64),
             lastDispatchEvidence = "CONFIRMED"
         )
-        coEvery { setup.resolver.discoverMcpTools(connection, forceRefresh = true, awaitCompletion = true) } throws McpLocalValidationException(McpLocalValidationRule.CREDENTIAL_FORMAT_INVALID)
+        coEvery { setup.resolver.discoverMcpToolsWithReceipt(connection, forceRefresh = true, awaitCompletion = true) } throws McpLocalValidationException(McpLocalValidationRule.CREDENTIAL_FORMAT_INVALID)
         val entry = setup.source.plan(AppAuditOptions(true)).single { it.probeId == AppAuditPluginProbeSource.MCP_DISCOVERY }
         val before = System.currentTimeMillis()
         var markers = 0
         val observation = setup.source.execute(entry, context { markers++ })
-        assertEquals(1, markers)
+        assertEquals(0, markers)
         assertEquals(AppAuditOutcome.BLOCKED, observation.outcome)
         assertEquals("MCP_LOCAL_CREDENTIAL_INVALID", observation.reasonCode)
         assertEquals(AppAuditObservationSource.NONE, observation.observationSource)
@@ -730,7 +738,10 @@ class AppAuditPluginServicesTest {
         val setup = Setup()
         val connection = connection()
         setup.configure(listOf(connection))
-        coEvery { setup.resolver.discoverMcpTools(connection, forceRefresh = true, awaitCompletion = true) } throws McpDiscoveryOAuthRefreshException(McpLocalValidationRule.CREDENTIAL_UNAVAILABLE)
+        coEvery { setup.resolver.discoverMcpToolsWithReceipt(connection, forceRefresh = true, awaitCompletion = true) } coAnswers {
+            freshMcpReceipt()
+            throw McpDiscoveryOAuthRefreshException(McpLocalValidationRule.CREDENTIAL_UNAVAILABLE)
+        }
         val entry = setup.source.plan(AppAuditOptions(true)).single { it.probeId == AppAuditPluginProbeSource.MCP_DISCOVERY }
         val observation = setup.source.execute(entry, context())
         assertEquals("MCP_AUTHENTICATION_REQUIRED", observation.reasonCode)
@@ -751,9 +762,9 @@ class AppAuditPluginServicesTest {
         var revision = "a".repeat(64)
         setup.configure(listOf(connection))
         coEvery { setup.vault.recordRevision("connection_configured") } answers { revision }
-        coEvery { setup.resolver.discoverMcpTools(connection, forceRefresh = true, awaitCompletion = true) } coAnswers {
+        coEvery { setup.resolver.discoverMcpToolsWithReceipt(connection, forceRefresh = true, awaitCompletion = true) } coAnswers {
             revision = "b".repeat(64)
-            emptyList()
+            freshMcpReceipt()
         }
         val entry = setup.source.plan(AppAuditOptions(true)).single { it.probeId == AppAuditPluginProbeSource.MCP_DISCOVERY }
         val observation = setup.source.execute(entry, context())
@@ -762,6 +773,13 @@ class AppAuditPluginServicesTest {
         assertNull(observation.configurationRevision)
         val run = AppAuditRun("rotation", 1, "a".repeat(64), "b".repeat(40), "0.9.66.6", "debug", "c".repeat(64), 1, 1, listOf(entry), results = listOf(AppAuditResult(entry.id, observation, 1, 2, 1, true)))
         assertNull(appAuditScore(run).score)
+    }
+
+    private suspend fun freshMcpReceipt(): McpDiscoveryReceipt {
+        val context = checkNotNull(kotlinx.coroutines.currentCoroutineContext()[McpDiscoveryContext])
+        context.onSource(McpDiscoverySource.FRESH)
+        checkNotNull(context.beforeOwnedDispatch).invoke()
+        return McpDiscoveryReceipt(emptyList(), McpDiscoverySource.FRESH)
     }
 
     private class Setup(val gateway: GatewayAPI = mockk()) {

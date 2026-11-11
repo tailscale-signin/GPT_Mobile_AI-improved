@@ -221,3 +221,6 @@ if the binding changes. Check permissions and host connectivity separately for
 ## Saved chat turns and scoped work
 
 Supported Android clients can send GitHub chat turns through the same supervisor with explicit `read`, `plan` or `implement` scope. Read/plan permit the selected branch to equal the base and cannot publish changes or merge. The Jobs tab and server conversation browser use the canonical conversation and immutable execution binding rather than a current Android room number. See [GATEWAY_CONVERSATIONS.md](GATEWAY_CONVERSATIONS.md) for the additive routes, queued instructions, cancellation confirmation and detached-worker behavior.
+## Draft repair admission
+
+A repair request carries `draft_repair` with the original PR number, repository, head SHA, source branch, base branch and optional workflow run/attempt pair. The Gateway verifies the draft and attempt against GitHub before admission. Configure the repository validation policy's `draft_repair_requirements` as a list of approved acceptance requirements if Android does not supply a reviewed contract. Each requirement must map to `allowed_checks` and an exact behavior case in `acceptance_map`.

@@ -84,8 +84,8 @@ internal fun appAuditQualificationPlan(
                         discovery == null -> if (entry.sourceAreaIds.contains("mcp_plugins") && entry.evidenceKind == AppAuditEvidenceKind.TOOL_EXECUTION) "CHECK_REQUIRED" else "NOT_REQUIRED"
                         discoveryResult?.observation?.configChanged == true -> "CONFIGURATION_CHANGED"
                         discoveryResult == null -> "CHECK_REQUIRED"
+                        discoveryResult.observationSource in setOf(AppAuditObservationSource.CACHE, AppAuditObservationSource.SHARED) -> "FRESH_CHECK_REQUIRED"
                         discoveryResult.outcome != AppAuditOutcome.PASS -> discoveryResult.outcome.name
-                        discoveryResult.observationSource == AppAuditObservationSource.CACHE -> "FRESH_CHECK_REQUIRED"
                         discoveryResult.observationSource != AppAuditObservationSource.LIVE || discoveryResult.dispatchEvidence != AppAuditDispatchEvidence.CONFIRMED -> "CHECK_REQUIRED"
                         discoveryResult.observation.configurationRevision != discovery.configurationRevision || discoveryResult.observation.observedAtEpochMs == null -> "OBSERVATION_IDENTITY_REQUIRED"
                         else -> "VERIFIED"

@@ -53,6 +53,9 @@ class StagedDiagnosticCaptureTest {
                 }
             )
             val first = StagedDiagnosticCapture.capture(directory, "trace", stages, options)
+            assertEquals(JsonPrimitive(false), first.manifest["continuationAvailable"])
+            assertEquals(JsonPrimitive(true), first.manifest["resumable"])
+            assertEquals(JsonPrimitive("RESUME_UNFINISHED_COLLECTION"), first.manifest["recoveryAction"])
             assertEquals(listOf("start:retained", "end:retained", "start:failed", "end:failed"), observations)
             observations.clear()
             retry = true

@@ -38,7 +38,7 @@ def principal_authorized(config, principal, devices):
 
 
 def validate_request(request):
-    allowed = {'repository', 'branch', 'base', 'objective', 'model', 'duration_hours', 'repair_attempts', 'chat_id', 'request_id', 'acceptance', 'profile_id', 'memory_mode', 'execution_binding_id', 'execution_budget', 'task_scope', 'scope', 'profile_name', 'source_branch', 'source_sha', 'conversation_id', 'client_conversation_id', 'command_id', 'expected_revision'}
+    allowed = {'repository', 'branch', 'base', 'objective', 'model', 'duration_hours', 'repair_attempts', 'chat_id', 'request_id', 'acceptance', 'profile_id', 'memory_mode', 'execution_binding_id', 'execution_budget', 'task_scope', 'scope', 'profile_name', 'source_branch', 'source_sha', 'conversation_id', 'client_conversation_id', 'command_id', 'expected_revision', 'draft_repair'}
     if not isinstance(request, dict) or set(request) - allowed:
         raise ValueError('Unsupported engineering request fields')
     result = dict(request)
@@ -72,6 +72,19 @@ def validate_request(request):
         result[key] = value
     if accepted_scope(result) not in {'read', 'plan', 'implement'}:
         raise ValueError('Unsupported task scope')
+    if 'draft_repair' in result:
+        repair = result['draft_repair']
+        fields = {'repository', 'pull_number', 'head_sha', 'source_branch', 'base_branch'}
+        if not isinstance(repair, dict) or not fields <= repair.keys() or repair.keys() - fields - {'run_id', 'attempt'}:
+            raise ValueError('Invalid draft repair identity')
+        run_id, attempt = repair.get('run_id'), repair.get('attempt')
+        if (accepted_scope(result) != 'implement' or type(repair['pull_number']) is not int or repair['pull_number'] < 1
+                or not isinstance(repair['repository'], str) or repair['repository'].lower() != result['repository'].lower()
+                or repair['head_sha'] != result.get('source_sha') or not result.get('source_sha') or repair['head_sha'] == '0' * 40
+                or repair['source_branch'] != result.get('source_branch') or repair['base_branch'] != result['base']
+                or result['branch'] in {result['base'], repair['source_branch']}
+                or not ((run_id is None and attempt is None) or (type(run_id) is int and run_id > 0 and type(attempt) is int and attempt > 0))):
+            raise ValueError('Draft repair does not match the exact admitted source and workflow attempt')
     for name in ('conversation_id', 'client_conversation_id', 'command_id'):
         if name in result:
             Conversations.bounded_id(result[name], name)

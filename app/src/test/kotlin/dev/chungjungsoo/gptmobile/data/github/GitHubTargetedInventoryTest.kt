@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.github
 import dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator
 import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -15,6 +16,26 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubTargetedInventoryTest {
+    @Test fun authenticatedIssuesUseTypedCursorWithFrozenFilters() = runTest {
+        var calls = 0
+        val inspection = GitHubInspection { error("Authenticated issue pagination should not use a mixed REST page") }
+        val query: suspend (String, JsonObject) -> JsonObject = { document, variables ->
+            assertTrue(document.contains("issues(first:"))
+            assertEquals(JsonPrimitive(10), variables["first"])
+            calls++
+            if (calls == 2) assertEquals(JsonPrimitive("relay-cursor"), variables["after"])
+            Json.parseToJsonElement("""{"data":{"repository":{"issues":{"totalCount":11,"pageInfo":{"hasNextPage":${calls == 1},"endCursor":"relay-cursor"},"nodes":[{"id":"issue-$calls","number":$calls,"state":"OPEN"}]}}}}""").jsonObject
+        }
+        val args = buildJsonObject { put("per_page", 10) }
+        val first = inspection.execute("list_issues", "/repos/owner/repo", args, 1, query)
+        val next = first.getValue("continuation").jsonObject
+        assertTrue(runCatching { inspection.execute("list_issues", "/repos/owner/repo", JsonObject(next + ("per_page" to JsonPrimitive(30))), 2, query) }.isFailure)
+        val last = inspection.execute("list_issues", "/repos/owner/repo", next, 2, query)
+        assertEquals(JsonPrimitive(false), last["has_more"])
+        assertEquals(JsonPrimitive("issue"), (last.getValue("items") as JsonArray).single().jsonObject["resource_type"])
+        assertEquals(2, calls)
+    }
+
     @Test fun fullIssuePageKeepsItsFilterOrderAndSizeWhileExcludingPullRequests() = runTest {
         val paths = mutableListOf<String>()
         val inspection = GitHubInspection { path ->

@@ -1,5 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
+import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubEngineeringApi
+import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubEngineeringApiFactory
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.github.GatewayConversationRepository
 import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringRepository
@@ -9,7 +11,9 @@ import dev.chungjungsoo.gptmobile.data.github.GitHubApiOrigins
 import dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy
 import dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride
 import dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext
+import dev.chungjungsoo.gptmobile.data.github.GitHubDraftRepair
 import dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator
+import dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity
 import dev.chungjungsoo.gptmobile.data.github.GitHubWorkspaceClient
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import dev.chungjungsoo.gptmobile.data.repository.ChatRepository
@@ -18,6 +22,8 @@ import dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
@@ -36,7 +42,18 @@ class GatewayChatSubmission @Inject constructor(
     /** Null leaves the turn on its selected client inference route, before any engineering submission. */
     suspend fun submitIfSupported(request: AgentRunRequest): GatewayChatHandoff? {
         val tools = request.chatToolConfig
+        if (tools?.github != null && GitHubTaskContinuity.sessionAudit(request.userMessages.lastOrNull()?.content.orEmpty())) return null
         if (!chats.researchPersistenceAllowed(request.chatId)) return null
+        val repair = tools?.githubDraftRepair
+        val context = tools?.github
+        val existing = if (context == null) null else engineering.bindings(request.chatId).singleOrNull { it.request.requestId == request.runId }
+        if (repair != null) {
+            if (existing == null) {
+                workspace.verifyRepair(requireNotNull(context), repair)
+            } else {
+                check(existing.request.draftRepair == repair) { "The saved Gateway job belongs to a different repair." }
+            }
+        }
         val features = settings.getFeatureSettings()
         // Explicit Gateway chats use their own frozen inference destination. A GitHub
         // engineering override cannot turn their queued ordinary turn into another job.
@@ -58,10 +75,8 @@ class GatewayChatSubmission @Inject constructor(
         val preferences = features.githubProfileOverrides[request.platform.uid] ?: GitHubChatProfileOverride()
         if (!preferences.githubTools || tools?.allToolsDisabled == true) return null
         val user = request.userMessages.lastOrNull() ?: return null
-        val context = tools?.github
-        val newJob = GatewayOwnedTurnPolicy.configured(request.platform, context, features) && GatewayOwnedTurnPolicy.startsNewJob(user.content)
-        val existing = if (context == null) null else engineering.bindings(request.chatId).singleOrNull { it.request.requestId == request.runId }
-        if (user.attachments.isEmpty() && (context == null || newJob || existing != null)) {
+        val newJob = GatewayOwnedTurnPolicy.configured(request.platform, context, features) && (repair != null || GatewayOwnedTurnPolicy.startsNewJob(user.content))
+        if (repair == null && user.attachments.isEmpty() && (context == null || newJob || existing != null)) {
             try {
                 engineering.submitBoundTurn(
                     request.chatId, request.platform.uid, request.platform.model, user.content, request.runId,
@@ -78,8 +93,8 @@ class GatewayChatSubmission @Inject constructor(
         if (context == null || !newJob) return null
         if (!engineering.supportsDurableChat(request.platform.uid)) return null
         check(user.attachments.isEmpty()) { "Saved gateway GitHub jobs accept text requests. Remove attachments before starting this server job." }
-        val base = workspace.defaultBranch(context)
-        val taskScope = GatewayChatScope.from(user.content)
+        val base = repair?.baseBranch ?: workspace.defaultBranch(context)
+        val taskScope = if (repair != null) "implement" else GatewayChatScope.from(user.content)
         check(taskScope != "implement" || !GatewayChatScope.forbidsCommit(user.content)) {
             "Gateway implementation jobs include commits. This request explicitly forbids them; revise the task or use a read/planning request."
         }
@@ -88,7 +103,7 @@ class GatewayChatSubmission @Inject constructor(
                 chatId = request.chatId,
                 context = context,
                 base = base,
-                branch = context.ref,
+                branch = repair?.branch ?: context.ref,
                 objective = user.content,
                 commandId = request.runId,
                 userMessageId = user.id,
@@ -96,6 +111,7 @@ class GatewayChatSubmission @Inject constructor(
                 runId = request.runId,
                 taskScope = taskScope,
                 selectedModel = request.platform.model,
+                draftRepair = repair,
                 admissionAllowed = { request.gatewayAdmissionAllowed?.invoke() != false }
             )
             GatewayChatHandoff(accepted.job != null)
@@ -170,8 +186,57 @@ data class GatewayChatHandoff(val accepted: Boolean) {
 @Singleton
 class GatewayWorkspacePreflight @Inject constructor(
     private val connections: ToolConnectionRepository,
-    private val authentication: GitHubPublicAuthCoordinator
+    private val authentication: GitHubPublicAuthCoordinator,
+    private val factory: GitHubEngineeringApiFactory
 ) {
+    internal suspend fun verifyRepair(context: GitHubConversationContext, repair: GitHubDraftRepair) {
+        repair.requireSource(context)
+        val connection = requireNotNull(connections.getConnection(context.connectionUid)) { "Restore the original GitHub connection before repairing this draft." }
+        check(connection.type == "GITHUB" && connection.secretRef != null)
+        val api = factory.createForEndpoint(connection.endpointUrl) { authentication.accessToken(connection) }
+        val root = GitHubEngineeringApi.root(context.owner, context.repo)
+        fun JsonObject.text(key: String) = get(key)?.jsonPrimitive?.contentOrNull.orEmpty()
+        val pull = Json.parseToJsonElement(api.request("$root/pulls/${repair.pullNumber}")).jsonObject
+        val head = requireNotNull(pull["head"] as? JsonObject) { "The draft source could not be verified." }
+        val base = requireNotNull(pull["base"] as? JsonObject) { "The draft base could not be verified." }
+        check(
+            pull.text("number").toLongOrNull() == repair.pullNumber &&
+                pull.text("state") == "open" &&
+                pull.text("draft") == "true" &&
+                head.text("ref") == repair.sourceBranch &&
+                head.text("sha").equals(repair.headSha, true) &&
+                base.text("ref") == repair.baseBranch &&
+                head["repo"]?.jsonObject?.text("full_name").equals(repair.repository, true) &&
+                base["repo"]?.jsonObject?.text("full_name").equals(repair.repository, true)
+        ) {
+            "The original draft, source revision, or base changed. Refresh its Status tile before starting another repair."
+        }
+        if (repair.runId != null) {
+            val run = Json.parseToJsonElement(api.request("$root/actions/runs/${repair.runId}")).jsonObject
+            check(
+                run.text("id").toLongOrNull() == repair.runId &&
+                    run.text("run_attempt").toIntOrNull() == repair.attempt &&
+                    run.text("head_sha").equals(repair.headSha, true) &&
+                    run.text("head_branch") == repair.sourceBranch &&
+                    run.text("status") == "completed" &&
+                    run.text("conclusion") in setOf("failure", "timed_out", "action_required", "startup_failure")
+            ) {
+                "The failed workflow attempt changed. Refresh the Status tile before starting another repair."
+            }
+        } else {
+            val client = GitHubWorkspaceClient(authentication.accessToken(connection), freshnessSeconds = 0, conditionalReads = false, apiOrigins = GitHubApiOrigins.fromEndpoint(connection.endpointUrl))
+            val status = client.execute(
+                "get_commit_status_summary",
+                buildJsonObject {
+                    put("owner", context.owner)
+                    put("repo", context.repo)
+                    put("ref", repair.headSha)
+                }
+            ).jsonObject
+            check(status.text("state") == "FAILED") { "The saved revision no longer has the failed status. Refresh the Status tile." }
+        }
+    }
+
     suspend fun defaultBranch(context: GitHubConversationContext): String {
         val connection = requireNotNull(connections.getConnection(context.connectionUid)) { "The saved GitHub connection is unavailable." }
         check(connection.type == "GITHUB") { "The saved connection is not a GitHub connection." }

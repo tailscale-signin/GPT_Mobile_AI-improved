@@ -9,16 +9,8 @@ on:
       - "LICENSE"
   pull_request:
     branches: [ "main", "feat/unified-reliability-v2-2026-10-13" ]
-    paths-ignore:
-      - ".gitignore"
-      - "**.md"
-      - "LICENSE"
-      - ".idea/**"
-      - ".github/ISSUE_TEMPLATE/**"
-      - ".github/PULL_REQUEST_TEMPLATE*"
-      - ".editorconfig"
-      - "images/**"
-      - "metadata/**"
+  merge_group:
+    types: [checks_requested]
   schedule:
     - cron: '0 0 * * 1'
 

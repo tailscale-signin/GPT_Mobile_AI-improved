@@ -47,7 +47,7 @@ class AppAuditRunner internal constructor(
         val compatibility = catalog.incompatibility(initial)
         if (compatibility != null) {
             val blocked = initial.interrupted(epochMs(), compatibility).accountRemaining(epochMs(), AppAuditOutcome.BLOCKED, compatibility)
-            checkpoint(batch.copy(audit = blocked, state = BenchmarkBatchState.COMPLETED_WITH_FAILURES, endedAt = epochMs()), "AUDIT_INCOMPATIBLE")
+            checkpoint(batch.copy(audit = blocked, state = BenchmarkBatchState.COMPLETED_WITH_BLOCKERS, endedAt = epochMs()), "AUDIT_INCOMPATIBLE")
             return
         }
         try {
@@ -205,4 +205,4 @@ class AppAuditRunner internal constructor(
     }
 }
 
-private class AppAuditAdmissionRejected(val reasonCode: String) : IllegalStateException("App audit admission rejected.")
+internal class AppAuditAdmissionRejected(val reasonCode: String) : IllegalStateException("App audit admission rejected.")

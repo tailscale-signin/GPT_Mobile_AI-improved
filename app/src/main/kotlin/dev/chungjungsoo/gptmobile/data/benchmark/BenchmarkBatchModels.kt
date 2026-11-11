@@ -9,7 +9,7 @@ import java.security.MessageDigest
 import kotlinx.serialization.Serializable
 
 @Serializable
-enum class BenchmarkBatchState { QUEUED, RUNNING, STOPPED, INTERRUPTED, STORAGE_PAUSED, COMPLETED, COMPLETED_WITH_FAILURES }
+enum class BenchmarkBatchState { QUEUED, RUNNING, STOPPED, INTERRUPTED, STORAGE_PAUSED, COMPLETED, COMPLETED_WITH_FAILURES, COMPLETED_WITH_BLOCKERS }
 
 @Serializable
 enum class BenchmarkQueueState { QUEUED, RUNNING, COMPLETED, FAILED, BLOCKED, SKIPPED, INTERRUPTED }
@@ -117,7 +117,8 @@ data class BenchmarkBatchEvent(val batchId: String, val sequence: Long, val type
 internal fun BenchmarkBatch.completionState(): BenchmarkBatchState = when {
     mode == BenchmarkMode.APP_AUDIT && (audit == null || audit.id != id || items.isNotEmpty()) -> BenchmarkBatchState.COMPLETED_WITH_FAILURES
     mode == BenchmarkMode.APP_AUDIT && (audit?.pendingEntries?.isNotEmpty() == true || audit?.activeProbeId != null) -> state
-    mode == BenchmarkMode.APP_AUDIT && audit?.results?.any { it.outcome in setOf(AppAuditOutcome.FAIL, AppAuditOutcome.BLOCKED, AppAuditOutcome.CANCELED) } == true -> BenchmarkBatchState.COMPLETED_WITH_FAILURES
+    mode == BenchmarkMode.APP_AUDIT && audit?.results?.any { it.outcome in setOf(AppAuditOutcome.FAIL, AppAuditOutcome.CANCELED) } == true -> BenchmarkBatchState.COMPLETED_WITH_FAILURES
+    mode == BenchmarkMode.APP_AUDIT && audit?.results?.any { it.outcome == AppAuditOutcome.BLOCKED } == true -> BenchmarkBatchState.COMPLETED_WITH_BLOCKERS
     mode == BenchmarkMode.APP_AUDIT -> BenchmarkBatchState.COMPLETED
     items.any { !it.terminal } -> state
     items.any { it.failure != null || it.state in setOf(BenchmarkQueueState.FAILED, BenchmarkQueueState.BLOCKED, BenchmarkQueueState.INTERRUPTED) } -> BenchmarkBatchState.COMPLETED_WITH_FAILURES

@@ -2879,13 +2879,15 @@ class ChatViewModel @Inject constructor(
     suspend fun hasResumableDiagnosticCapture(): Boolean = withContext(Dispatchers.IO) {
         val room = _chatRoom.value
         !room.isTemporary &&
-            dev.chungjungsoo.gptmobile.data.diagnostics.StagedDiagnosticCapture.findResumableSession(
-                dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticCaptureStorage.directory(context, room.id),
-                diagnosticCaptureIdentity(room.id)
-            ) != null
+            listOf(false, true).any { full ->
+                dev.chungjungsoo.gptmobile.data.diagnostics.StagedDiagnosticCapture.findResumableSession(
+                    dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticCaptureStorage.directory(context, room.id),
+                    diagnosticCaptureIdentity(room.id, full)
+                ) != null
+            }
     }
 
-    suspend fun exportDebugFile(directory: java.io.File, reducedMemory: Boolean = false, resume: Boolean = false): java.io.File = withContext(Dispatchers.IO) {
+    suspend fun exportDebugFile(directory: java.io.File, reducedMemory: Boolean = false, resume: Boolean = false, fullHistory: Boolean = false): java.io.File = withContext(Dispatchers.IO) {
         check(debugMode.value) { "Enable Debug mode to export diagnostic conversation data." }
         val room = _chatRoom.value
         val source = checkNotNull(diagnosticDatabase) { "Diagnostic database is unavailable." }
@@ -2905,6 +2907,7 @@ class ChatViewModel @Inject constructor(
             workspace = diagnosticWorkspace,
             reducedMemory = reduced,
             resume = resume,
+            fullHistory = fullHistory,
             stillAuthorized = {
                 if (!debugMode.value || _chatRoom.value.id != room.id || _chatRoom.value.isTemporary != room.isTemporary) {
                     throw CancellationException("Diagnostic capture context changed.")

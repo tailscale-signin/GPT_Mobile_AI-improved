@@ -106,16 +106,20 @@ class GatewayEngineeringRepository @Inject constructor(
         taskScope: String,
         selectedModel: String? = null,
         options: GatewayEngineeringSettings? = null,
+        draftRepair: GitHubDraftRepair? = null,
         admissionAllowed: () -> Boolean = { true }
     ): GatewayEngineeringBinding {
         val profileUid = requireNotNull(context.mainProfileUid)
         val model = selectedModel ?: settings.fetchPlatformV2s().single { it.uid == profileUid }.model
         val bound = conversations.boundSnapshot(chatId, profileUid, model)
-        if (bound != null) {
+        if (draftRepair != null) {
+            draftRepair.requireSource(context)
+            check(bound == null && base == draftRepair.baseBranch && branch == draftRepair.branch && taskScope == "implement") { "A draft repair needs a separate saved conversation and its verified branches." }
+        } else if (bound != null) {
             val snapshot = bound.second
             check(snapshot.repository == "${context.owner}/${context.repo}" && (snapshot.sourceBranch ?: snapshot.branch) == branch && snapshot.base == base) { "This saved conversation retains its original repository and branches. Start a separate conversation to change them." }
         }
-        return submit(chatId, profileUid, "${context.owner}/${context.repo}", base, bound?.second?.workingBranch ?: bound?.second?.branch ?: branch, objective, commandId, userMessageId, assistantMessageId, runId, taskScope, model, options ?: this.options(), bound?.let { it.first.copy(revision = it.second.revision) }, bound?.second?.sourceBranch ?: context.ref, bound?.second?.sourceSha ?: context.commitSha, admissionAllowed, context)
+        return submit(chatId, profileUid, "${context.owner}/${context.repo}", base, bound?.second?.workingBranch ?: bound?.second?.branch ?: branch, objective, commandId, userMessageId, assistantMessageId, runId, taskScope, model, options ?: this.options(), bound?.let { it.first.copy(revision = it.second.revision) }, bound?.second?.sourceBranch ?: context.ref, bound?.second?.sourceSha ?: context.commitSha, admissionAllowed, context, draftRepair)
     }
 
     /** Continue a server conversation on a new device without inventing a phone GitHub workspace. */
@@ -156,13 +160,15 @@ class GatewayEngineeringRepository @Inject constructor(
         sourceBranch: String? = null,
         sourceSha: String? = null,
         admissionAllowed: () -> Boolean = { true },
-        originalContext: GitHubConversationContext? = null
+        originalContext: GitHubConversationContext? = null,
+        draftRepair: GitHubDraftRepair? = null
     ): GatewayEngineeringBinding = submissionLock.withLock {
         require(objective.isNotBlank() && objective.length <= 16000 && taskScope in setOf("read", "plan", "implement"))
         requireGatewayCommitPermission(objective, taskScope)
         require(taskScope != "implement" || branch != base || sourceBranch == branch && sourceSha?.matches(Regex("(?:[a-fA-F0-9]{40}|[a-fA-F0-9]{64})")) == true) { "Implementing from the base branch requires its pinned source commit so the gateway can create a separate owned working branch." }
         require(commandId.isNotBlank() && commandId.length <= 128)
         bindings().singleOrNull { it.request.requestId == commandId }?.let { existing ->
+            check(existing.request.draftRepair == draftRepair) { "This command belongs to a different repair target." }
             check(existing.chatId == chatId && existing.request.objective == objective && existing.request.taskScope == taskScope && existing.request.repository == repository && existing.request.base == base && existing.request.branch == branch && existing.localUserMessageId == userMessageId && existing.localAssistantMessageId == assistantMessageId && existing.localRunId == runId && (selectedModel == null || existing.request.model == selectedModel)) { "This command already belongs to a different saved turn." }
             return@withLock reconnect(commandId, admissionAllowed)
         }
@@ -211,7 +217,8 @@ class GatewayEngineeringRepository @Inject constructor(
                 chatId = chatId, requestId = commandId, acceptance = options.acceptance, profileId = profile.uid,
                 memoryMode = preferences.engineeringMemory, executionBindingId = admission.bindingId, taskScope = taskScope,
                 clientConversationId = if (capability.supportsDurableChat) conversations.clientConversationId(chatId) else null, conversationId = remote?.conversationId,
-                expectedRevision = remote?.revision?.takeIf { it >= 0 }, sourceBranch = sourceBranch, sourceSha = sourceSha, executionBudget = budgetSelection.effectiveBudget
+                expectedRevision = remote?.revision?.takeIf { it >= 0 }, sourceBranch = sourceBranch, sourceSha = sourceSha,
+                executionBudget = budgetSelection.effectiveBudget, draftRepair = draftRepair
             ).let { request ->
                 if (capability.admissionPreflightProtocol == 1) {
                     val preflight = client.preflight(identity?.let { frozenConfig.withGatewayIdentity(it) } ?: frozenConfig, request)

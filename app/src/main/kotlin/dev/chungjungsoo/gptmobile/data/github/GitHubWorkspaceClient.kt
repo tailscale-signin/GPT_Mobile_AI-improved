@@ -326,28 +326,44 @@ class GitHubWorkspaceClient(
             val intent = requireNotNull(status["publication_intent"] as? JsonObject)
             val waiting = status["state"] == JsonPrimitive("AWAITING_APPROVAL")
             val cancelled = status["cancelled_before_publication"] == JsonPrimitive(true)
-            if (waiting || cancelled) {
+            val approvedUnsent = status["state"] == JsonPrimitive("COMMITTING") && status["publication_may_have_started"] == JsonPrimitive(false)
+            if (waiting || cancelled || approvedUnsent) {
                 return buildJsonObject {
                     put("engineering_task_id", id)
                     put("branch", intent.getValue("branch"))
                     put("expected_head_sha", intent.getValue("expected_head_sha"))
                     put("committed", false)
                     put("remote_mutation_performed", false)
-                    put("status", if (waiting) "AWAITING_APPROVAL" else "CANCELLED")
-                    put("approval_state", if (waiting) "WAITING_FOR_APPROVAL" else "CANCELLED_BEFORE_PUBLICATION")
-                    put("user_input_required", waiting)
+                    put("status", status["state"] ?: JsonNull)
+                    put("native_state", status["state"] ?: JsonNull)
+                    put(
+                        "approval_state",
+                        when {
+                            waiting -> "WAITING_FOR_APPROVAL"
+                            approvedUnsent -> "APPROVED_AWAITING_DISPATCH"
+                            else -> "CANCELLED_BEFORE_PUBLICATION"
+                        }
+                    )
+                    put("user_input_required", waiting || approvedUnsent)
                     put("card_id", "github-approval-$id")
                 }
             }
             val recordedCommit = status["published_commit_sha"]
             val proofArguments = if (recordedCommit != null) JsonObject(intent + ("published_commit_sha" to recordedCommit)) else intent
-            val proof = checkNotNull(reconcileCommit(root, proofArguments, forceLiveRead = true)) {
-                "APPROVAL_PUBLICATION_UNCONFIRMED · The live ref and commit do not verify the saved patch. The existing native approval is retained."
+            val proof = reconcileCommit(root, proofArguments, forceLiveRead = true) ?: return buildJsonObject {
+                put("engineering_task_id", id)
+                put("branch", intent.getValue("branch"))
+                put("expected_head_sha", intent.getValue("expected_head_sha"))
+                put("native_state", status["state"] ?: JsonNull)
+                put("approval_state", "PUBLICATION_AWAITING_REMOTE_VERIFICATION")
+                put("remote_state_verified", false)
+                put("card_id", "github-approval-$id")
             }
             return JsonObject(
                 proof + buildJsonObject {
                     put("engineering_task_id", id)
                     put("approval_state", "PUBLISHED")
+                    put("native_state", status["state"] ?: JsonNull)
                     put("remote_state_verified", true)
                 }
             )
@@ -365,7 +381,10 @@ class GitHubWorkspaceClient(
         if (action in setOf("resolve_context", "task_context", "index_status", "build_index", "workflow_catalog", "search_repository", "read_ranges", "stage_patch", "commit_staged_patch", "changed_since", "recovery_context")) {
             return repositorySession.execute(action, owner, repo, args)
         }
-        if (action in GitHubInspection.actions) return GitHubInspection { request(it) }.execute(action, root, args, page)
+        if (action in GitHubInspection.actions) {
+            val issueQuery: (suspend (String, JsonObject) -> JsonObject)? = if (action == "list_issues" && requestCredential().token.isNotBlank()) ::graphQlIssuePage else null
+            return GitHubInspection { request(it) }.execute(action, root, args, page, issueQuery)
+        }
         val refQuery = ref.takeIf { it.isNotBlank() }?.let { "?ref=${segment(it)}" }.orEmpty()
 
         return when (action) {
@@ -1884,18 +1903,37 @@ class GitHubWorkspaceClient(
     }
 
     private suspend fun ciFailureDigest(root: String, ref: String, args: JsonObject): JsonObject {
+        val exactRef = ref.takeIf { it.matches(Regex("[a-fA-F0-9]{40}")) }
+        val expectedHead = args["expected_head_sha"]?.jsonPrimitive?.content?.takeIf(String::isNotBlank) ?: exactRef
+        require(expectedHead == null || expectedHead.matches(Regex("[a-fA-F0-9]{40}"))) { "CI evidence requires a valid commit SHA." }
+        val requestedAttempt = args["run_attempt"]?.jsonPrimitive?.content?.toIntOrNull()
         var jobId = args["job_id"]?.jsonPrimitive?.content?.toLongOrNull()
         var runId = args["run_id"]?.jsonPrimitive?.content?.toLongOrNull()
         var run: JsonObject? = null
-        if (runId != null) run = request("$root/actions/runs/$runId").jsonObject
+        if (runId != null) run = request("$root/actions/runs/$runId" + (requestedAttempt?.let { "/attempts/$it" } ?: "")).jsonObject
         if (jobId == null && runId == null) {
-            val branch = ref.takeIf { it.isNotBlank() }?.let { "&branch=${segment(it)}" }.orEmpty()
-            run = request("$root/actions/runs?status=failure&per_page=1$branch").jsonObject["workflow_runs"]?.jsonArray?.firstOrNull()?.jsonObject
-                ?: return buildJsonObject {
+            val filter = if (expectedHead != null) "&head_sha=${segment(expectedHead)}" else ref.takeIf { it.isNotBlank() }?.let { "&branch=${segment(it)}" }.orEmpty()
+            run = request("$root/actions/runs?status=failure&per_page=1$filter").jsonObject["workflow_runs"]?.jsonArray?.filterIsInstance<JsonObject>()
+                ?.firstOrNull { expectedHead == null || it["head_sha"]?.jsonPrimitive?.content.equals(expectedHead, true) }
+            if (run == null) {
+                val checkState = expectedHead?.let { sha ->
+                    val checks = request("$root/commits/$sha/check-runs?per_page=100&page=1").jsonObject
+                    val statuses = request("$root/commits/$sha/status?per_page=100&page=1").jsonObject
+                    gitHubCheckSummary(checks, statuses)
+                }
+                return buildJsonObject {
                     put("status", "no_failed_run")
                     put("ref", ref)
+                    expectedHead?.let { put("head_sha", it) }
+                    checkState?.let { put("commit_checks_state", it) }
                 }
+            }
             runId = run["id"]?.jsonPrimitive?.content?.toLongOrNull()
+        }
+        val runAttempt = run?.get("run_attempt")?.jsonPrimitive?.content?.toIntOrNull()
+        if (run != null) {
+            require(expectedHead == null || run["head_sha"]?.jsonPrimitive?.content.equals(expectedHead, true)) { "CI run belongs to a different commit." }
+            require(requestedAttempt == null || requestedAttempt == runAttempt) { "CI run attempt changed." }
         }
         var job: JsonObject? = null
         if (jobId == null) {
@@ -1905,7 +1943,8 @@ class GitHubWorkspaceClient(
             var more = false
             var nextPage = startPage
             for (page in startPage..minOf(startPage + 9, 1000)) {
-                val payload = request("$root/actions/runs/$runId/jobs?per_page=100&page=$page").jsonObject
+                val attemptPath = runAttempt?.let { "/attempts/$it" }.orEmpty()
+                val payload = request("$root/actions/runs/$runId$attemptPath/jobs?per_page=100&page=$page").jsonObject
                 val jobs = requireNotNull(payload["jobs"] as? JsonArray) { "CI jobs response is missing the jobs collection." }
                 val total = payload["total_count"]?.jsonPrimitive?.content?.toLongOrNull()
                 more = if (total != null) page * 100L < total else jobs.size == 100
@@ -1926,6 +1965,8 @@ class GitHubWorkspaceClient(
                             buildJsonObject {
                                 put("action", "ci_failure_digest")
                                 put("run_id", runId)
+                                runAttempt?.let { put("run_attempt", it) }
+                                expectedHead?.let { put("expected_head_sha", it) }
                                 put("page", nextPage)
                             }
                         )
@@ -1939,10 +1980,13 @@ class GitHubWorkspaceClient(
         val actualRun = resolvedJob["run_id"]?.jsonPrimitive?.content?.toLongOrNull()
         require(runId == null || actualRun == null || actualRun == runId) { "Job belongs to another workflow run." }
         runId = runId ?: actualRun
-        if (run == null && runId != null) run = request("$root/actions/runs/$runId").jsonObject
-        val expectedHead = args["expected_head_sha"]?.jsonPrimitive?.content.orEmpty()
+        val jobAttempt = resolvedJob["run_attempt"]?.jsonPrimitive?.content?.toIntOrNull()
+        val verifiedAttempt = runAttempt ?: requestedAttempt ?: jobAttempt
+        require(jobAttempt == null || verifiedAttempt == jobAttempt) { "CI job belongs to another workflow attempt." }
+        if (run == null && runId != null) run = request("$root/actions/runs/$runId" + (verifiedAttempt?.let { "/attempts/$it" } ?: "")).jsonObject
         val head = run?.get("head_sha")?.jsonPrimitive?.content.orEmpty().ifBlank { resolvedJob["head_sha"]?.jsonPrimitive?.content.orEmpty() }
-        require(expectedHead.isBlank() || expectedHead == head) { "CI evidence belongs to a different commit." }
+        require(expectedHead == null || expectedHead.equals(head, true)) { "CI evidence belongs to a different commit." }
+        require(resolvedJob["head_sha"]?.jsonPrimitive?.content?.let { it.equals(head, true) } != false) { "CI job belongs to a different commit." }
         val credential = requestCredential()
         val log = GitHubCiLogReader(client, credential.token, scheduler, responseCache, requestPriority, credential.authenticationRejected, apiOrigins).read("$root/actions/jobs/$resolvedJobId/logs", resolvedJob["status"]?.jsonPrimitive?.content == "completed")
         val safeLog = dev.chungjungsoo.gptmobile.data.diagnostics.redactLogMessage(log.text).let { if (credential.token.isNotBlank()) it.replace(credential.token, "[REDACTED]") else it }
@@ -1983,6 +2027,7 @@ class GitHubWorkspaceClient(
             put("changed_file_scope", "First page of the exact commit's changed files; absence of a match is not proof of no relationship")
             put("status", "available")
             put("run_id", runId)
+            verifiedAttempt?.let { put("run_attempt", it) }
             put("job_id", jobId)
             put("head_sha", head)
             put("log_bytes", log.bytes)
@@ -2053,6 +2098,8 @@ class GitHubWorkspaceClient(
         put("has_more", items.size == perPage)
         if (items.size == perPage) put("next_page", page + 1)
     }
+
+    private suspend fun graphQlIssuePage(query: String, variables: JsonObject): JsonObject = graphQl(query, variables)
 
     private suspend fun graphQl(query: String, variables: JsonObject, reconcile: (suspend () -> JsonElement?)? = null): JsonObject {
         if (query == gitHubPullRequestHealthQuery && "cursor" !in variables) {

@@ -133,18 +133,41 @@ internal class GitHubVerifiedSession(
             correctionProgress = GitHubExecutionContinuation.progressKeys(evidence.snapshot().first)
             initiallyVerifiedComplete = evidence.diagnostic()?.get("completion_verified") == kotlinx.serialization.json.JsonPrimitive(true)
         }
-        retainProgress(tools)
         val approvalReceipts = evidence.snapshot().first
-        if (GitHubPendingApproval.snapshot(approvalReceipts).isNotEmpty()) {
+        val pendingApprovals = GitHubPendingApproval.snapshot(approvalReceipts)
+        if (pendingApprovals.isNotEmpty()) {
             GitHubApprovalContinuation.next(resumeRequestKey, tools, approvalReceipts, initialReceiptIds.orEmpty())?.let { call ->
                 progress("Checking the existing saved approval; no commit is being repeated")
                 emit(call)
                 emit(ProviderEvent.Completed)
                 return@flow
             }
-            emitAll(publish(null))
+            val saved = evidence.retainedAnswer()
+            if (saved != null && GitHubTaskContinuity.control(currentRequest)) {
+                validatePublication()
+                val (body, verdict) = saved
+                val text = "## Saved approval pending\n\nReview the saved approval or publication status to resume.\n\n$body"
+                val delivered = evidence.retainVerdict(
+                    JsonObject(
+                        verdict + buildJsonObject {
+                            put("task_outcome", "BLOCKED")
+                            put("completion_verified", false)
+                            put("pending_approvals", pendingApprovals)
+                            put("response_delivered", true)
+                            put("response_sha256", GitHubEvidenceBook.digest(text))
+                            put("delivery_mode", "RETAINED_APPROVAL_CHECKPOINT")
+                        }
+                    )
+                )
+                onPublication(delivered)
+                emit(ProviderEvent.TextDelta(text, dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.RETAINED_CONTENT)))
+                emit(ProviderEvent.Failed("Review the saved change to continue.", errorCode = "WAITING_FOR_APPROVAL", transportComplete = true, taskOutcome = "BLOCKED"))
+            } else {
+                emitAll(publish(null))
+            }
             return@flow
         }
+        retainProgress(tools)
         resumeCommitSha?.let { sha ->
             GitHubCommitContinuation.next(sha, resumeRequestKey, tools, evidence.snapshot().first)?.let { call ->
                 progress("Reconciling the approved commit and its checks; completed writes are retained")

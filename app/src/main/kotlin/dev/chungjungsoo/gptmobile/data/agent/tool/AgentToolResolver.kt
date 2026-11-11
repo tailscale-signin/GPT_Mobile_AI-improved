@@ -131,8 +131,15 @@ class AgentToolResolver @Inject constructor(
         }
     }
 
-    suspend fun discoverMcpTools(connection: ToolConnection, forceRefresh: Boolean = false, awaitCompletion: Boolean = false, passiveBackoff: Boolean = false): List<Tool> {
-        if (!forceRefresh && !awaitCompletion) mcpClientManager.peekToolsForConnection(connection.connectionUid, connection.endpointUrl, connection.allowCleartext)?.let { return it }
+    suspend fun discoverMcpTools(connection: ToolConnection, forceRefresh: Boolean = false, awaitCompletion: Boolean = false, passiveBackoff: Boolean = false): List<Tool> =
+        discoverMcpToolsWithReceipt(connection, forceRefresh, awaitCompletion, passiveBackoff).tools
+
+    internal suspend fun discoverMcpToolsWithReceipt(connection: ToolConnection, forceRefresh: Boolean, awaitCompletion: Boolean, passiveBackoff: Boolean = false): McpDiscoveryReceipt {
+        if (!forceRefresh && !awaitCompletion) {
+            mcpClientManager.peekToolsForConnection(connection.connectionUid, connection.endpointUrl, connection.allowCleartext)?.let {
+                return McpDiscoveryReceipt(it, McpDiscoverySource.CACHED)
+            }
+        }
         val config = mcpConfig(connection)
         return withMcpDiscoveryOAuthRefresh(
             initial = config,
@@ -146,11 +153,12 @@ class AgentToolResolver @Inject constructor(
             }
         ) { current, refreshed ->
             if (refreshed) {
-                kotlinx.coroutines.withContext(McpDiscoveryContext(McpDiscoveryTrigger.OAUTH_REFRESH)) {
-                    mcpClientManager.listTools(current, true, awaitCompletion, false)
+                val context = kotlinx.coroutines.currentCoroutineContext()[McpDiscoveryContext]
+                kotlinx.coroutines.withContext(McpDiscoveryContext(McpDiscoveryTrigger.OAUTH_REFRESH, context?.beforeOwnedDispatch, context?.onSource ?: {})) {
+                    mcpClientManager.listToolsWithReceipt(current, true, awaitCompletion, false)
                 }
             } else {
-                mcpClientManager.listTools(current, forceRefresh, awaitCompletion, passiveBackoff)
+                mcpClientManager.listToolsWithReceipt(current, forceRefresh, awaitCompletion, passiveBackoff)
             }
         }
     }
@@ -165,6 +173,7 @@ class AgentToolResolver @Inject constructor(
         cachedCataloguesOnly: Boolean = false,
         requestedModel: String? = null
     ): List<ResolvedAgentTool> {
+        if (chatToolConfig?.github != null && dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.sessionAudit(userMessage?.content.orEmpty())) return emptyList()
         val platforms = settingRepository.fetchPlatformV2s()
         val featureSettings = GitHubChatPolicy.features(settingRepository.getFeatureSettings(), profileUid, chatToolConfig?.github)
         val platform = platforms.firstOrNull { it.uid == profileUid }?.let { GitHubChatPolicy.platform(it, featureSettings, chatToolConfig?.github) }
@@ -1330,6 +1339,7 @@ class AgentToolResolver @Inject constructor(
                         requestedModel ?: approvalProfile?.model.orEmpty(),
                         approvalProfile?.let { dev.chungjungsoo.gptmobile.data.github.GitHubApprovalBinding.profileContract(it.compatibleType.name, it.apiUrl, it.providerConnectionUid, it.reasoning) }.orEmpty()
                     )
+                    engineeringController.scheduleApprovalRecovery(engineeringTaskId)
                 }
                 userMessage?.takeIf { it.chatId > 0 && it.id > 0 }?.let {
                     gitHubDecisionNotifications?.prompt("github-approval-$engineeringTaskId", it.chatId, it.id, "Your repository changes are ready for review and approval.")
@@ -1410,6 +1420,7 @@ class AgentToolResolver @Inject constructor(
                                 requestedModel ?: approvalProfile?.model.orEmpty(),
                                 approvalProfile?.let { dev.chungjungsoo.gptmobile.data.github.GitHubApprovalBinding.profileContract(it.compatibleType.name, it.apiUrl, it.providerConnectionUid, it.reasoning) }.orEmpty()
                             )
+                            engineeringController.scheduleApprovalRecovery(taskId)
                         }
                     }
                 }

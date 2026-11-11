@@ -345,6 +345,21 @@ class GitHubEngineeringBackend:
             source = self.api(root + '/git/ref/heads/' + quote(branch, safe=''))['object']['sha']
             if source != request.get('source_sha'):
                 raise ExecutionBindingError('SOURCE_REVISION_CHANGED', 'Refresh the source revision before admitting implementation.', 412)
+        repair = request.get('draft_repair')
+        if repair:
+            pull = self.api(root + '/pulls/' + str(repair['pull_number']))
+            head, base = pull.get('head', {}), pull.get('base', {})
+            repository = request['repository'].lower()
+            if (pull.get('number') != repair['pull_number'] or pull.get('state') != 'open' or pull.get('draft') is not True
+                    or head.get('sha') != repair['head_sha'] or head.get('ref') != repair['source_branch'] or base.get('ref') != repair['base_branch']
+                    or any((side.get('repo') or {}).get('full_name', '').lower() != repository for side in (head, base))):
+                raise ExecutionBindingError('DRAFT_REPAIR_TARGET_CHANGED', 'The failed draft or its verified revision changed. Refresh the original Status tile.', 412)
+            if repair.get('run_id'):
+                run = self.api(root + '/actions/runs/' + str(repair['run_id']))
+                if (run.get('id') != repair['run_id'] or run.get('run_attempt') != repair['attempt']
+                        or run.get('head_sha') != repair['head_sha'] or run.get('head_branch') != repair['source_branch']
+                        or run.get('status') != 'completed' or run.get('conclusion') not in {'failure', 'timed_out', 'action_required', 'startup_failure'}):
+                    raise ExecutionBindingError('DRAFT_REPAIR_ATTEMPT_CHANGED', 'The original failed workflow attempt changed. Refresh the Status tile.', 412)
         return {'host_github_connection': 'ready', 'repository_access': 'ready'}
 
     def identity(self, job):

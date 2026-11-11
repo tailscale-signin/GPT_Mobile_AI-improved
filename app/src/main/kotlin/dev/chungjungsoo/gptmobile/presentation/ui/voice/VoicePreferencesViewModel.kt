@@ -23,11 +23,12 @@ internal data class VoicePreferences(
     val online: Boolean = false,
     val captions: Boolean = true,
     val review: Boolean = false,
-    val automatic: Boolean = false,
+    val automatic: Boolean = true,
     val rate: Float = 1f,
     val voice: String = "",
     val recognitionBackend: VoiceRecognitionBackend = VoiceRecognitionBackend.LOCAL_MOONSHINE,
-    val kokoroVoice: KokoroVoice? = null
+    val kokoroVoice: KokoroVoice? = null,
+    val spokenReplies: Boolean = true
 )
 
 /** No preference open/read/write may block composition or microphone startup. */
@@ -48,7 +49,8 @@ internal class VoicePreferencesViewModel @Inject constructor(@ApplicationContext
                 .putBoolean("automatic", value.automatic).putFloat("rate", value.rate)
                 .putString("voice", value.voice)
                 .putString("recognition_backend", value.recognitionBackend.name)
-                .putString("kokoro_voice", value.kokoroVoice?.name).apply()
+                .putString("kokoro_voice", value.kokoroVoice?.name)
+                .putBoolean("spoken_replies", value.spokenReplies).apply()
         }
     }
 
@@ -62,11 +64,12 @@ internal class VoicePreferencesViewModel @Inject constructor(@ApplicationContext
                     online = saved.getBoolean("online", false),
                     captions = saved.getBoolean("captions", true),
                     review = saved.getBoolean("review", false),
-                    automatic = saved.getBoolean("automatic", false),
+                    automatic = saved.getBoolean("automatic", true),
                     rate = saved.getFloat("rate", 1f).takeIf { it.isFinite() }?.coerceIn(.5f, 2f) ?: 1f,
                     voice = saved.getString("voice", "").orEmpty(),
                     recognitionBackend = VoiceRecognitionBackend.fromSaved(saved.getString("recognition_backend", null)),
-                    kokoroVoice = KokoroVoice.fromSaved(saved.getString("kokoro_voice", null))
+                    kokoroVoice = KokoroVoice.fromSaved(saved.getString("kokoro_voice", null)),
+                    spokenReplies = saved.getBoolean("spoken_replies", true)
                 )
             }
             _preferences.compareAndSet(null, loaded)

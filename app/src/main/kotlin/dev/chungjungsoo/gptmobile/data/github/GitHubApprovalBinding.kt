@@ -27,6 +27,14 @@ internal object GitHubApprovalBinding {
     fun observeChanges(): kotlinx.coroutines.flow.StateFlow<Long> = revisions
     private fun key(taskId: String) = "execution:" + GitHubRepositoryStateStore.digest(taskId)
 
+    suspend fun originalChat(store: GitHubRepositoryStateStore, taskId: String): Int? = store.read(SCOPE, key(taskId))?.let(::source)?.chatId
+
+    suspend fun automaticallyApproved(store: GitHubRepositoryStateStore, taskId: String): Boolean =
+        store.read(SCOPE, key(taskId))?.get("automatic_approval") == JsonPrimitive(true)
+
+    fun isApprovalPause(failure: String?): Boolean = failure != null &&
+        (failure.trim() == "Review the saved change to continue." || dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.classify(failure).category == "WAITING_FOR_APPROVAL")
+
     suspend fun bind(store: GitHubRepositoryStateStore, taskId: String, workspace: GitHubConversationContext, branch: String, chatId: Int, messageId: Int, model: String = "", profileContract: String = "") {
         val value = buildJsonObject {
             put("schema", "github.approval-binding.v1")
@@ -122,6 +130,7 @@ internal object GitHubApprovalBinding {
             require(current["continuation_queued_sha"] == null || current["continuation_queued_sha"] == JsonPrimitive(sha))
             JsonObject(current + ("continuation_queued_sha" to JsonPrimitive(sha)))
         }
+        revisions.update { it + 1 }
     }
 
     internal fun matches(value: JsonObject, taskId: String, workspace: GitHubConversationContext, branch: String): Boolean =

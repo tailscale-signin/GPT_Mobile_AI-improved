@@ -10,6 +10,7 @@ import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubEngineeringApiFactory
 import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubTool
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
 import dev.chungjungsoo.gptmobile.data.github.GitHubCheckWatchRepository
+import dev.chungjungsoo.gptmobile.data.github.GitHubDraftRepair
 import dev.chungjungsoo.gptmobile.data.github.GitHubLiveProcess
 import dev.chungjungsoo.gptmobile.data.github.GitHubLiveStatus
 import dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator

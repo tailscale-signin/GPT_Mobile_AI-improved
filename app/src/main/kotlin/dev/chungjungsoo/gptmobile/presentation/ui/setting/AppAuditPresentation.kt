@@ -39,8 +39,9 @@ internal data class AppAuditPresentation(
     val scoreText: String get() = "Measured check pass score: ${benchmarkMetricText(score.score, "/ 100", 1)}"
     val weightText: String get() = "Passing weight ${score.passedWeight} / measured weight ${score.measuredWeight}"
     val coverageText: String get() = "Exercised ${summary.exercised}/${summary.planned} planned checks · Verified passes ${summary.verified}/${summary.planned} planned checks"
-    val coverageSummaryText: String get() = "Measured checks ${summary.verified}/${summary.exercised} passed · " +
-        "Planned checks verified ${summary.verified}/${summary.planned} · ${summary.failed} failed · ${summary.blocked} blocked · " +
+    val verifiedText: String get() = "${summary.verified} of ${summary.planned} checks verified"
+    val coverageSummaryText: String get() = "${summary.verified} of ${summary.exercised} measured checks passed · " +
+        "${summary.failed} failed · ${summary.blocked} blocked · " +
         "${summary.unavailable} unavailable · ${summary.untested} untested" +
         (if (summary.skipped > 0) " · ${summary.skipped} skipped" else "") +
         (if (summary.canceled > 0) " · ${summary.canceled} canceled" else "")

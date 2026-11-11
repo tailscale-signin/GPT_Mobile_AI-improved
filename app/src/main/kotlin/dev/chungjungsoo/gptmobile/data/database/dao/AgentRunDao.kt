@@ -34,6 +34,9 @@ interface AgentRunDao : RunPolicySnapshotAccess {
     @Query("SELECT * FROM agent_runs WHERE chat_id = :chatId ORDER BY created_at, run_id")
     suspend fun rawGetByChatId(chatId: Int): List<AgentRun>
 
+    @Query("SELECT * FROM agent_runs WHERE chat_id = :chatId AND run_id != :currentRunId ORDER BY created_at DESC, run_id DESC LIMIT 32")
+    suspend fun sessionAuditRuns(chatId: Int, currentRunId: String): List<AgentRun>
+
     @Query("SELECT r.* FROM agent_runs r JOIN messages_v2 m ON m.message_id = r.assistant_message_id AND m.current_run_id = r.run_id AND m.ownership_fence = r.ownership_fence WHERE r.synthesis_snapshot IS NOT NULL AND r.status IN ('COMPLETED','FAILED','CANCELED','INTERRUPTED','PARTIAL','EVIDENCE_MISSING','BLOCKED')")
     suspend fun rawCombinedTerminalOwners(): List<AgentRun>
 

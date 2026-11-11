@@ -65,8 +65,10 @@ internal object GitHubEvidencePolicy {
                 ?: receipt?.let { GitHubEvidenceExcerpts.collect(it)[path]?.get("value") }
         }
         val timestamp = receipt?.get("observed_at_ms")?.let { (it as? JsonPrimitive)?.longOrNull } ?: 0
-        val immutable = receipt?.get("immutable") == JsonPrimitive(true)
         val (resourceType, fieldType) = semanticType(receipt, path)
+        val stableResourceNumber = fieldType in setOf("pull_request.number", "issue.number") &&
+            (observed as? JsonPrimitive)?.longOrNull?.let { it > 0 } == true
+        val immutable = receipt?.get("immutable") == JsonPrimitive(true) || stableResourceNumber
         val semanticsMismatch = claim["resource_type"]?.let { it != JsonPrimitive(resourceType) } == true ||
             claim["field_type"]?.let { it != JsonPrimitive(fieldType) } == true
         val status = when {
@@ -222,13 +224,12 @@ internal object GitHubEvidencePolicy {
     fun partial(receipts: Map<String, JsonObject>, now: Long, epoch: Long, task: String = "", failureCode: String? = null): Pair<String, JsonObject> {
         if (GitHubTaskCoverage.matches(task)) return testing(receipts, now, epoch, task)
         val claims = mutableListOf<JsonObject>()
-        for ((id, receipt) in receipts.entries.reversed()) {
+        for ((id, receipt) in receipts.entries.sortedByDescending { (_, row) -> (row["observed_at_ms"] as? JsonPrimitive)?.longOrNull ?: 0 }) {
             if (claims.size >= 16) break
             // Skip ineligible receipts before traversing their potentially large results.
             if (receipt["success"] != JsonPrimitive(true) || receipt["trusted"] != JsonPrimitive(true)) continue
             val observedAt = (receipt["observed_at_ms"] as? JsonPrimitive)?.longOrNull ?: 0
             if (observedAt <= 0 || observedAt > now) continue
-            if (receipt["immutable"] != JsonPrimitive(true) && (now - observedAt > MAX_AGE_MS || receipt["epoch"] != JsonPrimitive(epoch))) continue
             for ((pointer, value) in facts(receipt["result"] ?: JsonNull)) {
                 if (Regex("/(?:check_runs|workflow_runs|jobs)/[0-9]+/").containsMatchIn(pointer) && !Regex("(?:/data)?/workflow_runs/0/(?:name|status|conclusion|head_branch|head_sha)").matches(pointer)) continue
                 if (pointer.substringAfterLast('/') !in setOf("full_name", "default_branch", "sha", "commit_sha", "head_sha", "state", "status", "conclusion", "checks", "number", "draft", "name", "path", "total_paths", "indexed_blobs")) continue

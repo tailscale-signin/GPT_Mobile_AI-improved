@@ -44,10 +44,11 @@ class GatewayEngineeringStore @Inject constructor(private val database: ChatData
         }
     }
 
-    suspend fun bindings(chatId: Int? = null): List<GatewayEngineeringBinding> {
+    suspend fun bindings(chatId: Int? = null, includeUpdates: Boolean = true): List<GatewayEngineeringBinding> {
         migrateLegacy()
         return dao.bindings(chatId).map { row ->
-            json.decodeFromString<GatewayEngineeringBinding>(row.binding).copy(updates = dao.events(row.requestId).map { GatewayEngineeringUpdate(it.revision, it.state, it.message, it.createdAt) })
+            val binding = json.decodeFromString<GatewayEngineeringBinding>(row.binding)
+            if (!includeUpdates) binding else binding.copy(updates = dao.events(row.requestId).map { GatewayEngineeringUpdate(it.revision, it.state, it.message, it.createdAt) })
         }
     }
 

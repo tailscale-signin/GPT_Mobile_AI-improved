@@ -132,7 +132,8 @@ internal fun AppAuditResultCard(
             BenchmarkBatchState.INTERRUPTED -> "Interrupted"
             BenchmarkBatchState.STORAGE_PAUSED -> "Paused: results could not be saved"
             BenchmarkBatchState.COMPLETED -> "Finished · recorded check outcomes"
-            BenchmarkBatchState.COMPLETED_WITH_FAILURES -> "Finished with failures"
+            BenchmarkBatchState.COMPLETED_WITH_FAILURES -> if (summary.failed == 0 && summary.blocked > 0 && summary.canceled == 0) "Completed with blockers" else "Finished with failures"
+            BenchmarkBatchState.COMPLETED_WITH_BLOCKERS -> "Completed with blockers"
         }
     }
     Card(Modifier.fillMaxWidth().testTag("app_audit_result_${batch.id}")) {
@@ -140,9 +141,10 @@ internal fun AppAuditResultCard(
             Text("App audit · ${benchmarkResultDate(run.startedAtEpochMs)}", style = MaterialTheme.typography.titleMedium)
             Text(status, style = MaterialTheme.typography.titleSmall, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
             Column(Modifier.semantics(mergeDescendants = true) {}.testTag("app_audit_score_and_coverage"), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(presentation.scoreText, style = MaterialTheme.typography.titleMedium)
+                Text(presentation.verifiedText, style = MaterialTheme.typography.titleMedium)
                 Text(presentation.coverageSummaryText, style = MaterialTheme.typography.bodyMedium)
             }
+            Text(presentation.scoreText, style = MaterialTheme.typography.bodySmall)
             Text(presentation.weightText, style = MaterialTheme.typography.bodySmall)
             Text(presentation.evidenceText, style = MaterialTheme.typography.bodySmall)
             Text(presentation.coverageNotice, style = MaterialTheme.typography.bodySmall)
@@ -243,6 +245,7 @@ internal fun AppAuditEntryCard(
                     AppAuditObservationSource.FIXTURE -> "${result.evidenceKind.auditLabel()} · fixture"
                     AppAuditObservationSource.LIVE -> "${result.evidenceKind.auditLabel()} · live observation"
                     AppAuditObservationSource.CACHE -> "Cached information; live behavior not verified"
+                    AppAuditObservationSource.SHARED -> "Shared discovery · no fresh audit dispatch"
                     AppAuditObservationSource.NONE, null -> "Not observed"
                 }}",
                 style = MaterialTheme.typography.bodySmall
@@ -285,6 +288,17 @@ internal fun AppAuditEntryCard(
                     remote.sourceCommit?.let { Text("Reported service source: ${it.take(12)}", style = MaterialTheme.typography.bodySmall) }
                     remote.buildStatus?.let { Text("Reported build: $it", style = MaterialTheme.typography.bodySmall) }
                     Text("These fields are declarations from the remote response. Remote source and execution have not been independently verified.", style = MaterialTheme.typography.bodySmall)
+                }
+                result?.observation?.gatewayReadiness?.let { gateway ->
+                    fun readiness(value: Boolean?, ready: String, blocked: String) = when (value) {
+                        true -> ready
+                        false -> blocked
+                        null -> "Not observed"
+                    }
+                    Text(if (gateway.savedBinding) "Saved job binding" else "Configured engineering connection", style = MaterialTheme.typography.labelMedium)
+                    Text("Engineering service · ${readiness(gateway.engineeringReady, "Ready", "Blocked")}", style = MaterialTheme.typography.bodySmall)
+                    Text("Host GitHub connection · ${readiness(gateway.hostGitHubConfigured, "Configured", "Missing")}", style = MaterialTheme.typography.bodySmall)
+                    Text("Bound model · ${readiness(gateway.selectedModelReady, "Ready", "Blocked")}", style = MaterialTheme.typography.bodySmall)
                 }
                 Text("Duration: ${benchmarkMetricText(result?.durationMs?.takeIf { it >= 0 }?.toDouble(), "ms", 0)}", style = MaterialTheme.typography.bodySmall)
                 result?.observation?.httpStatus?.let { Text("HTTP status: $it", style = MaterialTheme.typography.bodySmall) }

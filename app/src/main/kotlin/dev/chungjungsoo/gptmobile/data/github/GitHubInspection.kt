@@ -15,7 +15,8 @@ import kotlinx.serialization.json.put
 /** Bounded, explicit follow-ups. A failed policy read is unknown, never permission. */
 internal class GitHubInspection(private val get: suspend (String) -> JsonElement) {
     companion object {
-        val actions = setOf("branch_context", "branch_dependencies", "repository_details", "list_issues", "issue_context", "issue_comments", "issue_events", "search_commits", "tag_context", "pull_request_reviews")
+        val actions = setOf("branch_context", "branch_dependencies", "repository_details", "list_issues", "search_issues", "issue_context", "issue_comments", "issue_events", "search_commits", "tag_context", "pull_request_reviews")
+        val issueSearchQualifier = Regex("(?i)(?:^|\\s)(?:is|type):(?:issue|pr)(?:\\s|$)")
     }
 
     private fun JsonObject.s(key: String) = (get(key) as? JsonPrimitive)?.content.orEmpty()
@@ -35,7 +36,7 @@ internal class GitHubInspection(private val get: suspend (String) -> JsonElement
         }
     }
 
-    suspend fun execute(action: String, root: String, args: JsonObject, page: Int): JsonObject {
+    suspend fun execute(action: String, root: String, args: JsonObject, page: Int, graphQl: (suspend (String, JsonObject) -> JsonObject)? = null): JsonObject {
         fun required(key: String) = args.s(key).also { require(it.isNotBlank()) { "$key is required." } }
         fun number(key: String) = required(key).toInt().also { require(it > 0) }
         return when (action) {
@@ -45,6 +46,8 @@ internal class GitHubInspection(private val get: suspend (String) -> JsonElement
                 val perPage = args.s("per_page").ifBlank { "30" }.toInt().also { require(it in 1..100) }
                 val sort = args.s("sort").ifBlank { "created" }.also { require(it in setOf("created", "updated", "comments")) }
                 val direction = args.s("direction").ifBlank { "asc" }.also { require(it in setOf("asc", "desc")) }
+                if (graphQl != null) return issueConnection(root, args, page, state, perPage, sort, direction, graphQl)
+                require(args.s("after").isBlank()) { "Restore the original authenticated GitHub connection before continuing this issue cursor." }
                 val raw = get("$root/issues?state=$state&sort=$sort&direction=$direction&per_page=$perPage&page=$page").jsonArray
                 val issues = raw.filter { "pull_request" !in it.jsonObject }
                 buildJsonObject {
@@ -60,6 +63,25 @@ internal class GitHubInspection(private val get: suspend (String) -> JsonElement
                     put("traversal_state", if (raw.size == perPage) "MORE" else "COMPLETE")
                     put("empty", issues.isEmpty())
                     if (raw.size == perPage) put("continuation", JsonObject(args + mapOf("action" to JsonPrimitive(action), "page" to JsonPrimitive(page + 1), "per_page" to JsonPrimitive(perPage), "sort" to JsonPrimitive(sort), "direction" to JsonPrimitive(direction))))
+                }
+            }
+            "search_issues" -> {
+                val repository = root.removePrefix("/repos/")
+                val query = required("query")
+                val scopes = Regex("(?i)(?:^|\\s)repo:([^\\s]+)").findAll(query).map { it.groupValues[1] }.toList()
+                require(issueSearchQualifier.containsMatchIn(query) && query.length <= 512 && scopes.all { it.equals(repository, true) }) { "Use an issue or PR qualifier in the selected repository." }
+                val perPage = args.s("per_page").ifBlank { "30" }.toInt().also { require(it in 1..100) }
+                val response = get("/search/issues?q=${segment("$query repo:$repository")}&per_page=$perPage&page=$page").jsonObject
+                val items = (response["items"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
+                val more = items.size == perPage && page * perPage < minOf(1000, response.s("total_count").toIntOrNull() ?: 1000)
+                buildJsonObject {
+                    put("items", JsonArray(items.map { JsonObject(it + ("resource_type" to JsonPrimitive(if ("pull_request" in it) "pull_request" else "issue"))) }))
+                    put("total_count", response["total_count"] ?: JsonNull)
+                    put("incomplete_results", response["incomplete_results"] ?: JsonNull)
+                    put("page", page)
+                    put("per_page", perPage)
+                    put("has_more", more)
+                    if (more) put("continuation", JsonObject(args + ("page" to JsonPrimitive(page + 1))))
                 }
             }
             "repository_details" -> buildJsonObject {
@@ -165,6 +187,94 @@ internal class GitHubInspection(private val get: suspend (String) -> JsonElement
                 }
             }
             else -> error("Unsupported inspection action")
+        }
+    }
+
+    private suspend fun issueConnection(
+        root: String,
+        args: JsonObject,
+        page: Int,
+        state: String,
+        perPage: Int,
+        sort: String,
+        direction: String,
+        graphQl: suspend (String, JsonObject) -> JsonObject
+    ): JsonObject {
+        val scope = GitHubRepositoryStateStore.digest("$root|$state|$perPage|$sort|$direction")
+        val cursor = args.s("after").takeIf(String::isNotBlank)
+        val after = cursor?.split(':', limit = 3)?.takeIf { it.size == 3 && it[0] == scope && it[1].toIntOrNull() == page }
+            ?.get(2)?.takeIf { it.length in 1..512 && it.none(Char::isISOControl) }
+        require((page == 1 && cursor == null) || page > 1 && after != null) { "Follow the exact issue continuation with the original repository, filters and page size." }
+        val response = graphQl(
+            "query(\$owner:String!,\$repo:String!,\$first:Int!,\$after:String,\$states:[IssueState!],\$order:IssueOrder!){repository(owner:\$owner,name:\$repo){issues(first:\$first,after:\$after,states:\$states,orderBy:\$order){totalCount pageInfo{hasNextPage endCursor} nodes{id number title state url createdAt updatedAt}}}}",
+            buildJsonObject {
+                val repository = root.removePrefix("/repos/")
+                put("owner", repository.substringBefore('/'))
+                put("repo", repository.substringAfter('/'))
+                put("first", perPage)
+                put("after", after)
+                put("states", JsonArray((if (state == "all") listOf("OPEN", "CLOSED") else listOf(state.uppercase())).map(::JsonPrimitive)))
+                put(
+                    "order",
+                    buildJsonObject {
+                        put(
+                            "field",
+                            when (sort) {
+                                "updated" -> "UPDATED_AT"
+                                "comments" -> "COMMENTS"
+                                else -> "CREATED_AT"
+                            }
+                        )
+                        put("direction", direction.uppercase())
+                    }
+                )
+            }
+        )
+        check((response["errors"] as? JsonArray).isNullOrEmpty()) { "GitHub issue discovery could not verify the selected repository or cursor." }
+        val result = requireNotNull((response["data"] as? JsonObject)?.get("repository") as? JsonObject).getValue("issues").jsonObject
+        val info = result.getValue("pageInfo").jsonObject
+        val more = info["hasNextPage"] == JsonPrimitive(true)
+        val end = info.s("endCursor")
+        val nodes = result.getValue("nodes").jsonArray.filterIsInstance<JsonObject>()
+        require(!more || nodes.isNotEmpty() && end.length in 1..512 && end != after) { "GitHub issue discovery did not advance its cursor." }
+        val issues = nodes.map { node ->
+            buildJsonObject {
+                listOf("id", "number", "title").forEach { key -> node[key]?.let { put(key, it) } }
+                put("state", node.s("state").lowercase())
+                put("html_url", node["url"] ?: JsonNull)
+                put("updated_at", node["updatedAt"] ?: JsonNull)
+                put("created_at", node["createdAt"] ?: JsonNull)
+                put("resource_type", "issue")
+            }
+        }
+        return buildJsonObject {
+            put("items", JsonArray(issues))
+            put("upstream_record_ids", JsonArray(nodes.mapNotNull { it["id"] }))
+            put("upstream_returned", issues.size)
+            put("returned", issues.size)
+            put("page", page)
+            put("per_page", perPage)
+            put("resource_type", "issue")
+            put("total_count", result["totalCount"] ?: JsonNull)
+            put("has_more", more)
+            put("traversal_state", if (more) "MORE" else "COMPLETE")
+            put("empty", issues.isEmpty())
+            if (more) {
+                put(
+                    "continuation",
+                    JsonObject(
+                        args + mapOf(
+                            "action" to JsonPrimitive("list_issues"),
+                            "page" to JsonPrimitive(page + 1),
+                            "after" to JsonPrimitive("$scope:${page + 1}:$end"),
+                            "state" to JsonPrimitive(state),
+                            "per_page" to JsonPrimitive(perPage),
+                            "sort" to JsonPrimitive(sort),
+                            "direction" to JsonPrimitive(direction)
+                        )
+                    )
+                )
+            }
         }
     }
 

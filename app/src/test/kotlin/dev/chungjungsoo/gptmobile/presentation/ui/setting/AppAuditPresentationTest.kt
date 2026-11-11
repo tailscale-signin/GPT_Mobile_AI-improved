@@ -94,7 +94,7 @@ class AppAuditPresentationTest {
         )
         assertEquals(100.0, presentation.score.score!!, 0.0)
         assertEquals(55, presentation.summary.passed)
-        assertEquals("Measured checks 26/26 passed · Planned checks verified 26/120 · 1 failed · 5 blocked · 10 unavailable · 49 untested", presentation.coverageSummaryText)
+        assertEquals("26 of 26 measured checks passed · 1 failed · 5 blocked · 10 unavailable · 49 untested", presentation.coverageSummaryText)
     }
 
     @Test fun pendingAndExternalChecksRemainDistinguishableFromFailures() {

@@ -142,6 +142,7 @@ internal object GitHubAuthorizedCatalog {
             put("verified_github_names", JsonArray(verifiedGithubNames.map(::JsonPrimitive)))
             put("contract_scope", "REQUESTED_GITHUB_TOOLS")
             put("receipt_ids", JsonArray(ids))
+            put("retained_page_receipt_ids", JsonArray(pages.mapNotNull { it["receipt_id"] }.takeLast(64)))
             if (contractChanges.isNotEmpty()) {
                 put("contract_change_count", contractChanges.size)
                 put("contract_changes", JsonArray(contractChanges.take(32)))
@@ -178,7 +179,7 @@ internal object GitHubAuthorizedCatalog {
             }
             return null
         }
-        if (state.text("blocker") == "CATALOG_CONTRACT_CHANGED") {
+        if (state.text("blocker") in setOf("CATALOG_CONTRACT_CHANGED", "CATALOG_AUTHORIZATION_CHANGED")) {
             // One read-only refresh per current semantic contract. Existing operation
             // receipts remain independently revalidated against their own arguments.
             val signature = GitHubEvidenceBook.digest(

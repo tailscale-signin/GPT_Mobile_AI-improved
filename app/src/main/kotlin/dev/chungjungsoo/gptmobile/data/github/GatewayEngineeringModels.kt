@@ -157,7 +157,8 @@ data class GatewayEngineeringRequest(
     @SerialName("expected_revision") val expectedRevision: Long? = null,
     @SerialName("source_branch") val sourceBranch: String? = null,
     @SerialName("source_sha") val sourceSha: String? = null,
-    @SerialName("execution_budget") val executionBudget: GatewayEngineeringBudget? = null
+    @SerialName("execution_budget") val executionBudget: GatewayEngineeringBudget? = null,
+    @SerialName("draft_repair") val draftRepair: GitHubDraftRepair? = null
 )
 
 @Serializable

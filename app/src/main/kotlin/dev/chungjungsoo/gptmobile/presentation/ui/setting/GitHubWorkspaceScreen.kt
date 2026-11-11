@@ -72,13 +72,13 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
+import dev.chungjungsoo.gptmobile.data.github.GitHubDraftRepair
 import dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthConfiguration
 import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDialog as Dialog
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDropdownMenu as DropdownMenu
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import dev.chungjungsoo.gptmobile.presentation.common.diagnosticFrameTiming
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.jsonObject
 
@@ -151,32 +151,16 @@ fun GitHubWorkspaceScreen(
     val commitReview: dev.chungjungsoo.gptmobile.presentation.ui.workspace.GitHubReviewViewModel = hiltViewModel()
     val pendingCommit by commitReview.pendingEngineeringTask.collectAsStateWithLifecycle()
     val savedEngineeringTasks by commitReview.engineeringTasks.collectAsStateWithLifecycle()
-    val publishedContinuations by commitReview.publishedContinuations.collectAsStateWithLifecycle()
     val nativeDecisions by commitReview.decisionReceipts.collectAsStateWithLifecycle()
     val pendingEngineeringRun by commitReview.selectedEngineeringRun.collectAsStateWithLifecycle()
     val approvalChatId = visibleProgrammer.chatId
-    val latestApprovalRun = visibleProgrammer.runs.lastOrNull()
     LaunchedEffect(commandContext, approvalChatId) {
         commitReview.restrictTo(commandContext, approvalChatId)
         if (commandContext != null) commitReview.observeWorkspaceApproval(commandContext)
     }
-    LaunchedEffect(commandContext, approvalChatId, pendingCommit, pendingEngineeringRun?.patchDigest, visibleProgrammer.decisionMode, latestApprovalRun?.status, latestApprovalRun?.terminalError) {
-        val task = pendingEngineeringRun?.takeIf { it.taskId == pendingCommit } ?: return@LaunchedEffect
-        if (approvalChatId == null || visibleProgrammer.decisionMode != dev.chungjungsoo.gptmobile.data.github.GitHubDecisionMode.AUTO_APPROVE) return@LaunchedEffect
-        commitReview.busy.first { !it }
-        commitReview.approveAutomatically(task.taskId, task.patchDigest, approvalChatId) { sha ->
-            if (commitReview.review.value?.branch == commandContext?.ref) viewModel.acceptPublishedCommit(sha)
-        }
-    }
-    LaunchedEffect(publishedContinuations, visibleProgrammer.chatId, visibleProgrammer.submitting, visibleProgrammer.error, commandContext) {
-        if (commandContext != null && !visibleProgrammer.submitting && visibleProgrammer.error == null) {
-            publishedContinuations.firstOrNull { it.chatId == visibleProgrammer.chatId }?.let { publication ->
-                if (publication.branch == commandContext.ref) viewModel.acceptPublishedCommit(publication.sha)
-                programmer.continueAfterCommit(publication.sha, publication.branch, publication) {
-                    commitReview.publicationContinuationQueued(publication.taskId, publication.sha)
-                }
-            }
-        }
+    LaunchedEffect(nativeDecisions, approvalChatId, commandContext?.ref) {
+        nativeDecisions.lastOrNull { it.chatId == approvalChatId && it.branch == commandContext?.ref && it.sha != null }
+            ?.sha?.let(viewModel::acceptPublishedCommit)
     }
     val buildsViewModel: GitHubBuildsViewModel = hiltViewModel()
     val buildsState by buildsViewModel.state.collectAsStateWithLifecycle()
@@ -488,7 +472,7 @@ fun GitHubWorkspaceScreen(
                                     }
                                     val statusModel: GitHubLiveStatusViewModel = hiltViewModel()
                                     val queueRepair: ((GitHubDraftRepair) -> Unit)? = if (commandContext != null && !visibleProgrammer.submitting) {
-                                        { repair -> programmer.repairDraft(repair) { tab = 3 } }
+                                        { repair -> programmer.repairDraft(repair, onOpenConversation) }
                                     } else {
                                         null
                                     }

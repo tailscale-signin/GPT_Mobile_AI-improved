@@ -19,7 +19,7 @@ internal data class AppAuditPluginTarget(
     val fingerprint: String,
     val unavailableReason: String = "PLUGIN_NOT_CONFIGURED",
     val liveReadPrecheck: AppAuditObservation? = null,
-    val liveRead: (suspend () -> AppAuditObservation)? = null,
+    val liveRead: (suspend (beforeDispatch: suspend () -> Unit) -> AppAuditObservation)? = null,
     val snapshotCurrent: () -> Boolean = { true },
     val configurationRevision: String? = null
 )
@@ -70,7 +70,7 @@ class AppAuditPluginProbeSource internal constructor(
             sourceId = SOURCE_ID,
             probeId = probe,
             componentId = target.componentId,
-            label = labels.getValue(probe),
+            label = if (probe == GATEWAY_CAPABILITIES && target.componentId == ENGINEERING_GATEWAY_COMPONENT) "Saved jobs Gateway readiness" else labels.getValue(probe),
             targetId = target.key,
             sourceAreaIds = listOf(target.kind.area),
             evidenceKind = when {
@@ -126,26 +126,30 @@ class AppAuditPluginProbeSource internal constructor(
                 metrics = listOf(AppAuditMetric(AppAuditMetricName.TARGET_COUNT, 1.0))
             )
         }
-        if (entry.safetyClass != AppAuditSafetyClass.NETWORK_READ || target.liveRead == null) {
+        val read = target.liveRead
+        if (entry.safetyClass != AppAuditSafetyClass.NETWORK_READ || read == null) {
             return observation(AppAuditOutcome.UNTESTED, "PLUGIN_EXECUTION_NOT_EXERCISED", entry.evidenceKind)
         }
         target.liveReadPrecheck?.let { return it }
-        // The durable marker can suspend. Revalidate the frozen identity again afterwards.
-        context.beforeDispatch()
-        val admitted = currentTarget(entry) ?: return changed(entry)
-        if (!target.snapshotCurrent()) return changed(entry)
-        val read = admitted.liveRead ?: return changed(entry)
-        if (!admitted.configured || !admitted.enabled) return changed(entry)
-        admitted.liveReadPrecheck?.let { return it }
-        val result = read()
+        val result = try {
+            read {
+                // A shared/cache result never invokes this callback. Recheck the frozen
+                // authority on both sides of the suspending durable dispatch marker.
+                if (!target.snapshotCurrent()) throw AppAuditPluginConfigurationChanged()
+                context.beforeDispatch()
+                if (currentTarget(entry)?.let { it.configured && it.enabled } != true) throw AppAuditPluginConfigurationChanged()
+            }
+        } catch (_: AppAuditPluginConfigurationChanged) {
+            return changed(entry)
+        }
         context.ensureActive()
-        if (!admitted.snapshotCurrent() || currentTarget(entry) == null) return result.copy(configChanged = true)
+        if (!target.snapshotCurrent() || currentTarget(entry) == null) return result.copy(configChanged = true)
         return result
     }
 
     private suspend fun currentTarget(entry: AppAuditPlanEntry): AppAuditPluginTarget? {
         val key = entry.targetId ?: return null
-        val profiles = if (key.startsWith(GATEWAY_TARGET_PREFIX)) listOf(key.removePrefix(GATEWAY_TARGET_PREFIX)) else emptyList()
+        val profiles = listOfNotNull(selectedGatewayProfileId(key))
         val current = if (targetLookup != null) targetLookup.invoke(key) else inventory(profiles).singleOrNull { it.key == key }
         return current?.takeIf {
             it.snapshotCurrent() &&
@@ -177,12 +181,19 @@ class AppAuditPluginProbeSource internal constructor(
         const val TOOL_EXECUTION = "plugin_tool_execution"
         const val INVENTORY_LIMIT = "plugin_inventory_limit"
         internal const val GATEWAY_TARGET_PREFIX = "gateway:"
+        internal const val ENGINEERING_GATEWAY_TARGET_PREFIX = "engineering_gateway:"
+        internal const val ENGINEERING_GATEWAY_COMPONENT = "engineering_gateway_connection"
+        internal fun selectedGatewayProfileId(key: String): String? = when {
+            key.startsWith(GATEWAY_TARGET_PREFIX) -> key.removePrefix(GATEWAY_TARGET_PREFIX)
+            key.startsWith(ENGINEERING_GATEWAY_TARGET_PREFIX) -> key.removePrefix(ENGINEERING_GATEWAY_TARGET_PREFIX).substringBefore(':')
+            else -> null
+        }
         internal const val MAX_TARGETS = 512
         internal val LOCAL_FIXTURE_COMPONENTS = setOf("calculator", "current_date")
         val labels = mapOf(
             CONFIGURATION to "Plugin configuration",
             MCP_DISCOVERY to "MCP protocol and tool discovery",
-            GATEWAY_CAPABILITIES to "Selected gateway capability contract",
+            GATEWAY_CAPABILITIES to "Inference Gateway capability contract",
             TOOL_EXECUTION to "Plugin tool execution coverage",
             INVENTORY_LIMIT to "Additional plugin targets"
         )
@@ -192,8 +203,10 @@ class AppAuditPluginProbeSource internal constructor(
             "PLUGIN_CREDENTIAL_IDENTITY_UNAVAILABLE",
             "PLUGIN_EXECUTION_NOT_EXERCISED", "PLUGIN_TARGET_LIMIT", "NETWORK_READS_NOT_SELECTED",
             "PLUGIN_REGISTRY_UNAVAILABLE", "PLUGIN_PACKAGE_NOT_VERIFIED", "GATEWAY_PROFILE_UNSUPPORTED",
-            "GATEWAY_PROFILE_UNAVAILABLE", "MCP_DISCOVERY_VERIFIED", "MCP_EMPTY_CATALOG", "MCP_DISCOVERY_UNAVAILABLE",
+            "GATEWAY_PROFILE_UNAVAILABLE", "MCP_DISCOVERY_VERIFIED", "MCP_EMPTY_CATALOG", "MCP_DISCOVERY_UNAVAILABLE", "MCP_DISCOVERY_SHARED", "MCP_DISCOVERY_CACHED",
             "MCP_RECONNECT_REQUIRED", "MCP_BACKOFF_ACTIVE", "GATEWAY_CAPABILITY_VERIFIED", "GATEWAY_NOT_SUPPORTED",
+            "GATEWAY_ENGINEERING_PROFILE_REQUIRED", "GATEWAY_ENGINEERING_CAPABILITY_VERIFIED", "GATEWAY_ENGINEERING_IDENTITY_CHANGED",
+            "GATEWAY_ENGINEERING_NOT_READY", "GATEWAY_ENGINEERING_GITHUB_REQUIRED", "GATEWAY_SAVED_MODEL_NOT_READY",
             "GATEWAY_CAPABILITY_UNAVAILABLE", "GATEWAY_CAPABILITY_DECODE_REJECTED", "TLS_FAILURE", "DNS_FAILED",
             "DNS_RECOVERY", "ROUTE_UNAVAILABLE", "CONNECTION_REFUSED", "AUTHENTICATION_FAILED", "CONNECT_TIMEOUT",
             "HTTP_ERROR", "MCP_HANDSHAKE_FAILED", "STREAM_INTERRUPTED", "STREAM_IDLE_TIMEOUT", "REQUEST_TIMEOUT",
@@ -205,6 +218,8 @@ class AppAuditPluginProbeSource internal constructor(
         val stages = setOf("plugin_precheck", "plugin_configuration", "mcp_discovery", "gateway_capabilities")
     }
 }
+
+internal class AppAuditPluginConfigurationChanged : IllegalStateException("Plugin audit configuration changed.")
 
 internal fun appAuditTargetDigest(value: String): String = MessageDigest.getInstance("SHA-256")
     .digest(value.toByteArray(Charsets.UTF_8)).take(16).joinToString("") { "%02x".format(it.toInt() and 0xff) }

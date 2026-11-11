@@ -119,7 +119,10 @@ class SettingsTests(unittest.TestCase):
 
             def read_text(path, *args, **kwargs):
                 if path.name == 'response.json':
-                    return next(reads)
+                    value = next(reads)
+                    if isinstance(value, OSError):
+                        raise value
+                    return value
                 return Path.read_text(path, *args, **kwargs)
 
             with patch('desktop.manager.uuid.uuid4', return_value=SimpleNamespace(hex='accepted-id')), \

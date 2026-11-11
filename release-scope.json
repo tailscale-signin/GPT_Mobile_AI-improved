@@ -72,7 +72,8 @@
     "Repair GitHub catalog and approval proof acceptance, bulk receipt restoration, scoped test admission, typed terminal causes, source-bound release attestation receipts and bounded diagnostic collection/storage; preserve Gateway 16 and local voice.",
     "Recover proven-unsent GitHub fixture cleanup and interrupted reads, retain dispatch and export timing evidence, improve MCP protocol and credential handling, and stabilize chat scrolling and GitHub reply delivery.",
     "Add optional offline Kokoro-82M v1.0 INT8 spoken replies, verified model downloads, English text normalization, cancellation and installed Android voice fallback.",
-    "Respect client chat routing and selected-model setup, preserve unsent and exact GitHub recovery evidence, and address bounded synthesis, provider retry and search regressions found in the November 10 audit."
+    "Respect client chat routing and selected-model setup, preserve unsent and exact GitHub recovery evidence, and address bounded synthesis, provider retry and search regressions found in the November 10 audit.",
+    "Reconcile all 110 Unified Reliability v2 acceptance cases against named component fixtures and exact CI evidence without promoting acceptance outcomes; require scoped case receipts and reviewed structured task receipts for PASS and DONE."
   ],
   "limitations": [
     "Android GPU qualification requires compatible-device receipts for actual offload, prefill, decode, repeated requests and cancel/recovery; host tests do not establish those results.",
@@ -1994,6 +1995,15 @@
     "mcp/amazon/bridge.test.mjs",
     "mcp/legacy-discovery.mjs",
     "mcp/research/bridge.mjs",
-    "settings.gradle.kts"
+    "settings.gradle.kts",
+    ".github/workflows/README.md",
+    "docs/implementation/unified-reliability-v2/RECONCILIATION.md",
+    "docs/implementation/unified-reliability-v2/component-fixtures.json",
+    "scripts/check_unified_reliability_pr.py",
+    "scripts/check_unified_reliability_v2.py",
+    "scripts/tests/test_unified_reliability_pr_gate.py",
+    "scripts/tests/test_unified_reliability_v2_evidence.py",
+    "scripts/tests/test_unified_reliability_v2_reconcile.py",
+    "scripts/unified_reliability_v2_reconcile.py"
   ]
 }

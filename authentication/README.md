@@ -146,8 +146,8 @@ looks for the original issue.
 
 Deploy the reporter and its persistent database before shipping builds, then set
 the repository Actions variable `ISSUE_REPORT_ORIGIN` to its public HTTPS origin
-for release workflows. Production release tasks now fail during Gradle
-configuration if the value is missing or is not a fixed HTTPS origin. For local
+for release workflows. Production APK and bundle packaging requires a fixed
+HTTPS origin. Pull request compilation and lint can run before deployment. For local
 release builds, pass `-PISSUE_REPORT_ORIGIN=…` or set the environment variable
 `ISSUE_REPORT_ORIGIN`. Debug builds may omit it; the dialog reports that issue
 submission is unavailable in those builds. Validate the service with

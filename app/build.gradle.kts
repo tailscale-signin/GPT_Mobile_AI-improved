@@ -40,19 +40,25 @@ val issueReportOrigin = providers.gradleProperty("ISSUE_REPORT_ORIGIN")
     .orElse(providers.environmentVariable("ISSUE_REPORT_ORIGIN"))
     .getOrElse("")
     .trimEnd('/')
+val productionReleaseTasks = setOf("assembleRelease", "bundleRelease", "packageRelease", "packageReleaseBundle", "signReleaseBundle")
+val issueReportOriginValid = runCatching { URI(issueReportOrigin) }.getOrNull()?.let { uri ->
+    uri.scheme == "https" &&
+        !uri.host.isNullOrBlank() &&
+        uri.userInfo == null &&
+        uri.port in setOf(-1, 443) &&
+        uri.path.isNullOrEmpty() &&
+        uri.query == null &&
+        uri.fragment == null
+} == true
+val missingProductionOrigin = "Production release builds require ISSUE_REPORT_ORIGIN to be the fixed HTTPS origin of the deployed issue-report service. Set -PISSUE_REPORT_ORIGIN or the ISSUE_REPORT_ORIGIN environment variable."
 
-fun requireProductionIssueReportOrigin() {
-    val uri = issueReportOrigin.takeIf(String::isNotBlank)?.let { runCatching { URI(it) }.getOrNull() }
-    if (uri == null || uri.scheme != "https" || uri.host.isNullOrBlank() || uri.userInfo != null || uri.port !in setOf(-1, 443) || !uri.path.isNullOrEmpty() || uri.query != null || uri.fragment != null) {
-        throw GradleException("Production release builds require ISSUE_REPORT_ORIGIN to be the fixed HTTPS origin of the deployed issue-report service. Set -PISSUE_REPORT_ORIGIN or the ISSUE_REPORT_ORIGIN environment variable.")
-    }
+// Compile and lint checks can validate the release variant before deployment.
+// A direct request to package the app checks its production origin immediately.
+val packagingRequested = gradle.startParameter.taskNames.any { task ->
+    val taskProject = task.substringBeforeLast(':', "").removePrefix(":")
+    task.substringAfterLast(':') in productionReleaseTasks && (taskProject.isEmpty() || taskProject == project.path.removePrefix(":"))
 }
-
-// Fail during configuration as well as task execution so production artifacts
-// cannot be built from an unconfigured report endpoint.
-if (gradle.startParameter.taskNames.any { it.substringAfterLast(':').contains("Release") }) {
-    requireProductionIssueReportOrigin()
-}
+if (packagingRequested && !issueReportOriginValid) throw GradleException(missingProductionOrigin)
 
 // Separate preview APK: the two QAIRT distributions must never be merged with pickFirst.
 val geniexRuntime = providers.gradleProperty("geniexRuntime").orNull == "true"
@@ -204,8 +210,7 @@ extensions.configure<ApplicationExtension> {
         require(githubBrokerUri == null || !githubCallbackHost.endsWith(".invalid")) { "Configure a project-owned verified HTTPS callback host before enabling public sign-in." }
         buildConfigField("String", "GITHUB_AUTH_BROKER_ORIGIN", "\"$githubBroker\"")
         buildConfigField("String", "GITHUB_AUTH_CALLBACK_URI", "\"https://$githubCallbackHost/oauth/github/complete\"")
-        val issueReportUri = issueReportOrigin.takeIf(String::isNotEmpty)?.let(::URI)
-        require(issueReportUri == null || (issueReportUri.scheme == "https" && issueReportUri.host != null && issueReportUri.userInfo == null && issueReportUri.port in setOf(-1, 443) && issueReportUri.path.isNullOrEmpty() && issueReportUri.query == null && issueReportUri.fragment == null)) { "Issue reporting requires a fixed HTTPS origin." }
+        require(issueReportOrigin.isEmpty() || issueReportOriginValid) { "Issue reporting requires a fixed HTTPS origin." }
         buildConfigField("String", "ISSUE_REPORT_ORIGIN", "\"$issueReportOrigin\"")
         manifestPlaceholders["githubAuthCallbackHost"] = githubCallbackHost
         manifestPlaceholders["githubPublicAuthEnabled"] = githubBroker.isNotBlank().toString()
@@ -426,13 +431,15 @@ extensions.configure<ApplicationAndroidComponentsExtension> {
 val verifyReleaseIssueReportOrigin = tasks.register("verifyReleaseIssueReportOrigin") {
     group = "verification"
     description = "Require the hosted issue-report service before building a production release."
+    val validOrigin = issueReportOriginValid
+    val invalidOriginMessage = missingProductionOrigin
     doLast {
-        requireProductionIssueReportOrigin()
+        if (!validOrigin) throw GradleException(invalidOriginMessage)
     }
 }
 
 tasks.configureEach {
-    if (name != "verifyReleaseIssueReportOrigin" && (name == "preReleaseBuild" || name.contains("Release"))) {
+    if (name in productionReleaseTasks) {
         dependsOn(verifyReleaseIssueReportOrigin)
     }
 }

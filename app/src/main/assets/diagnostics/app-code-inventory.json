@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "24bdd7485a4f9c9df36afc7ddd5f0666ec86e73ac4ffd842debc50452d696d80",
+  "source_digest": "26d61536fbdfea20fbd423d25cf173ea5ee14edbc7ef350f650c477189ee2cc2",
   "file_count": 2442,
-  "indexed_line_count": 385572,
+  "indexed_line_count": 385583,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -40,7 +40,7 @@
       "id": "chat_ui",
       "label": "Chat, rendering and interaction",
       "file_count": 517,
-      "indexed_line_count": 91577
+      "indexed_line_count": 91582
     },
     {
       "id": "accessibility_and_localization",
@@ -58,7 +58,7 @@
       "id": "agent_tools",
       "label": "Built-in tool routing and execution",
       "file_count": 99,
-      "indexed_line_count": 21696
+      "indexed_line_count": 21697
     },
     {
       "id": "mcp_plugins",
@@ -106,7 +106,7 @@
       "id": "github",
       "label": "GitHub and engineering workspace",
       "file_count": 203,
-      "indexed_line_count": 32394
+      "indexed_line_count": 32399
     },
     {
       "id": "research",
@@ -2481,8 +2481,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubEngineeringWorkQueue.kt",
       "area_id": "agent_tools",
       "kind": "source",
-      "sha256": "ffe60d930c00dce11b98a1d6456d22f595cc618796aa0d7d1c4ef2cd8e3c812e",
-      "indexed_lines": 12
+      "sha256": "63efb05ceb7228b9f4e4fc060027faf920dfb839283c4fedb6ca35b6a5981146",
+      "indexed_lines": 13
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubGitSaga.kt",
@@ -6604,8 +6604,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubNativeApprovalRecovery.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "5f712a2bf0af7fe6a8e343dfb34655b4dbcc61c53625ddd02390c2de2bfb347c",
-      "indexed_lines": 192
+      "sha256": "c9cb39cf1cde14ba999d1fbbf65576ed7e118aaf7d0867a317902bce4d61669a",
+      "indexed_lines": 195
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubOAuthCredential.kt",
@@ -7080,8 +7080,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSession.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "455284c22232af3a4722c283c1e91a1488177eab6df23486c39cba50ae04ccb4",
-      "indexed_lines": 1119
+      "sha256": "23bf12a816e90b5fb13e723e30b40c4337a604aa4ac6dfbc4edf472c5deba30e",
+      "indexed_lines": 1121
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWatchBackoff.kt",
@@ -12071,8 +12071,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatMarkdown.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "08c307ff6767d8090908997930fa1c0065a61d8e6c620b9f399b3dce145ac35d",
-      "indexed_lines": 1086
+      "sha256": "4310b5a544853069bba7c6b6dc450abd370c5d3c9a25b267716e7b104e26b41b",
+      "indexed_lines": 1091
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatMarkdownParser.kt",

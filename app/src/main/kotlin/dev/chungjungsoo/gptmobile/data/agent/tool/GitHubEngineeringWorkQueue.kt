@@ -8,5 +8,6 @@ import javax.inject.Inject
 open class GitHubEngineeringWorkQueue @Inject constructor(@ApplicationContext private val context: Context) {
     internal open fun enqueue(taskId: String) = GitHubEngineeringCiScheduler.enqueue(context, taskId)
     internal open fun enqueueApproval(taskId: String) = GitHubEngineeringCiScheduler.enqueueApproval(context, taskId)
+    internal open fun enqueueApprovalResolution(taskId: String) = GitHubEngineeringCiScheduler.enqueueApprovalResolution(context, taskId)
     internal open fun cancel(taskId: String) = GitHubEngineeringCiScheduler.cancel(context, taskId)
 }

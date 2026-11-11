@@ -125,11 +125,7 @@ jobs:
         run: python3 scripts/provision_memory_model.py
       - name: Install Vulkan shader headers for Android GGUF backend
         timeout-minutes: 8
-        run: |
-          trap 'echo "::error::Android native dependency installation failed or timed out. Retry after checking the Ubuntu package mirror and dpkg lock."' ERR
-          apt_options=(-o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o DPkg::Lock::Timeout=60)
-          sudo timeout --kill-after=15s 180s apt-get "${apt_options[@]}" update
-          sudo env DEBIAN_FRONTEND=noninteractive timeout --kill-after=15s 180s apt-get "${apt_options[@]}" install --no-install-recommends -y glslc libvulkan-dev spirv-headers
+        run: bash scripts/install_android_native_dependencies.sh
       - name: Validate Android resources
         run: python3 scripts/check_android_resources.py
       # Release KSP/KAPT and compiler state between phases. Run 42164047485
@@ -187,11 +183,13 @@ jobs:
             app/build/reports/tests/
             app/build/reports/lint-results-*
   build:
-    needs: validate
-    if: github.event_name != 'pull_request'
+    needs: [release_intent, validate]
+    if: github.event_name != 'pull_request' && needs.release_intent.outputs.publish == 'true'
     name: Build, verify and publish
     runs-on: ubuntu-latest
     timeout-minutes: 180
+    env:
+      ISSUE_REPORT_ORIGIN: ${{ vars.ISSUE_REPORT_ORIGIN }}
     permissions:
       contents: write
       id-token: write
@@ -217,11 +215,7 @@ jobs:
         run: python3 scripts/provision_memory_model.py
       - name: Install Vulkan shader headers for Android GGUF backend
         timeout-minutes: 8
-        run: |
-          trap 'echo "::error::Android native dependency installation failed or timed out. Retry after checking the Ubuntu package mirror and dpkg lock."' ERR
-          apt_options=(-o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o DPkg::Lock::Timeout=60)
-          sudo timeout --kill-after=15s 180s apt-get "${apt_options[@]}" update
-          sudo env DEBIAN_FRONTEND=noninteractive timeout --kill-after=15s 180s apt-get "${apt_options[@]}" install --no-install-recommends -y glslc libvulkan-dev spirv-headers
+        run: bash scripts/install_android_native_dependencies.sh
       - name: Require green main checks on this exact candidate
         if: github.ref_name == 'main'
         env:

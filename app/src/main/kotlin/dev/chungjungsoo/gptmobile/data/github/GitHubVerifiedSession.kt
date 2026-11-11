@@ -24,6 +24,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
 
 /** All providers keep drafts private. Only code-rendered receipt facts and labeled interpretations are published. */
@@ -152,11 +153,12 @@ internal class GitHubVerifiedSession(
             if (saved != null && GitHubTaskContinuity.control(currentRequest)) {
                 validatePublication()
                 val (body, verdict) = saved
-                val approval = pendingApprovals.first()
-                val taskId = approval.text("engineering_task_id")
-                val cardId = approval.text("card_id")
-                val branch = approval.text("branch")
-                val patch = approval.text("patch_digest").take(12)
+                val approval = pendingApprovals.first() as JsonObject
+                fun approvalText(key: String) = (approval[key] as? JsonPrimitive)?.contentOrNull.orEmpty()
+                val taskId = approvalText("engineering_task_id")
+                val cardId = approvalText("card_id")
+                val branch = approvalText("branch")
+                val patch = approvalText("patch_digest").take(12)
                 val text = buildString {
                     append("## Waiting for approval\n\n")
                     append("Resolve the existing approval card")

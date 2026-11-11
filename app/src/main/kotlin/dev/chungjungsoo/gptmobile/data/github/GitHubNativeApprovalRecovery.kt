@@ -14,8 +14,11 @@ import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.put
 
 /** WorkManager owns recovery. Durable task and conversation receipts supply all authority. */
 @Singleton
@@ -59,7 +62,7 @@ class GitHubNativeApprovalRecovery @Inject constructor(
                 store,
                 taskId,
                 "approval_card_expired",
-                kotlinx.serialization.json.buildJsonObject {
+                buildJsonObject {
                     put("branch", task.workingBranch)
                     put("approval_expires_at_epoch_ms", expiresAt)
                 }

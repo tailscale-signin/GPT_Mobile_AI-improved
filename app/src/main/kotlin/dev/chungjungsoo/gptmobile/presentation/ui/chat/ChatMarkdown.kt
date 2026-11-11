@@ -54,8 +54,10 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.Placeholder
 import androidx.compose.ui.text.PlaceholderVerticalAlign
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
@@ -677,12 +679,8 @@ private fun ChatMarkdownContent(
             }
             val parserFailed = renderedDigest != null && parserState !is MarkdownParseState.Loading && parserState !is MarkdownParseState.Success
             val animations = markdownAnimations(animateTextSize = { this })
-            val baseTypography = chatMarkdownTypography(answerForeground)
-            val markdownTextStyle = if (LocalGitHubAssistantReferences.current != null) {
-                baseTypography.copy(textLink = baseTypography.textLink.copy(color = MaterialTheme.colorScheme.primary))
-            } else {
-                baseTypography
-            }
+            val referenceColor = if (LocalGitHubAssistantReferences.current != null) MaterialTheme.colorScheme.primary else null
+            val markdownTextStyle = chatMarkdownTypography(answerForeground, referenceColor)
             val layoutOwner = remember(outputTrace, rendered.contentDigest) { CombinedOperationOwner(runId = outputTrace?.runId, revisionId = rendered.contentDigest, blockId = outputTrace?.partId, digest = rendered.contentDigest, messageId = outputTrace?.messageId, profileUid = outputTrace?.profileUid) }
             // Replacing a layout lambda invalidates measurement even when its content
             // and constraints are unchanged. Retain it across unrelated chat updates;
@@ -1035,7 +1033,7 @@ private fun answerBodyStyle(): TextStyle {
 }
 
 @Composable
-private fun chatMarkdownTypography(proseColor: Color? = null) = run {
+private fun chatMarkdownTypography(proseColor: Color? = null, linkColor: Color? = null) = run {
     val typography = MaterialTheme.typography
     val body = answerBodyStyle().let { if (proseColor != null) it.copy(color = proseColor) else it }
     val colors = MaterialTheme.colorScheme
@@ -1052,9 +1050,16 @@ private fun chatMarkdownTypography(proseColor: Color? = null) = run {
         paragraph = body,
         ordered = body,
         bullet = body,
-        list = body
+        list = body,
+        textLink = TextLinkStyles(
+            style = typography.bodyLarge.copy(
+                color = linkColor ?: typography.bodyLarge.color,
+                fontWeight = FontWeight.Bold,
+                textDecoration = TextDecoration.Underline
+            ).toSpanStyle()
+        )
     )
-    remember(typography, body, colors, localStyle, proseColor) { resolved }
+    remember(typography, body, colors, localStyle, proseColor, linkColor) { resolved }
 }
 
 @Composable

@@ -1,8 +1,8 @@
 # Branch feature review — November 11, 2026
 
-Repository: `tailscale-signin/GPT_Mobile_AI-improved`  
-Branch: `fix/voice-chat-crash-and-diagnostics-2026-11-11` · PR #819  
-Reviewed starting head: `160e0e8d222eb48e01a83454d7c070908f15dd14`  
+Repository: `tailscale-signin/GPT_Mobile_AI-improved`
+Branch: `fix/voice-chat-crash-and-diagnostics-2026-11-11` · PR #819
+Reviewed starting head: `160e0e8d222eb48e01a83454d7c070908f15dd14`
 Base: `main` at `e62bded83b3861816c2c6e97116b30c9eb0920f1`
 
 ## Reproduced defects and repairs

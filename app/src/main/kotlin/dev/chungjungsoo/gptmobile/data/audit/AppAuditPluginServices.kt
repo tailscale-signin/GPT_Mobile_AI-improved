@@ -217,7 +217,10 @@ internal class AppAuditPluginServices @Inject constructor(
         val profile = engineeringGatewayProfile(profiles, gatewayUid)?.takeIf { binding == null || it.apiUrl.trimEnd('/') == binding.endpoint }
         val credential = profile?.let { gatewayCredentialIdentity(it) }
         val fingerprint = appAuditTargetDigest("${profile?.copy(token = null)}:$gatewayUid:$credential:${binding?.endpoint}:${binding?.gatewayId}:${binding?.principalId}:${binding?.request?.executionBindingId}:${binding?.executionSelection?.profileRevision}")
-        val revision = appAuditConfigurationRevision(fingerprint)
+        // This target always has a concrete digest. Keep the audit metadata API
+        // nullable for genuinely unconfigured targets, but do not pass a nullable
+        // revision into a live engineering probe.
+        val revision = appAuditConfigurationRevision(fingerprint) ?: fingerprint
         return AppAuditPluginTarget(
             key, AppAuditPluginKind.GATEWAY, AppAuditPluginProbeSource.ENGINEERING_GATEWAY_COMPONENT,
             configured = profile != null && credential != null,

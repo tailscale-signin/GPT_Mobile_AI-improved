@@ -70,8 +70,9 @@ internal object GitHubRequestCompletion {
 
     private data class Assessment(val state: GitHubAcceptanceLedger.State, val reason: String)
 
+    private fun JsonObject.text(key: String) = (get(key) as? JsonPrimitive)?.contentOrNull.orEmpty()
+
     private fun engineeringAcceptance(acceptance: JsonObject, receipts: Map<String, JsonObject>, expectedRepository: String? = null): Assessment {
-        fun JsonObject.text(key: String) = (get(key) as? JsonPrimitive)?.contentOrNull.orEmpty()
         fun selected(key: String) = (acceptance[key] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.contentOrNull?.let(receipts::get) }
         fun root(receipt: JsonObject): JsonObject? = (receipt["result"] as? JsonObject)?.let { (it["data"] as? JsonObject) ?: it }
         fun eligible(receipt: JsonObject) = receipt["trusted"] == JsonPrimitive(true) &&

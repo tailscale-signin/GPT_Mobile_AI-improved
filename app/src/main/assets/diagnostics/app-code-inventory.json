@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "6005484c7a05717ce6b9b8729ca7155dc226cefb8178fd95fcf9ff670f2121e9",
+  "source_digest": "0edec7891c12d77cd627ff537c8cb984d6da46a9106c37637f75901790b31a0f",
   "file_count": 2420,
-  "indexed_line_count": 378373,
+  "indexed_line_count": 378377,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -106,7 +106,7 @@
       "id": "github",
       "label": "GitHub and engineering workspace",
       "file_count": 200,
-      "indexed_line_count": 30990
+      "indexed_line_count": 30991
     },
     {
       "id": "research",
@@ -136,7 +136,7 @@
       "id": "benchmark",
       "label": "Benchmarks and app audit",
       "file_count": 109,
-      "indexed_line_count": 16047
+      "indexed_line_count": 16050
     },
     {
       "id": "auth_and_security",
@@ -3398,8 +3398,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditPluginServices.kt",
       "area_id": "benchmark",
       "kind": "source",
-      "sha256": "a362726faa3ad9042db230efb98a5f67f1f6163d0257b1e247255a3821daf724",
-      "indexed_lines": 497
+      "sha256": "04a482643fb6bbbeb19ead2fb4a11412124bf184a540937d227338b16d5692bc",
+      "indexed_lines": 500
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditQualification.kt",
@@ -6800,8 +6800,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRequestCompletion.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "6b9952c3223972cd5ea9271fc99e3030e92a221f8cf83c21af686892dd3a4147",
-      "indexed_lines": 211
+      "sha256": "b7477a78cc5dc907d28fcbce91a192c9d6db362c38341a67d9b0543f7d8f9509",
+      "indexed_lines": 212
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRequestScheduler.kt",

@@ -201,6 +201,13 @@ class Dashboard:
             content = f'Observed address: {item.get("address")}  ·  Requests this session: {item.get("requests", 0)}\nKey-free connections are grouped by socket address; this is not a verified device identity.'
         else:
             content = '  ·  '.join(str(item[key]) for key in ('id', 'detail', 'branch', 'peer') if item.get(key))
+            progress = item.get('batch_progress')
+            if isinstance(progress, dict):
+                current = progress.get('current_phase') or 'planning'
+                state = progress.get('current_state') or 'queued'
+                content += (f'  ·  Full Batch: {current} / {state} · '
+                            f"{progress.get('completed', 0)} of {progress.get('total', 0)} stages · "
+                            f"{progress.get('local_validation_workers', 1)} local validation workers")
             duration = item.get('duration')
             if isinstance(duration, (int, float)):
                 content += f'  ·  {duration:.1f}s'

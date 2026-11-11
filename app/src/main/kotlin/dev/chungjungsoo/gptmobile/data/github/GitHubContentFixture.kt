@@ -215,7 +215,10 @@ internal object GitHubContentFixture {
             .filter { eligible(it) && it["binding"] == source["binding"] && it["repository"] == source["repository"] }
         if (creationReceipt == null) return if (allowCreate && !cleanupOnly && available(tools, branch, sourceBranch, origin)) call(creation(branch, sourceBranch, origin), tools, observations) else null
         if (!owned(source, creationReceipt)) return null
-        if (checkpoint(creationReceipt, receipts)["final_state_verified"] == JsonPrimitive(true)) return null
+        val savedCheckpoint = checkpoint(creationReceipt, receipts)
+        if (savedCheckpoint["final_state_verified"] == JsonPrimitive(true) ||
+            savedCheckpoint["lifecycle_state"] == JsonPrimitive("DELIBERATELY_RETAINED") && savedCheckpoint["lifecycle_reason"] == JsonPrimitive("FIXTURE_INTENTIONALLY_RETAINED_BY_USER")
+        ) return null
         val deletions = observations.filter {
             it.text("tool").substringBefore("__") == "github_commit" &&
                 arguments(it)?.text("action") == "delete_fixture_branch" &&
@@ -256,7 +259,10 @@ internal object GitHubContentFixture {
         val written = resolvedApproval(prior(write, observations), observations)
         val firstHead = contentReceipt(written, branch, origin, false)
         if (written != null && firstHead == null) {
-            if (root(written)?.text("approval_state") == "CANCELLED_BEFORE_PUBLICATION") return call(cleanup(branch, origin, head), tools, observations)
+            if (root(written)?.text("approval_state") == "CANCELLED_BEFORE_PUBLICATION") {
+                if (root(written)?.get("keep_fixture") == JsonPrimitive(true)) return null
+                return call(cleanup(branch, origin, head), tools, observations)
+            }
             // A queued exact review may still publish later. It cannot be turned
             // into permission to remove its destination or to repeat the write.
             if (successful(written)) return null
@@ -286,7 +292,10 @@ internal object GitHubContentFixture {
         val committed = resolvedApproval(prior(commit, observations), observations)
         val finalHead = contentReceipt(committed, branch, head, true)
         if (committed != null && finalHead == null) {
-            if (root(committed)?.text("approval_state") == "CANCELLED_BEFORE_PUBLICATION") return call(cleanup(branch, origin, head), tools, observations)
+            if (root(committed)?.text("approval_state") == "CANCELLED_BEFORE_PUBLICATION") {
+                if (root(committed)?.get("keep_fixture") == JsonPrimitive(true)) return null
+                return call(cleanup(branch, origin, head), tools, observations)
+            }
             if (successful(committed)) return null
             return recoveryCleanup(branch, origin, head, tools, observations)
         }
@@ -413,6 +422,15 @@ internal object GitHubContentFixture {
                 arguments(it)?.text("action") == "delete_fixture_branch"
             }?.let(GitHubTransportRecovery::provenNoMutation) == true
         val approvals = GitHubPendingApproval.snapshot(observations.mapIndexed { index, receipt -> index.toString() to receipt }.toMap())
+        val fixtureKept = observations.any { receipt ->
+            val resolution = root(receipt)
+            receipt["evidence_origin"] == JsonPrimitive("LOCAL_DURABLE_APPROVAL_EVENT") &&
+                receipt["local_resolution_event"] in setOf(JsonPrimitive("approval_card_rejected"), JsonPrimitive("approval_card_keep_fixture")) &&
+                receipt["binding"] == creation["binding"] &&
+                receipt["repository"] == creation["repository"] &&
+                resolution?.text("branch") == branch &&
+                resolution?.get("keep_fixture") == JsonPrimitive(true)
+        }
         return buildJsonObject {
             put("branch", branch)
             put("fixture_plan", GitHubOwnedFixtures.PLAN)
@@ -425,6 +443,8 @@ internal object GitHubContentFixture {
                 "lifecycle_state",
                 if (cleaned) {
                     "REMOVED_VERIFIED"
+                } else if (fixtureKept) {
+                    "DELIBERATELY_RETAINED"
                 } else if (ownership && approvals.isNotEmpty()) {
                     "DELIBERATELY_RETAINED"
                 } else {
@@ -435,6 +455,7 @@ internal object GitHubContentFixture {
                 "lifecycle_reason",
                 when {
                     cleaned -> "REMOTE_REF_ABSENCE_VERIFIED"
+                    fixtureKept -> "FIXTURE_INTENTIONALLY_RETAINED_BY_USER"
                     !ownership -> "OWNERSHIP_NOT_ESTABLISHED"
                     approvals.isNotEmpty() -> "EXACT_PATCH_APPROVAL_PENDING"
                     deletionWasUnsent -> "CLEANUP_PREFLIGHT_REJECTED"
@@ -446,6 +467,8 @@ internal object GitHubContentFixture {
             put(
                 "next_action",
                 if (cleaned) {
+                    "NONE"
+                } else if (fixtureKept) {
                     "NONE"
                 } else if (approvals.isNotEmpty()) {
                     "APPROVE_OR_CANCEL_EXISTING_PATCH"
@@ -459,6 +482,8 @@ internal object GitHubContentFixture {
                     "OWNERSHIP_NOT_ESTABLISHED"
                 } else if (cleaned) {
                     "CLEANED"
+                } else if (fixtureKept) {
+                    "KEPT_BY_USER"
                 } else if (approvals.isNotEmpty()) {
                     "WAITING_FOR_APPROVAL"
                 } else {
@@ -472,8 +497,19 @@ internal object GitHubContentFixture {
             put("mutation_receipts", JsonArray(proved))
             put("approval_resolutions", JsonArray(approvalProofs))
             put("pending_approvals", approvals)
-            put("cleanup_obligation", if (cleaned) "VERIFIED_ABSENT" else "DURABLE_UNTIL_VERIFIED_ABSENT")
-            put("cleanup_after_cancellation", "Reconcile the exact native approval and current owned head; cancellation cannot erase this obligation or authorize replay.")
+            put("cleanup_obligation", when {
+                cleaned -> "VERIFIED_ABSENT"
+                fixtureKept -> "USER_REQUESTED_RETENTION"
+                else -> "DURABLE_UNTIL_VERIFIED_ABSENT"
+            })
+            put("fixture_retention_statement", when {
+                fixtureKept && approvals.isNotEmpty() -> "Fixture intentionally retained pending approval at the user's request."
+                fixtureKept -> "Fixture intentionally retained at the user's request after approval resolution."
+                approvals.isNotEmpty() -> "Fixture intentionally retained pending approval."
+                else -> "Fixture cleanup remains required until remote branch absence is verified."
+            })
+            if (fixtureKept) put("fixture_retention_decision", "USER_REQUESTED")
+            put("cleanup_after_cancellation", if (fixtureKept) "The user chose to retain this fixture; report its current verified state without deleting or recreating it." else "Reconcile the exact native approval and current owned head; cancellation cannot erase this obligation or authorize replay.")
             put("mutation_scope", "Owned branch, exact nonempty synthetic content, staged revision, pinned content reads/searches and nonempty diff; absence verified after cleanup.")
         }
     }

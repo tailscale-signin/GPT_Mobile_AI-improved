@@ -1,7 +1,7 @@
 # Gateway 16 — Full Integration Batch Mode
 
 **Target:** `fix/voice-chat-crash-and-diagnostics-2026-11-11` · PR #819
-**Status:** Core opt-in scheduling contracts and durable stage projection implemented; deeper workflow and device qualification remain.
+**Status:** Opt-in contracts, durable stage projection, bounded local validation parallelism and Windows controls implemented. Device and mixed-workload qualification remain.
 
 ## Decision and ownership
 
@@ -24,10 +24,21 @@ Execution. Existing `settings.json` remains schema 1; host policy lives in
 `data/execution-policy.json`. It does not grant per-device identity on a
 shared-key-free LAN. Existing job identity/model/repo/branch/budgets remain frozen.
 
+The Windows Advanced settings expose a local validation worker cap (1–4, default 1).
+The cap is copied into each newly admitted Full job. Parallel execution also requires
+adjacent command indexes to be explicitly grouped by the repository's host-approved
+validation policy. Every grouped check runs in its own network-disabled container and
+copy of the same pinned, patched checkout. Ungrouped checks remain sequential; failure
+in a group retains every sibling receipt and prevents later groups from starting.
+The Windows GitHub Jobs dashboard shows the saved phase, state and stage count.
+
 Full requests carry `execution_mode: "full"` and
 `batch_policy_version: 1`. The host rejects unknown modes/versions and
-unapproved limits. No native remote-provider batching or automatic model
-fallback is enabled.
+unapproved limits. `resume_after_transient_limits` defaults on for Full jobs and
+can be explicitly disabled per job; confirmed work is retained either way. No
+native remote-provider batching or automatic model fallback is enabled. Saved
+engineering jobs currently accept local Llama/Ollama profiles only, so provider
+batch endpoints would not serve this execution path and remain unavailable.
 
 ## Workflow
 
@@ -73,12 +84,16 @@ complete or a cached snapshot as live.
 - [x] Durable stage projection and principal-scoped inspection.
 - [x] Typed batched read cooldowns with sibling receipt preservation.
 - [x] Per-credential GitHub API singleflight pacing.
-- [ ] Complete stage-level persistence across all independent orchestration
-      activities and separate test-suite sharding.
+- [x] Host-approved parallel validation groups with isolated sandboxes,
+      persistent per-command receipts and a configurable 1–4 worker ceiling.
+- [x] Windows execution controls and durable batch progress in the Jobs dashboard.
 - [ ] Verify mixed GitHub/llama workload fairness and physical device UX.
 - [ ] Qualify Windows installer / Gateway deployment / Android acceptance CI.
 - [ ] Benchmark local continuous inference slots vs existing GPU settings.
-- [ ] Optional native cloud batch adapter with data-retention consent.
+- [ ] Physical Android 16 performance and Voice Chat qualification requires a
+      connected target device; no real-device benchmark is claimed here.
+- [ ] Native provider batching is unavailable until remote engineering profiles
+      and provider retention/consent contracts are supported.
 
 No claim of complete production performance, device reliability or cloud
 cost reduction is made until measured qualification is recorded.

@@ -182,6 +182,41 @@ class GitHubLiveProgressTest {
         compose.onAllNodesWithTag("github_preview_row").assertCountEquals(2)
     }
 
+    @Test fun activePreviewFadesInForOneSecondAndRefreshesInHalfASecond() {
+        compose.mainClock.autoAdvance = false
+        var text by mutableStateOf("Reading the first file")
+        var active by mutableStateOf(true)
+        lateinit var transition: GitHubActivePreviewTransition
+        compose.setContent {
+            MaterialTheme {
+                transition = rememberGitHubActivePreviewTransition(text, active)
+                Text(transition.text.value, Modifier.testTag("active_preview_transition"))
+            }
+        }
+
+        compose.mainClock.advanceTimeBy(1, ignoreFrameDuration = true)
+        assertEquals("Reading the first file", transition.text.value)
+        assertEquals(0f, transition.opacity.value, 0.01f)
+        compose.mainClock.advanceTimeBy(500, ignoreFrameDuration = true)
+        assertTrue(transition.opacity.value in 0.45f..0.55f)
+        compose.mainClock.advanceTimeBy(500, ignoreFrameDuration = true)
+        assertEquals(1f, transition.opacity.value, 0.01f)
+
+        compose.runOnIdle { text = "Reading the updated file" }
+        compose.mainClock.advanceTimeBy(249, ignoreFrameDuration = true)
+        assertEquals("Reading the first file", transition.text.value)
+        assertEquals(0f, transition.opacity.value, 0.01f)
+        compose.mainClock.advanceTimeBy(1, ignoreFrameDuration = true)
+        assertEquals("Reading the updated file", transition.text.value)
+        assertEquals(0f, transition.opacity.value, 0.01f)
+        compose.mainClock.advanceTimeBy(250, ignoreFrameDuration = true)
+        assertEquals(1f, transition.opacity.value, 0.01f)
+
+        compose.runOnIdle { active = false }
+        compose.mainClock.advanceTimeBy(1, ignoreFrameDuration = true)
+        assertEquals(1f, transition.opacity.value, 0.01f)
+    }
+
     @Test fun detailedSummariesRemainCompleteInCompactActivity() {
         val summary = "I verified the files changed by this request.\n".repeat(8) + "The remaining check is still running."
         compose.setContent { MaterialTheme { GitHubLiveProgressCard(listOf(line(summary, true).copy(modelAuthored = true)), expanded = false) } }

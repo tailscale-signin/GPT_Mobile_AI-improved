@@ -68,6 +68,13 @@ class GitHubEngineeringController @Inject constructor(
             dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("GitHub", "NATIVE_APPROVAL_RECOVERY_SCHEDULING_DEFERRED", "W")
         }
     }
+    internal fun scheduleApprovalResolution(taskId: String) {
+        try {
+            workQueue.enqueueApprovalResolution(taskId)
+        } catch (_: RuntimeException) {
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("GitHub", "APPROVAL_RESOLUTION_SCHEDULING_DEFERRED", "W")
+        }
+    }
     internal fun observeChanges() = database.invalidationTracker.createFlow("engineering_tasks", "engineering_runs", emitInitialState = true)
     internal suspend fun events(taskId: String): List<EngineeringEventRow> = dao.events(taskId)
     internal suspend fun run(taskId: String): EngineeringRunRow? = dao.run(taskId)

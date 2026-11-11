@@ -33,7 +33,9 @@ internal class GitHubEvidenceBook(
     private val retentionLimitBytes: Int = 16 * 1024 * 1024,
     private val runtimeIdentity: () -> JsonObject = GitHubRuntimeIdentity::current,
     private val readSources: Set<String> = emptySet(),
-    authorizationRevision: String? = null
+    authorizationRevision: String? = null,
+    internal val fixtureDecisionMode: GitHubDecisionMode? = null,
+    private val approvalResolution: suspend (JsonObject) -> List<JsonObject> = { emptyList() }
 ) {
     init {
         require(retentionLimitRecords in 1..4096)
@@ -49,6 +51,16 @@ internal class GitHubEvidenceBook(
     private var observedHead: String? = null
     private var overflow = false
     private val authorizationDigest = authorizationRevision?.takeIf(String::isNotBlank)?.let(::digest)
+    private val fixturePreflightId = "fixture_preflight_" + digest(binding).take(24)
+
+    /** Freeze the effective approval mode before an integration recipe may create a fixture. */
+    suspend fun fixtureApprovalPreflight(): JsonObject = mutex.withLock {
+        val saved = load(fixturePreflightId)
+        if (saved?.get("binding") == JsonPrimitive(binding)) return@withLock saved
+        val preflight = GitHubTestChecklist.fixtureApprovalPreflight(fixtureDecisionMode, binding, repository, branch, runtimeIdentity())
+        save(fixturePreflightId, preflight)
+        preflight
+    }
 
     private fun attemptKey(tool: String, arguments: JsonObject): AttemptKey =
         GitHubActionIdentity.digest(binding, repository, tool, arguments)?.let { AttemptKey(tool, JsonObject(emptyMap()), it) }
@@ -407,8 +419,18 @@ internal class GitHubEvidenceBook(
         return characters == expectedCharacters && hasher.digest().joinToString("") { "%02x".format(it) } == expectedHash
     }
 
-    suspend fun snapshot(): Pair<Map<String, JsonObject>, Long> = mutex.withLock {
-        records.toMap() to epoch
+    suspend fun snapshot(): Pair<Map<String, JsonObject>, Long> {
+        val (saved, currentEpoch) = mutex.withLock { records.toMap() to epoch }
+        val resolutions = saved.values.flatMap { receipt ->
+            if (GitHubPendingApproval.taskId(receipt) == null) emptyList() else approvalResolution(receipt)
+        }
+        if (resolutions.isEmpty()) return saved to currentEpoch
+        val augmented = LinkedHashMap(saved)
+        resolutions.forEach { resolution ->
+            val id = (resolution["receipt_id"] as? JsonPrimitive)?.contentOrNull ?: return@forEach
+            augmented.putIfAbsent(id, resolution)
+        }
+        return augmented to currentEpoch
     }
 
     suspend fun complete(): Boolean = mutex.withLock { !overflow }
@@ -604,7 +626,8 @@ internal class GitHubEvidenceBook(
 
     suspend fun retainProgress(task: String, tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition>, failureCode: String? = null, failure: ProviderEvent.Failed? = null, remainingToolCalls: Int? = null) {
         val (receipts, _) = snapshot()
-        val checkpoint = GitHubTestChecklist.checkpoint(task, receipts, tools, remainingToolCalls)
+        val fixturePreflight = if (GitHubTestChecklist.integration(task)) fixtureApprovalPreflight() else null
+        val checkpoint = GitHubTestChecklist.checkpoint(task, receipts, tools, remainingToolCalls, fixturePreflight)
         val retention = retentionStatus()
         val previous = diagnostic() ?: load("verification_current_" + digest(binding).take(24))
         if (previous == null) {
@@ -623,7 +646,7 @@ internal class GitHubEvidenceBook(
         }
         val publishedProgressDigest = publishedChecklistDigest(previous)
         val requirements = if (GitHubTestChecklist.integration(task)) {
-            GitHubIntegrationAcceptance.requirements(task, receipts, tools)
+            GitHubIntegrationAcceptance.requirements(task, receipts, tools, fixturePreflight = fixturePreflight)
         } else {
             JsonArray(
                 GitHubRequestCompletion.requirements(task).map { requirement ->

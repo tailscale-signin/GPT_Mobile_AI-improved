@@ -71,6 +71,16 @@ class AgentRunCoordinatorTest {
         assertEquals("Still pending", result.error)
     }
 
+    @Test fun nativeGitHubApprovalUsesItsOwnPausedTerminalState() {
+        val result = dev.chungjungsoo.gptmobile.util.ApiStateFlowOutcome.Failed(
+            "Approval card is waiting",
+            errorCode = "WAITING_FOR_APPROVAL",
+            taskOutcome = "WAITING_FOR_APPROVAL"
+        ).toTerminalUpdate()
+        assertEquals(AgentRunStatus.WAITING_FOR_APPROVAL, result.status)
+        assertTrue(AgentRunStatus.terminal.contains(result.status))
+    }
+
     @Test fun combinedTerminalErrorIsMetadataAndNeverEntersTheCommittedAnswer() {
         val partial = MessageV2(content = "Saved chapter", platformType = "primary", currentRunId = "combined-synthesis:run")
         val terminal = terminalAgentMessage(partial, "Provider disconnected", 42)

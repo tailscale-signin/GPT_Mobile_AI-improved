@@ -23,6 +23,9 @@ class GitHubEngineeringCiWorker @AssistedInject constructor(
             return Result.success()
         }
         val taskId = inputData.getString(KEY_TASK_ID) ?: return Result.failure()
+        if (inputData.getBoolean(KEY_APPROVAL_RESOLUTION, false)) {
+            return if (approvalRecovery.resume(taskId, allowApproval = false) || runAttemptCount >= 8) Result.success() else Result.retry()
+        }
         if (inputData.getBoolean(KEY_APPROVAL, false)) {
             return if (approvalRecovery.resume(taskId) || runAttemptCount >= 8) Result.success() else Result.retry()
         }
@@ -38,5 +41,6 @@ class GitHubEngineeringCiWorker @AssistedInject constructor(
         const val KEY_TASK_ID = "engineering_task_id"
         const val KEY_RECOVER = "engineering_recover"
         const val KEY_APPROVAL = "engineering_approval"
+        const val KEY_APPROVAL_RESOLUTION = "engineering_approval_resolution"
     }
 }

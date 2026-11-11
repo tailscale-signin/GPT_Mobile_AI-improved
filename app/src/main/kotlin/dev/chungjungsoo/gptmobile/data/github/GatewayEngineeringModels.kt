@@ -81,7 +81,8 @@ data class GatewayIntegrationBatchCapability(
     val modes: List<String> = emptyList(),
     @SerialName("default_mode") val defaultMode: String = "standard",
     @SerialName("full_enabled") val fullEnabled: Boolean = false,
-    @SerialName("github_api_max_inflight") val githubApiMaxInflight: Int = 1
+    @SerialName("github_api_max_inflight") val githubApiMaxInflight: Int = 1,
+    @SerialName("local_validation_workers") val localValidationWorkers: Int = 1
 )
 
 @Serializable
@@ -93,9 +94,10 @@ data class GatewayIntegrationBatchProgress(
     val total: Int = 0,
     @SerialName("current_phase") val currentPhase: String? = null,
     @SerialName("current_state") val currentState: String? = null,
+    @SerialName("local_validation_workers") val localValidationWorkers: Int = 1,
     val status: String? = null
 ) {
-    val readableLabel: String get() = "Full Batch · $completed of $total stages complete · ${currentPhase ?: "planning"}"
+    val readableLabel: String get() = "Full Batch · $completed of $total stages complete · ${currentPhase ?: "planning"} · $localValidationWorkers local validation workers"
 }
 
 @Serializable

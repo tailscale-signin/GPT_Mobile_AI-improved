@@ -36,6 +36,24 @@ plugins {
     alias(libs.plugins.objectbox)
 }
 
+val issueReportOrigin = providers.gradleProperty("ISSUE_REPORT_ORIGIN")
+    .orElse(providers.environmentVariable("ISSUE_REPORT_ORIGIN"))
+    .getOrElse("")
+    .trimEnd('/')
+
+fun requireProductionIssueReportOrigin() {
+    val uri = issueReportOrigin.takeIf(String::isNotBlank)?.let { runCatching { URI(it) }.getOrNull() }
+    if (uri == null || uri.scheme != "https" || uri.host.isNullOrBlank() || uri.userInfo != null || uri.port !in setOf(-1, 443) || !uri.path.isNullOrEmpty() || uri.query != null || uri.fragment != null) {
+        throw GradleException("Production release builds require ISSUE_REPORT_ORIGIN to be the fixed HTTPS origin of the deployed issue-report service. Set -PISSUE_REPORT_ORIGIN or the ISSUE_REPORT_ORIGIN environment variable.")
+    }
+}
+
+// Fail during configuration as well as task execution so production artifacts
+// cannot be built from an unconfigured report endpoint.
+if (gradle.startParameter.taskNames.any { it.substringAfterLast(':').contains("Release") }) {
+    requireProductionIssueReportOrigin()
+}
+
 // Separate preview APK: the two QAIRT distributions must never be merged with pickFirst.
 val geniexRuntime = providers.gradleProperty("geniexRuntime").orNull == "true"
 val geniexSeparateSigning = providers.gradleProperty("geniexSeparateSigning").orNull == "true"
@@ -186,7 +204,6 @@ extensions.configure<ApplicationExtension> {
         require(githubBrokerUri == null || !githubCallbackHost.endsWith(".invalid")) { "Configure a project-owned verified HTTPS callback host before enabling public sign-in." }
         buildConfigField("String", "GITHUB_AUTH_BROKER_ORIGIN", "\"$githubBroker\"")
         buildConfigField("String", "GITHUB_AUTH_CALLBACK_URI", "\"https://$githubCallbackHost/oauth/github/complete\"")
-        val issueReportOrigin = providers.gradleProperty("ISSUE_REPORT_ORIGIN").orElse(providers.environmentVariable("ISSUE_REPORT_ORIGIN")).getOrElse("").trimEnd('/')
         val issueReportUri = issueReportOrigin.takeIf(String::isNotEmpty)?.let(::URI)
         require(issueReportUri == null || (issueReportUri.scheme == "https" && issueReportUri.host != null && issueReportUri.userInfo == null && issueReportUri.port in setOf(-1, 443) && issueReportUri.path.isNullOrEmpty() && issueReportUri.query == null && issueReportUri.fragment == null)) { "Issue reporting requires a fixed HTTPS origin." }
         buildConfigField("String", "ISSUE_REPORT_ORIGIN", "\"$issueReportOrigin\"")
@@ -403,6 +420,20 @@ extensions.configure<ApplicationAndroidComponentsExtension> {
             // debug builds. App-bundle packaging is separate.
             variant.packaging.dex.useLegacyPackaging.set(true)
         }
+    }
+}
+
+val verifyReleaseIssueReportOrigin = tasks.register("verifyReleaseIssueReportOrigin") {
+    group = "verification"
+    description = "Require the hosted issue-report service before building a production release."
+    doLast {
+        requireProductionIssueReportOrigin()
+    }
+}
+
+tasks.configureEach {
+    if (name != "verifyReleaseIssueReportOrigin" && (name == "preReleaseBuild" || name.contains("Release"))) {
+        dependsOn(verifyReleaseIssueReportOrigin)
     }
 }
 

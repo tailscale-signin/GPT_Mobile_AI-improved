@@ -49,6 +49,7 @@ import dev.chungjungsoo.gptmobile.data.agent.withNormalizedAssistantText
 import dev.chungjungsoo.gptmobile.data.agent.withProgressWatchdog
 import dev.chungjungsoo.gptmobile.data.agent.withRunContext
 import dev.chungjungsoo.gptmobile.data.agent.withToolCatalog
+import dev.chungjungsoo.gptmobile.data.github.githubDecisionMode
 import dev.chungjungsoo.gptmobile.data.assist.allowsProcessing
 import dev.chungjungsoo.gptmobile.data.assist.resolveAssistPolicy
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkExecutionPolicy
@@ -268,7 +269,8 @@ class ChatRepositoryImpl(
     private val gatewayAPI: dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAPI? = null,
     private val gatewayConversations: dev.chungjungsoo.gptmobile.data.github.GatewayConversationRepository? = null,
     private val gatewayEngineering: dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringRepository? = null,
-    private val reasoningCapabilities: dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityRepository? = null
+    private val reasoningCapabilities: dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityRepository? = null,
+    private val gitHubApprovalState: dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore? = null
 ) : ChatRepository {
     override suspend fun prepareCombinedTurn(
         execution: dev.chungjungsoo.gptmobile.data.agent.CombinedExecutionContext,
@@ -4436,6 +4438,21 @@ class ChatRepositoryImpl(
                 currentToolContracts = evidenceTools.filter { it.nativeGitHub }.associate { it.modelToolName to it.tool.definition.inputSchema },
                 authorizationRevision = dispatchAuthority.revision,
                 readSources = dev.chungjungsoo.gptmobile.data.github.GitHubTargetPolicy.readSources(if (reuse) previousTask else githubEffectiveTask),
+                fixtureDecisionMode = githubContext?.let { context ->
+                    settingRepository.getFeatureSettings().githubDecisionMode(user.chatId, context)
+                },
+                approvalResolution = { stagedReceipt ->
+                    val approvalStore = gitHubApprovalState
+                    val approvalWorkspace = githubContext
+                    if (approvalStore == null || approvalWorkspace == null) {
+                        emptyList()
+                    } else {
+                        listOfNotNull(
+                            dev.chungjungsoo.gptmobile.data.github.GitHubApprovalBinding.localCancellationReceipt(approvalStore, approvalWorkspace, stagedReceipt),
+                            dev.chungjungsoo.gptmobile.data.github.GitHubApprovalBinding.localFixtureDecisionReceipt(approvalStore, approvalWorkspace, stagedReceipt)
+                        )
+                    }
+                },
                 load = { id -> workspace?.protectedSynthesisCheckpoint("github-evidence:$binding:$id") },
                 latestVerdict = {
                     val current = workspace?.dao?.githubTaskEvidence(user.chatId, "github-evidence:$binding:verification_current_")?.lastOrNull()

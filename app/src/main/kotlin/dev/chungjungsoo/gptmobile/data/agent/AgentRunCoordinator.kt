@@ -1342,6 +1342,7 @@ internal fun ApiStateFlowOutcome.toTerminalUpdate(): AgentRunTerminalUpdate = wh
     is ApiStateFlowOutcome.Failed -> AgentRunTerminalUpdate(
         when {
             errorCode == "QUEUE_JOB_PENDING" -> AgentRunStatus.WAITING_REMOTE_JOB
+            errorCode == "WAITING_FOR_APPROVAL" || taskOutcome == "WAITING_FOR_APPROVAL" -> AgentRunStatus.WAITING_FOR_APPROVAL
             taskOutcome == "BLOCKED" || errorCode in setOf("GITHUB_REVIEW_BLOCKED", "REVIEW_INPUT_REQUIRED") -> AgentRunStatus.BLOCKED
             errorCode in setOf("GITHUB_EVIDENCE_REQUIRED", "GITHUB_EVIDENCE_RETENTION_INCOMPLETE") -> AgentRunStatus.EVIDENCE_MISSING
             taskOutcome == "PARTIAL" -> AgentRunStatus.PARTIAL

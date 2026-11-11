@@ -131,7 +131,8 @@ private data class MarkdownRenderRequest(
     val memoryValues: List<String>,
     val provenance: MarkdownProvenancePresentation?,
     val wording: CombinedWordingPresentation?,
-    val outputTrace: dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceOwner?
+    val outputTrace: dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceOwner?,
+    val githubReferences: GitHubAssistantReferenceContext?
 )
 
 private data class PreparedChatMarkdown(
@@ -205,7 +206,7 @@ private fun ChatMarkdownContent(
     var formattingAttempt by remember(contentIdentity) { mutableIntStateOf(0) }
     var lastTraceAt by remember(contentIdentity) { mutableLongStateOf(0L) }
     val latestRequest = rememberUpdatedState(
-        MarkdownRenderRequest(content, streaming, memoryValues, provenance, wording, outputTrace)
+        MarkdownRenderRequest(content, streaming, memoryValues, provenance, wording, outputTrace, LocalGitHubAssistantReferences.current)
     )
     LaunchedEffect(contentIdentity, formattingAttempt) {
         // Finish each in-flight render and retain only the latest pending delta.
@@ -227,7 +228,11 @@ private fun ChatMarkdownContent(
             ) {
                 withContext(Dispatchers.Default) {
                     CombinedOperationTrace.measure("markdown_prepare", CombinedOperationOwner(runId = request.outputTrace?.runId, blockId = request.outputTrace?.partId, messageId = request.outputTrace?.messageId, profileUid = request.outputTrace?.profileUid)) {
-                        val visibleSource = dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(request.content)
+                        val sourceWithoutMetadata = dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(request.content)
+                        val visibleSource = request.githubReferences
+                            ?.takeIf { request.provenance == null && request.wording == null }
+                            ?.let { linkifyGitHubAssistantReferences(sourceWithoutMetadata, it) }
+                            ?: sourceWithoutMetadata
                         val renderContext = currentCoroutineContext()
                         val parsed = parseChatMarkdown(visibleSource, cacheResult = !request.streaming, checkActive = { renderContext.ensureActive() })
                         // Rendering is sampled above; completed passage mappings can colour live output.
@@ -672,6 +677,12 @@ private fun ChatMarkdownContent(
             }
             val parserFailed = renderedDigest != null && parserState !is MarkdownParseState.Loading && parserState !is MarkdownParseState.Success
             val animations = markdownAnimations(animateTextSize = { this })
+            val baseTypography = chatMarkdownTypography(answerForeground)
+            val markdownTextStyle = if (LocalGitHubAssistantReferences.current != null) {
+                baseTypography.copy(textLink = baseTypography.textLink.copy(color = MaterialTheme.colorScheme.primary))
+            } else {
+                baseTypography
+            }
             val layoutOwner = remember(outputTrace, rendered.contentDigest) { CombinedOperationOwner(runId = outputTrace?.runId, revisionId = rendered.contentDigest, blockId = outputTrace?.partId, digest = rendered.contentDigest, messageId = outputTrace?.messageId, profileUid = outputTrace?.profileUid) }
             // Replacing a layout lambda invalidates measurement even when its content
             // and constraints are unchanged. Retain it across unrelated chat updates;
@@ -715,7 +726,7 @@ private fun ChatMarkdownContent(
                             inlineContent = markdownInlineContent(inlineContent),
                             annotator = annotator,
                             components = components,
-                            typography = chatMarkdownTypography(answerForeground),
+                            typography = markdownTextStyle,
                             animations = animations,
                             modifier = modifier.then(measurementModifier).drawWithContent {
                                 drawContent()

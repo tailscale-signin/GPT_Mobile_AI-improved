@@ -255,6 +255,33 @@ class GitHubReviewViewModel @Inject constructor(private val connections: ToolCon
         approveCommitNow(taskId, digest, onCommitted)
     }
 
+    fun recordApprovalEvent(taskId: String, event: String) {
+        val scope = programmerScope.value ?: return
+        val store = gitHubRepositoryState ?: return
+        val task = engineeringTasks.value.firstOrNull { it.taskId == taskId } ?: return
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching {
+                GitHubApprovalBinding.recordEvent(
+                    store,
+                    taskId,
+                    event,
+                    buildJsonObject {
+                        put("chat_id", programmerChatId ?: 0)
+                        put("branch", task.workingBranch)
+                        engineering.run(taskId)?.let { put("patch_digest", it.patchDigest) }
+                    }
+                )
+            }
+        }
+    }
+
+    fun keepFixture(taskId: String) = action {
+        val scope = requireNotNull(programmerScope.value) { "Open this approval from its saved GitHub chat." }
+        val task = engineeringTasks.value.single { it.taskId == taskId && it.workingBranch.matches(Regex("codex-self-test/[a-f0-9]{20}")) }
+        GitHubApprovalBinding.keepFixture(requireNotNull(gitHubRepositoryState), taskId, scope, task.workingBranch)
+        notice.value = "Fixture retained by request. Its branch will not be removed after this approval is resolved."
+    }
+
     private suspend fun approveCommitNow(taskId: String, digest: String, onCommitted: (String) -> Unit) {
         val task = engineeringTasks.value.single { it.taskId == taskId }
         val frozen = requireNotNull(engineering.run(taskId))
@@ -267,8 +294,31 @@ class GitHubReviewViewModel @Inject constructor(private val connections: ToolCon
                 }
             ) == frozen.patchJson
         ) { "The visible patch changed; validate and review it again." }
+        programmerScope.value?.let { scope ->
+            gitHubRepositoryState?.let { store ->
+                runCatching {
+                    GitHubApprovalBinding.recordEvent(store, taskId, "approval_card_clicked", buildJsonObject {
+                        put("choice", "APPROVE_AND_COMMIT")
+                        put("branch", task.workingBranch)
+                        put("patch_digest", frozen.patchDigest)
+                    })
+                }
+            }
+        }
         engineering.approve(taskId, digest)
         val sha = engineering.execute(taskId)
+        programmerScope.value?.let { scope ->
+            gitHubRepositoryState?.let { store ->
+                runCatching {
+                    GitHubApprovalBinding.recordEvent(store, taskId, "approval_card_approved", buildJsonObject {
+                        put("choice", "APPROVE_AND_COMMIT")
+                        put("branch", task.workingBranch)
+                        put("patch_digest", frozen.patchDigest)
+                        put("published_sha", sha)
+                    })
+                }
+            }
+        }
         review.value?.let { proposal ->
             save(proposal.copy(head = sha, files = emptyList(), checks = JsonObject(emptyMap()), reviewNotes = "Commit $sha published; repository-required CI is being monitored."))
         }
@@ -354,14 +404,36 @@ class GitHubReviewViewModel @Inject constructor(private val connections: ToolCon
     }
     fun rejectCommit(taskId: String) = action {
         val task = engineeringTasks.value.singleOrNull { it.taskId == taskId && it.state == "AWAITING_APPROVAL" } ?: return@action
-        programmerScope.value?.let { scope ->
-            gitHubRepositoryState?.let { GitHubApprovalBinding.markDecision(it, taskId, scope, task.workingBranch, automatic = false) }
+        val scope = programmerScope.value
+        val approvalStore = gitHubRepositoryState
+        if (scope != null && approvalStore != null) {
+            runCatching {
+                GitHubApprovalBinding.recordEvent(approvalStore, taskId, "approval_card_clicked", buildJsonObject {
+                    put("choice", "REJECT")
+                    put("branch", task.workingBranch)
+                })
+            }
         }
         engineering.cancel(taskId)
+        val cancelledBeforePublication = scope?.let {
+            engineering.approvalStatus(taskId, it.connectionUid, dev.chungjungsoo.gptmobile.data.agent.tool.GitHubEngineeringApi.root(it.owner, it.repo))
+                ?.get("cancelled_before_publication") == kotlinx.serialization.json.JsonPrimitive(true)
+        } == true
+        if (scope != null && approvalStore != null && cancelledBeforePublication) {
+            GitHubApprovalBinding.markDecision(approvalStore, taskId, scope, task.workingBranch, automatic = false, cancellationConfirmed = true)
+        }
+        engineering.scheduleApprovalResolution(taskId)
         dismissedCommitTasks += taskId
         pendingEngineeringTask.value = null
         refreshEngineeringTasksNow()
-        notice.value = if (programmerChatId == null) "Patch rejected. No commit was sent." else ""
+        notice.value = when {
+            !cancelledBeforePublication -> "Rejection was recorded, but cancellation is not yet confirmed. The saved task will be reconciled before any cleanup."
+            task.workingBranch.startsWith("codex-self-test/") && scope != null && approvalStore != null && GitHubApprovalBinding.fixtureKept(approvalStore, taskId) -> "Approval cancelled. The fixture is retained by request."
+            task.workingBranch.startsWith("codex-self-test/") && scope != null && approvalStore != null -> "Approval cancelled. Fixture reconciliation and cleanup are queued; no staged commit will be replayed."
+            task.workingBranch.startsWith("codex-self-test/") -> "Approval cancelled. The fixture is retained until its saved binding can be reconciled."
+            programmerChatId == null -> "Patch rejected. No commit was sent."
+            else -> ""
+        }
     }
     private fun restageEditedCommit(taskId: String, proposal: GitHubReview) = action {
         val old = requireNotNull(engineering.run(taskId))

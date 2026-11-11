@@ -6,6 +6,8 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from unittest.mock import patch
 
@@ -17,7 +19,7 @@ from v14.engineering_validation import (validate, patch_identity, run_bounded,
 class IsolatedValidationTests(unittest.TestCase):
     REPORT = '<testsuite><testcase classname="Fixture" name="behavior"/></testsuite>'
 
-    def validate_fixture(self, commands, coverage=None, changes=()):
+    def validate_fixture(self, commands, coverage=None, changes=(), policy_options=None, execution_mode=None, workers=1, observer=None):
         """Exercise real archive/patch/command/report order; this is not Docker qualification."""
         fixture_env = {key: value for key, value in os.environ.items() if not key.upper().startswith('GIT_')}
         fixture_env.update(GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL=os.devnull)
@@ -39,8 +41,10 @@ class IsolatedValidationTests(unittest.TestCase):
                                     'scope': 'behavior', 'report_path': 'reports/behavior.xml'}]
             image = 'fixture@sha256:' + 'a' * 64
             policy = root / 'policy.json'
-            policy.write_text(json.dumps({'owner/repo': {'mirror': str(mirror / '.git'), 'image': image,
-                                                        'commands': commands, 'acceptance_map': coverage}}))
+            repository_policy = {'mirror': str(mirror / '.git'), 'image': image,
+                                 'commands': commands, 'acceptance_map': coverage}
+            repository_policy.update(policy_options or {})
+            policy.write_text(json.dumps({'owner/repo': repository_policy}))
 
             def execute(argv, cwd, timeout, maximum=4 * 1024 * 1024, destination=None):
                 if argv[0] != 'docker':
@@ -50,8 +54,13 @@ class IsolatedValidationTests(unittest.TestCase):
                 return run_bounded(argv[argv.index(image) + 1:], checkout, timeout)
 
             with patch.dict(os.environ, {'GATEWAY_ENGINEERING_VALIDATION_POLICY': str(policy)}), \
-                    patch('v14.engineering_validation.run_bounded', side_effect=execute):
-                return validate({'request': {'repository': 'owner/repo'}, 'data': {'head_sha': head}}, list(changes))
+                    patch('v14.engineering_validation.run_bounded', side_effect=observer or execute):
+                request = {'repository': 'owner/repo'}
+                data = {'head_sha': head}
+                if execution_mode:
+                    request['execution_mode'] = execution_mode
+                    data['integration_batch'] = {'controls': {'local_validation_workers': workers}}
+                return validate({'request': request, 'data': data}, list(changes))
 
     @staticmethod
     def emit_report(report):
@@ -93,6 +102,38 @@ class IsolatedValidationTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256(self.REPORT.encode()).hexdigest(), evidence['report_sha256'])
         self.assertEqual(result['source_sha'], evidence['source_sha'])
         self.assertEqual(result['commands'][0]['output_sha256'], evidence['output_sha256'])
+
+    def test_full_batch_runs_only_explicitly_grouped_local_checks_in_parallel_sandboxes(self):
+        coverage = [{'requirement_id': f'behavior-{index}', 'case_id': 'Fixture.behavior', 'command_index': index,
+                     'scope': 'behavior', 'report_path': 'reports/behavior.xml'} for index in range(2)]
+        command = [sys.executable, '-c',
+                   'import time; from pathlib import Path; time.sleep(0.2); Path("reports/behavior.xml").write_text(' + repr(self.REPORT) + ')']
+        original = run_bounded
+        active, peak = [0], [0]
+        guard = threading.Lock()
+
+        def observe(argv, cwd, timeout, maximum=4 * 1024 * 1024, destination=None):
+            if argv[0] != 'docker':
+                return original(argv, cwd, timeout, maximum, destination)
+            with guard:
+                active[0] += 1
+                peak[0] = max(peak[0], active[0])
+            try:
+                time.sleep(0.1)
+                mount = next(value for value in argv if value.startswith('--mount=type=bind,source='))
+                checkout = mount.removeprefix('--mount=type=bind,source=').removesuffix(',target=/workspace')
+                return original(argv[argv.index('fixture@sha256:' + 'a' * 64) + 1:], checkout,
+                                timeout, maximum, destination)
+            finally:
+                with guard:
+                    active[0] -= 1
+
+        result = self.validate_fixture([command, command], coverage,
+            policy_options={'parallel_command_groups': [[0, 1]]}, execution_mode='full', workers=2, observer=observe)
+        self.assertEqual('PASSED', result['status'])
+        self.assertEqual(2, result['validation_workers'])
+        self.assertEqual([0, 0], [item['exit_code'] for item in result['commands']])
+        self.assertEqual(2, peak[0])
 
     def test_each_command_has_its_own_report_snapshot_and_cannot_reuse_the_prior_output(self):
         coverage = [{'requirement_id': str(index), 'case_id': 'Fixture.behavior', 'command_index': index,

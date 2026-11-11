@@ -144,9 +144,12 @@ payload digests, cooldowns and issue receipts. The issue body goes to GitHub.
 A request with an uncertain GitHub outcome remains pending while the service
 looks for the original issue.
 
-Set `ISSUE_REPORT_ORIGIN` in the project's `gradle.properties` to include the
-HTTPS origin in CI APK builds. For local builds, pass the Gradle property
-`-PISSUE_REPORT_ORIGIN=…` or environment variable `ISSUE_REPORT_ORIGIN`.
-The report dialog shows an availability message when the build has an empty origin.
-Validate with `python -m unittest authentication.test_app`. The hosted HTTP
-tests use a simulated GitHub publisher.
+Deploy the reporter and its persistent database before shipping builds, then set
+the repository Actions variable `ISSUE_REPORT_ORIGIN` to its public HTTPS origin
+for release workflows. Production release tasks now fail during Gradle
+configuration if the value is missing or is not a fixed HTTPS origin. For local
+release builds, pass `-PISSUE_REPORT_ORIGIN=…` or set the environment variable
+`ISSUE_REPORT_ORIGIN`. Debug builds may omit it; the dialog reports that issue
+submission is unavailable in those builds. Validate the service with
+`python -m unittest authentication.test_app`. The hosted HTTP tests use a
+simulated GitHub publisher.

@@ -26,6 +26,16 @@ class CombinedResponseStateTest {
         assertEquals(listOf(ChatViewModel.LoadingState.Idle), loadingStatesForLatestAssistant(1, listOf(message), runs, setOf(waiting.runId)))
     }
 
+    @Test fun pendingGitHubApprovalIsPausedAndCannotBeRetriedGenerically() {
+        val message = response("profile", "", "approval-wait")
+        val waiting = run("approval-wait", AgentRunStatus.WAITING_FOR_APPROVAL).copy(terminalError = "Review the saved change to continue.")
+        val decision = combinedProfileFailures(1, "Update the repository", listOf(message), mapOf(waiting.runId to waiting), emptyMap(), emptyMap()).single()
+        assertEquals(CombinedResponseStatus.PAUSED, combinedResponseStatus(message, waiting))
+        assertEquals("WAITING_FOR_APPROVAL", decision.category)
+        assertEquals("Waiting for approval", decision.shortStatus(0))
+        assertFalse(decision.retryAllowed)
+    }
+
     @Test fun selectedHistoricalAnswerUsesItsOwnOutcomeWhileLatestAttemptFailsRunsOrWaits() {
         val synthesis = response("lead", "New unfinished answer", "combined-synthesis:new").copy(
             activeRevisionIndex = 0,

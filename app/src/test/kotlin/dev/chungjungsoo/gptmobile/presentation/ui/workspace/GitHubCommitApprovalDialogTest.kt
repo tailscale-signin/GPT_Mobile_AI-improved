@@ -28,11 +28,14 @@ class GitHubCommitApprovalDialogTest {
         val run = EngineeringRunRow("task", "github", "[]", "frozen-digest", "Fix answer", 0, "main")
         every { model.pendingEngineeringTask } returns MutableStateFlow("task")
         every { model.selectedEngineeringRun } returns MutableStateFlow(run)
+        every { model.engineeringTasks } returns MutableStateFlow(emptyList())
         every { model.review } returns MutableStateFlow(GitHubReview("github", "owner", "repo", "feature", "a".repeat(40), files = listOf(GitHubFileProposal("A.kt", "41", "42"))))
         every { model.busy } returns MutableStateFlow(false)
         every { model.notice } returns MutableStateFlow("")
         compose.setContent { MaterialTheme { GitHubChatApprovalCard(model) {} } }
         compose.onNodeWithText("Review proposed changes").assertIsDisplayed()
+        compose.onNodeWithText("Task task · owner/repo · feature").assertIsDisplayed()
+        compose.onNodeWithText("Risk: build and CI are not verified by this approval.").assertIsDisplayed()
         compose.onNodeWithText("@@ changed text @@\n- 41\n+ 42").assertDoesNotExist()
         compose.onNodeWithText("Details").performClick()
         compose.onNodeWithText("@@ changed text @@\n- 41\n+ 42").assertIsDisplayed()
@@ -41,6 +44,7 @@ class GitHubCommitApprovalDialogTest {
         compose.waitForIdle()
         compose.onNodeWithText("Commit").performClick()
         verify(exactly = 1) { model.approveCommit("task", "frozen-digest", any()) }
+        verify(atLeast = 1) { model.recordApprovalEvent("task", "approval_card_shown") }
         verify(exactly = 0) { model.rejectCommit(any()) }
     }
 

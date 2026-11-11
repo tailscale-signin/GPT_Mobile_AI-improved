@@ -117,6 +117,46 @@ class GitHubIntegrationAcceptanceTest {
         assertFalse(publication["status"] in setOf(JsonPrimitive("PASSED"), JsonPrimitive("RECOVERED")))
     }
 
+    @Test fun pendingNativeApprovalIsPausedAndShownAsItsOwnChecklistState() {
+        val records = receipts()
+        val branch = (records.getValue("creation")["arguments"] as JsonObject)["branch"] as JsonPrimitive
+        records["approval"] = JsonObject(
+            receipt(
+                "approval",
+                "github_commit",
+                json("""{"action":"commit","branch":"${branch.content}","expected_head_sha":"$sha"}"""),
+                json("""{"status":"AWAITING_APPROVAL","committed":false,"engineering_task_id":"saved-task","branch":"${branch.content}","expected_head_sha":"$sha"}"""),
+                "LOCAL"
+            ) + mapOf("execution" to json("""{"mutation_requests":0,"accepted_mutations":0,"unknown_mutations":0}"""))
+        )
+        val expanded = tools.map { if (it.name == "github_commit") tool("github_commit", "branch", "delete_branch", "commit") else it }
+        val row = GitHubTestChecklist.rows(records, expanded, task).filterIsInstance<JsonObject>().single { it["id"] == JsonPrimitive("github_commit:commit") }
+        assertEquals(JsonPrimitive("WAITING_FOR_APPROVAL"), row["status"])
+        assertEquals(JsonPrimitive("WAITING_FOR_APPROVAL"), row["acceptance_state"])
+        assertEquals(JsonPrimitive("WAITING_FOR_APPROVAL"), row["applicability"])
+        assertEquals(JsonPrimitive("APPROVAL_REQUIRED"), row["blocker_code"])
+        val progress = GitHubTestChecklist.progressSummary(GitHubTestChecklist.checkpoint(task, records, expanded), null)
+        assertTrue(progress.contains("waiting for approval"))
+        assertFalse(progress.contains("1 blocked"))
+    }
+
+    @Test fun manualApprovalModeMakesFixtureCoverageConditionalBeforeAnyBranchMutation() {
+        val preflight = GitHubTestChecklist.fixtureApprovalPreflight(GitHubDecisionMode.ASK, "task", "owner/repo", "main", runtime)
+        assertEquals(JsonPrimitive("CONDITIONAL"), preflight["state"])
+        assertEquals(JsonPrimitive(false), preflight["mutation_dispatched"])
+        val expanded = tools.map { if (it.name == "github_commit") tool("github_commit", "branch", "delete_branch") else it }
+        val checkpoint = GitHubTestChecklist.checkpoint(task, emptyMap(), expanded, 256, preflight)
+        val branch = GitHubTestChecklist.rows(emptyMap(), expanded, task, preflight).filterIsInstance<JsonObject>()
+            .single { it["id"] == JsonPrimitive("github_commit:branch") }
+        assertEquals(JsonPrimitive("CONDITIONAL"), branch["status"])
+        assertEquals(JsonPrimitive("CONDITIONAL_APPROVAL_MODE"), branch["applicability"])
+        assertEquals(JsonPrimitive("FIXTURE_APPROVAL_MODE_REQUIRED"), branch["blocker_code"])
+        assertEquals(JsonPrimitive("CONDITIONAL"), (checkpoint["fixture_approval_preflight"] as JsonObject)["state"])
+        val next = GitHubTestChecklist.nextCall(task, expanded, emptyMap(), 256, preflight)
+        assertFalse(next?.name?.substringBefore("__") == "github_commit" && next.arguments["action"] == JsonPrimitive("branch"))
+        assertFalse(GitHubIntegrationAcceptance.requirements(task, emptyMap(), expanded, runtime, preflight).filterIsInstance<JsonObject>().any { it["acceptance_state"] == JsonPrimitive("PASS") && it["requirement"].toString().contains("fixture", true) })
+    }
+
     @Test fun missingOrUncertainMutationCountersCannotExcuseAnUnverifiedRemoteProposal() {
         val proposal = receipt("unverified", "github_commit", json("""{"action":"commit"}"""), json("""{"status":"AWAITING_APPROVAL","committed":false}"""), "LOCAL")
         for (counters in listOf(

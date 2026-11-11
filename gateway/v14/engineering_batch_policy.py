@@ -11,10 +11,11 @@ from pathlib import Path
 
 SCHEMA_VERSION = 1
 MODES = ('standard', 'smart', 'full')
+MAX_LOCAL_VALIDATION_WORKERS = 4
 DEFAULTS = {
     'schema_version': SCHEMA_VERSION, 'default_mode': 'standard',
     'full_enabled': False, 'github_api_max_inflight': 1,
-    'native_provider_batch': False,
+    'native_provider_batch': False, 'local_validation_workers': 1,
 }
 
 
@@ -32,6 +33,9 @@ def validate_policy(value):
         raise ValueError('GitHub API admission remains serialized until qualified')
     if policy['native_provider_batch'] is not False:
         raise ValueError('Native provider batching requires separate consent and an implemented host adapter')
+    if (type(policy['local_validation_workers']) is not int or
+            not 1 <= policy['local_validation_workers'] <= MAX_LOCAL_VALIDATION_WORKERS):
+        raise ValueError('Local validation workers must be between 1 and 4')
     return policy
 
 
@@ -74,16 +78,17 @@ def capability(policy=None, durable=True):
     return {'protocol_version': SCHEMA_VERSION, 'modes': ['standard', 'smart'] + (['full'] if full else []),
             'default_mode': policy['default_mode'], 'full_enabled': full,
             'github_api_max_inflight': policy['github_api_max_inflight'],
+            'local_validation_workers': policy['local_validation_workers'],
             'native_provider_batch': False,
             'execution_owner': 'GATEWAY', 'policy_source': 'host'}
 
 
-def authorize_request(request, *, durable=True):
+def authorize_request(request, *, durable=True, policy=None):
     mode = request.get('execution_mode', 'standard')
     if mode not in MODES:
         raise ValueError('Unsupported execution mode')
     if mode == 'full':
-        policy = load_policy()
+        policy = validate_policy(policy if policy is not None else load_policy())
         if not durable or not policy['full_enabled']:
             raise ValueError('Full Integration Batch is disabled on the selected Gateway host')
         if request.get('batch_policy_version') != SCHEMA_VERSION:

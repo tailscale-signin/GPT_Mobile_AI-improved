@@ -21,7 +21,7 @@ from v14.inference_scheduler import install_scheduler
 from v14.engineering_artifacts import EngineeringArtifacts
 from v14.engineering_operations import EngineeringOperations
 from v14.engineering_defaults import EXECUTION_BUDGET_LIMITS, new_request_defaults, retained_request_defaults, effective_execution_budget
-from v14.engineering_batch_policy import authorize_request
+from v14.engineering_batch_policy import authorize_request, load_policy as load_batch_policy
 from v14.engineering_batch_plan import new_plan, claimed as batch_claimed, transition as batch_transition, control_transition as batch_control, summary as batch_summary
 from v14.debug import capture_context_snapshot, execution_diagnostic_context
 from v14.conversations import Conversations, ConversationConflict, short_title
@@ -216,7 +216,8 @@ class EngineeringStore:
         if existing:
             return existing
         request = validate_request(new_request_defaults(request))
-        authorize_request(request, durable=self.runtime.GATEWAY_DURABLE_JOBS)
+        batch_policy = load_batch_policy() if request.get('execution_mode') == 'full' else None
+        authorize_request(request, durable=self.runtime.GATEWAY_DURABLE_JOBS, policy=batch_policy)
         request_hash = digest(request)
         if admission is not None:
             if not admission.get('ready'):
@@ -234,7 +235,7 @@ class EngineeringStore:
                'message': 'Queued for repository inspection', 'data': {}, 'approval': None,
                'execution_binding': binding}
         if request.get('execution_mode') == 'full':
-            job['data']['integration_batch'] = new_plan(job)
+            job['data']['integration_batch'] = new_plan(job, batch_policy)
         if admission is not None:
             job['data']['admission'] = admission
         capture = capture_context_snapshot(principal, self.runtime)
@@ -612,7 +613,8 @@ class EngineeringService:
 
     def validate_submission(self, principal, request):
         value = validate_request(request)
-        authorize_request(value, durable=self.store.runtime.GATEWAY_DURABLE_JOBS)
+        batch_policy = load_batch_policy() if value.get('execution_mode') == 'full' else None
+        authorize_request(value, durable=self.store.runtime.GATEWAY_DURABLE_JOBS, policy=batch_policy)
         binding, _, _ = self.bindings.validate(principal, value.get('execution_binding_id'), force=True)
         if value['model'] != binding['requested_model_id'] or value.get('profile_id') != binding['profile_uid']:
             raise ExecutionBindingError('EXECUTION_SELECTION_MISMATCH', 'The submitted model/profile does not match the selected execution binding.')
@@ -952,17 +954,20 @@ class EngineeringService:
                 # deadline. An arbitrary retry-count ceiling converted a healthy
                 # long-running job into NEEDS_INPUT during extended 429 windows.
                 available = retry_at < job['deadline'] - job['request'].get('execution_budget', {}).get('final_seconds', 30)
-                output.update(error_code='ENGINEERING_RATE_LIMIT_WAIT', http_status=http_status, retryable=available,
+                resume_limit = (job['request'].get('batch_preferences') or {}).get('resume_after_transient_limits', True)
+                can_resume = available and (job['request'].get('execution_mode') != 'full' or resume_limit)
+                output.update(error_code='ENGINEERING_RATE_LIMIT_WAIT', http_status=http_status, retryable=can_resume,
                               retry_at=retry_at, retry_source=source, attempts=attempts)
                 if deferred_write:
                     output['dispatched'] = False
-                if available:
+                if can_resume:
                     job['provider_wait'] = {'retry_at': retry_at, 'source': source, 'attempts': attempts}
                     job['message'] = 'Waiting for provider capacity. The saved step will resume automatically.'
                     delay = wait
                 else:
                     phase = 'NEEDS_INPUT'
-                    job['message'] = 'The provider wait reached the job budget. Confirmed work is saved for review.'
+                    job['message'] = ('Automatic recovery is disabled by the accepted batch policy. Confirmed work is saved for review.'
+                                      if available else 'The provider wait reached the job budget. Confirmed work is saved for review.')
                     job['data']['blocked_reason'] = dict(output)
             elif model_readiness_wait:
                 attempts = previous_wait.get('attempts', 0) + 1

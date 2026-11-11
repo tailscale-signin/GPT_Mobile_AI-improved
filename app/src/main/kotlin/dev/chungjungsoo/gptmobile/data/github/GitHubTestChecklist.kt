@@ -36,6 +36,24 @@ internal object GitHubTestChecklist {
     )
 
     fun integration(task: String): Boolean = !isGatewayIntegrationTask(task) && GitHubTaskCoverage.matches(task) && (Regex("(?i)\\b(?:tools?|integration|functionality)\\b").containsMatchIn(task) || task.trim().matches(Regex("(?i)(?:please\\s+)?test\\s+all[.!]?")))
+
+    fun fixtureApprovalPreflight(mode: GitHubDecisionMode?, binding: String, repository: String, branch: String, runtime: JsonObject): JsonObject = buildJsonObject {
+        val automatic = mode == GitHubDecisionMode.AUTO_APPROVE
+        put("schema", "github.fixture-approval-preflight.v1")
+        put("binding", binding)
+        put("repository", repository)
+        put("selected_branch", branch)
+        put("decision_mode", mode?.name ?: "UNKNOWN")
+        put("state", if (automatic) "READY" else "CONDITIONAL")
+        put("mutation_dispatched", false)
+        put("runtime_identity", runtime)
+        put("scope", "AUTO_APPROVE applies only to the dedicated codex-self-test/* fixture branch; regular repository writes still use their configured approval policy.")
+        put("reason", if (automatic) {
+            "The effective GitHub decision mode was verified before fixture creation. Fixture-only native auto-approval is restricted to the owned codex-self-test/* branch."
+        } else {
+            "Fixture testing is conditional because effective GitHub decision mode is ${mode?.name ?: "unavailable"}. No branch or fixture mutation was started; enable the explicit fixture-only automatic approval mode or use the approval interaction harness."
+        })
+    }
     private fun trusted(receipts: Map<String, JsonObject>) = receipts.values.filter { it["trusted"] == JsonPrimitive(true) && it["verification_eligible"] != JsonPrimitive(false) }
     private fun matches(receipt: JsonObject, capability: Capability): Boolean = receipt.text("tool").substringBefore("__") == capability.tool &&
         (receipt["arguments"] as? JsonObject)?.containsKey("view_cursor") != true &&
@@ -251,7 +269,7 @@ internal object GitHubTestChecklist {
         return null
     }
 
-    fun nextCall(task: String, tools: List<AgentToolDefinition>, receipts: Map<String, JsonObject>, remainingToolCalls: Int? = null): ProviderEvent.ToolCall? {
+    fun nextCall(task: String, tools: List<AgentToolDefinition>, receipts: Map<String, JsonObject>, remainingToolCalls: Int? = null, fixturePreflight: JsonObject? = null): ProviderEvent.ToolCall? {
         if (!integration(task) || tools.isEmpty()) return null
         val observations = trusted(receipts)
         val remaining = GitHubChecklistBudget.remaining(receipts, remainingToolCalls)
@@ -339,7 +357,8 @@ internal object GitHubTestChecklist {
         GitHubSelfTestReads.next(tools, observations)?.let { return it }
         // A fixture is bounded and must leave capacity for its verification and
         // cleanup; optional inventory sampling runs only after this decision.
-        val fixtureAllowed = remaining == null || remaining >= GitHubSelfTestFixtures.minimumCalls(tools) + GitHubChecklistBudget.VERIFICATION_RESERVE
+        val fixtureAllowed = (remaining == null || remaining >= GitHubSelfTestFixtures.minimumCalls(tools) + GitHubChecklistBudget.VERIFICATION_RESERVE) &&
+            fixturePreflight?.get("state") == JsonPrimitive("READY")
         GitHubSelfTestFixtures.next(task, tools, receipts, allowCreate = fixtureAllowed)?.let { return it }
         return continuation(task, tools, receipts, localOnly = false)
     }
@@ -364,7 +383,7 @@ internal object GitHubTestChecklist {
 
     private fun readOnly(capability: Capability): Boolean = dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary.isReplayableRead(capability.tool, buildJsonObject { if (capability.action.isNotBlank()) put("action", capability.action) })
 
-    fun rows(receipts: Map<String, JsonObject>, tools: List<AgentToolDefinition> = emptyList(), task: String = ""): JsonArray {
+    fun rows(receipts: Map<String, JsonObject>, tools: List<AgentToolDefinition> = emptyList(), task: String = "", fixturePreflight: JsonObject? = null): JsonArray {
         val historical = receipts.values.filter { it["trusted"] == JsonPrimitive(true) || it["success"] == JsonPrimitive(false) && it["dispatched"] == JsonPrimitive(false) }
         val allTrusted = trusted(receipts)
         val readyReads = GitHubSelfTestReads.available(tools, allTrusted).associateBy { it.name.substringBefore("__") to it.arguments.text("action") }
@@ -417,10 +436,17 @@ internal object GitHubTestChecklist {
                 val incomplete = latest?.get("success") == JsonPrimitive(true) && data(latest)?.text("status") in setOf("PENDING_LOG_AVAILABILITY", "PENDING_CHECKS")
                 val excluded = capability.tool == "github_context" && capability.action == "repositories"
                 val unsupportedFixture = !readOnly(capability) && !GitHubSelfTestFixtures.supports(capability.tool, capability.action)
-                val notRequested = GitHubChecklistScope.readOnly(task) && !readOnly(capability) || GitHubChecklistScope.supportedFixturePlan(task) && unsupportedFixture
+                val ciActionWithoutRun = capability.tool == "github_ci" && capability.action in setOf("dispatch", "rerun", "cancel") && eligible.isEmpty() && observed.isEmpty()
+                val notRequested = GitHubChecklistScope.readOnly(task) && !readOnly(capability) || GitHubChecklistScope.supportedFixturePlan(task) && unsupportedFixture || ciActionWithoutRun
                 val readyCall = if (authorized && readOnly(capability) && eligible.isEmpty()) readyReads[capability.tool to capability.action] else null
                 val conditionalDecision = capability.tool == "github_decide" && observed.isEmpty()
+                val fixtureApprovalConditional = !readOnly(capability) &&
+                    GitHubSelfTestFixtures.supports(capability.tool, capability.action) &&
+                    fixturePreflight?.get("state") != JsonPrimitive("READY") &&
+                    !waitingApproval && GitHubSelfTestFixtures.checkpoint(receipts).isEmpty() && successes.isEmpty()
                 val blocker = when {
+                    fixtureApprovalConditional -> "Effective GitHub approval mode was checked before fixture creation. Native approval is manual, so this owned fixture is conditional and no branch or mutation was started. Enable fixture-only auto approval for codex-self-test/* or run the approval interaction harness."
+                    ciActionWithoutRun -> "No workflow run or job ID was supplied or deliberately created for this task. This CI mutation is conditional and was not requested."
                     notRequested -> if (unsupportedFixture && GitHubChecklistScope.supportedFixturePlan(task)) "No supported owned-resource cleanup recipe is admitted for this action. It is outside this preset, remains untested, and requires a separate authorized fixture lifecycle." else "Write operations are excluded by the requested read-only scope."
                     excluded -> "Account-wide repository discovery is outside this workspace's selected repository scope."
                     eligible.isEmpty() && observed.isNotEmpty() -> "Current catalog excludes the historical receipts; reauthorize this operation before using them as proof."
@@ -441,7 +467,8 @@ internal object GitHubTestChecklist {
                 val status = when {
                     notRequested -> "NOT_REQUESTED"
                     excluded -> "OUT_OF_SCOPE"
-                    waitingApproval -> "BLOCKED"
+                    waitingApproval -> "WAITING_FOR_APPROVAL"
+                    fixtureApprovalConditional -> "CONDITIONAL"
                     incomplete || tools.isNotEmpty() && !authorized -> "BLOCKED"
                     latest?.get("success") == JsonPrimitive(false) -> if (latest["dispatched"] == JsonPrimitive(false)) "PREFLIGHT_REJECTED" else "FAILED"
                     transportMissing -> unqualifiedStatus
@@ -459,6 +486,7 @@ internal object GitHubTestChecklist {
                     tools.isNotEmpty() && !authorized -> GitHubCriterionBlocker.AUTHORIZATION_REQUIRED
                     eligible.isEmpty() && observed.isNotEmpty() -> GitHubCriterionBlocker.HISTORICAL_CONTRACT_CHANGED
                     waitingApproval -> GitHubCriterionBlocker.APPROVAL_REQUIRED
+                    fixtureApprovalConditional -> GitHubCriterionBlocker.FIXTURE_APPROVAL_MODE_REQUIRED
                     transportMissing -> GitHubCriterionBlocker.LIVE_EVIDENCE_REQUIRED
                     incomplete -> GitHubCriterionBlocker.CONTINUATION_REQUIRED
                     status == "PREFLIGHT_REJECTED" -> GitHubCriterionBlocker.PRECHECK_REJECTED
@@ -479,8 +507,14 @@ internal object GitHubTestChecklist {
                     put("required", integrationCoverage && !excluded && !notRequested && !conditionalDecision)
                     put(
                         "applicability",
-                        if (conditionalDecision) {
+                        if (ciActionWithoutRun) {
+                            "CONDITIONAL_RESOURCE_NOT_PRESENT"
+                        } else if (fixtureApprovalConditional) {
+                            "CONDITIONAL_APPROVAL_MODE"
+                        } else if (conditionalDecision) {
                             "CONDITIONAL_USER_DECISION"
+                        } else if (waitingApproval) {
+                            "WAITING_FOR_APPROVAL"
                         } else if (readyCall != null) {
                             "READY_UNTESTED"
                         } else if (!readOnly(capability) && successes.isEmpty() && !waitingApproval) {
@@ -500,7 +534,7 @@ internal object GitHubTestChecklist {
                     }
                     put("acceptance_role", if (integrationCoverage) "INTEGRATION_COVERAGE" else "DIAGNOSTIC_ONLY")
                     put("status", status)
-                    put("acceptance_state", GitHubAcceptanceLedger.state(status).name)
+                    put("acceptance_state", if (waitingApproval) "WAITING_FOR_APPROVAL" else GitHubAcceptanceLedger.state(status).name)
                     blockerCode?.let { put("blocker_code", it.name) }
                     put("evidence_origins", JsonArray(successes.ifEmpty { eligible }.map { GitHubEvidenceOrigin.of(it) }.distinct().map(::JsonPrimitive)))
                     put("historical_evidence_origins", JsonArray(eligible.map { GitHubEvidenceOrigin.of(it) }.distinct().map(::JsonPrimitive)))
@@ -585,13 +619,13 @@ internal object GitHubTestChecklist {
     }
 
     /** Action coverage is one acceptance criterion, independent from build/device criteria. */
-    fun capabilitiesComplete(task: String, receipts: Map<String, JsonObject>, tools: List<AgentToolDefinition>): Boolean {
+    fun capabilitiesComplete(task: String, receipts: Map<String, JsonObject>, tools: List<AgentToolDefinition>, fixturePreflight: JsonObject? = null): Boolean {
         if (tools.isEmpty()) return false
         if (GitHubAuthorizedCatalog.required(tools, receipts) && GitHubAuthorizedCatalog.snapshot(receipts, tools)["complete"] != JsonPrimitive(true)) return false
         val mutations = catalog(tools).filter { !readOnly(it) && it.tool != "github_decide" && !GitHubChecklistScope.readOnly(task) && (!GitHubChecklistScope.supportedFixturePlan(task) || GitHubSelfTestFixtures.supports(it.tool, it.action)) }
         if (mutations.any { !GitHubSelfTestFixtures.supports(it.tool, it.action) }) return false
         if (mutations.isNotEmpty() && !GitHubSelfTestFixtures.complete(receipts)) return false
-        val coverage = rows(receipts, tools, task).filter { (it as JsonObject)["required"] != JsonPrimitive(false) }
+        val coverage = rows(receipts, tools, task, fixturePreflight).filter { (it as JsonObject)["required"] != JsonPrimitive(false) }
         if (coverage.none { (it as JsonObject).text("status") in setOf("PASSED", "RECOVERED") } || coverage.any { (it as JsonObject).text("status") !in setOf("PASSED", "RECOVERED", "OUT_OF_SCOPE", "NOT_REQUESTED") }) return false
         if (GitHubChecklistScope.exhaustive(task) && (pendingPages(receipts).isNotEmpty() || inventoryCoverage(receipts).any { (it as JsonObject).text("coverage") != "retrieval complete at observation" })) return false
         if (workflowExecutions(receipts).any { (it as JsonObject)["execution_verified"] != JsonPrimitive(true) }) return false
@@ -604,6 +638,8 @@ internal object GitHubTestChecklist {
         val rows = catalog.filter { it.text("status") !in setOf("OUT_OF_SCOPE", "NOT_REQUESTED") }
         val excluded = catalog.size - rows.size
         val completed = rows.count { it.text("status") in setOf("PASSED", "RECOVERED") }
+        val waiting = rows.count { it.text("status") == "WAITING_FOR_APPROVAL" }
+        val conditional = rows.count { it.text("status") == "CONDITIONAL" }
         val failed = rows.count { it.text("status") in setOf("FAILED", "PREFLIGHT_REJECTED") }
         val blocked = rows.count { it.text("status") == "BLOCKED" }
         val nextAction = if (next == null) {
@@ -622,18 +658,19 @@ internal object GitHubTestChecklist {
                 }
             "Next: $label."
         }
-        return "Checks: $completed/${rows.size} complete" + (if (failed > 0) "; $failed failed" else "") + (if (blocked > 0) "; $blocked blocked" else "") + (if (excluded > 0) "; $excluded excluded from scope" else "") + ". $nextAction"
+        return "Checks: $completed/${rows.size} complete" + (if (waiting > 0) "; $waiting waiting for approval" else "") + (if (conditional > 0) "; $conditional conditional before mutation" else "") + (if (failed > 0) "; $failed failed" else "") + (if (blocked > 0) "; $blocked blocked" else "") + (if (excluded > 0) "; $excluded excluded from scope" else "") + ". $nextAction"
     }
 
     /** Repeating identical observations is history, not forward execution progress. */
-    fun progressDigest(task: String, receipts: Map<String, JsonObject>, tools: List<AgentToolDefinition>): String = GitHubEvidenceBook.digest(
+    fun progressDigest(task: String, receipts: Map<String, JsonObject>, tools: List<AgentToolDefinition>, fixturePreflight: JsonObject? = null): String = GitHubEvidenceBook.digest(
         buildJsonObject {
             put("request_digest", GitHubEvidenceBook.digest(task))
-            if (integration(task)) put("requirements", JsonArray(GitHubIntegrationAcceptance.requirements(task, receipts, tools).map { raw -> JsonObject((raw as JsonObject).filterKeys { it in setOf("id", "status", "acceptance_state") }) }))
+            fixturePreflight?.let { put("fixture_approval_preflight", it) }
+            if (integration(task)) put("requirements", JsonArray(GitHubIntegrationAcceptance.requirements(task, receipts, tools, fixturePreflight = fixturePreflight).map { raw -> JsonObject((raw as JsonObject).filterKeys { it in setOf("id", "status", "acceptance_state") }) }))
             put(
                 "capabilities",
                 JsonArray(
-                    rows(receipts, tools, task).map { raw ->
+                    rows(receipts, tools, task, fixturePreflight).map { raw ->
                         JsonObject((raw as JsonObject).filterKeys { it in setOf("id", "required", "status", "acceptance_state", "blocker_code", "live_verified", "waiting_for_approval") })
                     }
                 )
@@ -658,13 +695,13 @@ internal object GitHubTestChecklist {
         }.toString()
     )
 
-    fun checkpoint(task: String, receipts: Map<String, JsonObject>, tools: List<AgentToolDefinition> = emptyList(), remainingToolCalls: Int? = null): JsonObject = buildJsonObject {
+    fun checkpoint(task: String, receipts: Map<String, JsonObject>, tools: List<AgentToolDefinition> = emptyList(), remainingToolCalls: Int? = null, fixturePreflight: JsonObject? = null): JsonObject = buildJsonObject {
         put("schema", "github.test-checklist.v3")
         put("request_digest", GitHubEvidenceBook.digest(task))
-        val capabilities = rows(receipts, tools, task)
+        val capabilities = rows(receipts, tools, task, fixturePreflight)
         put("capabilities", capabilities)
         val requirements = if (integration(task)) {
-            GitHubIntegrationAcceptance.requirements(task, receipts, tools)
+            GitHubIntegrationAcceptance.requirements(task, receipts, tools, fixturePreflight = fixturePreflight)
         } else {
             JsonArray(
                 GitHubRequestCompletion.requirements(task).map { requirement ->
@@ -683,6 +720,7 @@ internal object GitHubTestChecklist {
         put("remaining_requirements", JsonArray(requirements.filter { (it as JsonObject)["acceptance_state"] != JsonPrimitive("PASS") }))
         put("authorized_catalog", GitHubAuthorizedCatalog.snapshot(receipts, tools))
         put("runtime_binding", GitHubIntegrationAcceptance.binding(receipts.values))
+        fixturePreflight?.let { put("fixture_approval_preflight", it) }
         put("evidence_classes", GitHubIntegrationAcceptance.evidenceClasses(receipts))
         put("stage_budget", GitHubChecklistBudget.checkpoint(receipts, remainingToolCalls, GitHubSelfTestFixtures.minimumCalls(tools)))
         put(
@@ -717,7 +755,7 @@ internal object GitHubTestChecklist {
 
     fun render(receipts: Map<String, JsonObject>, tools: List<AgentToolDefinition> = emptyList(), task: String = ""): String = buildString {
         val rows = rows(receipts, tools, task)
-        val counts = listOf("PASSED", "CACHED", "MOCKED", "FAILED", "PREFLIGHT_REJECTED", "BLOCKED", "UNTESTED", "NOT_TESTED", "RECOVERED", "OUT_OF_SCOPE", "NOT_REQUESTED").associateWith { status -> rows.count { (it as JsonObject).text("status") == status } }
+        val counts = listOf("PASSED", "CACHED", "MOCKED", "FAILED", "PREFLIGHT_REJECTED", "BLOCKED", "CONDITIONAL", "WAITING_FOR_APPROVAL", "UNTESTED", "NOT_TESTED", "RECOVERED", "OUT_OF_SCOPE", "NOT_REQUESTED").associateWith { status -> rows.count { (it as JsonObject).text("status") == status } }
         append("\n**Capability coverage:** ${rows.size} capabilities in the cumulative catalog (including historical operations). ")
         append(counts.entries.joinToString("; ") { "${it.key.lowercase().replace('_', ' ')}: ${it.value}" })
         append(". Endpoint success and complete search coverage are separate. **Overall integration health: Not measured.**\n\n")

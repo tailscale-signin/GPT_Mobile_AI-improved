@@ -24,7 +24,8 @@ internal object GitHubIntegrationAcceptance {
         task: String,
         receipts: Map<String, JsonObject>,
         tools: List<AgentToolDefinition>,
-        runtime: JsonObject = GitHubRuntimeIdentity.current()
+        runtime: JsonObject = GitHubRuntimeIdentity.current(),
+        fixturePreflight: JsonObject? = null
     ): JsonArray {
         val eligible = receipts.values.filter(::eligible)
         val catalog = GitHubAuthorizedCatalog.snapshot(receipts, tools)
@@ -34,6 +35,7 @@ internal object GitHubIntegrationAcceptance {
             GitHubRequestCompletion.requirements(task).map { requirement ->
                 val text = requirement.lowercase()
                 var proof: List<JsonObject> = emptyList()
+                var conditionalFixture = false
                 val assessment: Pair<Boolean, String> = when {
                     listOf("separate", "separation", "distinguish").any { it in text } && "device" in text && ("mock" in text || "live" in text) -> {
                         proof = eligible
@@ -59,14 +61,19 @@ internal object GitHubIntegrationAcceptance {
                     ("fixture" in text || "disposable" in text) && ("mutation" in text || "write" in text || "cleanup" in text) -> {
                         proof = eligible.filter { !read(it) }
                         val clean = GitHubSelfTestFixtures.complete(receipts)
-                        clean to if (clean) "Owned disposable mutation receipts and matching cleanup verification are retained." else "Owned fixture creation, mutation verification and cleanup must all have matching receipts; planned or accepted writes are insufficient."
+                        conditionalFixture = !clean && fixturePreflight?.get("state") != JsonPrimitive("READY") && GitHubSelfTestFixtures.checkpoint(receipts).isEmpty()
+                        clean to if (clean) "Owned disposable mutation receipts and matching cleanup verification are retained." else if (conditionalFixture) {
+                            "Conditional before mutation: effective approval mode requires native user approval, so no fixture branch was created. Select fixture-only auto approval for codex-self-test/* or run the approval interaction harness."
+                        } else {
+                            "Owned fixture creation, mutation verification and cleanup must all have matching receipts; planned or accepted writes are insufficient."
+                        }
                     }
                     GitHubTaskCoverage.matches(requirement) &&
                         ("tool" in text || "integration" in text || text.trim().matches(Regex("test all[.!]?"))) &&
                         !applicationWork.containsMatchIn(requirement) &&
                         !deviceWork.containsMatchIn(requirement) -> {
                         proof = eligible
-                        GitHubTestChecklist.capabilitiesComplete(task, receipts, tools) to
+                        GitHubTestChecklist.capabilitiesComplete(task, receipts, tools, fixturePreflight) to
                             "Every requested authorized API action needs its own qualifying receipt and required fixture cleanup. Catalog, traversal and device execution have separate coverage."
                     }
                     else -> false to "No matching execution predicate is available for this requirement; independent API observations do not establish device, application or implementation acceptance."
@@ -75,8 +82,8 @@ internal object GitHubIntegrationAcceptance {
                     put("id", GitHubRequestCompletion.id(requirement))
                     put("requirement", requirement)
                     put("required", true)
-                    put("status", if (assessment.first) "PASSED" else "NOT_TESTED")
-                    put("acceptance_state", if (assessment.first) "PASS" else "NOT_TESTED")
+                    put("status", when { assessment.first -> "PASSED"; conditionalFixture -> "CONDITIONAL"; else -> "NOT_TESTED" })
+                    put("acceptance_state", when { assessment.first -> "PASS"; conditionalFixture -> "CONDITIONAL"; else -> "NOT_TESTED" })
                     put("acceptance", assessment.second)
                     put("evidence_receipt_ids", JsonArray(proof.mapNotNull { it["receipt_id"] }.distinct()))
                 }

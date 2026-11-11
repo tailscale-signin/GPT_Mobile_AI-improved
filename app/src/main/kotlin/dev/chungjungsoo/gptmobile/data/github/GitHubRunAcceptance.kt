@@ -20,7 +20,12 @@ internal object GitHubRunAcceptance {
         val verifiedCriteria: Int,
         val unresolvedOutcomes: Int,
         val diagnostics: JsonObject? = null,
-        val diagnosticPages: List<JsonObject> = emptyList()
+        val diagnosticPages: List<JsonObject> = emptyList(),
+        val taskState: String? = null,
+        val stopCode: String? = null,
+        val approvalState: String? = null,
+        val taskOutcome: String? = null,
+        val diagnosticsComplete: Boolean = false
     )
 
     data class CommitEvidence(val expected: Boolean, val acceptance: Assessment?)
@@ -47,6 +52,12 @@ internal object GitHubRunAcceptance {
     fun requireCompletion(completed: Boolean, acceptanceExpected: Boolean, acceptance: Assessment?) {
         if (!completed || !acceptanceExpected) return
         check(acceptance != null) { "GITHUB_EVIDENCE_RETENTION_INCOMPLETE: The run-linked acceptance receipt is unavailable; completion cannot be committed." }
+        check(acceptance.verification != "WAITING_FOR_APPROVAL") {
+            "WAITING_FOR_APPROVAL: The staged change is paused for its existing native approval card; resolve that card before marking the run complete."
+        }
+        check(acceptance.verification != "PARTIAL_EVIDENCE") {
+            "PARTIAL_EVIDENCE: Acceptance diagnostics are missing or incomplete pages; a final acceptance verdict cannot be issued."
+        }
         check(acceptance.verification == "VERIFIED") {
             (if (acceptance.unresolvedOutcomes > 0) "RECONCILIATION_REQUIRED" else "GITHUB_TASK_INCOMPLETE") +
                 ": The delivered response does not satisfy this run's verified acceptance criteria."
@@ -63,6 +74,20 @@ internal object GitHubRunAcceptance {
         val unresolved = execution?.number("unresolved_remote_outcomes")
         val delivered = report["response_delivered"] == JsonPrimitive(true)
         val responseHash = report.text("response_sha256").takeIf { it.matches(Regex("[a-f0-9]{64}")) }
+        val pendingApprovals = (execution?.get("pending_approvals") as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
+        val pendingApproval = pendingApprovals.isNotEmpty() || report.text("task_state") == "WAITING_FOR_APPROVAL" || report.text("blocking_condition") == "WAITING_FOR_APPROVAL"
+        val taskState = report.text("task_state").ifBlank { if (pendingApproval) "WAITING_FOR_APPROVAL" else "" }
+        val stopReason = report["stop_reason"] as? JsonObject
+        val stopCode = report.text("stop_code").ifBlank { stopReason?.text("code").orEmpty() }.takeIf(String::isNotBlank)
+        val approvalState = pendingApprovals.firstOrNull()?.text("approval_state")?.takeIf(String::isNotBlank)
+            ?: pendingApprovals.firstOrNull()?.text("state")?.takeIf(String::isNotBlank)
+            ?: if (pendingApproval) "WAITING_FOR_APPROVAL" else report.text("approval_state").takeIf(String::isNotBlank)
+        val taskOutcome = report.text("task_outcome").ifBlank { if (pendingApproval) "WAITING_FOR_APPROVAL" else "" }
+        val diagnostics = (acceptance?.get("diagnostic_projection") as? JsonObject)?.takeIf(GitHubAcceptanceDiagnostics::valid)
+            ?: GitHubAcceptanceDiagnostics.snapshot(acceptance ?: JsonObject(emptyMap()))
+        val pages = (acceptance?.get("diagnostic_pages") as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
+            .takeIf { GitHubAcceptanceDiagnostics.validPages(it) && it.first().text("criteria_sha256") == diagnostics.text("criteria_sha256") }
+        val diagnosticsComplete = diagnostics.number("omitted_count") == 0 || pages != null
         val complete = delivered &&
             responseHash != null &&
             report["completion_verified"] == JsonPrimitive(true) &&
@@ -77,6 +102,8 @@ internal object GitHubRunAcceptance {
             (execution?.number("receipt_count") ?: 0) > 0
         val state = when {
             unresolved != null && unresolved > 0 -> "UNKNOWN_OUTCOME"
+            pendingApproval -> "WAITING_FOR_APPROVAL"
+            !diagnosticsComplete -> "PARTIAL_EVIDENCE"
             complete -> "VERIFIED"
             report.text("task_outcome") in setOf("BLOCKED", "CONFIGURATION_INVALIDATED") -> "BLOCKED"
             report.text("task_outcome") == "FAILED" || criteria.any { it["state"] == JsonPrimitive("FAIL") } -> "FAILED"
@@ -89,6 +116,10 @@ internal object GitHubRunAcceptance {
             put("chat_id", chatId)
             put("message_id", messageId)
             put("verification", state)
+            taskState.takeIf(String::isNotBlank)?.let { put("task_state", it) }
+            stopCode?.let { put("stop_code", it) }
+            approvalState?.let { put("approval_state", it) }
+            taskOutcome.takeIf(String::isNotBlank)?.let { put("task_outcome", it) }
             put("binding", report.text("binding"))
             put("verdict_sha256", GitHubEvidenceBook.digest(report.toString()))
             put("response_delivered", delivered)
@@ -96,11 +127,8 @@ internal object GitHubRunAcceptance {
             put("required_criteria", criteria.size)
             put("verified_criteria", verified)
             put("unresolved_remote_outcomes", unresolved ?: -1)
-            val diagnostics = (acceptance?.get("diagnostic_projection") as? JsonObject)?.takeIf(GitHubAcceptanceDiagnostics::valid)
-                ?: GitHubAcceptanceDiagnostics.snapshot(acceptance ?: JsonObject(emptyMap()))
+            put("diagnostics_complete", diagnosticsComplete)
             put("diagnostic_projection", diagnostics)
-            val pages = (acceptance?.get("diagnostic_pages") as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
-                .takeIf { GitHubAcceptanceDiagnostics.validPages(it) && it.first().text("criteria_sha256") == diagnostics.text("criteria_sha256") }
             if (pages != null) put("diagnostic_pages", JsonArray(pages))
         }
     }
@@ -118,7 +146,7 @@ internal object GitHubRunAcceptance {
         val required = value.number("required_criteria")?.takeIf { it >= 0 } ?: return null
         val verified = value.number("verified_criteria")?.takeIf { it in 0..required } ?: return null
         val unresolved = value.number("unresolved_remote_outcomes") ?: return null
-        val recorded = value.text("verification").takeIf { it in setOf("VERIFIED", "PARTIAL", "BLOCKED", "FAILED", "UNKNOWN_OUTCOME") } ?: return null
+        val recorded = value.text("verification").takeIf { it in setOf("VERIFIED", "PARTIAL", "PARTIAL_EVIDENCE", "BLOCKED", "FAILED", "UNKNOWN_OUTCOME", "WAITING_FOR_APPROVAL") } ?: return null
         val state = when {
             unresolved > 0 -> "UNKNOWN_OUTCOME"
             recorded == "VERIFIED" &&
@@ -134,7 +162,27 @@ internal object GitHubRunAcceptance {
         val diagnostics = (value["diagnostic_projection"] as? JsonObject)?.takeIf(GitHubAcceptanceDiagnostics::valid)
         val pages = (value["diagnostic_pages"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
             .takeIf { GitHubAcceptanceDiagnostics.validPages(it) && it.first().text("criteria_sha256") == diagnostics?.text("criteria_sha256") }.orEmpty()
-        return Assessment(state, key(runId, fence), required, verified, unresolved, diagnostics, pages)
+        val diagnosticsComplete = diagnostics?.number("omitted_count") == 0 || pages.isNotEmpty()
+        val finalState = when {
+            unresolved > 0 -> "UNKNOWN_OUTCOME"
+            recorded == "WAITING_FOR_APPROVAL" -> "WAITING_FOR_APPROVAL"
+            !diagnosticsComplete -> "PARTIAL_EVIDENCE"
+            else -> state
+        }
+        return Assessment(
+            finalState,
+            key(runId, fence),
+            required,
+            verified,
+            unresolved,
+            diagnostics,
+            pages,
+            value.text("task_state").takeIf(String::isNotBlank),
+            value.text("stop_code").takeIf(String::isNotBlank),
+            value.text("approval_state").takeIf(String::isNotBlank),
+            value.text("task_outcome").takeIf(String::isNotBlank),
+            diagnosticsComplete
+        )
     }
 
     /** One bounded record per criterion preserves readable blockers when the surrounding log is truncated. */
@@ -164,6 +212,11 @@ internal object GitHubRunAcceptance {
                     put("pages", pages?.size ?: 1)
                     put("criteria_sha256", digest)
                     put("scope", "REQUEST_ACCEPTANCE")
+                    put("diagnostics_complete", assessment.diagnosticsComplete)
+                    assessment.taskState?.let { put("task_state", it) }
+                    assessment.stopCode?.let { put("stop_code", it) }
+                    assessment.approvalState?.let { put("approval_state", it) }
+                    assessment.taskOutcome?.let { put("task_outcome", it) }
                 }.toString()
             )
             rows.sortedBy { if (it["required"] == JsonPrimitive(true) && it.text("state") != "PASS") 0 else 1 }.forEach { row ->

@@ -17,14 +17,19 @@ class IntegrationBatchTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             target = Path(folder) / 'execution-policy.json'
             self.assertEqual('standard', load_policy(target)['default_mode'])
+            self.assertEqual(1, load_policy(target)['local_validation_workers'])
             self.assertNotIn('full', capability(load_policy(target))['modes'])
-            policy = dict(DEFAULTS, default_mode='full', full_enabled=True)
+            policy = dict(DEFAULTS, default_mode='full', full_enabled=True, local_validation_workers=3)
             self.assertEqual(policy, save_policy(target, policy))
             self.assertIn('full', capability(load_policy(target))['modes'])
+            self.assertEqual(3, capability(load_policy(target))['local_validation_workers'])
             with self.assertRaises(ValueError):
                 save_policy(target, dict(policy, github_api_max_inflight=8))
             with self.assertRaises(ValueError):
                 save_policy(target, dict(policy, native_provider_batch=True))
+            for workers in (0, 5, True):
+                with self.subTest(workers=workers), self.assertRaises(ValueError):
+                    save_policy(target, dict(policy, local_validation_workers=workers))
             self.assertEqual(policy, load_policy(target))
 
     def test_full_requires_explicit_host_enable_and_exact_version(self):
@@ -42,6 +47,15 @@ class IntegrationBatchTest(unittest.TestCase):
                     authorize_request({'execution_mode': 'full', 'batch_policy_version': 1, 'batch_preferences': {'max_git_api_inflight': 3}})
                 with self.assertRaises(ValueError):
                     authorize_request({'execution_mode': 'full', 'batch_policy_version': 1}, durable=False)
+
+    def test_local_validation_worker_limit_is_frozen_and_can_be_narrowed_per_job(self):
+        request = {'request_id': 'id', 'execution_mode': 'full', 'repository': 'a/b', 'branch': 'feature',
+                   'base': 'main', 'acceptance': [], 'execution_budget': {}}
+        job = {'id': 'job', 'principal': 'local', 'request': request, 'state': 'PLAN', 'revision': 0, 'data': {}}
+        policy = dict(DEFAULTS, default_mode='full', full_enabled=True, local_validation_workers=3)
+        self.assertEqual(3, new_plan(job, policy)['controls']['local_validation_workers'])
+        request['batch_preferences'] = {'allow_parallel_local_tests': False}
+        self.assertEqual(1, new_plan(job, policy)['controls']['local_validation_workers'])
 
     def test_stage_retries_extend_plan_without_fabricating_acceptance(self):
         request = {'request_id': 'id', 'execution_mode': 'full', 'repository': 'a/b', 'branch': 'feature',

@@ -152,11 +152,30 @@ internal class GitHubVerifiedSession(
             if (saved != null && GitHubTaskContinuity.control(currentRequest)) {
                 validatePublication()
                 val (body, verdict) = saved
-                val text = "## Saved approval pending\n\nReview the saved approval or publication status to resume.\n\n$body"
+                val approval = pendingApprovals.first()
+                val taskId = approval.text("engineering_task_id")
+                val cardId = approval.text("card_id")
+                val branch = approval.text("branch")
+                val patch = approval.text("patch_digest").take(12)
+                val text = buildString {
+                    append("## Waiting for approval\n\n")
+                    append("Resolve the existing approval card")
+                    if (cardId.isNotBlank()) append(" `$cardId`")
+                    append(" before continuing. No commit has been published.\n\n")
+                    if (taskId.isNotBlank()) append("Task: `$taskId`\n")
+                    if (branch.isNotBlank()) append("Branch: `$branch`\n")
+                    if (patch.isNotBlank()) append("Patch: `$patch`\n")
+                    append("Choose Approve & Commit, Reject, or Keep fixture on that card. Generic Continue is paused while approval is pending.\n\n")
+                    append(body)
+                }
                 val delivered = evidence.retainVerdict(
                     JsonObject(
                         verdict + buildJsonObject {
-                            put("task_outcome", "BLOCKED")
+                            put("task_outcome", "WAITING_FOR_APPROVAL")
+                            put("task_state", "WAITING_FOR_APPROVAL")
+                            put("stop_code", "WAITING_FOR_APPROVAL")
+                            put("approval_state", "WAITING_FOR_APPROVAL")
+                            put("blocking_condition", "WAITING_FOR_APPROVAL")
                             put("completion_verified", false)
                             put("pending_approvals", pendingApprovals)
                             put("response_delivered", true)
@@ -167,7 +186,7 @@ internal class GitHubVerifiedSession(
                 )
                 onPublication(delivered)
                 emit(ProviderEvent.TextDelta(text, dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.RETAINED_CONTENT)))
-                emit(ProviderEvent.Failed("Review the saved change to continue.", errorCode = "WAITING_FOR_APPROVAL", transportComplete = true, taskOutcome = "BLOCKED"))
+                emit(ProviderEvent.Failed("Review the saved change to continue.", errorCode = "WAITING_FOR_APPROVAL", transportComplete = true, taskOutcome = "WAITING_FOR_APPROVAL"))
             } else {
                 emitAll(publish(null))
             }
@@ -209,10 +228,11 @@ internal class GitHubVerifiedSession(
         }
         if (GitHubTestChecklist.integration(task)) {
             val receipts = evidence.snapshot().first
+            val fixturePreflight = evidence.fixtureApprovalPreflight()
             val (checkpoint, planned, missing) = withContext(computationDispatcher) {
                 Triple(
-                    GitHubTestChecklist.checkpoint(task, receipts, authorizedTools, remainingToolCalls()),
-                    GitHubTestChecklist.nextCall(task, tools, receipts, remainingToolCalls()),
+                    GitHubTestChecklist.checkpoint(task, receipts, authorizedTools, remainingToolCalls(), fixturePreflight),
+                    GitHubTestChecklist.nextCall(task, tools, receipts, remainingToolCalls(), fixturePreflight),
                     authorizedTools.filter { definition -> definition.name.startsWith("github_") && tools.none { it.name == definition.name } && receipts.values.none { it["tool"] == kotlinx.serialization.json.JsonPrimitive(definition.name) } }.take(12)
                 )
             }
@@ -625,8 +645,9 @@ internal class GitHubVerifiedSession(
                 rendered
             }
             val (checklist, progressDigest) = withContext(computationDispatcher) {
-                val checklist = if (coverage != null) GitHubTestChecklist.checkpoint(task, publicationReceipts, authorizedTools, remainingToolCalls()) else null
-                checklist to checklist?.let { GitHubTestChecklist.progressDigest(task, publicationReceipts, authorizedTools) }
+                val fixturePreflight = if (coverage != null && GitHubTestChecklist.integration(task)) evidence.fixtureApprovalPreflight() else null
+                val checklist = if (coverage != null) GitHubTestChecklist.checkpoint(task, publicationReceipts, authorizedTools, remainingToolCalls(), fixturePreflight) else null
+                checklist to checklist?.let { GitHubTestChecklist.progressDigest(task, publicationReceipts, authorizedTools, fixturePreflight) }
             }
             val previous = evidence.diagnostic()
             val previousProgressDigest = GitHubEvidenceBook.publishedChecklistDigest(previous)

@@ -50,19 +50,17 @@ import java.util.Locale
 
 @Composable
 internal fun GitHubActivityPreview(raw: String, latest: Boolean, motion: State<Float>, search: GitHubSearchActivity? = null, animateEntry: Boolean = true) {
-    val text = search?.label ?: remember(raw) { GitHubProgressPresentation.preview(raw) }
+    val incomingText = search?.label ?: remember(raw) { GitHubProgressPresentation.preview(raw) }
+    val activeTransition = rememberGitHubActivePreviewTransition(incomingText, active = latest, animate = animateEntry)
+    val text = activeTransition.text.value
     val kind = remember(text) { GitHubProgressPresentation.previewKind(text) }
     val colors = MaterialTheme.colorScheme
     val previewColor = colors.onSurface.copy(alpha = 0.5f)
-    val opacity = rememberGitHubActivityEntry(animateEntry)
+    val entryOpacity = rememberGitHubActivityEntry(animateEntry && !latest)
     var expanded by rememberSaveable(text) { mutableStateOf(false) }
     var overflows by remember(text) { mutableStateOf(false) }
     Row(
         modifier = Modifier.fillMaxWidth().testTag("github_preview_row")
-            .graphicsLayer {
-                alpha = if (latest) 1f else opacity.value
-                compositingStrategy = if (latest) CompositingStrategy.Offscreen else CompositingStrategy.Auto
-            }
             .then(
                 if (latest) {
                     Modifier.drawWithCache {
@@ -74,11 +72,17 @@ internal fun GitHubActivityPreview(raw: String, latest: Boolean, motion: State<F
                 } else {
                     Modifier
                 }
-            ),
+            )
+            // Apply opacity after the panning gradient so text, icon, controls,
+            // and the gradient rise and dip together during active updates.
+            .graphicsLayer {
+                alpha = if (latest) activeTransition.opacity.value else entryOpacity.value
+                compositingStrategy = if (latest) CompositingStrategy.Offscreen else CompositingStrategy.Auto
+            },
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(Modifier.graphicsLayer { alpha = if (latest) opacity.value else 1f }) {
+        Box {
             if (search != null) {
                 GitHubSearchBrandStack(search)
             } else {
@@ -118,7 +122,6 @@ internal fun GitHubActivityPreview(raw: String, latest: Boolean, motion: State<F
             IconButton(
                 onClick = { expanded = !expanded },
                 modifier = Modifier.size(48.dp).testTag("github_preview_details")
-                    .graphicsLayer { alpha = if (latest) opacity.value else 1f }
                     .semantics { stateDescription = detailsState }
             ) {
                 Icon(

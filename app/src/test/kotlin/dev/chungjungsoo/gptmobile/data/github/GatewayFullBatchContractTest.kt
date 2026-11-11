@@ -20,9 +20,10 @@ class GatewayFullBatchContractTest {
 
     @Test fun fullModeRequiresAdvertisedCapability() {
         val result = json.decodeFromString<GatewayEngineeringCapabilities>(
-            """{"service":"engineering-gateway","protocol_version":1,"execution_batch":{"protocol_version":1,"modes":["standard","smart","full"],"full_enabled":true}}"""
+            """{"service":"engineering-gateway","protocol_version":1,"execution_batch":{"protocol_version":1,"modes":["standard","smart","full"],"full_enabled":true,"local_validation_workers":3}}"""
         )
         assertTrue(result.supportsFullBatch)
+        assertEquals(3, result.executionBatch?.localValidationWorkers)
         val disabled = result.copy(executionBatch = result.executionBatch!!.copy(modes = listOf("standard", "smart")))
         assertFalse(disabled.supportsFullBatch)
         val inconsistent = result.copy(executionBatch = result.executionBatch.copy(fullEnabled = false))
@@ -49,9 +50,10 @@ class GatewayFullBatchContractTest {
         )
         assertEquals("full", saved.executionMode)
         val progress = json.decodeFromString<GatewayIntegrationBatchProgress>(
-            """{"schema_version":1,"mode":"full","revision":4,"completed":3,"total":4,"current_phase":"CI","current_state":"waiting_rate_limit"}"""
+            """{"schema_version":1,"mode":"full","revision":4,"completed":3,"total":4,"current_phase":"CI","current_state":"waiting_rate_limit","local_validation_workers":2}"""
         )
         assertEquals("CI", progress.currentPhase)
         assertEquals(3, progress.completed)
+        assertEquals(2, progress.localValidationWorkers)
     }
 }

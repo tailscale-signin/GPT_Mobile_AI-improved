@@ -18,11 +18,13 @@ data class CombinedProfileFailure(
     val applicationFailure: Boolean = false,
     val retryAfterMillis: Long? = null,
     val category: String = "INCOMPLETE",
-    val retrying: Boolean = false
+    val retrying: Boolean = false,
+    val waitingForApproval: Boolean = false
 )
 
 internal fun CombinedProfileFailure.shortStatus(now: Long): String = when {
     retrying -> "Retrying…"
+    category == "WAITING_FOR_APPROVAL" -> "Waiting for approval"
     category == "ENDPOINT_RETIRED" -> "Endpoint retired"
     category == "BILLING_UNAVAILABLE" -> "Provider credits unavailable"
     category == "QUEUED_JOB" -> "Waiting for remote job"
@@ -65,20 +67,25 @@ internal fun combinedProfileFailures(
     val run = runs[message.currentRunId] ?: return@mapNotNull null
     if (run.status in setOf(AgentRunStatus.QUEUED, AgentRunStatus.RUNNING)) return@mapNotNull null
     val waitingForLimit = run.status == AgentRunStatus.WAITING_PROVIDER_LIMIT
+    val waitingForApproval = run.status == AgentRunStatus.WAITING_FOR_APPROVAL
     val generation = message.timeline.lastOrNull { it.generation != null }?.generation
     val content = CombinedContributionQuality.sanitizeContribution(message.content)
     val demo = uid == "builtin-free-porchlm" || names[uid]?.contains("PorchLM", true) == true || models[uid]?.contains("porch", true) == true
     val assessed = CombinedContributionUsability.assess(run.status, content, allowPartial = true, request = request, demo = demo, finishReason = generation?.finishReason, outputTokens = generation?.outputTokens, outputAllowance = generation?.outputAllowance ?: 256.takeIf { uid == "builtin-free-ai_horde" })
     if (run.status == AgentRunStatus.COMPLETED && assessed.admitted && !assessed.usablePartial) return@mapNotNull null
-    val details = run.terminalError ?: if (waitingForLimit) "Provider rate limit. This profile is paused and has not completed its contribution." else assessed.reason ?: "Incomplete contribution"
+    val details = run.terminalError ?: when {
+        waitingForLimit -> "Provider rate limit. This profile is paused and has not completed its contribution."
+        waitingForApproval -> "The saved GitHub task is paused until its existing approval card is resolved."
+        else -> assessed.reason ?: "Incomplete contribution"
+    }
     val savedPolicyUnavailable = details.contains("POLICY_SNAPSHOT_", ignoreCase = true)
     val terminalClassification = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.classify(details, demoExcluded = demo)
     val classified = message.timeline.lastOrNull { it.profileFailure != null }?.profileFailure
         ?.takeUnless { demo || savedPolicyUnavailable || terminalClassification.category in setOf("ENDPOINT_RETIRED", "BILLING_UNAVAILABLE") } ?: dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.classify(details, demoExcluded = demo)
     // Verification has its own task continuation. A provider answered successfully
     // even when the requested repository work still lacks acceptance evidence.
-    if (classified.isTaskVerification || !waitingForLimit && message.timeline.lastOrNull { it.profileFailure != null || it.taskVerificationFailure != null }?.taskVerificationFailure != null) return@mapNotNull null
-    val appFailure = !waitingForLimit && (classified.category in setOf("APP_EXECUTION", "SAVED_POLICY_UNAVAILABLE") || savedPolicyUnavailable)
+    if (!waitingForApproval && (classified.isTaskVerification || !waitingForLimit && message.timeline.lastOrNull { it.profileFailure != null || it.taskVerificationFailure != null }?.taskVerificationFailure != null)) return@mapNotNull null
+    val appFailure = !waitingForLimit && !waitingForApproval && (classified.category in setOf("APP_EXECUTION", "SAVED_POLICY_UNAVAILABLE") || savedPolicyUnavailable)
     val permanentUnavailable = classified.category in setOf("ENDPOINT_RETIRED", "BILLING_UNAVAILABLE")
     val incompatible = !classified.retryAllowed && (!waitingForLimit || permanentUnavailable)
     val savedDeadline = waitDeadlines[run.runId]?.takeIf {
@@ -95,6 +102,7 @@ internal fun combinedProfileFailures(
         classified.category == "ENDPOINT_RETIRED" -> "The provider retired this endpoint. Update the endpoint or model before starting a new turn."
         classified.category == "BILLING_UNAVAILABLE" -> "The provider cannot generate with the current account balance. Restore credits before starting a new turn."
         waitingForLimit -> "This profile is paused by a provider limit. Wait for its allowance or combine the available replies without this profile for this turn."
+        waitingForApproval -> "This GitHub task is paused until you resolve its existing Approve & Commit card. Generic Continue is disabled while the approval is pending."
         run.status == AgentRunStatus.WAITING_REMOTE_JOB || classified.category == "QUEUED_JOB" -> "The remote job is still queued or generating. Check its saved status or continue without this profile."
         classified.category == "CACHED_UNUSABLE_RESPONSE" -> "The provider replayed the same cached generation without an answer. Choose a different model, supported settings or provider."
         savedPolicyUnavailable || classified.category == "SAVED_POLICY_UNAVAILABLE" -> "Saved request data is unavailable. Restore its complete backup or start a new request; other replies are saved."
@@ -112,15 +120,16 @@ internal fun combinedProfileFailures(
         assessed.usablePartial -> "The answer is incomplete."
         else -> details.take(180)
     }
-    val retryAllowed = !incompatible && run.status != AgentRunStatus.WAITING_REMOTE_JOB && (!waitingForLimit || retryAt != null)
+    val retryAllowed = !waitingForApproval && !incompatible && run.status != AgentRunStatus.WAITING_REMOTE_JOB && (!waitingForLimit || retryAt != null)
     val category = if (permanentUnavailable) {
         classified.category
     } else {
         when (run.status) {
             AgentRunStatus.WAITING_PROVIDER_LIMIT -> "RATE_LIMIT"
             AgentRunStatus.WAITING_REMOTE_JOB -> "QUEUED_JOB"
+            AgentRunStatus.WAITING_FOR_APPROVAL -> "WAITING_FOR_APPROVAL"
             else -> classified.category
         }
     }
-    CombinedProfileFailure(userMessageId, uid, names[uid]?.takeIf { it.isNotBlank() } ?: "Saved profile", models[uid] ?: run.modelSnapshot, message.currentRunId, reason, details, retryAllowed, appFailure, retryAt, category)
+    CombinedProfileFailure(userMessageId, uid, names[uid]?.takeIf { it.isNotBlank() } ?: "Saved profile", models[uid] ?: run.modelSnapshot, message.currentRunId, reason, details, retryAllowed, appFailure, retryAt, category, waitingForApproval = waitingForApproval)
 }

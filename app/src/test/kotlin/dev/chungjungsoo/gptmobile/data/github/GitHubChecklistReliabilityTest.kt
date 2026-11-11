@@ -38,6 +38,18 @@ class GitHubChecklistReliabilityTest {
         assertEquals(0, GitHubChecklistBudget.remaining(historical, current = 0))
     }
 
+    @Test fun unrequestedCiMutationsAreConditionalWithoutAWorkflowRunOrJob() {
+        val ci = tool("github_ci", "\"runs\",\"dispatch\",\"rerun\",\"cancel\"")
+        val rows = GitHubTestChecklist.rows(emptyMap(), listOf(ci), "Test GitHub integration coverage").filterIsInstance<JsonObject>()
+        for (action in listOf("dispatch", "rerun", "cancel")) {
+            val row = rows.single { it["id"] == JsonPrimitive("github_ci:$action") }
+            assertEquals(JsonPrimitive("NOT_REQUESTED"), row["status"])
+            assertEquals(JsonPrimitive(false), row["required"])
+            assertEquals(JsonPrimitive("CONDITIONAL_RESOURCE_NOT_PRESENT"), row["applicability"])
+            assertEquals(JsonPrimitive("OUT_OF_SCOPE"), row["blocker_code"])
+        }
+    }
+
     @Test fun existingOwnedFixtureCleanupRunsBeforeOptionalAcquisition() {
         val sha = "a".repeat(40)
         val fixture = "codex-self-test/" + GitHubEvidenceBook.digest("tasksource").take(20)

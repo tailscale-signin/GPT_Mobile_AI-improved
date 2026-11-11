@@ -14,16 +14,24 @@ def _digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':'), ensure_ascii=True).encode()).hexdigest()
 
 
-def new_plan(job):
+def new_plan(job, policy=None):
     request = job['request']
     if request.get('execution_mode', 'standard') != 'full':
         return None
+    if policy is None:
+        from v14.engineering_batch_policy import load_policy
+        policy = load_policy()
+    preferences = request.get('batch_preferences') or {}
+    workers = policy['local_validation_workers']
+    if preferences.get('allow_parallel_local_tests') is False:
+        workers = 1
     identity = [job['principal'], job['id'], request['request_id'],
                 request['repository'], request['branch'], request['base'],
                 request.get('source_sha'), request.get('execution_binding_id'),
                 request.get('acceptance'), request.get('execution_budget')]
     return {'schema_version': VERSION, 'execution_mode': 'full',
             'identity_digest': _digest(identity), 'revision': 0,
+            'controls': {'local_validation_workers': workers},
             'nodes': [{'id': 'stage-0001', 'phase': 'PLAN', 'depends_on': [],
                        'state': 'queued', 'attempt': 1, 'receipt_sha256': None}]}
 
@@ -108,6 +116,7 @@ def summary(plan):
             'completed': completed, 'total': len(nodes),
             'current_phase': current['phase'] if current else None,
             'current_state': current['state'] if current else None,
+            'local_validation_workers': plan.get('controls', {}).get('local_validation_workers', 1),
             'status': plan.get('state', 'active')}
 
 

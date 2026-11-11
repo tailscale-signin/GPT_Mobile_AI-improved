@@ -164,8 +164,14 @@ def build_window(root, parent=None, section='General'):
     batch_mode = tk.StringVar(value=batch_settings['default_mode'])
     ttk.Combobox(advanced, textvariable=batch_mode, state='readonly',
                  values=['standard', 'smart', 'full']).grid(row=12, column=0, columnspan=3, sticky='ew', pady=5)
-    ttk.Label(advanced, text='Standard keeps the existing path. Smart uses safe read batching. Full also tracks durable engineering stages. Enable Full on this PC and select it in Android GitHub Mode; previous saved jobs retain their original policy. GitHub API requests remain serialized and native cloud batching stays disabled.',
+    ttk.Label(advanced, text='Standard keeps the existing path. Smart uses safe read batching. Full tracks durable engineering stages and can run host-approved independent local test suites in parallel. Enable Full on this PC and select it in Android GitHub Mode; previous saved jobs retain their original policy.',
               style='Muted.TLabel', wraplength=600).grid(row=13, column=0, columnspan=3, sticky='w', pady=(4, 12))
+    ttk.Label(advanced, text='Full Batch local validation workers', style='Section.TLabel').grid(row=14, column=0, columnspan=3, sticky='w', pady=(6, 8))
+    batch_workers = tk.StringVar(value=str(batch_settings['local_validation_workers']))
+    ttk.Combobox(advanced, textvariable=batch_workers, state='readonly',
+                 values=['1', '2', '3', '4']).grid(row=15, column=0, columnspan=3, sticky='ew', pady=5)
+    ttk.Label(advanced, text='One runs sequentially. Higher values parallelize only adjacent independent checks that the repository validation policy explicitly groups. Each check stays in its own offline sandbox. GitHub API requests remain serialized; native cloud-provider batching is unavailable.',
+              style='Muted.TLabel', wraplength=600).grid(row=16, column=0, columnspan=3, sticky='w', pady=(4, 12))
 
     addons = sections['Add-ons']
     title(addons, 'Extend your gateway', 'Manage configured PC tools.')
@@ -251,7 +257,8 @@ def build_window(root, parent=None, section='General'):
             updated = validate(updated)
             selected_batch_mode = batch_mode.get()
             staged_batch = dict(batch_settings, default_mode=selected_batch_mode,
-                                full_enabled=(selected_batch_mode == 'full'))
+                                full_enabled=(selected_batch_mode == 'full'),
+                                local_validation_workers=int(batch_workers.get()))
             # Validate separately so the older Windows schema-1 settings reader
             # never receives the new policy fields.
             from v14.engineering_batch_policy import validate_policy as validate_execution_policy

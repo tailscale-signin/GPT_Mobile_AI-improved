@@ -46,7 +46,7 @@ internal fun combinedResponseStatus(
     preparing: Boolean = false
 ): CombinedResponseStatus = when {
     run?.status in setOf(AgentRunStatus.FAILED, AgentRunStatus.CANCELED, AgentRunStatus.INTERRUPTED, AgentRunStatus.PARTIAL, AgentRunStatus.EVIDENCE_MISSING, AgentRunStatus.BLOCKED) -> CombinedResponseStatus.FAILED
-    run?.status in setOf(AgentRunStatus.WAITING_PROVIDER_LIMIT, AgentRunStatus.WAITING_REMOTE_JOB) -> CombinedResponseStatus.PAUSED
+    run?.status in setOf(AgentRunStatus.WAITING_PROVIDER_LIMIT, AgentRunStatus.WAITING_REMOTE_JOB, AgentRunStatus.WAITING_FOR_APPROVAL) -> CombinedResponseStatus.PAUSED
     run?.status in setOf(AgentRunStatus.QUEUED, AgentRunStatus.RUNNING) || preparing -> CombinedResponseStatus.GENERATING
     message?.content.isNullOrBlank() || isAssistantErrorMessage(message.content) -> CombinedResponseStatus.FAILED
     else -> CombinedResponseStatus.COMPLETED
@@ -138,7 +138,7 @@ internal fun combinedResponseProjection(original: MessageV2?, source: CombinedMo
         when (source.completionStatus) {
             AgentRunStatus.COMPLETED -> CombinedResponseStatus.COMPLETED
             AgentRunStatus.QUEUED, AgentRunStatus.RUNNING -> CombinedResponseStatus.GENERATING
-            AgentRunStatus.WAITING_PROVIDER_LIMIT, AgentRunStatus.WAITING_REMOTE_JOB -> CombinedResponseStatus.PAUSED
+            AgentRunStatus.WAITING_PROVIDER_LIMIT, AgentRunStatus.WAITING_REMOTE_JOB, AgentRunStatus.WAITING_FOR_APPROVAL -> CombinedResponseStatus.PAUSED
             else -> CombinedResponseStatus.FAILED
         }
     } else if (run?.status == AgentRunStatus.COMPLETED && response != null && CombinedContributionUsability.assess(run.status, response.content, allowPartial = true, finishReason = response.timeline.lastOrNull { it.generation != null }?.generation?.finishReason).usablePartial) {

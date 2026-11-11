@@ -1177,6 +1177,7 @@
     <string name="openrouter_fallback_models_help">Up to three exact model IDs, in order, separated by commas. Compatible models use this profile’s routing, privacy, and pricing settings.</string>
     <string name="provider_wait_retry_at">Waiting for provider · work saved · retry after %1$s</string>
     <string name="provider_wait_saved">Paused: provider limit. Your work is saved and eligibility will be checked again after the cooldown.</string>
+    <string name="github_approval_wait_saved">Waiting for your decision on the existing GitHub approval card. Use Approve &amp; Commit or Reject there; generic Continue is paused until you choose.</string>
     <string name="github_chat_title">GitHub Chat</string>
     <string name="github_chat_description">Work on a repository with one AI profile</string>
     <string name="chat_retry_formatting">Retry formatting</string>

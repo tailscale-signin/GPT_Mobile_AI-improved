@@ -159,7 +159,7 @@ private fun GitHubDecisionSettings(mode: GitHubDecisionMode, enabled: Boolean, o
     fun label(value: GitHubDecisionMode) = when (value) {
         GitHubDecisionMode.ASK -> "Ask each time"
         GitHubDecisionMode.SUGGESTED -> "Use suggested choices"
-        GitHubDecisionMode.AUTO_APPROVE -> "Auto-approve eligible commits"
+        GitHubDecisionMode.AUTO_APPROVE -> "Fixture-only auto-approval"
     }
     OutlinedCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -178,7 +178,7 @@ private fun GitHubDecisionSettings(mode: GitHubDecisionMode, enabled: Boolean, o
                 when (mode) {
                     GitHubDecisionMode.ASK -> "Review each patch and choose how to answer each question."
                     GitHubDecisionMode.SUGGESTED -> "Use the suggested option when one is available. Review proposed commits yourself."
-                    GitHubDecisionMode.AUTO_APPROVE -> "Use suggested choices and approve eligible working-branch patches through saved task recovery. Deletions, workflow changes, and changes that require hardware verification still ask."
+                    GitHubDecisionMode.AUTO_APPROVE -> "Use suggested choices and auto-approve only verified patches on owned codex-self-test/* fixture branches. Commits to regular repository branches still require the native Approve & Commit action."
                 },
                 style = MaterialTheme.typography.bodySmall
             )

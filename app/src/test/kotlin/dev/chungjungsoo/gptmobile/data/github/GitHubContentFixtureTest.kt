@@ -204,6 +204,37 @@ class GitHubContentFixtureTest {
         assertTrue(records.values.none { it["arguments"]?.jsonObject?.get("action") in listOf(JsonPrimitive("resolve"), JsonPrimitive("merge")) })
     }
 
+    @Test fun explicitKeepFixtureDecisionStopsCleanupAndIsReportedSeparately() {
+        val records = completed()
+        records.remove(records.keys.last())
+        records["local-fixture-retention"] = buildJsonObject {
+            put("receipt_id", "local-fixture-retention")
+            put("binding", "task")
+            put("repository", "owner/repo")
+            put("tool", "github_context")
+            put("arguments", buildJsonObject {
+                put("action", "local_fixture_decision")
+                put("branch", branch)
+            })
+            put("trusted", true)
+            put("success", true)
+            put("evidence_origin", "LOCAL_DURABLE_APPROVAL_EVENT")
+            put("local_resolution_event", "approval_card_keep_fixture")
+            put("result", buildJsonObject {
+                put("branch", branch)
+                put("fixture_retention_state", "KEEP_BY_USER")
+                put("keep_fixture", true)
+            })
+        }
+
+        val checkpoint = GitHubSelfTestFixtures.checkpoint(records).single().jsonObject
+        assertEquals(JsonPrimitive("DELIBERATELY_RETAINED"), checkpoint["lifecycle_state"])
+        assertEquals(JsonPrimitive("FIXTURE_INTENTIONALLY_RETAINED_BY_USER"), checkpoint["lifecycle_reason"])
+        assertEquals(JsonPrimitive("KEPT_BY_USER"), checkpoint["cleanup_status"])
+        assertTrue(checkpoint["fixture_retention_statement"].toString().contains("user's request"))
+        assertNull(GitHubSelfTestFixtures.next("Test all GitHub tools with writes", tools, records))
+    }
+
     @Test fun productionSchemasAdmitOwnedCleanupOnlyWithItsExactOriginLease() {
         val actual = tools.map { GitHubOperationTool.definition(it.name) }
         assertEquals(11, GitHubSelfTestFixtures.minimumCalls(actual))

@@ -2243,12 +2243,16 @@ class ChatViewModel @Inject constructor(
                     val decisions = combinedCollectionDecisions
                     val excluded = decisions?.excludedProfiles(accepted.context.rootBudgetId).orEmpty()
                     val activeRows = rows.filter { it.platformType in _activePlatformUids.value && it.platformType in accepted.context.requested.participantUids && it.platformType !in excluded }
-                    val pendingRows = activeRows.filter { runs[it.currentRunId]?.status in setOf(AgentRunStatus.WAITING_REMOTE_JOB, AgentRunStatus.WAITING_PROVIDER_LIMIT) }
+                    val pendingRows = activeRows.filter { runs[it.currentRunId]?.status in setOf(AgentRunStatus.WAITING_REMOTE_JOB, AgentRunStatus.WAITING_PROVIDER_LIMIT, AgentRunStatus.WAITING_FOR_APPROVAL) }
                     val pendingProfiles = pendingRows.mapNotNull { it.platformType }
                     if (pendingProfiles.isNotEmpty()) {
                         val savedDecisions = requireNotNull(decisions)
                         check(accepted.context.requested.participantUids.any { it in _activePlatformUids.value && it !in excluded && it !in pendingProfiles }) {
-                            "All remaining profiles are waiting for a provider. Check their saved status or select another profile before combining."
+                            if (pendingRows.any { runs[it.currentRunId]?.status == AgentRunStatus.WAITING_FOR_APPROVAL }) {
+                                "All remaining profiles are paused. Resolve the existing GitHub approval card before continuing this task."
+                            } else {
+                                "All remaining profiles are waiting for a provider. Check their saved status or select another profile before combining."
+                            }
                         }
                         pendingProfiles.forEach { savedDecisions.excludeProfile(accepted.context.rootBudgetId, it, accepted.context.persistBudget) }
                         pendingRows.forEach { cancelExcludedProviderWait(runs[it.currentRunId], accepted.context.rootBudgetId) }
@@ -2361,6 +2365,10 @@ class ChatViewModel @Inject constructor(
         val userMessage = _groupedMessages.value.userMessages.getOrNull(turnIndex) ?: return
         val previousRun = currentAssistantMessage.currentRunId?.let { _agentRunsById.value[it] }
         if (previousRun?.status == AgentRunStatus.WAITING_PROVIDER_LIMIT) return
+        if (previousRun?.status == AgentRunStatus.WAITING_FOR_APPROVAL) {
+            _attachmentNotice.value = "Resolve the existing GitHub approval card before continuing this task."
+            return
+        }
         val failureDetails = previousRun?.terminalError ?: currentAssistantMessage.timeline.lastOrNull { it.runError != null }?.runError
         gitHubApprovalRetryBlock(failureDetails, gitHubApprovalPending)?.let {
             _attachmentNotice.value = it
@@ -2812,6 +2820,15 @@ class ChatViewModel @Inject constructor(
         _chatToolConfig.update {
             it.copy(github = saved.copy(commitSha = context.commitSha, prepareIndex = saved.connectionUid in features.githubPrepareIndex))
         }
+    }
+
+    /** Resolve the selected GitHub host's browser origin for repository links in GitHub chat. */
+    suspend fun gitHubWebOrigin(connectionUid: String): String = withContext(Dispatchers.IO) {
+        runCatching {
+            toolConnectionRepository.getConnection(connectionUid)
+                ?.takeIf { it.type == ToolConnectionType.GITHUB }
+                ?.let { dev.chungjungsoo.gptmobile.data.github.GitHubApiOrigins.fromEndpoint(it.endpointUrl).authorization }
+        }.getOrNull() ?: dev.chungjungsoo.gptmobile.data.github.GitHubApiOrigins.GITHUB_COM.authorization
     }
 
     /** Save before switching an embedded GitHub tab without marking this conversation as left. */
@@ -4352,7 +4369,7 @@ private inline fun pruneTransientChatRunNoticesWithStatusLookup(
     getStatus: (String) -> String?
 ): Map<String, List<ChatRunNotice>> = noticesByRunId.mapValues { (runId, notices) ->
     val status = getStatus(runId)
-    val isActive = runId in activeRunIds || status == AgentRunStatus.QUEUED || status == AgentRunStatus.RUNNING || status == AgentRunStatus.WAITING_PROVIDER_LIMIT
+    val isActive = runId in activeRunIds || status == AgentRunStatus.QUEUED || status == AgentRunStatus.RUNNING || status == AgentRunStatus.WAITING_PROVIDER_LIMIT || status == AgentRunStatus.WAITING_FOR_APPROVAL
     if (isActive) notices else notices.filter { it.persistent }
 }.filterValues { it.isNotEmpty() }
 

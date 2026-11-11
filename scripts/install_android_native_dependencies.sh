@@ -1,53 +1,32 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# The hosted Ubuntu mirror list can select an unreachable HTTP archive.
-# Give this install its own signed HTTPS sources and preserve the runner's apt configuration.
-source /etc/os-release
-if [[ ${ID:-} != ubuntu || ! ${VERSION_CODENAME:-} =~ ^[a-z][a-z0-9-]*$ ]]; then
-    echo '::error::Android native dependencies require a supported Ubuntu runner.' >&2
-    exit 1
-fi
+: "${GITHUB_ENV:?GitHub Actions environment file is required}"
+workspace=$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/android-vulkan.XXXXXXXX")
+prefix="$workspace/sdk"
 
-architecture=$(dpkg --print-architecture)
-archive=https://archive.ubuntu.com/ubuntu
-security=https://security.ubuntu.com/ubuntu
-case "$architecture" in
-    amd64|i386) ;;
-    *) archive=https://ports.ubuntu.com/ubuntu-ports
-       security=$archive ;;
-esac
+fetch_headers() {
+    local url=$1 digest=$2 destination=$3
+    local archive="$destination/source.tar.gz"
+    mkdir -p "$destination"
+    curl --fail --silent --show-error --location --retry 3 --max-time 90 "$url" -o "$archive"
+    printf '%s  %s\n' "$digest" "$archive" | sha256sum --check
+    tar -xzf "$archive" --strip-components=1 -C "$destination"
+    rm -- "$archive"
+}
 
-sources=$(mktemp --suffix=.sources)
-trap 'rm -f -- "$sources"' EXIT
-trap 'echo "::error::Android native dependency installation from Ubuntu HTTPS archives failed." >&2' ERR
-keyring=/usr/share/keyrings/ubuntu-archive-keyring.gpg
-test -r "$keyring"
-cat > "$sources" <<EOF
-Types: deb
-URIs: $archive
-Suites: $VERSION_CODENAME $VERSION_CODENAME-updates
-Components: main universe
-Architectures: $architecture
-Signed-By: $keyring
+# Use the Khronos vulkan-sdk-1.4.321.0 header releases and the shader compiler
+# and platform loader from the pinned Android NDK.
+fetch_headers https://codeload.github.com/KhronosGroup/Vulkan-Headers/tar.gz/2cd90f9d20df57eac214c148f3aed885372ddcfe \
+    e3865307e665f6a4ac4f7bbca7b3ba95e4191c7f8adf9f04b084ef514a2454e9 "$workspace/vulkan"
+fetch_headers https://codeload.github.com/KhronosGroup/SPIRV-Headers/tar.gz/2a611a970fdbc41ac2e3e328802aed9985352dca \
+    c2225a49c3d7efa5c4f4ce4a6b42081e6ea3daca376f3353d9d7c2722d77a28a "$workspace/spirv"
 
-Types: deb
-URIs: $security
-Suites: $VERSION_CODENAME-security
-Components: main universe
-Architectures: $architecture
-Signed-By: $keyring
-EOF
+mkdir -p "$prefix/include"
+cp -R "$workspace/vulkan/include/vulkan" "$workspace/vulkan/include/vk_video" "$prefix/include/"
+cmake -S "$workspace/spirv" -B "$workspace/spirv-build" \
+    -DSPIRV_HEADERS_ENABLE_TESTS=OFF -DSPIRV_HEADERS_ENABLE_INSTALL=ON -DCMAKE_INSTALL_PREFIX="$prefix"
+cmake --install "$workspace/spirv-build"
 
-apt_options=(
-    -o "Dir::Etc::sourcelist=$sources"
-    -o Dir::Etc::sourceparts=-
-    -o APT::Get::List-Cleanup=false
-    -o Acquire::Languages=none
-    -o Acquire::Retries=2
-    -o Acquire::https::Timeout=20
-    -o DPkg::Lock::Timeout=60
-)
-sudo timeout --kill-after=15s 180s apt-get "${apt_options[@]}" -o APT::Update::Error-Mode=any update
-sudo env DEBIAN_FRONTEND=noninteractive timeout --kill-after=15s 180s apt-get \
-    "${apt_options[@]}" install --no-install-recommends -y glslc libvulkan-dev spirv-headers
+printf 'VULKAN_SDK=%s\nCMAKE_PREFIX_PATH=%s%s\n' \
+    "$prefix" "$prefix" "${CMAKE_PREFIX_PATH:+:$CMAKE_PREFIX_PATH}" >> "$GITHUB_ENV"

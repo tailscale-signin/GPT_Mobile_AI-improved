@@ -224,7 +224,7 @@ class StagedChatDebugExportTest {
         context, destination, ChatRoomV2(chatId, "Test", isTemporary = temporary),
         listOf(PlatformV2(name = "Profile", token = "private-secret", systemPrompt = "Prompt private-secret")),
         ChatMcpToolConfig(), AppFeatureSettings(), "draft private-secret", emptyList(), database, null,
-        reducedMemory = false, resume = resume, stillAuthorized = {}
+        reducedMemory = false, resume = resume, fullHistory = true, stillAuthorized = {}
     )
 
     private fun archive(result: DiagnosticCaptureResult): Map<String, String> = ZipFile(result.file).use { zip -> zip.entries().asSequence().associate { it.name to zip.getInputStream(it).reader().use { reader -> reader.readText() } } }

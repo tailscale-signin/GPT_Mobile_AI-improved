@@ -179,7 +179,7 @@ internal object GitHubAuthorizedCatalog {
             }
             return null
         }
-        if (state.text("blocker") in setOf("CATALOG_CONTRACT_CHANGED", "CATALOG_AUTHORIZATION_CHANGED")) {
+        if (state.text("blocker") == "CATALOG_CONTRACT_CHANGED") {
             // One read-only refresh per current semantic contract. Existing operation
             // receipts remain independently revalidated against their own arguments.
             val signature = GitHubEvidenceBook.digest(

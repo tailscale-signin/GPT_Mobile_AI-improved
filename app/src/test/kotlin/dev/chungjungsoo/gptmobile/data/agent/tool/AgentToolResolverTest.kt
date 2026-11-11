@@ -500,7 +500,7 @@ class AgentToolResolverTest {
             val manager = mockk<McpClientManager>(relaxed = true)
             val expected = DispatchPolicyChangedException(listOf("tool_inventory"))
             coEvery { manager.peekToolsForConnection(any(), any(), any()) } returns null
-            coEvery { manager.listTools(any(), any(), any(), any()) } throws expected
+            coEvery { manager.listToolsWithReceipt(any(), any(), any(), any()) } throws expected
             val resolver = resolver(dao = dao, settings = ResolverFakeSettingRepository(listOf(profile)), managerOverride = manager)
             val message = dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(id = 42, chatId = 7, content = "Use echo", platformType = null)
             val connectionErrors = mutableListOf<String>()
@@ -511,7 +511,7 @@ class AgentToolResolverTest {
             assertTrue(failure is DispatchPolicyChangedException)
             assertEquals(expected.fields, (failure as DispatchPolicyChangedException).fields)
             assertTrue(connectionErrors.isEmpty())
-            coVerify(exactly = 1) { manager.listTools(any(), any(), any(), any()) }
+            coVerify(exactly = 1) { manager.listToolsWithReceipt(any(), any(), any(), any()) }
         }
     }
 

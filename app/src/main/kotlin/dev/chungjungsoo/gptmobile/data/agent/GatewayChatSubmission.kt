@@ -46,7 +46,10 @@ class GatewayChatSubmission @Inject constructor(
         if (!chats.researchPersistenceAllowed(request.chatId)) return null
         val repair = tools?.githubDraftRepair
         val context = tools?.github
-        val existing = if (context == null) null else engineering.bindings(request.chatId).singleOrNull { it.request.requestId == request.runId }
+        // Repair admission must reconcile its retained command before any new work,
+        // but ordinary Gateway conversations are not engineering jobs and must not
+        // probe the engineering binding store merely because GitHub context exists.
+        var existing = if (repair == null || context == null) null else engineering.bindings(request.chatId).singleOrNull { it.request.requestId == request.runId }
         if (repair != null) {
             if (existing == null) {
                 workspace.verifyRepair(requireNotNull(context), repair)
@@ -60,6 +63,9 @@ class GatewayChatSubmission @Inject constructor(
         if (request.chatId in features.conversationGateway) {
             conversations.conversationWriteBlocker(request.chatId)?.let { error(it) }
             return null
+        }
+        if (existing == null && repair == null && context != null) {
+            existing = engineering.bindings(request.chatId).singleOrNull { it.request.requestId == request.runId }
         }
         if (request.stage == null && tools?.combined == null) {
             engineering.conversationWriteBlocker(request.chatId)?.let { error(it) }

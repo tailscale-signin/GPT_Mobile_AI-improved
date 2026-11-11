@@ -44,6 +44,14 @@ data class GitHubConversationContext(
         append("Verify claims with fresh receipts; never invent tests or metrics. Missing evidence: Not measured. Draft PRs may run CI.\n")
         append("The app reports ordinary tool activity from receipts. Use a closed <progress_update> only for a substantial finding, a change of plan, or a new blocker. In two to four sentences, explain its effect and the next action. Combine related observations across tool rounds. Keep private reasoning private and finish with one complete answer.\n")
         append("Use github_decide for required consequential choices: 2-4 options, one recommendation. Honor prior answers; never infer write approval.")
+    }.let { prompt ->
+        if (prompt.length < 2_000) {
+            prompt
+        } else {
+            prompt.take(1_620).trimEnd() +
+                "\n...[bounded GitHub context]...\n" +
+                prompt.takeLast(340).trimStart()
+        }
     }
 
     val repository: GitHubRepositoryContext get() = GitHubRepositoryContext(owner, repo, ref)

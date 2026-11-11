@@ -21,11 +21,11 @@ class McpResolverDiscoveryTest {
         coEvery { setup.oauth.authorizationHeader(connection, false, null) } returns "Bearer expired"
         coEvery { setup.oauth.authorizationHeader(connection, true, "Bearer expired") } returns "Bearer renewed"
         var calls = 0
-        coEvery { setup.manager.listTools(any(), true, true, false) } coAnswers {
+        coEvery { setup.manager.listToolsWithReceipt(any(), true, true, false) } coAnswers {
             val config = firstArg<McpConnectionConfig>()
             assertEquals(if (++calls == 1) "Bearer expired" else "Bearer renewed", config.authorizationHeader)
             if (calls == 1) throw ModernMcpError(401, null, "Rejected")
-            emptyList()
+            McpDiscoveryReceipt(emptyList(), McpDiscoverySource.FRESH)
         }
         assertTrue(setup.resolver.discoverMcpTools(connection, forceRefresh = true, awaitCompletion = true).isEmpty())
         assertEquals(2, calls)
@@ -38,10 +38,10 @@ class McpResolverDiscoveryTest {
             val setup = setup()
             coEvery { setup.oauth.authorizationHeader(connection, false, null) } returns "Bearer expired"
             coEvery { setup.oauth.authorizationHeader(connection, true, "Bearer expired") } returns "Bearer renewed"
-            coEvery { setup.manager.listTools(any(), any(), true, false) } throws ModernMcpError(status, null, "Rejected")
+            coEvery { setup.manager.listToolsWithReceipt(any(), any(), true, false) } throws ModernMcpError(status, null, "Rejected")
             assertTrue(runCatching { setup.resolver.discoverMcpTools(connection, awaitCompletion = true) }.exceptionOrNull() is ModernMcpError)
             coVerify(exactly = if (status == 401) 1 else 0) { setup.oauth.authorizationHeader(connection, true, any()) }
-            coVerify(exactly = if (status == 401) 2 else 1) { setup.manager.listTools(any(), any(), true, false) }
+            coVerify(exactly = if (status == 401) 2 else 1) { setup.manager.listToolsWithReceipt(any(), any(), true, false) }
             coVerify(exactly = 0) { setup.manager.callTool(any(), any(), any(), any(), any()) }
         }
     }
@@ -58,7 +58,7 @@ class McpResolverDiscoveryTest {
             assertEquals(rule, (failure as McpLocalValidationException).rule)
             assertEquals("NOT_DISPATCHED", failure.dispatchEvidence)
             assertFalse(failure.message.orEmpty().contains("private", ignoreCase = true))
-            coVerify(exactly = 0) { setup.manager.listTools(any(), any(), any(), any()) }
+            coVerify(exactly = 0) { setup.manager.listToolsWithReceipt(any(), any(), any(), any()) }
             coVerify(exactly = 0) { setup.oauth.authorizationHeader(any(), any(), any()) }
         }
     }

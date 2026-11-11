@@ -879,6 +879,8 @@ class GitHubToolTest {
             val tool = GitHubTool("token", client)
             val args = buildJsonObject {
                 put("action", "search_issues")
+                put("owner", "owner")
+                put("repo", "repo")
                 put("query", "repo:owner/repo timeout")
             }
             assertTrue(tool.execute("first", args).isError)

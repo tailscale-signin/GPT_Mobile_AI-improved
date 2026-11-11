@@ -401,7 +401,13 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
             var bytes = 0
             var envelope: JsonObject? = null
             fun readMessage(): JsonObject? {
-                val message = runCatching { json.parseToJsonElement(buffer.toString()) as? JsonObject }.getOrNull()
+                val parsed = try {
+                    json.parseToJsonElement(buffer.toString())
+                } catch (_: kotlinx.serialization.SerializationException) {
+                    if (successful) throw McpIncompleteResponseException(method, bytes)
+                    return null
+                }
+                val message = parsed as? JsonObject
                 if (message == null && successful) throw invalidRpcEnvelope(status, "RESPONSE_OBJECT_REQUIRED", "response")
                 return message
             }

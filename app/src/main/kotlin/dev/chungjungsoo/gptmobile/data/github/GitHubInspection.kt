@@ -68,11 +68,12 @@ internal class GitHubInspection(private val get: suspend (String) -> JsonElement
             }
             "search_issues" -> {
                 val repository = root.removePrefix("/repos/")
-                val query = required("query")
+                val query = normalizeGitHubIssueQuery(required("query"))
                 val scopes = Regex("(?i)(?:^|\\s)(-?(?:repo|org|user):[^\\s]+)").findAll(query).map { it.groupValues[1] }.toList()
                 require(issueSearchQualifier.containsMatchIn(query) && query.length <= 512 && scopes.all { it.equals("repo:$repository", true) }) { "Use an issue or PR qualifier in the selected repository." }
                 val perPage = args.s("per_page").ifBlank { "30" }.toInt().also { require(it in 1..100) }
-                val response = get("/search/issues?q=${segment("$query repo:$repository")}&per_page=$perPage&page=$page").jsonObject
+                val scopedQuery = if (scopes.isEmpty()) "$query repo:$repository" else query
+                val response = get("/search/issues?q=${segment(scopedQuery)}&per_page=$perPage&page=$page").jsonObject
                 val items = (response["items"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
                 val more = items.size == perPage && page * perPage < minOf(1000, response.s("total_count").toIntOrNull() ?: 1000)
                 buildJsonObject {

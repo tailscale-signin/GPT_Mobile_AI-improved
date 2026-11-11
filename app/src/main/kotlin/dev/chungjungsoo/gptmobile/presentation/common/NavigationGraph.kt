@@ -74,7 +74,8 @@ import dev.chungjungsoo.gptmobile.presentation.viewmodel.OpenRouterSettingsViewM
 fun SetupNavGraph(
     navController: NavHostController,
     toolConnectionsViewModel: ToolConnectionsViewModel,
-    onLaunchOAuth: (String) -> Unit = {}
+    onLaunchOAuth: (String) -> Unit = {},
+    onReportIssue: () -> Unit
 ) {
     val currentEntry by navController.currentBackStackEntryAsState()
     SettingsGlassBackdropHost(isSettingsDestination(currentEntry?.destination?.route)) {
@@ -82,7 +83,7 @@ fun SetupNavGraph(
             Column(Modifier.fillMaxSize()) {
                 Box(Modifier.weight(1f)) {
                     SettingsTypographyScope(enabled = isSettingsDestination(currentEntry?.destination?.route)) {
-                        AppNavHost(navController, toolConnectionsViewModel, onLaunchOAuth)
+                        AppNavHost(navController, toolConnectionsViewModel, onLaunchOAuth, onReportIssue)
                     }
                 }
                 BenchmarkExecutionBanner(
@@ -100,7 +101,8 @@ fun SetupNavGraph(
 private fun AppNavHost(
     navController: NavHostController,
     toolConnectionsViewModel: ToolConnectionsViewModel,
-    onLaunchOAuth: (String) -> Unit
+    onLaunchOAuth: (String) -> Unit,
+    onReportIssue: () -> Unit
 ) {
     var newChatOrigin by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Unspecified) }
     val conversationRouter: dev.chungjungsoo.gptmobile.presentation.ui.chat.ConversationRoutingViewModel = hiltViewModel()
@@ -125,7 +127,7 @@ private fun AppNavHost(
         migrationScreenNavigation(navController)
         startScreenNavigation(navController)
         setupNavigation(navController)
-        settingNavigation(navController, toolConnectionsViewModel, onLaunchOAuth)
+        settingNavigation(navController, toolConnectionsViewModel, onLaunchOAuth, onReportIssue)
         chatScreenNavigation(navController, toolConnectionsViewModel, conversationRouter)
         githubChatNavigation(navController, toolConnectionsViewModel, onLaunchOAuth)
     }
@@ -419,7 +421,8 @@ internal fun NavGraphBuilder.chatScreenNavigation(navController: NavHostControll
 fun NavGraphBuilder.settingNavigation(
     navController: NavHostController,
     toolConnectionsViewModel: ToolConnectionsViewModel,
-    onLaunchOAuth: (String) -> Unit = {}
+    onLaunchOAuth: (String) -> Unit,
+    onReportIssue: () -> Unit
 ) {
     navigation(startDestination = Route.SETTINGS, route = Route.SETTING_ROUTE) {
         composable(Route.ACTIVITY) {
@@ -847,7 +850,8 @@ fun NavGraphBuilder.settingNavigation(
         composable(Route.ABOUT_PAGE) {
             AboutScreen(
                 onNavigationClick = { navController.navigateUp() },
-                onNavigationToLicense = { navController.navigate(Route.LICENSE) }
+                onNavigationToLicense = { navController.navigate(Route.LICENSE) },
+                onReportIssue = onReportIssue
             )
         }
         composable(Route.LICENSE) {

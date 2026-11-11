@@ -93,6 +93,7 @@ object AppLogRecorder {
             privateSessions.remove(owner)
         }
         RunDiagnostics.journal?.privateSession = privateSessions.isNotEmpty()
+        IssueReportIncidents.privacyChanged(privateSessionActive)
     }
 
     @Synchronized fun initialize(application: Application) {
@@ -106,6 +107,7 @@ object AppLogRecorder {
         val previousHandler = Thread.getDefaultUncaughtExceptionHandler()
         if (previousHandler != null) {
             Thread.setDefaultUncaughtExceptionHandler { thread, failure ->
+                runCatching { IssueReportIncidents.crash(failure) }
                 // Keep sanitized method frames, including framework-only failures, even
                 // when the async queue cannot drain. Only fixed safe message templates survive.
                 runCatching {
@@ -263,7 +265,11 @@ object AppLogRecorder {
 
     internal fun operationCaptureCurrent(epoch: Long): Boolean = mutableEnabled.value && privateSessions.isEmpty() && epoch == captureEpoch.get()
 
-    fun record(tag: String, message: String, level: String = "I") = recordCaptured(captureEpoch.get(), tag, message, level)
+    fun record(tag: String, message: String, level: String = "I") {
+        val epoch = captureEpoch.get()
+        if (!privateSessionActive) IssueReportIncidents.log(tag, level, mutableEnabled.value)
+        recordCaptured(epoch, tag, message, level)
+    }
 
     /** A long-running producer cannot publish old capture data after clear or a privacy transition. */
     internal fun recordCaptured(epoch: Long, tag: String, message: String, level: String = "I") {
@@ -278,8 +284,10 @@ object AppLogRecorder {
 
     /** Typed metadata follows the same opt-in, privacy, bounded-queue and durable export path. */
     fun recordEvent(tag: String, eventName: String, fields: Map<String, Any?>, level: String = "I") {
-        if (!mutableEnabled.value || privateSessions.isNotEmpty()) return
-        record(tag, structuredDiagnosticEventMessage(eventName, fields), level)
+        val epoch = captureEpoch.get()
+        if (privateSessionActive) return
+        IssueReportIncidents.log(tag, level, mutableEnabled.value)
+        if (operationCaptureCurrent(epoch)) recordCaptured(epoch, tag, structuredDiagnosticEventMessage(eventName, fields), level)
     }
 
     /** IO-thread startup markers survive an abort before the async log queue drains. */
@@ -302,6 +310,7 @@ object AppLogRecorder {
     }
 
     fun clear() {
+        IssueReportIncidents.clearRecent()
         scope.launch {
             app?.let(DiagnosticCaptureStorage::clear)
             RunDiagnostics.journal?.clear()

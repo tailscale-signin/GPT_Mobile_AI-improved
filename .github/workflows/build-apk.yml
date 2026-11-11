@@ -19,6 +19,9 @@ on:
 permissions:
   contents: read
 
+env:
+  ISSUE_REPORT_ORIGIN: ${{ vars.ISSUE_REPORT_ORIGIN }}
+
 concurrency:
   group: build-apk-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true

@@ -1193,4 +1193,21 @@
     <string name="gateway_recovery_reconcile">Reconnect to the original job to check its result before retrying.</string>
     <string name="gateway_recovery_verify">Review the remaining acceptance evidence before marking the task complete.</string>
     <string name="gateway_recovery_inspect">Open the gateway diagnostics to inspect the failed dependency and recovery condition.</string>
+    <string name="issue_report_title">Report an issue</string>
+    <string name="issue_report_short_title">Short title</string>
+    <string name="issue_report_description">What happened?</string>
+    <string name="issue_report_include_diagnostics">Include recent diagnostics</string>
+    <string name="issue_report_public">Posts a public issue on GitHub.</string>
+    <string name="issue_report_debug_question">Do you want to report the error?</string>
+    <string name="issue_report_debug_public">Posts a public GitHub issue with redacted app events and device details.</string>
+    <string name="issue_report_cancel">Cancel</string>
+    <string name="issue_report_submit">Submit</string>
+    <string name="issue_report_no">No</string>
+    <string name="issue_report_yes">Yes</string>
+    <string name="issue_report_view">View on GitHub</string>
+    <string name="issue_report_posted">Issue #%1$d created</string>
+    <string name="issue_report_queued">Report queued for sending.</string>
+    <string name="issue_report_unavailable">Issue reporting is unavailable in this build.</string>
+    <string name="issue_report_save_failed">Couldn’t save the report. Try again.</string>
+    <string name="issue_report_send_failed">GitHub couldn’t accept the report.</string>
 </resources>

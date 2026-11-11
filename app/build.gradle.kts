@@ -186,6 +186,10 @@ extensions.configure<ApplicationExtension> {
         require(githubBrokerUri == null || !githubCallbackHost.endsWith(".invalid")) { "Configure a project-owned verified HTTPS callback host before enabling public sign-in." }
         buildConfigField("String", "GITHUB_AUTH_BROKER_ORIGIN", "\"$githubBroker\"")
         buildConfigField("String", "GITHUB_AUTH_CALLBACK_URI", "\"https://$githubCallbackHost/oauth/github/complete\"")
+        val issueReportOrigin = providers.gradleProperty("ISSUE_REPORT_ORIGIN").orElse(providers.environmentVariable("ISSUE_REPORT_ORIGIN")).getOrElse("").trimEnd('/')
+        val issueReportUri = issueReportOrigin.takeIf(String::isNotEmpty)?.let(::URI)
+        require(issueReportUri == null || (issueReportUri.scheme == "https" && issueReportUri.host != null && issueReportUri.userInfo == null && issueReportUri.port in setOf(-1, 443) && issueReportUri.path.isNullOrEmpty() && issueReportUri.query == null && issueReportUri.fragment == null)) { "Issue reporting requires a fixed HTTPS origin." }
+        buildConfigField("String", "ISSUE_REPORT_ORIGIN", "\"$issueReportOrigin\"")
         manifestPlaceholders["githubAuthCallbackHost"] = githubCallbackHost
         manifestPlaceholders["githubPublicAuthEnabled"] = githubBroker.isNotBlank().toString()
         // App owner confirmed LLM7 integration approval on 2026-09-26.

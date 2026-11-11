@@ -1,5 +1,8 @@
 package dev.chungjungsoo.gptmobile.data.voice
 
+import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidents
+import dev.chungjungsoo.gptmobile.data.diagnostics.ReportFeature
+
 /** Main-thread input for one reply. stop() on the owning VoiceAudio cancels the stream. */
 interface VoiceReplyPlayback {
     fun enqueue(text: String)
@@ -158,7 +161,10 @@ class VoiceSession(
         engaged = true
         reply("replay:$generation", state.reply)
     }
-    private fun update(next: VoiceState) {
+    private fun update(next: VoiceState, errorCode: String = "VOICE_SESSION_FAILED") {
+        if (next.phase == VoicePhase.ERROR && state.phase != VoicePhase.ERROR) {
+            IssueReportIncidents.failure(ReportFeature.VOICE, errorCode)
+        }
         state = next.copy(awaitingReply = waiting, hasDraft = draftPending)
         mutableState.value = state
         changed(state)
@@ -356,7 +362,10 @@ class VoiceSession(
         engaged = false
         automaticRetry = false
         if (streamComplete) waiting = false
-        update(state.copy(phase = if (waiting) VoicePhase.THINKING else VoicePhase.ERROR, notice = message, level = 0f))
+        if (waiting) {
+            IssueReportIncidents.failure(ReportFeature.VOICE, "VOICE_PLAYBACK_FAILED")
+        }
+        update(state.copy(phase = if (waiting) VoicePhase.THINKING else VoicePhase.ERROR, notice = message, level = 0f), "VOICE_PLAYBACK_FAILED")
     }
 
     fun interrupt() {

@@ -49,13 +49,20 @@ def main():
         (root/'data'/'preserve.txt').write_text('user data',encoding='utf-8')
         powershell=str(Path(os.environ['SystemRoot'])/'System32/WindowsPowerShell/v1.0/powershell.exe')
         launcher=[powershell,'-NoProfile','-ExecutionPolicy','Bypass','-File',str(root/'Start-Gateway.ps1')]
-        child=subprocess.Popen(launcher)
+        child=subprocess.Popen(launcher, env={key: value for key, value in os.environ.items()
+                                             if key not in {'GATEWAY_ENGINEERING_GITHUB_SERVER', 'GATEWAY_ENGINEERING_GITHUB_TOKEN'}})
         try:
             state=wait_state(root,'running')
             assert state['backend'] != 'ready'
             results.append('frozen runtime healthy with offline model backend')
+            capabilities = requests.get(f"http://127.0.0.1:{cfg['port']}/v1/gateway/engineering/capabilities", timeout=5)
+            capabilities.raise_for_status()
+            assert capabilities.json()['code_graph']['access'] == 'public_only'
+            assert capabilities.json()['code_graph']['enabled']
+            assert not capabilities.json()['enabled']
+            results.append('public repository map is ready by default without a GitHub credential')
             subprocess.run([str(exe), 'validate-ui', '--root', str(root), '--quiet'], check=True, timeout=20)
-            results.append('General, Advanced and Add-ons render at minimum size')
+            results.append('General, Advanced, Add-ons and GitHub render at minimum size')
             deadline = time.monotonic() + 20
             while not (root / 'dashboard.json').exists() and time.monotonic() < deadline:
                 time.sleep(.2)

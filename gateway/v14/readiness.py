@@ -12,6 +12,7 @@ def observations(runtime, service, backend, journal):
     settings = engineering.readiness() if engineering else {}
     checks = settings.get('checks', {})
     github_configured = checks.get('host_github_connection') == 'configured'
+    graph_configured = checks.get('graph_host_github_connection', checks.get('host_github_connection')) in {'configured', 'public_only'}
     catalogue = getattr(runtime, 'gateway_catalogue', None)
     tools = catalogue.readiness() if catalogue else {}
     debug = getattr(runtime, 'gateway_debug', None)
@@ -37,9 +38,9 @@ def observations(runtime, service, backend, journal):
                                          configured=github_configured, ready=settings.get('repository_access'),
                                          reason=None if github_configured else 'HOST_GITHUB_CONNECTION_REQUIRED',
                                          authorizationVerified=settings.get('github_reachable')),
-        'repositoryGraph': component('READY' if settings.get('graph_ready') else 'NOT_CONFIGURED' if not github_configured else 'UNAVAILABLE',
-                                      configured=github_configured, ready=settings.get('graph_ready', False),
-                                      reason=None if settings.get('graph_ready') else 'HOST_GITHUB_CONNECTION_REQUIRED' if not github_configured else 'GRAPH_STORAGE_UNAVAILABLE',
+        'repositoryGraph': component('READY' if settings.get('graph_ready') else 'NOT_CONFIGURED' if not graph_configured else 'UNAVAILABLE',
+                                      configured=graph_configured, ready=settings.get('graph_ready', False),
+                                      reason=None if settings.get('graph_ready') else 'HOST_GITHUB_CONNECTION_REQUIRED' if not graph_configured else 'GRAPH_STORAGE_UNAVAILABLE',
                                       repositoryIndexed=None, sourceLevelOnly=True),
         'mcpDiscovery': component(tools.get('toolsState', 'NOT_MEASURED'), configured=bool(tools.get('toolConnectionCount')),
                                  ready=tools.get('schemaReady'), evidence='catalog_observation', schemaCount=tools.get('toolCount'),

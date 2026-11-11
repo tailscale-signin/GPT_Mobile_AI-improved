@@ -18,6 +18,7 @@ from v14.execution_binding import ExecutionBindingError
 from v14.conversations import FEATURES, QueueFull, ConversationConflict
 from v14.conversation_policy import verify_mutation_identity, MUTATION_IDENTITY_HEADERS
 from v14.repository_lifecycle import RepositoryLifecycle, RepositoryLifecycleError
+from v14.code_graph.public_github import PublicGitHubRateLimited, PublicRepositoryUnavailable
 
 
 def install_engineering_routes(app, service):
@@ -28,11 +29,27 @@ def install_engineering_routes(app, service):
         return service.job_response(job)
     def principal(request):
         user = request.state.principal
-        if not user.local_admin and 'engineering' not in user.scopes:
+        if not user.engineering_allowed:
             raise PermissionError('Engineering scope is required')
         if request.method not in {'GET', 'HEAD', 'OPTIONS'}:
             verify_mutation_identity(request.headers, user.id, service.store.conversations.gateway_id)
         return user.id
+
+    def graph_principal(request):
+        user = request.state.principal
+        if user.engineering_allowed:
+            return principal(request), False
+        if service.public_graph is None or 'tools' not in user.scopes:
+            raise PermissionError('Repository map access is required')
+        if request.method == 'POST':
+            verify_mutation_identity(request.headers, user.id, service.store.conversations.gateway_id)
+        return user.id, True
+
+    def graph_unavailable(readiness, missing_connection):
+        return JSONResponse({'error': {'code': 'graph_connection_required', 'retryable': not missing_connection,
+                                       'reason': 'HOST_GITHUB_CONNECTION_REQUIRED' if missing_connection else 'GRAPH_STORAGE_OR_SERVICE_UNAVAILABLE'},
+                             'supported': True, 'configured': not missing_connection, 'readiness': readiness},
+                            status_code=412 if missing_connection else 503)
 
     async def body(request):
         raw = await request.body()
@@ -58,6 +75,10 @@ def install_engineering_routes(app, service):
             return JSONResponse({'error': {'code': 'queue_full', 'retryable': True}}, status_code=429)
         except ConversationConflict as error:
             return JSONResponse({'error': {'code': 'conversation_conflict', 'message': str(error), 'retryable': False}}, status_code=409)
+        except PublicGitHubRateLimited:
+            return JSONResponse({'error': {'code': 'public_github_rate_limited',
+                                           'message': 'GitHub limited public repository requests. Retry later or connect GitHub in Gateway Settings.',
+                                           'retryable': True}}, status_code=429)
         except PermissionError:
             return JSONResponse({'error': {'code': 'engineering_scope_required'}}, status_code=403)
         except (ValueError, KeyError, TypeError):
@@ -70,12 +91,24 @@ def install_engineering_routes(app, service):
     @app.get('/v1/gateway/engineering/capabilities')
     async def capabilities(request: Request):
         async def run():
-            owner = principal(request)
-            readiness = await asyncio.to_thread(service.readiness)
+            owner, public_only = graph_principal(request)
+            readiness = await asyncio.to_thread(service.readiness, public_only=True) if public_only else await asyncio.to_thread(service.readiness)
+            connection = readiness.get('checks', {}).get('graph_host_github_connection')
+            capabilities = {'service': 'engineering-gateway', 'protocol_version': 1, 'gateway_version': VERSION, 'server_build': server_build,
+                            'principal_id': owner, 'gateway_id': await asyncio.to_thread(service.store.conversations.gateway_id) if service.store.runtime.GATEWAY_DURABLE_JOBS else None,
+                            'code_graph': {'schema_version': 1, 'supported': True, 'configured': connection != 'missing',
+                                           'enabled': readiness['graph_ready'], 'incremental': True, 'source_level_only': True,
+                                           'access': connection}}
+            if public_only:
+                # These callers have access to public maps, with no visibility into
+                # the host's credential, engineering jobs or worker configuration.
+                checks = readiness['checks']
+                return dict(capabilities, enabled=False,
+                            readiness={'schema_version': 1, 'graph_ready': readiness['graph_ready'], 'saved_results': False,
+                                       'checks': {key: checks[key] for key in ('journal', 'graph_host_github_connection', 'draining')}})
             repository_operations = await asyncio.to_thread(repository_lifecycle.capabilities)
-            return {'service': 'engineering-gateway', 'protocol_version': 1, 'diagnostic_protocol': 1, 'gateway_version': VERSION, 'server_build': server_build, 'enabled': readiness['ready'], 'readiness': readiness, 'duration_hours': [3, 6, 12, 24, 0], 'until_complete_limit_hours': 72,
+            return {**capabilities, 'diagnostic_protocol': 1, 'enabled': readiness['ready'], 'readiness': readiness, 'duration_hours': [3, 6, 12, 24, 0], 'until_complete_limit_hours': 72,
                     'default_duration_hours': DEFAULT_DURATION_HOURS, 'execution_budget_defaults': dict(DEFAULT_EXECUTION_BUDGET), 'execution_budget_limits': dict(EXECUTION_BUDGET_LIMITS),
-                    'principal_id': owner, 'gateway_id': await asyncio.to_thread(service.store.conversations.gateway_id) if service.store.runtime.GATEWAY_DURABLE_JOBS else None,
                     'instance_id': getattr(getattr(service.store.runtime, 'gateway_service', None), 'instance_id', None),
                     'task_scope_protocol': 1, 'task_scopes': ['read', 'plan', 'implement'], 'features': dict({key: bool(service.store.runtime.GATEWAY_DURABLE_JOBS) for key in FEATURES}, mutation_identity_preconditions_v1=True, repository_lifecycle_v1=repository_operations['enabled']), **{key: bool(service.store.runtime.GATEWAY_DURABLE_JOBS) for key in FEATURES},
                     'repository_operations': repository_operations,
@@ -83,10 +116,7 @@ def install_engineering_routes(app, service):
                     'repair_attempts': 5, 'explicit_merge_approval': True, 'approval_ttl_seconds': 1800,
                     'notifications': 'android_background_sync', 'batch_reads': True,
                     'execution_binding_protocol': 1, 'routing_policy': 'SELECTED_ONLY',
-                    'execution_owner': 'GATEWAY', 'retry_owner': 'GATEWAY', 'admission_preflight_protocol': 1, 'sampling_policy_protocol': 1,
-                    'code_graph': {'schema_version': 1, 'supported': True,
-                                   'configured': readiness.get('checks', {}).get('graph_host_github_connection') == 'configured',
-                                   'enabled': readiness['graph_ready'], 'incremental': True, 'source_level_only': True}}
+                    'execution_owner': 'GATEWAY', 'retry_owner': 'GATEWAY', 'admission_preflight_protocol': 1, 'sampling_policy_protocol': 1}
         return await execute(run)
 
     @app.post('/gateway/engineering/repository-operations')
@@ -168,16 +198,21 @@ def install_engineering_routes(app, service):
     @app.post('/v1/gateway/engineering/graph')
     async def graph(request: Request):
         async def run():
-            owner = principal(request)
-            readiness = await asyncio.to_thread(service.readiness)
+            owner, public_only = graph_principal(request)
+            readiness = await asyncio.to_thread(service.readiness, public_only=True) if public_only else await asyncio.to_thread(service.readiness)
+            connection = readiness['checks']['graph_host_github_connection']
+            graph_readiness = {'schema_version': 1, 'graph_ready': readiness['graph_ready'],
+                               'checks': {key: readiness['checks'][key] for key in ('journal', 'graph_host_github_connection', 'draining')}}
             if not readiness['graph_ready']:
-                missing_connection = readiness.get('checks', {}).get('graph_host_github_connection') == 'missing'
-                return JSONResponse({'error': {'code': 'graph_connection_required', 'retryable': not missing_connection,
-                                               'reason': 'HOST_GITHUB_CONNECTION_REQUIRED' if missing_connection else 'GRAPH_STORAGE_OR_SERVICE_UNAVAILABLE'},
-                                     'supported': True, 'configured': not missing_connection, 'readiness': readiness},
-                                    status_code=412 if missing_connection else 503)
+                return graph_unavailable(graph_readiness, connection == 'missing')
             payload = await body(request)
-            return await asyncio.to_thread(service.graph.execute, owner, payload)
+            reader = service.public_graph if connection == 'public_only' else service.graph
+            try:
+                return await asyncio.to_thread(reader.execute, owner, payload)
+            except PublicRepositoryUnavailable:
+                graph_readiness['graph_ready'] = False
+                graph_readiness['checks']['graph_host_github_connection'] = 'missing'
+                return graph_unavailable(graph_readiness, True)
         return await execute(run)
 
     @app.post('/gateway/engineering/preflight')

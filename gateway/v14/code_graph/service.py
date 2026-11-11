@@ -20,6 +20,7 @@ from v14.memory import local_model_destination
 ACTIONS = frozenset({'index', 'status', 'query', 'node', 'callers', 'callees', 'path', 'impact', 'architecture',
                      'diff', 'diagnose', 'contracts', 'prs', 'note', 'notes', 'requirements', 'wiki', 'metrics',
                      'federated', 'provider'})
+PUBLIC_ACTIONS = ACTIONS - {'note', 'federated', 'provider'}
 
 
 def validate(request):
@@ -27,7 +28,8 @@ def validate(request):
         raise ValueError('Unknown graph operation')
     if len(encoded(request).encode()) > 64000:
         raise ValueError('Graph request exceeds its bound')
-    if not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', request.get('repository', '')):
+    repository = request.get('repository', '')
+    if not re.fullmatch(r'[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}', repository) or {'.', '..'} & set(repository.split('/')):
         raise ValueError('Select an explicit repository')
     if not isinstance(request.get('branch'), str) or not 1 <= len(request['branch']) <= 200 or any(ord(c) < 32 for c in request['branch']):
         raise ValueError('Select an explicit branch')
@@ -46,15 +48,20 @@ def validate(request):
 
 
 class GraphService:
-    def __init__(self, store, backend, evidence=None):
+    def __init__(self, store, backend, evidence=None, *, public=False):
         self.store, self.backend, self.evidence = GraphStore(store), backend, evidence
+        self.public = public
         self.lock = threading.RLock()
         self.admission = threading.BoundedSemaphore(2)
 
     def authorize(self, principal, request):
+        root = '/repos/' + request['repository']
+        if self.public:
+            actor = 'anonymous-public'
+            head = self.backend.authorize(root, request['repository'], request['branch'], request['commit_sha'])
+            return 'public:' + scope(principal, actor, request['repository'], request['branch']), root, head, actor
         # Recheck both identity and repository access before reading any private cache.
         actor = self.backend.api('/user')['id']
-        root = '/repos/' + request['repository']
         metadata = self.backend.api(root)
         if metadata.get('full_name', '').lower() != request['repository'].lower():
             raise PermissionError('Repository identity changed')
@@ -98,16 +105,24 @@ class GraphService:
         if request.get('index_cursor') and request['index_cursor'] != expected_cursor:
             raise ValueError('Index cursor changed; inspect status before continuing')
         started = time.perf_counter()
+        deadline = time.monotonic() + 75
+        batch_size = 24
+        if self.public and pending and self.backend.prepare_sources(request['repository'], snapshot['sha']):
+            batch_size = 1024
+        batch = pending[:batch_size]
 
         def read(path):
             entry = snapshot['manifest'][path]
             if entry.get('size', 0) > MAX_FILE_BYTES:
                 return path, {'version': EXTRACTOR_VERSION, 'nodes': [], 'edges': [], 'references': [], 'imports': [], 'fields': [],
                               'status': 'unsupported', 'warnings': ['File exceeds the 256 KiB graph limit'], 'source_bytes': 0}
-            blob = self.backend.api(root + '/git/blobs/' + entry['sha'])
-            if blob.get('encoding') != 'base64' or blob.get('size', MAX_FILE_BYTES + 1) > MAX_FILE_BYTES:
-                raise ValueError('Invalid graph source blob')
-            raw = base64.b64decode(blob['content'].replace('\n', ''), validate=True)
+            if self.public:
+                raw = self.backend.source(request['repository'], snapshot['sha'], path, entry['sha'])
+            else:
+                blob = self.backend.api(root + '/git/blobs/' + entry['sha'])
+                if blob.get('encoding') != 'base64' or blob.get('size', MAX_FILE_BYTES + 1) > MAX_FILE_BYTES:
+                    raise ValueError('Invalid graph source blob')
+                raw = base64.b64decode(blob['content'].replace('\n', ''), validate=True)
             if len(raw) > MAX_FILE_BYTES:
                 raise ValueError('Graph source blob exceeds its bound')
             try:
@@ -117,9 +132,20 @@ class GraphService:
                               'status': 'unsupported', 'warnings': ['Source is not UTF-8'], 'source_bytes': len(raw)}
             if blob_sha(content) != entry['sha']:
                 raise ValueError('Graph source blob digest mismatch')
-            return path, extract(path, content)
+            fragment = extract(path, content)
+            if self.public:
+                # The manifest already supplies the file path for every node
+                # and edge. Bound previews so large public maps fit the journal.
+                for node in fragment['nodes']:
+                    node.pop('path', None)
+                    node['excerpt'] = node['excerpt'][:180]
+                for edge in fragment['edges']:
+                    edge.pop('path', None)
+            return path, fragment
 
         def read_isolated(path):
+            if self.public and time.monotonic() >= deadline:
+                return path, None
             try:
                 return read(path)
             except (PermissionError, InterruptedError):
@@ -136,7 +162,9 @@ class GraphService:
                           'status': 'failed', 'warnings': ['Source read or integrity validation failed; retry_failed is required'], 'source_bytes': 0}
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
-            for path, fragment in pool.map(read_isolated, pending[:24]):
+            for path, fragment in pool.map(read_isolated, batch):
+                if fragment is None:
+                    continue
                 snapshot['fragments'][path] = fragment
                 snapshot['index_metrics']['parsed_files'] += 1
                 snapshot['index_metrics']['read_bytes'] += fragment['source_bytes']
@@ -148,6 +176,8 @@ class GraphService:
 
     def execute(self, principal, request):
         request = validate(request)
+        if self.public and request['action'] not in PUBLIC_ACTIONS:
+            raise PermissionError('This operation requires a connected GitHub account')
         if not isinstance(principal, str) or not principal or principal == 'unowned':
             raise PermissionError('A scoped gateway principal is required')
         if not self.admission.acquire(blocking=False):
@@ -249,7 +279,7 @@ class GraphService:
             metadata = graph.metadata()
         result = bounded(dict(result, graph=metadata, stale=head != snapshot['sha'], observed_branch_head=head), request.get('budget_bytes', 16000))
         # Do not publish cached source if the host switches accounts during the read.
-        if self.backend.api('/user')['id'] != actor:
+        if not self.public and self.backend.api('/user')['id'] != actor:
             raise PermissionError('GitHub account changed during graph retrieval')
         self.store.measure(namespace, action, round((time.perf_counter() - started) * 1000, 2), len(encoded(result).encode()))
         return result

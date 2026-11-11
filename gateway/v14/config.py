@@ -22,6 +22,7 @@ class Config:
     shutdown_grace: float = 10
     management_token: str = field(default="", repr=False)
     remote_engineering: bool = False
+    public_repository_maps: bool = False
 
     def validate(self):
         if not 1 <= self.max_workers <= self.max_active_chats <= 64:
@@ -71,4 +72,5 @@ class Config:
                    body_timeout=float(os.getenv('GATEWAY_BODY_TIMEOUT', '30')),
                    shutdown_grace=float(os.getenv('GATEWAY_SHUTDOWN_GRACE', '10')),
                    management_token=os.getenv('GATEWAY_MANAGEMENT_TOKEN', ''),
-                   remote_engineering=os.getenv('GATEWAY_REMOTE_ENGINEERING', 'false').lower() == 'true').validate()
+                   remote_engineering=os.getenv('GATEWAY_REMOTE_ENGINEERING', 'false').lower() == 'true',
+                   public_repository_maps=os.getenv('GATEWAY_PUBLIC_REPOSITORY_MAPS', 'false').lower() == 'true').validate()

@@ -99,7 +99,8 @@ runtime.gateway_service = service
 service.authorized = lambda principal: principal_can_chat(config, principal, runtime.device_store)
 activity = ActivityTracker(os.getenv("GATEWAY_ACTIVITY_STATE"))
 activity.install_tools(runtime)
-engineering = EngineeringService(EngineeringStore(runtime), GitHubEngineeringBackend(runtime))
+engineering = EngineeringService(EngineeringStore(runtime), GitHubEngineeringBackend(runtime),
+                                 public_repository_maps=config.public_repository_maps)
 runtime.gateway_engineering = engineering
 engineering.authorized = lambda job: principal_authorized(config, job['principal'], device_store)
 engineering.backend.cancelled = lambda job_id: (engineering.store.get(job_id) or {}).get('state') in {'CANCELLED', 'CANCELLING'}

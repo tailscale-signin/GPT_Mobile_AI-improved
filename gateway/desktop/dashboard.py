@@ -71,7 +71,7 @@ class Dashboard:
             button.pack(fill='x', padx=12, pady=3)
             self.nav[page] = button
         tk.Frame(sidebar, bg=theme.LINE, height=1).pack(fill='x', padx=25, pady=25)
-        for section in ('General', 'Advanced', 'Add-ons'):
+        for section in ('General', 'Advanced', 'Add-ons', 'GitHub'):
             ttk.Button(sidebar, text=section, command=lambda value=section: self.settings(value)).pack(fill='x', padx=17, pady=4)
         theme.label(sidebar, 'Runs on your PC\nNo cloud dashboard', 10, color=theme.MUTED, bg='#061C24', justify='left').pack(side='bottom', anchor='w', padx=25, pady=24)
         self.body = tk.Frame(self.window, bg=theme.BG)

@@ -36,7 +36,7 @@ HEALTH_QUERY = '''query($owner:String!,$repo:String!,$number:Int!,$after:String)
 
 
 def blob_sha(text):
-    raw = text.encode('utf-8')
+    raw = text if isinstance(text, bytes) else text.encode('utf-8')
     return hashlib.sha1(b'blob ' + str(len(raw)).encode() + b'\0' + raw).hexdigest()
 
 
@@ -152,24 +152,34 @@ class GitHubEngineeringBackend:
         return Cancellation()
 
     def token(self, *, read_only=False):
+        root = os.getenv('GATEWAY_DESKTOP_ROOT')
+        if root and os.getenv('GATEWAY_DESKTOP_MANAGED') == '1':
+            from desktop.github_credentials import read_token
+            saved = read_token(root)
+            if saved is not None:
+                return self.valid_token(saved)
+        return self.configured_credential(getattr(self.runtime, 'load_mcp_config', None), read_only=read_only)[1]
+
+    @classmethod
+    def configured_credential(cls, load_config, *, read_only=False):
         selected = os.getenv('GATEWAY_ENGINEERING_GITHUB_SERVER', '')
         dedicated = os.getenv('GATEWAY_ENGINEERING_GITHUB_TOKEN')
         if not selected and dedicated is not None:
-            return self.valid_token(dedicated)
-        load = getattr(self.runtime, 'load_mcp_config', None)
-        configs = load() if callable(load) else {}
+            return 'Gateway environment', cls.valid_token(dedicated)
+        configs = load_config() if callable(load_config) else {}
         if not isinstance(configs, dict):
             raise ValueError('The host MCP configuration is invalid')
         if selected:
             # An explicit connection is authoritative, including when unavailable.
-            return self.connection_token(configs.get(selected), read_only=read_only)
+            return selected, cls.connection_token(configs.get(selected), read_only=read_only)
         # Reuse only a single known, enabled host GitHub connection. Unrelated
         # MCP/process credentials and ambiguous accounts are never substitutes.
-        candidates = [configs[name] for name in ('github-official', 'github-codefirst')
-                      if name in configs and self.connection_enabled(configs[name])]
+        candidates = [name for name in ('github-official', 'github-codefirst')
+                      if name in configs and cls.connection_enabled(configs[name])]
         if len(candidates) != 1:
             raise ValueError('Configure or explicitly select one host GitHub connection for autonomous engineering')
-        return self.connection_token(candidates[0], read_only=read_only)
+        name = candidates[0]
+        return name, cls.connection_token(configs[name], read_only=read_only)
 
     @staticmethod
     def valid_token(value):

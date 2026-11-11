@@ -78,6 +78,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -634,7 +635,7 @@ internal fun VoiceChatScreen(onEnd: () -> Unit, onOpenChat: () -> Unit, model: C
                 runCatching { context.startActivity(android.content.Intent(android.speech.tts.TextToSpeech.Engine.ACTION_INSTALL_TTS_DATA)) }
                     .onFailure { runCatching { context.startActivity(android.content.Intent("com.android.settings.TTS_SETTINGS")) } }
             }) { Text("Install or manage voices") }
-            Text("Speech rate · ${String.format(java.util.Locale.getDefault(), "%.1f", rate)}×")
+            Text("Speech rate · ${String.format(LocalLocale.current.platformLocale, "%.1f", rate)}×")
             Slider(rate, {
                 rate = it
                 savePreferences()

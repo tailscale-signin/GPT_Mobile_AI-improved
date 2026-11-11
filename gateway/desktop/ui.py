@@ -6,6 +6,7 @@ import threading
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 from desktop.configuration import atomic_json, load, public_repository_maps, save_public_repository_maps, validate
+from v14.engineering_batch_policy import load_policy as load_execution_policy, save_policy as save_execution_policy
 from desktop.manager import request, startup_registration
 from desktop.addons import load_addons, save_addons
 from desktop import theme
@@ -157,6 +158,14 @@ def build_window(root, parent=None, section='General'):
                 messages.put((False, str(error)))
         threading.Thread(target=work, daemon=True).start()
     ttk.Button(advanced, text='Export debug log…', command=export_debug).grid(row=10, column=0, columnspan=3, sticky='w', pady=8)
+    ttk.Label(advanced, text='Execution mode for NEW GitHub jobs', style='Section.TLabel').grid(row=11, column=0, columnspan=3, sticky='w', pady=(18, 8))
+    batch_policy_path = root / 'data' / 'execution-policy.json'
+    batch_settings = load_execution_policy(batch_policy_path)
+    batch_mode = tk.StringVar(value=batch_settings['default_mode'])
+    ttk.Combobox(advanced, textvariable=batch_mode, state='readonly',
+                 values=['standard', 'smart', 'full']).grid(row=12, column=0, columnspan=3, sticky='ew', pady=5)
+    ttk.Label(advanced, text='Standard keeps the existing path. Smart uses safe read batching. Full also tracks durable engineering stages. Enable Full on this PC and select it in Android GitHub Mode; previous saved jobs retain their original policy. GitHub API requests remain serialized and native cloud batching stays disabled.',
+              style='Muted.TLabel', wraplength=600).grid(row=13, column=0, columnspan=3, sticky='w', pady=(4, 12))
 
     addons = sections['Add-ons']
     title(addons, 'Extend your gateway', 'Manage configured PC tools.')
@@ -240,9 +249,18 @@ def build_window(root, parent=None, section='General'):
             for name, variable in values.items():
                 updated[name] = int(variable.get()) if type(cfg[name]) is int else variable.get()
             updated = validate(updated)
+            selected_batch_mode = batch_mode.get()
+            staged_batch = dict(batch_settings, default_mode=selected_batch_mode,
+                                full_enabled=(selected_batch_mode == 'full'))
+            # Validate separately so the older Windows schema-1 settings reader
+            # never receives the new policy fields.
+            from v14.engineering_batch_policy import validate_policy as validate_execution_policy
+            staged_batch = validate_execution_policy(staged_batch)
             startup_registration(root, updated['start_at_login'])
             atomic_json(root / 'settings.json', updated)
             cfg.update(updated)
+            save_execution_policy(batch_policy_path, staged_batch)
+            batch_settings.update(staged_batch)
             if public_maps.get() != public_maps_saved:
                 save_public_repository_maps(root, public_maps.get())
                 public_maps_saved = public_maps.get()

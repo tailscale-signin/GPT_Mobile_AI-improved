@@ -139,6 +139,7 @@ def environment(root, cfg, management_token=''):
                GATEWAY_ACTIVITY_STATE=str(data / 'activity.json'),
                GATEWAY_DEBUG_MODE=str(cfg['debug_mode']).lower(), GATEWAY_DEBUG_LOG=str(root / 'logs' / 'gateway-debug.jsonl'),
                GATEWAY_JOB_DB=str(data / 'jobs.sqlite3'), GATEWAY_AUTH_DB=str(data / 'auth.sqlite3'),
+               GATEWAY_EXECUTION_POLICY_PATH=str(data / 'execution-policy.json'),
                GATEWAY_MAX_WORKERS=str(cfg['workers']), GATEWAY_MAX_ACTIVE_CHATS=str(cfg['active_chats']),
                GATEWAY_SHUTDOWN_GRACE=str(cfg['shutdown_seconds']),
                MCP_CONFIG_PATH=cfg['mcp_config'] or str(mcp), GATEWAY_DESKTOP_MANAGED='1')

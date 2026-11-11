@@ -9,6 +9,7 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 from v14.conversations import Conversations, ConversationConflict, QueueFull, CursorExpired, cursor_encode, cursor_decode, short_title
 from v14.conversation_policy import verify_mutation_identity
+from v14.engineering_batch_plan import summary as batch_summary
 from v14.execution_binding import ExecutionBindingError
 
 
@@ -46,6 +47,8 @@ def engineering_summary(job, lease, now):
             'accepted_at': job.get('accepted_at', job['created_at']), 'queued_at': job.get('queued_at', job['created_at']),
             'started_at': job.get('started_at'), 'finished_at': job.get('finished_at', job['updated_at'] if phase in {'COMPLETED', 'CANCELLED', 'FAILED'} else None),
             'server_now': now, 'provider_retry_at': provider_retry_at,
+            'execution_mode': request.get('execution_mode', 'standard'),
+            'batch_progress': batch_summary(job.get('data', {}).get('integration_batch')),
             'queue_reason': ('provider_rate_limit' if provider_retry_at is not None else 'ci_wait' if phase == 'CI' else 'engineering_worker') if state == 'queued' else None,
             'queue_position': None, 'result_available': phase == 'COMPLETED', 'transcript_available': bool(job.get('conversation_id')),
             'allowed_actions': ['open'] + (['cancel'] if phase not in {'COMPLETED', 'CANCELLED', 'FAILED', 'CANCELLING'} else []) + (['approve'] if phase == 'MERGE_READY' else [])}

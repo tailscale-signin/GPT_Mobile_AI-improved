@@ -21,6 +21,8 @@ from v14.inference_scheduler import install_scheduler
 from v14.engineering_artifacts import EngineeringArtifacts
 from v14.engineering_operations import EngineeringOperations
 from v14.engineering_defaults import EXECUTION_BUDGET_LIMITS, new_request_defaults, retained_request_defaults, effective_execution_budget
+from v14.engineering_batch_policy import authorize_request
+from v14.engineering_batch_plan import new_plan, transition as batch_transition, summary as batch_summary
 from v14.debug import capture_context_snapshot, execution_diagnostic_context
 from v14.conversations import Conversations, ConversationConflict, short_title
 
@@ -39,12 +41,19 @@ def principal_authorized(config, principal, devices):
 
 
 def validate_request(request):
-    allowed = {'repository', 'branch', 'base', 'objective', 'model', 'duration_hours', 'repair_attempts', 'chat_id', 'request_id', 'acceptance', 'profile_id', 'memory_mode', 'execution_binding_id', 'execution_budget', 'task_scope', 'scope', 'profile_name', 'source_branch', 'source_sha', 'conversation_id', 'client_conversation_id', 'command_id', 'expected_revision', 'draft_repair', 'sampling_policy'}
+    allowed = {'repository', 'branch', 'base', 'objective', 'model', 'duration_hours', 'repair_attempts', 'chat_id', 'request_id', 'acceptance', 'profile_id', 'memory_mode', 'execution_binding_id', 'execution_budget', 'task_scope', 'scope', 'profile_name', 'source_branch', 'source_sha', 'conversation_id', 'client_conversation_id', 'command_id', 'expected_revision', 'draft_repair', 'sampling_policy', 'execution_mode', 'batch_policy_version', 'batch_preferences'}
     if not isinstance(request, dict) or set(request) - allowed:
         raise ValueError('Unsupported engineering request fields')
     result = dict(request)
     if 'sampling_policy' in result:
         result['sampling_policy'] = validate_policy(result['sampling_policy'])
+    if 'execution_mode' in result and result['execution_mode'] not in {'standard', 'smart', 'full'}:
+        raise ValueError('Unsupported Gateway execution mode')
+    if 'batch_policy_version' in result and (type(result['batch_policy_version']) is not int or result['batch_policy_version'] != 1):
+        raise ValueError('Unsupported batch policy protocol')
+    if 'batch_preferences' in result and (not isinstance(result['batch_preferences'], dict) or
+            set(result['batch_preferences']) - {'enable_provider_native_batch', 'max_git_api_inflight', 'allow_parallel_local_tests', 'resume_after_transient_limits'}):
+        raise ValueError('Invalid batch preferences')
     if 'scope' in result:
         result['task_scope'] = accepted_scope(result)
         result.pop('scope')
@@ -207,6 +216,7 @@ class EngineeringStore:
         if existing:
             return existing
         request = validate_request(new_request_defaults(request))
+        authorize_request(request, durable=self.runtime.GATEWAY_DURABLE_JOBS)
         request_hash = digest(request)
         if admission is not None:
             if not admission.get('ready'):
@@ -223,6 +233,8 @@ class EngineeringStore:
                'updated_at': now, 'steps': 0, 'milestones': [], 'repairs': {}, 'patches': [], 'stalls': 0,
                'message': 'Queued for repository inspection', 'data': {}, 'approval': None,
                'execution_binding': binding}
+        if request.get('execution_mode') == 'full':
+            job['data']['integration_batch'] = new_plan(job)
         if admission is not None:
             job['data']['admission'] = admission
         capture = capture_context_snapshot(principal, self.runtime)
@@ -335,6 +347,9 @@ class EngineeringStore:
         return self.tx(claim)
 
     def complete(self, job, lease, phase, output, delay=0):
+        # The stage graph is a projection of this exact leased job, not a new
+        # executor. It is committed with the same journal CAS as phase results.
+        batch_transition(job, phase, output)
         job = dict(job, updated_at=self.now(), queued_at=self.now() + delay)
         if phase in {'COMPLETED', 'CANCELLED', 'FAILED'}:
             job['finished_at'] = self.now()
@@ -584,6 +599,7 @@ class EngineeringService:
 
     def validate_submission(self, principal, request):
         value = validate_request(request)
+        authorize_request(value, durable=self.store.runtime.GATEWAY_DURABLE_JOBS)
         binding, _, _ = self.bindings.validate(principal, value.get('execution_binding_id'), force=True)
         if value['model'] != binding['requested_model_id'] or value.get('profile_id') != binding['profile_uid']:
             raise ExecutionBindingError('EXECUTION_SELECTION_MISMATCH', 'The submitted model/profile does not match the selected execution binding.')
@@ -1052,6 +1068,8 @@ def public_job(job):
             'server_now': time.time(), 'detach_safe': bool(job.get('detach_safe')), 'task_scope': accepted_scope(job['request']),
             'started_at': job.get('started_at'), 'queued_at': job.get('queued_at'), 'title': job.get('title'),
             'provider_retry_at': (job.get('provider_wait') or {}).get('retry_at'),
+            'execution_mode': job['request'].get('execution_mode', 'standard'),
+            'batch_progress': batch_summary(data.get('integration_batch')),
             'cancellation_requested': bool(job.get('cancellation_requested')), 'cancellation_outcome': job.get('cancellation_outcome'),
             'id': job['id'], 'job_id': job['id'], 'repository': job['request']['repository'], 'branch': job['request']['branch'],
             'profile_id': job['request'].get('profile_id'), 'profile_name': job['request'].get('profile_name'), 'model': job['request']['model'],

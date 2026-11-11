@@ -11,6 +11,8 @@ from fastapi import Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from v14.engineering import public_job, validate_request
+from v14.engineering_batch_policy import capability as batch_capability
+from v14.engineering_batch_plan import page as batch_plan_page
 from v14.engineering_preflight import EngineeringPreflightError
 from v14.engineering_defaults import DEFAULT_DURATION_HOURS, DEFAULT_EXECUTION_BUDGET, EXECUTION_BUDGET_LIMITS
 from v14.engineering_diagnostics import diagnostic_job
@@ -115,6 +117,7 @@ def install_engineering_routes(app, service):
                     'mutationIdentityPreconditions': MUTATION_IDENTITY_HEADERS,
                     'repair_attempts': 5, 'explicit_merge_approval': True, 'approval_ttl_seconds': 1800,
                     'notifications': 'android_background_sync', 'batch_reads': True,
+                    'execution_batch': batch_capability(durable=service.store.runtime.GATEWAY_DURABLE_JOBS),
                     'execution_binding_protocol': 1, 'routing_policy': 'SELECTED_ONLY',
                     'execution_owner': 'GATEWAY', 'retry_owner': 'GATEWAY', 'admission_preflight_protocol': 1, 'sampling_policy_protocol': 1}
         return await execute(run)
@@ -247,6 +250,21 @@ def install_engineering_routes(app, service):
         async def run():
             rows = await asyncio.to_thread(service.store.list, principal(request))
             return {'jobs': [public_job(row) for row in rows]}
+        return await execute(run)
+
+    @app.get('/gateway/engineering/jobs/{job_id}/batch-plan')
+    @app.get('/v1/gateway/engineering/jobs/{job_id}/batch-plan')
+    async def integration_batch_plan(job_id: str, request: Request):
+        async def run():
+            row = await asyncio.to_thread(service.store.get, job_id, principal(request))
+            if not row:
+                return JSONResponse({'error': {'code': 'unknown_job'}}, status_code=404)
+            plan = row.get('data', {}).get('integration_batch')
+            if plan is None:
+                return JSONResponse({'error': {'code': 'batch_not_enabled_for_job'}}, status_code=409)
+            after = int(request.query_params.get('after', '0'))
+            limit = int(request.query_params.get('limit', '20'))
+            return batch_plan_page(plan, after=after, limit=limit)
         return await execute(run)
 
     @app.get('/gateway/engineering/jobs/{job_id}')

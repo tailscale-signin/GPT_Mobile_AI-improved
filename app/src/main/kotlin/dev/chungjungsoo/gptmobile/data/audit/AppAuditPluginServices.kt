@@ -434,7 +434,7 @@ internal class AppAuditPluginServices @Inject constructor(
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
-            if (failure is BenchmarkStorageFailure || failure is AppAuditAdmissionRejected || failure is AppAuditPluginConfigurationChanged) throw failure
+            if (failure is BenchmarkStorageFailure || failure is AppAuditAdmissionRejected || failure is AppAuditPluginConfigurationChanged || failure is AppAuditPluginReadBlocked) throw failure
             val cached = generateSequence<Throwable>(failure) { it.cause?.takeUnless { cause -> cause === it } }.take(8).any { it is McpBackoffException }
             val health = mcp.healthSnapshot(connection.connectionUid)
             // A new local rejection must not inherit an older server failure's HTTP status,

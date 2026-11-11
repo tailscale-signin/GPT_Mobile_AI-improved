@@ -5714,6 +5714,7 @@ class ChatRepositoryImpl(
                     lifecycle = { dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(runId, it) },
                     resumeCommitSha = dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.publishedCommit(originalUserRequest),
                     resumeRequestKey = "${user.chatId}:${user.id}",
+                    resumeClaimExtraction = restoreGatewayHandoffRequested,
                     gatewayDiagnostic = gatewayDiagnostics?.let { diagnostics ->
                         { diagnostics.run(platform.uid, "${user.chatId}:${user.id}") { send(ApiState.ProgressCheckpoint(it)) } }
                     },

@@ -1743,6 +1743,15 @@ internal fun ChatMessagePair(
     val responseRecoveryKind = responseFailure?.let { profileRecoveryKind(dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.classify(it).category, it) } ?: ProfileRecoveryKind.NONE
     val gitHubChat = githubTask != null || currentResearchTools().github != null
     val commitDecision = remember(gitHubChat, message.content, nativeDecisions) { if (gitHubChat) gitHubCommitDecisionBubble(message.content, nativeDecisions) else null }
+    val visiblePrompt = remember(gitHubChat, message.content) {
+        if (gitHubChat && message.content.startsWith("GitHub workspace: ")) {
+            val prompt = dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.request(message.content)
+            val preset = dev.chungjungsoo.gptmobile.data.github.GitHubWorkflowPreset.fromRequest(prompt)
+            if (preset == null) prompt else prompt.removeSuffix("\n[github-workflow-preset:${preset.id}]").trimEnd()
+        } else {
+            message.content
+        }
+    }
     StableChatResponseViewport(contentKey = if (isCombinedConversation) "combined" else selectedPlatformUid, reservedHeight = reservedTurnHeight) {
         Column(
             modifier = Modifier
@@ -1759,12 +1768,12 @@ internal fun ChatMessagePair(
                 } else {
                     UserChatBubble(
                         modifier = Modifier.widthIn(max = maximumUserChatBubbleWidth),
-                        text = message.content,
+                        text = visiblePrompt,
                         timestamp = (message.createdAt * 1000L).takeIf { debugSettings.messageTimestamps },
                         files = message.attachments.map { it.filePathForDisplay },
                         canEdit = canUseChat && isIdle,
-                        onCopyClick = { onCopyText(message.content) },
-                        onSelectClick = { onSelectText(message.content) },
+                        onCopyClick = { onCopyText(visiblePrompt) },
+                        onSelectClick = { onSelectText(visiblePrompt) },
                         onEditClick = { onEditQuestion(message) }
                     )
                 }

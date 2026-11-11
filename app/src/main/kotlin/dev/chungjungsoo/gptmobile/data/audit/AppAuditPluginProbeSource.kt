@@ -137,10 +137,14 @@ class AppAuditPluginProbeSource internal constructor(
                 // authority on both sides of the suspending durable dispatch marker.
                 if (!target.snapshotCurrent()) throw AppAuditPluginConfigurationChanged()
                 context.beforeDispatch()
-                if (currentTarget(entry)?.let { it.configured && it.enabled } != true) throw AppAuditPluginConfigurationChanged()
+                val admitted = currentTarget(entry)?.takeIf { it.configured && it.enabled }
+                if (!target.snapshotCurrent() || admitted == null) throw AppAuditPluginConfigurationChanged()
+                admitted.liveReadPrecheck?.let { throw AppAuditPluginReadBlocked(it) }
             }
         } catch (_: AppAuditPluginConfigurationChanged) {
             return changed(entry)
+        } catch (blocked: AppAuditPluginReadBlocked) {
+            return blocked.observation
         }
         context.ensureActive()
         if (!target.snapshotCurrent() || currentTarget(entry) == null) return result.copy(configChanged = true)
@@ -226,6 +230,7 @@ class AppAuditPluginProbeSource internal constructor(
 }
 
 internal class AppAuditPluginConfigurationChanged : IllegalStateException("Plugin audit configuration changed.")
+internal class AppAuditPluginReadBlocked(val observation: AppAuditObservation) : IllegalStateException("Plugin audit read is blocked.")
 
 internal fun appAuditTargetDigest(value: String): String = MessageDigest.getInstance("SHA-256")
     .digest(value.toByteArray(Charsets.UTF_8)).take(16).joinToString("") { "%02x".format(it.toInt() and 0xff) }

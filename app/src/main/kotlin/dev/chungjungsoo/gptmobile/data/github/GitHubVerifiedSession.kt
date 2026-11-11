@@ -20,6 +20,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
@@ -43,7 +44,8 @@ internal class GitHubVerifiedSession(
     private val onPublication: suspend (JsonObject) -> Unit = {},
     private val remainingToolCalls: () -> Int? = { null },
     private val currentRequest: String = task,
-    private val openExecutionContinuation: (suspend (String) -> AgentProviderSession)? = null
+    private val openExecutionContinuation: (suspend (String) -> AgentProviderSession)? = null,
+    private val resumeClaimExtraction: Boolean = false
 ) : AgentProviderSession by delegate {
     override val handlesToolResultRecovery: Boolean = GitHubTestChecklist.integration(task) ||
         GitHubTaskContinuity.reportOnly(currentRequest) ||
@@ -166,6 +168,15 @@ internal class GitHubVerifiedSession(
                 emitAll(publish(null))
             }
             return@flow
+        }
+        if (resumeCommitSha == null && (resumeClaimExtraction || GitHubTaskContinuity.control(currentRequest))) {
+            val (receipts, epoch) = evidence.snapshot()
+            val saved = evidence.retainedClaimExtraction(claimExtractionContext(receipts, epoch))
+            val draft = (saved?.get("draft") as? JsonPrimitive)?.content?.takeIf(String::isNotBlank)
+            if (saved?.get("pending") == JsonPrimitive(true) && draft != null) {
+                emitAll(publish(draft))
+                return@flow
+            }
         }
         retainProgress(tools)
         resumeCommitSha?.let { sha ->
@@ -538,13 +549,13 @@ internal class GitHubVerifiedSession(
             } else {
                 null
             }
-            val request = if (draft == null || status != null || coverage != null || ciObservation != null) {
+            val requests = if (draft == null || status != null || coverage != null || ciObservation != null) {
                 null
             } else {
                 progress("Verifying factual claims against exact tool receipts")
-                withContext(computationDispatcher) { verificationRequest(draft, receipts) }
+                withContext(computationDispatcher) { verificationRequests(draft, receipts) }
             }
-            val (renderedText, report) = status ?: coverage ?: ciObservation ?: if (request == null) partial(receipts, epoch, failureCode ?: "GITHUB_EXTRACTION_UNAVAILABLE") else extract(request, receipts, epoch)
+            val (renderedText, report) = status ?: coverage ?: ciObservation ?: if (requests == null) partial(receipts, epoch, failureCode ?: "GITHUB_EXTRACTION_UNAVAILABLE") else extract(requireNotNull(draft), requests, receipts, epoch)
             val (checklist, progressDigest) = withContext(computationDispatcher) {
                 val checklist = if (coverage != null) GitHubTestChecklist.checkpoint(task, receipts, authorizedTools, remainingToolCalls()) else null
                 checklist to checklist?.let { GitHubTestChecklist.progressDigest(task, receipts, authorizedTools) }
@@ -563,7 +574,7 @@ internal class GitHubVerifiedSession(
             val retention = evidence.retentionStatus()
             val retentionComplete = retention["evidence_retention_complete"] == kotlinx.serialization.json.JsonPrimitive(true)
             val partial = !retentionComplete || originalFailure != null || failureCode != null || report["task_outcome"] != kotlinx.serialization.json.JsonPrimitive("COMPLETED") || report["completion_verified"] != kotlinx.serialization.json.JsonPrimitive(true)
-            val oversizedWithoutEvidence = draft != null && status == null && coverage == null && ciObservation == null && request == null && receipts.isEmpty()
+            val oversizedWithoutEvidence = draft != null && status == null && coverage == null && ciObservation == null && requests == null && receipts.isEmpty()
             check(!oversizedWithoutEvidence) { "No retained GitHub evidence is available for publication" }
             val retained = JsonObject(
                 report + buildJsonObject {
@@ -776,7 +787,10 @@ internal class GitHubVerifiedSession(
                         }
                     } else {
                         originalFailure?.failureDetails ?: buildJsonObject {
-                            put("failed_stage", if (extractionCode?.startsWith("GITHUB_EXTRACTION_") == true) "claim_extraction" else "acceptance_verification")
+                            val extractionFailure = (delivered["verification_failure"] as? JsonObject)?.takeIf { it["failed_stage"] == JsonPrimitive("claim_extraction") }
+                            put("failed_stage", if (extractionFailure != null || extractionCode?.startsWith("GITHUB_EXTRACTION_") == true) "claim_extraction" else "acceptance_verification")
+                            extractionFailure?.get("batch")?.let { put("extraction_batch", it) }
+                            listOf("extraction_batches_completed", "extraction_batches_total").forEach { key -> delivered[key]?.let { put(key, it) } }
                             val stop = delivered["stop_reason"] as? JsonObject
                             put("stop_reason", stop?.get("code") ?: kotlinx.serialization.json.JsonPrimitive("UNVERIFIED_ACCEPTANCE_CRITERIA"))
                             stop?.let { put("acceptance_stop", it) }
@@ -801,90 +815,159 @@ internal class GitHubVerifiedSession(
         GitHubEvidencePolicy.partial(receipts, now(), epoch, task, failureCode)
     }
 
-    private suspend fun extract(request: String, receipts: Map<String, JsonObject>, epoch: Long): Pair<String, JsonObject> = try {
-        withTimeoutOrNull(90_000) {
-            val response = StringBuilder()
-            var verifiedComplete = false
-            var finishReason: String? = null
-            openVerifier(request).streamRound(emptyList(), emptyList()).collect { event ->
-                when (event) {
-                    is ProviderEvent.TextDelta -> {
-                        check(response.length.toLong() + event.text.length <= 131_072) { "Claim extraction exceeded its output bound" }
-                        response.append(event.text)
-                    }
-                    is ProviderEvent.Completed -> verifiedComplete = true
-                    is ProviderEvent.Usage -> event.finishReason?.let { finishReason = it }
-                    is ProviderEvent.Failed -> throw ExtractionFailed(event)
-                    is ProviderEvent.ToolCall, is ProviderEvent.ToolResult -> error("Evidence formatting attempted an operation")
-                    else -> Unit
+    private suspend fun claimExtractionContext(receipts: Map<String, JsonObject>, epoch: Long): String = withContext(computationDispatcher) {
+        val identity = receipts.entries.sortedBy { it.key }.joinToString("\n") { (id, receipt) ->
+            "$id:${receipt["source_result_sha256"]}:${receipt["verification_eligible"]}:${receipt["epoch"]}:${receipt["observed_at_ms"]}"
+        }
+        GitHubEvidenceBook.digest("$task\n$epoch\n$identity")
+    }
+
+    private suspend fun extract(draft: String, requests: List<GitHubClaimBatches.Request>, receipts: Map<String, JsonObject>, epoch: Long): Pair<String, JsonObject> {
+        val context = claimExtractionContext(receipts, epoch)
+        val plan = withContext(computationDispatcher) {
+            GitHubEvidenceBook.digest("github.claim-extraction.v1|$epoch|" + requests.joinToString("\n") { GitHubEvidenceBook.digest(it.payload) })
+        }
+        val saved = evidence.retainedClaimExtraction(context)?.takeIf { it["plan"] == JsonPrimitive(plan) }
+        val completed = mutableListOf<JsonObject>()
+        for ((batch, request) in (saved?.get("batches") as? JsonArray).orEmpty().zip(requests)) {
+            val answer = batch as? JsonObject ?: break
+            completed += runCatching { GitHubClaimBatches.validate(answer, request) }.getOrNull() ?: break
+        }
+        suspend fun failed(code: String, providerFailure: ProviderEvent.Failed? = null): Pair<String, JsonObject> {
+            val (text, report) = partial(receipts, epoch, code)
+            return text to JsonObject(
+                report + buildJsonObject {
+                    put("extraction_batches_completed", completed.size)
+                    put("extraction_batches_total", requests.size)
+                    put("resume_required", true)
+                    put(
+                        "verification_failure",
+                        buildJsonObject {
+                            providerFailure?.failureDetails?.forEach { (key, value) -> put(key, value) }
+                            put("code", code)
+                            put("failed_stage", "claim_extraction")
+                            if (completed.size < requests.size) put("batch", completed.size + 1)
+                            providerFailure?.message?.let { put("message", it) }
+                        }
+                    )
                 }
+            )
+        }
+        return try {
+            withTimeoutOrNull(90_000) {
+                if (completed.isEmpty()) evidence.retainClaimBatches(context, plan, draft, completed, pending = true)
+                for (request in requests.drop(completed.size)) {
+                    validatePublication()
+                    val result = extractBatch(request)
+                    validatePublication()
+                    completed += result
+                    evidence.retainClaimBatches(context, plan, draft, completed, pending = true)
+                }
+                val result = withContext(computationDispatcher) {
+                    GitHubEvidencePolicy.render(GitHubClaimBatches.combine(completed), receipts, now(), epoch, task)
+                }
+                if (saved?.get("pending") != JsonPrimitive(false) || completed.size != (saved?.get("batches") as? JsonArray)?.size) {
+                    evidence.retainClaimBatches(context, plan, draft, completed, pending = false)
+                }
+                result
+            } ?: failed("GITHUB_EXTRACTION_TIMEOUT")
+        } catch (failure: ExtractionFailed) {
+            failed(failure.code, failure.providerFailure)
+        }
+    }
+
+    private suspend fun extractBatch(request: GitHubClaimBatches.Request): JsonObject = try {
+        val response = StringBuilder()
+        var complete = false
+        var finishReason: String? = null
+        openVerifier(request.payload).streamRound(emptyList(), emptyList()).collect { event ->
+            when (event) {
+                is ProviderEvent.TextDelta -> {
+                    check(response.length + event.text.length.toLong() <= 32_768) { "Claim extraction exceeded its output bound" }
+                    response.append(event.text)
+                }
+                is ProviderEvent.Completed -> complete = true
+                is ProviderEvent.Usage -> event.finishReason?.let { finishReason = it }
+                is ProviderEvent.Failed -> throw ExtractionFailed(event.errorCode ?: "GITHUB_EXTRACTION_FAILED", event)
+                is ProviderEvent.ToolCall, is ProviderEvent.ToolResult -> error("Evidence formatting attempted an operation")
+                else -> Unit
             }
-            if (finishReason?.lowercase() in setOf("length", "max_tokens", "max_output_tokens", "token_limit")) {
-                return@withTimeoutOrNull partial(receipts, epoch, "GITHUB_EXTRACTION_OUTPUT_LIMIT")
-            }
-            check(verifiedComplete) { "Claim extraction was interrupted" }
-            withContext(computationDispatcher) {
-                val answer = Json.parseToJsonElement(response.toString().trim()) as? JsonObject ?: error("Claim extraction was not structured")
-                GitHubEvidencePolicy.render(answer, receipts, now(), epoch, task)
-            }
-        } ?: partial(receipts, epoch, "GITHUB_EXTRACTION_TIMEOUT")
+        }
+        if (finishReason?.lowercase() in setOf("length", "max_tokens", "max_output_tokens", "token_limit")) throw ExtractionFailed("GITHUB_EXTRACTION_OUTPUT_LIMIT")
+        check(complete) { "Claim extraction was interrupted" }
+        withContext(computationDispatcher) {
+            val answer = Json.parseToJsonElement(response.toString().trim()) as? JsonObject ?: error("Claim extraction was not structured")
+            GitHubClaimBatches.validate(answer, request)
+        }
     } catch (cancelled: CancellationException) {
         throw cancelled
     } catch (failed: ExtractionFailed) {
-        val (text, report) = partial(receipts, epoch, failed.failure.errorCode ?: "GITHUB_EXTRACTION_FAILED")
-        text to JsonObject(
-            report + (
-                "verification_failure" to buildJsonObject {
-                    put("code", failed.failure.errorCode.orEmpty())
-                    put("message", failed.failure.message)
-                    put("failed_stage", "claim_extraction")
-                    failed.failure.failureDetails?.forEach { (key, value) -> put(key, value) }
-                }
-                )
-        )
-    } catch (_: Exception) {
-        // Permission, ledger and persistence failures remain outside this boundary.
-        partial(receipts, epoch, "GITHUB_EXTRACTION_INVALID_RESPONSE")
+        throw failed
+    } catch (failure: Exception) {
+        val policy = failureCauses(failure).firstOrNull {
+            it is dev.chungjungsoo.gptmobile.data.context.DispatchPolicyChangedException ||
+                it is dev.chungjungsoo.gptmobile.data.context.ProviderWaitAuthorityChanged ||
+                it is dev.chungjungsoo.gptmobile.data.agent.SavedEvidenceAccessDenied
+        }
+        if (policy != null) throw policy
+        throw ExtractionFailed("GITHUB_EXTRACTION_INVALID_RESPONSE")
     }
 
-    private class ExtractionFailed(val failure: ProviderEvent.Failed) : IllegalStateException(failure.message)
+    private class ExtractionFailed(val code: String, val providerFailure: ProviderEvent.Failed? = null) : IllegalStateException(code)
 
-    private fun verificationRequest(draft: String, receipts: Map<String, JsonObject>): String? {
+    private fun verificationRequests(draft: String, receipts: Map<String, JsonObject>): List<GitHubClaimBatches.Request>? {
         val hardLimit = inputLimit()
-        fun payload(catalog: List<kotlinx.serialization.json.JsonElement>) = buildJsonObject {
-            put("task", task)
-            put(
-                "requirements",
-                JsonArray(
-                    GitHubRequestCompletion.requirements(task).map { requirement ->
-                        buildJsonObject {
-                            put("id", GitHubRequestCompletion.id(requirement))
-                            put("text", requirement)
+        val groups = GitHubRequestCompletion.requirements(task).distinct().chunked(GitHubClaimBatches.REQUIREMENTS_PER_BATCH).take(GitHubClaimBatches.MAX_BATCHES)
+        val catalog by lazy { JsonArray(GitHubEvidencePolicy.catalog(receipts).reversed()) }
+        val requests = groups.mapIndexed { index, requirements ->
+            val candidate = if (groups.size == 1) draft else draftExcerpt(draft, requirements)
+            val ids = requirements.map(GitHubRequestCompletion::id)
+            fun payload(selected: List<kotlinx.serialization.json.JsonElement>) = buildJsonObject {
+                put("task", task)
+                put("batch", index + 1)
+                put("batches", groups.size)
+                put("claim_limit", GitHubClaimBatches.MAX_CLAIMS)
+                put(
+                    "requirements",
+                    JsonArray(
+                        requirements.zip(ids).map { (text, id) ->
+                            buildJsonObject {
+                                put("id", id)
+                                put("text", text)
+                            }
                         }
-                    }
+                    )
                 )
-            )
-            put("candidate", draft)
-            put("claim_selection", "Return only the smallest set of evidenced claims that covers the requested requirements. Prioritize specific unresolved requirements over restating observations.")
-            put("catalog", JsonArray(catalog))
-            put("retained_receipts", receipts.size)
-            put("omitted_from_context", receipts.size - catalog.size)
-            put("coverage", "Full originals remain in the encrypted ledger. Omitted source is not proof; unresolved claims must remain Not measured.")
-        }.toString()
-        var request = payload(emptyList())
-        val baseTokens = TextTokenEstimate.estimate(request)
-        if (baseTokens > hardLimit) return null
-        val limit = minOf(hardLimit, maxOf(6_000, baseTokens + 2_048))
-        val catalog = GitHubVerificationCatalog.select(kotlinx.serialization.json.JsonArray(GitHubEvidencePolicy.catalog(receipts).reversed()), "$task\n$draft")
-        val selected = mutableListOf<kotlinx.serialization.json.JsonElement>()
-        // A large receipt must not prevent later, smaller evidence from being considered.
-        for (entry in catalog) {
-            val candidate = payload(selected + entry)
-            if (TextTokenEstimate.estimate(candidate) <= limit) {
-                selected += entry
-                request = candidate
+                put("candidate", candidate)
+                put("claim_selection", "Address the listed requirement IDs only. Prioritize the smallest set of evidenced claims needed to answer them.")
+                put("catalog", JsonArray(selected))
+                put("retained_receipts", receipts.size)
+                put("omitted_from_context", receipts.size - selected.size)
+                put("coverage", "Full originals remain in the encrypted ledger. Omitted source is not proof; unresolved claims must remain Not measured.")
+            }.toString()
+            var request = payload(emptyList())
+            val baseTokens = TextTokenEstimate.estimate(request)
+            if (baseTokens > hardLimit) return null
+            val limit = minOf(hardLimit, maxOf(6_000, baseTokens + 2_048))
+            val query = if (groups.size == 1) "$task\n$draft" else requirements.joinToString("\n") + "\n" + candidate
+            val selected = mutableListOf<kotlinx.serialization.json.JsonElement>()
+            for (entry in GitHubVerificationCatalog.select(catalog, query)) {
+                val next = payload(selected + entry)
+                if (TextTokenEstimate.estimate(next) <= limit) {
+                    selected += entry
+                    request = next
+                }
             }
+            GitHubClaimBatches.Request(request, ids.toSet())
         }
-        return request.takeIf { TextTokenEstimate.estimate(it) <= inputLimit() }
+        val currentLimit = inputLimit()
+        return requests.takeIf { batch -> batch.all { TextTokenEstimate.estimate(it.payload) <= currentLimit } }
+    }
+
+    private fun draftExcerpt(draft: String, requirements: List<String>): String {
+        val terms = Regex("[A-Za-z0-9_]{4,}").findAll(requirements.joinToString(" ").lowercase()).map { it.value }.toSet()
+        return draft.lineSequence().take(2048).filter(String::isNotBlank).map { it.take(900) }.withIndex()
+            .sortedByDescending { line -> terms.count { term -> line.value.contains(term, ignoreCase = true) } }
+            .take(10).sortedBy { it.index }.joinToString("\n") { it.value }.take(3600)
     }
 }

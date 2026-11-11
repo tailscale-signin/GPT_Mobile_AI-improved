@@ -177,5 +177,31 @@
     "status": "FORMATTED_FRESH_ANDROID_COMPILATION_REQUIRED",
     "intent": "Implement the new diagnostic projection in the sole concrete recorder-test DAO fake; preserve production DAO behavior.",
     "validation_receipt": "docs/repairs/evidence/audit-execution-recovery-2026-11-09/diagnostic-dao-fake-validation.json"
+  },
+  "voice_chat_and_claim_recovery_followup": {
+    "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+    "base_branch": "main",
+    "base_sha": "3a1f44bb3dff7dbe10a839f1cad7b408b34aadeb",
+    "working_branch": "fix/audit-execution-recovery-2026-11-09",
+    "parent_head": "2a75e9e0985c57d197190b0f6bb16e4141e97acf",
+    "pull_request": 817,
+    "intent": "Complete the requested audit, durable recovery and voice improvements. Restore chronological GitHub prompts, collapse the top controls, show quick decision actions, make the active preview opaque, update real operation counts in place, and reduce summary frequency to 45 seconds after the initial update. Save validated claim-extraction batches and recheck audit credentials at dispatch admission.",
+    "state": "LOCAL_CHECKS_PASS_FRESH_PUBLISHED_HEAD_CI_REQUIRED",
+    "acceptance": [
+      "The original prompt is shown chronologically without internal workspace metadata.",
+      "Only the active preview is fully opaque. Its measured counter updates reuse a stable row.",
+      "The first summary remains immediate. Later updates wait at least 45 seconds and require meaningful new evidence.",
+      "A collapsed GitHub header preserves back navigation and exposes a themed animated expand control.",
+      "Bound approval and user-decision cards expose review or response actions and preserve exact write approval.",
+      "Voice settings persist recognition, playback, listening and Kokoro thread preferences. Warm reply streaming retains a bounded PCM queue.",
+      "Claim-extraction failure preserves validated batches and the private draft, and Continue resumes the unfinished batch under the same authority.",
+      "MCP audit dispatch revalidates the configuration snapshot and local credential precheck after the durable admission marker."
+    ],
+    "live_qualification": "Pending physical ASUS device, exact APK attestation, deployed Gateway and saved OAuth/MCP connections. No ledger case promoted.",
+    "validation_receipt": "docs/repairs/evidence/audit-execution-recovery-2026-11-09/voice-claim-ui-validation.json",
+    "canonical_fast_tests": 461,
+    "android_jvm_tests": 399,
+    "android_jvm_failures": 0,
+    "remediation_record": "docs/repairs/voice-chat-recovery-followup-2026-11-11.md"
   }
 }

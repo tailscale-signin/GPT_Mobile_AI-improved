@@ -86,6 +86,7 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCiLogPage.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCiLogReader.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCiObservationReport.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubClaimBatches.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCodeContext.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCollaboration.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCommitContinuation.kt",

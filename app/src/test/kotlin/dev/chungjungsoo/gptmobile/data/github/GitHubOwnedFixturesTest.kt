@@ -285,8 +285,11 @@ class GitHubOwnedFixturesTest {
                     GitHubCommitReconciliation.recover(root, saved, request = remote::read)
                 }
             }
-            val mismatch = runCatching { recover("d".repeat(40)) }.exceptionOrNull()
-            assertEquals("FIXTURE_RECONCILE_REQUIRED", GitHubFailurePolicy.recordedCode(mismatch?.message.orEmpty()))
+            val mismatch = recover("d".repeat(40))
+            assertEquals(JsonPrimitive("PUBLICATION_AWAITING_REMOTE_VERIFICATION"), mismatch?.get("approval_state"))
+            assertEquals(JsonPrimitive("MONITORING_CI"), mismatch?.get("native_state"))
+            assertEquals(JsonPrimitive("RECONCILE_EXISTING_PUBLICATION"), mismatch?.get("next_action"))
+            assertEquals(JsonPrimitive("DELIBERATELY_RETAINED"), mismatch?.get("lifecycle_state"))
             assertEquals(1, remote.publications)
             assertEquals(0, remote.deletes)
             val proof = recover(first)

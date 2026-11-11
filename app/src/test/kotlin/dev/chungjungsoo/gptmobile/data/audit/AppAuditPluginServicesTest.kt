@@ -294,12 +294,15 @@ class AppAuditPluginServicesTest {
     @Test
     fun transientGenerationChangeDuringMarkerStillBlocksAnOtherwiseEqualFingerprint() = runBlocking {
         val setup = Setup()
-        setup.configure(listOf(connection()))
+        val connection = connection()
+        setup.configure(listOf(connection))
+        coEvery { setup.resolver.discoverMcpToolsWithReceipt(connection, forceRefresh = true, awaitCompletion = true) } coAnswers { freshMcpReceipt() }
         val entry = setup.source.plan(AppAuditOptions(true)).single { it.probeId == AppAuditPluginProbeSource.MCP_DISCOVERY }
         val result = setup.source.execute(entry, context { ReadinessInvalidation.advance() })
         assertEquals(AppAuditOutcome.BLOCKED, result.outcome)
         assertEquals("PLUGIN_CONFIGURATION_CHANGED", result.reasonCode)
         assertEquals(AppAuditDispatchEvidence.NOT_DISPATCHED, result.dispatchEvidence)
+        coVerify(exactly = 1) { setup.resolver.discoverMcpToolsWithReceipt(connection, forceRefresh = true, awaitCompletion = true) }
         confirmVerified(setup.resolver)
     }
 
@@ -679,6 +682,7 @@ class AppAuditPluginServicesTest {
             failureConfigurationRevision = entry.configurationRevision
         )
         every { setup.mcp.healthSnapshot(connection.connectionUid) } answers { health }
+        coEvery { setup.resolver.discoverMcpToolsWithReceipt(connection, forceRefresh = true, awaitCompletion = true) } coAnswers { freshMcpReceipt() }
         val observation = setup.source.execute(
             entry,
             context {
@@ -690,6 +694,7 @@ class AppAuditPluginServicesTest {
         assertEquals(AppAuditObservationSource.CACHE, observation.observationSource)
         assertEquals(AppAuditDispatchEvidence.NOT_DISPATCHED, observation.dispatchEvidence)
         assertEquals(7L, observation.observedAtEpochMs)
+        coVerify(exactly = 1) { setup.resolver.discoverMcpToolsWithReceipt(connection, forceRefresh = true, awaitCompletion = true) }
         confirmVerified(setup.resolver)
     }
 
@@ -801,8 +806,7 @@ class AppAuditPluginServicesTest {
         setup.configure(listOf(connection))
         coEvery { setup.vault.recordRevision("connection_configured") } answers { revision }
         coEvery { setup.resolver.discoverMcpToolsWithReceipt(connection, forceRefresh = true, awaitCompletion = true) } coAnswers {
-            revision = "b".repeat(64)
-            freshMcpReceipt()
+            freshMcpReceipt().also { revision = "b".repeat(64) }
         }
         val entry = setup.source.plan(AppAuditOptions(true)).single { it.probeId == AppAuditPluginProbeSource.MCP_DISCOVERY }
         val observation = setup.source.execute(entry, context())

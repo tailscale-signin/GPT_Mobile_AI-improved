@@ -57,7 +57,6 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
@@ -1039,7 +1038,7 @@ private fun chatMarkdownTypography(proseColor: Color? = null, linkColor: Color? 
     val colors = MaterialTheme.colorScheme
     val localStyle = androidx.compose.material3.LocalTextStyle.current
     // Resolve composable defaults before entering remember's non-composable calculation.
-    val resolved = markdownTypography(
+    val base = markdownTypography(
         h1 = typography.headlineMedium.copy(color = proseColor ?: Color.Unspecified),
         h2 = typography.headlineSmall.copy(color = proseColor ?: Color.Unspecified),
         h3 = typography.titleLarge.copy(color = proseColor ?: Color.Unspecified),
@@ -1050,15 +1049,20 @@ private fun chatMarkdownTypography(proseColor: Color? = null, linkColor: Color? 
         paragraph = body,
         ordered = body,
         bullet = body,
-        list = body,
-        textLink = TextLinkStyles(
-            style = typography.bodyLarge.copy(
-                color = linkColor ?: typography.bodyLarge.color,
-                fontWeight = FontWeight.Bold,
-                textDecoration = TextDecoration.Underline
-            ).toSpanStyle()
-        )
+        list = body
     )
+    val resolved = if (linkColor == null) {
+        base
+    } else {
+        base.copy(
+            textLink = TextLinkStyles(
+                style = (base.textLink.style ?: SpanStyle()).copy(color = linkColor),
+                focusedStyle = base.textLink.focusedStyle,
+                hoveredStyle = base.textLink.hoveredStyle,
+                pressedStyle = base.textLink.pressedStyle
+            )
+        )
+    }
     remember(typography, body, colors, localStyle, proseColor, linkColor) { resolved }
 }
 

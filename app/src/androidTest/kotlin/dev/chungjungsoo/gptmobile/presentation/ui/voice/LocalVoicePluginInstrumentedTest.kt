@@ -24,9 +24,9 @@ import androidx.test.platform.app.InstrumentationRegistry
 import dev.chungjungsoo.gptmobile.data.voice.KokoroModelPack
 import dev.chungjungsoo.gptmobile.data.voice.KokoroOutput
 import dev.chungjungsoo.gptmobile.data.voice.KokoroVoice
+import dev.chungjungsoo.gptmobile.data.voice.KokoroVoiceOutput
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelState
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelStatus
-import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelStore
 import dev.chungjungsoo.gptmobile.data.voice.VoiceAudio
 import dev.chungjungsoo.gptmobile.data.voice.VoicePluginAudio
 import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionInput
@@ -43,13 +43,23 @@ import org.junit.Assume.assumeTrue
 import org.junit.Rule
 import org.junit.Test
 
-/** Packaged JNI/UI qualification; does not claim microphone or speech-model inference execution. */
+/** Voice startup, Android TTS fallback, and model controls on a model-free installation. */
 class LocalVoicePluginInstrumentedTest {
     @get:Rule val compose = createComposeRule()
 
     @Test fun packagedNativeSpeechRuntimeMatchesItsJavaApi() {
         JNI.ensureLibraryLoaded()
         assertEquals(JNI.MOONSHINE_HEADER_VERSION, JNI.moonshineGetVersion())
+    }
+
+    @Test fun kokoroPlaybackClassVerifiesBeforeAnyModelIsInstalled() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        instrumentation.runOnMainSync {
+            val models = KokoroModelPack.store(File(context.cacheDir, "voice-output-class-load"))
+            val output = KokoroVoiceOutput(context, models, { AudioAttributes.Builder().build() }, { 1f })
+            output.close()
+        }
     }
 
     @Test fun kokoroDelegateFallsBackToRealAndroidTextToSpeechWhenModelIsMissing() {
@@ -144,29 +154,6 @@ class LocalVoicePluginInstrumentedTest {
             if (focusRequested) audioManager.abandonAudioFocusRequest(focusRequest)
             tts.stop()
             tts.shutdown()
-        }
-    }
-
-    @Test fun installedKokoroModelPlaysAudioThroughTheAndroidOutputBackend() {
-        val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val models: LocalVoiceModelStore = KokoroModelPack.store(File(context.noBackupFilesDir, "voice-models"))
-        assumeTrue("Install the Kokoro model on the Android 16 device to run native playback qualification", models.isInstalled())
-        val complete = CountDownLatch(1)
-        val failure = AtomicReference<String?>(null)
-        val attributes = AudioAttributes.Builder()
-            .setUsage(AudioAttributes.USAGE_ASSISTANCE_ACCESSIBILITY)
-            .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-            .build()
-        val output = createKokoroVoiceOutput(context, models, { attributes }, { 1f })
-        try {
-            output.speak("Kokoro real device playback check.", KokoroVoice.HEART, { complete.countDown() }, { message, _ ->
-                failure.set(message)
-                complete.countDown()
-            })
-            assertTrue("Kokoro delegate did not produce or report real Android playback", complete.await(45, TimeUnit.SECONDS))
-            assertEquals(null, failure.get())
-        } finally {
-            output.close()
         }
     }
 

@@ -186,7 +186,13 @@ from pathlib import Path
 sys.path.insert(0, 'scripts')
 from check_native_memory_smoke import check_instrumentation
 folder = Path('app/build/acceptance-0950')
-for test in ('packagedNativeSpeechRuntimeMatchesItsJavaApi', 'modelInstallRequiresExplicitAction', 'downloadCancellationAndModelRemovalHaveSeparateActions'):
+for test in (
+    'packagedNativeSpeechRuntimeMatchesItsJavaApi',
+    'kokoroPlaybackClassVerifiesBeforeAnyModelIsInstalled',
+    'kokoroDelegateFallsBackToRealAndroidTextToSpeechWhenModelIsMissing',
+    'modelInstallRequiresExplicitAction',
+    'downloadCancellationAndModelRemovalHaveSeparateActions',
+):
     check_instrumentation(folder / 'local-voice-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.voice.LocalVoicePluginInstrumentedTest', test)
 for test in ('roundTripOverwriteAndDelete', 'rejectsUnsafeReferencesAndOversizedSecrets', 'rejectsMalformedRecords', 'oversizedRecordIsRejectedBeforeAllocationAndSizeDoesNotRequireAKey', 'rejectsRecordMovedToAnotherReference', 'missingKeystoreKey_preservesEncryptedRecord'):
     check_instrumentation(folder / 'secret-vault-instrumentation.txt', 'dev.chungjungsoo.gptmobile.data.security.SecretVaultInstrumentedTest', test)

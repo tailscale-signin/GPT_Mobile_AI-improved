@@ -135,7 +135,7 @@ class StagedChatDebugExportTest {
             if (section == "conversation") throw CancellationException("interrupted")
         }
         assertTrue(runCatching { capture() }.exceptionOrNull() is CancellationException)
-        assertNotNull(StagedDiagnosticCapture.findResumableSession(DiagnosticCaptureStorage.directory(context, chatId), diagnosticCaptureIdentity(chatId)))
+        assertNotNull(StagedDiagnosticCapture.findResumableSession(DiagnosticCaptureStorage.directory(context, chatId), diagnosticCaptureIdentity(chatId, fullHistory = true)))
         every { AppLogRecorder.captureForExport(any(), any()) } answers { error("The ring no longer contains the original failure") }
         readSection = { _, before, _ -> before() }
         val resumed = capture(resume = true)
@@ -148,8 +148,9 @@ class StagedChatDebugExportTest {
         destination.writeText("destination is temporarily unavailable")
         assertTrue(runCatching { capture() }.isFailure)
         val work = DiagnosticCaptureStorage.directory(context, chatId)
-        val session = requireNotNull(StagedDiagnosticCapture.findResumableSession(work, diagnosticCaptureIdentity(chatId)))
-        val pending = requireNotNull(StagedDiagnosticCapture.pendingArchive(work, diagnosticCaptureIdentity(chatId), session))
+        val identity = diagnosticCaptureIdentity(chatId, fullHistory = true)
+        val session = requireNotNull(StagedDiagnosticCapture.findResumableSession(work, identity))
+        val pending = requireNotNull(StagedDiagnosticCapture.pendingArchive(work, identity, session))
         val manifest = pending.manifest
         assertEquals(JsonPrimitive(1L), manifest["archivePart"])
         every { AppLogRecorder.captureForExport(any(), any()) } answers { error("Pending archive handoff must not recapture logs") }
@@ -160,7 +161,7 @@ class StagedChatDebugExportTest {
         assertEquals(2, captureCount)
         assertTrue(delivered.file.isFile)
         assertEquals(delivered.manifest, StagedDiagnosticCapture.verify(delivered.file))
-        assertEquals(null, StagedDiagnosticCapture.pendingArchive(work, diagnosticCaptureIdentity(chatId), session))
+        assertEquals(null, StagedDiagnosticCapture.pendingArchive(work, identity, session))
     }
 
     @Test fun recentMetadataWithoutLogEvidenceIsExplicitlyPartial() = runBlocking {

@@ -5,7 +5,7 @@ import queue
 import threading
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
-from desktop.configuration import atomic_json, load, validate
+from desktop.configuration import atomic_json, load, public_repository_maps, save_public_repository_maps, validate
 from desktop.manager import request, startup_registration
 from desktop.addons import load_addons, save_addons
 from desktop import theme
@@ -82,7 +82,7 @@ def build_window(root, parent=None, section='General'):
 
     window.bind('<MouseWheel>', scroll)
     sections = {}
-    for title in ('General', 'Advanced', 'Add-ons'):
+    for title in ('General', 'Advanced', 'Add-ons', 'GitHub'):
         canvas = page(title)
         frame = ttk.Frame(canvas, padding=24)
         attach(canvas, frame)
@@ -159,9 +159,8 @@ def build_window(root, parent=None, section='General'):
     ttk.Button(advanced, text='Export debug log…', command=export_debug).grid(row=10, column=0, columnspan=3, sticky='w', pady=8)
 
     addons = sections['Add-ons']
-    title(addons, 'Extend your gateway', 'Manage configured PC tools and GitHub engineering access.')
+    title(addons, 'Extend your gateway', 'Manage configured PC tools.')
     values['engineering'] = tk.BooleanVar(value=cfg['engineering'])
-    ttk.Checkbutton(addons, text='Allow network devices to run GitHub engineering tasks', variable=values['engineering']).grid(row=2, column=0, columnspan=3, sticky='w', pady=(0, 14))
     field(addons, 3, 'mcp_config', 'MCP configuration file')
     addon_buttons = ttk.Frame(addons)
     addon_buttons.grid(row=4, column=0, columnspan=3, sticky='w', pady=8)
@@ -218,6 +217,13 @@ def build_window(root, parent=None, section='General'):
         ttk.Button(addon_buttons, text=label, command=command).pack(side='left', padx=(0, 8))
     reload_addons()
 
+    from desktop.github_setup import build_github_settings
+    github = sections['GitHub']
+    title(github, 'GitHub', 'Map public repositories or connect GitHub for private maps and saved jobs.')
+    public_maps_saved = public_repository_maps(root)
+    public_maps = tk.BooleanVar(value=public_maps_saved)
+    refresh_github = build_github_settings(github, root, cfg, public_maps, values['engineering'])
+
     footer = ttk.Frame(window, padding=(24, 16))
     footer.pack(fill='x')
     notice = tk.StringVar(value='Settings apply after Restart. Active work is preserved.')
@@ -228,6 +234,7 @@ def build_window(root, parent=None, section='General'):
     busy = False
 
     def save():
+        nonlocal public_maps_saved
         try:
             updated = dict(cfg)
             for name, variable in values.items():
@@ -236,6 +243,9 @@ def build_window(root, parent=None, section='General'):
             startup_registration(root, updated['start_at_login'])
             atomic_json(root / 'settings.json', updated)
             cfg.update(updated)
+            if public_maps.get() != public_maps_saved:
+                save_public_repository_maps(root, public_maps.get())
+                public_maps_saved = public_maps.get()
             notice.set('Settings saved. Restart when your current work is complete.')
         except Exception as error:
             messagebox.showerror('Check settings', str(error))
@@ -260,6 +270,7 @@ def build_window(root, parent=None, section='General'):
 
     def refresh():
         nonlocal busy
+        refresh_github()
         while not messages.empty():
             success, text = messages.get_nowait()
             busy = False

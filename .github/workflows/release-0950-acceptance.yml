@@ -43,11 +43,7 @@ jobs:
       - run: sudo chmod 666 /dev/kvm
       - name: Install Vulkan build prerequisites
         timeout-minutes: 8
-        run: |
-          trap 'echo "::error::Android native dependency installation failed or timed out. Retry after checking the Ubuntu package mirror and dpkg lock."' ERR
-          apt_options=(-o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o DPkg::Lock::Timeout=60)
-          sudo timeout --kill-after=15s 180s apt-get "${apt_options[@]}" update
-          sudo env DEBIAN_FRONTEND=noninteractive timeout --kill-after=15s 180s apt-get "${apt_options[@]}" install --no-install-recommends -y glslc libvulkan-dev spirv-headers
+        run: bash scripts/install_android_native_dependencies.sh
       - name: Compile device regressions before packaging
         timeout-minutes: 25
         # The device is x86_64. Full ABI distribution APKs are validated by the

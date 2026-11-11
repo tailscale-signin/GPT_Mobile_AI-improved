@@ -47,9 +47,17 @@ Device observations are grouped by socket address, not authenticated identity. �
 
 Only the local supervisor can retrieve desktop observations. The desktop reads local metadata snapshots, with no API credential required from the phone and no prompts, tool arguments or result bodies added to activity history. Repair/uninstall asks desktop windows to close before replacing their executable; saved activity and jobs remain in `data/`.
 
+## GitHub
+
+Public repository maps are enabled by default. Once your phone connects to this gateway, open **GitHub Mode → Status → Repository map** and choose **Build repository index**. GitHub's anonymous rate limits apply. You can turn public maps off in **Gateway Settings → GitHub**. Save settings and restart to apply this preference.
+
+For private maps or saved GitHub jobs, select **Open GitHub settings for private repositories or saved jobs** when the installer finishes, or open **Gateway Settings → GitHub** later. The gateway reuses one eligible GitHub add-on automatically. To connect a different account, use **Create GitHub token**, grant access to the repositories you need, and paste the token into the masked field. For mapping, grant **Contents → Read-only**. Enter a repository to check its source access, then click **Connect**. The gateway stores the token in Windows Credential Manager after GitHub confirms it. **Test connection** checks the current configuration, and **Remove saved token** restores automatic selection.
+
+On a LAN listener, **Allow network devices to run GitHub engineering tasks** grants connected devices access to private maps and saved engineering operations through this PC's GitHub connection. Enable it only for your intended network, save settings, and restart after active work finishes.
+
 ## General, Advanced and Add-ons
 
-Open each section directly from the dashboard sidebar or from Gateway Settings. General exposes the backend, listener address, hostnames, startup/update preferences and explicit firewall actions. Advanced exposes worker/chat limits and shutdown grace. Add-ons exposes network GitHub engineering access and enabled services in the selected MCP JSON configuration. Saving add-ons preserves commands, arguments and credentials, and refuses a save if the configuration changed externally. Save the selected file path in settings and restart when work finishes to apply it. The gateway service allowlist remains authoritative.
+Open each section directly from the dashboard sidebar or from Gateway Settings. General exposes the backend, listener address, hostnames, startup/update preferences and explicit firewall actions. Advanced exposes worker/chat limits and shutdown grace. Add-ons shows the enabled services in the selected MCP JSON configuration. Saving add-ons preserves commands, arguments and credentials, and refuses a save if the configuration changed externally. Save the selected file path in settings and restart when work finishes to apply it. The gateway service allowlist remains authoritative.
 
 The token graph uses provider completion usage or llama.cpp timing receipts, including reasoning when counted by the backend. Missing measurements remain unavailable and partial coverage is disclosed. Counters start with this update, persist in `data/usage.sqlite3`, and exclude cached deliveries. These are measurements for this installation, without inferred per-phone attribution. Old logs are not estimated. A single background observer delivers both usage and activity without blocking generation; stale data is visibly marked.
 

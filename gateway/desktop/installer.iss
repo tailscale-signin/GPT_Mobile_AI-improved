@@ -32,7 +32,7 @@ Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion
 [Tasks]
 Name: "startup"; Description: "Start Gateway when I sign in"; Flags: checkedonce
 Name: "desktopicon"; Description: "Create a desktop dashboard shortcut"; Flags: unchecked
-Name: "engineering"; Description: "Allow network devices to run engineering tasks"; Flags: unchecked
+Name: "engineering"; Description: "Allow network devices to run GitHub engineering tasks and map private repositories"; Flags: unchecked
 
 Name: "firewall"; Description: "Allow Gateway from the local subnet on Private networks (Windows administrator approval)"; Flags: unchecked
 
@@ -47,6 +47,7 @@ Name: "{group}\Uninstall Gateway"; Filename: "{uninstallexe}"
 [Run]
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{app}\Start-Gateway.ps1"""; Description: "Start Gateway"; Flags: nowait postinstall skipifsilent
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{app}\Start-Gateway.ps1"" -Command dashboard"; Description: "Open the live Gateway dashboard"; Flags: nowait postinstall skipifsilent
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{app}\Start-Gateway.ps1"" -Command github-settings"; Description: "Open GitHub settings for private repositories or saved jobs"; Flags: nowait postinstall skipifsilent unchecked
 
 [UninstallDelete]
 Type: files; Name: "{app}\current.json"
@@ -75,7 +76,7 @@ end;
 
 procedure InitializeWizard;
 begin
-  ConnectionPage := CreateInputQueryPage(wpSelectDir, 'Connection settings', 'Choose your model backend and gateway port.', 'The model server is separate. Existing installations retain their settings. Change them later using Gateway Settings.');
+  ConnectionPage := CreateInputQueryPage(wpSelectDir, 'Connection settings', 'Choose your model backend and gateway port.', 'Public GitHub maps work by default. You can connect GitHub for private repositories or saved jobs from Gateway Settings.');
   ConnectionPage.Add('Model backend origin (without /v1):', False);
   ConnectionPage.Add('Gateway port (1024-65535):', False);
   ConnectionPage.Add('Existing MCP JSON file (optional, absolute path):', False);

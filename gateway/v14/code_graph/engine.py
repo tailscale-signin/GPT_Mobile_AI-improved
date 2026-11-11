@@ -67,6 +67,11 @@ class GraphStore:
             payload = EngineeringCipher.encrypt(db, 'graph:' + namespace + ':' + snapshot['sha'], compressed)
             db.execute('INSERT OR REPLACE INTO code_graph_snapshots VALUES(?,?,?,?)', (namespace, snapshot['sha'], time.time(), payload))
             db.execute('DELETE FROM code_graph_snapshots WHERE scope=? AND sha NOT IN (SELECT sha FROM code_graph_snapshots WHERE scope=? ORDER BY updated DESC LIMIT 4)', (namespace, namespace))
+            if namespace.startswith('public:'):
+                db.execute("""DELETE FROM code_graph_snapshots WHERE scope GLOB 'public:*' AND (scope,sha) NOT IN (
+                    SELECT scope,sha FROM code_graph_snapshots WHERE scope GLOB 'public:*' ORDER BY updated DESC LIMIT 4)""")
+                db.execute("""DELETE FROM code_graph_metrics WHERE scope GLOB 'public:*' AND scope NOT IN (
+                    SELECT scope FROM code_graph_snapshots WHERE scope GLOB 'public:*')""")
         self.store.tx(write)
 
     def note(self, namespace, value):
@@ -127,7 +132,7 @@ class Graph:
         modules = collections.defaultdict(set)
         for path, fragment in sorted(snapshot['fragments'].items()):
             for original in fragment['nodes']:
-                node = dict(original, repository=snapshot['repository'], commit_sha=snapshot['sha'],
+                node = dict(original, path=path, repository=snapshot['repository'], commit_sha=snapshot['sha'],
                             blob_sha=snapshot['manifest'][path]['sha'], parser=fragment.get('parser', 'unknown'))
                 node['url'] = 'https://github.com/' + snapshot['repository'] + '/blob/' + snapshot['sha'] + '/' + quote(path, safe='/') + '#L' + str(node['line'])
                 self.nodes[node['id']] = node
@@ -137,7 +142,7 @@ class Graph:
                     parts = path.rsplit('.', 1)[0].split('/')
                     for offset in range(len(parts)):
                         modules['.'.join(parts[offset:])].add(path)
-            self.edges.extend(fragment['edges'])
+            self.edges.extend(edge if 'path' in edge else dict(edge, path=path) for edge in fragment['edges'])
         import_targets = {}
         for path, fragment in snapshot['fragments'].items():
             for imported in fragment['imports']:

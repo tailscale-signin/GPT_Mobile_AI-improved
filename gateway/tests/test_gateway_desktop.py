@@ -19,7 +19,7 @@ import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import requests
-from desktop.configuration import DEFAULTS, atomic_json, environment, validate
+from desktop.configuration import DEFAULTS, atomic_json, environment, save_public_repository_maps, validate
 from desktop import releases
 from desktop.manager import Supervisor, RESTART, read_pointer, request
 from v14 import VERSION
@@ -90,6 +90,44 @@ class SettingsTests(unittest.TestCase):
                 self.assertEqual('selected-host-secret', backend.token())
             self.assertNotIn('secret', json.dumps(cfg))
             self.assertNotIn('secret', (Path(temp) / 'data' / 'mcp.json').read_text())
+
+    def test_public_maps_default_without_granting_engineering_and_can_be_disabled(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            cfg = validate({'bind_host': '0.0.0.0'})
+            self.assertEqual('true', environment(root, cfg)['GATEWAY_PUBLIC_REPOSITORY_MAPS'])
+            self.assertEqual('false', environment(root, cfg)['GATEWAY_REMOTE_ENGINEERING'])
+            save_public_repository_maps(root, False)
+            self.assertEqual('false', environment(root, cfg)['GATEWAY_PUBLIC_REPOSITORY_MAPS'])
+            self.assertNotIn('public_repository_maps', cfg)
+
+    def test_managed_engine_uses_windows_token_and_returns_to_addon_on_removal(self):
+        from v14.engineering_backend import GitHubEngineeringBackend
+        with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {}, clear=True):
+            env = environment(temp, validate({}))
+            backend = GitHubEngineeringBackend(SimpleNamespace(load_mcp_config=lambda: {
+                'github-official': {'env': {'GITHUB_TOKEN': 'addon-fixture'}}}))
+            with patch.dict(os.environ, env), patch('desktop.github_credentials.read_token', side_effect=['windows-fixture', None]) as credential:
+                self.assertEqual('windows-fixture', backend.token())
+                self.assertEqual('addon-fixture', backend.token())
+                credential.assert_called_with(str(Path(temp).resolve()))
+            self.assertNotIn('windows-fixture', env.values())
+
+    @unittest.skipUnless(os.name == 'nt', 'Uses Windows Credential Manager')
+    def test_windows_credential_manager_save_replace_and_remove(self):
+        from desktop.github_credentials import read_token, remove_token, save_token
+        with tempfile.TemporaryDirectory(prefix='GitHub setup ü ') as temp, tempfile.TemporaryDirectory() as other:
+            try:
+                self.assertIsNone(read_token(temp))
+                save_token(temp, 'credential-fixture-one')
+                self.assertEqual('credential-fixture-one', read_token(temp))
+                self.assertIsNone(read_token(other))
+                save_token(temp, 'credential-fixture-two')
+                self.assertEqual('credential-fixture-two', read_token(temp))
+            finally:
+                remove_token(temp)
+            self.assertIsNone(read_token(temp))
+            self.assertEqual([], list(Path(temp).iterdir()))
 
     def test_debug_mode_is_explicit_and_persists_only_inside_managed_log_directory(self):
         with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {'GATEWAY_DEBUG_LOG': '/arbitrary/file', 'GATEWAY_DEBUG_MODE': 'true'}):

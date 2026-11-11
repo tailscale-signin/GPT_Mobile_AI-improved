@@ -17,6 +17,10 @@ class Principal:
     scopes: frozenset
     local_admin: bool = False
 
+    @property
+    def engineering_allowed(self):
+        return self.local_admin or 'engineering' in self.scopes
+
 
 class PrincipalResolver:
     def __init__(self, config, store):
@@ -123,11 +127,13 @@ class Admission:
             if not principal.local_admin:
                 return await deny("local_admin_required")
         engineering_path = path.startswith("/gateway/engineering/")
+        public_map_path = self.config.public_repository_maps and (
+            (path, scope["method"]) in {('/gateway/engineering/capabilities', 'GET'), ('/gateway/engineering/graph', 'POST')})
         conversation_path = path == '/gateway/conversations' or path.startswith('/gateway/conversations/')
         catalog_path = path in {'/gateway/identity', '/gateway/job-catalog'} or path.startswith('/gateway/commands/')
         diagnostics_path = path in {"/gateway/debug/events", "/gateway/debug/export"}
         diagnostics_write = path == "/gateway/debug/events" and scope["method"] == "POST"
-        if engineering_path and not principal.local_admin and "engineering" not in principal.scopes:
+        if engineering_path and not principal.engineering_allowed and not (public_map_path and 'tools' in principal.scopes):
             return await deny("engineering_scope_required")
         if self.config.mode in {"trusted_proxy", "open_network"} and not principal.local_admin:
             public_reads = {"/models", "/gateway/capabilities", "/gateway/ready", "/gateway/live", "/gateway/v13", "/gateway/v14", "/gateway/v15", "/gateway/v16", "/gateway/connections", "/gateway/tools", "/gateway/session", "/gateway/dashboard"}
@@ -138,6 +144,8 @@ class Admission:
             elif not engineering_path and not (conversation_path and path.endswith('/messages') and scope['method'] == 'POST') and not diagnostics_write and path != "/chat/completions" and not (job_path and path.endswith("/cancel") and scope["method"] == "POST"):
                 return await deny("local_admin_required")
         required = "engineering" if engineering_path and not principal.local_admin else "jobs" if path.startswith("/gateway/jobs") or conversation_path or catalog_path else "tools" if path.startswith(("/gateway/tools", "/gateway/mcp", "/tools")) else "chat"
+        if public_map_path and not principal.engineering_allowed:
+            required = 'tools'
         granted = required in principal.scopes or diagnostics_path and 'diagnostics' in principal.scopes
         if conversation_path or catalog_path:
             granted = bool(principal.scopes) if path == '/gateway/identity' else principal.local_admin or bool(principal.scopes & {'jobs', 'engineering'})

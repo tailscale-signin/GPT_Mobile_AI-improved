@@ -69,11 +69,7 @@ jobs:
 
     - name: Install Vulkan build prerequisites
       timeout-minutes: 8
-      run: |
-        trap 'echo "::error::Android native dependency installation failed or timed out. Retry after checking the Ubuntu package mirror and dpkg lock."' ERR
-        apt_options=(-o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o DPkg::Lock::Timeout=60)
-        sudo timeout --kill-after=15s 180s apt-get "${apt_options[@]}" update
-        sudo env DEBIAN_FRONTEND=noninteractive timeout --kill-after=15s 180s apt-get "${apt_options[@]}" install --no-install-recommends -y glslc libvulkan-dev spirv-headers
+      run: bash scripts/install_android_native_dependencies.sh
 
     - name: Initialize CodeQL
       uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4

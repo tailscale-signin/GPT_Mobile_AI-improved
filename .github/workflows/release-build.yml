@@ -49,7 +49,10 @@ jobs:
     # took 27 minutes. Reserve time for release generation, compilation and lint.
     timeout-minutes: 150
     env:
-      ISSUE_REPORT_ORIGIN: ${{ vars.ISSUE_REPORT_ORIGIN }}
+      # Pull requests compile release sources but never publish artifacts. Use
+      # a reserved, non-routable origin for that validation only; real release
+      # events must receive the deployed service origin from repository config.
+      ISSUE_REPORT_ORIGIN: ${{ github.event_name == 'pull_request' && 'https://issue-report-pr-validation.invalid' || vars.ISSUE_REPORT_ORIGIN }}
     outputs:
       tag: ${{ steps.version.outputs.tag }}
       prerelease: ${{ steps.version.outputs.prerelease }}
@@ -59,6 +62,7 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
       - name: Require deployed issue-report origin
+        if: github.event_name != 'pull_request'
         shell: bash
         run: |
           if [[ -z "$ISSUE_REPORT_ORIGIN" ]]; then

@@ -88,6 +88,7 @@ class LocalVoicePluginInstrumentedTest {
                     completion.get()?.invoke()
                     fallbackDone.countDown()
                 }
+
                 @Deprecated("Deprecated in Android")
                 override fun onError(utteranceId: String?) {
                     fallbackError.set("Android TTS playback failed")
@@ -131,7 +132,10 @@ class LocalVoicePluginInstrumentedTest {
             )
             plugin.kokoroVoice = KokoroVoice.HEART
             val spoken = "Kokoro fallback playback check."
-            plugin.speak(spoken, { fallbackDone.countDown() }, { fallbackError.set(it); fallbackDone.countDown() })
+            plugin.speak(spoken, { fallbackDone.countDown() }, {
+                fallbackError.set(it)
+                fallbackDone.countDown()
+            })
             assertTrue("The selected Kokoro delegate never completed its Android fallback", fallbackDone.await(30, TimeUnit.SECONDS))
             assertEquals(spoken, fallbackText.get())
             assertEquals(null, fallbackError.get())
@@ -155,7 +159,10 @@ class LocalVoicePluginInstrumentedTest {
             .build()
         val output = createKokoroVoiceOutput(context, models, { attributes }, { 1f })
         try {
-            output.speak("Kokoro real device playback check.", KokoroVoice.HEART, { complete.countDown() }, { message, _ -> failure.set(message); complete.countDown() })
+            output.speak("Kokoro real device playback check.", KokoroVoice.HEART, { complete.countDown() }, { message, _ ->
+                failure.set(message)
+                complete.countDown()
+            })
             assertTrue("Kokoro delegate did not produce or report real Android playback", complete.await(45, TimeUnit.SECONDS))
             assertEquals(null, failure.get())
         } finally {

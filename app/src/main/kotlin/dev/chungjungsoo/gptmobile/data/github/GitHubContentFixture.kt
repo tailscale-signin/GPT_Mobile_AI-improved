@@ -217,8 +217,11 @@ internal object GitHubContentFixture {
         if (!owned(source, creationReceipt)) return null
         val savedCheckpoint = checkpoint(creationReceipt, receipts)
         if (savedCheckpoint["final_state_verified"] == JsonPrimitive(true) ||
-            savedCheckpoint["lifecycle_state"] == JsonPrimitive("DELIBERATELY_RETAINED") && savedCheckpoint["lifecycle_reason"] == JsonPrimitive("FIXTURE_INTENTIONALLY_RETAINED_BY_USER")
-        ) return null
+            savedCheckpoint["lifecycle_state"] == JsonPrimitive("DELIBERATELY_RETAINED") &&
+            savedCheckpoint["lifecycle_reason"] == JsonPrimitive("FIXTURE_INTENTIONALLY_RETAINED_BY_USER")
+        ) {
+            return null
+        }
         val deletions = observations.filter {
             it.text("tool").substringBefore("__") == "github_commit" &&
                 arguments(it)?.text("action") == "delete_fixture_branch" &&
@@ -497,17 +500,23 @@ internal object GitHubContentFixture {
             put("mutation_receipts", JsonArray(proved))
             put("approval_resolutions", JsonArray(approvalProofs))
             put("pending_approvals", approvals)
-            put("cleanup_obligation", when {
-                cleaned -> "VERIFIED_ABSENT"
-                fixtureKept -> "USER_REQUESTED_RETENTION"
-                else -> "DURABLE_UNTIL_VERIFIED_ABSENT"
-            })
-            put("fixture_retention_statement", when {
-                fixtureKept && approvals.isNotEmpty() -> "Fixture intentionally retained pending approval at the user's request."
-                fixtureKept -> "Fixture intentionally retained at the user's request after approval resolution."
-                approvals.isNotEmpty() -> "Fixture intentionally retained pending approval."
-                else -> "Fixture cleanup remains required until remote branch absence is verified."
-            })
+            put(
+                "cleanup_obligation",
+                when {
+                    cleaned -> "VERIFIED_ABSENT"
+                    fixtureKept -> "USER_REQUESTED_RETENTION"
+                    else -> "DURABLE_UNTIL_VERIFIED_ABSENT"
+                }
+            )
+            put(
+                "fixture_retention_statement",
+                when {
+                    fixtureKept && approvals.isNotEmpty() -> "Fixture intentionally retained pending approval at the user's request."
+                    fixtureKept -> "Fixture intentionally retained at the user's request after approval resolution."
+                    approvals.isNotEmpty() -> "Fixture intentionally retained pending approval."
+                    else -> "Fixture cleanup remains required until remote branch absence is verified."
+                }
+            )
             if (fixtureKept) put("fixture_retention_decision", "USER_REQUESTED")
             put("cleanup_after_cancellation", if (fixtureKept) "The user chose to retain this fixture; report its current verified state without deleting or recreating it." else "Reconcile the exact native approval and current owned head; cancellation cannot erase this obligation or authorize replay.")
             put("mutation_scope", "Owned branch, exact nonempty synthetic content, staged revision, pinned content reads/searches and nonempty diff; absence verified after cleanup.")

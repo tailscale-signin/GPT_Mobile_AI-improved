@@ -161,6 +161,7 @@ object AgentRunStatus {
     const val PARTIAL = "PARTIAL"
     const val EVIDENCE_MISSING = "EVIDENCE_MISSING"
     const val BLOCKED = "BLOCKED"
+
     // Approval is a durable pause awaiting a user action. It is terminal for this
     // provider attempt, but it remains distinct from a failed or blocked run.
     val terminal = setOf(COMPLETED, FAILED, CANCELED, INTERRUPTED, PARTIAL, EVIDENCE_MISSING, BLOCKED, WAITING_FOR_APPROVAL)

@@ -83,11 +83,14 @@ internal object GitHubPendingApproval {
             return candidate["local_resolution_event"] == JsonPrimitive("approval_card_rejected") &&
                 result["cancellation_confirmed"] == JsonPrimitive(true) &&
                 result.text("native_task_state") == "CANCELLED" &&
-                stagedExpected.isNotBlank() && result.text("expected_head_sha") == stagedExpected &&
-                stagedDigest.isNotBlank() && result.text("patch_digest") == stagedDigest &&
+                stagedExpected.isNotBlank() &&
+                result.text("expected_head_sha") == stagedExpected &&
+                stagedDigest.isNotBlank() &&
+                result.text("patch_digest") == stagedDigest &&
                 (stagedBinding.isBlank() || result.text("approval_binding_sha256") == stagedBinding)
         }
-        return cancelled || result.text("approval_state") == "PUBLISHED" &&
+        return cancelled ||
+            result.text("approval_state") == "PUBLISHED" &&
             result["remote_state_verified"] == JsonPrimitive(true) &&
             result.text("sha").matches(Regex("[a-fA-F0-9]{40}")) &&
             expected.isNotBlank() &&

@@ -75,7 +75,9 @@ internal object GitHubApprovalBinding {
         }
         store.update(SCOPE, key(taskId)) { previous ->
             require(previous == null || matches(previous, taskId, workspace, branch, expectedHeadSha, patchDigest)) { "The saved approval belongs to a different workspace or staged patch. Open its existing review before continuing." }
-            if (previous == null) value else {
+            if (previous == null) {
+                value
+            } else {
                 val upgraded = previous.toMutableMap()
                 if (expectedHeadSha != null && previous["expected_head_sha"] == null) upgraded["expected_head_sha"] = JsonPrimitive(expectedHeadSha.lowercase(java.util.Locale.ROOT))
                 if (patchDigest != null && previous["patch_digest"] == null) upgraded["patch_digest"] = JsonPrimitive(patchDigest.lowercase(java.util.Locale.ROOT))
@@ -114,14 +116,20 @@ internal object GitHubApprovalBinding {
         store.update(SCOPE, key(taskId)) { current ->
             val binding = requireNotNull(current)
             require(matches(binding, taskId, workspace, branch))
-            val withDecision = JsonObject(binding + buildMap {
-                put(field, JsonPrimitive(true))
-                if (!automatic && cancellationConfirmed) put("cancellation_confirmed", JsonPrimitive(true))
-            })
-            appendEvent(withDecision, if (automatic) "approval_card_approved" else "approval_card_rejected", buildJsonObject {
-                put("decision_source", if (automatic) "AUTOMATIC_POLICY" else "USER")
-                if (!automatic) put("cancellation_confirmed", cancellationConfirmed)
-            })
+            val withDecision = JsonObject(
+                binding + buildMap {
+                    put(field, JsonPrimitive(true))
+                    if (!automatic && cancellationConfirmed) put("cancellation_confirmed", JsonPrimitive(true))
+                }
+            )
+            appendEvent(
+                withDecision,
+                if (automatic) "approval_card_approved" else "approval_card_rejected",
+                buildJsonObject {
+                    put("decision_source", if (automatic) "AUTOMATIC_POLICY" else "USER")
+                    if (!automatic) put("cancellation_confirmed", cancellationConfirmed)
+                }
+            )
         }
         revisions.update { it + 1 }
     }
@@ -143,17 +151,25 @@ internal object GitHubApprovalBinding {
         val chatId = (binding["chat_id"] as? JsonPrimitive)?.intOrNull ?: return null
         val approvalBindingDigest = dedupeKey(chatId, root, branch, expectedHead, patchDigest, taskId)
         if (
-            branch.isBlank() || !expectedHead.matches(Regex("[a-fA-F0-9]{40}")) || !patchDigest.matches(Regex("[a-fA-F0-9]{64}")) ||
-            root != "${workspace.owner}/${workspace.repo}" && !root.equals("${workspace.owner}/${workspace.repo}", true) ||
-            binding["user_rejected"] != JsonPrimitive(true) || binding["cancellation_confirmed"] != JsonPrimitive(true) ||
-            binding.text("expected_head_sha") != expectedHead || binding.text("patch_digest") != patchDigest ||
+            branch.isBlank() ||
+            !expectedHead.matches(Regex("[a-fA-F0-9]{40}")) ||
+            !patchDigest.matches(Regex("[a-fA-F0-9]{64}")) ||
+            root != "${workspace.owner}/${workspace.repo}" &&
+            !root.equals("${workspace.owner}/${workspace.repo}", true) ||
+            binding["user_rejected"] != JsonPrimitive(true) ||
+            binding["cancellation_confirmed"] != JsonPrimitive(true) ||
+            binding.text("expected_head_sha") != expectedHead ||
+            binding.text("patch_digest") != patchDigest ||
             binding.text("approval_binding_sha256").let { it.isNotBlank() && it != approvalBindingDigest } ||
             stagedResult["approval_binding_sha256"]?.let { it != JsonPrimitive(approvalBindingDigest) } == true ||
             !matches(binding, taskId, workspace, branch, expectedHead, patchDigest) ||
             stagedResult["chat_id"] != binding["chat_id"] ||
             stagedResult["source_message_id"]?.let { it != binding["source_message_id"] } == true ||
-            stagedReceipt["binding"] == null || stagedReceipt["binding"] == JsonPrimitive("")
-        ) return null
+            stagedReceipt["binding"] == null ||
+            stagedReceipt["binding"] == JsonPrimitive("")
+        ) {
+            return null
+        }
         val rejection = events(store, taskId).lastOrNull { it.text("event") == "approval_card_rejected" } ?: return null
         val eventTime = (rejection["at_epoch_ms"] as? JsonPrimitive)?.contentOrNull ?: return null
         val receiptId = "local_approval_cancel_" + GitHubRepositoryStateStore.digest("${stagedReceipt.text("binding")}|$taskId|$expectedHead|$patchDigest").take(24)
@@ -161,11 +177,14 @@ internal object GitHubApprovalBinding {
             put("tool", "github_context")
             put("call_id", receiptId)
             put("receipt_id", receiptId)
-            put("arguments", buildJsonObject {
-                put("action", "recovery")
-                put("engineering_task_id", taskId)
-                put("branch", branch)
-            })
+            put(
+                "arguments",
+                buildJsonObject {
+                    put("action", "recovery")
+                    put("engineering_task_id", taskId)
+                    put("branch", branch)
+                }
+            )
             put("binding", stagedReceipt["binding"]!!)
             put("repository", root)
             put("success", true)
@@ -173,20 +192,23 @@ internal object GitHubApprovalBinding {
             put("verification_eligible", true)
             put("evidence_origin", "LOCAL_DURABLE_APPROVAL_EVENT")
             put("local_resolution_event", "approval_card_rejected")
-            put("result", buildJsonObject {
-                put("engineering_task_id", taskId)
-                put("branch", branch)
-                put("expected_head_sha", expectedHead)
-                put("patch_digest", patchDigest)
-                put("approval_binding_sha256", approvalBindingDigest)
-                put("approval_state", "CANCELLED_BEFORE_PUBLICATION")
-                put("native_task_state", "CANCELLED")
-                put("cancellation_confirmed", true)
-                put("remote_mutation_performed", false)
-                put("remote_state_verified", false)
-                put("source_event_at_epoch_ms", eventTime)
-                put("keep_fixture", binding["keep_fixture"] == JsonPrimitive(true))
-            })
+            put(
+                "result",
+                buildJsonObject {
+                    put("engineering_task_id", taskId)
+                    put("branch", branch)
+                    put("expected_head_sha", expectedHead)
+                    put("patch_digest", patchDigest)
+                    put("approval_binding_sha256", approvalBindingDigest)
+                    put("approval_state", "CANCELLED_BEFORE_PUBLICATION")
+                    put("native_task_state", "CANCELLED")
+                    put("cancellation_confirmed", true)
+                    put("remote_mutation_performed", false)
+                    put("remote_state_verified", false)
+                    put("source_event_at_epoch_ms", eventTime)
+                    put("keep_fixture", binding["keep_fixture"] == JsonPrimitive(true))
+                }
+            )
         }
     }
 
@@ -207,15 +229,19 @@ internal object GitHubApprovalBinding {
         if (
             binding["keep_fixture"] != JsonPrimitive(true) ||
             !branch.matches(Regex("codex-self-test/[a-f0-9]{20}")) ||
-            !expectedHead.matches(Regex("[a-fA-F0-9]{40}")) || !patchDigest.matches(Regex("[a-fA-F0-9]{64}")) ||
-            binding.text("expected_head_sha") != expectedHead || binding.text("patch_digest") != patchDigest ||
+            !expectedHead.matches(Regex("[a-fA-F0-9]{40}")) ||
+            !patchDigest.matches(Regex("[a-fA-F0-9]{64}")) ||
+            binding.text("expected_head_sha") != expectedHead ||
+            binding.text("patch_digest") != patchDigest ||
             binding.text("approval_binding_sha256").let { it.isNotBlank() && it != approvalBindingDigest } ||
             result["approval_binding_sha256"]?.let { it != JsonPrimitive(approvalBindingDigest) } == true ||
             !matches(binding, taskId, workspace, branch, expectedHead, patchDigest) ||
             stagedReceipt.text("repository").let { !it.equals("${workspace.owner}/${workspace.repo}", true) } ||
             result["chat_id"] != binding["chat_id"] ||
             result["source_message_id"]?.let { it != binding["source_message_id"] } == true
-        ) return null
+        ) {
+            return null
+        }
         val event = events(store, taskId).lastOrNull { it.text("event") == "approval_card_keep_fixture" } ?: return null
         val eventTime = (event["at_epoch_ms"] as? JsonPrimitive)?.contentOrNull ?: return null
         val receiptId = "local_fixture_keep_" + GitHubRepositoryStateStore.digest("${stagedReceipt.text("binding")}|$taskId|$expectedHead|$patchDigest").take(24)
@@ -223,11 +249,14 @@ internal object GitHubApprovalBinding {
             put("tool", "github_context")
             put("call_id", receiptId)
             put("receipt_id", receiptId)
-            put("arguments", buildJsonObject {
-                put("action", "local_fixture_decision")
-                put("engineering_task_id", taskId)
-                put("branch", branch)
-            })
+            put(
+                "arguments",
+                buildJsonObject {
+                    put("action", "local_fixture_decision")
+                    put("engineering_task_id", taskId)
+                    put("branch", branch)
+                }
+            )
             put("binding", stagedReceipt["binding"]!!)
             put("repository", stagedReceipt["repository"]!!)
             put("success", true)
@@ -235,16 +264,19 @@ internal object GitHubApprovalBinding {
             put("verification_eligible", true)
             put("evidence_origin", "LOCAL_DURABLE_APPROVAL_EVENT")
             put("local_resolution_event", "approval_card_keep_fixture")
-            put("result", buildJsonObject {
-                put("engineering_task_id", taskId)
-                put("branch", branch)
-                put("expected_head_sha", expectedHead)
-                put("patch_digest", patchDigest)
-                put("approval_binding_sha256", approvalBindingDigest)
-                put("fixture_retention_state", "KEEP_BY_USER")
-                put("keep_fixture", true)
-                put("source_event_at_epoch_ms", eventTime)
-            })
+            put(
+                "result",
+                buildJsonObject {
+                    put("engineering_task_id", taskId)
+                    put("branch", branch)
+                    put("expected_head_sha", expectedHead)
+                    put("patch_digest", patchDigest)
+                    put("approval_binding_sha256", approvalBindingDigest)
+                    put("fixture_retention_state", "KEEP_BY_USER")
+                    put("keep_fixture", true)
+                    put("source_event_at_epoch_ms", eventTime)
+                }
+            )
         }
     }
 

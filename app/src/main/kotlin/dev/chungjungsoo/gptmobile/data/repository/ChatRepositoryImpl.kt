@@ -49,7 +49,6 @@ import dev.chungjungsoo.gptmobile.data.agent.withNormalizedAssistantText
 import dev.chungjungsoo.gptmobile.data.agent.withProgressWatchdog
 import dev.chungjungsoo.gptmobile.data.agent.withRunContext
 import dev.chungjungsoo.gptmobile.data.agent.withToolCatalog
-import dev.chungjungsoo.gptmobile.data.github.githubDecisionMode
 import dev.chungjungsoo.gptmobile.data.assist.allowsProcessing
 import dev.chungjungsoo.gptmobile.data.assist.resolveAssistPolicy
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkExecutionPolicy
@@ -89,6 +88,7 @@ import dev.chungjungsoo.gptmobile.data.diagnostics.PreparationPhase
 import dev.chungjungsoo.gptmobile.data.diagnostics.measurePreparation
 import dev.chungjungsoo.gptmobile.data.dto.ApiState
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.GatewayProgress
+import dev.chungjungsoo.gptmobile.data.github.githubDecisionMode
 import dev.chungjungsoo.gptmobile.data.localmodel.resolveLocalModelSelection
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntime
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig

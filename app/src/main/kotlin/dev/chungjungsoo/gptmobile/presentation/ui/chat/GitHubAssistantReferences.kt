@@ -51,13 +51,16 @@ internal fun linkifyGitHubAssistantReferences(markdown: String, context: GitHubA
         fun hold(value: String): String = "__GITHUB_ASSISTANT_LINK_${savedLinks.size}__".also { savedLinks += value }
         result = pullRequest.replace(result) { match ->
             val number = match.groupValues[1].drop(1)
-            match.value.replace(match.groupValues[1], hold(link("#${number}", "$repositoryUrl/pull/$number")))
+            match.value.replace(match.groupValues[1], hold(link("#$number", "$repositoryUrl/pull/$number")))
         }
         result = branchWord.replace(result) { match ->
             val ref = match.groupValues[1].trimEnd('.', ',', ':', ';')
             val token = match.groupValues[1]
-            if (ref.isBlank() || ref.lowercase() in setOf("the", "a", "an", "is", "was", "will", "should", "can", "could", "to", "from", "on", "currently", "still", "being", "used")) match.value
-            else match.value.replace(token, hold(link(ref, "$repositoryUrl/tree/${encodeRef(ref)}") + token.drop(ref.length)))
+            if (ref.isBlank() || ref.lowercase() in setOf("the", "a", "an", "is", "was", "will", "should", "can", "could", "to", "from", "on", "currently", "still", "being", "used")) {
+                match.value
+            } else {
+                match.value.replace(token, hold(link(ref, "$repositoryUrl/tree/${encodeRef(ref)}") + token.drop(ref.length)))
+            }
         }
         result = namedBeforeBranch.replace(result) { match ->
             val ref = match.value
@@ -104,13 +107,15 @@ internal fun linkifyGitHubAssistantReferences(markdown: String, context: GitHubA
                 val isBranch = branchPrefix.containsMatchIn(prefix) || knownBranch.matches(ref) || commonBranchName.matches(ref)
                 val isCommit = fullCommit.matches(ref) || shortCommit.matches(ref) && hasCommitLabelBefore(prefix)
                 val pr = Regex("(?i)(?:PR|pull request)\\s*$").containsMatchIn(prefix)
-                output.append(when {
-                    isBranch && ref.matches(Regex("[A-Za-z0-9][A-Za-z0-9._/-]*")) -> link("`$ref`", "$repositoryUrl/tree/${encodeRef(ref)}")
-                    isCommit -> link("`$ref`", "$repositoryUrl/commit/$ref")
-                    pr && ref.matches(Regex("#\\d+")) -> link("`$ref`", "$repositoryUrl/pull/${ref.drop(1)}")
-                    knownBranch.matches(ref) -> link("`$ref`", "$repositoryUrl/tree/${encodeRef(ref)}")
-                    else -> token
-                })
+                output.append(
+                    when {
+                        isBranch && ref.matches(Regex("[A-Za-z0-9][A-Za-z0-9._/-]*")) -> link("`$ref`", "$repositoryUrl/tree/${encodeRef(ref)}")
+                        isCommit -> link("`$ref`", "$repositoryUrl/commit/$ref")
+                        pr && ref.matches(Regex("#\\d+")) -> link("`$ref`", "$repositoryUrl/pull/${ref.drop(1)}")
+                        knownBranch.matches(ref) -> link("`$ref`", "$repositoryUrl/tree/${encodeRef(ref)}")
+                        else -> token
+                    }
+                )
             } else {
                 output.append(token)
             }

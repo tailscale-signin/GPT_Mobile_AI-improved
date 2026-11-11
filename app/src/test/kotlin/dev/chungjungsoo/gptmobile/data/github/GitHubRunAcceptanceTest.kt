@@ -138,12 +138,19 @@ class GitHubRunAcceptanceTest {
                     put("requested_task", "WAITING_FOR_APPROVAL")
                     put("unresolved_remote_outcomes", 0)
                     put("receipt_count", 2)
-                    put("pending_approvals", JsonArray(listOf(buildJsonObject {
-                        put("engineering_task_id", "task-123")
-                        put("card_id", "github-approval-task-123")
-                        put("state", "WAITING_FOR_APPROVAL")
-                        put("branch", "codex-self-test/fixture")
-                    })))
+                    put(
+                        "pending_approvals",
+                        JsonArray(
+                            listOf(
+                                buildJsonObject {
+                                    put("engineering_task_id", "task-123")
+                                    put("card_id", "github-approval-task-123")
+                                    put("state", "WAITING_FOR_APPROVAL")
+                                    put("branch", "codex-self-test/fixture")
+                                }
+                            )
+                        )
+                    )
                 }
             )
         )
@@ -162,14 +169,16 @@ class GitHubRunAcceptanceTest {
     }
 
     @Test fun allAcceptancePagesSurviveRunCaptureAssessmentAndExport() {
-        val requirements = JsonArray((1..109).map { index ->
-            buildJsonObject {
-                put("id", "criterion-$index")
-                put("requirement", "Verify criterion $index")
-                put("status", "UNTESTED")
-                put("acceptance_state", "NOT_TESTED")
+        val requirements = JsonArray(
+            (1..109).map { index ->
+                buildJsonObject {
+                    put("id", "criterion-$index")
+                    put("requirement", "Verify criterion $index")
+                    put("status", "UNTESTED")
+                    put("acceptance_state", "NOT_TESTED")
+                }
             }
-        })
+        )
         val completeLedger = GitHubAcceptanceLedger.attach(
             buildJsonObject {
                 put("requirements", requirements)
@@ -180,7 +189,11 @@ class GitHubRunAcceptanceTest {
         val acceptance = requireNotNull(
             GitHubRunAcceptance.assess(
                 GitHubRunAcceptance.capture(source, "run", 7, 1, 2),
-                "run", 7, 1, 2, response
+                "run",
+                7,
+                1,
+                2,
+                response
             )
         )
         assertEquals(109, (acceptance.diagnostics?.get("criterion_count") as? JsonPrimitive)?.intOrNull)
@@ -193,14 +206,16 @@ class GitHubRunAcceptanceTest {
     }
 
     @Test fun incompleteDiagnosticPagesProducePartialEvidenceInsteadOfAcceptance() {
-        val requirements = JsonArray((1..109).map { index ->
-            buildJsonObject {
-                put("id", "criterion-$index")
-                put("requirement", "Verify criterion $index")
-                put("status", "UNTESTED")
-                put("acceptance_state", "NOT_TESTED")
+        val requirements = JsonArray(
+            (1..109).map { index ->
+                buildJsonObject {
+                    put("id", "criterion-$index")
+                    put("requirement", "Verify criterion $index")
+                    put("status", "UNTESTED")
+                    put("acceptance_state", "NOT_TESTED")
+                }
             }
-        })
+        )
         val ledger = GitHubAcceptanceLedger.snapshot(requirements = requirements)
         val partialAcceptance = buildJsonObject {
             put("completion_verified", true)

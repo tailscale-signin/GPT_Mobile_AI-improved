@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from v14.engineering import EngineeringStore, EngineeringService, EngineeringSupervisor, public_job, validate_request, principal_authorized, digest
 from v14.engineering_defaults import DEFAULT_EXECUTION_BUDGET, LEGACY_EXECUTION_BUDGET
 from v14.engineering_backend import prepare_changes, blob_sha
+from v14.engineering_batch_policy import DEFAULTS as BATCH_POLICY_DEFAULTS
 from v14.execution_binding import ExecutionBindingError, fingerprint
 from v14.github_api_governor import GitHubApiRateWait
 
@@ -170,7 +171,10 @@ class DurableEngineeringTests(unittest.TestCase):
         self.assertEqual('COMPLETED', self.store.get(job['id'])['state'])
 
     def enable_full_batch(self):
-        policy = patch('v14.engineering_batch_policy.load_policy', return_value={'full_enabled': True})
+        policy = patch(
+            'v14.engineering.load_batch_policy',
+            return_value=dict(BATCH_POLICY_DEFAULTS, default_mode='full', full_enabled=True),
+        )
         policy.start()
         self.addCleanup(policy.stop)
         self.request.update(execution_mode='full', batch_policy_version=1)

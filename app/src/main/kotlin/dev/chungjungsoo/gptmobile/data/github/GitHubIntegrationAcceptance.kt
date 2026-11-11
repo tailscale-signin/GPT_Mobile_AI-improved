@@ -62,7 +62,9 @@ internal object GitHubIntegrationAcceptance {
                         proof = eligible.filter { !read(it) }
                         val clean = GitHubSelfTestFixtures.complete(receipts)
                         conditionalFixture = !clean && fixturePreflight?.get("state") != JsonPrimitive("READY") && GitHubSelfTestFixtures.checkpoint(receipts).isEmpty()
-                        clean to if (clean) "Owned disposable mutation receipts and matching cleanup verification are retained." else if (conditionalFixture) {
+                        clean to if (clean) {
+                            "Owned disposable mutation receipts and matching cleanup verification are retained."
+                        } else if (conditionalFixture) {
                             "Conditional before mutation: effective approval mode requires native user approval, so no fixture branch was created. Select fixture-only auto approval for codex-self-test/* or run the approval interaction harness."
                         } else {
                             "Owned fixture creation, mutation verification and cleanup must all have matching receipts; planned or accepted writes are insufficient."
@@ -82,8 +84,22 @@ internal object GitHubIntegrationAcceptance {
                     put("id", GitHubRequestCompletion.id(requirement))
                     put("requirement", requirement)
                     put("required", true)
-                    put("status", when { assessment.first -> "PASSED"; conditionalFixture -> "CONDITIONAL"; else -> "NOT_TESTED" })
-                    put("acceptance_state", when { assessment.first -> "PASS"; conditionalFixture -> "CONDITIONAL"; else -> "NOT_TESTED" })
+                    put(
+                        "status",
+                        when {
+                            assessment.first -> "PASSED"
+                            conditionalFixture -> "CONDITIONAL"
+                            else -> "NOT_TESTED"
+                        }
+                    )
+                    put(
+                        "acceptance_state",
+                        when {
+                            assessment.first -> "PASS"
+                            conditionalFixture -> "CONDITIONAL"
+                            else -> "NOT_TESTED"
+                        }
+                    )
                     put("acceptance", assessment.second)
                     put("evidence_receipt_ids", JsonArray(proof.mapNotNull { it["receipt_id"] }.distinct()))
                 }

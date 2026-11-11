@@ -130,21 +130,27 @@ class GitHubApprovalBindingTest {
             put("repository", "owner/repo")
             put("trusted", true)
             put("success", true)
-            put("arguments", buildJsonObject {
-                put("action", "commit")
-                put("branch", branch)
-                put("expected_head_sha", expectedHead)
-            })
-            put("result", buildJsonObject {
-                put("engineering_task_id", "cancelled-task")
-                put("status", "AWAITING_APPROVAL")
-                put("committed", false)
-                put("chat_id", 31)
-                put("source_message_id", 42)
-                put("branch", branch)
-                put("expected_head_sha", expectedHead)
-                put("patch_digest", patchDigest)
-            })
+            put(
+                "arguments",
+                buildJsonObject {
+                    put("action", "commit")
+                    put("branch", branch)
+                    put("expected_head_sha", expectedHead)
+                }
+            )
+            put(
+                "result",
+                buildJsonObject {
+                    put("engineering_task_id", "cancelled-task")
+                    put("status", "AWAITING_APPROVAL")
+                    put("committed", false)
+                    put("chat_id", 31)
+                    put("source_message_id", 42)
+                    put("branch", branch)
+                    put("expected_head_sha", expectedHead)
+                    put("patch_digest", patchDigest)
+                }
+            )
         }
         GitHubApprovalBinding.bind(store, "cancelled-task", workspace, branch, 31, 42, expectedHeadSha = expectedHead, patchDigest = patchDigest)
         GitHubApprovalBinding.recordEvent(store, "cancelled-task", "approval_card_clicked", buildJsonObject { put("choice", "REJECT") })

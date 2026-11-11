@@ -50,13 +50,20 @@ class GitHubNativeApprovalRecovery @Inject constructor(
         if (scope.connectionUid != frozen.connectionUid || !scope.owner.equals(task.repositoryOwner, true) || !scope.repo.equals(task.repositoryName, true)) return true
         val source = GitHubApprovalBinding.source(store, taskId, scope, task.workingBranch)?.takeIf { it.chatId == chatId } ?: return true
         val expiresAt = frozen.approvalExpiresAtEpochMs
-        if (task.state in setOf("AWAITING_APPROVAL", "COMMITTING") && expiresAt != null && expiresAt <= System.currentTimeMillis() &&
+        if (task.state in setOf("AWAITING_APPROVAL", "COMMITTING") &&
+            expiresAt != null &&
+            expiresAt <= System.currentTimeMillis() &&
             GitHubApprovalBinding.events(store, taskId).none { (it["event"] as? JsonPrimitive)?.contentOrNull == "approval_card_expired" }
         ) {
-            GitHubApprovalBinding.recordEvent(store, taskId, "approval_card_expired", kotlinx.serialization.json.buildJsonObject {
-                put("branch", task.workingBranch)
-                put("approval_expires_at_epoch_ms", expiresAt)
-            })
+            GitHubApprovalBinding.recordEvent(
+                store,
+                taskId,
+                "approval_card_expired",
+                kotlinx.serialization.json.buildJsonObject {
+                    put("branch", task.workingBranch)
+                    put("approval_expires_at_epoch_ms", expiresAt)
+                }
+            )
         }
         val room = database.agentPersistenceDao().getChatRoom(chatId) ?: return true
         if (room.isArchived || room.activePlatform != listOf(scope.mainProfileUid)) return true
@@ -93,9 +100,10 @@ class GitHubNativeApprovalRecovery @Inject constructor(
 
         if (queuePublication()) return true
         val nativeState = engineering.approvalStatus(taskId, scope.connectionUid, GitHubEngineeringApi.root(scope.owner, scope.repo))
-        val nativeCancellationConfirmed = task.state == "CANCELLED" && nativeState?.let {
-            it["cancelled_before_publication"] == JsonPrimitive(true) && it["publication_may_have_started"] == JsonPrimitive(false)
-        } == true
+        val nativeCancellationConfirmed = task.state == "CANCELLED" &&
+            nativeState?.let {
+                it["cancelled_before_publication"] == JsonPrimitive(true) && it["publication_may_have_started"] == JsonPrimitive(false)
+            } == true
         val rejectionWasClicked = GitHubApprovalBinding.events(store, taskId).any { event ->
             event["event"] == JsonPrimitive("approval_card_clicked") &&
                 (event["details"] as? JsonObject)?.get("choice") == JsonPrimitive("REJECT")

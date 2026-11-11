@@ -48,11 +48,14 @@ internal object GitHubTestChecklist {
         put("mutation_dispatched", false)
         put("runtime_identity", runtime)
         put("scope", "AUTO_APPROVE applies only to the dedicated codex-self-test/* fixture branch; regular repository writes still use their configured approval policy.")
-        put("reason", if (automatic) {
-            "The effective GitHub decision mode was verified before fixture creation. Fixture-only native auto-approval is restricted to the owned codex-self-test/* branch."
-        } else {
-            "Fixture testing is conditional because effective GitHub decision mode is ${mode?.name ?: "unavailable"}. No branch or fixture mutation was started; enable the explicit fixture-only automatic approval mode or use the approval interaction harness."
-        })
+        put(
+            "reason",
+            if (automatic) {
+                "The effective GitHub decision mode was verified before fixture creation. Fixture-only native auto-approval is restricted to the owned codex-self-test/* branch."
+            } else {
+                "Fixture testing is conditional because effective GitHub decision mode is ${mode?.name ?: "unavailable"}. No branch or fixture mutation was started; enable the explicit fixture-only automatic approval mode or use the approval interaction harness."
+            }
+        )
     }
     private fun trusted(receipts: Map<String, JsonObject>) = receipts.values.filter { it["trusted"] == JsonPrimitive(true) && it["verification_eligible"] != JsonPrimitive(false) }
     private fun matches(receipt: JsonObject, capability: Capability): Boolean = receipt.text("tool").substringBefore("__") == capability.tool &&
@@ -443,7 +446,9 @@ internal object GitHubTestChecklist {
                 val fixtureApprovalConditional = !readOnly(capability) &&
                     GitHubSelfTestFixtures.supports(capability.tool, capability.action) &&
                     fixturePreflight?.get("state") != JsonPrimitive("READY") &&
-                    !waitingApproval && GitHubSelfTestFixtures.checkpoint(receipts).isEmpty() && successes.isEmpty()
+                    !waitingApproval &&
+                    GitHubSelfTestFixtures.checkpoint(receipts).isEmpty() &&
+                    successes.isEmpty()
                 val blocker = when {
                     fixtureApprovalConditional -> "Effective GitHub approval mode was checked before fixture creation. Native approval is manual, so this owned fixture is conditional and no branch or mutation was started. Enable fixture-only auto approval for codex-self-test/* or run the approval interaction harness."
                     ciActionWithoutRun -> "No workflow run or job ID was supplied or deliberately created for this task. This CI mutation is conditional and was not requested."

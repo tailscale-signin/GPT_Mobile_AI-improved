@@ -297,11 +297,16 @@ class GitHubReviewViewModel @Inject constructor(private val connections: ToolCon
         programmerScope.value?.let { scope ->
             gitHubRepositoryState?.let { store ->
                 runCatching {
-                    GitHubApprovalBinding.recordEvent(store, taskId, "approval_card_clicked", buildJsonObject {
-                        put("choice", "APPROVE_AND_COMMIT")
-                        put("branch", task.workingBranch)
-                        put("patch_digest", frozen.patchDigest)
-                    })
+                    GitHubApprovalBinding.recordEvent(
+                        store,
+                        taskId,
+                        "approval_card_clicked",
+                        buildJsonObject {
+                            put("choice", "APPROVE_AND_COMMIT")
+                            put("branch", task.workingBranch)
+                            put("patch_digest", frozen.patchDigest)
+                        }
+                    )
                 }
             }
         }
@@ -310,12 +315,17 @@ class GitHubReviewViewModel @Inject constructor(private val connections: ToolCon
         programmerScope.value?.let { scope ->
             gitHubRepositoryState?.let { store ->
                 runCatching {
-                    GitHubApprovalBinding.recordEvent(store, taskId, "approval_card_approved", buildJsonObject {
-                        put("choice", "APPROVE_AND_COMMIT")
-                        put("branch", task.workingBranch)
-                        put("patch_digest", frozen.patchDigest)
-                        put("published_sha", sha)
-                    })
+                    GitHubApprovalBinding.recordEvent(
+                        store,
+                        taskId,
+                        "approval_card_approved",
+                        buildJsonObject {
+                            put("choice", "APPROVE_AND_COMMIT")
+                            put("branch", task.workingBranch)
+                            put("patch_digest", frozen.patchDigest)
+                            put("published_sha", sha)
+                        }
+                    )
                 }
             }
         }
@@ -408,10 +418,15 @@ class GitHubReviewViewModel @Inject constructor(private val connections: ToolCon
         val approvalStore = gitHubRepositoryState
         if (scope != null && approvalStore != null) {
             runCatching {
-                GitHubApprovalBinding.recordEvent(approvalStore, taskId, "approval_card_clicked", buildJsonObject {
-                    put("choice", "REJECT")
-                    put("branch", task.workingBranch)
-                })
+                GitHubApprovalBinding.recordEvent(
+                    approvalStore,
+                    taskId,
+                    "approval_card_clicked",
+                    buildJsonObject {
+                        put("choice", "REJECT")
+                        put("branch", task.workingBranch)
+                    }
+                )
             }
         }
         engineering.cancel(taskId)

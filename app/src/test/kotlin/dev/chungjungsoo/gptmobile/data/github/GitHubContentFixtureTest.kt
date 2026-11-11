@@ -212,19 +212,25 @@ class GitHubContentFixtureTest {
             put("binding", "task")
             put("repository", "owner/repo")
             put("tool", "github_context")
-            put("arguments", buildJsonObject {
-                put("action", "local_fixture_decision")
-                put("branch", branch)
-            })
+            put(
+                "arguments",
+                buildJsonObject {
+                    put("action", "local_fixture_decision")
+                    put("branch", branch)
+                }
+            )
             put("trusted", true)
             put("success", true)
             put("evidence_origin", "LOCAL_DURABLE_APPROVAL_EVENT")
             put("local_resolution_event", "approval_card_keep_fixture")
-            put("result", buildJsonObject {
-                put("branch", branch)
-                put("fixture_retention_state", "KEEP_BY_USER")
-                put("keep_fixture", true)
-            })
+            put(
+                "result",
+                buildJsonObject {
+                    put("branch", branch)
+                    put("fixture_retention_state", "KEEP_BY_USER")
+                    put("keep_fixture", true)
+                }
+            )
         }
 
         val checkpoint = GitHubSelfTestFixtures.checkpoint(records).single().jsonObject

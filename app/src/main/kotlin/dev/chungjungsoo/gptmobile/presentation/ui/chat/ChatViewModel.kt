@@ -59,6 +59,8 @@ import dev.chungjungsoo.gptmobile.data.repository.LocalModelRepository
 import dev.chungjungsoo.gptmobile.data.repository.ModelCatalogRepository
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository
+import dev.chungjungsoo.gptmobile.data.voice.VoiceAdmissionStage
+import dev.chungjungsoo.gptmobile.data.voice.VoiceTurnAdmission
 import dev.chungjungsoo.gptmobile.presentation.StartupRecoveryGate
 import dev.chungjungsoo.gptmobile.presentation.ui.setup.DownloadedLocalModelOption
 import dev.chungjungsoo.gptmobile.presentation.ui.thinking.ThinkingParser
@@ -484,6 +486,64 @@ class ChatViewModel @Inject constructor(
     // State for the message loading state (From the database)
     private val _isLoaded = MutableStateFlow(false)
     val isLoaded = _isLoaded.asStateFlow()
+    private val _roomLoadError = MutableStateFlow<String?>(null)
+    val roomLoadError = _roomLoadError.asStateFlow()
+    private val _voiceRoomReady = MutableStateFlow(false)
+    val voiceRoomReady = _voiceRoomReady.asStateFlow()
+    private val _voiceAdmission = MutableStateFlow(
+        runCatching {
+            savedStateHandle.get<String>("voiceAdmission")?.let { kotlinx.serialization.json.Json.decodeFromString<VoiceTurnAdmission>(it) }
+        }.getOrNull()?.let { if (it.stage == VoiceAdmissionStage.CHECKING) it.copy(stage = VoiceAdmissionStage.FAILED, reason = "ADMISSION_INTERRUPTED") else it }
+    )
+    val voiceAdmission = _voiceAdmission.asStateFlow()
+
+    private fun updateVoiceAdmission(value: VoiceTurnAdmission) {
+        _voiceAdmission.value = value
+        savedStateHandle["voiceAdmission"] = kotlinx.serialization.json.Json.encodeToString(VoiceTurnAdmission.serializer(), value)
+    }
+
+    private fun voiceTrace(request: VoiceTurnAdmission, text: String) = dev.chungjungsoo.gptmobile.data.diagnostics.SendAttemptTrace(
+        requestId = request.requestId,
+        onOutcome = { reason ->
+            if (_voiceAdmission.value?.requestId == request.requestId) {
+                updateVoiceAdmission(
+                    request.copy(
+                        stage = if (reason in setOf("DURABLY_QUEUED", "SESSION_QUEUED")) VoiceAdmissionStage.QUEUED else VoiceAdmissionStage.FAILED,
+                        reason = reason
+                    )
+                )
+            }
+        },
+        onAccepted = { ids, chatId, messageId ->
+            if (_voiceAdmission.value?.requestId == request.requestId && chatId == request.chatId) {
+                updateVoiceAdmission(request.copy(stage = VoiceAdmissionStage.ACCEPTED, userMessageId = messageId, runIds = ids))
+                if (question.text.toString() == text) question.clearText()
+            }
+        }
+    )
+
+    private fun observeVoiceAdmission() {
+        viewModelScope.launch {
+            _voiceAdmission.collectLatest { request ->
+                if (request?.stage != VoiceAdmissionStage.QUEUED) return@collectLatest
+                durablePromptQueue?.observeRequest(request.chatId, request.requestId)?.collect { prompt ->
+                    if (prompt == null) {
+                        updateVoiceAdmission(request.copy(stage = VoiceAdmissionStage.FAILED, reason = "QUEUED_TURN_REMOVED"))
+                    } else if (prompt.userMessageId != null) {
+                        updateVoiceAdmission(request.copy(stage = VoiceAdmissionStage.ACCEPTED, userMessageId = prompt.userMessageId))
+                    }
+                }
+            }
+        }
+        viewModelScope.launch {
+            combine(_voiceAdmission, _agentRunsById) { admission, runs -> admission to runs }.collect { (request, runs) ->
+                if (request?.stage == VoiceAdmissionStage.ACCEPTED && request.runIds.isEmpty()) {
+                    val match = runs.values.singleOrNull { it.chatId == request.chatId && it.userMessageId == request.userMessageId && it.profileUid == request.profileUid }
+                    if (match != null) updateVoiceAdmission(request.copy(runIds = listOf(match.runId)))
+                }
+            }
+        }
+    }
 
     val featureSettings: StateFlow<dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings> =
         settingRepository.observeFeatureSettings()
@@ -504,7 +564,8 @@ class ChatViewModel @Inject constructor(
         val text: String,
         val attachments: List<ChatAttachmentDraft>,
         val profileUid: String? = null,
-        val tools: ChatMcpToolConfig
+        val tools: ChatMcpToolConfig,
+        val attempt: dev.chungjungsoo.gptmobile.data.diagnostics.SendAttemptTrace
     )
     private val queuedPrompts = ArrayDeque<QueuedPrompt>()
     private val _pendingPrompts = MutableStateFlow<List<dev.chungjungsoo.gptmobile.data.queue.PendingPrompt>>(emptyList())
@@ -572,6 +633,7 @@ class ChatViewModel @Inject constructor(
     private val draftMutex = Mutex()
 
     init {
+        observeVoiceAdmission()
         viewModelScope.launch {
             combine(_platformsInApp, _chatPlatformModels, featureSettings, _chatToolConfig) { _, _, _, _ -> Unit }.collect {
                 if (_reasoningRecoveries.value.isNotEmpty()) refreshCombinedFailures()
@@ -962,7 +1024,7 @@ class ChatViewModel @Inject constructor(
                 }
                 return
             }
-            queuedPrompts.addLast(QueuedPrompt(questionText, attachments.toList(), oneMessageUid, acceptedTools))
+            queuedPrompts.addLast(QueuedPrompt(questionText, attachments.toList(), oneMessageUid, acceptedTools, attempt))
             savedStateHandle["nextMessageProfileUid"] = null
             _queuedPromptCount.value = queuedPrompts.size
             question.clearText()
@@ -1054,7 +1116,7 @@ class ChatViewModel @Inject constructor(
         if (selected != null && (selected !in _activePlatformUids.value || selected in _disabledPlatformUids.value)) return
         val next = queuedPrompts.removeFirst()
         _queuedPromptCount.value = queuedPrompts.size
-        sendQuestion(next.text, next.attachments, clearComposer = false, profileUid = next.profileUid, acceptedTools = next.tools)
+        sendQuestion(next.text, next.attachments, clearComposer = false, profileUid = next.profileUid, acceptedTools = next.tools, attempt = next.attempt.queuedContinuation())
     }
 
     fun removeQueuedPrompt(id: String) {
@@ -1204,9 +1266,13 @@ class ChatViewModel @Inject constructor(
 
     /** Voice uses the normal durable chat dispatcher and never bypasses tool approvals. */
     fun submitVoiceTranscript(text: String): Boolean {
-        if (!_isLoaded.value || text.isBlank() || !featureSettings.value.isToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.VOICE_CHAT) || _loadingStates.value.any { it != LoadingState.Idle }) return false
-        if (_activePlatformUids.value.none { uid -> _platformsInApp.value.any { it.uid == uid && it.enabled } }) return false
-        submitOrQueueQuestion(text.trim(), emptyList())
+        if (!_isLoaded.value || !_voiceRoomReady.value || text.isBlank() || !featureSettings.value.isToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.VOICE_CHAT)) return false
+        val profileUid = _activePlatformUids.value.singleOrNull()?.takeIf { uid -> _platformsInApp.value.any { it.uid == uid && it.enabled } } ?: return false
+        if (_voiceAdmission.value?.stage in setOf(VoiceAdmissionStage.CHECKING, VoiceAdmissionStage.QUEUED)) return false
+        checkpointVoiceDraft(text.trim())
+        val request = VoiceTurnAdmission(UUID.randomUUID().toString(), _chatRoom.value.id, profileUid)
+        updateVoiceAdmission(request)
+        submitOrQueueQuestion(text.trim(), emptyList(), voiceTrace(request, text.trim()))
         return true
     }
 
@@ -3369,7 +3435,7 @@ class ChatViewModel @Inject constructor(
             platformType = null,
             createdAt = currentTimeStamp
         ).let { addMessage(it) }
-        if (clearComposer) {
+        if (clearComposer && _voiceAdmission.value?.requestId != attempt.requestId) {
             question.clearText()
             clearSelectedFiles()
         }
@@ -3504,58 +3570,69 @@ class ChatViewModel @Inject constructor(
 
     private fun fetchChatRoom() {
         viewModelScope.launch {
-            conversationExitWork.awaitPending(chatRoomId)
-            if (chatRoomId > 0) {
-                try {
-                    combinedSettingsJournal.recover(chatRoomId) { before, after -> chatRepository.applyCombinedChatSettings(before, after) }
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (error: Exception) {
-                    _combinedSettingsSaveState.value = dev.chungjungsoo.gptmobile.data.model.CombinedSettingsSaveUiState(dev.chungjungsoo.gptmobile.data.model.CombinedSettingsSavePhase.FAILED, error.message)
+            try {
+                conversationExitWork.awaitPending(chatRoomId)
+                if (chatRoomId > 0) {
+                    try {
+                        combinedSettingsJournal.recover(chatRoomId) { before, after -> chatRepository.applyCombinedChatSettings(before, after) }
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (error: Exception) {
+                        _combinedSettingsSaveState.value = dev.chungjungsoo.gptmobile.data.model.CombinedSettingsSaveUiState(dev.chungjungsoo.gptmobile.data.model.CombinedSettingsSavePhase.FAILED, error.message)
+                    }
                 }
+                var room = if (chatRoomId == 0) {
+                    ChatRoomV2(
+                        id = 0,
+                        title = "Untitled Chat",
+                        enabledPlatform = initialPlatformUids,
+                        activePlatform = initialPlatformUids,
+                        conversationMode = requestedConversationMode
+                    )
+                } else {
+                    (chatRepository.fetchChatListV2() + chatRepository.fetchArchivedChatListV2()).firstOrNull { it.id == chatRoomId }
+                        ?: run {
+                            _roomLoadError.value = "This conversation is no longer available. Choose a chat to continue."
+                            return@launch
+                        }
+                }
+                if (room.id > 0) {
+                    _combinedConversationIdentity.value = settingRepository.ensureConversationIdentity(room.id)
+                    savedStateHandle["combinedConversationIdentity"] = _combinedConversationIdentity.value
+                }
+                val features = settingRepository.getFeatureSettings()
+                features.conversationGitHub[room.id]?.let { github ->
+                    val normalized = dev.chungjungsoo.gptmobile.data.github.GitHubChatMembership.normalize(room, github)
+                    if (normalized != room) room = chatRepository.updateChatPlatforms(normalized, listOf(github.mainProfileUid))
+                }
+                _chatToolConfig.update {
+                    val workspace = features.conversationGitHub[room.id]
+                    it.copy(
+                        delegation = features.conversationDelegation[room.id],
+                        reasoning = features.conversationReasoning[room.id],
+                        research = features.conversationResearch[room.id],
+                        github = workspace,
+                        allowAllByDefault = if (workspace != null) false else it.allowAllByDefault,
+                        enabledToolIds = workspace?.let { scope -> setOf(scope.connectionUid) } ?: it.enabledToolIds
+                    )
+                }
+                _chatRoom.value = room
+                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.setPrivateSession(diagnosticPrivacyOwner, room.isTemporary)
+                applyChatPlatformState(room)
+                if (!composerRestored) {
+                    if (question.text.isEmpty()) question.edit { append(room.draftText.orEmpty()) }
+                    val restored = runCatching { kotlinx.serialization.json.Json.decodeFromString(kotlinx.serialization.builtins.ListSerializer(ChatAttachment.serializer()), room.draftAttachments) }.getOrDefault(emptyList())
+                    _selectedAttachments.value = restored.map(ChatAttachmentDraft::fromAttachment)
+                    composerRestored = true
+                    observeComposerDraft()
+                }
+                if (_platformsInApp.value.isNotEmpty()) initializeChatPlatformModels(_platformsInApp.value)
+                _voiceRoomReady.value = true
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                _roomLoadError.value = "This conversation could not be opened. Return to chat selection and try again."
             }
-            var room = if (chatRoomId == 0) {
-                ChatRoomV2(
-                    id = 0,
-                    title = "Untitled Chat",
-                    enabledPlatform = initialPlatformUids,
-                    activePlatform = initialPlatformUids,
-                    conversationMode = requestedConversationMode
-                )
-            } else {
-                (chatRepository.fetchChatListV2() + chatRepository.fetchArchivedChatListV2()).first { it.id == chatRoomId }
-            }
-            if (room.id > 0) {
-                _combinedConversationIdentity.value = settingRepository.ensureConversationIdentity(room.id)
-                savedStateHandle["combinedConversationIdentity"] = _combinedConversationIdentity.value
-            }
-            val features = settingRepository.getFeatureSettings()
-            features.conversationGitHub[room.id]?.let { github ->
-                val normalized = dev.chungjungsoo.gptmobile.data.github.GitHubChatMembership.normalize(room, github)
-                if (normalized != room) room = chatRepository.updateChatPlatforms(normalized, listOf(github.mainProfileUid))
-            }
-            _chatToolConfig.update {
-                val workspace = features.conversationGitHub[room.id]
-                it.copy(
-                    delegation = features.conversationDelegation[room.id],
-                    reasoning = features.conversationReasoning[room.id],
-                    research = features.conversationResearch[room.id],
-                    github = workspace,
-                    allowAllByDefault = if (workspace != null) false else it.allowAllByDefault,
-                    enabledToolIds = workspace?.let { scope -> setOf(scope.connectionUid) } ?: it.enabledToolIds
-                )
-            }
-            _chatRoom.value = room
-            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.setPrivateSession(diagnosticPrivacyOwner, room.isTemporary)
-            applyChatPlatformState(room)
-            if (!composerRestored) {
-                if (question.text.isEmpty()) question.edit { append(room.draftText.orEmpty()) }
-                val restored = runCatching { kotlinx.serialization.json.Json.decodeFromString(kotlinx.serialization.builtins.ListSerializer(ChatAttachment.serializer()), room.draftAttachments) }.getOrDefault(emptyList())
-                _selectedAttachments.value = restored.map(ChatAttachmentDraft::fromAttachment)
-                composerRestored = true
-                observeComposerDraft()
-            }
-            if (_platformsInApp.value.isNotEmpty()) initializeChatPlatformModels(_platformsInApp.value)
         }
     }
 

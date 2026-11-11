@@ -17,6 +17,19 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AppAuditQualificationTest {
+    @Test fun responseIdMismatchRetainsItsSpecificBridgeRepairInTheExportedWorklist() {
+        val original = fixture(1, 1)
+        val run = original.copy(
+            results = original.results.map {
+                if (it.entryId == "discovery-0") it.copy(observation = it.observation.copy(outcome = AppAuditOutcome.FAIL, reasonCode = "MCP_RESPONSE_ID_MISMATCH", validationRule = "RESPONSE_ID_MATCH_REQUIRED", httpStatus = 400)) else it
+            }
+        )
+        val target = qualification(run)["checks"]!!.jsonArray.first().jsonObject
+        assertEquals("DISCOVERY_RECHECK_REQUIRED", target["readiness"]!!.jsonPrimitive.content)
+        assertEquals("REPAIR_MCP_RESPONSE_ID_CORRELATION_THEN_RECONNECT", target["nextAction"]!!.jsonPrimitive.content)
+        assertEquals(original.plan, run.plan)
+    }
+
     @Test fun everyInventoriedAreaHasConcreteCandidateSuitesWithoutPromotingUntestedCoverage() {
         val original = fixture(0, 0)
         val template = original.plan.first()

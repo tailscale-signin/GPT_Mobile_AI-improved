@@ -177,7 +177,9 @@ internal fun LazyListScope.appAuditEvidenceContent(
     batch: BenchmarkBatch,
     currentTargetNames: Map<String, String> = emptyMap(),
     onOpenConnection: ((String) -> Unit)? = null,
-    onPrepareModelBenchmark: ((AppAuditPlanEntry) -> Unit)? = null
+    onPrepareModelBenchmark: ((AppAuditPlanEntry) -> Unit)? = null,
+    onOpenGatewaySettings: ((AppAuditPlanEntry) -> Unit)? = null,
+    onCheckGateway: ((AppAuditPlanEntry) -> Unit)? = null
 ) {
     val run = batch.audit ?: return
     val presentation = appAuditPresentation(run, currentTargetNames)
@@ -199,7 +201,7 @@ internal fun LazyListScope.appAuditEvidenceContent(
             }
         }
         items(component.entries, key = { "audit.${batch.id}.entry.${it.entry.id}" }) { item ->
-            AppAuditEntryCard(item, onPrepareModelBenchmark = onPrepareModelBenchmark, onOpenConnection = onOpenConnection)
+            AppAuditEntryCard(item, onPrepareModelBenchmark = onPrepareModelBenchmark, onOpenConnection = onOpenConnection, onOpenGatewaySettings = onOpenGatewaySettings, onCheckGateway = onCheckGateway)
         }
     }
 }
@@ -208,7 +210,9 @@ internal fun LazyListScope.appAuditEvidenceContent(
 internal fun AppAuditEntryCard(
     item: AppAuditEntryPresentation,
     onPrepareModelBenchmark: ((AppAuditPlanEntry) -> Unit)? = null,
-    onOpenConnection: ((String) -> Unit)? = null
+    onOpenConnection: ((String) -> Unit)? = null,
+    onOpenGatewaySettings: ((AppAuditPlanEntry) -> Unit)? = null,
+    onCheckGateway: ((AppAuditPlanEntry) -> Unit)? = null
 ) {
     var expanded by rememberSaveable(item.entry.id) { mutableStateOf(false) }
     val result = item.result
@@ -233,6 +237,12 @@ internal fun AppAuditEntryCard(
             }
             appAuditConnectionUid(item)?.takeIf { onOpenConnection != null }?.let { uid ->
                 OutlinedButton(onClick = { onOpenConnection?.invoke(uid) }) { Text(appAuditConnectionActionLabel(item)) }
+            }
+            if (item.entry.sourceId == dev.chungjungsoo.gptmobile.data.audit.AppAuditPluginProbeSource.SOURCE_ID &&
+                item.entry.probeId == dev.chungjungsoo.gptmobile.data.audit.AppAuditPluginProbeSource.GATEWAY_CAPABILITIES
+            ) {
+                onOpenGatewaySettings?.let { open -> OutlinedButton(onClick = { open(item.entry) }, enabled = !item.active) { Text("Open Gateway settings") } }
+                onCheckGateway?.let { check -> OutlinedButton(onClick = { check(item.entry) }, enabled = !item.active) { Text("Check readiness") } }
             }
             if (onPrepareModelBenchmark != null && item.currentSavedName != null && appAuditModelProfileUid(item.entry) != null) {
                 OutlinedButton(onClick = { onPrepareModelBenchmark(item.entry) }) { Text("Prepare model benchmark") }

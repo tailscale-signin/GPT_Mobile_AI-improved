@@ -10,27 +10,38 @@ internal class VoiceSpeechBuffer {
         previous = text
         val end = minOf(text.length, 12000).let { if (it < text.length && it > 0 && text[it - 1].isHighSurrogate()) it - 1 else it }
         val visible = text.substring(0, end)
-        val first = if (earlyStart && consumed == 0) {
-            val clause = clauseEnd.find(visible)?.range?.last?.plus(1)
-            val wordLimit = completeWord.findAll(visible).drop(7).firstOrNull()?.range?.last?.plus(1)
-            listOfNotNull(clause, wordLimit).minOrNull()
-        } else {
-            null
+        if (earlyStart) {
+            val chunks = mutableListOf<String>()
+            while (consumed < end) {
+                val tail = visible.substring(consumed)
+                val wordLimit = if (consumed == 0) 8 else 12
+                val words = completeWord.findAll(tail).take(wordLimit).toList()
+                val wordEnd = words.takeIf { it.size == wordLimit }?.last()?.range?.last?.plus(1)
+                val clause = clauseEnd.find(tail)?.range?.last?.plus(1)
+                val bounded = words.lastOrNull { it.range.last < 240 }?.range?.last?.plus(1)?.takeIf { tail.length >= 240 }
+                val boundary = listOfNotNull(clause, wordEnd, bounded).minOrNull()?.takeIf { it <= 240 } ?: break
+                chunks += tail.substring(0, boundary)
+                consumed += boundary
+            }
+            if (final && consumed < end) {
+                chunks += speechChunks(visible.substring(consumed))
+                consumed = end
+            }
+            if (final && text.length > 12000 && !announcedLimit) {
+                announcedLimit = true
+                chunks += "The rest of this response is available in the chat."
+            }
+            return chunks.filter(String::isNotBlank)
         }
         val stableEnd = if (final) {
             end
         } else {
             maxOf(
                 consumed,
-                first ?: 0,
                 sentenceEnd.findAll(visible).lastOrNull()?.range?.last?.plus(1) ?: 0
             )
         }
-        val chunks = buildList {
-            val firstEnd = first?.coerceAtMost(stableEnd) ?: consumed
-            if (firstEnd > consumed) add(visible.substring(consumed, firstEnd))
-            if (stableEnd > firstEnd) addAll(speechChunks(visible.substring(firstEnd, stableEnd)))
-        }.filter(String::isNotBlank)
+        val chunks = speechChunks(visible.substring(consumed, stableEnd)).filter(String::isNotBlank)
         consumed = stableEnd
         if (final && text.length > 12000 && !announcedLimit) {
             announcedLimit = true

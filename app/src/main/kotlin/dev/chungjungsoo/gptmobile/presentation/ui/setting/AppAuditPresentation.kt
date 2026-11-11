@@ -14,6 +14,8 @@ import dev.chungjungsoo.gptmobile.data.audit.appAuditScore
 import dev.chungjungsoo.gptmobile.data.audit.appAuditSummary
 import dev.chungjungsoo.gptmobile.data.audit.appAuditTargetAliases
 
+private const val MCP_RESPONSE_CORRELATION_GUIDANCE = "The bridge or proxy returned a response ID that did not match the request. When the request ID is available, return its exact value and JSON type on both success and error responses. Check the bridge and proxy error handling, then reconnect to verify discovery and tools/list. The upstream cause is not established by the mismatch alone."
+
 internal data class AppAuditEntryPresentation(
     val entry: AppAuditPlanEntry,
     val result: AppAuditResult?,
@@ -107,6 +109,7 @@ internal fun appAuditModelProfileUid(entry: AppAuditPlanEntry): String? = entry.
     ?.takeIf { it.isNotBlank() && it.length <= 160 && it.none(Char::isISOControl) }
 
 internal fun appAuditConnectionActionLabel(item: AppAuditEntryPresentation): String = when (item.result?.reasonCode ?: item.entry.reasonCode) {
+    "MCP_RESPONSE_ID_MISMATCH" -> "Review bridge request correlation"
     "MCP_LOCAL_CREDENTIAL_REFRESH_REQUIRED" -> "Reconnect saved connection"
     "MCP_LOCAL_CREDENTIAL_MISSING", "MCP_LOCAL_CREDENTIAL_INVALID", "PLUGIN_CREDENTIAL_IDENTITY_UNAVAILABLE",
     "MCP_AUTHENTICATION_REQUIRED", "AUTHENTICATION_FAILED" -> "Repair credentials and reconnect"
@@ -156,6 +159,7 @@ internal fun appAuditReason(item: AppAuditEntryPresentation): String {
     if (item.result?.outcome in setOf(AppAuditOutcome.FAIL, AppAuditOutcome.BLOCKED)) {
         when (item.result?.observation?.validationRule) {
             "CREDENTIAL_REAUTHORIZATION_REQUIRED" -> return "The saved OAuth authorization requires a new sign-in. Open this exact connection, sign in again, then reconnect. This local rejection did not send an MCP request; retrying the unchanged credential cannot repair it."
+            "RESPONSE_ID_MATCH_REQUIRED" -> return MCP_RESPONSE_CORRELATION_GUIDANCE
             "PROTOCOL_VERSIONS_ARRAY_REQUIRED", "PROTOCOL_VERSIONS_NONEMPTY_REQUIRED", "PROTOCOL_VERSION_FORMAT_REQUIRED" -> return "The discovery response omitted or malformed supportedVersions. Repair the bridge to advertise a nonempty array of protocol revisions it actually implements, then reconnect to verify negotiation and tools/list. HTTP 200 does not make invalid discovery usable and cannot justify silently switching protocols."
             "DISCOVERY_METHOD_SUPPORTED_REQUIRED" -> return "The endpoint answered JSON-RPC but rejected server/discover. Verify its supported protocol and repair bridge negotiation, then reconnect. This recognized modern unknown-method response does not establish that the endpoint path is missing or that legacy initialization is supported."
             "ENDPOINT_ROUTE_REQUIRED" -> return "The configured endpoint returned HTTP 404 without a recognized MCP method response. Check the URL path and running service, then reconnect. The supported protocol has not been established."
@@ -186,6 +190,7 @@ internal fun appAuditReason(item: AppAuditEntryPresentation): String {
 }
 
 internal fun appAuditReasonCodeMessage(code: String?): String? = when (code) {
+    "MCP_RESPONSE_ID_MISMATCH" -> MCP_RESPONSE_CORRELATION_GUIDANCE
     "NETWORK_READS_DISABLED", "NETWORK_READS_NOT_SELECTED" -> "Service reads were disabled for this plan. Enable them and start a new audit to measure this connection."
     "MODEL_EXECUTION_NOT_SELECTED", "MODEL_BENCHMARK_REQUIRED" -> "Model generation is untested in this audit. Prepare this exact saved profile in the model benchmark queue, review the suite, then explicitly run it."
     "MODEL_PROFILE_NOT_CONFIGURED" -> "The selected model profile is unavailable or incomplete. Review that saved profile before preparing a benchmark."

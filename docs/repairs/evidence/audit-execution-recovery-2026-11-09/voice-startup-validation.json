@@ -1,0 +1,244 @@
+{
+  "source_parent": "e8eaf4c73978f7264312a232fadbd875001b9fb3",
+  "scope": "Voice startup, admission, captions, preferences and queue correlation; GitHub extraction limit; prior Gateway/audit/speech regressions",
+  "environment": "Host Android JVM and Robolectric, no live device or native engine execution",
+  "compileDebugKotlin": "PASS",
+  "compileDebugUnitTestKotlin": "PASS",
+  "fast_host_tests": 461,
+  "targeted_tests": 302,
+  "suites": [
+    {
+      "suite": "dev.chungjungsoo.gptmobile.data.audit.AppAuditExportTest",
+      "tests": 21,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "005b4a2b688381aaf232c3e790b15afd219b173c9cf8bc2ffa4149ad71c1c3b7"
+    },
+    {
+      "suite": "dev.chungjungsoo.gptmobile.data.audit.AppAuditPluginProbeSourceTest",
+      "tests": 14,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "552f5594c3de6de51579004931babfa17653742f029a44439737dee9475613a6"
+    },
+    {
+      "suite": "dev.chungjungsoo.gptmobile.data.audit.AppAuditPluginServicesTest",
+      "tests": 31,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "f5164271e624db0e8c79b2b33425bfe360f4e696567a33d739275d0d30acf12f"
+    },
+    {
+      "suite": "dev.chungjungsoo.gptmobile.data.audit.AppAuditQualificationTest",
+      "tests": 12,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "b0aa68cc824e9805e1e5d784879c7a030f7a788c8fa12cd9c2c96d7f93a1d5b8"
+    },
+    {
+      "suite": "dev.chungjungsoo.gptmobile.data.diagnostics.SendAttemptTraceTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "854b86db585718d915f802c6aa615e516293ce8b1d086d53cb278527f34e474b"
+    },
+    {
+      "suite": "dev.chungjungsoo.gptmobile.data.github.GitHubVerifiedSessionTest",
+      "tests": 28,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "2dfdfeda834b7544ec23f8fba5c031ea513689b83b4545e40328883fff70ca31"
+    },
+    {
+      "suite": "dev.chungjungsoo.gptmobile.data.queue.PendingPromptContinuationTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "076f1370278f517ead6c8ae5cf537c40ce6d29ceb8b90f774e921b3c34947bc4"
+    },
+    {
+      "suite": "dev.chungjungsoo.gptmobile.data.queue.VoiceQueuedAdmissionTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "bfe762e01c6c2b17b85cdbeab67a8cde67324019087bc18e9df2633ecc83f043"
+    },
+    {
+      "suite": "dev.chungjungsoo.gptmobile.data.voice.AndroidRecognitionRecoveryTest",
+      "tests": 12,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "9eaa119e8b07e93186db9fef42fb763bd4fca16c4aac07c21e1e92eaeaaf71ec"
+    },
+    {
+      "suite": "dev.chungjungsoo.gptmobile.data.voice.AndroidSpeechCatalogRecoveryTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "f20692853eb45d27c8697e9e15ed589cd692ae418e4e4d31119af3963bafb914"
+    },
+    {
+      "suite": "dev.chungjungsoo.gptmobile.data.voice.AndroidSpeechQualificationTest",
+      "tests": 9,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "f3bdb4580a9250f886ed196adbb91ca07062d11b5f9e1d62d345e41273e567f1"
+    },
+    {
+      "suite": "dev.chungjungsoo.gptmobile.data.voice.AndroidVoiceAudioTest",
+      "tests": 12,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "05cbf83bd28a3aa56de3bfd97c70657ea812c170c1ec2c4e1e41483fd18596f6"
+    },
+    {
+      "suite": "dev.chungjungsoo.gptmobile.data.voice.KokoroSpeechTextTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "64c78d890d5d8ace4827a7473bfca7561dc261fd39d2c3861a18e6d8ce66b826"
+    },
+    {
+      "suite": "dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelStoreTest",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "d572c8d9ed4b624bb8f77d6a1a842b54902140cc79a05f2db5a55075f277045a"
+    },
+    {
+      "suite": "dev.chungjungsoo.gptmobile.data.voice.MoonshineVoiceRecognizerTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "62972a0322c4c11a4da98f3d0d9690f5a85b82e0d924ac2807f511fd965a52b6"
+    },
+    {
+      "suite": "dev.chungjungsoo.gptmobile.data.voice.RecognitionStartGateTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "305cdeda9982b0c454e249612a13e67b63c7e265c9c8eeff074e622b963f595c"
+    },
+    {
+      "suite": "dev.chungjungsoo.gptmobile.data.voice.VoiceContinuousListeningTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "49540ec22cdab72759286077bd0e605396d83a5678b6d21aa8a9a05542a246df"
+    },
+    {
+      "suite": "dev.chungjungsoo.gptmobile.data.voice.VoiceNativeEngineGateTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "50bb3b375a67d7f19b56dbf1af24cfa15192edfe966fe224a903451fdd7b231b"
+    },
+    {
+      "suite": "dev.chungjungsoo.gptmobile.data.voice.VoicePluginAudioTest",
+      "tests": 11,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "82b80d8a4f00d872921b47cdb131c28b998cac93e35850ac019487d5bb773544"
+    },
+    {
+      "suite": "dev.chungjungsoo.gptmobile.data.voice.VoicePreferenceWriterTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "1500931fa505e337c2448557863dc9d5314aa5207a61c50a6d9d5e6b70785350"
+    },
+    {
+      "suite": "dev.chungjungsoo.gptmobile.data.voice.VoiceRecoveryTest",
+      "tests": 14,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "57b1f6441b544a0996d6a0aa95784c17d983d04ce4cb28ebab8f4154b1069c3d"
+    },
+    {
+      "suite": "dev.chungjungsoo.gptmobile.data.voice.VoiceSessionTest",
+      "tests": 19,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "08530198ea61d32930b501d8cc886eeab16f92735bcc4108fbb09d91da04b325"
+    },
+    {
+      "suite": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBufferTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "59c97ba3f83b9d526c7cbca0c1057dd9d35554ce60427c0d6446a75f2607adc1"
+    },
+    {
+      "suite": "dev.chungjungsoo.gptmobile.data.voice.VoiceTurnAdmissionTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "a17793f5c74a4653715113e70fc781d138a963547c326c2cbabe51eae0632dde"
+    },
+    {
+      "suite": "dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatViewModelStartupTest",
+      "tests": 36,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "ec78fd4b2563b099ed56d0319e04ead77e6c7c8d51b9694585d3d5fd463fb375"
+    },
+    {
+      "suite": "dev.chungjungsoo.gptmobile.presentation.ui.setting.AppAuditContentTest",
+      "tests": 17,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "deaeecdb6c477a4ea617a89881da39636958d76ec6dd599bc2fc2a5f24f48086"
+    },
+    {
+      "suite": "dev.chungjungsoo.gptmobile.presentation.ui.setting.AppAuditPresentationTest",
+      "tests": 16,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "f687c0248747d7fad303db58415332a61cc75a3ba3f2354ddd82418c9228d1a4"
+    },
+    {
+      "suite": "dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceEntryViewModelTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "84147fdbe22047821421462395cfa1ea4025f7f5873ac9da5ae1f5cd1d0a0a82"
+    },
+    {
+      "suite": "dev.chungjungsoo.gptmobile.presentation.ui.voice.VoicePreferenceStoreTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "26c4b146a31fac29e1897f987448b06b2b139ea30f6a620c01ec5885a8071612"
+    }
+  ],
+  "formal_ledger_promotions": 0
+}

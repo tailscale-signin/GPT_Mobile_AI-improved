@@ -176,7 +176,8 @@ internal class AppAuditPluginServices @Inject constructor(
                             val key = "${AppAuditPluginProbeSource.ENGINEERING_GATEWAY_TARGET_PREFIX}$uid:$identity"
                             if (targetKey == null || targetKey == key) add(engineeringTarget(key, profiles, binding.profileUid, binding))
                         }
-                    } else if (!gatewayUid.isNullOrBlank()) {
+                    }
+                    if (!gatewayUid.isNullOrBlank()) {
                         val key = AppAuditPluginProbeSource.ENGINEERING_GATEWAY_TARGET_PREFIX + uid
                         if (targetKey == null || targetKey == key) add(engineeringTarget(key, profiles, gatewayUid, null))
                     }
@@ -210,7 +211,8 @@ internal class AppAuditPluginServices @Inject constructor(
                         } else {
                             null
                         },
-                        configurationRevision = configurationRevision
+                        configurationRevision = configurationRevision,
+                        settingsProfileUid = profile?.uid
                     )
                 )
             }
@@ -233,7 +235,8 @@ internal class AppAuditPluginServices @Inject constructor(
         val fingerprint = appAuditTargetDigest("${profile?.copy(token = null)}:$key:$gatewayUid:$credential")
         val revision = appAuditConfigurationRevision(fingerprint).takeIf { credential != null }
         return AppAuditPluginTarget(
-            key, AppAuditPluginKind.GATEWAY, AppAuditPluginProbeSource.ENGINEERING_GATEWAY_COMPONENT,
+            key, AppAuditPluginKind.GATEWAY,
+            if (binding == null) AppAuditPluginProbeSource.CURRENT_ENGINEERING_GATEWAY_COMPONENT else AppAuditPluginProbeSource.ENGINEERING_GATEWAY_COMPONENT,
             configured = profile != null && revision != null,
             enabled = profile != null,
             fingerprint = fingerprint,
@@ -246,7 +249,8 @@ internal class AppAuditPluginServices @Inject constructor(
             } else {
                 null
             },
-            configurationRevision = revision
+            configurationRevision = revision,
+            settingsProfileUid = profile?.uid
         )
     }
 

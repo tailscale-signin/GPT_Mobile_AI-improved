@@ -72,20 +72,34 @@ class AppAuditPluginServicesTest {
         val setup = Setup(engineering = client, store = store)
         val selected = profile()
         val route = selected.copy(uid = "engineering", apiUrl = "http://127.0.0.1:8098/v1", token = null, secretRef = null)
+        val nextRoute = route.copy(uid = "engineering-next", apiUrl = "http://127.0.0.1:8099/v1")
         val selection = GatewayExecutionSelection(selected.uid, "revision", "provider", "provider-revision", "LLAMA", selected.apiUrl, "model", JsonObject(emptyMap()), "PRIVATE")
         val request = GatewayEngineeringRequest("owner/repo", "work", "main", "Read checks", "model", chatId = 1, requestId = "job-1", profileId = selected.uid, executionBindingId = "bind_" + "a".repeat(32))
         val first = GatewayEngineeringBinding(route.uid, route.apiUrl, request, principalId = "principal", executionSelection = selection, gatewayId = "gateway")
         val second = first.copy(request = request.copy(requestId = "job-2"), syncedRevision = 3)
         var saved = listOf(first, second)
         coEvery { store.bindings(includeUpdates = false) } coAnswers { saved }
-        coEvery { setup.settings.fetchPlatformV2s() } returns listOf(selected, route)
-        val entry = setup.source.plan(AppAuditOptions(true, listOf(selected.uid))).single {
+        coEvery { setup.settings.fetchPlatformV2s() } returns listOf(selected, route, nextRoute)
+        coEvery { setup.settings.getFeatureSettings() } returns AppFeatureSettings(
+            githubProfileOverrides = mapOf(selected.uid to dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride(engineeringGatewayProfileUid = nextRoute.uid))
+        )
+        val plan = setup.source.plan(AppAuditOptions(true, listOf(selected.uid)))
+        val entry = plan.single {
             it.componentId == AppAuditPluginProbeSource.ENGINEERING_GATEWAY_COMPONENT && it.probeId == AppAuditPluginProbeSource.GATEWAY_CAPABILITIES
         }
+        val nextEntry = plan.single {
+            it.componentId == AppAuditPluginProbeSource.CURRENT_ENGINEERING_GATEWAY_COMPONENT && it.probeId == AppAuditPluginProbeSource.GATEWAY_CAPABILITIES
+        }
+        assertEquals(route.uid, setup.source.gatewaySettingsProfile(entry))
+        assertEquals(nextRoute.uid, setup.source.gatewaySettingsProfile(nextEntry))
         saved = saved.reversed()
         val advertised = GatewayEngineeringCapabilities("engineering-gateway", 1, enabled = true, principalId = "principal", gatewayId = "gateway")
         coEvery { client.capabilities(any(), forceRefresh = true) } returns advertised
         val firstCheck = setup.source.execute(entry, context())
+        val nextCheck = setup.source.execute(nextEntry, context())
+        assertEquals("GATEWAY_ENGINEERING_READINESS_UNAVAILABLE", nextCheck.reasonCode)
+        coVerify(exactly = 1) { client.capabilities(match { it.apiUrl == route.apiUrl }, forceRefresh = true) }
+        coVerify(exactly = 1) { client.capabilities(match { it.apiUrl == nextRoute.apiUrl }, forceRefresh = true) }
         assertEquals("GATEWAY_ENGINEERING_READINESS_UNAVAILABLE", firstCheck.reasonCode)
         assertEquals(AppAuditOutcome.BLOCKED, firstCheck.outcome)
         coEvery { client.capabilities(any(), forceRefresh = true) } returns advertised.copy(readiness = GatewayEngineeringReadiness(schemaVersion = 1, ready = true))
@@ -93,6 +107,10 @@ class AppAuditPluginServicesTest {
         assertEquals("GATEWAY_ENGINEERING_GITHUB_UNVERIFIED", secondCheck.reasonCode)
         assertEquals(AppAuditOutcome.BLOCKED, secondCheck.outcome)
         coVerify(exactly = 0) { client.bindingCapabilities(any(), any(), any()) }
+        coEvery { setup.settings.getFeatureSettings() } returns AppFeatureSettings()
+        assertNull(setup.source.gatewaySettingsProfile(nextEntry))
+        assertEquals(route.uid, setup.source.gatewaySettingsProfile(entry))
+        assertEquals("PLUGIN_CONFIGURATION_CHANGED", setup.source.execute(nextEntry, context()).reasonCode)
     }
 
     @Test

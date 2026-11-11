@@ -21,7 +21,8 @@ internal data class AppAuditPluginTarget(
     val liveReadPrecheck: AppAuditObservation? = null,
     val liveRead: (suspend (beforeDispatch: suspend () -> Unit) -> AppAuditObservation)? = null,
     val snapshotCurrent: () -> Boolean = { true },
-    val configurationRevision: String? = null
+    val configurationRevision: String? = null,
+    val settingsProfileUid: String? = null
 )
 
 /** Existing clients own transport, credentials, retries and their physical request limits. */
@@ -30,6 +31,12 @@ class AppAuditPluginProbeSource internal constructor(
     private val targetLookup: (suspend (key: String) -> AppAuditPluginTarget?)? = null
 ) : AppAuditProbeSource {
     override val sourceId: String = SOURCE_ID
+
+    /** Resolve navigation from the original target, never from the currently selected profile. */
+    suspend fun gatewaySettingsProfile(entry: AppAuditPlanEntry): String? {
+        if (entry.sourceId != SOURCE_ID || entry.probeId != GATEWAY_CAPABILITIES) return null
+        return currentTarget(entry)?.takeIf { it.kind == AppAuditPluginKind.GATEWAY }?.settingsProfileUid
+    }
 
     override suspend fun plan(options: AppAuditOptions): List<AppAuditPlanEntry> {
         val targets = inventory(options.selectedProfileIds.distinct()).distinctBy { it.key }.sortedBy { it.key }
@@ -187,6 +194,7 @@ class AppAuditPluginProbeSource internal constructor(
         internal const val GATEWAY_TARGET_PREFIX = "gateway:"
         internal const val ENGINEERING_GATEWAY_TARGET_PREFIX = "engineering_gateway:"
         internal const val ENGINEERING_GATEWAY_COMPONENT = "engineering_gateway_connection"
+        internal const val CURRENT_ENGINEERING_GATEWAY_COMPONENT = "current_engineering_gateway_connection"
         internal fun selectedGatewayProfileId(key: String): String? = when {
             key.startsWith(GATEWAY_TARGET_PREFIX) -> key.removePrefix(GATEWAY_TARGET_PREFIX)
             key.startsWith(ENGINEERING_GATEWAY_TARGET_PREFIX) -> key.removePrefix(ENGINEERING_GATEWAY_TARGET_PREFIX).substringBefore(':')
@@ -201,8 +209,11 @@ class AppAuditPluginProbeSource internal constructor(
             TOOL_EXECUTION to "Plugin tool execution coverage",
             INVENTORY_LIMIT to "Additional plugin targets"
         )
-        internal fun label(probe: String, component: String): String? =
-            if (probe == GATEWAY_CAPABILITIES && component == ENGINEERING_GATEWAY_COMPONENT) "Saved jobs Gateway readiness" else labels[probe]
+        internal fun label(probe: String, component: String): String? = when {
+            probe == GATEWAY_CAPABILITIES && component == ENGINEERING_GATEWAY_COMPONENT -> "Saved jobs Gateway readiness"
+            probe == GATEWAY_CAPABILITIES && component == CURRENT_ENGINEERING_GATEWAY_COMPONENT -> "New jobs Gateway readiness"
+            else -> labels[probe]
+        }
 
         internal val gatewayDecodeReasons = setOf("MALFORMED_JSON", "SCHEMA_MISMATCH", "NULL_NOT_ALLOWED", "EXPECTED_BOOLEAN", "EXPECTED_INTEGER", "EXPECTED_STRING", "EXPECTED_OBJECT", "MISSING_REQUIRED_FIELD", "EXPECTED_ARRAY")
         val reasonCodes = setOf(

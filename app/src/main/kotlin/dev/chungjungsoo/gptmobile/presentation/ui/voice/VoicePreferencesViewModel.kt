@@ -8,7 +8,6 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chungjungsoo.gptmobile.data.voice.KokoroModelPack
 import dev.chungjungsoo.gptmobile.data.voice.KokoroVoice
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelStore
-import dev.chungjungsoo.gptmobile.data.voice.VoicePreferenceWriter
 import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionBackend
 import java.io.File
 import javax.inject.Inject
@@ -37,26 +36,13 @@ internal data class VoiceModelStores(val moonshine: LocalVoiceModelStore, val ko
 
 /** No preference open/read/write may block composition or microphone startup. */
 @HiltViewModel
-internal class VoicePreferencesViewModel @Inject constructor(@ApplicationContext private val context: Context) : ViewModel() {
+internal class VoicePreferencesViewModel @Inject constructor(@ApplicationContext private val context: Context, private val store: VoicePreferenceStore) : ViewModel() {
     private val _modelStores = MutableStateFlow<VoiceModelStores?>(null)
     val modelStores = _modelStores.asStateFlow()
     private var modelInstall: Job? = null
     private var kokoroInstall: Job? = null
-    private val _preferences = MutableStateFlow<VoicePreferences?>(null)
-    val preferences = _preferences.asStateFlow()
-    private val writer = VoicePreferenceWriter<VoicePreferences>(viewModelScope) { value ->
-        withContext(Dispatchers.IO) {
-            context.getSharedPreferences("voice_presentation", Context.MODE_PRIVATE).edit()
-                .putString("language", value.language).putBoolean("online", value.online)
-                .putBoolean("captions", value.captions).putBoolean("review", value.review)
-                .putBoolean("automatic", value.automatic).putFloat("rate", value.rate)
-                .putString("voice", value.voice)
-                .putString("recognition_backend", value.recognitionBackend.name)
-                .putString("kokoro_voice", value.kokoroVoice?.name)
-                .putBoolean("spoken_replies", value.spokenReplies)
-                .putInt("kokoro_threads", value.kokoroThreads).apply()
-        }
-    }
+    val preferences = store.preferences
+    val saveError = store.saveError
 
     init {
         viewModelScope.launch {
@@ -67,31 +53,9 @@ internal class VoicePreferencesViewModel @Inject constructor(@ApplicationContext
             _modelStores.value = stores
             stores.moonshine.refresh()
         }
-        viewModelScope.launch {
-            val loaded = withContext(Dispatchers.IO) {
-                val saved = context.getSharedPreferences("voice_presentation", Context.MODE_PRIVATE)
-                VoicePreferences(
-                    language = saved.getString("language", java.util.Locale.getDefault().toLanguageTag()).orEmpty(),
-                    online = saved.getBoolean("online", false),
-                    captions = saved.getBoolean("captions", true),
-                    review = saved.getBoolean("review", false),
-                    automatic = saved.getBoolean("automatic", true),
-                    rate = saved.getFloat("rate", 1f).takeIf { it.isFinite() }?.coerceIn(.5f, 2f) ?: 1f,
-                    voice = saved.getString("voice", "").orEmpty(),
-                    recognitionBackend = VoiceRecognitionBackend.fromSaved(saved.getString("recognition_backend", null)),
-                    kokoroVoice = KokoroVoice.fromSaved(saved.getString("kokoro_voice", null)),
-                    spokenReplies = saved.getBoolean("spoken_replies", true),
-                    kokoroThreads = saved.getInt("kokoro_threads", 2).coerceIn(2, 4)
-                )
-            }
-            _preferences.compareAndSet(null, loaded)
-        }
     }
 
-    fun save(value: VoicePreferences) {
-        _preferences.value = value
-        writer.save(value)
-    }
+    fun save(value: VoicePreferences) = store.save(value)
 
     fun installLocalModel() {
         if (modelInstall?.isActive == true) return

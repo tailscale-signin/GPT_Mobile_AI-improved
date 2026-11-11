@@ -203,5 +203,36 @@
     "android_jvm_tests": 399,
     "android_jvm_failures": 0,
     "remediation_record": "docs/repairs/voice-chat-recovery-followup-2026-11-11.md"
+  },
+  "gateway_targets_and_continuous_speech_followup": {
+    "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+    "base_branch": "main",
+    "base_sha": "3a1f44bb3dff7dbe10a839f1cad7b408b34aadeb",
+    "working_branch": "fix/audit-execution-recovery-2026-11-09",
+    "parent_head": "b8c94ad902078b57a669b0ba316497d598daf3eb",
+    "intent": "Implement the additional 139-check audit source findings: always include current engineering Gateway and retained job bindings separately, bind direct settings/readiness actions to their original target, preserve request-correlation guidance, and emit bounded stable Kokoro continuation chunks.",
+    "state": "LOCAL_VALIDATION_PASSED",
+    "acceptance": [
+      "A retained job on Gateway A cannot suppress readiness for current Gateway B.",
+      "Settings navigation and a bounded readiness check use the exact original audit binding and refuse stale configuration.",
+      "The JSON qualification plan and audit UI retain RESPONSE_ID_MATCH_REQUIRED repair guidance.",
+      "Long punctuation-free replies emit stable continuation chunks, preserving exact text and preventing duplicate speech."
+    ],
+    "live_qualification": "Still requires actual saved MCP endpoints/OAuth, deployed Gateway GitHub setup, named fixtures, exact APK and physical ASUS performance measurements.",
+    "validation": "461 fast host checks and 130 targeted Android JVM/Robolectric tests passed; compilation passed. Physical-device and deployed-service qualification pending."
+  },
+  "voice_startup_and_admission_followup": {
+    "parent": "0a53a3303c6ed41bd6efbb2713e64fab1d96a590",
+    "state": "LOCAL_VALIDATION_PASSED",
+    "changes": [
+      "Defer Kokoro warmup until accepted reply generation and fence native startup behind decoder release. Record per-engine startup outcomes.",
+      "Recover individually malformed saved preferences and missing/deleted conversations. Gate capture on the loaded room and selected profile, defaulting to private speech.",
+      "Require explicit Enable & start on first use. Preserve direct entry after enablement.",
+      "Track checking, queued, accepted and failed voice requests; retain drafts through admission and bind reply captions to accepted turn/run IDs.",
+      "Keep captions alive when playback fails; expose direct microphone retry and the app-permission repair action.",
+      "Unify spoken replies across settings and the Audio dialog. Persist through an application-owned serialized writer."
+    ],
+    "remaining": "Actual route opening with both packs, microphone permission variants and a spoken turn on the ASUS phone remain unmeasured. No native crash cause or latency target is claimed verified.",
+    "validation": "App and test compilation, 461 fast host checks, 302 targeted JVM/Robolectric tests passed with zero failures or skips. Repaired the concurrent extraction-limit test fixture to supply retained evidence."
   }
 }

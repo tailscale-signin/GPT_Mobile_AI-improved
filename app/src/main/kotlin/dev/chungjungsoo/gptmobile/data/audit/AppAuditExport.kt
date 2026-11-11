@@ -398,7 +398,7 @@ private fun safeProbe(value: String): String = value.takeIf { it in AUDIT_LABELS
 private fun safeAuditLabel(probe: String, component: String): String =
     AppAuditPluginProbeSource.label(probe, component) ?: AUDIT_LABELS[probe] ?: "Unrecognized audit check"
 private fun safeComponent(value: String): String = value.takeIf {
-    it in setOf("mcp_connection", "configured_connection", "gateway_connection", AppAuditPluginProbeSource.ENGINEERING_GATEWAY_COMPONENT, "selected_model", "plugins", "local-contracts") ||
+    it in setOf("mcp_connection", "configured_connection", "gateway_connection", AppAuditPluginProbeSource.ENGINEERING_GATEWAY_COMPONENT, AppAuditPluginProbeSource.CURRENT_ENGINEERING_GATEWAY_COMPONENT, "selected_model", "plugins", "local-contracts") ||
         safeArea(it) == it ||
         dev.chungjungsoo.gptmobile.data.model.ToolServiceCatalog.integrated.any { service -> service.id == it } ||
         dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplaceCatalog.packages.any { entry -> "marketplace:${entry.id}" == it }

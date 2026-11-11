@@ -857,6 +857,54 @@ class ChatViewModelStartupTest {
         verify(exactly = 0) { coordinator.start(any()) }
     }
 
+    @Test fun dictatedTurnKeepsItsDraftDuringCheckingAndBindsOnlyTheAcceptedRun() = runTest(dispatcher) {
+        StartupRecoveryGate.start(backgroundScope) {}
+        profiles = profiles.take(1).map { it.copy(compatibleType = dev.chungjungsoo.gptmobile.data.model.ClientType.LLAMA) }
+        val profile = profiles.single()
+        val check = CompletableDeferred<dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityObservation>()
+        val capabilities = mockk<dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityRepository>()
+        coEvery { capabilities.check(any(), any(), any()) } coAnswers { check.await() }
+        val persisted = CompletableDeferred<PersistAgentTurnResult>()
+        coEvery { repository.persistAgentTurn(any()) } answers {
+            val request = firstArg<PersistAgentTurnRequest>()
+            val draft = request.runs.single()
+            val user = request.userMessage.copy(id = 71)
+            val answer = MessageV2(id = 72, chatId = 7, content = "", platformType = profile.uid, linkedMessageId = 71, currentRunId = draft.runId)
+            val run = AgentRun(draft.runId, 7, 71, 72, profile.uid, profile.compatibleType.name, profile.model)
+            PersistAgentTurnResult(request.chatRoom, user, listOf(answer), listOf(run)).also { persisted.complete(it) }
+        }
+        val model = createViewModel(combined = false, reasoningCapabilities = capabilities, testFeatures = features.withToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.VOICE_CHAT, true))
+        assertTrue(model.submitVoiceTranscript("These are my dictated words"))
+        assertEquals(dev.chungjungsoo.gptmobile.data.voice.VoiceAdmissionStage.CHECKING, model.voiceAdmission.value?.stage)
+        assertEquals("These are my dictated words", model.question.text.toString())
+        assertTrue(model.attachmentNotice.value.orEmpty().contains("Checking the selected model"))
+        check.complete(dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityObservation(profile.uid, profile.model, dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF, dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityStatus.SUPPORTED, "configuration", "runtime", System.currentTimeMillis(), null, true, true))
+        val accepted = withTimeout(5000) { persisted.await() }
+        assertEquals(dev.chungjungsoo.gptmobile.data.voice.VoiceAdmissionStage.ACCEPTED, model.voiceAdmission.value?.stage)
+        assertEquals(71, model.voiceAdmission.value?.userMessageId)
+        assertEquals(accepted.runs.map { it.runId }, model.voiceAdmission.value?.runIds)
+        assertEquals("", model.question.text.toString())
+    }
+
+    @Test fun deletedVoiceRoomIsRecoverableAndCannotAdmitSpeech() = runTest(dispatcher) {
+        StartupRecoveryGate.start(backgroundScope) {}
+        val model = createViewModel(combined = false, roomAvailable = false)
+        assertTrue(model.roomLoadError.value.orEmpty().contains("no longer available"))
+        assertFalse(model.voiceRoomReady.value)
+        assertFalse(model.submitVoiceTranscript("Do not create a replacement chat"))
+        coVerify(exactly = 0) { repository.persistAgentTurn(any()) }
+    }
+
+    @Test fun voiceCannotAdmitBeforeItsSelectedProfileLoads() = runTest(dispatcher) {
+        StartupRecoveryGate.start(backgroundScope) {}
+        val delayed = CompletableDeferred<List<PlatformV2>>()
+        val model = createViewModel(combined = false, profileLoad = delayed)
+        assertTrue(model.platformsInApp.value.isEmpty())
+        assertFalse(model.submitVoiceTranscript("Wait for my private profile"))
+        coVerify(exactly = 0) { repository.persistAgentTurn(any()) }
+        delayed.complete(profiles)
+    }
+
     private fun seedTurn(statuses: List<String>, combinedSettings: ConversationCombinedSettings = ConversationCombinedSettings()) {
         val requested = CombinedPolicyResolver.accept(
             combinedSettings,
@@ -875,14 +923,14 @@ class ChatViewModelStartupTest {
         activeRuns.value = runs.value.filter { it.status == AgentRunStatus.RUNNING }.associate { it.runId to ActiveAgentRun(it.runId, 7, it.profileUid, it.assistantMessageId) }
     }
 
-    private fun createViewModel(chatId: Int = 7, combined: Boolean = true, research: ResearchSessionStore? = null, combinedSettings: ConversationCombinedSettings? = null, toolConnections: ToolConnectionRepository = mockk(relaxed = true), testFeatures: AppFeatureSettings? = null, reasoningCapabilities: dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityRepository? = null): ChatViewModel {
+    private fun createViewModel(chatId: Int = 7, combined: Boolean = true, research: ResearchSessionStore? = null, combinedSettings: ConversationCombinedSettings? = null, toolConnections: ToolConnectionRepository = mockk(relaxed = true), testFeatures: AppFeatureSettings? = null, reasoningCapabilities: dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityRepository? = null, roomAvailable: Boolean = true, profileLoad: CompletableDeferred<List<PlatformV2>>? = null): ChatViewModel {
         val room = ChatRoomV2(id = chatId, title = "Saved chat", enabledPlatform = profiles.map { it.uid }, activePlatform = profiles.map { it.uid }, conversationMode = if (combined) ConversationMode.COMBINED else ConversationMode.STANDARD, draftText = "Saved draft")
         every { repository.observeMessageWindow(chatId, any()) } returns messages
         every { repository.observeTurnCount(chatId) } returns flowOf(messages.value.count { it.platformType == null })
         every { repository.observeAgentRuns(chatId) } returns runs
         every { repository.observeProviderWaitDeadlines(chatId) } returns waitDeadlines
         every { repository.observeToolEvents(chatId) } returns flowOf(emptyList())
-        coEvery { repository.fetchChatListV2() } returns listOf(room)
+        coEvery { repository.fetchChatListV2() } returns if (roomAvailable) listOf(room) else emptyList()
         coEvery { repository.fetchArchivedChatListV2() } returns emptyList()
         coEvery { repository.fetchMessagesV2(chatId) } answers { messages.value }
         coEvery { repository.fetchChatPlatformModels(chatId) } returns profiles.associate { it.uid to it.model }
@@ -892,7 +940,7 @@ class ChatViewModelStartupTest {
         }
         val settings = mockk<SettingRepository>(relaxed = true)
         val currentFeatures = testFeatures ?: combinedSettings?.let { features.copy(conversationCombined = features.conversationCombined + (chatId to it)) } ?: features
-        coEvery { settings.fetchPlatformV2s() } returns profiles
+        coEvery { settings.fetchPlatformV2s() } coAnswers { profileLoad?.await() ?: profiles }
         coEvery { settings.getFeatureSettings() } returns currentFeatures
         coEvery { settings.ensureConversationIdentity(any()) } returns "conversation-7"
         every { settings.observeDebugMode() } returns flowOf(false)

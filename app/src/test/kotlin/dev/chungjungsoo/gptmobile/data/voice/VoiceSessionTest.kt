@@ -9,6 +9,7 @@ class VoiceSessionTest {
         val listeners = mutableListOf<VoiceAudio.Listener>()
         val spoken = mutableListOf<String>()
         var done: (() -> Unit)? = null
+        var audioError: ((String) -> Unit)? = null
         var stopped = 0
         var closed = false
         override var streamsReplies = false
@@ -18,6 +19,7 @@ class VoiceSessionTest {
             if (!streamsReplies) return null
             opened++
             done = complete
+            audioError = error
             return object : VoiceReplyPlayback {
                 override fun enqueue(text: String) {
                     spoken += text
@@ -34,6 +36,7 @@ class VoiceSessionTest {
         override fun speak(text: String, complete: () -> Unit, error: (String) -> Unit) {
             spoken += text
             done = complete
+            audioError = error
         }
         override fun stop() {
             stopped++
@@ -51,6 +54,64 @@ class VoiceSessionTest {
     private fun start() {
         session.access(true, true, true)
         session.resume()
+    }
+
+    @Test fun `admission checking and queuing preserve a turn until its accepted run replies`() {
+        val drafts = mutableListOf<String>()
+        val pending = VoiceSession(audio, { true }, { if (it.hasDraft) drafts += it.transcript }, awaitsAdmission = true)
+        pending.access(true, true, true)
+        pending.resume()
+        audio.listeners.last().final("Keep my exact words")
+        assertTrue(pending.state.hasDraft)
+        pending.admission(VoiceAdmissionStage.CHECKING)
+        pending.pause()
+        pending.resume()
+        assertEquals(VoicePhase.THINKING, pending.state.phase)
+        assertEquals(1, audio.listeners.size)
+        pending.admission(VoiceAdmissionStage.QUEUED)
+        assertTrue(pending.state.awaitingReply)
+        assertEquals(false, pending.state.hasDraft)
+        pending.admission(VoiceAdmissionStage.ACCEPTED)
+        pending.reply("accepted", "The final answer")
+        assertEquals("The final answer", pending.state.reply)
+        assertEquals(listOf("Keep my exact words"), drafts.distinct())
+    }
+
+    @Test fun `rejected admission keeps dictated text for an explicit retry`() {
+        val pending = VoiceSession(audio, { true }, {}, awaitsAdmission = true)
+        pending.access(true, true, true)
+        pending.resume()
+        audio.listeners.last().final("Retain this draft")
+        pending.admission(VoiceAdmissionStage.FAILED, "SELECTED_MODEL_NOT_LOADED")
+        assertEquals(VoicePhase.ERROR, pending.state.phase)
+        assertTrue(pending.state.hasDraft)
+        assertEquals(false, pending.state.awaitingReply)
+        pending.resume()
+        assertEquals(VoicePhase.REVIEWING, pending.state.phase)
+        assertEquals("Retain this draft", pending.state.transcript)
+    }
+
+    @Test fun `audio failure does not cut off final streamed captions or restart microphone`() {
+        audio.streamsReplies = true
+        start()
+        audio.listeners.last().final("Explain this")
+        session.streamReply("accepted", "This is the first clause, ")
+        val lateCompletion = requireNotNull(audio.done)
+        requireNotNull(audio.audioError)("Audio device disconnected")
+        assertTrue(session.state.awaitingReply)
+        lateCompletion()
+        session.streamReply("accepted", "This is the first clause, followed by more text.")
+        session.reply("accepted", "This is the first clause, followed by more text. Complete answer.")
+        assertEquals("This is the first clause, followed by more text. Complete answer.", session.state.reply)
+        assertEquals(false, session.state.awaitingReply)
+        assertEquals(1, audio.listeners.size)
+    }
+
+    @Test fun `permission denial exposes app permission repair`() {
+        session.permissionDenied()
+        assertEquals(VoiceRecoveryAction.MICROPHONE_PERMISSION, session.state.recoveryAction)
+        assertEquals(VoicePhase.ERROR, session.state.phase)
+        assertTrue(audio.listeners.isEmpty())
     }
 
     @Test fun `disabled permissionless or background sessions cannot listen`() {

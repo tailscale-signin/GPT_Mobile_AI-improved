@@ -58,6 +58,12 @@ class DurablePromptQueue @Inject constructor(
     private val preferences = context.getSharedPreferences("prompt_queue", Context.MODE_PRIVATE)
     private val wake = MutableStateFlow(0)
     val pending = dao.observePending()
+
+    /** The consumed row is the durable correlation between request and accepted turn. */
+    fun observeRequest(chatId: Int, requestId: String) = pending.map {
+        dao.forChat(chatId).singleOrNull { prompt -> runCatching { prompt.details().requestId == requestId }.getOrDefault(false) }
+    }.distinctUntilChanged()
+
     private val _gatewayStates = MutableStateFlow<Map<Int, GatewayQueuedChatState>>(emptyMap())
     val gatewayStates = _gatewayStates.asStateFlow()
     private val submittedRuns = mutableSetOf<String>()

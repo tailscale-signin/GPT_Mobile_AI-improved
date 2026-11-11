@@ -574,7 +574,8 @@ fun NavGraphBuilder.settingNavigation(
             dev.chungjungsoo.gptmobile.presentation.ui.setting.ProfileBenchmarkScreen(
                 onBack = { navController.navigateUp() },
                 onUsage = { navController.navigate(Route.USAGE_STATISTICS) },
-                onOpenAuditConnection = { uid -> navController.navigate(Route.AUDIT_CONNECTION_REPAIR.replace("{connectionUid}", android.net.Uri.encode(uid))) }
+                onOpenAuditConnection = { uid -> navController.navigate(Route.AUDIT_CONNECTION_REPAIR.replace("{connectionUid}", android.net.Uri.encode(uid))) },
+                onOpenAuditGatewayProfile = { uid -> navController.navigate(Route.PLATFORM_SETTINGS.replace("{platformUid}", android.net.Uri.encode(uid))) }
             )
         }
         composable(Route.DEBUG_DIAGNOSTICS + "?focus={focus}", arguments = listOf(navArgument("focus") { defaultValue = "" })) {
@@ -589,7 +590,8 @@ fun NavGraphBuilder.settingNavigation(
                 onBenchmarksClick = { navController.navigate(Route.PROFILE_BENCHMARKS.replace("{profileUid}", "")) },
                 initialFocus = it.arguments?.getString("focus").orEmpty(),
                 toolConnectionsViewModel = toolConnectionsViewModel,
-                onOpenAuditConnection = { uid -> navController.navigate(Route.AUDIT_CONNECTION_REPAIR.replace("{connectionUid}", android.net.Uri.encode(uid))) }
+                onOpenAuditConnection = { uid -> navController.navigate(Route.AUDIT_CONNECTION_REPAIR.replace("{connectionUid}", android.net.Uri.encode(uid))) },
+                onOpenAuditGatewayProfile = { uid -> navController.navigate(Route.PLATFORM_SETTINGS.replace("{platformUid}", android.net.Uri.encode(uid))) }
             )
         }
         composable(Route.AI_PLATFORMS) {

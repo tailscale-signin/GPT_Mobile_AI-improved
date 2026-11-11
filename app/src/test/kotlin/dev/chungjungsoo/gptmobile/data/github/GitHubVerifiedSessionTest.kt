@@ -560,9 +560,14 @@ class GitHubVerifiedSessionTest {
         val task = (1..(GitHubClaimBatches.REQUIREMENTS_PER_BATCH * GitHubClaimBatches.MAX_BATCHES + 1))
             .joinToString("\n") { "Requirement $it must remain covered" }
         var extractions = 0
+        val book = GitHubEvidenceBook("b", "o/r", "main", setOf("github_context"))
+        book.observe(
+            ProviderEvent.ToolCall("context", "github_context", Json.parseToJsonElement("""{"action":"resolve"}""").jsonObject),
+            AgentToolResult("context", ToolResultContent.Json(Json.parseToJsonElement("""{"data":{"repository":{"full_name":"o/r"}}}""").jsonObject), false)
+        )
         val gate = GitHubVerifiedSession(
             answer("Private draft"),
-            GitHubEvidenceBook("b", "o/r", "main", emptySet()),
+            book,
             task,
             { 8192 },
             {
@@ -576,7 +581,7 @@ class GitHubVerifiedSessionTest {
         val events = gate.streamRound(emptyList(), emptyList()).toList()
         assertEquals(0, extractions)
         val failure = events.last() as ProviderEvent.Failed
-        assertEquals("GITHUB_EXTRACTION_UNAVAILABLE", failure.errorCode)
+        assertEquals(failure.message, "GITHUB_EXTRACTION_UNAVAILABLE", failure.errorCode)
         assertEquals("PARTIAL", failure.taskOutcome)
     }
 

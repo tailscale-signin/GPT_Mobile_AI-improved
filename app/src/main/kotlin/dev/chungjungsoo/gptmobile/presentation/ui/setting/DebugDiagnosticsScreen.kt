@@ -64,7 +64,8 @@ fun DebugDiagnosticsScreen(
     modifier: Modifier = Modifier,
     initialFocus: String = "",
     toolConnectionsViewModel: ToolConnectionsViewModel = hiltViewModel(),
-    onOpenAuditConnection: ((String) -> Unit)? = null
+    onOpenAuditConnection: ((String) -> Unit)? = null,
+    onOpenAuditGatewayProfile: ((String) -> Unit)? = null
 ) {
     val toolHealth by toolConnectionsViewModel.uiState.collectAsStateWithLifecycle()
     val analytics by viewModel.analytics.collectAsStateWithLifecycle()
@@ -112,7 +113,7 @@ fun DebugDiagnosticsScreen(
                 }
             }
             if (workspaceTab == 1) UsageStatisticsScreen(onBack = onNavigationClick, embedded = true)
-            if (workspaceTab == 2) ProfileBenchmarkScreen(onBack = onNavigationClick, onUsage = { workspaceTab = 1 }, embedded = true, onOpenAuditConnection = onOpenAuditConnection)
+            if (workspaceTab == 2) ProfileBenchmarkScreen(onBack = onNavigationClick, onUsage = { workspaceTab = 1 }, embedded = true, onOpenAuditConnection = onOpenAuditConnection, onOpenAuditGatewayProfile = onOpenAuditGatewayProfile)
             if (workspaceTab == 0) {
                 LazyColumn(Modifier.fillMaxSize(), state = diagnosticsList, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     item { SettingsHero("Observatory", "Your AI, in focus", "${activeRequests.size} active requests · ${activeTools.size} tools · ${state.failedRuns} failed runs") }

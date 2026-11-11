@@ -81,6 +81,27 @@ class AppAuditContentTest {
 
     private fun batch(run: AppAuditRun, state: BenchmarkBatchState = BenchmarkBatchState.COMPLETED) = BenchmarkBatch(run.id, BenchmarkMode.APP_AUDIT, run.startedAtEpochMs, emptyList(), state = state, audit = run)
 
+    @Test fun gatewayRepairActionsCarryTheExactAuditEntryWithoutANameFallback() {
+        val entry = auditEntry("gateway", AppAuditEvidenceKind.LIVE_METADATA).copy(
+            sourceId = dev.chungjungsoo.gptmobile.data.audit.AppAuditPluginProbeSource.SOURCE_ID,
+            probeId = dev.chungjungsoo.gptmobile.data.audit.AppAuditPluginProbeSource.GATEWAY_CAPABILITIES,
+            targetId = "engineering_gateway:selected:saved-binding"
+        )
+        var settings: AppAuditPlanEntry? = null
+        var readiness: AppAuditPlanEntry? = null
+        show {
+            AppAuditEntryCard(
+                AppAuditEntryPresentation(entry, auditResult(entry, AppAuditOutcome.BLOCKED), false, false),
+                onOpenGatewaySettings = { settings = it },
+                onCheckGateway = { readiness = it }
+            )
+        }
+        compose.onNodeWithText("Open Gateway settings").scrollIntoView().performClick()
+        compose.onNodeWithText("Check readiness").scrollIntoView().performClick()
+        assertEquals(entry, settings)
+        assertEquals(entry, readiness)
+    }
+
     @Test fun auditNavigationIsAvailableWithoutDebugMode() {
         var selected = -1
         show { BenchmarkNavigation(0, debugMode = false) { selected = it } }
@@ -227,7 +248,7 @@ class AppAuditContentTest {
         val run = auditRun(listOf(entry), listOf(result))
         var names by mutableStateOf(mapOf("connection:accepted" to "Saved connection"))
         var opened: String? = null
-        show { AppAuditEntryCard(appAuditPresentation(run, names).components.single().entries.single()) { opened = it } }
+        show { AppAuditEntryCard(appAuditPresentation(run, names).components.single().entries.single(), onOpenConnection = { opened = it }) }
         compose.onNodeWithText("This is a retained observation.", substring = true).assertExists()
         compose.onNodeWithText("Open connection settings and checks").scrollIntoView().performClick()
         assertEquals("accepted", opened)
@@ -256,7 +277,7 @@ class AppAuditContentTest {
         val entry = auditEntry("credential", AppAuditEvidenceKind.LIVE_METADATA).copy(targetId = "connection:exact")
         val result = auditResult(entry, AppAuditOutcome.FAIL, AppAuditObservationSource.NONE, attempted = false, reason = "MCP_LOCAL_CREDENTIAL_INVALID")
         var opened: String? = null
-        show { AppAuditEntryCard(appAuditPresentation(auditRun(listOf(entry), listOf(result)), mapOf("connection:exact" to "Saved target")).components.single().entries.single()) { opened = it } }
+        show { AppAuditEntryCard(appAuditPresentation(auditRun(listOf(entry), listOf(result)), mapOf("connection:exact" to "Saved target")).components.single().entries.single(), onOpenConnection = { opened = it }) }
         assertEquals(null, opened)
         compose.onNodeWithText("This local rejection did not send an MCP request.", substring = true).assertExists()
         compose.onNodeWithText("Repair credentials and reconnect").scrollIntoView().performClick()

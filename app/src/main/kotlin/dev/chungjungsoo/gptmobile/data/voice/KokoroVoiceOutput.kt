@@ -114,7 +114,9 @@ internal class KokoroVoiceOutput(
         synthesis.execute {
             if (warmupRequest != key) return@execute
             try {
-                loadModel(key)
+                VoiceNativeEngineGate.exclusive {
+                    if (!closed && warmupRequest == key) loadModel(key)
+                }
             } catch (_: Exception) {
                 main.post { if (warmupGeneration == generation) warmupRequest = null }
             } catch (_: LinkageError) {
@@ -335,10 +337,16 @@ internal class KokoroVoiceOutput(
         }
     }
 
-    private fun loadModel(key: ModelKey): LoadedModel {
+    private fun loadModel(key: ModelKey): LoadedModel = VoiceNativeEngineGate.exclusive { loadModelExclusive(key) }
+
+    private fun loadModelExclusive(key: ModelKey): LoadedModel {
+        check(!closed)
         loaded?.takeIf { it.key == key }?.let { return it }
         releaseModel()
         check(models.acquireUse())
+        val engineId = java.util.UUID.randomUUID().toString()
+        val started = SystemClock.elapsedRealtime()
+        AppLogRecorder.record("VoiceEngine", "kokoro_start · engineId=$engineId · threads=${key.threads}")
         try {
             val directory = models.modelDirectory()
             val lexicon = File(directory, key.lexicon)
@@ -357,8 +365,10 @@ internal class KokoroVoiceOutput(
                     maxNumSentences = 1
                 )
             )
+            AppLogRecorder.record("VoiceEngine", "kokoro_ready · engineId=$engineId · threads=${key.threads} · durationMs=${SystemClock.elapsedRealtime() - started}")
             return LoadedModel(key, engine, words).also { loaded = it }
         } finally {
+            if (loaded == null) AppLogRecorder.record("VoiceEngine", "kokoro_failure · engineId=$engineId · durationMs=${SystemClock.elapsedRealtime() - started}", "W")
             if (loaded == null) models.releaseUse()
         }
     }
@@ -426,6 +436,8 @@ internal class KokoroVoiceOutput(
     }
 
     override fun stop() {
+        warmupGeneration++
+        warmupRequest = null
         active?.let { end(it, "interrupted") }
     }
 

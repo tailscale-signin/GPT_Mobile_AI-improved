@@ -74,12 +74,12 @@ fun GatewayEngineeringPanel(chatId: Int, context: GitHubConversationContext, pro
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.testTag("github_full_batch_progress")
-                            )4756
+                            )
                             progress.currentState?.let {
                                 Text(
                                     it.replace('_', ' '),
                                     style = MaterialTheme.typography.bodySmall
-                                )5019
+                                )
                             }
                         }
                         if (binding.profileUid != context.mainProfileUid || profile?.uid != binding.profileUid || profile?.enabled != true) {

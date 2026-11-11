@@ -48,11 +48,7 @@ jobs:
 
       - name: Install Vulkan shader headers for Android GGUF backend
         timeout-minutes: 8
-        run: |
-          trap 'echo "::error::Android native dependency installation failed or timed out. Retry after checking the Ubuntu package mirror and dpkg lock."' ERR
-          apt_options=(-o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o DPkg::Lock::Timeout=60)
-          sudo timeout --kill-after=15s 180s apt-get "${apt_options[@]}" update
-          sudo env DEBIAN_FRONTEND=noninteractive timeout --kill-after=15s 180s apt-get "${apt_options[@]}" install --no-install-recommends -y glslc libvulkan-dev spirv-headers
+        run: bash scripts/install_android_native_dependencies.sh
 
       - name: Grant execute permission for gradlew
         run: chmod +x ./gradlew
@@ -286,11 +282,7 @@ jobs:
 
       - name: Install Vulkan shader headers for Android GGUF backend
         timeout-minutes: 8
-        run: |
-          trap 'echo "::error::Android native dependency installation failed or timed out. Retry after checking the Ubuntu package mirror and dpkg lock."' ERR
-          apt_options=(-o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o DPkg::Lock::Timeout=60)
-          sudo timeout --kill-after=15s 180s apt-get "${apt_options[@]}" update
-          sudo env DEBIAN_FRONTEND=noninteractive timeout --kill-after=15s 180s apt-get "${apt_options[@]}" install --no-install-recommends -y glslc libvulkan-dev spirv-headers
+        run: bash scripts/install_android_native_dependencies.sh
 
       # Release KSP/KAPT before cold compilation, and compilation before lint.
       # Only compilation needs the observed 4 GiB bound; lint keeps its defaults.

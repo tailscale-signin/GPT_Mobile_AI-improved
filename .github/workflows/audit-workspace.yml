@@ -79,12 +79,7 @@ jobs:
         run: python3 scripts/provision_memory_model.py
       - name: Install Vulkan shader headers for Android GGUF backend
         timeout-minutes: 8
-        run: |
-          trap 'echo "::error::Android native dependency installation failed or timed out. Retry after checking the Ubuntu package mirror and dpkg lock."' ERR
-          apt_options=(-o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o DPkg::Lock::Timeout=60)
-          sudo timeout --kill-after=15s 180s apt-get "${apt_options[@]}" update
-          # A slow mirror fallback can consume most of the download window.
-          sudo env DEBIAN_FRONTEND=noninteractive timeout --kill-after=15s 240s apt-get "${apt_options[@]}" install --no-install-recommends -y glslc libvulkan-dev spirv-headers
+        run: bash scripts/install_android_native_dependencies.sh
       - name: Provision verified Robolectric runtimes
         timeout-minutes: 10
         run: python3 scripts/provision_robolectric_sdks.py

@@ -23,6 +23,8 @@ class GatewayFullBatchContractTest {
         assertTrue(result.supportsFullBatch)
         val disabled = result.copy(executionBatch = result.executionBatch!!.copy(modes = listOf("standard", "smart")))
         assertFalse(disabled.supportsFullBatch)
+        val inconsistent = result.copy(executionBatch = result.executionBatch.copy(fullEnabled = false))
+        assertFalse(inconsistent.supportsFullBatch)
     }
 
     @Test fun exactModeRoundTripsWithRequestAndSavedJob() {

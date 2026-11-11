@@ -75,6 +75,18 @@ class IntegrationBatchTest(unittest.TestCase):
         self.assertEqual('needs_attention', summary(job['data']['integration_batch'])['status'])
         self.assertEqual('blocked', job['data']['integration_batch']['nodes'][-1]['state'])
 
+    def test_terminal_projection_can_be_reclassified_before_commit(self):
+        job = {'id': 'job', 'principal': 'local', 'request': {'request_id': 'id',
+               'execution_mode': 'full', 'repository': 'a/b', 'branch': 'one', 'base': 'main'},
+               'state': 'PLAN', 'revision': 0, 'data': {}}
+        job['data']['integration_batch'] = new_plan(job)
+        transition(job, 'COMPLETED', {})
+        self.assertEqual('completed', summary(job['data']['integration_batch'])['status'])
+        transition(job, 'NEEDS_INPUT', {'error_code': 'PENDING_INSTRUCTIONS'})
+        projection = summary(job['data']['integration_batch'])
+        self.assertEqual('needs_attention', projection['status'])
+        self.assertEqual('blocked', projection['current_state'])
+
 
 if __name__ == '__main__':
     unittest.main()

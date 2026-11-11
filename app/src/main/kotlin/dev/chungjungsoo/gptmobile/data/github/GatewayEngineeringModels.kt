@@ -31,7 +31,9 @@ data class GatewayEngineeringCapabilities(
     @SerialName("execution_budget_limits") val executionBudgetLimits: GatewayEngineeringBudget? = null,
     @SerialName("execution_batch") val executionBatch: GatewayIntegrationBatchCapability? = null
 ) {
-    val supportsFullBatch: Boolean get() = executionBatch?.protocolVersion == 1 && "full" in executionBatch.modes
+    val supportsFullBatch: Boolean get() = executionBatch?.let {
+        it.protocolVersion == 1 && it.fullEnabled && "full" in it.modes
+    } == true
     val supportsDurableChat: Boolean get() = taskScopeProtocol == 1 && taskScopes.containsAll(listOf("read", "plan", "implement")) && conversationSync && durableDetach
 
     /** A valid capability HTTP response is not evidence that a dependent job was admitted. */
@@ -93,7 +95,7 @@ data class GatewayIntegrationBatchProgress(
     @SerialName("current_state") val currentState: String? = null,
     val status: String? = null
 ) {
-    val readableLabel: String get() = "Full Batch · $completed stage(s) verified · ${currentPhase ?: "planning"}"
+    val readableLabel: String get() = "Full Batch · $completed of $total stages complete · ${currentPhase ?: "planning"}"
 }
 
 @Serializable

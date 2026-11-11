@@ -50,6 +50,12 @@ class GovernorTests(unittest.TestCase):
             with governor.lease('readonly'):
                 pass
 
+    def test_non_mapping_response_headers_do_not_break_observation(self):
+        governor = GitHubApiGovernor()
+        governor.observe('account', 200, object())
+        with governor.lease('account'):
+            pass
+
 
 if __name__ == '__main__':
     unittest.main()

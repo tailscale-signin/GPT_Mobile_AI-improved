@@ -366,8 +366,14 @@ class EngineeringStore:
                 phase = 'NEEDS_INPUT'
                 job['message'] = 'The run finished while new instructions were queued. Review the saved result and start a new turn for those instructions.'
                 job.pop('finished_at', None)
+                # The terminal projection was prepared before opening this
+                # transaction. Reclassify it with the effective committed
+                # phase so the UI cannot claim Full Batch completion while the
+                # durable job is actually waiting for a user continuation.
+                batch_transition(job, phase, dict(output, error_code='PENDING_INSTRUCTIONS'))
                 checkpoint.update(message=job['message'])
                 checkpoint.pop('finished_at', None)
+                checkpoint['data'] = artifacts.checkpoint(job, job['data'], 'checkpoint')
                 payload, _ = canonical_json(checkpoint, maximum_bytes=4 * 1024 * 1024)
             # Keep every meaningful update, without thousands of identical CI
             # polls filling Android history during a multi-day job.

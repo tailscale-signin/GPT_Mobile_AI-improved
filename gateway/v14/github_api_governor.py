@@ -80,7 +80,14 @@ class GitHubApiGovernor:
         return None
 
     def observe(self, token, status, headers, *, mutating=False):
-        headers = {str(key).lower(): value for key, value in (headers or {}).items()}
+        # Response test doubles and adapter-specific responses may not expose a
+        # mapping. Treat absent metadata as an ordinary response instead of
+        # breaking the request path after a successful HTTP exchange.
+        items = headers.items() if callable(getattr(headers, 'items', None)) else ()
+        try:
+            headers = {str(key).lower(): value for key, value in items}
+        except TypeError:
+            headers = {}
         limited = status == 429 or status == 403 and (
             'retry-after' in headers or headers.get('x-ratelimit-remaining') == '0')
         if not limited:

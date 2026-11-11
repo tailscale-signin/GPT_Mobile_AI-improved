@@ -5,8 +5,13 @@ Full Android builds retain their documented ObjectBox plugin cache restriction.
 """
 from pathlib import Path
 import subprocess
+import sys
 
-command = ["./gradlew", ":app:prepareMemoryModel", ":core-domain:jvmTest", "--configuration-cache", "--configuration-cache-problems=fail", "--console=plain", "--no-daemon"]
+command = [
+    sys.executable, str(Path(__file__).with_name("gradle_retry.py")), "--",
+    ":app:prepareMemoryModel", ":core-domain:jvmTest", "--configuration-cache",
+    "--configuration-cache-problems=fail", "--console=plain", "--no-daemon", "--info",
+]
 destination = Path("build/reports/configuration-cache-verification")
 destination.mkdir(parents=True, exist_ok=True)
 for attempt in (1, 2):

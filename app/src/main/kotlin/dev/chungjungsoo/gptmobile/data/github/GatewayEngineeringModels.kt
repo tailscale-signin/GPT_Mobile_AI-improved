@@ -28,8 +28,10 @@ data class GatewayEngineeringCapabilities(
     @SerialName("durable_detach_v1") val durableDetach: Boolean = false,
     @SerialName("repository_operations") val repositoryOperations: GatewayRepositoryCapability? = null,
     @SerialName("duration_hours") val durationHours: List<Int> = listOf(3, 6, 12, 0),
-    @SerialName("execution_budget_limits") val executionBudgetLimits: GatewayEngineeringBudget? = null
+    @SerialName("execution_budget_limits") val executionBudgetLimits: GatewayEngineeringBudget? = null,
+    @SerialName("execution_batch") val executionBatch: GatewayIntegrationBatchCapability? = null
 ) {
+    val supportsFullBatch: Boolean get() = executionBatch?.protocolVersion == 1 && "full" in executionBatch.modes
     val supportsDurableChat: Boolean get() = taskScopeProtocol == 1 && taskScopes.containsAll(listOf("read", "plan", "implement")) && conversationSync && durableDetach
 
     /** A valid capability HTTP response is not evidence that a dependent job was admitted. */
@@ -69,6 +71,29 @@ data class GatewayEngineeringCapabilities(
             else -> "The gateway engineering service is disabled or unavailable. Chat inference readiness does not establish job readiness."
         }
     }
+}
+
+@Serializable
+data class GatewayIntegrationBatchCapability(
+    @SerialName("protocol_version") val protocolVersion: Int = 0,
+    val modes: List<String> = emptyList(),
+    @SerialName("default_mode") val defaultMode: String = "standard",
+    @SerialName("full_enabled") val fullEnabled: Boolean = false,
+    @SerialName("github_api_max_inflight") val githubApiMaxInflight: Int = 1
+)
+
+@Serializable
+data class GatewayIntegrationBatchProgress(
+    @SerialName("schema_version") val schemaVersion: Int = 0,
+    val mode: String = "",
+    val revision: Int = 0,
+    val completed: Int = 0,
+    val total: Int = 0,
+    @SerialName("current_phase") val currentPhase: String? = null,
+    @SerialName("current_state") val currentState: String? = null,
+    val status: String? = null
+) {
+    val readableLabel: String get() = "Full Batch · $completed stage(s) verified · ${currentPhase ?: "planning"}"
 }
 
 @Serializable
@@ -160,7 +185,9 @@ data class GatewayEngineeringRequest(
     @SerialName("source_sha") val sourceSha: String? = null,
     @SerialName("execution_budget") val executionBudget: GatewayEngineeringBudget? = null,
     @SerialName("draft_repair") val draftRepair: GitHubDraftRepair? = null,
-    @SerialName("sampling_policy") val samplingPolicy: GitHubSamplingSettings? = null
+    @SerialName("sampling_policy") val samplingPolicy: GitHubSamplingSettings? = null,
+    @SerialName("execution_mode") val executionMode: String? = null,
+    @SerialName("batch_policy_version") val batchPolicyVersion: Int? = null
 )
 
 @Serializable
@@ -215,7 +242,9 @@ data class GatewayEngineeringJob(
     @SerialName("execution_budget") val executionBudget: GatewayEngineeringBudget? = null,
     val acceptance: List<GatewayEngineeringAcceptance> = emptyList(),
     val admission: JsonObject? = null,
-    @SerialName("provider_retry_at") val providerRetryAt: Double? = null
+    @SerialName("provider_retry_at") val providerRetryAt: Double? = null,
+    @SerialName("execution_mode") val executionMode: String? = null,
+    @SerialName("batch_progress") val batchProgress: GatewayIntegrationBatchProgress? = null
 ) {
     val ownershipLabel: String get() = if (detachSafe && acceptedAt != null && id.isNotBlank()) {
         when {

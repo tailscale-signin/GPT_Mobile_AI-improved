@@ -20,6 +20,8 @@ data class GitHubChatProfileOverride(
     val workflowPreset: String = "heavy_work",
     val quickWorkflows: List<GitHubQuickWorkflow> = GitHubQuickWorkflow.defaults,
     val engineeringGatewayProfileUid: String? = null,
+    // Independent of creativity/effort and only accepted by a capable Windows host.
+    val executionBatchMode: String = "standard",
     val sampling: GitHubSamplingSettings = GitHubSamplingSettings()
 )
 

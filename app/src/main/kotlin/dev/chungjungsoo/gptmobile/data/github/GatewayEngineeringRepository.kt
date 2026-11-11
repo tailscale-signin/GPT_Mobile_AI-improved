@@ -189,6 +189,11 @@ class GatewayEngineeringRepository @Inject constructor(
         val capability = client.capabilities(gateway.engineeringConfig())
         if (runId != null) check(capability.supportsDurableChat) { "This gateway does not support durable chat admission. Update it before sending this saved turn." }
         capability.requireJobReadiness()
+        val batchMode = if (savedBinding != null) savedBinding.request.executionMode ?: "standard" else preferences.executionBatchMode
+        check(batchMode in setOf("standard", "smart", "full")) { "Choose a supported Gateway execution mode." }
+        check(batchMode == "standard" || capability.executionBatch?.let {
+            it.protocolVersion == 1 && batchMode in it.modes
+        } == true) { "This Windows Gateway has not enabled $batchMode batching. Choose Standard or configure the execution mode on the host." }
         check(capability.samplingPolicyProtocol == 1) { "Update the desktop Gateway to support per-stage creativity before starting a new saved job. Existing saved jobs remain resumable." }
         val budgetSelection = options.resolveBudget(capability, preferences.engineeringMode, objective, featuresAtAdmission.tokenBudget.totalRunTokens)
         val principal = requireNotNull(capability.principalId)
@@ -219,7 +224,9 @@ class GatewayEngineeringRepository @Inject constructor(
                 memoryMode = preferences.engineeringMemory, executionBindingId = admission.bindingId, taskScope = taskScope,
                 clientConversationId = if (capability.supportsDurableChat) conversations.clientConversationId(chatId) else null, conversationId = remote?.conversationId,
                 expectedRevision = remote?.revision?.takeIf { it >= 0 }, sourceBranch = sourceBranch, sourceSha = sourceSha,
-                executionBudget = budgetSelection.effectiveBudget, draftRepair = draftRepair, samplingPolicy = preferences.sampling
+                executionBudget = budgetSelection.effectiveBudget, draftRepair = draftRepair, samplingPolicy = preferences.sampling,
+                executionMode = batchMode.takeUnless { it == "standard" },
+                batchPolicyVersion = 1.takeIf { batchMode == "full" }
             ).let { request ->
                 if (capability.admissionPreflightProtocol == 1) {
                     val preflight = client.preflight(identity?.let { frozenConfig.withGatewayIdentity(it) } ?: frozenConfig, request)

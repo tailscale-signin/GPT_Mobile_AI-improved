@@ -26,6 +26,7 @@ internal class GitHubOutputContinuationSession(
     private val maxCharacters: Int = 1_048_576,
     private val continuationRevision: String = "",
     private val recoveryRevision: String = "",
+    private val expectedProviderCheckpoint: dev.chungjungsoo.gptmobile.data.network.GitHubProviderCheckpoint? = null,
     private val checkpointContext: JsonObject = JsonObject(emptyMap()),
     private val awaitConnectivity: suspend (Long) -> Boolean = { true },
     private val reconciledCallIds: suspend () -> Set<String> = { emptySet() },
@@ -36,6 +37,7 @@ internal class GitHubOutputContinuationSession(
     private val reopen: suspend (String, List<AgentToolExchange>, List<AgentToolDefinition>) -> AgentProviderSession
 ) : AgentProviderSession by delegate {
     private var currentCheckpoint: JsonObject? = null
+    private var providerCheckpointValidated = false
     private val checkpointMutex = Mutex()
 
     /** The runner calls this only after both its execution receipt and evidence observer are saved. */
@@ -84,8 +86,31 @@ internal class GitHubOutputContinuationSession(
                 exchange.calls.joinToString { "${it.callId}:${it.name}:${it.arguments}" } + "\n" + exchange.results.joinToString { "${it.callId}:${it.isError}:${it.dispatched}:${it.content}" }
             }
         )
+        val providerEvidenceDigest by lazy {
+            val receipts = exchanges.flatMap { exchange ->
+                exchange.calls.mapNotNull { call ->
+                    val result = exchange.results.firstOrNull { it.callId == call.callId } ?: return@mapNotNull null
+                    ToolHandoffReceipt.from(call, result, originalAvailable = false)
+                }
+            }.sortedBy { it.invocationFingerprint }
+            GitHubEvidenceBook.digest(JsonArray(receipts.map { receipt ->
+                buildJsonObject {
+                    put("invocation", receipt.invocationFingerprint)
+                    put("result", receipt.sourceResultSha256 ?: receipt.projectionSha256)
+                    put("dispatched", receipt.dispatched)
+                    put("requires_reconciliation", receipt.requiresReconciliation)
+                    receipt.errorCode?.let { put("error", it) }
+                }
+            }).toString())
+        }
         val previous = checkpointMutex.withLock {
             val saved = readCheckpoint() ?: currentCheckpoint
+            if (!providerCheckpointValidated && expectedProviderCheckpoint != null) {
+                check(saved != null && expectedProviderCheckpoint.matches(saved) && saved["provider_evidence_digest"] == JsonPrimitive(providerEvidenceDigest)) {
+                    "PROVIDER_WAIT_CHECKPOINT_CHANGED"
+                }
+                providerCheckpointValidated = true
+            }
             if (saved == null || saved["state"] !in GitHubToolHandoff.states) {
                 saved
             } else {
@@ -102,7 +127,11 @@ internal class GitHubOutputContinuationSession(
             }
         }
         val reconciled = reconciledCallIds()
-        val sameEvidence = previous?.get("evidence_digest") == JsonPrimitive(evidenceDigest)
+        val sameEvidence = if (previous?.get("state") == JsonPrimitive("WAITING_PROVIDER_LIMIT")) {
+            previous["provider_evidence_digest"] == JsonPrimitive(providerEvidenceDigest)
+        } else {
+            previous?.get("evidence_digest") == JsonPrimitive(evidenceDigest)
+        }
         val revised = previous != null && (previous["continuation_revision"] ?: JsonPrimitive("")) != JsonPrimitive(continuationRevision)
         if (sameEvidence && previous?.get("state") == JsonPrimitive("BLOCKED_NO_PROGRESS") && !revised) {
             emit(ProviderEvent.Failed("OUTPUT_CONTINUATION_NO_PROGRESS: The saved draft is blocked because its unchanged continuation added no new work. Change the request or supported output configuration before resuming.", errorCode = "OUTPUT_CONTINUATION_NO_PROGRESS", taskOutcome = "BLOCKED"))
@@ -173,10 +202,11 @@ internal class GitHubOutputContinuationSession(
         val settledCallIds = (previous?.get("reconciled_call_ids") as? JsonArray).orEmpty()
             .mapNotNullTo(linkedSetOf()) { (it as? JsonPrimitive)?.contentOrNull } + reconciled
 
-        suspend fun save(state: String, text: String = draft, resumable: Boolean = state == "OUTPUT_LIMIT", pendingCalls: List<ProviderEvent.ToolCall> = emptyList(), failure: ProviderEvent.Failed? = null) {
+        suspend fun save(state: String, text: String = draft, resumable: Boolean = state == "OUTPUT_LIMIT", pendingCalls: List<ProviderEvent.ToolCall> = emptyList(), failure: ProviderEvent.Failed? = null): JsonObject {
             val checkpoint = buildJsonObject {
                 put("schema", "github.output-checkpoint.v1")
                 put("evidence_digest", evidenceDigest)
+                if (state == "WAITING_PROVIDER_LIMIT") put("provider_evidence_digest", providerEvidenceDigest)
                 put("state", state)
                 put("draft", text)
                 put("continuations", attempts)
@@ -203,6 +233,7 @@ internal class GitHubOutputContinuationSession(
             }
             saveCheckpoint(checkpoint)
             currentCheckpoint = checkpoint
+            return checkpoint
         }
 
         if (pendingApproval || unresolvedOutcome) {
@@ -366,6 +397,18 @@ internal class GitHubOutputContinuationSession(
                     failure?.errorCode?.startsWith("TOOL_PROTOCOL_") != true &&
                     failure?.errorCode !in ToolResultEnvelope.unknownOutcomeCodes &&
                     !GatewayOutcomeRecovery.requiresReconciliation(failure?.message.orEmpty(), failure?.errorCode)
+                val limit = failure?.providerLimit
+                val binding = (checkpointContext["task_binding"] as? JsonPrimitive)?.contentOrNull
+                if (limit != null && (limit.knownNotAccepted || limit.checkpointContinuationAllowed) && mayResumeText &&
+                    binding?.matches(Regex("[a-f0-9]{64}")) == true
+                ) {
+                    if (interruptedContinuation) interruptionAttempts--
+                    if (claimContinuation && limit.knownNotAccepted) attempts--
+                    val saved = save("WAITING_PROVIDER_LIMIT", resumable = true, failure = failure)
+                    val checkpoint = dev.chungjungsoo.gptmobile.data.network.GitHubProviderCheckpoint(binding, GitHubEvidenceBook.digest(saved.toString()))
+                    emit(requireNotNull(failure).copy(providerLimit = limit.copy(gitHubCheckpoint = checkpoint)))
+                    return@flow
+                }
                 if (!limited) claimContinuation = false
                 save(if (limited && safeBoundary) "OUTPUT_LIMIT" else "INTERRUPTED", resumable = mayResumeText, failure = failure)
                 // Incomplete frames stay with the runner's protocol repair; no buffered call is dispatched.

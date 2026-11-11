@@ -56,7 +56,7 @@ interface AgentPersistenceDao :
     @Transaction
     suspend fun deferRunningProvider(row: dev.chungjungsoo.gptmobile.data.agent.ProviderWait): Boolean {
         val saved = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromString<dev.chungjungsoo.gptmobile.data.agent.ProviderWaitCheckpoint>(row.checkpoint)
-        require(saved.version == 2 && saved.decision?.knownNotAccepted == true && saved.decision.scope == row.scope && saved.decision.retryAt == row.retryAt)
+        require(saved.version == 2 && saved.decision?.mayWait == true && saved.decision.scope == row.scope && saved.decision.retryAt == row.retryAt)
         if (saved.mode == dev.chungjungsoo.gptmobile.data.agent.ProviderWaitMode.TEXT_CONTINUATION) {
             val prior = recoveryRun(row.runId) ?: return false
             val message = recoveryMessage(prior.assistantMessageId) ?: return false
@@ -152,6 +152,11 @@ interface AgentPersistenceDao :
 
     @Query("UPDATE agent_runs SET status = 'INTERRUPTED', terminal_error = :reason WHERE run_id = :runId AND (status = 'WAITING_PROVIDER_LIMIT' OR (status = 'QUEUED' AND started_at IS NULL))")
     suspend fun blockProviderWait(runId: String, reason: String): Int
+
+    @Transaction
+    suspend fun blockCurrentProviderWait(row: dev.chungjungsoo.gptmobile.data.agent.ProviderWait, reason: String) {
+        if (rawProviderWait(row.runId) == row) blockProviderWait(row.runId, reason)
+    }
 
     @Update
     suspend fun updateChatRoom(chatRoom: ChatRoomV2)

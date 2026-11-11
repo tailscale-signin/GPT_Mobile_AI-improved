@@ -13,14 +13,15 @@ internal class RouteCapabilityCache<T>(private val now: () -> Long, private val 
     private var epoch = 0L
 
     suspend fun getOrLoad(key: String, forceRefresh: Boolean = false, load: suspend () -> T?): T? {
-        val refresh = synchronized(lock) {
-            if (!forceRefresh) entries[key]?.takeIf { it.expires > now() }?.let { return it.value }
-            refreshes.getOrPut(key) { Refresh() }.also { it.subscribers++ }
+        val (refresh, previous) = synchronized(lock) {
+            val cached = entries[key]
+            if (!forceRefresh && cached != null && cached.expires > now()) return cached.value
+            refreshes.getOrPut(key) { Refresh() }.also { it.subscribers++ } to cached
         }
         return try {
             refresh.mutex.withLock {
                 val generation = synchronized(lock) {
-                    if (!forceRefresh) entries[key]?.takeIf { it.expires > now() }?.let { return@withLock it.value }
+                    entries[key]?.takeIf { it.expires > now() && (!forceRefresh || it !== previous) }?.let { return@withLock it.value }
                     epoch
                 }
                 val result = load()

@@ -52,6 +52,36 @@ class GitHubOutputContinuationSessionTest {
         assertEquals(JsonPrimitive("COMPLETED"), checkpoint?.get("state"))
     }
 
+    @Test fun providerCooldownRestoresTheSameToolBoundaryWithNoVisibleDraft() = runBlocking {
+        val binding = "a".repeat(64)
+        val context = JsonObject(mapOf("task_binding" to JsonPrimitive(binding)))
+        val calls = listOf("context", "search").map { id -> ProviderEvent.ToolCall(id, tool.name, JsonObject(emptyMap())) }
+        val results = calls.map { AgentToolResult(it.callId, ToolResultContent.Text("Saved ${it.callId}"), false) }
+        val receipts = listOf(AgentToolExchange(calls, results))
+        val restored = calls.zip(results).map { (call, result) -> AgentToolExchange(listOf(call), listOf(result)) }
+        val limit = dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision("OPENROUTER", "profile", "model", 30_000, "scope", "PROVIDER_RATE_LIMITED", true)
+        val rateLimited = ProviderEvent.Failed("Provider limit", errorCode = "429", providerLimit = limit)
+        var checkpoint: JsonObject? = null
+        val rejected = GitHubOutputContinuationSession(
+            session(rateLimited), recoveryRevision = "same-run", checkpointContext = context,
+            saveCheckpoint = { checkpoint = it }
+        ) { _, _, _ -> error("A durable wait owns this retry") }
+            .streamRound(listOf(tool), receipts).toList().filterIsInstance<ProviderEvent.Failed>().single()
+        val saved = requireNotNull(rejected.providerLimit?.gitHubCheckpoint)
+        assertEquals(JsonPrimitive("WAITING_PROVIDER_LIMIT"), checkpoint?.get("state"))
+        assertTrue(saved.matches(requireNotNull(checkpoint)))
+        val output = GitHubOutputContinuationSession(
+            session(), recoveryRevision = "same-run", expectedProviderCheckpoint = saved, checkpointContext = context,
+            readCheckpoint = { checkpoint }, saveCheckpoint = { checkpoint = it }
+        ) { draft, exchanges, _ ->
+            assertEquals("", draft)
+            assertEquals(restored, exchanges)
+            session(ProviderEvent.TextDelta("Finished from saved results."), ProviderEvent.Completed)
+        }.streamRound(listOf(tool), restored).toList()
+        assertTrue(output.none { it is ProviderEvent.ToolCall })
+        assertEquals("Finished from saved results.", output.filterIsInstance<ProviderEvent.TextDelta>().single().text)
+    }
+
     @Test fun continuationCanRequestRemainingWorkWithoutDispatchingItInsideTheWrapper() = runBlocking {
         val call = ProviderEvent.ToolCall("next", tool.name, JsonObject(emptyMap()))
         val output = GitHubOutputContinuationSession(session(ProviderEvent.TextDelta("Plan"), limited)) { _, _, _ ->

@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 import asyncio
 
 from v14.actions import canonical_json
-from v14.batch import digest, retry_delay
+from v14.batch import digest, provider_rate_limit_delay, retry_delay
 from v14.evidence import EvidenceLedger, completion_gate
 from v14.engineering_memory import EngineeringMemory
 from v14.execution_binding import ExecutionBindings, ExecutionBindingError, fingerprint
@@ -309,14 +309,15 @@ class EngineeringStore:
         self.tx(recover)
 
     def wake_checks(self, principal):
-        self.tx(lambda db: db.execute('UPDATE engineering_jobs SET next_at=? WHERE principal=? AND state=? AND lease IS NULL', (self.now(), principal, 'CI')))
+        self.tx(lambda db: db.execute("UPDATE engineering_jobs SET next_at=? WHERE principal=? AND state=? AND lease IS NULL "
+                                      "AND json_extract(data, '$.provider_wait') IS NULL", (self.now(), principal, 'CI')))
 
     def claim(self, job_id):
         lease = uuid.uuid4().hex
         def claim(db):
-            row = db.execute('SELECT data,state,revision FROM engineering_jobs WHERE id=? AND lease IS NULL', (job_id,)).fetchone()
+            row = db.execute('SELECT data,state,revision,next_at FROM engineering_jobs WHERE id=? AND lease IS NULL', (job_id,)).fetchone()
             job = self.decode(row)
-            if not job or job['state'] in PAUSED:
+            if not job or job['state'] in PAUSED or job.get('provider_wait') and row[3] > self.now():
                 return None
             job['started_at'] = job.get('started_at') or self.now()
             self.conversations.consume_instructions(db, job)
@@ -437,6 +438,7 @@ class EngineeringStore:
                     return job
                 raise ValueError('Cancellation is still pending')
             job['updated_at'] = self.now()
+            job.pop('provider_wait', None)
             if action == 'approve':
                 if job['state'] != 'MERGE_READY':
                     raise ValueError('The job is not merge-ready')
@@ -739,6 +741,7 @@ class EngineeringService:
 
     def _tick_claimed(self, job, lease, recovering):
         phase, output, delay = job['state'], {}, 0
+        previous_wait = job.pop('provider_wait', None) or {}
         try:
             self.artifacts.restore_stage(job)
             limit = EngineeringSupervisor.limit(job, self.store.now()) if self.authorized(job) else 'Gateway engineering permission was revoked'
@@ -853,12 +856,16 @@ class EngineeringService:
             output = {'error_type': type(error).__name__}
             if isinstance(error, ExecutionBindingError):
                 output.update(error_code=error.code, dispatched=getattr(error, 'dispatched', False))
-            http_status = getattr(getattr(error, 'response', None), 'status_code', None)
+            response = getattr(error, 'response', None)
+            http_status = getattr(response, 'status_code', None)
             http_status = http_status if type(http_status) is int else None
-            recovery_delay = retry_delay(error, 0)
+            rate_limited = http_status == 429
+            host_interrupted = isinstance(error, InterruptedError) and (self.stop.is_set() or getattr(self.store.runtime, 'gateway_draining', False))
+            recovery_delay = None if rate_limited else retry_delay(error, 0)
             transient = recovery_delay is not None
-            job['connection_retries'] = job.get('connection_retries', 0) + 1 if transient else 0
-            if not transient:
+            if not host_interrupted:
+                job['connection_retries'] = job.get('connection_retries', 0) + 1 if transient else 0
+            if not transient and not rate_limited and not host_interrupted:
                 job['stalls'] += 1
             # Mutations stay uncertain; no automatic replay after a lost response.
             if accepted_scope(job['request']) != 'implement' and job['state'] not in {'PLAN', 'READ'}:
@@ -883,6 +890,27 @@ class EngineeringService:
                 else:
                     phase = 'NEEDS_INPUT'
                     job['message'] = 'A write could not be confirmed. Reconcile its remote outcome before continuing.'
+            elif host_interrupted:
+                if previous_wait:
+                    job['provider_wait'] = previous_wait
+                output.update(error_code='ENGINEERING_HOST_INTERRUPTED', retryable=True)
+                job['message'] = 'The saved step will resume when the gateway is running.'
+            elif rate_limited:
+                attempts = previous_wait.get('attempts', 0) + 1
+                now = self.store.now()
+                wait, source = provider_rate_limit_delay(getattr(response, 'headers', None) or {}, attempts, now)
+                retry_at = now + wait
+                available = attempts <= 8 and retry_at < job['deadline'] - job['request'].get('execution_budget', {}).get('final_seconds', 30)
+                output.update(error_code='ENGINEERING_RATE_LIMIT_WAIT', http_status=429, retryable=available,
+                              retry_at=retry_at, retry_source=source, attempts=attempts)
+                if available:
+                    job['provider_wait'] = {'retry_at': retry_at, 'source': source, 'attempts': attempts}
+                    job['message'] = 'Waiting for provider capacity. The saved step will resume automatically.'
+                    delay = wait
+                else:
+                    phase = 'NEEDS_INPUT'
+                    job['message'] = 'The provider wait reached the job budget. Confirmed work is saved for review.'
+                    job['data']['blocked_reason'] = dict(output)
             elif isinstance(error, ExecutionBindingError):
                 phase = 'NEEDS_INPUT'
                 job['message'] = str(error)
@@ -893,9 +921,7 @@ class EngineeringService:
                 # polling the same stage. Mutation reconciliation above retains
                 # precedence: a validation failure never erases a dispatch receipt.
                 status = http_status
-                if status == 429:
-                    code, instruction = 'ENGINEERING_RATE_LIMIT_WAIT', 'Honor the server cooldown and review the bounded retry budget'
-                elif status == 401:
+                if status == 401:
                     code, instruction = 'ENGINEERING_AUTHENTICATION_REQUIRED', 'Restore the host connection authentication'
                 elif status == 403 or isinstance(error, PermissionError):
                     code, instruction = 'ENGINEERING_ACCESS_DENIED', 'Review execution authority and repository access'
@@ -1017,6 +1043,7 @@ def public_job(job):
             'command_id': job.get('command_id', job['request']['request_id']), 'accepted_at': job.get('accepted_at', job['created_at']),
             'server_now': time.time(), 'detach_safe': bool(job.get('detach_safe')), 'task_scope': accepted_scope(job['request']),
             'started_at': job.get('started_at'), 'queued_at': job.get('queued_at'), 'title': job.get('title'),
+            'provider_retry_at': (job.get('provider_wait') or {}).get('retry_at'),
             'cancellation_requested': bool(job.get('cancellation_requested')), 'cancellation_outcome': job.get('cancellation_outcome'),
             'id': job['id'], 'job_id': job['id'], 'repository': job['request']['repository'], 'branch': job['request']['branch'],
             'profile_id': job['request'].get('profile_id'), 'profile_name': job['request'].get('profile_name'), 'model': job['request']['model'],

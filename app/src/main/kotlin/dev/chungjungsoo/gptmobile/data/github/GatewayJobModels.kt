@@ -55,7 +55,8 @@ data class GatewayJobSummary(
     @SerialName("cancellation_requested") val cancellationRequested: Boolean = false,
     @SerialName("source_branch") val sourceBranch: String? = null,
     @SerialName("source_sha") val sourceSha: String? = null,
-    @SerialName("working_branch") val workingBranch: String? = null
+    @SerialName("working_branch") val workingBranch: String? = null,
+    @SerialName("provider_retry_at") val providerRetryAt: Double? = null
 ) {
     val group: GatewayJobGroup get() = gatewayJobGroup(schedulingState ?: state)
     val acceptsInstruction: Boolean get() = jobKind == "engineering" && conversationId != null && !cancellationRequested && group in setOf(GatewayJobGroup.RUNNING, GatewayJobGroup.QUEUED) && state.uppercase() != "CANCELLING" && phase?.uppercase() != "CANCELLING"

@@ -214,11 +214,13 @@ data class GatewayEngineeringJob(
     @SerialName("duration_hours") val durationHours: Int? = null,
     @SerialName("execution_budget") val executionBudget: GatewayEngineeringBudget? = null,
     val acceptance: List<GatewayEngineeringAcceptance> = emptyList(),
-    val admission: JsonObject? = null
+    val admission: JsonObject? = null,
+    @SerialName("provider_retry_at") val providerRetryAt: Double? = null
 ) {
     val ownershipLabel: String get() = if (detachSafe && acceptedAt != null && id.isNotBlank()) {
         when {
             terminal -> "Saved on Gateway"
+            providerRetryAt != null -> "Saved on Gateway · waiting for provider"
             state in setOf("MERGE_READY", "NEEDS_INPUT") -> "Saved on Gateway · waiting for your input"
             else -> "Saved and running on Gateway"
         }

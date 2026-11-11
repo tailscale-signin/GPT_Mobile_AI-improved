@@ -119,6 +119,34 @@ def failed(result):
     return not isinstance(result, dict) or result.get('isError') is True or result.get('error') is not None
 
 
+def provider_rate_limit_delay(headers, attempt, now):
+    """Preserve server deadlines for durable jobs, including waits longer than a worker lease."""
+    headers = {key.lower(): value for key, value in headers.items()}
+    hints = []
+    if 'retry-after' in headers:
+        value = headers['retry-after']
+        try:
+            seconds = float(value)
+        except (TypeError, ValueError, OverflowError):
+            try:
+                seconds = parsedate_to_datetime(str(value)).timestamp() - now
+            except (TypeError, ValueError, OverflowError, OSError):
+                seconds = None
+        if seconds is not None and math.isfinite(seconds):
+            hints.append((max(0.0, seconds), 'RETRY_AFTER'))
+    if 'x-ratelimit-reset' in headers:
+        try:
+            epoch = float(headers['x-ratelimit-reset'])
+            if epoch >= 1_000_000_000_000:
+                epoch /= 1000
+            if math.isfinite(epoch) and epoch >= 1_000_000_000 and epoch > now:
+                hints.append((epoch - now, 'RATE_LIMIT_RESET'))
+        except (TypeError, ValueError, OverflowError):
+            pass
+    delay, source = max(hints, default=(min(600, 30 * 2 ** min(5, max(0, attempt - 1))), 'APP_BACKOFF'))
+    return max(1.0, delay) + random.uniform(0, .25), source
+
+
 def retry_delay(error, attempt):
     """A safe-read retry delay, or None when recovery requires explicit action.
 

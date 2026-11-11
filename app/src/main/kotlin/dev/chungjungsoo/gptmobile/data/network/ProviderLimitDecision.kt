@@ -18,16 +18,34 @@ data class ProviderLimitDecision(
     val authority: dev.chungjungsoo.gptmobile.data.context.CapturedProviderAuthority? = null,
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
     val continuationPrefixDigest: String? = null,
-    val httpStatus: Int? = null
+    val httpStatus: Int? = null,
+    val retrySource: String? = null,
+    val consecutiveRejections: Int = 0,
+    val checkpointContinuationAllowed: Boolean = false,
+    val gitHubCheckpoint: GitHubProviderCheckpoint? = null
 ) {
+    val mayWait: Boolean get() = knownNotAccepted || checkpointContinuationAllowed && gitHubCheckpoint != null
+
     init {
         require(retryAt > 0 && scope.isNotBlank() && provider.isNotBlank())
         require(continuationPrefixDigest == null || continuationPrefixDigest.matches(Regex("[a-f0-9]{64}")))
     }
 }
 
+@Serializable
+data class GitHubProviderCheckpoint(val binding: String, val digest: String) {
+    init {
+        require(binding.matches(Regex("[a-f0-9]{64}")) && digest.matches(Regex("[a-f0-9]{64}")))
+    }
+
+    internal fun matches(checkpoint: kotlinx.serialization.json.JsonObject): Boolean =
+        checkpoint["state"] == kotlinx.serialization.json.JsonPrimitive("WAITING_PROVIDER_LIMIT") &&
+            checkpoint["resume_allowed"] == kotlinx.serialization.json.JsonPrimitive(true) &&
+            dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest(checkpoint.toString()) == digest
+}
+
 internal suspend fun ProviderLimitDecision.bindAuthority(guard: dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard): ProviderLimitDecision {
-    if (!knownNotAccepted) return this
+    if (!knownNotAccepted && !checkpointContinuationAllowed) return this
     guard.validate()
     val captured = requireNotNull(guard.authority) { "PROVIDER_WAIT_AUTHORITY_UNAVAILABLE" }
     require(profileUid == captured.profileUid && model == captured.model) { "PROVIDER_WAIT_ROUTE_CHANGED" }
@@ -84,7 +102,7 @@ internal fun providerLimitDecision(config: ProviderRequestConfig, model: String,
 /** A durable wait follows an observed rejection, never a message containing "429". */
 private fun providerHttpLimitDecision(config: ProviderRequestConfig, model: String, receivedPayload: Boolean, error: Exception, prefixDigest: String?): ProviderLimitDecision? {
     val failure = error as? ProviderHttpFailure ?: return null
-    if (failure.status != 429 || !failure.knownNotAccepted || config.profileUid.isNullOrBlank() || model.isBlank()) return null
+    if (failure.status != 429 || !(failure.knownNotAccepted || failure.checkpointContinuationAllowed) || config.profileUid.isNullOrBlank() || model.isBlank()) return null
     if (config.lockedModel != null && config.lockedModel != model) return null
     val retryAt = failure.retryAtMillis ?: return null
     return ProviderLimitDecision(
@@ -94,8 +112,11 @@ private fun providerHttpLimitDecision(config: ProviderRequestConfig, model: Stri
         retryAt = retryAt,
         scope = ProviderCooldown.scope(config),
         category = FreeFailureCategory.PROVIDER_RATE_LIMITED.name,
-        knownNotAccepted = !receivedPayload,
+        knownNotAccepted = failure.knownNotAccepted && !receivedPayload,
         continuationPrefixDigest = prefixDigest.takeUnless { receivedPayload },
-        httpStatus = failure.status
+        httpStatus = failure.status.takeUnless { failure.beforeDispatch },
+        retrySource = failure.retrySource,
+        consecutiveRejections = failure.consecutiveRejections,
+        checkpointContinuationAllowed = failure.checkpointContinuationAllowed
     )
 }

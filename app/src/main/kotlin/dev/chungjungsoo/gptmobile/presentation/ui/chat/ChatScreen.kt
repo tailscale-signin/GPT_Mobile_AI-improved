@@ -225,6 +225,7 @@ private fun ChatScreenContent(
 ) {
     val chatRoom by chatViewModel.chatRoom.collectAsStateWithLifecycle()
     val agentRunsById by chatViewModel.agentRunsById.collectAsStateWithLifecycle()
+    val providerWaitDeadlines by chatViewModel.providerWaitDeadlines.collectAsStateWithLifecycle()
     val featureSettings by chatViewModel.featureSettings.collectAsStateWithLifecycle()
     val chatToolConfig by chatViewModel.chatToolConfig.collectAsStateWithLifecycle()
     val snackbarHost = remember { androidx.compose.material3.SnackbarHostState() }
@@ -916,6 +917,7 @@ private fun ChatScreenContent(
                         message = message,
                         assistantMessages = groupedMessages.assistantMessages.getOrNull(index) ?: emptyList(),
                         agentRunsById = agentRunsById,
+                        providerWaitDeadlines = providerWaitDeadlines,
                         activeAgentRuns = activeAgentRuns,
                         runNoticesById = runNoticesById,
                         toolEventsByRun = toolEventsByRun,
@@ -1515,6 +1517,7 @@ internal fun ChatMessagePair(
     message: MessageV2,
     assistantMessages: List<MessageV2>,
     agentRunsById: Map<String, AgentRun>,
+    providerWaitDeadlines: Map<String, dev.chungjungsoo.gptmobile.data.agent.ProviderWaitDeadline>,
     activeAgentRuns: Map<String, ActiveAgentRun>,
     runNoticesById: Map<String, List<ChatRunNotice>>,
     toolEventsByRun: Map<String, List<ToolEvent>>,
@@ -1640,11 +1643,15 @@ internal fun ChatMessagePair(
     val selectedAssistantMessage = if (selectedProfile != null) selectedProfile.message else assistantMessages.getOrNull(displayPlatformIndex)
     val responseInsetPx = with(LocalDensity.current) { 12.dp.roundToPx() }
     val synthesisStarted = isCombinedConversation && combinedSynthesisIndex >= 0
+    val selectedRunId = selectedAssistantMessage?.effectiveRunId()
+    val agentRun = selectedRunId?.let(agentRunsById::get)
+    val waitingForProvider = agentRun?.status == AgentRunStatus.WAITING_PROVIDER_LIMIT
+    val providerRetryAt = selectedRunId?.let(providerWaitDeadlines::get)?.takeIf { it.fence == agentRun?.ownershipFence }?.retryAt
     val rawAssistantContent = if (selectedSourceReader != null) "" else dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(selectedAssistantMessage?.effectiveContent().orEmpty())
     val assistantContent = when {
         selectedSourceReader != null -> ""
         rawAssistantContent.isBlank() && selectedAssistantMessage?.currentRunId?.let(agentRunsById::get)?.status == AgentRunStatus.WAITING_REMOTE_JOB -> "Waiting for the saved remote job. Check its status without submitting another generation."
-        rawAssistantContent.isBlank() && (isCombinedConversation && combinedStatus == CombinedResponseStatus.PAUSED || selectedAssistantMessage?.currentRunId?.let(agentRunsById::get)?.status == AgentRunStatus.WAITING_PROVIDER_LIMIT) -> stringResource(R.string.provider_wait_saved)
+        rawAssistantContent.isBlank() && isCombinedConversation && combinedStatus == CombinedResponseStatus.PAUSED && !waitingForProvider -> stringResource(R.string.provider_wait_saved)
         isCombinedConversation && !synthesisStarted && combinedStatus == CombinedResponseStatus.FAILED -> stringResource(R.string.combined_all_profiles_failed)
         isCombinedConversation && !synthesisStarted -> ""
         isSourceResponse && selectedProfile.status == CombinedResponseStatus.FAILED && selectedAssistantMessage?.content.isNullOrBlank() -> stringResource(R.string.combined_profile_no_response)
@@ -1668,8 +1675,6 @@ internal fun ChatMessagePair(
         }
     }
     val githubTask = message.content.takeIf { LocalChatProgressInHeader.current && !hasCombinedTabs }
-    val selectedRunId = selectedAssistantMessage?.effectiveRunId()
-    val agentRun = selectedRunId?.let(agentRunsById::get)
     val savedFailure = visibleResponseFailure(assistantTimeline.lastOrNull { it.runError != null }?.runError, agentRun?.terminalError, agentRun?.status)
     val nativeDecisions = LocalGitHubNativeDecisions.current
     val approvalCardOrReceipt = LocalGitHubApprovalPending.current || nativeDecisions.any { it.sourceMessageId == message.id }
@@ -1870,6 +1875,17 @@ internal fun ChatMessagePair(
                         )
                     }
                 }
+                if (waitingForProvider) {
+                    val formatter = android.text.format.DateFormat.getTimeFormat(androidx.compose.ui.platform.LocalContext.current)
+                    val label = providerRetryAt?.let { stringResource(R.string.provider_wait_retry_at, formatter.format(java.util.Date(it))) }
+                        ?: stringResource(R.string.provider_wait_saved)
+                    Text(
+                        label,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 8.dp)
+                    )
+                }
                 OpponentChatBubble(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1877,7 +1893,7 @@ internal fun ChatMessagePair(
                         .padding(horizontal = 2.dp)
                         .widthIn(max = maximumOpponentChatBubbleWidth),
                     canEdit = canUseChat && isIdle && !isSourceResponse,
-                    canRetry = responseRecoveryKind == ProfileRecoveryKind.NONE &&
+                    canRetry = !waitingForProvider && responseRecoveryKind == ProfileRecoveryKind.NONE &&
                         if (isCombinedConversation) {
                             canUseChat &&
                                 isIdle &&
@@ -1915,7 +1931,7 @@ internal fun ChatMessagePair(
                         null
                     },
                     profileColorIdentity = selectedProfile?.uid?.let(combinedIdentities::get).takeIf { isSourceResponse },
-                    invocations = invocationDiagnostics.filter { it.parentRunId == selectedRunId },
+                    invocations = remember(invocationDiagnostics, selectedRunId) { invocationDiagnostics.filter { it.parentRunId == selectedRunId } },
                     debugSettings = debugSettings,
                     debugMemorySources = debugMemorySources,
                     showReasoning = showReasoning,
@@ -1958,7 +1974,7 @@ internal fun ChatMessagePair(
                     toolEvents = toolEvents,
                     locationToolEvents = provenanceToolEvents,
                     sourceToolEvents = provenanceToolEvents,
-                    sourceProfilesByRun = agentRunsById.mapValues { it.value.profileUid },
+                    sourceProfilesByRun = remember(agentRunsById) { agentRunsById.mapValues { it.value.profileUid } },
                     contentIdentity = "${selectedAssistantMessage?.id ?: "turn:$messageIndex"}:$selectedPlatformUid:${selectedRunId.orEmpty()}:${selectedAssistantMessage?.activeRevisionIndex}:${selectedSource?.originalDocument?.digest.orEmpty()}",
                     revisionIndexLabel = selectedAssistantMessage?.takeIf { !isSourceResponse && it.revisions.isNotEmpty() }?.let { assistantMessage ->
                         val totalRevisions = assistantMessage.revisions.size + 1

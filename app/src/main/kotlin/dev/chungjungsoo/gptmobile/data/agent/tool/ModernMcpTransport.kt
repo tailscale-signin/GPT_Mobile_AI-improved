@@ -443,6 +443,16 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
                 throw rpcFailure(status, method, null)
             }
             if (!successful) {
+                val responseId = envelope?.get("id")
+                if (status == 400 && envelope?.get("error") is JsonObject && (responseId == null || responseId == JsonNull)) {
+                    // A transport-level rejection may have no JSON-RPC request ID.
+                    // It cannot qualify a successful response or legacy negotiation.
+                    throw McpProtocolConfigurationException(
+                        "MCP_ENDPOINT_CONFIGURATION",
+                        "HTTP 400 rejected the MCP handshake without a matching request ID. Check the endpoint, session and protocol version.",
+                        status, "RESPONSE_ID_MATCH_REQUIRED", "id"
+                    )
+                }
                 val error = envelope?.takeIf { frame -> RPC_RESPONSE_FIELDS.any(frame::containsKey) }?.let { frame ->
                     try {
                         validateRpcEnvelope(frame, id, status)

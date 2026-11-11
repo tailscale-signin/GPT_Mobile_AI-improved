@@ -35,6 +35,7 @@ def generation_summary(public, now):
 
 def engineering_summary(job, lease, now):
     request, phase = job['request'], job['state']
+    provider_retry_at = (job.get('provider_wait') or {}).get('retry_at')
     state = ('completed' if phase == 'COMPLETED' else 'cancelled' if phase == 'CANCELLED' else 'failed' if phase == 'FAILED' else
              'needs_attention' if phase in {'NEEDS_INPUT', 'MERGE_READY', 'CANCELLING'} else 'running' if lease else 'queued')
     return {'job_id': job['id'], 'job_kind': 'engineering', 'conversation_id': job.get('conversation_id'),
@@ -44,7 +45,8 @@ def engineering_summary(job, lease, now):
             'task_scope': accepted_scope(request), 'cancellation_requested': phase == 'CANCELLING', 'state': state, 'phase': phase, 'revision': job['revision'],
             'accepted_at': job.get('accepted_at', job['created_at']), 'queued_at': job.get('queued_at', job['created_at']),
             'started_at': job.get('started_at'), 'finished_at': job.get('finished_at', job['updated_at'] if phase in {'COMPLETED', 'CANCELLED', 'FAILED'} else None),
-            'server_now': now, 'queue_reason': ('ci_wait' if phase == 'CI' else 'engineering_worker') if state == 'queued' else None,
+            'server_now': now, 'provider_retry_at': provider_retry_at,
+            'queue_reason': ('provider_rate_limit' if provider_retry_at is not None else 'ci_wait' if phase == 'CI' else 'engineering_worker') if state == 'queued' else None,
             'queue_position': None, 'result_available': phase == 'COMPLETED', 'transcript_available': bool(job.get('conversation_id')),
             'allowed_actions': ['open'] + (['cancel'] if phase not in {'COMPLETED', 'CANCELLED', 'FAILED', 'CANCELLING'} else []) + (['approve'] if phase == 'MERGE_READY' else [])}
 

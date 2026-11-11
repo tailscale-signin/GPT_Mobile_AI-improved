@@ -127,73 +127,89 @@ class GoogleAPIImpl @Inject constructor(
                         )
                     }
                 ) {
-                    ProviderCooldown.await(config)
-                    val admittedPayload = requestPreparation.prepare(NetworkClient.json.encodeToString(request), config, model, null)
-                    networkClient().preparePost(endpoint) {
-                        applyPlatformStreamingTimeout(timeoutSeconds, workerBudget)
-                        header(GOOGLE_API_KEY_HEADER, config.token ?: "")
-                        parameter("alt", "sse")
-                        contentType(ContentType.Application.Json)
-                        setBody(admittedPayload)
-                    }.execute { response ->
-                        if (!response.status.isSuccess()) {
-                            val errorBody = response.body<String>()
-                            throwIfToolDefinitionsRejected(
-                                response.status.value,
-                                !request.tools.isNullOrEmpty(),
-                                errorBody
-                            )
-                            if (response.status.value in TRANSIENT_HTTP_STATUSES && !receivedPayload) {
-                                throw ProviderHttpFailure(response.status.value, ProviderCooldown.defer(config, response.headers[HttpHeaders.RetryAfter]))
-                            }
-
-                            val errorMessage = try {
-                                val errorList = NetworkClient.json.decodeFromString<List<GoogleErrorResponse>>(errorBody)
-                                errorList.firstOrNull()?.error?.message ?: "Unknown error"
-                            } catch (_: Exception) {
-                                try {
-                                    val errorResponse = NetworkClient.json.decodeFromString<GoogleErrorResponse>(errorBody)
-                                    errorResponse.error.message
-                                } catch (_: Exception) {
-                                    "HTTP ${response.status.value}: $errorBody"
+                    ProviderCooldown.withPermit(config) {
+                        val admittedPayload = requestPreparation.prepare(NetworkClient.json.encodeToString(request), config, model, null)
+                        networkClient().preparePost(endpoint) {
+                            applyPlatformStreamingTimeout(timeoutSeconds, workerBudget)
+                            header(GOOGLE_API_KEY_HEADER, config.token ?: "")
+                            parameter("alt", "sse")
+                            contentType(ContentType.Application.Json)
+                            setBody(admittedPayload)
+                        }.execute { response ->
+                            if (!response.status.isSuccess()) {
+                                val errorBody = response.body<String>()
+                                throwIfToolDefinitionsRejected(
+                                    response.status.value,
+                                    !request.tools.isNullOrEmpty(),
+                                    errorBody
+                                )
+                                if (response.status.value in TRANSIENT_HTTP_STATUSES && !receivedPayload) {
+                                    throw ProviderCooldown.rejected(
+                                        config, response.status.value, response.headers[HttpHeaders.RetryAfter],
+                                        knownNotAccepted = response.status.value == 429,
+                                        errorOrigin = "provider"
+                                    )
                                 }
-                            }
 
-                            receivedPayload = true
-                            emit(
-                                GenerateContentResponse(
-                                    error = ErrorDetail(
-                                        message = errorMessage,
-                                        code = response.status.value,
-                                        status = "ERROR"
+                                val errorMessage = try {
+                                    val errorList = NetworkClient.json.decodeFromString<List<GoogleErrorResponse>>(errorBody)
+                                    errorList.firstOrNull()?.error?.message ?: "Unknown error"
+                                } catch (_: Exception) {
+                                    try {
+                                        val errorResponse = NetworkClient.json.decodeFromString<GoogleErrorResponse>(errorBody)
+                                        errorResponse.error.message
+                                    } catch (_: Exception) {
+                                        "HTTP ${response.status.value}: $errorBody"
+                                    }
+                                }
+
+                                receivedPayload = true
+                                emit(
+                                    GenerateContentResponse(
+                                        error = ErrorDetail(
+                                            message = errorMessage,
+                                            code = response.status.value,
+                                            status = "ERROR"
+                                        )
                                     )
                                 )
-                            )
-                            return@execute
-                        }
-
-                        val channel = response.bodyAsChannel()
-                        while (!channel.isClosedForRead) {
-                            val line = channel.readLine() ?: break
-                            val data = SseUtils.extractSseData(line) ?: continue
-
-                            val chunk = try {
-                                NetworkClient.json.decodeFromString<GenerateContentResponse>(data)
-                            } catch (_: kotlinx.serialization.SerializationException) {
-                                // Only malformed JSON is skipped. Cancellation/collector failures
-                                // must escape instead of being mistaken for invalid server data.
-                                continue
+                                return@execute
                             }
-                            receivedPayload = true
-                            if (chunk.candidates.orEmpty().any { !it.finishReason.isNullOrBlank() }) {
-                                completed = true
+
+                            ProviderCooldown.observeQuota(config) { response.headers[it] }
+                            val channel = response.bodyAsChannel()
+                            while (!channel.isClosedForRead) {
+                                val line = channel.readLine() ?: break
+                                val data = SseUtils.extractSseData(line) ?: continue
+
+                                val chunk = try {
+                                    NetworkClient.json.decodeFromString<GenerateContentResponse>(data)
+                                } catch (_: kotlinx.serialization.SerializationException) {
+                                    // Only malformed JSON is skipped. Cancellation/collector failures
+                                    // must escape instead of being mistaken for invalid server data.
+                                    continue
+                                }
+                                val error = chunk.error
+                                if ((error?.code == 429 || error?.status == "RESOURCE_EXHAUSTED") && ProviderCooldown.durableRateLimits()) {
+                                    throw ProviderCooldown.rejected(
+                                        config, 429, response.headers[HttpHeaders.RetryAfter],
+                                        knownNotAccepted = !receivedPayload, errorOrigin = "provider",
+                                        errorType = error?.status, checkpointContinuationAllowed = true
+                                    )
+                                }
+                                receivedPayload = true
+                                if (chunk.candidates.orEmpty().any { !it.finishReason.isNullOrBlank() }) {
+                                    completed = true
+                                    if (error == null) ProviderCooldown.accepted(config)
+                                }
+                                emit(chunk)
                             }
-                            emit(chunk)
                         }
                     }
                 }
             }.catch { e ->
                 if (e is CancellationException || e is dev.chungjungsoo.gptmobile.data.agent.ToolDefinitionsRejectedException) throw e
+                if (e is ProviderHttpFailure && e.status == 429 && ProviderCooldown.durableRateLimits()) throw e
                 if (ResilientStreamingClient.shouldTreatPrematureCloseAsStreamEnd(receivedPayload, e, completed)) {
                     AppLogRecorder.record("Network", "Gemini stream closed after completion · model=$model · ${e.message.orEmpty().take(180)}", "W")
                     return@catch

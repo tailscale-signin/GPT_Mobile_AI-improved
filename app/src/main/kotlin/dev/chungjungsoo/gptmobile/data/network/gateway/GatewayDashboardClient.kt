@@ -40,7 +40,10 @@ internal class GatewayDashboardClient internal constructor(private val http: Htt
     private data class Attempt(val observation: GatewayDashboardObservation? = null, val failure: Exception? = null)
     private data class ReadinessAttempt(val observation: GatewayReadinessObservation? = null, val failure: Exception? = null)
     private val cache = RouteCapabilityCache<Attempt>({ System.nanoTime() / 1_000_000 }, positiveTtl = 4_000, negativeTtl = 60_000)
-    private val readinessCache = RouteCapabilityCache<ReadinessAttempt>({ System.nanoTime() / 1_000_000 }, positiveTtl = 4_000, negativeTtl = 60_000)
+    private val readinessCache = RouteCapabilityCache<ReadinessAttempt>(
+        { System.nanoTime() / 1_000_000 }, positiveTtl = 4_000, negativeTtl = 60_000,
+        valueTtl = { attempt -> if (attempt.failure != null || attempt.observation?.ready == false) 30_000 else 4_000 }
+    )
 
     fun refresh() {
         cache.invalidate()
@@ -93,8 +96,12 @@ internal class GatewayDashboardClient internal constructor(private val http: Htt
         }
     }
 
-    override suspend fun readiness(config: ProviderRequestConfig, model: String?): GatewayReadinessObservation? {
-        val attempt = readinessCache.getOrLoad(gatewayDashboardIdentity(config) + ":" + researchHash(model.orEmpty()) + ":" + LocalServiceHealth.networkEpoch) {
+    override suspend fun readiness(config: ProviderRequestConfig, model: String?): GatewayReadinessObservation? =
+        readiness(config, model, forceRefresh = false)
+
+    internal suspend fun readiness(config: ProviderRequestConfig, model: String?, forceRefresh: Boolean): GatewayReadinessObservation? {
+        val key = listOf(GatewayClientDiagnostics.routeIdentity(config), researchHash(model.orEmpty()), LocalServiceHealth.networkEpoch, GatewayClientDiagnostics.runtimeEpoch(config)).joinToString(":")
+        val attempt = readinessCache.getOrLoad(key, forceRefresh) {
             try {
                 readReadiness(config, model)?.let { ReadinessAttempt(observation = it) }
             } catch (cancelled: CancellationException) {

@@ -469,6 +469,7 @@ class ChatViewModel @Inject constructor(
     private val _agentRunsById = MutableStateFlow<Map<String, AgentRun>>(emptyMap())
     val agentRunsById = _agentRunsById.asStateFlow()
     private val providerWaitDeadlinesByRun = MutableStateFlow<Map<String, ProviderWaitDeadline>>(emptyMap())
+    val providerWaitDeadlines = providerWaitDeadlinesByRun.asStateFlow()
 
     // Each chat states for assistant chat messages
     // Index of the currently shown message's platform - default is 0 (first platform)
@@ -2359,6 +2360,7 @@ class ChatViewModel @Inject constructor(
         if (_loadingStates.value.getOrNull(ownerLoadingIndex) == LoadingState.Loading) return
         val userMessage = _groupedMessages.value.userMessages.getOrNull(turnIndex) ?: return
         val previousRun = currentAssistantMessage.currentRunId?.let { _agentRunsById.value[it] }
+        if (previousRun?.status == AgentRunStatus.WAITING_PROVIDER_LIMIT) return
         val failureDetails = previousRun?.terminalError ?: currentAssistantMessage.timeline.lastOrNull { it.runError != null }?.runError
         gitHubApprovalRetryBlock(failureDetails, gitHubApprovalPending)?.let {
             _attachmentNotice.value = it

@@ -23,6 +23,21 @@ class ResilientStreamingClientTest {
         assertTrue(failure is ProviderHttpFailure)
     }
 
+    @Test fun durable429ReturnsControlBeforeAnyTransportRetry() = kotlinx.coroutines.test.runTest {
+        var attempts = 0
+        val rejection = ProviderHttpFailure(429, 30_000, knownNotAccepted = true)
+        val failure = runCatching {
+            kotlinx.coroutines.withContext(ProviderWaitContext(durableRateLimits = true) {}) {
+                ResilientStreamingClient.executeWithRetry {
+                    attempts++
+                    throw rejection
+                }
+            }
+        }.exceptionOrNull()
+        org.junit.Assert.assertSame(rejection, failure)
+        org.junit.Assert.assertEquals(1, attempts)
+    }
+
     @Test fun deterministicTemplateFailuresNeverDispatchASecondAttempt() = kotlinx.coroutines.test.runTest {
         for (message in listOf("HTTP 500: Jinja Exception: System message must be at the beginning", "HTTP 502: backend_template_invalid", "HTTP 409: client_tool_results_required", "HTTP 404: gateway_job_unavailable", "HTTP 422: unsupported_instruction_content", "HTTP 422: invalid_tool_history", "HTTP 409: client_tool_result_identity_mismatch", "HTTP 502: completion_repair_budget_unavailable", "HTTP 502: completion_repair_usage_unavailable")) {
             var attempts = 0

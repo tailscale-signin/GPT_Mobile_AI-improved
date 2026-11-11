@@ -182,7 +182,7 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
                 is ApiState.ActivitySummary -> {
                     buffer.observeProgress(chunk.text, chunk.invocationId)
                     buffer.updateActivitySummary(chunk)
-                    buffer.publishNow(onUpdate)
+                    buffer.publishIfDue(onUpdate)
                 }
 
                 is ApiState.DelegationText -> {
@@ -241,7 +241,7 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
                 }
 
                 is ApiState.Error -> {
-                    buffer.observeSystemError(chunk.message, chunk.invocationId)
+                    if (chunk.providerLimit?.mayWait != true) buffer.observeSystemError(chunk.message, chunk.invocationId)
                     pendingCombinedAnswer = null
                     providerLimit = chunk.providerLimit
                     errorCode = chunk.errorCode
@@ -251,7 +251,7 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
                     chunk.combinedFailure?.let(buffer::appendCombinedFailure)
                     if (chunk.errorCode == "QUEUE_JOB_PENDING") {
                         buffer.appendNotice(chunk.message)
-                    } else {
+                    } else if (chunk.providerLimit?.mayWait != true) {
                         buffer.appendFailure(chunk.message, chunk.progressDeadline != null || chunk.recoveryBlock != null || chunk.combinedFailure != null, chunk.errorCode, chunk.failureDetails)
                     }
                     terminalError = chunk.message.ifBlank { "The provider could not complete this response." }

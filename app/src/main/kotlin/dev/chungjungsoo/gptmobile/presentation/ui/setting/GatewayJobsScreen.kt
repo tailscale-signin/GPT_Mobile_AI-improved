@@ -143,7 +143,10 @@ internal fun GatewayJobsScreen(model: GatewayJobsViewModel, onOpenConversation: 
                         if (!rowFresh && job.finishedAt == null) Text(stringResource(R.string.gateway_jobs_cached_state), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         if (row.record.key in state.partialHistoryKeys) Text(stringResource(R.string.gateway_transcript_history_partial), style = MaterialTheme.typography.bodySmall)
                         if (job.group == GatewayJobGroup.QUEUED) {
-                            val queueText = job.queuePosition?.let { stringResource(R.string.gateway_jobs_queue_position, it) } ?: job.queueReason
+                            val formatter = android.text.format.DateFormat.getTimeFormat(androidx.compose.ui.platform.LocalContext.current)
+                            val waitLabel = job.providerRetryAt?.takeIf { it.isFinite() && it > 0 }
+                                ?.let { stringResource(R.string.provider_wait_retry_at, formatter.format(java.util.Date((it * 1000).toLong()))) }
+                            val queueText = waitLabel ?: job.queuePosition?.let { stringResource(R.string.gateway_jobs_queue_position, it) } ?: job.queueReason
                             queueText?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                         }
                         if (!state.legacy && job.acceptsInstruction) {

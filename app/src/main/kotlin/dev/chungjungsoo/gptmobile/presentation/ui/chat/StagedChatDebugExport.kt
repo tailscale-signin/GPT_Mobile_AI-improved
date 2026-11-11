@@ -172,7 +172,7 @@ internal suspend fun writeStagedChatDiagnostics(
                 sink.emit(
                     buildJsonObject {
                         put("kind", "latest_state_projection")
-                        put("scope", "Latest retained run verdict, accepted policy fragments, tool receipt, pending work, and GitHub verification/review/budget/output/task checkpoints.")
+                        put("scope", "Latest retained run verdict, provider retry deadline, accepted policy fragments, tool receipt, pending work, and GitHub verification/review/budget/output/task checkpoints.")
                         put("fullHistorySelected", includeHistory)
                         put("capturedAtMillis", System.currentTimeMillis())
                     },

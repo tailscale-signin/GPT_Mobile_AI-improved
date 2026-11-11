@@ -17,6 +17,7 @@ import io.mockk.mockk
 import java.net.UnknownHostException
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.jsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -156,6 +157,56 @@ class OpenAIRecoveryTransportTest {
                     assertEquals(kotlinx.serialization.json.JsonPrimitive("model_invocation"), details?.get("failed_stage"))
                     assertEquals(kotlinx.serialization.json.JsonPrimitive(true), details?.get("dispatched"))
                 }
+            }
+        }
+    }
+
+    @Test fun durableRateLimitKeepsTheServerDeadlineAndBlocksTheNextRequestOnThatCredential() = runTest {
+        var attempts = 0
+        val selected = config.copy(profileUid = "selected", providerType = "OPENROUTER")
+        val start = System.currentTimeMillis()
+        withApi(
+            MockEngine {
+                attempts++
+                respond("""{"error":{"code":429,"type":"rate_limit_exceeded","message":"Wait for capacity"}}""", HttpStatusCode.TooManyRequests, headersOf(HttpHeaders.RetryAfter, "600"))
+            }
+        ) { api ->
+            withContext(ProviderWaitContext(durableRateLimits = true) {}) {
+                val rejection = requireNotNull(api.streamChatCompletion(request, 5, selected).toList().last().error?.providerLimit)
+                assertEquals("RETRY_AFTER", rejection.retrySource)
+                assertTrue(rejection.knownNotAccepted)
+                assertTrue(rejection.retryAt >= start + 600_000)
+                val input = listOf(dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputMessage("user", dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputContent.text("Saved prompt")))
+                val cooldown = api.streamResponses(ResponsesRequest(model = "fixture", input = input), 5, selected).toList()
+                    .filterIsInstance<dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseErrorEvent>().single()
+                assertEquals("SHARED_COOLDOWN", cooldown.providerLimit?.retrySource)
+                assertTrue(requireNotNull(cooldown.providerLimit).retryAt >= start + 600_000)
+                assertEquals(1, attempts)
+            }
+        }
+    }
+
+    @Test fun rateLimitFrameAfterTextKeepsThePrefixAndRequiresACheckpoint() = runTest {
+        var attempts = 0
+        val body = """
+            data: {"choices":[{"delta":{"content":"Saved prefix"}}]}
+
+            data: {"error":{"code":429,"message":"Provider capacity"}}
+
+        """.trimIndent()
+        withApi(MockEngine {
+            attempts++
+            respond(body, headers = headersOf(HttpHeaders.ContentType, "text/event-stream"))
+        }) { api ->
+            withContext(ProviderWaitContext(durableRateLimits = true) {}) {
+                val chunks = api.streamChatCompletion(request, 5, config.copy(profileUid = "selected")).toList()
+                assertEquals("Saved prefix", chunks.flatMap { it.choices.orEmpty() }.single().effectiveDelta.content)
+                val decision = requireNotNull(chunks.last().error?.providerLimit)
+                assertTrue(decision.checkpointContinuationAllowed)
+                assertFalse(decision.knownNotAccepted)
+                assertFalse(decision.mayWait)
+                assertEquals("APP_BACKOFF", decision.retrySource)
+                assertEquals(1, attempts)
             }
         }
     }

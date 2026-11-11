@@ -182,7 +182,10 @@ data class ResponseErrorEvent(
 
     /** Local transport facts cannot be supplied by a provider response body. */
     @kotlinx.serialization.Transient
-    val failureDetails: JsonObject? = null
+    val failureDetails: JsonObject? = null,
+
+    @kotlinx.serialization.Transient
+    val providerLimit: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision? = null
 ) : ResponsesStreamEvent()
 
 /**

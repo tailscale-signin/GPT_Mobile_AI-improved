@@ -247,6 +247,67 @@ class DurableEngineeringTests(unittest.TestCase):
         reopened = EngineeringStore(self.runtime, lambda: self.time)
         self.assertIn(job['id'], reopened.due())
 
+    def test_long_provider_cooldown_resumes_same_stage_after_store_recovery(self):
+        job = self.store.create('owner', self.request)
+        original_step = self.backend.step
+        response = requests.Response()
+        response.status_code = 429
+        response.headers['Retry-After'] = '600'
+        attempts = []
+        def step(current, phase):
+            attempts.append((current['id'], phase))
+            if len(attempts) == 1:
+                raise requests.HTTPError('fixture rate limit', response=response)
+            return original_step(current, phase)
+        self.backend.step = step
+        self.service.tick(job['id'])
+        waiting = self.store.get(job['id'])
+        self.assertEqual('PLAN', waiting['state'])
+        self.assertEqual('RETRY_AFTER', waiting['provider_wait']['source'])
+        self.assertGreaterEqual(waiting['provider_wait']['retry_at'], self.time + 600)
+        self.assertEqual(0, waiting['stalls'])
+        self.store.recover()
+        self.time += 599
+        self.assertNotIn(job['id'], self.store.due())
+        self.service.tick(job['id'])
+        self.assertEqual([(job['id'], 'PLAN')], attempts)
+        self.time += 2
+        self.service.tick(job['id'])
+        resumed = self.store.get(job['id'])
+        self.assertEqual('READ', resumed['state'])
+        self.assertNotIn('provider_wait', resumed)
+        self.assertEqual([(job['id'], 'PLAN'), (job['id'], 'PLAN')], attempts)
+
+    def test_stop_during_provider_cooldown_prevents_due_dispatch(self):
+        job = self.store.create('owner', self.request)
+        response = requests.Response()
+        response.status_code = 429
+        self.backend.step = lambda *args: (_ for _ in ()).throw(requests.HTTPError('fixture rate limit', response=response))
+        self.service.tick(job['id'])
+        waiting = self.store.get(job['id'])
+        self.assertEqual('APP_BACKOFF', waiting['provider_wait']['source'])
+        self.store.control(job['id'], 'owner', 'cancel', waiting['revision'])
+        self.time += 120
+        self.assertNotIn(job['id'], self.store.due())
+        self.assertEqual('CANCELLED', self.store.get(job['id'])['state'])
+
+    def test_host_shutdown_preserves_a_nonmutating_stage(self):
+        job = self.store.create('owner', self.request)
+        original_step = self.backend.step
+        def interrupt(*args):
+            self.service.stop.set()
+            raise InterruptedError('gateway shutdown')
+        self.backend.step = interrupt
+        self.service.tick(job['id'])
+        saved = self.store.get(job['id'])
+        self.assertEqual('PLAN', saved['state'])
+        self.assertEqual(0, saved['stalls'])
+        self.service.stop.clear()
+        self.store.recover()
+        self.backend.step = original_step
+        self.service.tick(job['id'])
+        self.assertEqual('READ', self.store.get(job['id'])['state'])
+
     def test_tls_failures_and_excessive_cooldowns_pause_without_replaying_stages(self):
         response = requests.Response()
         response.status_code = 503

@@ -4,7 +4,13 @@ import java.net.URI
 
 /** Catalog hints are not confirmation of the eventual routed server settings. */
 internal object OpenRouterCatalogLimits {
-    data class Limits(val context: Int?, val output: Int?, val reasoningControlAdvertised: Boolean = false, val temperatureSupported: Boolean? = null)
+    data class Limits(
+        val context: Int?,
+        val output: Int?,
+        val reasoningControlAdvertised: Boolean = false,
+        val temperatureSupported: Boolean? = null,
+        val toolsSupported: Boolean = false
+    )
     private data class Snapshot(val time: Long, val models: Map<String, Limits>)
 
     @Volatile private var snapshot = Snapshot(0, emptyMap())
@@ -24,11 +30,21 @@ internal object OpenRouterCatalogLimits {
                     model.contextLength?.takeIf { it > 0 },
                     model.topProvider?.maxCompletionTokens?.takeIf { it > 0 },
                     model.supportedParameters.orEmpty().any { it == "reasoning" || it == "reasoning_effort" },
-                    model.supportedParameters?.contains("temperature")
+                    model.supportedParameters?.contains("temperature"),
+                    "tools" in model.supportedParameters.orEmpty()
                 )
             }
         )
     }
+
+    fun compatibleFallbacks(url: String?, primary: String, candidates: List<String>, promptTokens: Int, outputTokens: Int, requiresTools: Boolean): List<String> =
+        candidates.distinct().filter { candidate ->
+            val capability = forRequest("OPENROUTER", url, candidate)
+            candidate != primary && capability != null &&
+                (capability.context ?: 0) >= promptTokens.toLong() + outputTokens &&
+                (capability.output ?: 0) >= outputTokens &&
+                (!requiresTools || capability.toolsSupported)
+        }
 
     fun forRequest(provider: String, url: String?, model: String, routing: String? = null): Limits? {
         if (provider != "OPENROUTER" || !officialEndpoint(url)) return null

@@ -326,6 +326,11 @@ class DiagnosticDatabaseSource @Inject constructor(
                     "t.run_id IN ($latestRun)",
                     listOf("run_id", "profile_uid", "provider_snapshot", "model_snapshot", "status", "created_at", "started_at", "completed_at", "terminal_error", "gateway_job_id", "gateway_last_sequence", "input_tokens", "output_tokens", "total_tokens", "ownership_fence")
                 ),
+                Table(
+                    "provider_waits",
+                    "t.runId IN ($latestRun) AND EXISTS (SELECT 1 FROM agent_runs r WHERE r.run_id = t.runId AND r.status = 'WAITING_PROVIDER_LIMIT' AND r.ownership_fence = t.fence)",
+                    listOf("runId", "fence", "retryAt")
+                ),
                 Table("agent_run_policy_refs", "t.runId IN ($latestRun)"),
                 Table("run_policy_snapshots", "t.chatId = :chatId AND t.digest IN (SELECT digest FROM agent_run_policy_refs WHERE runId IN ($latestRun))"),
                 Table("workspace_records", "t.chatId = :chatId AND ($latestWorkspace)", newestFirst = true),

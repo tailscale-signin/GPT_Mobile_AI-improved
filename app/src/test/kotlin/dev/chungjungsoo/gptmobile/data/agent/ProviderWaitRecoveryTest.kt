@@ -62,7 +62,9 @@ class ProviderWaitRecoveryTest {
         val user = MessageV2(id = 1, chatId = 1, content = "The accepted research task", platformType = null)
         val answer = MessageV2(id = 2, chatId = 1, content = partial, platformType = "p", linkedMessageId = 1, currentRunId = "run", ownershipFence = 3)
         val request = AgentRunRequest("run", 1, answer, original, listOf(user), listOf(emptyList()))
-        val store = ProviderWaitStore(context, database, settings)
+        var gitHubCheckpoint: kotlinx.serialization.json.JsonObject? = null
+        val workspace = mockk<dev.chungjungsoo.gptmobile.data.workspace.WorkspaceRepository>()
+        val store = ProviderWaitStore(context, database, settings, workspace)
         val codec = Json { encodeDefaults = true }
 
         init {
@@ -70,6 +72,7 @@ class ProviderWaitRecoveryTest {
             coEvery { settings.getFeatureSettings() } answers { features }
             coEvery { settings.providerPermissionRevision(any()) } answers { permission }
             coEvery { settings.providerActivationRequired(any()) } returns false
+            coEvery { workspace.protectedSynthesisCheckpoint(any()) } answers { gitHubCheckpoint }
         }
 
         suspend fun initialize() {
@@ -123,6 +126,32 @@ class ProviderWaitRecoveryTest {
         providerWaits = fixture.store,
         collectionDecisions = decisions
     )
+
+    @Test fun githubWaitResumesTheSameRunAndFenceWithAnEmptyAnswer() = runBlocking {
+        val fixture = Fixture()
+        mockkObject(ProviderLimitResumeWorker.Companion)
+        try {
+            every { ProviderLimitResumeWorker.enqueue(any(), any(), any(), any()) } just Runs
+            fixture.initialize()
+            val value = Json.parseToJsonElement("""{"state":"WAITING_PROVIDER_LIMIT","resume_allowed":true,"draft":"","completed_results":[{},{}]}""") as kotlinx.serialization.json.JsonObject
+            fixture.gitHubCheckpoint = value
+            val checkpoint = dev.chungjungsoo.gptmobile.data.network.GitHubProviderCheckpoint("b".repeat(64), researchHash(value.toString()))
+            val limit = fixture.decision().copy(gitHubCheckpoint = checkpoint, continuationPrefixDigest = researchHash(""))
+            assertTrue(fixture.store.deferRunning(fixture.request, limit))
+            assertEquals("WAITING_PROVIDER_LIMIT", fixture.dao.recoveryRun("run")?.status)
+            assertEquals("", fixture.dao.recoveryMessage(2)?.content)
+            val action = fixture.store.readyActions(limit.scope).single()
+            assertEquals(ProviderWaitMode.GITHUB_STEP, action.saved.mode)
+            val resumed = requireNotNull(fixture.store.resumeGitHubStep(action))
+            assertEquals("run", resumed.runId)
+            assertEquals(3L, resumed.assistantMessage.ownershipFence)
+            assertEquals(checkpoint, resumed.providerGitHubCheckpoint)
+            assertEquals("QUEUED", fixture.dao.recoveryRun("run")?.status)
+        } finally {
+            unmockkObject(ProviderLimitResumeWorker.Companion)
+            fixture.database.close()
+        }
+    }
 
     @Test fun initialWaitDeadlineProjectionRequiresItsCurrentWaitingOwner() = runBlocking {
         val fixture = Fixture()

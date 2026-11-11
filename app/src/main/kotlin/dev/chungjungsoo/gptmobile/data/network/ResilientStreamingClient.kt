@@ -49,7 +49,11 @@ object ResilientStreamingClient {
                 return block()
             } catch (e: Throwable) {
                 currentAttempt++
-                if (kotlinx.coroutines.currentCoroutineContext()[WorkerRequestBudget] != null || currentAttempt >= config.maxAttempts || !shouldRetry() || !isRetryable(e)) {
+                val context = kotlinx.coroutines.currentCoroutineContext()
+                val durableRateLimit = context[ProviderWaitContext]?.durableRateLimits == true &&
+                    generateSequence(e) { it.cause?.takeUnless { cause -> cause === it } }
+                        .take(8).filterIsInstance<ProviderHttpFailure>().any { it.status == 429 }
+                if (durableRateLimit || context[WorkerRequestBudget] != null || currentAttempt >= config.maxAttempts || !shouldRetry() || !isRetryable(e)) {
                     throw e
                 }
 

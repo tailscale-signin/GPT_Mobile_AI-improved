@@ -38,21 +38,17 @@ internal class GatewayAvailabilityNetworkSource(
     private val capabilities = RouteCapabilityCache<CapabilityObservation>({ System.nanoTime() / 1_000_000 }, positiveTtl = 10_000, negativeTtl = 60_000)
 
     override suspend fun probe(config: ProviderRequestConfig, model: String, refresh: Boolean): GatewayAvailabilityProbe {
-        if (refresh) {
-            dashboard.refresh()
-            capabilities.invalidate()
-        }
         val key = "${GatewayClientDiagnostics.routeIdentity(config)}|${LocalServiceHealth.networkEpoch}|${GatewayClientDiagnostics.runtimeEpoch(config)}"
         var capabilityObservedAt: Long? = null
         // Readiness and capabilities are independent observations. A timeout from /ready
         // must not discard a successful capability response or label a reachable gateway absent.
         return gatewayAvailabilityProbe(
             readCapabilities = {
-                capabilities.getOrLoad(key) {
+                capabilities.getOrLoad(key, forceRefresh = refresh) {
                     gateway.getCapabilities(config, forceRefresh = refresh)?.let { CapabilityObservation(it, System.currentTimeMillis()) }
                 }?.also { capabilityObservedAt = it.observedAtMillis }?.value
             },
-            readReadiness = { dashboard.readiness(config, model) }
+            readReadiness = { dashboard.readiness(config, model, forceRefresh = refresh) }
         ).copy(capabilitiesObservedAtMillis = capabilityObservedAt)
     }
 }

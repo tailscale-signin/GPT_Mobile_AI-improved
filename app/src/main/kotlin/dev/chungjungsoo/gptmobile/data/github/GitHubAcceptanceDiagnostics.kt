@@ -17,6 +17,14 @@ internal object GitHubAcceptanceDiagnostics {
     private val lifecycleActions = mapOf("create_repository" to "create", "fork_repository" to "fork", "import_repository" to "import", "clone_repository" to "clone", "repository_lifecycle_status" to "status", "repository_lifecycle_capabilities" to "capabilities")
     private val actions = setOf("default", "status", "resolve", "branch", "branches", "branch_dependencies", "commits", "commit", "commit_search", "checks", "changes", "list", "get", "search", "search_code", "search_repository", "ranges", "files", "history", "headers", "context", "comments", "reviews", "create", "update", "close", "comment", "reply", "review", "merge", "write", "delete_branch", "delete_fixture_branch", "commit_staged_patch", "definitions", "workflows", "runs", "run", "jobs", "job", "logs", "artifacts", "failure", "dispatch", "rerun", "rerun_failed_jobs", "rerun_all", "cancel", "index", "query", "node", "callers", "callees", "path", "impact", "architecture", "diff", "diagnose", "contracts", "prs", "symbols", "neighbors", "note", "notes", "requirements", "wiki", "metrics", "federated", "provider", "publish", "create_tag", "tags", "tag", "detail", "by_tag", "repository", "repositories", "capabilities", "efficiency", "recovery")
     private val repositoryActions = setOf("fork", "import", "clone")
+    private val nativeActions by lazy {
+        dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.names.associateWith { name ->
+            val schema = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.definition(name).inputSchema
+            val properties = schema["properties"] as? JsonObject
+            val action = properties?.get("action") as? JsonObject
+            (action?.get("enum") as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.contentOrNull }.toSet()
+        }
+    }
     private val labels = mapOf(
         "BUILD_REVISION_BINDING" to "Running build and repository revision",
         "AUTHORIZED_CATALOG" to "Authorized tool catalog",
@@ -204,7 +212,7 @@ internal object GitHubAcceptanceDiagnostics {
         val tool = id.substringBefore(':').substringBefore("__")
         val action = id.substringAfter(':', "default").ifBlank { "default" }
         if (tool in setOf("github", "github_repository")) lifecycleActions[action]?.let { return "github_repository:$it" }
-        return "$tool:$action".takeIf { tool in tools && (action in actions || tool == "github_repository" && action in repositoryActions) }
+        return "$tool:$action".takeIf { tool in tools && (action in actions || action in nativeActions[tool].orEmpty() || tool == "github_repository" && action in repositoryActions) }
     }
 
     private fun blocker(category: String, state: String): String = when {

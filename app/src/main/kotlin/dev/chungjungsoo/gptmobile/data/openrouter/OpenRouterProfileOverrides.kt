@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.openrouter
 
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -51,6 +52,13 @@ data class OpenRouterProfileOverrides private constructor(val raw: JsonObject) {
                     } == true
                 }
                 require(valid) { "Invalid OpenRouter $field override." }
+            }
+            val fallback = raw["fallback_models"]
+            if (fallback != null && fallback != JsonNull) {
+                val models = (fallback as? JsonArray)?.map { (it as? JsonPrimitive)?.takeIf(JsonPrimitive::isString)?.content }
+                require(models != null && models.size <= 3 && models.distinct().size == models.size && models.all {
+                    it != null && it.matches(Regex("[a-zA-Z0-9._-]+/[a-zA-Z0-9._:-]{1,160}")) && it !in setOf("openrouter/auto", "openrouter/free")
+                }) { "Enter up to three distinct exact OpenRouter model IDs." }
             }
             require(raw["provider"] == null || raw["provider"] == JsonNull || raw["provider"] is JsonObject) {
                 "OpenRouter provider routing must be an object or null."

@@ -3,11 +3,13 @@ package dev.chungjungsoo.gptmobile.data.github
 import dev.chungjungsoo.gptmobile.data.agent.AgentProviderSession
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange
+import dev.chungjungsoo.gptmobile.data.agent.GitHubProviderResumeContext
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.context.TextTokenEstimate
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.FlowCollector
@@ -57,6 +59,7 @@ internal class GitHubVerifiedSession(
     private var correctionProgress: Set<String> = emptySet()
     private var progressCorrections = 0
     private var transportWaited = false
+    private var providerStepResumed = false
     private class ProgressCheckpointFailure(cause: Exception, val originalFailure: ProviderEvent.Failed?) : Exception(cause)
 
     private fun failureCauses(error: Throwable): Sequence<Throwable> =
@@ -167,6 +170,12 @@ internal class GitHubVerifiedSession(
             } else {
                 emitAll(publish(null))
             }
+            return@flow
+        }
+        if (!providerStepResumed && currentCoroutineContext()[GitHubProviderResumeContext] != null) {
+            providerStepResumed = true
+            retainProgress(tools)
+            deliverDraftRound(collectDraft(delegate, tools, exchanges), tools, exchanges)
             return@flow
         }
         if (resumeCommitSha == null && (resumeClaimExtraction || GitHubTaskContinuity.control(currentRequest))) {
@@ -359,6 +368,12 @@ internal class GitHubVerifiedSession(
                 return@flow
             }
         }
+        deliverDraftRound(round, tools, exchanges)
+    }.catch { error ->
+        handleCheckpointFailure(error)
+    }
+
+    private suspend fun FlowCollector<ProviderEvent>.deliverDraftRound(round: DraftRound, tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) {
         val (draft, calls, completed, failed, providerFailure) = round
         if (failed || !completed) {
             // The runner owns retries and protocol repair. Do not turn a transient
@@ -371,18 +386,16 @@ internal class GitHubVerifiedSession(
                 } else {
                     emitAll(retainedFailureResponse(requireNotNull(providerFailure)))
                 }
-                return@flow
+                return
             }
             emit(providerFailure ?: ProviderEvent.Failed("GitHub response ended before verification. Receipts remain available.", errorCode = "GITHUB_EVIDENCE_REQUIRED"))
-            return@flow
+            return
         }
         if (calls || (draft.isBlank() && tools.isNotEmpty())) {
             emit(ProviderEvent.Completed)
-            return@flow
+            return
         }
         emitAll(publish(draft, continuationTools = tools, continuationExchanges = exchanges))
-    }.catch { error ->
-        handleCheckpointFailure(error)
     }
 
     private data class DraftRound(val draft: String, val calls: Boolean, val completed: Boolean, val failed: Boolean, val failure: ProviderEvent.Failed?)

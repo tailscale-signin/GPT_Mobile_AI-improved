@@ -73,6 +73,7 @@ data class AgentRunRequest(
     val stage: AgentStageRequest? = null,
     val researchParticipantUids: List<String> = emptyList(),
     val providerWaitAuthority: dev.chungjungsoo.gptmobile.data.context.CapturedProviderAuthority? = null,
+    val providerGitHubCheckpoint: dev.chungjungsoo.gptmobile.data.network.GitHubProviderCheckpoint? = null,
     /** A live master-tool change can revoke an unsubmitted host command. */
     val gatewayAdmissionAllowed: (() -> Boolean)? = null
 )
@@ -221,6 +222,7 @@ class AgentRunCoordinator @Inject constructor(
     internal suspend fun resumeProviderWaits(actions: List<ProviderWaitResume>) = withChatGate(actions.map { it.request.chatId }) {
         val requests = actions.mapNotNull { action ->
             val request = action.request
+            if (jobs.containsKey(request.runId) || deferredStarts.containsKey(request.runId)) return@mapNotNull null
             if (stopExcludedContributor(request)) return@mapNotNull null
             val root = request.chatToolConfig?.combined?.rootBudgetId
             if (root != null && chatRepository.isCombinedTurnCancelled(root)) {
@@ -233,16 +235,17 @@ class AgentRunCoordinator @Inject constructor(
                 authority.validate(settingRepository)
                 when (action.saved.mode) {
                     ProviderWaitMode.INITIAL -> request
+                    ProviderWaitMode.GITHUB_STEP -> providerWaits?.resumeGitHubStep(action)
                     ProviderWaitMode.TEXT_CONTINUATION -> providerWaits?.resumeTextContinuation(action)
                     ProviderWaitMode.RESEARCH_STAGE -> providerWaits?.resumeResearch(action)
                     ProviderWaitMode.COMBINED_APPEND -> synthesisPlanner?.prepareAppendResume(request.chatId, request.runId, decision)
                 }?.copy(providerWaitAuthority = authority).also { resumed ->
-                    if (resumed == null) chatRepository.finishActiveAgentRun(request.runId, AgentRunStatus.INTERRUPTED, currentEpochSeconds(), "PROVIDER_WAIT_REVIEW_REQUIRED")
+                    if (resumed == null) providerWaits?.blockIfCurrent(action, "PROVIDER_WAIT_REVIEW_REQUIRED")
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (changed: Exception) {
-                chatRepository.finishActiveAgentRun(request.runId, AgentRunStatus.INTERRUPTED, currentEpochSeconds(), "PROVIDER_WAIT_REVIEW_REQUIRED")
+                providerWaits?.blockIfCurrent(action, "PROVIDER_WAIT_REVIEW_REQUIRED")
                 _notices.tryEmit(AgentRunNotice(request.chatId, request.runId, "Saved work needs review before it can resume. Its evidence and answer are retained.", true))
                 null
             }
@@ -288,7 +291,8 @@ class AgentRunCoordinator @Inject constructor(
             val cancellation = dev.chungjungsoo.gptmobile.data.delegation.DelegationCancellationContext("${request.chatId}:$rootMessage", request.runId)
             val waitAuthority = request.providerWaitAuthority?.requestGuard(settingRepository)
             val savedAuthority = gatewayQueue?.guard(request, waitAuthority) ?: waitAuthority ?: kotlin.coroutines.EmptyCoroutineContext
-            val job = scope.launch(context = cancellation + savedAuthority, start = CoroutineStart.LAZY) {
+            val checkpointContext = request.providerGitHubCheckpoint?.let(::GitHubProviderResumeContext) ?: kotlin.coroutines.EmptyCoroutineContext
+            val job = scope.launch(context = cancellation + savedAuthority + checkpointContext, start = CoroutineStart.LAZY) {
                 execute(request)
             }
             if (jobs.putIfAbsent(request.runId, job) == null) {
@@ -865,7 +869,7 @@ class AgentRunCoordinator @Inject constructor(
         }
         var checkpoints = newCheckpoints()
         suspend fun pauseForProvider(decision: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision, stage: dev.chungjungsoo.gptmobile.data.research.ResearchDeferredStage? = null): Boolean {
-            if (!decision.knownNotAccepted) return false
+            if (!decision.mayWait) return false
             val savedStage = stage ?: researchLifecycle?.let { lifecycle ->
                 dev.chungjungsoo.gptmobile.data.research.ResearchDeferredStage(lifecycle.rootWorkId, "PRIMARY", dev.chungjungsoo.gptmobile.data.research.researchHash(request.userMessages.lastOrNull()?.content.orEmpty()), decision)
             }
@@ -873,9 +877,13 @@ class AgentRunCoordinator @Inject constructor(
                 checkpoints.drain()
                 chatRepository.updateAgentMessage(assistantMessage)
                 val waiting = providerWaits?.deferRunning(request, decision, savedStage) == true
+                AppLogRecorder.record(
+                    "ProviderRetry",
+                    "JOB_WAIT · runId=${request.runId} · provider=${decision.provider} · scope=${decision.scope} · retryAtMs=${decision.retryAt} · source=${decision.retrySource ?: "PROVIDER_POLICY"} · count=${decision.consecutiveRejections} · githubCheckpoint=${decision.gitHubCheckpoint != null} · persisted=$waiting"
+                )
                 if (waiting) {
                     researchLifecycle?.terminal(dev.chungjungsoo.gptmobile.data.research.ResearchAttemptState.WAITING_PROVIDER_LIMIT, "PROVIDER_LIMIT:${decision.retryAt}")
-                    _notices.tryEmit(AgentRunNotice(request.chatId, request.runId, "Work saved. Waiting for the provider limit to reset at ${java.time.Instant.ofEpochMilli(decision.retryAt)}.", true))
+                    _notices.tryEmit(AgentRunNotice(request.chatId, request.runId, "Work saved. The provider step will resume automatically when it is eligible.", true))
                 }
                 waiting
             }
@@ -1078,7 +1086,9 @@ class AgentRunCoordinator @Inject constructor(
                 val limit = (outcome as? ApiStateFlowOutcome.Failed)?.providerLimit
                 if (limit != null && pauseForProvider(limit)) return@coroutineScope
                 val terminal = outcome.toTerminalUpdate().let { update ->
-                    if (update.status == AgentRunStatus.FAILED && assistantMessage.timeline.lastOrNull { it.profileFailure != null }?.profileFailure?.isUnsentSetup == true) {
+                    if (limit?.mayWait == true) {
+                        AgentRunTerminalUpdate(AgentRunStatus.BLOCKED, "PROVIDER_WAIT_REVIEW_REQUIRED: Saved work needs review before it can resume.")
+                    } else if (update.status == AgentRunStatus.FAILED && assistantMessage.timeline.lastOrNull { it.profileFailure != null }?.profileFailure?.isUnsentSetup == true) {
                         update.copy(status = AgentRunStatus.BLOCKED)
                     } else {
                         update
@@ -1118,12 +1128,17 @@ class AgentRunCoordinator @Inject constructor(
             withContext(NonCancellable) {
                 checkpoints.cancelAndJoin()
                 val completedAt = currentEpochSeconds()
-                val isInterrupted = interruptingRunIds.remove(request.runId)
+                val platformInterrupted = interruptingRunIds.remove(request.runId)
+                val excluded = excludedRunIds.remove(request.runId)
+                val origin = currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.delegation.DelegationCancellationContext]?.record?.origin
                 val cancellationReason = when {
-                    isInterrupted -> AgentRunTerminalError.SERVICE_STOPPED
-                    excludedRunIds.remove(request.runId) -> "EXCLUDED_FROM_COMBINED_TURN"
-                    else -> null
+                    platformInterrupted -> AgentRunTerminalError.SERVICE_STOPPED
+                    excluded -> "EXCLUDED_FROM_COMBINED_TURN"
+                    origin == dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin.USER_WHOLE_RUN -> "USER_CANCELLED"
+                    origin == dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin.CHAT_DELETED -> "CHAT_DELETED"
+                    else -> origin?.name ?: "EXECUTION_INTERRUPTED"
                 }
+                val isInterrupted = !excluded && cancellationReason !in setOf("USER_CANCELLED", "CHAT_DELETED")
                 runCatching {
                     traceReducedOutput(assistantMessage)
                     val cancelledMessage = assistantMessage.copy(createdAt = completedAt).resetActiveRevision().withCombinedOutcome(if (isInterrupted) AgentRunStatus.INTERRUPTED else AgentRunStatus.CANCELED)
@@ -1134,7 +1149,7 @@ class AgentRunCoordinator @Inject constructor(
                         completedAt,
                         cancellationReason
                     )
-                    if (committed) settleResearchOutcome(request, researchLifecycle, cancelledMessage, if (isInterrupted) AgentRunStatus.INTERRUPTED else AgentRunStatus.CANCELED, cancellationReason ?: "USER_CANCELLED")
+                    if (committed) settleResearchOutcome(request, researchLifecycle, cancelledMessage, if (isInterrupted) AgentRunStatus.INTERRUPTED else AgentRunStatus.CANCELED, cancellationReason)
                 }.onFailure { failure -> finishUnavailablePolicy(failure, if (isInterrupted) AgentRunStatus.INTERRUPTED else AgentRunStatus.CANCELED) }
             }
             throw error

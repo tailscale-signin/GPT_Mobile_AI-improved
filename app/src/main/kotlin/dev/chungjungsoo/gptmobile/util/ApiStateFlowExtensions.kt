@@ -712,8 +712,12 @@ private class StreamingMessageBuffer(
     suspend fun flush(
         onUpdate: suspend (content: String, thoughts: String, timeline: List<AssistantTimelineItem>) -> Unit
     ) {
-        if (!hasPendingChanges()) return
-        publish(onUpdate, nanoTimeProvider())
+        if (hasPendingChanges()) {
+            publish(onUpdate, nanoTimeProvider())
+        } else {
+            val first = outputPublications.drain()
+            if (first.isNotEmpty()) onOutputPublication(currentContent(), contentLineage.lineage, first)
+        }
     }
 
     suspend fun publishNow(

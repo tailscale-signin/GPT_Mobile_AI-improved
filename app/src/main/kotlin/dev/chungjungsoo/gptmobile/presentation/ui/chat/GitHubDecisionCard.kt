@@ -35,6 +35,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.lifecycle.Lifecycle
@@ -51,21 +52,19 @@ internal fun GitHubDecisionCard(decision: GitHubChatDecision, waiting: Boolean, 
     var answer by rememberSaveable(decision.id) { mutableStateOf("") }
     val colors = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(24.dp)
+    val title = remember(decision.question) { dev.chungjungsoo.gptmobile.data.github.gitHubDecisionTitle(decision.question) }
     Card(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).gitHubDecisionOutline(shape, active = decision.answer == null).testTag("github_decision_${decision.id}"),
         shape = shape,
         colors = CardDefaults.cardColors(containerColor = colors.surfaceContainerLow),
         border = BorderStroke(1.dp, colors.primary.copy(alpha = 0.3f))
     ) {
-        Row(Modifier.fillMaxWidth().background(Brush.horizontalGradient(listOf(colors.primaryContainer, colors.tertiaryContainer))).padding(16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(Modifier.fillMaxWidth().background(Brush.horizontalGradient(listOf(colors.primaryContainer, colors.tertiaryContainer))).padding(horizontal = 14.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Icon(Icons.Rounded.Tune, contentDescription = null, tint = colors.onPrimaryContainer)
-            Column {
-                Text("Your direction", style = MaterialTheme.typography.titleMedium, color = colors.onPrimaryContainer)
-                Text(if (decision.answer == null) "Choose the next step for this feature" else "Your choice is saved", style = MaterialTheme.typography.bodySmall, color = colors.onPrimaryContainer)
-            }
+            Text(if (decision.answer == null) title else "Choice saved", style = MaterialTheme.typography.titleSmall, color = colors.onPrimaryContainer, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite })
         }
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(decision.question, style = MaterialTheme.typography.titleMedium)
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            if (decision.answer == null && title != decision.question.trim()) Text(decision.question, style = MaterialTheme.typography.bodyMedium)
             if (decision.context.isNotBlank()) Text(decision.context, style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
             if (decision.answer == null) {
                 decision.options.forEachIndexed { index, option ->
@@ -111,7 +110,7 @@ internal fun GitHubLiveProgressCard(timeline: List<dev.chungjungsoo.gptmobile.da
     SideEffect { lines.forEach { seenEntries.add((it.progressId ?: it.content) to it.statusSummary) } }
     Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
         val visibleLines = remember(lines, visibleEntries) { gitHubVisibleActivityLines(lines, compact = true, entryLimit = visibleEntries) }
-        val latestPreview = visibleLines.lastIndex.takeIf { active && it >= 0 && !visibleLines[it].statusSummary } ?: -1
+        val latestPreview = latestGitHubActivityIndex(visibleLines).takeIf { active && it >= 0 && !visibleLines[it].statusSummary } ?: -1
         val motion = rememberGitHubProgressMotion(latestPreview >= 0)
         Column(Modifier.fillMaxWidth().testTag("github_live_activity"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (visibleLines.size < lines.size) {

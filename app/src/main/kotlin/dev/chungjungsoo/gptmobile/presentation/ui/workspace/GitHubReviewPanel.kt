@@ -92,6 +92,7 @@ class GitHubReviewViewModel @Inject constructor(private val connections: ToolCon
         decisionReceipts.value = emptyList()
         review.value = null
         record.value = null
+        notice.value = ""
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) { refreshEngineeringTasksNow() }
     }
     private suspend fun refreshEngineeringTasksNow() {
@@ -125,16 +126,6 @@ class GitHubReviewViewModel @Inject constructor(private val connections: ToolCon
         if (programmerScope.value == scope && programmerChatId == chatId) {
             engineeringTasks.value = tasks
             decisionReceipts.value = receipts
-            if (scope != null && tasks.none { it.state == "AWAITING_APPROVAL" }) {
-                val unbound = recent.firstOrNull { task ->
-                    task.state == "AWAITING_APPROVAL" &&
-                        task !in tasks &&
-                        task.repositoryOwner.equals(scope.owner, true) &&
-                        task.repositoryName.equals(scope.repo, true) &&
-                        engineering.run(task.taskId)?.connectionUid == scope.connectionUid
-                }
-                if (unbound != null) notice.value = "Saved approval ${unbound.taskId} on ${unbound.workingBranch} has no verified link to this workspace. Resume its original saved task once to restore that exact card. Its patch and fixture are preserved."
-            }
         }
     }
     private suspend fun belongsToWorkspace(task: dev.chungjungsoo.gptmobile.data.agent.tool.EngineeringTaskRow, scope: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext): Boolean {
@@ -329,7 +320,7 @@ class GitHubReviewViewModel @Inject constructor(private val connections: ToolCon
         save(GitHubReview(run.connectionUid, task.repositoryOwner, task.repositoryName, task.workingBranch, task.baseSha, files = files))
         inspectEngineeringTaskNow(taskId)
         pendingEngineeringTask.value = null
-        notice.value = "Review the proposed files below, then choose Approve reviewed patch. No commit has been sent."
+        notice.value = if (programmerChatId == null) "Review the proposed files below, then choose Approve reviewed patch. No commit has been sent." else ""
     }
     suspend fun refreshWorkspaceApproval(scope: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext) {
         if (busy.value || programmerScope.value != scope || pendingEngineeringTask.value != null) return

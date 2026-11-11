@@ -22,15 +22,19 @@ object GitHubChatPresence {
     fun shouldNotify(chatId: Int, foreground: Boolean): Boolean = !foreground || !contains(chatId)
 }
 
+internal fun gitHubDecisionTitle(question: String): String = question.lineSequence().map(String::trim)
+    .firstOrNull(String::isNotBlank)?.take(90)?.dropLastWhile(Char::isHighSurrogate)?.trimEnd()
+    ?: "Choose how to continue"
+
 @Singleton
 class GitHubDecisionNotifications @Inject constructor(private val notifications: NotificationManager, private val settings: SettingRepository) {
     suspend fun offered(decision: GitHubChatDecision) {
         prompt(decision.id, decision.chatId, decision.sourceMessageId, decision.question)
     }
-    suspend fun prompt(id: String, chatId: Int, messageId: Int, question: String) {
+    suspend fun prompt(id: String, chatId: Int, messageId: Int, question: String, title: String = gitHubDecisionTitle(question), action: String = "Respond") {
         if (settings.getFeatureSettings().responseNotifications && GitHubChatPresence.shouldNotify(chatId, !AppForegroundTracker.isBackgrounded)) {
             // Notification denial cannot turn a pending question into an answer or fail the task.
-            runCatching { notifications.showGitHubDecision(id, chatId, messageId, question) }
+            runCatching { notifications.showGitHubDecision(id, chatId, messageId, question, title, action) }
         }
     }
     fun dismiss(id: String) {

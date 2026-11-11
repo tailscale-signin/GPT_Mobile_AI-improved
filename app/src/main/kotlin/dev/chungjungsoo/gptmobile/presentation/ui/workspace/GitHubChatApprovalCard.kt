@@ -18,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Description
+import androidx.compose.material.icons.rounded.RateReview
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
@@ -35,7 +36,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -53,11 +56,7 @@ internal fun GitHubChatApprovalCard(model: GitHubReviewViewModel, onCommitted: (
     val review by model.review.collectAsStateWithLifecycle()
     val busy by model.busy.collectAsStateWithLifecycle()
     val notice by model.notice.collectAsStateWithLifecycle()
-    val snapshot = run?.takeIf { it.taskId == pending }
-    if (snapshot == null) {
-        if (notice.isNotBlank()) Text(notice, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 12.dp))
-        return
-    }
+    val snapshot = run?.takeIf { it.taskId == pending } ?: return
     val proposal = review ?: return
     val files = remember(proposal.files) { proposal.files.filter { it.changed } }
     var showDetails by remember(snapshot.taskId, snapshot.patchDigest) { mutableStateOf(false) }
@@ -133,7 +132,16 @@ internal fun GitHubApprovalSummary(
     val shape = MaterialTheme.shapes.large
     AppGlassSurface(Modifier.fillMaxWidth().padding(horizontal = 12.dp).gitHubDecisionOutline(shape, active = !busy).testTag("github_chat_approval"), shape = shape) {
         Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text("Review proposed changes", style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(Icons.Rounded.RateReview, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Text(
+                    "Review proposed changes",
+                    style = MaterialTheme.typography.titleSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }
+                )
+            }
             Text(summary, style = MaterialTheme.typography.bodySmall, maxLines = 3, overflow = TextOverflow.Ellipsis)
             BoxWithConstraints(Modifier.fillMaxWidth()) {
                 // Keep all actions horizontal and their touch targets intact at large text sizes.

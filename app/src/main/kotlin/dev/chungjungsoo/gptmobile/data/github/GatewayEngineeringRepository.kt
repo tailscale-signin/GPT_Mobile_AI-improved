@@ -358,7 +358,13 @@ class GatewayEngineeringRepository @Inject constructor(
         lastPoll[requestId] = System.nanoTime() / 1_000_000
         val job = requireNotNull(binding.job)
         if (job.revision > binding.notifiedRevision && job.state in setOf("MERGE_READY", "NEEDS_INPUT", "COMPLETED")) {
-            notifications.prompt(job.id, binding.chatId, 0, "${job.repository} · ${job.message}")
+            val title = when (job.state) {
+                "MERGE_READY" -> "Review pull request merge"
+                "NEEDS_INPUT" -> "Input needed to continue"
+                else -> "GitHub job complete"
+            }
+            val action = if (job.state == "COMPLETED") "Open job" else "Review job"
+            notifications.prompt(job.id, binding.chatId, 0, "${job.repository} · ${job.message}", title, action)
             binding = binding.copy(notifiedRevision = job.revision)
             save(binding)
         }

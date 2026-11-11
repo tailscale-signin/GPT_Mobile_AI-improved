@@ -76,7 +76,7 @@ internal fun rememberGitHubTurnDecisions(choices: List<GitHubChatDecision>, comm
         } else {
             emptySet()
         }
-        val completedChoices = choices.filter { it.delivered }.mapNotNull { decision -> decision.bubble()?.let { decision.sourceMessageId to it } }
+        val completedChoices = choices.filter { it.delivered || it.cancelled }.mapNotNull { decision -> decision.bubble()?.let { decision.sourceMessageId to it } }
         val otherReceipts = commits.filter { it.sha?.lowercase(java.util.Locale.ROOT) !in visibleCommits }.map { it.sourceMessageId to it.bubble() }
         (completedChoices + otherReceipts).groupBy({ it.first }, { it.second })
     }

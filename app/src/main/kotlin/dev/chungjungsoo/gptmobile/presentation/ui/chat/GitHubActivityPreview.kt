@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
@@ -59,7 +60,7 @@ internal fun GitHubActivityPreview(raw: String, latest: Boolean, motion: State<F
     Row(
         modifier = Modifier.fillMaxWidth().testTag("github_preview_row")
             .graphicsLayer {
-                alpha = opacity.value
+                alpha = if (latest) 1f else opacity.value
                 compositingStrategy = if (latest) CompositingStrategy.Offscreen else CompositingStrategy.Auto
             }
             .then(
@@ -77,21 +78,21 @@ internal fun GitHubActivityPreview(raw: String, latest: Boolean, motion: State<F
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // The active bottom row shares one pan across its icon and words.
-        // Older previews keep the same half-opacity colour without the brush.
-        if (search != null) {
-            GitHubSearchBrandStack(search)
-        } else {
-            Icon(
-                imageVector = kind.outlineIcon(),
-                contentDescription = null,
-                tint = previewColor,
-                modifier = Modifier.size(18.dp).testTag("github_preview_icon_${kind.name.lowercase(Locale.ROOT)}")
-            )
+        Box(Modifier.graphicsLayer { alpha = if (latest) opacity.value else 1f }) {
+            if (search != null) {
+                GitHubSearchBrandStack(search)
+            } else {
+                Icon(
+                    imageVector = kind.outlineIcon(),
+                    contentDescription = null,
+                    tint = previewColor,
+                    modifier = Modifier.size(18.dp).testTag("github_preview_icon_${kind.name.lowercase(Locale.ROOT)}")
+                )
+            }
         }
         val counter = GitHubProgressPresentation.liveKey(text) != null
         // Counters update in their stable row, without replacing its accessibility node.
-        GitHubActivityCrossfade(text, Modifier.weight(1f), animateChanges = !counter) { displayed, current ->
+        GitHubActivityCrossfade(text, Modifier.weight(1f), animateChanges = !counter && !latest) { displayed, current ->
             Text(
                 displayed,
                 modifier = Modifier.fillMaxWidth().then(
@@ -105,7 +106,7 @@ internal fun GitHubActivityPreview(raw: String, latest: Boolean, motion: State<F
                     }
                 ),
                 style = MaterialTheme.typography.bodyMedium,
-                color = previewColor,
+                color = if (latest) colors.onSurface.copy(alpha = 1f) else previewColor,
                 maxLines = if (expanded) Int.MAX_VALUE else 2,
                 overflow = if (expanded) TextOverflow.Clip else TextOverflow.Ellipsis,
                 onTextLayout = { if (current && !expanded) overflows = it.hasVisualOverflow }
@@ -117,6 +118,7 @@ internal fun GitHubActivityPreview(raw: String, latest: Boolean, motion: State<F
             IconButton(
                 onClick = { expanded = !expanded },
                 modifier = Modifier.size(48.dp).testTag("github_preview_details")
+                    .graphicsLayer { alpha = if (latest) opacity.value else 1f }
                     .semantics { stateDescription = detailsState }
             ) {
                 Icon(

@@ -29,7 +29,13 @@ internal class GitHubPublicProgress(private val publish: suspend (String, Output
         return answer.toString()
     }
 
-    fun finish(): String = parser.accept("", flush = true).filterNot { it.first }.joinToString("") { it.second }
+    fun finish(): String {
+        val answer = parser.accept("", flush = true).filterNot { it.first }.joinToString("") { it.second }
+        parser.reset()
+        progress.clear()
+        lineage.reset()
+        return answer
+    }
 
     private companion object {
         const val MAX_PROGRESS_CHARACTERS = 2400

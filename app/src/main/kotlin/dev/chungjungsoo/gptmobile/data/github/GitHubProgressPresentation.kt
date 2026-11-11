@@ -45,10 +45,11 @@ internal object GitHubProgressPresentation {
             )
     }
 
-    /** Counters are state, not another event in the public activity history. */
+    private val liveCounter = Regex("""^(checks?|files?|steps?|pages?|jobs?|items?|records?|operations?|tools?)\s*:?\s*\d+\s*/\s*\d+\b""", RegexOption.IGNORE_CASE)
+
+    /** Reuse the row when an observed collection advances. */
     fun liveKey(text: String): String? {
-        val kind = Regex("""^(checks?|files?|steps?|pages?|jobs?)\s*:?\s*\d+\s*/\s*\d+\b""", RegexOption.IGNORE_CASE)
-            .find(text.trim())?.groupValues?.get(1)?.lowercase(java.util.Locale.ROOT)?.removeSuffix("s") ?: return null
+        val kind = liveCounter.find(text.trimStart())?.groupValues?.get(1)?.lowercase(java.util.Locale.ROOT)?.removeSuffix("s") ?: return null
         return "github-$kind-counts"
     }
 

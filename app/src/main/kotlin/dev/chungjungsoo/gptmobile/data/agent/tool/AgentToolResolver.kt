@@ -1344,7 +1344,14 @@ class AgentToolResolver @Inject constructor(
                     engineeringController.scheduleApprovalRecovery(engineeringTaskId)
                 }
                 userMessage?.takeIf { it.chatId > 0 && it.id > 0 }?.let {
-                    gitHubDecisionNotifications?.prompt("github-approval-$engineeringTaskId", it.chatId, it.id, "Your repository changes are ready for review and approval.")
+                    gitHubDecisionNotifications?.prompt(
+                        "github-approval-$engineeringTaskId",
+                        it.chatId,
+                        it.id,
+                        "Your repository changes are ready for review and approval.",
+                        title = "Review proposed changes",
+                        action = "Review changes"
+                    )
                 }
                 kotlinx.serialization.json.buildJsonObject {
                     put("engineering_task_id", engineeringTaskId)

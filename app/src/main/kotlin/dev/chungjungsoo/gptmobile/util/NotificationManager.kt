@@ -124,7 +124,7 @@ class NotificationManager @Inject constructor(
         notificationManager.cancel(NOTIFICATION_ID)
     }
 
-    fun showGitHubDecision(requestId: String, chatId: Int, messageId: Int, question: String) {
+    fun showGitHubDecision(requestId: String, chatId: Int, messageId: Int, question: String, title: String, action: String) {
         if (!androidx.core.app.NotificationManagerCompat.from(context).areNotificationsEnabled()) return
         val id = decisionNotificationId(requestId)
         val intent = Intent(context, MainActivity::class.java).apply {
@@ -138,16 +138,17 @@ class NotificationManager @Inject constructor(
             id,
             NotificationCompat.Builder(context, CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_ai_notification)
-                .setContentTitle("GitHub · Your decision is needed")
-                .setContentText(question.take(180))
-                .setStyle(NotificationCompat.BigTextStyle().bigText(question.take(400)))
-                .setSubText("Tap to choose in the conversation")
+                .setContentTitle(title)
+                .setContentText(question.take(180).takeUnless { it == title })
+                .setStyle(NotificationCompat.BigTextStyle().bigText(question.take(400).takeUnless { it == title }))
+                .setSubText("GitHub")
                 .setCategory(NotificationCompat.CATEGORY_MESSAGE)
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
                 .setOnlyAlertOnce(true)
                 .setAutoCancel(true)
                 .setContentIntent(pending)
+                .addAction(R.drawable.ic_ai_notification, action, pending)
                 .build()
         )
     }

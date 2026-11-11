@@ -451,7 +451,7 @@ private fun ChatScreenContent(
     LaunchedEffect(chatRoom.id, chatToolConfig.github != null) { if (chatToolConfig.github != null) chatViewModel.loadGitHubDecisions() }
     val githubDecisionScope = chatToolConfig.github?.let(dev.chungjungsoo.gptmobile.data.github.GitHubChatDecisions::workspaceKey)
     val scopedGitHubDecisions = remember(githubDecisions, chatRoom.id, githubDecisionScope) { githubDecisions.filter { it.chatId == chatRoom.id && it.workspace == githubDecisionScope } }
-    val visibleGitHubDecisions = remember(scopedGitHubDecisions) { scopedGitHubDecisions.filterNot { it.delivered } }
+    val visibleGitHubDecisions = remember(scopedGitHubDecisions) { scopedGitHubDecisions.filter { !it.delivered && !it.cancelled } }
     val nativeDecisions = LocalGitHubNativeDecisions.current
     val turnDecisions = rememberGitHubTurnDecisions(scopedGitHubDecisions, nativeDecisions, groupedMessages.userMessages, pendingPrompts)
     val showResearchPanels = researchPanelsVisible(allowResearchPanels, chatToolConfig)
@@ -492,11 +492,10 @@ private fun ChatScreenContent(
         visibleGitHubDecisions.any { it.sourceMessageId == latestUser?.id } ||
         approvals.any { agentRunsById[it.runId]?.userMessageId == latestUser?.id } ||
         inputRequests.any { it.runId?.let(agentRunsById::get)?.userMessageId == latestUser?.id }
-    val pinnedGitHubPrompt = latestUser?.takeIf {
+    val awaitingGitHubTurn = latestUser != null &&
         githubPromptMode &&
-            chatRoom.conversationMode != ConversationMode.COMBINED &&
-            (waitingForGitHubInput || activeGitHubResponse || githubResponseStarting)
-    }
+        chatRoom.conversationMode != ConversationMode.COMBINED &&
+        (waitingForGitHubInput || activeGitHubResponse || githubResponseStarting)
     var observedPromptKey by rememberSaveable(chatRoom.id) { mutableStateOf<String?>(null) }
     var promptTrackingReady by rememberSaveable(chatRoom.id) { mutableStateOf(false) }
     var anchoredPromptKey by rememberSaveable(chatRoom.id) { mutableStateOf<String?>(null) }
@@ -907,7 +906,7 @@ private fun ChatScreenContent(
                 ) { visibleIndex, message ->
                     val index = firstVisibleTurn + visibleIndex
                     ChatMessagePair(
-                        pinGitHubPrompt = index == lastMessageIndex && pinnedGitHubPrompt != null,
+                        awaitingGitHubTurn = index == lastMessageIndex && awaitingGitHubTurn,
                         reservedTurnHeight = if (githubPromptMode && index == lastMessageIndex) (with(density) { listState.layoutInfo.viewportSize.height.toDp() } - composerHeight - 16.dp - innerPadding.calculateTopPadding()).coerceAtLeast(0.dp) else 0.dp,
                         replyRevision = pendingReplies.hashCode().toLong(),
                         replyVisible = listState.layoutInfo.visibleItemsInfo.any { it.key == chatMessagePairKey(message, index) },
@@ -1100,41 +1099,6 @@ private fun ChatScreenContent(
                     val receipt = if (chatToolConfig.github != null) gitHubCommitDecisionBubble(prompt.text, nativeDecisions) else null
                     QueuedPromptBubble(prompt, chatViewModel::editQueuedPrompt, chatViewModel::removeQueuedPrompt, chatViewModel::pauseQueuedPrompt, followUpProgress[prompt.id], receipt)
                 }
-                if (chatToolConfig.github != null) {
-                    item(key = "gateway-merge-interactions") { GatewayMergeInteractions(chatRoom.id) }
-                    bottomInteractionContent?.let { content -> item(key = "github-saved-patch-approval") { content() } }
-                    items(visibleGitHubDecisions.size, key = { "github-decision-${visibleGitHubDecisions[it].id}" }) { index ->
-                        val decision = visibleGitHubDecisions[index]
-                        GitHubDecisionCard(decision, decision.id in githubWaiting, { option, answer -> chatViewModel.answerGitHubDecision(decision.id, option, answer) }, { chatViewModel.resumeGitHubDecision(decision.id) }, { chatViewModel.stopGitHubDecision(decision.id) })
-                    }
-                    items(approvals.size, key = { "tool-approval-${approvals[it].id}" }) { index ->
-                        val approval = approvals[index]
-                        GitHubPendingPrompt {
-                            ToolApprovalDialog(
-                                approval = approval,
-                                onDeny = { chatViewModel.decideToolApproval(approval.id, false) },
-                                onAllowOnce = { chatViewModel.decideToolApproval(approval.id, true) },
-                                onAllowInConversation = { chatViewModel.allowToolInConversation(approval.id) },
-                                onAlwaysAllowTool = { chatViewModel.alwaysAllowTool(approval.id) },
-                                onAlwaysAllowProvider = { chatViewModel.alwaysAllowToolProvider(approval.id) },
-                                inline = true
-                            )
-                        }
-                    }
-                    items(inputRequests.size, key = { "mcp-input-${inputRequests[it].id}" }) { index ->
-                        GitHubPendingPrompt { McpInputDialog(inputRequests[index], inline = true, respond = chatViewModel::respondMcpInput) }
-                    }
-                    delegationRecoveryRequests.filter { it.chatId == chatRoom.id }.forEach { request ->
-                        item(key = "delegation-recovery-${request.id}") {
-                            GitHubPendingPrompt { DelegationRecoveryDialog(request, { profileUid -> chatViewModel.respondDelegationRecovery(request.id, profileUid) }, { chatViewModel.respondDelegationRecovery(request.id, null) }, inline = true) }
-                        }
-                    }
-                    freeToolConsent?.let { request ->
-                        item(key = "personal-tool-consent") {
-                            GitHubPendingPrompt { FreeToolConsentDialog(request, chatViewModel::confirmFreeToolConsent, chatViewModel::dismissFreeToolConsent, inline = true) }
-                        }
-                    }
-                }
                 if (groupedMessages.userMessages.isNotEmpty()) {
                     item(key = "chat-bottom-anchor") {
                         Spacer(Modifier.size(1.dp))
@@ -1179,12 +1143,56 @@ private fun ChatScreenContent(
                     }
             ) {
                 Column(Modifier.navigationBarsPadding()) {
-                    pinnedGitHubPrompt?.let { prompt ->
-                        ActiveGitHubPrompt(
-                            prompt,
-                            gitHubCommitDecisionBubble(prompt.content, nativeDecisions),
-                            onViewPrompt = { chatViewModel.openSelectTextSheet(it) }
-                        )
+                    if (githubPromptMode) {
+                        Column(
+                            Modifier.fillMaxWidth()
+                                .heightIn(max = (viewportHeight * 0.42f).coerceAtMost(320.dp))
+                                .verticalScroll(rememberScrollState())
+                                .testTag("github_action_notifications")
+                        ) {
+                            GatewayMergeInteractions(chatRoom.id)
+                            bottomInteractionContent?.invoke()
+                            visibleGitHubDecisions.forEach { decision ->
+                                key(decision.id) {
+                                    GitHubDecisionCard(decision, decision.id in githubWaiting, { option, answer ->
+                                        chatViewModel.answerGitHubDecision(decision.id, option, answer)
+                                    }, { chatViewModel.resumeGitHubDecision(decision.id) }, { chatViewModel.stopGitHubDecision(decision.id) })
+                                }
+                            }
+                            approvals.forEach { approval ->
+                                key(approval.id) {
+                                    GitHubPendingPrompt {
+                                        ToolApprovalDialog(
+                                            approval = approval,
+                                            onDeny = { chatViewModel.decideToolApproval(approval.id, false) },
+                                            onAllowOnce = { chatViewModel.decideToolApproval(approval.id, true) },
+                                            onAllowInConversation = { chatViewModel.allowToolInConversation(approval.id) },
+                                            onAlwaysAllowTool = { chatViewModel.alwaysAllowTool(approval.id) },
+                                            onAlwaysAllowProvider = { chatViewModel.alwaysAllowToolProvider(approval.id) },
+                                            inline = true
+                                        )
+                                    }
+                                }
+                            }
+                            inputRequests.forEach { request ->
+                                key(request.id) { GitHubPendingPrompt { McpInputDialog(request, inline = true, respond = chatViewModel::respondMcpInput) } }
+                            }
+                            delegationRecoveryRequests.filter { it.chatId == chatRoom.id }.forEach { request ->
+                                key(request.id) {
+                                    GitHubPendingPrompt {
+                                        DelegationRecoveryDialog(
+                                            request,
+                                            { profileUid -> chatViewModel.respondDelegationRecovery(request.id, profileUid) },
+                                            { chatViewModel.respondDelegationRecovery(request.id, null) },
+                                            inline = true
+                                        )
+                                    }
+                                }
+                            }
+                            freeToolConsent?.let { request ->
+                                GitHubPendingPrompt { FreeToolConsentDialog(request, chatViewModel::confirmFreeToolConsent, chatViewModel::dismissFreeToolConsent, inline = true) }
+                            }
+                        }
                     }
                     chatToolConfig.research?.takeIf { showResearchPanels }?.let { selection ->
                         val profileUid = activePlatformUids.firstOrNull().orEmpty()
@@ -1498,7 +1506,7 @@ private fun ChatScreenContent(
 @Composable
 internal fun ChatMessagePair(
     reservedTurnHeight: Dp = 0.dp,
-    pinGitHubPrompt: Boolean = false,
+    awaitingGitHubTurn: Boolean = false,
     replyRevision: Long,
     replyVisible: Boolean,
     onAnswerDisplayed: (MessageV2) -> Unit,
@@ -1665,7 +1673,7 @@ internal fun ChatMessagePair(
     val savedFailure = visibleResponseFailure(assistantTimeline.lastOrNull { it.runError != null }?.runError, agentRun?.terminalError, agentRun?.status)
     val nativeDecisions = LocalGitHubNativeDecisions.current
     val approvalCardOrReceipt = LocalGitHubApprovalPending.current || nativeDecisions.any { it.sourceMessageId == message.id }
-    val awaitingGitHubDelivery = pinGitHubPrompt || githubTask != null && gitHubApprovalRetryBlock(savedFailure, approvalCardOrReceipt) != null
+    val awaitingGitHubDelivery = awaitingGitHubTurn || githubTask != null && gitHubApprovalRetryBlock(savedFailure, approvalCardOrReceipt) != null
     val readAssistantActionText: suspend () -> String = {
         when {
             selectedSourceReader != null -> selectedSourceReader.readAll()
@@ -1736,31 +1744,29 @@ internal fun ChatMessagePair(
     val gitHubChat = githubTask != null || currentResearchTools().github != null
     val commitDecision = remember(gitHubChat, message.content, nativeDecisions) { if (gitHubChat) gitHubCommitDecisionBubble(message.content, nativeDecisions) else null }
     StableChatResponseViewport(contentKey = if (isCombinedConversation) "combined" else selectedPlatformUid, reservedHeight = reservedTurnHeight) {
-        if (!pinGitHubPrompt) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .onSizeChanged {
-                        if (targetAssistantIndex >= 0) onTargetResponseOffset(it.height + responseInsetPx)
-                    }
-                    .padding(horizontal = 8.dp, vertical = 12.dp),
-                horizontalAlignment = Alignment.End
-            ) {
-                Box {
-                    if (commitDecision != null) {
-                        GitHubDecisionBubble(commitDecision, Modifier.widthIn(max = maximumUserChatBubbleWidth))
-                    } else {
-                        UserChatBubble(
-                            modifier = Modifier.widthIn(max = maximumUserChatBubbleWidth),
-                            text = message.content,
-                            timestamp = (message.createdAt * 1000L).takeIf { debugSettings.messageTimestamps },
-                            files = message.attachments.map { it.filePathForDisplay },
-                            canEdit = canUseChat && isIdle,
-                            onCopyClick = { onCopyText(message.content) },
-                            onSelectClick = { onSelectText(message.content) },
-                            onEditClick = { onEditQuestion(message) }
-                        )
-                    }
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .onSizeChanged {
+                    if (targetAssistantIndex >= 0) onTargetResponseOffset(it.height + responseInsetPx)
+                }
+                .padding(horizontal = 8.dp, vertical = 12.dp),
+            horizontalAlignment = Alignment.End
+        ) {
+            Box {
+                if (commitDecision != null) {
+                    GitHubDecisionBubble(commitDecision, Modifier.widthIn(max = maximumUserChatBubbleWidth))
+                } else {
+                    UserChatBubble(
+                        modifier = Modifier.widthIn(max = maximumUserChatBubbleWidth),
+                        text = message.content,
+                        timestamp = (message.createdAt * 1000L).takeIf { debugSettings.messageTimestamps },
+                        files = message.attachments.map { it.filePathForDisplay },
+                        canEdit = canUseChat && isIdle,
+                        onCopyClick = { onCopyText(message.content) },
+                        onSelectClick = { onSelectText(message.content) },
+                        onEditClick = { onEditQuestion(message) }
+                    )
                 }
             }
         }

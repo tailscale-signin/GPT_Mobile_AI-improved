@@ -115,7 +115,7 @@ internal fun gitHubActivityLines(timeline: List<AssistantTimelineItem>, task: St
             )
         ) + coalesced
     }
-    return if (searchActive && ordered.last().statusSummary) {
+    return if (searchActive && ordered[latestGitHubActivityIndex(ordered)].statusSummary) {
         ordered + AssistantTimelineItem(
             type = AssistantTimelineItemType.NOTICE,
             content = "Searching websites",
@@ -125,6 +125,13 @@ internal fun gitHubActivityLines(timeline: List<AssistantTimelineItem>, task: St
     } else {
         ordered
     }
+}
+
+/** The newest update can belong to a counter whose row was inserted much earlier. */
+internal fun latestGitHubActivityIndex(lines: List<AssistantTimelineItem>): Int {
+    if (lines.lastOrNull()?.progressId == "github-search-preview") return lines.lastIndex
+    return lines.indices.filter { lines[it].progressSequence != null }
+        .maxByOrNull { lines[it].progressSequence ?: 0L } ?: lines.lastIndex
 }
 
 /** Count entries, independently of line wrapping or font size, retaining summary context. */

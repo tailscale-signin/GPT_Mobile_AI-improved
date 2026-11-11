@@ -2127,7 +2127,7 @@ class ChatRepositoryImpl(
                     var exposedTools = dispatchPreparation.exposedTools
                     val projectInstructions = dispatchPreparation.projectInstructions
                     val quickRepliesEnabled = dispatchPreparation.quickRepliesEnabled
-                    fun baseSystemPrompt() = buildPrimarySystemPrompt(platform, exposedTools, resolvedTools.isNotEmpty(), localResearch, processingOwnership, synthesisRun, chatToolConfig?.combined, latestUser, limits.contextTokens, quickRepliesEnabled, projectInstructions, taskRecovery, reviewedPreparationUnavailable, chatToolConfig?.research?.researchToggle == true) + chatToolConfig?.github?.let { dev.chungjungsoo.gptmobile.data.agent.toolStageInstructions(it.promptContext(latestUser?.content.orEmpty()) + dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.instruction(platform, it)) }.orEmpty() + dev.chungjungsoo.gptmobile.data.agent.toolStageInstructions(dev.chungjungsoo.gptmobile.data.github.GitHubPlanningContext.forRequest(latestUser?.content.orEmpty(), resolvedTools.mapNotNull { it.gitHubPlanningContext }.distinct()))
+                    fun baseSystemPrompt() = buildPrimarySystemPrompt(platform, exposedTools, resolvedTools.isNotEmpty(), localResearch, processingOwnership, synthesisRun, chatToolConfig?.combined, latestUser, limits.contextTokens, quickRepliesEnabled, projectInstructions, taskRecovery, reviewedPreparationUnavailable, chatToolConfig?.research?.researchToggle == true, chatToolConfig?.github != null) + chatToolConfig?.github?.let { dev.chungjungsoo.gptmobile.data.agent.toolStageInstructions(it.promptContext(latestUser?.content.orEmpty()) + dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.instruction(platform, it)) }.orEmpty() + dev.chungjungsoo.gptmobile.data.agent.toolStageInstructions(dev.chungjungsoo.gptmobile.data.github.GitHubPlanningContext.forRequest(latestUser?.content.orEmpty(), resolvedTools.mapNotNull { it.gitHubPlanningContext }.distinct()))
                     val memorySettings = dispatchPreparation.memory.memorySettings
                     val connectedMemoryTools = dispatchPreparation.memory.connectedMemoryTools
                     val researchMemory = dispatchPreparation.memory.researchMemory
@@ -2999,7 +2999,7 @@ class ChatRepositoryImpl(
             ?.takeUnless { it.isTemporary }?.project?.instructions.orEmpty() + "\n" + engineeringContext
         val responseFeatures = settingRepository.getFeatureSettings()
         val quickRepliesEnabled = responseFeatures.smartSuggestions
-        fun baseSystemPrompt() = buildPrimarySystemPrompt(platform, exposedTools, resolvedTools.isNotEmpty(), localResearch, processingOwnership, synthesisRun, chatToolConfig?.combined, latestUser, limits.contextTokens, quickRepliesEnabled, projectInstructions, taskRecovery, reviewedPreparationUnavailable, chatToolConfig?.research?.researchToggle == true) + chatToolConfig?.github?.let { dev.chungjungsoo.gptmobile.data.agent.toolStageInstructions(it.promptContext(latestUser?.content.orEmpty()) + dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.instruction(platform, it)) }.orEmpty() + dev.chungjungsoo.gptmobile.data.agent.toolStageInstructions(dev.chungjungsoo.gptmobile.data.github.GitHubPlanningContext.forRequest(latestUser?.content.orEmpty(), resolvedTools.mapNotNull { it.gitHubPlanningContext }.distinct()))
+        fun baseSystemPrompt() = buildPrimarySystemPrompt(platform, exposedTools, resolvedTools.isNotEmpty(), localResearch, processingOwnership, synthesisRun, chatToolConfig?.combined, latestUser, limits.contextTokens, quickRepliesEnabled, projectInstructions, taskRecovery, reviewedPreparationUnavailable, chatToolConfig?.research?.researchToggle == true, chatToolConfig?.github != null) + chatToolConfig?.github?.let { dev.chungjungsoo.gptmobile.data.agent.toolStageInstructions(it.promptContext(latestUser?.content.orEmpty()) + dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.instruction(platform, it)) }.orEmpty() + dev.chungjungsoo.gptmobile.data.agent.toolStageInstructions(dev.chungjungsoo.gptmobile.data.github.GitHubPlanningContext.forRequest(latestUser?.content.orEmpty(), resolvedTools.mapNotNull { it.gitHubPlanningContext }.distinct()))
         val memoryPreparation = preparePrimaryDispatchMemory(input, admission, toolPreparation, recallPreparation, taskRoutedTools)
         val researchMemory = memoryPreparation.researchMemory
         val documentContext = memoryPreparation.documentContext
@@ -4221,7 +4221,8 @@ class ChatRepositoryImpl(
         projectInstructions: String,
         taskRecovery: dev.chungjungsoo.gptmobile.data.agent.ResolvedTaskRecovery?,
         reviewedPreparationUnavailable: Boolean,
-        researchReport: Boolean
+        researchReport: Boolean,
+        githubMode: Boolean
     ): String {
         if (platform.compatibleType == ClientType.FREE && !synthesisRun && !researchReport && !hasTools) {
             return dev.chungjungsoo.gptmobile.data.agent.CurrentRequestContract.from(taskRecovery?.originalRequest ?: latestUser?.content.orEmpty()).instruction() + "\n" + freeTextSystemPrompt(platform.systemPrompt, dev.chungjungsoo.gptmobile.data.agent.CombinedTurnContext.capture(latestUser?.createdAt ?: java.time.Instant.now().epochSecond), projectInstructions) + dev.chungjungsoo.gptmobile.data.agent.combinedContributorInstruction(platform, combined)
@@ -4239,8 +4240,13 @@ class ChatRepositoryImpl(
         }
         val recoveryInstruction = taskRecovery?.let { "\nRecovery action: ${it.action.name}. Resume unfinished stages using saved evidence; preserve prior constraints and verify unknown action outcomes before retrying." }.orEmpty()
         val progressInstruction = if (hasTools) {
-            "\nAnswer ordinary general-knowledge and writing requests directly when tools add no needed evidence. Do not call discover_available_tools just to check what exists.\nBefore the first tool call and after every 10 completed tool calls, " +
-                dev.chungjungsoo.gptmobile.data.agent.ToolProgressTracker.SUMMARY_INSTRUCTION
+            val ordinaryRequests = "\nAnswer ordinary general-knowledge and writing requests directly when tools add no needed evidence. Do not call discover_available_tools just to check what exists."
+            if (githubMode) {
+                ordinaryRequests
+            } else {
+                ordinaryRequests + "\nBefore the first tool call and after every 10 completed tool calls, " +
+                    dev.chungjungsoo.gptmobile.data.agent.ToolProgressTracker.SUMMARY_INSTRUCTION
+            }
         } else {
             ""
         }
@@ -5551,7 +5557,7 @@ class ChatRepositoryImpl(
                         ).handoffReceipts(fingerprints)
                     },
                     publishProgress = { text, lineage ->
-                        send(ApiState.ProgressCheckpoint(text, modelAuthored = true, invocationId = lineage.invocationId))
+                        send(ApiState.ActivitySummary(text, modelAuthored = true, invocationId = lineage.invocationId))
                     },
                     readCheckpoint = {
                         dispatchAuthority.validate()
@@ -5878,6 +5884,13 @@ class ChatRepositoryImpl(
         val progressTracker = dev.chungjungsoo.gptmobile.data.agent.ToolProgressTracker()
         val progressParser = dev.chungjungsoo.gptmobile.data.agent.PublicProgressParser()
         val progressLineage = dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineageAccumulator()
+        val gitHubPublicProgress = if (githubChat) {
+            dev.chungjungsoo.gptmobile.data.agent.GitHubPublicProgress { text, lineage ->
+                emit(ApiState.ActivitySummary(text, modelAuthored = true, invocationId = lineage.invocationId))
+            }
+        } else {
+            null
+        }
         var gatewayTelemetrySeen = false
         var providerToolCalls = 0
         var providerUsefulToolCalls = 0
@@ -5947,8 +5960,13 @@ class ChatRepositoryImpl(
                         }
                         if (!progressParser.hasPendingText) progressLineage.reset()
                         if (providerEvent.text.isNotEmpty()) progressLineage.append(providerEvent.lineage)
-                        progressParser.accept(providerEvent.text).forEach { (progress, text) ->
-                            if (progress) emit(ApiState.ProgressCheckpoint(text, modelAuthored = true, invocationId = progressLineage.lineage.invocationId)) else emit(ApiState.Success(text, progressLineage.lineage))
+                        if (gitHubPublicProgress != null) {
+                            val answer = gitHubPublicProgress.accept(providerEvent)
+                            if (answer.isNotEmpty()) emit(ApiState.Success(answer, progressLineage.lineage))
+                        } else {
+                            progressParser.accept(providerEvent.text).forEach { (progress, text) ->
+                                if (progress) emit(ApiState.ProgressCheckpoint(text, modelAuthored = true, invocationId = progressLineage.lineage.invocationId)) else emit(ApiState.Success(text, progressLineage.lineage))
+                            }
                         }
                     }
 
@@ -6063,8 +6081,13 @@ class ChatRepositoryImpl(
                     }
 
                     is ProviderEvent.ToolResult -> Unit
-                    ProviderEvent.Completed -> progressParser.accept("", flush = true).forEach { (progress, text) ->
-                        if (progress) emit(ApiState.ProgressCheckpoint(text, modelAuthored = true, invocationId = progressLineage.lineage.invocationId)) else emit(ApiState.Success(text, progressLineage.lineage))
+                    ProviderEvent.Completed -> if (gitHubPublicProgress != null) {
+                        val answer = gitHubPublicProgress.finish()
+                        if (answer.isNotEmpty()) emit(ApiState.Success(answer, progressLineage.lineage))
+                    } else {
+                        progressParser.accept("", flush = true).forEach { (progress, text) ->
+                            if (progress) emit(ApiState.ProgressCheckpoint(text, modelAuthored = true, invocationId = progressLineage.lineage.invocationId)) else emit(ApiState.Success(text, progressLineage.lineage))
+                        }
                     }
                 }
 
@@ -6120,6 +6143,10 @@ class ChatRepositoryImpl(
                             ).copy(durationMs = batch.elapsedMillis)
                         )
                     )
+                    if (githubChat && batch.total > 1) {
+                        val failures = if (batch.failed > 0) " · ${batch.failed} need attention" else ""
+                        emit(ApiState.ProgressCheckpoint("Operations: ${batch.completed}/${batch.total} complete$failures"))
+                    }
                 }
                 is AgentRunEvent.Notice -> emit(ApiState.Notice(runEvent.message, runEvent.persistent, runEvent.researchDelivery))
             }

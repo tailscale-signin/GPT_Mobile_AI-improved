@@ -13,7 +13,7 @@ internal object GitHubFailurePolicy {
         "AUTH_REQUIRED", "GITHUB_PRIMARY_RATE_LIMITED", "GITHUB_SECONDARY_RATE_LIMITED", "GITHUB_SSO_REQUIRED",
         "GITHUB_BRANCH_RULES_BLOCKED", "GITHUB_ENDPOINT_PERMISSION_REQUIRED", "GITHUB_FORBIDDEN_UNKNOWN",
         "GITHUB_NOT_FOUND_OR_INACCESSIBLE", "GITHUB_CONFLICT", "GITHUB_VALIDATION_FAILED", "GITHUB_TRANSIENT_SERVER", "GITHUB_HTTP_ERROR",
-        "PERMISSION_DENIED", "PERMISSION_REVOKED", "GRAPH_CONFIGURATION_REQUIRED", "INVALID_ARGUMENTS",
+        "PERMISSION_DENIED", "PERMISSION_REVOKED", "GRAPH_CONFIGURATION_REQUIRED", "INVALID_ARGUMENTS", "FIXTURE_RECONCILE_REQUIRED", "APPROVAL_PUBLICATION_UNCONFIRMED",
         "REPOSITORY_TARGET_REQUIRED", "REPOSITORY_TARGET_UNVERIFIED", "GITHUB_REPOSITORY_UNAVAILABLE", "GITHUB_PAGINATION_STALLED", "GITHUB_PAGINATION_INCOMPLETE"
     )
     private val typedCode = Regex("\\b(?:" + codes.joinToString("|") + ")\\b", RegexOption.IGNORE_CASE)
@@ -79,6 +79,7 @@ internal object GitHubFailurePolicy {
         "GITHUB_PRIMARY_RATE_LIMITED", "GITHUB_SECONDARY_RATE_LIMITED" -> "Wait until the recorded Retry-After or rate-reset deadline before an authorized bounded read; do not replay an uncertain write. A rate limit does not revoke access."
         "GITHUB_TRANSIENT_SERVER", "GITHUB_CIRCUIT_OPEN", "CIRCUIT_BREAKER_OPEN" -> "Use the recorded cooldown and one bounded health probe. Resume confirmed checkpoints after recovery; reconcile any unknown mutation before another write."
         "RECONCILIATION_REQUIRED", "UNKNOWN_OUTCOME" -> "Read back the exact remote operation identity and retain its receipt before deciding whether another write is safe; do not blindly repeat the mutation."
+        "FIXTURE_RECONCILE_REQUIRED", "APPROVAL_PUBLICATION_UNCONFIRMED" -> "Keep the existing approval and publication intent. Read the exact recorded branch and commit again after new evidence is available. No publication or cleanup was repeated."
         "GITHUB_REF_UNAVAILABLE" -> "Refresh the exact selected branch, tag or commit once after correcting it or restoring it. Do not silently switch to the default branch or fan out dependent requests."
         "REPOSITORY_TARGET_REQUIRED" -> "Select the exact repository or discover an authorized target before dependent operations. Do not invent a fixture repository."
         "REPOSITORY_TARGET_UNVERIFIED" -> "Use the selected repository or an exact target supplied by the user or returned by authorized repository discovery. A workflow preset is not a repository name."

@@ -66,7 +66,7 @@ internal object GitHubCommitReconciliation {
         }
         val candidate = head(observedRef) ?: return null
         // An unchanged head cannot prove whether an unreferenced object was created.
-        if (candidate == expected) return null
+        if (candidate == expected || args["published_commit_sha"]?.let { it != JsonPrimitive(candidate) } == true) return null
         val commit = request("$root/git/commits/$candidate").jsonObject
         val parents = (commit["parents"] as? JsonArray).orEmpty()
         if (commit.text("sha") != candidate || parents.size != 1 || (parents.single() as? JsonObject)?.text("sha") != expected || commit.text("message") != args.text("message")) return null

@@ -16,6 +16,17 @@ class GitHubChatPolicyTest {
     private val context = GitHubConversationContext("c", "owner", "repo", "main", "a".repeat(40), "p")
     private val features = AppFeatureSettings()
 
+    @Test fun newlyPairedProfileUsesUltraNativeCeilingWhileSavedExplicitCapsRemainAuthoritative() {
+        val fresh = dev.chungjungsoo.gptmobile.data.pairing.PairedServer(1, "Computer", "LLAMA", "http://192.168.1.4:8080/v1", "selected", 1200).profile(1000).copy(uid = "p")
+        assertEquals(Int.MAX_VALUE, fresh.maxToolCalls)
+        assertEquals(512, GitHubChatPolicy.platform(fresh, features, context).maxToolCalls)
+        assertFalse(GitHubChatPolicy.platform(fresh, features, context).enabled)
+        assertEquals(100, GitHubChatPolicy.platform(fresh.copy(maxToolCalls = 100), features, context).maxToolCalls)
+        assertEquals(50, GitHubChatPolicy.platform(fresh.copy(maxToolCalls = 50), features, context).maxToolCalls)
+        val quick = features.copy(githubProfileOverrides = mapOf("p" to GitHubChatProfileOverride(engineeringMode = EngineeringMode.QUICK)))
+        assertEquals(32, GitHubChatPolicy.platform(fresh, quick, context).maxToolCalls)
+    }
+
     @Test fun githubCannotInheritAnotherProfileThroughHelpersResearchOrCombinedMode() {
         val configured = features.copy(localAssist = true)
         assertFalse(GitHubChatPolicy.features(configured, "p", context).localAssist)

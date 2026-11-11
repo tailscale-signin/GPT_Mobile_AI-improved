@@ -51,6 +51,26 @@ class ConversationProgressPresentationTest {
         compose.onNode(progressNode).assertDoesNotExist()
     }
 
+    @Test fun gatewayRowsUseWorkingUnreadAndReadCloudStates() {
+        val room = ChatRoomV2(id = 1, title = "Gateway task", conversationMode = dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode.GATEWAY)
+        var working by mutableStateOf(true)
+        var unread by mutableStateOf(false)
+        compose.setContent {
+            MaterialTheme {
+                ChatListItem(room, 0, HomeViewModel.ChatListState(chats = listOf(room)), working, unread, "Selected gateway", emptyList(), onItemClick = {}, onItemLongClick = {}, animateStatus = false)
+            }
+        }
+        compose.onNodeWithContentDescription("Gateway · working", useUnmergedTree = true).assertExists()
+        compose.runOnIdle {
+            working = false
+            unread = true
+        }
+        compose.onNodeWithContentDescription("Gateway · working", useUnmergedTree = true).assertDoesNotExist()
+        compose.onNodeWithContentDescription("Gateway · unread reply", useUnmergedTree = true).assertExists()
+        compose.runOnIdle { unread = false }
+        compose.onNodeWithContentDescription("Gateway · read", useUnmergedTree = true).assertExists()
+    }
+
     @Test fun progressUsesTheTextColumnAndAcknowledgementUpdatesTheResearchIcon() {
         val room = ChatRoomV2(id = 1, title = "Conversation", isFavorite = true)
         val published = CompletedGeneration("reply", 1, 11, 100, revision = 1, contentDigest = "digest")

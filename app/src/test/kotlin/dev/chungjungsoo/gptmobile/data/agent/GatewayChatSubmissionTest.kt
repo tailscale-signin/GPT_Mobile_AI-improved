@@ -77,6 +77,20 @@ class GatewayChatSubmissionTest {
     }
 
     @Test
+    fun conversationalAndReadOnlyTurnsDoNotProbeAnUnreadyEngineeringGateway() = runTest {
+        supported()
+        coEvery { engineering.supportsDurableChat("profile") } throws IllegalStateException("Desktop GitHub unavailable")
+        for (prompt in listOf("hi", "Read the latest CI report", "Plan the changes to the parser", "Create a poem about the sea", "What changed?\n> Fix all failing tests")) {
+            val turn = request.userMessages.single().copy(content = prompt)
+            assertNull(prompt, service.submitIfSupported(request.copy(userMessages = listOf(turn))))
+        }
+        coVerify(exactly = 0) { engineering.submitBoundTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+        coVerify(exactly = 0) { engineering.supportsDurableChat(any()) }
+        coVerify(exactly = 0) { workspace.defaultBranch(any()) }
+        coVerify(exactly = 0) { engineering.submitTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+    }
+
+    @Test
     fun lostCreateResponseWithSavedCommandReturnsUnconfirmedHandoffAndNeverAProviderFallback() = runTest {
         supported()
         coEvery { engineering.bindings(4) } returnsMany listOf(emptyList(), listOf(binding))

@@ -28,6 +28,7 @@ internal object GitHubAcceptanceLedger {
             buildJsonObject {
                 put("id", row.text("id"))
                 put("kind", kind)
+                row["acceptance_role"]?.let { put("acceptance_role", it) }
                 put("criterion", row.text(if (kind == "REQUIREMENT") "requirement" else "scope"))
                 if (kind == "REQUIREMENT") put("category", GitHubAcceptanceDiagnostics.category(row.text("requirement")))
                 put("required", !excluded)
@@ -46,13 +47,17 @@ internal object GitHubAcceptanceLedger {
             }
         }
         val required = entries(requirements, "REQUIREMENT")
-        val operations = entries(capabilities, "CAPABILITY")
+        val catalog = entries(capabilities, "CAPABILITY")
+        val operations = catalog.filter { it["acceptance_role"] != JsonPrimitive("DIAGNOSTIC_ONLY") }
+        val inventory = catalog.filter { it["acceptance_role"] == JsonPrimitive("DIAGNOSTIC_ONLY") }
         val requiredCriteria = required.filter { it["required"] == JsonPrimitive(true) }
         return buildJsonObject {
             put("schema", "github.acceptance-ledger.v1")
             requestDigest?.let { put("request_digest", it) }
             put("requirements", JsonArray(required))
             put("capabilities", JsonArray(operations))
+            put("capability_inventory", JsonArray(inventory))
+            put("capability_inventory_scope", "Diagnostic observations; these are not task acceptance criteria or prerequisites.")
             // Capability success proves only that API action. It cannot satisfy a product requirement.
             put("completion_verified", requiredCriteria.isNotEmpty() && requiredCriteria.all { it["state"] == JsonPrimitive(State.PASS.name) })
             put("state_counts", buildJsonObject { State.entries.forEach { state -> put(state.name, (required + operations).count { it["state"] == JsonPrimitive(state.name) }) } })

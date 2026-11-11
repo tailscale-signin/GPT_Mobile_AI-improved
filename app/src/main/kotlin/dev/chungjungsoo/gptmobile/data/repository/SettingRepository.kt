@@ -65,6 +65,7 @@ interface SettingRepository {
         mutateFeatureSettings {
             ConversationCombinedLifecycle.delete(it, chatId).copy(
                 conversationGitHub = it.conversationGitHub - chatId,
+                githubDecisionPreferences = it.githubDecisionPreferences - chatId,
                 conversationGateway = it.conversationGateway - chatId
             )
         }
@@ -73,6 +74,7 @@ interface SettingRepository {
         mutateFeatureSettings {
             ConversationCombinedLifecycle.recoverDeletions(it, existingChatIds).copy(
                 conversationGitHub = it.conversationGitHub.filterKeys(existingChatIds::contains),
+                githubDecisionPreferences = it.githubDecisionPreferences.filterKeys(existingChatIds::contains),
                 conversationGateway = it.conversationGateway.filterKeys(existingChatIds::contains)
             )
         }

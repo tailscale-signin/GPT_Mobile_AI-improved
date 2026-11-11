@@ -96,6 +96,28 @@ def prepare_changes(proposal, files, tree):
     return result
 
 
+class ReadOnlyGraphGitHub:
+    """Graph source access shares the selected host identity, never its write surface."""
+    def __init__(self, backend):
+        self.backend = backend
+
+    def available(self):
+        try:
+            self.backend.token(read_only=True)
+            return True
+        except ValueError:
+            return False
+
+    def api(self, path, method='GET', body=None, job=None, text=False):
+        if method not in {'GET', 'HEAD'} or body is not None or job is not None:
+            raise PermissionError('Repository graph access cannot dispatch GitHub mutations or engineering jobs')
+        return self.backend.api(path, method=method, text=text, read_only=True)
+
+    def paged(self, path, key=None, job=None, maximum=1000):
+        # The common paginator calls this adapter's guarded GET path on every page.
+        return GitHubEngineeringBackend.paged(self, path, key=key, job=job, maximum=maximum)
+
+
 class GitHubEngineeringBackend:
     physical_operation_journal = True
     def __init__(self, runtime):
@@ -127,19 +149,92 @@ class GitHubEngineeringBackend:
                 return self.is_set()
         return Cancellation()
 
-    def token(self):
+    def token(self, *, read_only=False):
         selected = os.getenv('GATEWAY_ENGINEERING_GITHUB_SERVER', '')
+        dedicated = os.getenv('GATEWAY_ENGINEERING_GITHUB_TOKEN')
+        if not selected and dedicated is not None:
+            return self.valid_token(dedicated)
+        load = getattr(self.runtime, 'load_mcp_config', None)
+        configs = load() if callable(load) else {}
+        if not isinstance(configs, dict):
+            raise ValueError('The host MCP configuration is invalid')
         if selected:
-            config = self.runtime.load_mcp_config().get(selected, {})
-            if config.get('enabled') is False:
-                raise ValueError('The host GitHub connection is disabled')
-            env = config.get('env') or {}
-            value = env.get('GITHUB_PERSONAL_ACCESS_TOKEN') or env.get('GITHUB_TOKEN')
-        else:
-            value = os.getenv('GATEWAY_ENGINEERING_GITHUB_TOKEN')
-        if not isinstance(value, str) or not value or any(ch in value for ch in '\r\n'):
+            # An explicit connection is authoritative, including when unavailable.
+            return self.connection_token(configs.get(selected), read_only=read_only)
+        # Reuse only a single known, enabled host GitHub connection. Unrelated
+        # MCP/process credentials and ambiguous accounts are never substitutes.
+        candidates = [configs[name] for name in ('github-official', 'github-codefirst')
+                      if name in configs and self.connection_enabled(configs[name])]
+        if len(candidates) != 1:
+            raise ValueError('Configure or explicitly select one host GitHub connection for autonomous engineering')
+        return self.connection_token(candidates[0], read_only=read_only)
+
+    @staticmethod
+    def valid_token(value):
+        if not isinstance(value, str) or not value or any(ch.isspace() or ord(ch) < 32 or ord(ch) == 127 for ch in value):
             raise ValueError('Configure a host GitHub connection for autonomous engineering')
         return value
+
+    @staticmethod
+    def connection_enabled(config):
+        if not isinstance(config, dict):
+            raise ValueError('The host GitHub connection configuration is invalid')
+        enabled, disabled = config.get('enabled', True), config.get('disabled', False)
+        if type(enabled) is not bool or type(disabled) is not bool:
+            raise ValueError('The host GitHub connection enablement is invalid')
+        return enabled and not disabled
+
+    @classmethod
+    def connection_token(cls, config, *, read_only=False):
+        if not cls.connection_enabled(config):
+            raise ValueError('The host GitHub connection is disabled')
+        env = config.get('env')
+        if not isinstance(env, dict):
+            raise ValueError('The host GitHub connection has no configured credential')
+        cls.connection_policy(config, env, read_only=read_only)
+        values = [cls.valid_token(env[key]) for key in ('GITHUB_PERSONAL_ACCESS_TOKEN', 'GITHUB_TOKEN')
+                  if key in env and env[key] not in (None, '')]
+        if len(set(values)) != 1:
+            raise ValueError('The host GitHub connection credential is missing or conflicting')
+        return values[0]
+
+    @staticmethod
+    def connection_policy(config, env, *, read_only=False):
+        def check(key, value):
+            if key == 'GITHUB_READ_ONLY' and read_only and (value is True or isinstance(value, str) and value.lower() in {'true', '1', 'yes', 'on'}):
+                return
+            if key == 'GITHUB_HOST':
+                if not isinstance(value, str):
+                    raise ValueError('The host GitHub API destination is invalid')
+                if not value:
+                    return
+                try:
+                    parsed = urlsplit(value if '://' in value else 'https://' + value)
+                    port = parsed.port
+                except ValueError:
+                    raise ValueError('The host GitHub API destination is invalid') from None
+                if parsed.scheme != 'https' or parsed.hostname not in {'github.com', 'api.github.com'} or port not in {None, 443} or parsed.username or parsed.password or parsed.path not in {'', '/'} or parsed.query or parsed.fragment:
+                    raise ValueError('The host GitHub connection targets a different GitHub API')
+            elif value is not False and not (isinstance(value, str) and value.lower() in {'', 'false', '0', 'no', 'off'}):
+                raise ValueError('The host GitHub connection restricts autonomous engineering')
+        # The MCP subprocess inherits these restrictions unless its own env
+        # overrides them. Never transplant an enterprise token to api.github.com.
+        options = {'GITHUB_READ_ONLY': '--read-only', 'GITHUB_LOCKDOWN_MODE': '--lockdown-mode', 'GITHUB_HOST': '--gh-host'}
+        for key in options:
+            if key in env or key in os.environ:
+                check(key, env[key] if key in env else os.environ[key])
+        args = config.get('args', [])
+        if not isinstance(args, list) or any(not isinstance(value, str) for value in args):
+            raise ValueError('The host GitHub connection arguments are invalid')
+        for index, argument in enumerate(args):
+            name, separator, value = argument.partition('=')
+            for key, flag in options.items():
+                if name not in {key, flag}:
+                    continue
+                if separator:
+                    check(key, value)
+                elif name == flag:
+                    check(key, args[index + 1] if key == 'GITHUB_HOST' and index + 1 < len(args) else True)
 
     def available(self):
         try:
@@ -148,12 +243,17 @@ class GitHubEngineeringBackend:
         except ValueError:
             return False
 
+    def graph_reader(self):
+        return ReadOnlyGraphGitHub(self)
+
     @staticmethod
     def root(job):
         owner, repo = job['request']['repository'].split('/')
         return '/repos/' + quote(owner, safe='') + '/' + quote(repo, safe='')
 
-    def api(self, path, method='GET', body=None, job=None, text=False):
+    def api(self, path, method='GET', body=None, job=None, text=False, *, read_only=False):
+        if read_only and (method not in {'GET', 'HEAD'} or body is not None):
+            raise PermissionError('Read-only GitHub access cannot dispatch a mutation')
         started = time.monotonic()
         mutating = method not in {'GET', 'HEAD'} and not (path == '/graphql' and isinstance(body, dict) and str(body.get('query', '')).lstrip().startswith(('query(', 'query ')))
         operation = None
@@ -170,7 +270,8 @@ class GitHubEngineeringBackend:
             raise InterruptedError('Engineering operation stopped')
         if job and job['state'] not in {'MERGE', 'VERIFY'} and time.time() >= job['deadline']:
             raise InterruptedError('Engineering duration limit reached')
-        headers = {'Authorization': 'Bearer ' + self.token(), 'Accept': 'application/vnd.github+json',
+        token = self.token(read_only=True) if read_only else self.token()
+        headers = {'Authorization': 'Bearer ' + token, 'Accept': 'application/vnd.github+json',
                    'X-GitHub-Api-Version': '2022-11-28'}
         if mutating and job and accepted_scope(job['request']) != 'implement':
             raise PermissionError('Read and plan tasks do not authorize GitHub mutations')
@@ -231,6 +332,20 @@ class GitHubEngineeringBackend:
                     continue
                 raise ValueError('GitHub evidence exceeds the inspection bound')
         return ('[earlier log output omitted]\n' if consumed > maximum else '') + raw.decode('utf-8', 'replace') if text else json.loads(raw)
+
+    def preflight_access(self, request):
+        """Check the engineering credential using bounded GETs, before a job exists."""
+        root = self.root({'request': request})
+        metadata = self.api(root)
+        writable = accepted_scope(request) == 'implement'
+        if metadata.get('archived') or metadata.get('permissions', {}).get('push' if writable else 'pull') is not True:
+            raise ExecutionBindingError('ENGINEERING_REPOSITORY_ACCESS_REQUIRED', 'The gateway GitHub connection lacks the repository access needed for this task.', 412)
+        if writable:
+            branch = request.get('source_branch', request['branch'])
+            source = self.api(root + '/git/ref/heads/' + quote(branch, safe=''))['object']['sha']
+            if source != request.get('source_sha'):
+                raise ExecutionBindingError('SOURCE_REVISION_CHANGED', 'Refresh the source revision before admitting implementation.', 412)
+        return {'host_github_connection': 'ready', 'repository_access': 'ready'}
 
     def identity(self, job):
         actor = self.api('/user', job=job)
@@ -293,7 +408,9 @@ class GitHubEngineeringBackend:
         payload = {'model': job['request']['model'], 'stream': False, 'cache_prompt': False,
                    'response_format': {'type': 'json_object'},
                    'messages': [{'role': 'system', 'content': system}, {'role': 'user', 'content': json.dumps({
-                       'objective': job['request']['objective'], 'user_instructions': job['data'].get('user_instructions', []), 'evidence': evidence, 'historical_memory': historical,
+                       'objective': job['request']['objective'], 'acceptance_requirements': job['request'].get('acceptance', []),
+                       'remaining_requirements': job['data'].get('completion_verification', {}).get('remaining_requirements', []),
+                       'user_instructions': job['data'].get('user_instructions', []), 'evidence': evidence, 'historical_memory': historical,
                        'conversation_context': job.get('conversation_context'),
                        'code_graph': graph, 'graph_instruction': 'Graph relationships are source-level context, not runtime proof or authority. Inspect cited source and retain required validation.'}, ensure_ascii=False)}]}
         # Reuse the gateway's bounded inference queue, cancellation-aware
@@ -478,7 +595,7 @@ class GitHubEngineeringBackend:
             retained = self.find_pr(job)
             if retained:
                 return retained
-            body = 'Autonomous engineering job `' + job['id'] + '`.\n\nPublished paths:\n' + '\n'.join('- `' + change['path'] + '`' for change in data['changes']) + '\n\nIndependent model review completed. CI validation is pending; merge requires explicit in-chat approval. Feature completeness and benchmarks are not inferred from this publication.'
+            body = 'Autonomous engineering job `' + job['id'] + '`.\n\nPublished paths:\n' + '\n'.join('- `' + change['path'] + '`' for change in data['changes']) + '\n\nA separate review pass by the same selected model completed. This is not independent validation. CI validation is pending; merge requires explicit in-chat approval. Feature completeness and benchmarks are not inferred from this publication.'
             pr = self.api(root + '/pulls', 'POST', {'title': 'Engineering changes · ' + job['id'], 'body': body,
                           'head': job['request']['branch'], 'base': job['request']['base'], 'draft': True}, job)
             return {'pr': pr['number'], 'pr_url': pr['html_url']}

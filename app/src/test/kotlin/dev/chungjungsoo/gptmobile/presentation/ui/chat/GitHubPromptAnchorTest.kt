@@ -14,7 +14,7 @@ class GitHubPromptAnchorTest {
         assertEquals(GitHubScrollMode.PIN_PROMPT, anchor.mode)
         anchor.endGesture(300f, 48f, 96f)
         assertFalse(anchor.dragging)
-        assertEquals(GitHubScrollMode.PIN_PROMPT, anchor.mode)
+        assertEquals(GitHubScrollMode.USER_HISTORY, anchor.mode)
     }
 
     @Test fun continuousUpwardDragReleasesAtExactlyAQuarterSecondAndStaysInHistory() {
@@ -42,7 +42,7 @@ class GitHubPromptAnchorTest {
         assertEquals(GitHubScrollMode.PIN_PROMPT, anchor.mode)
     }
 
-    @Test fun downwardReturnWaitsForReleaseThenSelectsPromptOrTrueBottom() {
+    @Test fun downwardReturnStaysInHistoryUntilItReachesTheMeasuredBottom() {
         val anchor = GitHubPromptAnchor(8f, 8f)
         anchor.detach()
         anchor.beginGesture()
@@ -50,7 +50,7 @@ class GitHubPromptAnchorTest {
         assertEquals(GitHubScrollMode.USER_HISTORY, anchor.mode)
         assertTrue(anchor.dragging)
         anchor.endGesture(200f, 48f, 96f)
-        assertEquals(GitHubScrollMode.PIN_PROMPT, anchor.mode)
+        assertEquals(GitHubScrollMode.USER_HISTORY, anchor.mode)
         anchor.beginGesture()
         anchor.move(-20f, 0f, true, 10)
         anchor.endGesture(30f, 48f, 96f)
@@ -68,7 +68,7 @@ class GitHubPromptAnchorTest {
         anchor.detach()
         anchor.move(-20f, 0f, true, 10)
         anchor.endGesture(70f, 48f, 96f)
-        assertEquals(GitHubScrollMode.PIN_PROMPT, anchor.mode)
+        assertEquals(GitHubScrollMode.USER_HISTORY, anchor.mode)
         anchor.detach()
         anchor.followBottom()
         assertEquals(GitHubScrollMode.FOLLOW_BOTTOM, anchor.mode)

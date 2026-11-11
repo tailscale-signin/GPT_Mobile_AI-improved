@@ -1,0 +1,42 @@
+warning: classpath entry points to a non-existent location: /workspace/scratch/eb1731ad31a7/workflow-validation/expanded-classes
+warning: classpath entry points to a non-existent location: /workspace/scratch/eb1731ad31a7/workflow-validation/ci-regression-after-classes
+warning: classpath entry points to a non-existent location: /workspace/scratch/eb1731ad31a7/workflow-validation/workflow-latest-classes
+warning: classpath entry points to a non-existent location: /workspace/scratch/eb1731ad31a7/workflow-validation/github-integration-classes
+warning: classpath entry points to a non-existent location: /workspace/scratch/eb1731ad31a7/workflow-validation/http-classes
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubTool.kt:1772:112: warning: unnecessary safe call on a non-null receiver of type 'JsonObject'.
+                val selected = selectCreated && selection?.get("commit_sha") == JsonPrimitive(sha) && selection?.get("ref") == JsonPrimitive(branch)
+                                                                                                               ^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubTool.kt:1775:31: warning: unnecessary safe call on a non-null receiver of type 'JsonObject'.
+                    (selection?.get("object") as? JsonObject)?.get("sha") == JsonPrimitive(sha)
+                              ^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubChecklistBudget.kt:26:78: warning: unnecessary safe call on a non-null receiver of type 'JsonObject'.
+        (budget?.get("used") as? JsonPrimitive)?.intOrNull != null && (budget?.get("limit") as? JsonPrimitive)?.intOrNull != null
+                                                                             ^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceBook.kt:238:77: warning: unnecessary safe call on a non-null receiver of type 'JsonObject'.
+                put("retained_remote_continuations", result.executionReceipt?.get("retained_remote_continuations") ?: kotlinx.serialization.json.JsonArray(emptyList()))
+                                                                            ^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidencePolicy.kt:485:58: warning: unnecessary safe call on a non-null receiver of type 'JsonObject'.
+            "github_context", "github_ci" -> if ((receipt?.get("arguments") as? JsonObject)?.string("action") in setOf("checks", "status")) "Commit check summary" else "Resource state"
+                                                         ^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubExecutionLedger.kt:45:26: warning: unnecessary safe call on a non-null receiver of type 'JsonObject'.
+                execution?.text("upstream_execution_state") == "COMPLETED" -> ReceiptState.COMPLETED
+                         ^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubHeaderQuery.kt:37:51: warning: unnecessary safe call on a non-null receiver of type 'JsonArray'.
+                    put("path_segment_count", path?.size ?: 0)
+                                                  ^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRunAcceptance.kt:77:23: warning: unnecessary safe call on a non-null receiver of type 'JsonObject'.
+            (execution?.number("receipt_count") ?: 0) > 0
+                      ^^
+app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubReplayRecoveryTest.kt:93:63: warning: cast is redundant.
+        val page = ToolResultContent.Json(JsonObject((content as ToolResultContent.Json).value.jsonObject + ("recovery_call" to recovery)))
+                                                              ^^^^^^^^^^^^^^^^^^^^^^^^^
+JUnit version 4.13.2
+............................................GitHub ordinary schema: 2993 UTF-8 bytes, 998 estimated tokens, 3 facade definitions
+...................................................................................................................................
+Time: 2.708
+
+OK (175 tests)
+
+SLF4J(W): No SLF4J providers were found.
+SLF4J(W): Defaulting to no-operation (NOP) logger implementation
+SLF4J(W): See https://www.slf4j.org/codes.html#noProviders for further details.

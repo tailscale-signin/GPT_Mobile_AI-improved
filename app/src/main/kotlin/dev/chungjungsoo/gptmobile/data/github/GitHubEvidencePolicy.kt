@@ -263,7 +263,9 @@ internal object GitHubEvidencePolicy {
                 "- **${safe(row.string("tool"))} / ${safe(row.string("action"))}:** ${row.string("successful_observations")} successful, ${row.string("failed_observations")} failed observations."
             }
         }
-        val text = observations + operations + "\n\n**Task incomplete.** These observations and retained evidence do not establish unverified changes, tests or merges."
+        val established = GitHubPartialReport.fromReceipts(receipts).takeIf(String::isNotBlank)?.let { "$it\n\n" }.orEmpty()
+        val missingComparison = GitHubReviewComparison.incompleteReason(task, receipts)?.let { "\n\n**Branch review incomplete:** $it" }.orEmpty()
+        val text = established + observations + operations + missingComparison + "\n\n**Task incomplete.** These observations and retained evidence do not establish unverified changes, tests or merges."
         return text to JsonObject(
             report + mapOf(
                 "partial" to JsonPrimitive(true),

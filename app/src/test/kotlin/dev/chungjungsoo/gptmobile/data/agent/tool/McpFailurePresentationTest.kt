@@ -11,6 +11,32 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class McpFailurePresentationTest {
+    @Test fun currentLocalValidationCannotInheritStaleOAuthRepairGuidance() {
+        val error = McpLocalValidationException(McpLocalValidationRule.CREDENTIAL_FORMAT_INVALID)
+        val prior = McpConnectionHealth().copy(
+            state = McpConnectionHealthState.AUTHENTICATION_REQUIRED,
+            lastValidationRule = "CREDENTIAL_REAUTHORIZATION_REQUIRED"
+        )
+        val result = mcpFailurePresentation(error, prior)
+        assertFalse(result.authenticationRequired)
+        assertEquals("CREDENTIAL_FORMAT_INVALID", result.validationRule)
+        assertTrue(result.message.contains("Correct the indicated connection setting"))
+        assertFalse(result.message.contains("Sign in again"))
+    }
+
+    @Test fun localOAuthReauthorizationOffersSignInWithoutInventingAnHttpFailure() {
+        val error = McpLocalValidationException(McpLocalValidationRule.CREDENTIAL_REAUTHORIZATION_REQUIRED)
+        val result = mcpFailurePresentation(error, McpConnectionHealth())
+        assertTrue(result.authenticationRequired)
+        assertEquals("LOCAL_VALIDATION", result.outcome)
+        assertEquals("local_validation", result.phase)
+        assertEquals("NOT_DISPATCHED", result.dispatchEvidence)
+        assertEquals(null, result.httpStatus)
+        assertEquals(false, result.retryable)
+        assertTrue(result.message.contains("Sign in again"))
+        assertTrue(result.message.contains("retry alone cannot repair"))
+    }
+
     @Test fun localRejectionCannotInheritAnEarlierServerFailureEvenWhenItsCodeMatches() {
         val current = McpLocalValidationException(McpLocalValidationRule.CREDENTIAL_FORMAT_INVALID)
         val previous = paused(current.diagnosticCode, "Earlier unrelated server detail").copy(

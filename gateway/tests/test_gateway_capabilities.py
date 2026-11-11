@@ -19,7 +19,7 @@ class GatewayCapabilitiesContractTests(unittest.TestCase):
 
     def test_all_capability_routes_publish_only_boolean_feature_flags(self):
         for path in ('/gateway/capabilities', '/v1/gateway/capabilities',
-                     '/gateway/v14', '/v1/gateway/v14', '/gateway/v15', '/v1/gateway/v15'):
+                     '/gateway/v14', '/v1/gateway/v14', '/gateway/v15', '/v1/gateway/v15', '/gateway/v16', '/v1/gateway/v16'):
             with self.subTest(route=path):
                 payload = capture_capabilities(self.base, path)
                 self.assertTrue(payload['features'])

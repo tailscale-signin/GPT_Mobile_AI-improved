@@ -30,6 +30,7 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -62,6 +63,15 @@ class GitHubReviewObservationTest {
     @After fun cleanup() {
         model.viewModelScope.cancel()
         Dispatchers.resetMain()
+    }
+
+    @Test fun automaticPatchLeavesProtectedDestinationsAndHighImpactChangesForReview() {
+        val source = GitHubFileProposal("src/Answer.kt", "41", "42")
+        assertTrue(eligibleAutomaticPatch("fix/answer", "main", listOf(source)))
+        assertFalse(eligibleAutomaticPatch("main", "main", listOf(source)))
+        assertFalse(eligibleAutomaticPatch("fix/answer", "", listOf(source)))
+        assertFalse(eligibleAutomaticPatch("fix/answer", "main", listOf(source.copy(delete = true))))
+        assertFalse(eligibleAutomaticPatch("fix/answer", "main", listOf(source.copy(path = ".github/workflows/android.yml"))))
     }
 
     @Test fun invalidationWhileBusyIsDeliveredAfterTheActionFinishes() = runBlocking {

@@ -1,0 +1,176 @@
+{
+  "schema": "unified-reliability-v2-component-fixtures.v1",
+  "explanation": "Explicit partial JUnit probes. Never promote cases from these mappings alone.",
+  "candidates": [
+    {
+      "case_id": "IX05",
+      "tests": [
+        {
+          "class_name": "dev.chungjungsoo.gptmobile.data.assist.AssistReliabilityTest",
+          "method": "ix05NoSpanOrOversizedGoalDoesNotConsumeAttempt"
+        }
+      ],
+      "remaining_assertions": "Retry/chunk physical attempt accounting across no-op, failed preparation and real dispatch."
+    },
+    {
+      "case_id": "IX06",
+      "tests": [
+        {
+          "class_name": "dev.chungjungsoo.gptmobile.data.assist.AssistReliabilityTest",
+          "method": "ix06RuntimeChangeCannotReuseCachedSelection"
+        }
+      ],
+      "remaining_assertions": "Model/backend/policy/permission epochs and actual reuse boundary."
+    },
+    {
+      "case_id": "LC-T02",
+      "tests": [
+        {
+          "class_name": "dev.chungjungsoo.gptmobile.data.context.RequestAdmissionTest",
+          "method": "lcT02OverflowAndUnknownCapacityCannotBecomeSuccessfulBudgetChecks"
+        }
+      ],
+      "remaining_assertions": "Unlimited settings against a verified 8K serving allocation."
+    },
+    {
+      "case_id": "LC-T03",
+      "tests": [
+        {
+          "class_name": "dev.chungjungsoo.gptmobile.data.context.RequestAdmissionTest",
+          "method": "lcT03PropsUseActualAllocationWithoutBlindSlotDivision"
+        }
+      ],
+      "remaining_assertions": "Manual 32K versus real 8K service and user-visible conflict."
+    },
+    {
+      "case_id": "LC-T04",
+      "tests": [
+        {
+          "class_name": "dev.chungjungsoo.gptmobile.data.context.RouteCapabilityCacheTest",
+          "method": "invalidationRejectsInFlightOldRuntimeAndNegativeCacheExpires"
+        }
+      ],
+      "remaining_assertions": "End-to-end alias/credentials/template/reload invalidation."
+    },
+    {
+      "case_id": "LC-T14",
+      "tests": [
+        {
+          "class_name": "dev.chungjungsoo.gptmobile.data.agent.ProgressWatchdogSessionTest",
+          "method": "lc14NonCooperativeTransportCannotWithholdTerminalOutcome"
+        }
+      ],
+      "remaining_assertions": "Timeout/completion/cancel races and real transport cleanup."
+    },
+    {
+      "case_id": "CM-T04",
+      "tests": [
+        {
+          "class_name": "dev.chungjungsoo.gptmobile.data.context.CombinedCorpusMultipassTest",
+          "method": "rejectsUnsupportedOutputHeadroomAndNeverChangesExplicitLimits"
+        }
+      ],
+      "remaining_assertions": "Actual provider-visible 16,384 output target and capacity."
+    },
+    {
+      "case_id": "CM-T05",
+      "tests": [
+        {
+          "class_name": "dev.chungjungsoo.gptmobile.data.agent.CombinedWriterRequestPlanTest",
+          "method": "explicitUserOutputLimitIsNeverRaisedToHideAnIneligibleWriter"
+        }
+      ],
+      "remaining_assertions": "Provider-visible 4,096 cap and incomplete/sectioning disclosure."
+    },
+    {
+      "case_id": "CM-T09",
+      "tests": [
+        {
+          "class_name": "dev.chungjungsoo.gptmobile.data.agent.CombinedSynthesisPlannerTest",
+          "method": "persistedWriterMakesDuplicateHandoffANoOp"
+        }
+      ],
+      "remaining_assertions": "Duplicated observers, recreated ViewModel and process restart."
+    },
+    {
+      "case_id": "CM-T12",
+      "tests": [
+        {
+          "class_name": "dev.chungjungsoo.gptmobile.data.agent.CombinedWordingLineageTest",
+          "method": "duplicateWordingIsSharedRegardlessOfProfileOrder"
+        }
+      ],
+      "remaining_assertions": "All-source complete comparison and default foreground."
+    },
+    {
+      "case_id": "CM-T13",
+      "tests": [
+        {
+          "class_name": "dev.chungjungsoo.gptmobile.data.agent.CombinedClaimMatchingTest",
+          "method": "reorderedParaphraseRetainsContentWithoutVerbatimWording"
+        }
+      ],
+      "remaining_assertions": "Independent semantic comparison with qualified real verifier."
+    },
+    {
+      "case_id": "CM-T14",
+      "tests": [
+        {
+          "class_name": "dev.chungjungsoo.gptmobile.data.agent.CombinedProvenanceValidatorTest",
+          "method": "qualified comparison can label a sole supporter but unrelated alleged support stays unknown"
+        }
+      ],
+      "remaining_assertions": "Held-out sole-source precision and verified color rendering."
+    },
+    {
+      "case_id": "CM-T15",
+      "tests": [
+        {
+          "class_name": "dev.chungjungsoo.gptmobile.data.agent.CombinedProvenanceValidatorTest",
+          "method": "unsupported mixed sentence fragments and omitted qualifier stay unknown"
+        }
+      ],
+      "remaining_assertions": "Real verifier and renderer must preserve default color for mixed claims."
+    },
+    {
+      "case_id": "CM-T16",
+      "tests": [
+        {
+          "class_name": "dev.chungjungsoo.gptmobile.data.agent.CombinedClaimMatchingTest",
+          "method": "contradictoryNumbersNegationAndUnsupportedCertaintyNeverMatch"
+        }
+      ],
+      "remaining_assertions": "Negative/quantity conflict with full source and rendered default style."
+    },
+    {
+      "case_id": "CM-T26",
+      "tests": [
+        {
+          "class_name": "dev.chungjungsoo.gptmobile.data.agent.CombinedClaimInventoryTest",
+          "method": "complete inventory reconstructs more than 256 sections with exact UTF8 and partial source lineage"
+        }
+      ],
+      "remaining_assertions": "Complete long answer/chunked output or explicit limitation."
+    },
+    {
+      "case_id": "IX10",
+      "tests": [
+        {
+          "class_name": "dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuardTest",
+          "method": "revocationAfterRoundPreparationReturnsFailureAtPhysicalBoundary"
+        }
+      ],
+      "remaining_assertions": "Full role matrix under real mid-flight permission revocation."
+    },
+    {
+      "case_id": "IX14",
+      "tests": [
+        {
+          "class_name": "dev.chungjungsoo.gptmobile.data.context.CombinedCorpusMultipassTest",
+          "method": "requiresEveryInspectedReportBeforePreparingFinalPrompt"
+        }
+      ],
+      "remaining_assertions": "Durable all-chunk restart, all spans and complete final output."
+    }
+  ]
+}

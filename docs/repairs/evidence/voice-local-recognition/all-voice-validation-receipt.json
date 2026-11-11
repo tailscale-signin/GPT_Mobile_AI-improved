@@ -1,0 +1,13 @@
+{
+  "production_files": 13,
+  "test_classes": 13,
+  "tests_passed": 101,
+  "tests_failed": 0,
+  "compilation_warnings": 0,
+  "changed_since_compile_snapshot": [],
+  "file_set_changes": [],
+  "scope": "JVM + Robolectric; native decoder and capture injected; AppLogRecorder no-op boundary",
+  "validated_at_utc": "2026-11-10T04:57:22.182301+00:00",
+  "junit_elapsed_seconds": 14.742,
+  "validation_reason": "Full voice suite rerun after capture-time RECORD_AUDIO permission recheck; native decoder and microphone capture remain injected."
+}

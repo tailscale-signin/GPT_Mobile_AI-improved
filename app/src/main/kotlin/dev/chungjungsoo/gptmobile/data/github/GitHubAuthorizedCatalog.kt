@@ -29,6 +29,8 @@ internal object GitHubAuthorizedCatalog {
         val names = linkedSetOf<String>()
         val ids = mutableListOf<kotlinx.serialization.json.JsonElement>()
         val contractChanges = mutableListOf<JsonObject>()
+        val receivedNames = linkedSetOf<String>()
+        val verifiedGithubNames = linkedSetOf<String>()
         var offset = 0
         var next: JsonObject? = null
         var complete = false
@@ -39,10 +41,14 @@ internal object GitHubAuthorizedCatalog {
                 val value = data(page) ?: break
                 val entries = (value["authorized_inventory"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
                 val pageNames = entries.map { it.text("name") }
+                receivedNames += pageNames.filter(String::isNotBlank)
                 contractChanges += entries.mapNotNull { entry ->
                     tools.firstOrNull { it.name == entry.text("name") }?.let { contractChange(entry, it) }
                 }
-                val changedContract = contractChanges.isNotEmpty()
+                // The inventory envelope remains global, but a search/MCP schema
+                // change cannot invalidate independent native GitHub contracts.
+                val changedNames = contractChanges.map { it.text("name") }.toSet()
+                val changedContract = changedNames.any(::github)
                 if (value.text("inventory_version") != version ||
                     page["binding"] != first["binding"] ||
                     page["repository"] != first["repository"] ||
@@ -65,6 +71,7 @@ internal object GitHubAuthorizedCatalog {
                     break
                 }
                 names += pageNames
+                verifiedGithubNames += pageNames.filter { github(it) && it !in changedNames }
                 page["receipt_id"]?.let(ids::add)
                 offset += entries.size
                 next = value["continuation_call"] as? JsonObject
@@ -129,10 +136,17 @@ internal object GitHubAuthorizedCatalog {
             put("observed_github_tool_count", names.count(::github))
             put("known_github_tool_count", known.size)
             put("observed_names", JsonArray(names.map(::JsonPrimitive)))
+            put("received_names", JsonArray(receivedNames.map(::JsonPrimitive)))
+            put("received_tool_count", receivedNames.size)
+            put("received_github_tool_count", receivedNames.count(::github))
+            put("verified_github_names", JsonArray(verifiedGithubNames.map(::JsonPrimitive)))
+            put("contract_scope", "REQUESTED_GITHUB_TOOLS")
             put("receipt_ids", JsonArray(ids))
             if (contractChanges.isNotEmpty()) {
                 put("contract_change_count", contractChanges.size)
                 put("contract_changes", JsonArray(contractChanges.take(32)))
+                put("requested_contract_changes", JsonArray(contractChanges.filter { github(it.text("name")) }.take(32)))
+                put("unrelated_contract_changes", JsonArray(contractChanges.filterNot { github(it.text("name")) }.take(32)))
             }
             if (!complete && invalid == null) next?.let { put("continuation_call", it) }
             (invalid ?: failedNext?.text("error_code")?.ifBlank { "CATALOG_CONTINUATION_FAILED" })?.let { put("blocker", it) }
@@ -168,7 +182,7 @@ internal object GitHubAuthorizedCatalog {
             // One read-only refresh per current semantic contract. Existing operation
             // receipts remain independently revalidated against their own arguments.
             val signature = GitHubEvidenceBook.digest(
-                catalogTools.filter { it.modelVisible }.sortedBy { it.name }.joinToString("\n") {
+                catalogTools.filter { it.modelVisible && github(it.name) }.sortedBy { it.name }.joinToString("\n") {
                     "${it.name}:${it.contractVersion}:${ToolContractFingerprint.schema(it.inputSchema)}"
                 }
             ).take(20)

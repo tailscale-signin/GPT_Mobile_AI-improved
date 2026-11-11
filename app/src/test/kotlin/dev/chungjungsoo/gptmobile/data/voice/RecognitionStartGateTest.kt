@@ -29,11 +29,11 @@ class RecognitionStartGateTest {
         assertTrue(gate.acquire())
         assertFalse(gate.acquire())
         gate.failed(true)
-        repeat(9) {
+        repeat(149) {
             time += 100
             assertFalse(gate.acquire())
         }
-        time = 1_000
+        time = 15_000
         assertTrue(gate.acquire())
     }
 
@@ -60,8 +60,29 @@ class RecognitionStartGateTest {
         assertTrue(gate.acquire("second"))
         gate.failed(true, "second")
         assertFalse(gate.acquire("third"))
-        time += 1_000
+        time += 15_000
         assertTrue(gate.acquire("third"))
+    }
+
+    @Test fun requestLimitCooldownIsBoundedAndOnlySuccessfulRecognitionResetsIt() {
+        var time = 0L
+        val gate = RecognitionStartGate { time }
+        for (expected in listOf(15_000L, 30_000L, 60_000L, 60_000L)) {
+            assertTrue(gate.acquire("current"))
+            gate.failed(true, "current")
+            gate.release("current")
+            gate.succeeded("retired")
+            org.junit.Assert.assertEquals(expected, gate.remainingMillis())
+            time += expected - 1
+            assertFalse(gate.acquire("another_screen"))
+            time++
+        }
+        assertTrue(gate.acquire("recovered"))
+        gate.succeeded("recovered")
+        time += 500
+        assertTrue(gate.acquire("later"))
+        gate.failed(true, "later")
+        org.junit.Assert.assertEquals(15_000L, gate.remainingMillis())
     }
 
     @Test fun repeatedBindingFailuresBackOffWithoutReleasingAnotherSession() {

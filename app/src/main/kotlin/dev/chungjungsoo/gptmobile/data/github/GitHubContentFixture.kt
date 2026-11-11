@@ -142,8 +142,20 @@ internal object GitHubContentFixture {
         it.modelVisible && it.name.substringBefore("__") == recipe.tool && ToolArgumentValidator.errors(recipe.arguments, it.inputSchema).isEmpty()
     }
 
-    fun available(tools: List<AgentToolDefinition>, branch: String, source: String, sha: String): Boolean =
-        (listOf(creation(branch, source, sha), write(branch, sha), stage(branch, sha), commit(branch, sha, "fixture-stage"), cleanup(branch, sha, sha)) + evidence(branch, sha, sha, false)).all { tool(it, tools) != null }
+    fun available(tools: List<AgentToolDefinition>, branch: String, source: String, sha: String): Boolean {
+        val recovery = Recipe(
+            "github_context",
+            buildJsonObject {
+                put("action", "recovery")
+                put("fixture_plan", GitHubOwnedFixtures.PLAN)
+                put("branch", branch)
+                put("base_sha", sha)
+                put("commit_sha", sha)
+                put("verify_live", true)
+            }
+        )
+        return (listOf(creation(branch, source, sha), write(branch, sha), stage(branch, sha), commit(branch, sha, "fixture-stage"), cleanup(branch, sha, sha), recovery) + evidence(branch, sha, sha, false)).all { tool(it, tools) != null }
+    }
 
     private fun prior(recipe: Recipe, observations: List<JsonObject>): JsonObject? {
         val matching = observations.filter { GitHubActionIdentity.matches(recipe.tool, recipe.arguments, it) }
@@ -204,14 +216,28 @@ internal object GitHubContentFixture {
         if (creationReceipt == null) return if (allowCreate && !cleanupOnly && available(tools, branch, sourceBranch, origin)) call(creation(branch, sourceBranch, origin), tools, observations) else null
         if (!owned(source, creationReceipt)) return null
         if (checkpoint(creationReceipt, receipts)["final_state_verified"] == JsonPrimitive(true)) return null
-        val deletion = observations.lastOrNull {
+        val deletions = observations.filter {
             it.text("tool").substringBefore("__") == "github_commit" &&
                 arguments(it)?.text("action") == "delete_fixture_branch" &&
                 arguments(it)?.text("branch") == branch &&
                 arguments(it)?.text("origin_head_sha") == origin &&
                 arguments(it)?.text("expected_head_sha")?.sha() == true
         }
+        val deletion = deletions.lastOrNull()
         if (deletion != null) {
+            val head = requireNotNull(arguments(deletion)).text("expected_head_sha")
+            if (GitHubTransportRecovery.provenNoMutation(deletion)) {
+                // A retry uses the same owned branch and head, and repeats all cleanup guards.
+                // The second preflight failure stops the automatic retry path.
+                if (deletions.size != 1 || !GitHubTransportRecovery.retryable(deletion)) return null
+                val recipe = cleanup(branch, origin, head)
+                val tool = tool(recipe, tools) ?: return null
+                return ProviderEvent.ToolCall(
+                    "fixture-preflight-" + GitHubEvidenceBook.digest(deletion.text("receipt_id")).take(24),
+                    tool.name,
+                    recipe.arguments
+                )
+            }
             val recovery = Recipe(
                 "github_context",
                 buildJsonObject {
@@ -219,7 +245,7 @@ internal object GitHubContentFixture {
                     put("fixture_plan", GitHubOwnedFixtures.PLAN)
                     put("branch", branch)
                     put("base_sha", origin)
-                    put("commit_sha", requireNotNull(arguments(deletion)).getValue("expected_head_sha"))
+                    put("commit_sha", head)
                     put("verify_live", true)
                 }
             )
@@ -325,15 +351,38 @@ internal object GitHubContentFixture {
         val observations = GitHubSelfTestFixtures.lifecycle(creation, receipts).filter(::eligible)
         val source = receipts.values.firstOrNull { it.text("tool").substringBefore("__") == "github_context" && arguments(it)?.text("action") == "status" && owned(it, creation) }
         val ownership = owned(source, creation)
-        val written = resolvedApproval(prior(write(branch, origin), observations), observations)
+        val writeProposal = prior(write(branch, origin), observations)
+        val written = resolvedApproval(writeProposal, observations)
         val first = contentReceipt(written, branch, origin, false)
         val staged = first?.let { prior(stage(branch, it), observations) }
         val stageId = staged?.let(::root)?.text("stage_id").orEmpty()
-        val committed = first?.takeIf { stageId.isNotBlank() }?.let { resolvedApproval(prior(commit(branch, it, stageId), observations), observations) }
+        val commitProposal = first?.takeIf { stageId.isNotBlank() }?.let { prior(commit(branch, it, stageId), observations) }
+        val committed = resolvedApproval(commitProposal, observations)
         val final = first?.let { contentReceipt(committed, branch, it, true) }
         val proved = listOfNotNull(creation, written, staged, committed).mapNotNull { it["receipt_id"] }
         val stageVerified = staged != null && successful(staged) && root(staged)?.text("expected_head_sha") == first && root(staged)?.text("branch") == branch
         val complete = ownership && stageVerified && final != null && listOf(requireNotNull(first) to false, final to true).all { (head, revised) -> evidence(branch, origin, head, revised).all { recipe -> evidenceVerified(recipe, prior(recipe, observations), branch, origin, head, revised) } }
+        val approvalProofs = if (complete) {
+            listOf(writeProposal to written, commitProposal to committed).mapNotNull { (proposal, publication) ->
+                if (proposal == null || publication == null || proposal == publication || GitHubPendingApproval.publication(proposal, observations) != publication) return@mapNotNull null
+                buildJsonObject {
+                    put("proposal_receipt", proposal.getValue("receipt_id"))
+                    put("publication_receipt", publication.getValue("receipt_id"))
+                    put("engineering_task_id", requireNotNull(GitHubPendingApproval.taskId(proposal)))
+                    put("binding", creation.getValue("binding"))
+                    put("repository", creation.getValue("repository"))
+                    put("branch", branch)
+                    arguments(proposal)?.get("stage_id")?.let { put("stage_id", it) }
+                    put("proposal_arguments_sha256", GitHubEvidenceBook.digest(arguments(proposal).toString()))
+                    put("expected_parent_sha", requireNotNull(root(publication)).getValue("parent_sha"))
+                    put("resulting_commit_sha", requireNotNull(root(publication)).getValue("sha"))
+                    put("content_verified", true)
+                    put("dispatch_attribution", "REMOTE_STATE_VERIFIED_SEPARATELY_FROM_DISPATCH")
+                }
+            }
+        } else {
+            emptyList()
+        }
         val cleanups = observations.filter {
             val arguments = arguments(it) ?: return@filter false
             arguments.text("branch") == branch &&
@@ -359,6 +408,10 @@ internal object GitHubContentFixture {
             emptyList()
         }
         val cleanup = verifiedCleanup ?: cleanups.lastOrNull()
+        val deletionWasUnsent = !cleaned &&
+            cleanups.lastOrNull {
+                arguments(it)?.text("action") == "delete_fixture_branch"
+            }?.let(GitHubTransportRecovery::provenNoMutation) == true
         val approvals = GitHubPendingApproval.snapshot(observations.mapIndexed { index, receipt -> index.toString() to receipt }.toMap())
         return buildJsonObject {
             put("branch", branch)
@@ -366,6 +419,40 @@ internal object GitHubContentFixture {
             put("ownership_verified", ownership)
             put("content_verified", complete)
             put("final_state_verified", cleaned)
+            put("purpose", "BOUNDED_SYNTHETIC_CONTENT_INTEGRATION_TEST")
+            put("owner_task_binding", creation["binding"] ?: JsonPrimitive("unknown"))
+            put(
+                "lifecycle_state",
+                if (cleaned) {
+                    "REMOVED_VERIFIED"
+                } else if (ownership && approvals.isNotEmpty()) {
+                    "DELIBERATELY_RETAINED"
+                } else {
+                    "CLEANUP_PENDING"
+                }
+            )
+            put(
+                "lifecycle_reason",
+                when {
+                    cleaned -> "REMOTE_REF_ABSENCE_VERIFIED"
+                    !ownership -> "OWNERSHIP_NOT_ESTABLISHED"
+                    approvals.isNotEmpty() -> "EXACT_PATCH_APPROVAL_PENDING"
+                    deletionWasUnsent -> "CLEANUP_PREFLIGHT_REJECTED"
+                    cleanup != null -> "CLEANUP_ATTEMPT_NOT_VERIFIED"
+                    else -> "LIFECYCLE_IN_PROGRESS_OR_INTERRUPTED"
+                }
+            )
+            if (deletionWasUnsent) put("cleanup_dispatched", false)
+            put(
+                "next_action",
+                if (cleaned) {
+                    "NONE"
+                } else if (approvals.isNotEmpty()) {
+                    "APPROVE_OR_CANCEL_EXISTING_PATCH"
+                } else {
+                    "RECONCILE_OWNED_HEAD_THEN_AUTHORIZED_CLEANUP"
+                }
+            )
             put(
                 "cleanup_status",
                 if (!ownership) {
@@ -383,6 +470,7 @@ internal object GitHubContentFixture {
             put("cleanup_attempt_receipts", JsonArray(cleanups.takeLast(8).mapNotNull { it["receipt_id"] }))
             put("reconciled_deletion_receipts", JsonArray(reconciledDeletions))
             put("mutation_receipts", JsonArray(proved))
+            put("approval_resolutions", JsonArray(approvalProofs))
             put("pending_approvals", approvals)
             put("cleanup_obligation", if (cleaned) "VERIFIED_ABSENT" else "DURABLE_UNTIL_VERIFIED_ABSENT")
             put("cleanup_after_cancellation", "Reconcile the exact native approval and current owned head; cancellation cannot erase this obligation or authorize replay.")

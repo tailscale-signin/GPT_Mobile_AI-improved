@@ -6,10 +6,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import dev.chungjungsoo.gptmobile.data.audit.AppAuditModelBenchmarkBinding
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditOptions
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditPlanEntry
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditSelectedModelServices
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditSourceInventory
+import dev.chungjungsoo.gptmobile.data.audit.appAuditBenchmarkProfileHash
 import dev.chungjungsoo.gptmobile.data.audit.writeAppAuditExport
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkBatch
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkExecutionCoordinator
@@ -110,6 +112,7 @@ class ProfileBenchmarkViewModel @Inject constructor(
     val delegationSettings = settings.observeFeatureSettings().map { it.delegation.normalized() }
         .stateIn(viewModelScope, SharingStarted.Eagerly, dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings())
     private val selectedBenchmarkUids = MutableStateFlow<Set<String>?>(null)
+    private var preparedAuditModelBinding: AppAuditModelBenchmarkBinding? = null
     val benchmarkCandidates = profiles.map { list -> list.filter { it.enabled && it.model.isNotBlank() } }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val selectedBenchmarks = combine(benchmarkCandidates, selectedBenchmarkUids) { list, selected ->
@@ -212,27 +215,36 @@ class ProfileBenchmarkViewModel @Inject constructor(
     }
 
     fun select(profile: PlatformV2) {
-        if (!execution.isRunning) selectedUid.value = profile.uid
+        if (!execution.isRunning) {
+            preparedAuditModelBinding = null
+            selectedUid.value = profile.uid
+        }
     }
 
     /** Preparing a historical target only changes the reviewed queue selection; Run owns inference. */
-    internal fun prepareAuditModelBenchmark(entry: AppAuditPlanEntry, onPrepared: () -> Unit) {
+    internal fun prepareAuditModelBenchmark(auditBatchId: String, entry: AppAuditPlanEntry, onPrepared: () -> Unit) {
         if (execution.isRunning || !mutableReady.value) return
+        val audit = batches.value.singleOrNull { it.id == auditBatchId && it.mode == BenchmarkMode.APP_AUDIT }?.audit ?: return
         viewModelScope.launch {
-            val uid = try {
-                withContext(Dispatchers.IO) { appAuditBenchmarkProfileUid(entry, auditModels::target) }
+            val binding = try {
+                withContext(Dispatchers.IO) {
+                    val uid = appAuditModelProfileUid(entry) ?: return@withContext null
+                    val profile = settings.fetchPlatformV2s().singleOrNull { it.uid == uid } ?: return@withContext null
+                    appAuditPrepareModelBenchmark(audit, entry, profile, auditModels::target)
+                }
             } catch (failure: Exception) {
                 if (failure is CancellationException) throw failure
                 null
             }
             if (execution.isRunning || !mutableReady.value) return@launch
-            val current = profiles.value.singleOrNull { it.uid == uid }
-            if (uid == null || current == null || !current.enabled || current.model.isBlank()) {
+            val current = profiles.value.singleOrNull { it.uid == binding?.profileUid }
+            if (binding == null || current == null || !current.enabled || current.model.isBlank() || binding.profileSnapshotHash != appAuditBenchmarkProfileHash(current)) {
                 mutableError.value = "This audit's saved model configuration is unavailable or has changed. Review the intended profile and start a fresh audit before preparing its benchmark."
                 return@launch
             }
-            selectedUid.value = uid
-            selectedBenchmarkUids.value = setOf(uid)
+            preparedAuditModelBinding = binding
+            selectedUid.value = binding.profileUid
+            selectedBenchmarkUids.value = setOf(binding.profileUid)
             mutableError.value = null
             onPrepared()
         }
@@ -240,16 +252,23 @@ class ProfileBenchmarkViewModel @Inject constructor(
 
     fun toggleBenchmarkProfile(profile: PlatformV2) {
         if (execution.isRunning) return
+        preparedAuditModelBinding = null
         val current = selectedBenchmarkUids.value ?: selectedBenchmarks.value.map { it.uid }.toSet()
         selectedBenchmarkUids.value = if (profile.uid in current) current - profile.uid else current + profile.uid
     }
 
     fun selectAllBenchmarks() {
-        if (!execution.isRunning) selectedBenchmarkUids.value = benchmarkCandidates.value.map { it.uid }.toSet()
+        if (!execution.isRunning) {
+            preparedAuditModelBinding = null
+            selectedBenchmarkUids.value = benchmarkCandidates.value.map { it.uid }.toSet()
+        }
     }
 
     fun clearBenchmarks() {
-        if (!execution.isRunning) selectedBenchmarkUids.value = emptySet()
+        if (!execution.isRunning) {
+            preparedAuditModelBinding = null
+            selectedBenchmarkUids.value = emptySet()
+        }
     }
 
     fun selectDelegate(profile: PlatformV2) {
@@ -410,6 +429,11 @@ class ProfileBenchmarkViewModel @Inject constructor(
 
     private fun startSelected(targets: List<PlatformV2>, mode: BenchmarkMode, diagnostics: Boolean = false, executionPolicy: BenchmarkExecutionPolicy = BenchmarkExecutionPolicy.DETERMINISTIC_CAPABILITY_V1) {
         if (execution.isRunning || !mutableReady.value) return
+        val auditBinding = preparedAuditModelBinding
+        if (auditBinding != null && (targets.size != 1 || targets.single().uid != auditBinding.profileUid || appAuditBenchmarkProfileHash(targets.single()) != auditBinding.profileSnapshotHash)) {
+            mutableError.value = "The prepared audit's selected model changed or is unavailable. Prepare that audit check again; no replacement profile was queued."
+            return
+        }
         if (targets.isEmpty()) {
             mutableError.value = "Select at least one AI model to benchmark."
             return
@@ -422,7 +446,7 @@ class ProfileBenchmarkViewModel @Inject constructor(
             id = UUID.randomUUID().toString(),
             mode = mode,
             createdAt = System.currentTimeMillis(),
-            items = targets.mapIndexed { ordinal, profile -> BenchmarkQueueItem(ordinal, profile.benchmarkSnapshot(), UUID.randomUUID().toString(), benchmarkConfigKey(profile, localEnvironment.value, executionPolicy)) },
+            items = targets.mapIndexed { ordinal, profile -> BenchmarkQueueItem(ordinal, profile.benchmarkSnapshot(), UUID.randomUUID().toString(), benchmarkConfigKey(profile, localEnvironment.value, executionPolicy), auditModelBinding = auditBinding) },
             localEnvironment = localEnvironment.value,
             diagnosticMode = diagnostics && debugMode.value,
             executionPolicy = executionPolicy

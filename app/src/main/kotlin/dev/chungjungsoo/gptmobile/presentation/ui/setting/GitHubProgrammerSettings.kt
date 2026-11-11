@@ -23,6 +23,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.github.GitHubDecisionMode
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDropdownMenu as DropdownMenu
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
@@ -53,13 +54,15 @@ internal fun GitHubProfilePicker(profiles: List<PlatformV2>, selectedUid: String
 }
 
 @Composable
-internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: GitHubProgrammerState, onProfile: (String?) -> Unit, onIndex: (Boolean) -> Unit, onPrepare: () -> Unit, onSettings: (dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride) -> Unit = {}, onExport: () -> Unit = {}, onOpenRepositoryMap: (() -> Unit)? = null) {
-    var showConnectionDoctor by remember { mutableStateOf(false) }
-    if (showConnectionDoctor) ConnectionDoctorDialog(onDismiss = { showConnectionDoctor = false }, initialProfileUid = state.profileUid)
+internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: GitHubProgrammerState, onProfile: (String?) -> Unit, onIndex: (Boolean) -> Unit, onPrepare: () -> Unit, onSettings: (dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride) -> Unit = {}, onExport: () -> Unit = {}, onOpenRepositoryMap: (() -> Unit)? = null, onDecisionMode: (GitHubDecisionMode) -> Unit = {}) {
+    var inspection by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
+    inspection?.let { (profileUid, engineering) ->
+        ConnectionDoctorDialog(onDismiss = { inspection = null }, initialProfileUid = profileUid, engineeringGateway = engineering)
+    }
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         GitHubProfilePicker(state.profiles, state.selectedProfileUid ?: state.profileUid ?: state.profileOverrideUid, onProfile)
         Text("This profile handles GitHub work and review. If it is unavailable, your task pauses until you explicitly select a profile.", style = MaterialTheme.typography.bodySmall)
-        OutlinedButton(onClick = { showConnectionDoctor = true }, enabled = state.profileUid != null, modifier = Modifier.testTag("github_test_connection")) { Text("Test connection") }
+        OutlinedButton(onClick = { state.profileUid?.let { inspection = it to false } }, enabled = state.profileUid != null, modifier = Modifier.testTag("github_test_connection")) { Text("Test AI connection") }
         onOpenRepositoryMap?.let { open ->
             OutlinedButton(onClick = open, modifier = Modifier.fillMaxWidth().testTag("github_repository_map")) { Text("Repository map") }
         }
@@ -67,7 +70,7 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
         OutlinedCard(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Engineering gateway", style = MaterialTheme.typography.titleMedium)
-                Text("Select the private connection for saved jobs and repository graphs. Its address and credentials are independent of chat inference.", style = MaterialTheme.typography.bodySmall)
+                Text("Select a private gateway for saved repository jobs and graphs. Conversation and repository questions use the selected AI profile. Use Jobs to start saved work explicitly.", style = MaterialTheme.typography.bodySmall)
                 OutlinedButton(onClick = { gatewayMenu = true }, enabled = state.profileUid != null) {
                     Text(state.profiles.firstOrNull { it.uid == state.profileSettings.engineeringGatewayProfileUid }?.name ?: "Select gateway connection")
                 }
@@ -84,6 +87,9 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
                     }
                 }
                 Text("Add a separate Llama or Ollama connection in Platforms using the desktop gateway address, then select it here.", style = MaterialTheme.typography.bodySmall)
+                GitHubGatewayConnectionCheck(
+                    dev.chungjungsoo.gptmobile.data.github.engineeringGatewayProfile(state.profiles, state.profileSettings.engineeringGatewayProfileUid)?.uid
+                ) { inspection = it to true }
             }
         }
         GitHubProfileOverrides(state.profileSettings, state.profileUid != null, state.profiles.firstOrNull { it.uid == state.profileUid }?.maxToolCalls, onSettings)
@@ -96,7 +102,7 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
         Text("Save this GitHub conversation as Markdown or plain text. Debug mode also offers a diagnostic ZIP.", style = MaterialTheme.typography.bodySmall)
         state.chatId?.takeIf { it > 0 }?.let { dev.chungjungsoo.gptmobile.presentation.ui.chat.GitHubEvidenceButton(it) }
         state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-        Text("GitHub tools run automatically in this workspace. Each commit asks once, with a branch and change summary.", style = MaterialTheme.typography.bodySmall)
+        GitHubDecisionSettings(state.decisionMode, state.chatId?.let { it > 0 } == true, onDecisionMode)
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("Prepare code context", style = MaterialTheme.typography.titleSmall)
@@ -111,6 +117,47 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
         }
         if (state.prepareIndex) OutlinedButton(onClick = onPrepare, enabled = !workspace.busy) { Text("Prepare next batch") }
     }
+}
+
+@Composable
+private fun GitHubDecisionSettings(mode: GitHubDecisionMode, enabled: Boolean, onChange: (GitHubDecisionMode) -> Unit) {
+    var menu by remember { mutableStateOf(false) }
+    fun label(value: GitHubDecisionMode) = when (value) {
+        GitHubDecisionMode.ASK -> "Ask each time"
+        GitHubDecisionMode.SUGGESTED -> "Use suggested choices"
+        GitHubDecisionMode.AUTO_APPROVE -> "Auto-approve eligible commits"
+    }
+    OutlinedCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Chat decisions", style = MaterialTheme.typography.titleMedium)
+            Text("Applies to this conversation and repository.", style = MaterialTheme.typography.bodySmall)
+            OutlinedButton(onClick = { menu = true }, enabled = enabled, modifier = Modifier.testTag("github_decision_mode")) { Text(label(mode)) }
+            DropdownMenu(menu, { menu = false }) {
+                GitHubDecisionMode.entries.forEach { option ->
+                    DropdownMenuItem(text = { Text(label(option)) }, onClick = {
+                        menu = false
+                        onChange(option)
+                    })
+                }
+            }
+            Text(
+                when (mode) {
+                    GitHubDecisionMode.ASK -> "Review each patch and choose how to answer each question."
+                    GitHubDecisionMode.SUGGESTED -> "Use the suggested option when one is available. Review proposed commits yourself."
+                    GitHubDecisionMode.AUTO_APPROVE -> "Use suggested choices and approve eligible working-branch patches while this workspace is open. Deletions, workflow changes, and changes that require hardware verification still ask."
+                },
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+    }
+}
+
+@Composable
+internal fun GitHubGatewayConnectionCheck(profileUid: String?, onCheck: (String) -> Unit) {
+    OutlinedButton(onClick = { profileUid?.let(onCheck) }, enabled = profileUid != null, modifier = Modifier.testTag("github_check_gateway")) {
+        Text("Check gateway readiness")
+    }
+    Text("Engineering jobs use GitHub credentials saved on the gateway computer. Its enabled GitHub connection is selected automatically when it is the only eligible connection.", style = MaterialTheme.typography.bodySmall)
 }
 
 @Composable
@@ -171,7 +218,7 @@ private fun GitHubProfileOverrides(value: dev.chungjungsoo.gptmobile.data.github
                     }
                 }
             }
-            Text("Ultra Maximum supports up to 512 tool calls and 24 hours per job. Provider limits and usage charges still apply.", style = MaterialTheme.typography.bodySmall)
+            Text("Ultra Maximum is the default. GitHub work allows up to 512 tool calls; saved gateway jobs request up to 24 hours and 512 model calls. Your saved limits still apply, and each job shows the allowance accepted by its gateway.", style = MaterialTheme.typography.bodySmall)
             Text("Llama gateway · Review required before the final answer. Design decisions appear as buttons, with a custom answer option.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
         }
     }

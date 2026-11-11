@@ -13,11 +13,19 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class McpToolMapperTest {
+    @Test fun `Firecrawl anonymous access refusal requires an explicit failed reply`() {
+        val text = listOf(TextContent("Error: Anonymous access is not allowed. Configure a Firecrawl API key."))
+        assertTrue(firecrawlAnonymousAccessRejected(CallToolResult(content = text, isError = true)))
+        assertFalse(firecrawlAnonymousAccessRejected(CallToolResult(content = text, isError = false)))
+        assertFalse(firecrawlAnonymousAccessRejected(CallToolResult(content = listOf(TextContent("Transport ended unexpectedly")), isError = true)))
+    }
+
     @Test fun `MCP recovery retains research beyond the model-visible limit`() {
         val evidence = "Evidence 😀 ".repeat(12000) + "unique final fact"
         val result = mapMcpToolResult("search", CallToolResult(content = listOf(TextContent(evidence))))

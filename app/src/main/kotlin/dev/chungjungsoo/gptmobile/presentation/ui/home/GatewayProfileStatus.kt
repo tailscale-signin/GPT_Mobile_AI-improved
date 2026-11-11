@@ -10,6 +10,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -74,16 +75,23 @@ internal fun GatewayProfileStatus(availability: GatewayAvailability, modifier: M
     } else {
         gatewayAvailabilityLabel(availability.status)
     }
-    Row(modifier, horizontalArrangement = Arrangement.spacedBy(5.dp), verticalAlignment = Alignment.CenterVertically) {
-        if (availability.isOnline) {
-            val green = if (MaterialTheme.colorScheme.surface.luminance() < .5f) Color(0xFF81C784) else Color(0xFF1B5E20)
-            Box(Modifier.size(8.dp).background(green, CircleShape).testTag("gateway_online_dot"))
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(Modifier, horizontalArrangement = Arrangement.spacedBy(5.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (availability.isOnline) {
+                val green = if (MaterialTheme.colorScheme.surface.luminance() < .5f) Color(0xFF81C784) else Color(0xFF1B5E20)
+                Box(Modifier.size(8.dp).background(green, CircleShape).testTag("gateway_online_dot"))
+            }
+            Text(
+                label,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
-        Text(
-            label,
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+        if (!availability.isOnline) {
+            availability.recoveryAction?.let { action ->
+                Text(gatewayRecoveryLabel(action), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("gateway_recovery_hint"))
+            }
+        }
     }
 }
 
@@ -124,3 +132,21 @@ internal fun gatewayNamePulsePreservesContrast(foreground: Color, background: Co
     val surface = background.luminance()
     return (maxOf(text, surface) + .05f) / (minOf(text, surface) + .05f) >= 4.5f
 }
+
+@Composable
+internal fun gatewayRecoveryLabel(action: String): String = stringResource(
+    when (action) {
+        "wait_for_model" -> R.string.gateway_recovery_wait_model
+        "load_selected_model" -> R.string.gateway_recovery_load_model
+        "select_available_model" -> R.string.gateway_recovery_select_model
+        "restore_backend" -> R.string.gateway_recovery_backend
+        "check_backend_access" -> R.string.gateway_recovery_access
+        "restore_storage" -> R.string.gateway_recovery_storage
+        "wait_for_gateway" -> R.string.gateway_recovery_draining
+        "repair_configuration" -> R.string.gateway_recovery_configuration
+        "authorize" -> R.string.gateway_recovery_authorize
+        "reconcile" -> R.string.gateway_recovery_reconcile
+        "verify_acceptance" -> R.string.gateway_recovery_verify
+        else -> R.string.gateway_recovery_inspect
+    }
+)

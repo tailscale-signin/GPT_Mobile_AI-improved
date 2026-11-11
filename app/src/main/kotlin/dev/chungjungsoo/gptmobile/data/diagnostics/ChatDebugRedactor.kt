@@ -7,13 +7,19 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
 /** Preserve large results and token-count fields; redact secrets, including embedded JSON payloads. */
-internal fun redactChatDebugData(element: JsonElement, credentials: List<String> = emptyList()): JsonElement {
-    val knownCredentials = credentials.filter { it.length >= 4 }.distinct()
-    fun clean(value: JsonElement): JsonElement = when (value) {
+internal fun redactChatDebugData(element: JsonElement, credentials: List<String> = emptyList()): JsonElement = ChatDebugRedactor(credentials).redact(element)
+
+/** Reuse only the capture's credential policy; never retain exported records in a cache. */
+internal class ChatDebugRedactor(credentials: List<String> = emptyList()) {
+    private val knownCredentials = credentials.filter { it.length >= 4 }.distinct()
+
+    fun redact(element: JsonElement): JsonElement = clean(element)
+
+    private fun clean(value: JsonElement): JsonElement = when (value) {
         is JsonObject -> {
             var changed: MutableMap<String, JsonElement>? = null
             value.forEach { (key, child) ->
-                val safe = if (sensitive.matches(key)) JsonPrimitive("[redacted]") else clean(child)
+                val safe = if (sensitive.matches(key) && !diagnosticSemanticAuthorization(value, key, child)) JsonPrimitive("[redacted]") else clean(child)
                 if (safe !== child) {
                     if (changed == null) changed = LinkedHashMap(value)
                     changed[key] = safe
@@ -52,7 +58,6 @@ internal fun redactChatDebugData(element: JsonElement, credentials: List<String>
             }
         }
     }
-    return clean(element)
 }
 
 private val sensitive = Regex("(?i)^(?:token|secretRef|protectedReference|password|secret|authorization|proxy.authorization|cookie|set.cookie|(?:x[-_])?(?:goog[-_])?api.?key|access.?token|refresh.?token|client.?secret|credential|credentials|lastShareToken)$")

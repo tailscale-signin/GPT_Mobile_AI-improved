@@ -29,7 +29,7 @@ def route_kind(path):
     path = str(path).removeprefix('/v1')
     exact = {'/chat/completions': 'chat', '/models': 'models', '/health': 'backend_health', '/props': 'backend_properties',
              '/gateway/ready': 'readiness', '/gateway/live': 'liveness', '/gateway/capabilities': 'capabilities',
-             '/gateway/v13': 'capabilities', '/gateway/v14': 'capabilities', '/gateway/v15': 'capabilities',
+             '/gateway/v13': 'capabilities', '/gateway/v14': 'capabilities', '/gateway/v15': 'capabilities', '/gateway/v16': 'capabilities',
              '/gateway/dashboard': 'dashboard', '/gateway/admin/dashboard': 'management_dashboard',
              '/gateway/admin/status': 'maintenance', '/gateway/admin/maintenance': 'maintenance',
              '/gateway/identity': 'identity', '/gateway/job-catalog': 'job_catalog',

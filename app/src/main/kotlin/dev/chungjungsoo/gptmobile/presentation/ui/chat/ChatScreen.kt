@@ -182,7 +182,8 @@ fun ChatScreen(
     showTopBar: Boolean = true,
     allowResearchPanels: Boolean = true,
     exportRequestedForChatId: Int? = null,
-    onExportHandled: () -> Unit = {}
+    onExportHandled: () -> Unit = {},
+    bottomInteractionContent: (@Composable () -> Unit)? = null
 ) {
     ConversationViewport { viewportWidth, viewportHeight ->
         ChatScreenContent(
@@ -197,6 +198,7 @@ fun ChatScreen(
             allowResearchPanels = allowResearchPanels,
             exportRequestedForChatId = exportRequestedForChatId,
             onExportHandled = onExportHandled,
+            bottomInteractionContent = bottomInteractionContent,
             viewportWidth = viewportWidth,
             viewportHeight = viewportHeight
         )
@@ -217,11 +219,14 @@ private fun ChatScreenContent(
     allowResearchPanels: Boolean,
     exportRequestedForChatId: Int?,
     onExportHandled: () -> Unit,
+    bottomInteractionContent: (@Composable () -> Unit)?,
     viewportWidth: Dp,
     viewportHeight: Dp
 ) {
     val chatRoom by chatViewModel.chatRoom.collectAsStateWithLifecycle()
+    val agentRunsById by chatViewModel.agentRunsById.collectAsStateWithLifecycle()
     val featureSettings by chatViewModel.featureSettings.collectAsStateWithLifecycle()
+    val chatToolConfig by chatViewModel.chatToolConfig.collectAsStateWithLifecycle()
     val snackbarHost = remember { androidx.compose.material3.SnackbarHostState() }
     val removedProfile by chatViewModel.removedCombinedProfile.collectAsStateWithLifecycle()
     LaunchedEffect(removedProfile) {
@@ -249,7 +254,7 @@ private fun ChatScreenContent(
         }
     }
     val delegationRecoveryRequests by chatViewModel.pendingDelegationRecovery.collectAsStateWithLifecycle()
-    delegationRecoveryRequests.firstOrNull { it.chatId == chatRoom.id }?.let { request ->
+    delegationRecoveryRequests.firstOrNull { it.chatId == chatRoom.id }?.takeIf { chatToolConfig.github == null }?.let { request ->
         DelegationRecoveryDialog(
             request = request,
             onSwitch = { profileUid -> chatViewModel.respondDelegationRecovery(request.id, profileUid) },
@@ -265,6 +270,10 @@ private fun ChatScreenContent(
             onSettings = {
                 chatViewModel.dismissReasoningAdmission()
                 onProfileSettings(notice.profileUid)
+            },
+            onChooseModel = {
+                chatViewModel.dismissReasoningAdmission()
+                chatViewModel.openChatModelDialog()
             },
             onDismiss = chatViewModel::dismissReasoningAdmission
         )
@@ -294,10 +303,12 @@ private fun ChatScreenContent(
             onSwitchToAuto = chatViewModel::switchProfileReasoningToAuto
         )
     }
-    val inputRequests by chatViewModel.pendingMcpInput.collectAsStateWithLifecycle()
-    inputRequests.firstOrNull()?.let { McpInputDialog(it, chatViewModel::respondMcpInput) }
-    val approvals by chatViewModel.pendingToolApprovals.collectAsStateWithLifecycle(emptyList())
-    approvals.firstOrNull()?.let { approval ->
+    val allInputRequests by chatViewModel.pendingMcpInput.collectAsStateWithLifecycle()
+    val inputRequests = allInputRequests.filter { request -> request.runId?.let { agentRunsById[it]?.chatId } == chatRoom.id }
+    inputRequests.firstOrNull()?.takeIf { chatToolConfig.github == null }?.let { McpInputDialog(it, respond = chatViewModel::respondMcpInput) }
+    val allApprovals by chatViewModel.pendingToolApprovals.collectAsStateWithLifecycle(emptyList())
+    val approvals = allApprovals.filter { approval -> agentRunsById[approval.runId]?.chatId == chatRoom.id }
+    approvals.firstOrNull()?.takeIf { chatToolConfig.github == null }?.let { approval ->
         ToolApprovalDialog(
             approval = approval,
             onDeny = { chatViewModel.decideToolApproval(approval.id, false) },
@@ -308,7 +319,7 @@ private fun ChatScreenContent(
         )
     }
     val freeToolConsent by chatViewModel.pendingFreeToolConsent.collectAsStateWithLifecycle()
-    freeToolConsent?.let { request ->
+    freeToolConsent?.takeIf { chatToolConfig.github == null }?.let { request ->
         FreeToolConsentDialog(
             request = request,
             onAccept = chatViewModel::confirmFreeToolConsent,
@@ -374,7 +385,6 @@ private fun ChatScreenContent(
     var showOutline by rememberSaveable { mutableStateOf(false) }
     var pendingJumpKey by rememberSaveable { mutableStateOf<String?>(null) }
     val isLoaded by chatViewModel.isLoaded.collectAsStateWithLifecycle()
-    val agentRunsById by chatViewModel.agentRunsById.collectAsStateWithLifecycle()
     val activeAgentRuns by chatViewModel.activeAgentRuns.collectAsStateWithLifecycle()
     val runNoticesById by chatViewModel.runNoticesById.collectAsStateWithLifecycle()
     val toolEventsByRun by chatViewModel.toolEventsByRun.collectAsStateWithLifecycle()
@@ -427,7 +437,6 @@ private fun ChatScreenContent(
     LaunchedEffect(chatRoom.id, appAllPlatforms, groupedMessages.userMessages.size, groupedMessages.assistantMessages.size) { chatViewModel.resumeBranchIfReady() }
     val chatPlatformModels by chatViewModel.chatPlatformModels.collectAsStateWithLifecycle()
     val availableChatTools by chatViewModel.availableChatTools.collectAsStateWithLifecycle()
-    val chatToolConfig by chatViewModel.chatToolConfig.collectAsStateWithLifecycle()
     val gatewayWriteBlocker by chatViewModel.gatewayWriteBlocker.collectAsStateWithLifecycle()
     val gatewayQueueState by chatViewModel.gatewayQueueState.collectAsStateWithLifecycle()
     val githubDecisions by chatViewModel.githubDecisions.collectAsStateWithLifecycle()
@@ -441,7 +450,10 @@ private fun ChatScreenContent(
     }
     LaunchedEffect(chatRoom.id, chatToolConfig.github != null) { if (chatToolConfig.github != null) chatViewModel.loadGitHubDecisions() }
     val githubDecisionScope = chatToolConfig.github?.let(dev.chungjungsoo.gptmobile.data.github.GitHubChatDecisions::workspaceKey)
-    val visibleGitHubDecisions = githubDecisions.filter { it.chatId == chatRoom.id && it.workspace == githubDecisionScope && !it.delivered }
+    val scopedGitHubDecisions = remember(githubDecisions, chatRoom.id, githubDecisionScope) { githubDecisions.filter { it.chatId == chatRoom.id && it.workspace == githubDecisionScope } }
+    val visibleGitHubDecisions = remember(scopedGitHubDecisions) { scopedGitHubDecisions.filterNot { it.delivered } }
+    val nativeDecisions = LocalGitHubNativeDecisions.current
+    val turnDecisions = rememberGitHubTurnDecisions(scopedGitHubDecisions, nativeDecisions, groupedMessages.userMessages, pendingPrompts)
     val showResearchPanels = researchPanelsVisible(allowResearchPanels, chatToolConfig)
     val downloadedLocalModels by chatViewModel.downloadedLocalModels.collectAsStateWithLifecycle()
     val debugMode by chatViewModel.debugMode.collectAsStateWithLifecycle()
@@ -466,6 +478,25 @@ private fun ChatScreenContent(
     val context = LocalContext.current
     val lastMessageIndex = groupedMessages.userMessages.lastIndex
     val newestPromptKey = groupedMessages.userMessages.lastOrNull()?.let { chatMessagePairKey(it, lastMessageIndex) }
+    val githubPromptMode = chatToolConfig.github != null
+    val latestUser = groupedMessages.userMessages.lastOrNull()
+    val latestResponses = groupedMessages.assistantMessages.getOrNull(lastMessageIndex).orEmpty()
+    val activeGitHubResponse = latestResponses.any { response ->
+        val runId = response.currentRunId ?: return@any false
+        val status = agentRunsById[runId]?.status
+        status?.let { it !in AgentRunStatus.terminal } ?: (runId in activeAgentRuns)
+    }
+    val githubResponseStarting = !isIdle &&
+        latestResponses.none { response -> response.currentRunId?.let(agentRunsById::get)?.status in AgentRunStatus.terminal }
+    val waitingForGitHubInput = LocalGitHubApprovalPending.current ||
+        visibleGitHubDecisions.any { it.sourceMessageId == latestUser?.id } ||
+        approvals.any { agentRunsById[it.runId]?.userMessageId == latestUser?.id } ||
+        inputRequests.any { it.runId?.let(agentRunsById::get)?.userMessageId == latestUser?.id }
+    val pinnedGitHubPrompt = latestUser?.takeIf {
+        githubPromptMode &&
+            chatRoom.conversationMode != ConversationMode.COMBINED &&
+            (waitingForGitHubInput || activeGitHubResponse || githubResponseStarting)
+    }
     var observedPromptKey by rememberSaveable(chatRoom.id) { mutableStateOf<String?>(null) }
     var promptTrackingReady by rememberSaveable(chatRoom.id) { mutableStateOf(false) }
     var anchoredPromptKey by rememberSaveable(chatRoom.id) { mutableStateOf<String?>(null) }
@@ -475,12 +506,11 @@ private fun ChatScreenContent(
     val promptDensity = LocalDensity.current
     val touchSlop = androidx.compose.ui.platform.LocalViewConfiguration.current.touchSlop
     val promptAnchor = remember(chatRoom.id, touchSlop) { GitHubPromptAnchor(touchSlop, touchSlop, githubScrollMode) }
-    val githubPromptMode = chatToolConfig.github != null
     LaunchedEffect(isLoaded, newestPromptKey, chatToolConfig.github != null) {
         if (!isLoaded) return@LaunchedEffect
         if (chatToolConfig.github != null && promptTrackingReady && newestPromptKey != null && newestPromptKey != observedPromptKey) {
             anchoredPromptKey = newestPromptKey
-            promptAnchor.attach()
+            promptAnchor.followBottom()
             githubScrollMode = promptAnchor.mode
             githubGestureActive = false
             promptAnchorRevision++
@@ -599,7 +629,7 @@ private fun ChatScreenContent(
                 isFollowingBottom = false
             }
             snapshotFlow { listState.layoutInfo.totalItemsCount }.first { it >= visibleTurnCount + historyHeaderCount }
-            listState.scrollToItem(index - firstVisibleTurn + historyHeaderCount)
+            listState.animateToGitHubPrompt(index - firstVisibleTurn + historyHeaderCount, animate = featureSettings.responseAnimation)
         }
         pendingJumpKey = null
     }
@@ -688,7 +718,7 @@ private fun ChatScreenContent(
         if (entryPositioned && !isModelTabPositionLocked && (isFollowingBottom || isUserDragging || listState.isScrollInProgress)) {
             isFollowingBottom = nextFollowBottom(
                 isFollowing = isFollowingBottom,
-                isUserScrolling = isUserDragging || listState.isScrollInProgress,
+                isUserScrolling = isUserDragging,
                 isScrollingAway = listState.lastScrolledBackward,
                 canScrollForward = listState.canScrollForward
             )
@@ -705,36 +735,7 @@ private fun ChatScreenContent(
         previousMessageCount = currentCount
     }
 
-    var latestResponseOffset by remember(chatRoom.id, lastMessageIndex) { mutableIntStateOf(-1) }
-    val responseBoundary = remember(chatRoom.id, lastMessageIndex) { LatestResponseBoundary() }
     val latestTurnItem = lastMessageIndex - firstVisibleTurn + historyHeaderCount
-    var navigatedFromTarget by remember(chatRoom.id) { mutableStateOf(false) }
-    LaunchedEffect(isUserDragging) { if (isUserDragging) navigatedFromTarget = true }
-    val boundaryEnabled = !githubPromptMode && isIdle && entryPositioned && (!hasTargetMessage || navigatedFromTarget) && latestResponseOffset >= 0
-    val latestBoundaryEnabled by androidx.compose.runtime.rememberUpdatedState(boundaryEnabled)
-    val latestBoundaryItem by androidx.compose.runtime.rememberUpdatedState(latestTurnItem)
-    val minimumFlingVelocity = with(LocalDensity.current) { 1000.dp.toPx() }
-    val boundaryConnection = remember(listState, responseBoundary, minimumFlingVelocity) {
-        object : NestedScrollConnection {
-            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                if (!latestBoundaryEnabled) return Offset.Zero
-                val turn = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == latestBoundaryItem } ?: return Offset.Zero
-                val responseTop = turn.offset + latestResponseOffset
-                val consumed = responseBoundary.consume(available.y, -responseTop.toFloat(), android.os.SystemClock.elapsedRealtime(), source == NestedScrollSource.UserInput)
-                return Offset(0f, consumed)
-            }
-
-            override suspend fun onPreFling(available: androidx.compose.ui.unit.Velocity): androidx.compose.ui.unit.Velocity {
-                if (latestBoundaryEnabled) responseBoundary.beginFling(available.y, minimumFlingVelocity)
-                return androidx.compose.ui.unit.Velocity.Zero
-            }
-
-            override suspend fun onPostFling(consumed: androidx.compose.ui.unit.Velocity, available: androidx.compose.ui.unit.Velocity): androidx.compose.ui.unit.Velocity {
-                responseBoundary.endFling()
-                return androidx.compose.ui.unit.Velocity.Zero
-            }
-        }
-    }
 
     val promptModeState by androidx.compose.runtime.rememberUpdatedState(githubPromptMode)
     val nearBottomDistance = with(promptDensity) { 48.dp.toPx() }
@@ -779,7 +780,7 @@ private fun ChatScreenContent(
     )
     ChatBottomAutoScroller(
         listState = listState,
-        animate = !isIdle,
+        animate = featureSettings.responseAnimation,
         isEnabled = !githubPromptMode &&
             featureSettings.smoothStreaming &&
             entryPositioned &&
@@ -851,12 +852,10 @@ private fun ChatScreenContent(
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
-                    .nestedScroll(boundaryConnection)
                     .nestedScroll(promptConnection)
-                    .pointerInput(responseBoundary, promptAnchor) {
+                    .pointerInput(promptAnchor) {
                         awaitEachGesture {
                             awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-                            responseBoundary.beginGesture()
                             if (promptModeState) {
                                 promptAnchor.beginGesture()
                                 githubGestureActive = true
@@ -904,6 +903,7 @@ private fun ChatScreenContent(
                 ) { visibleIndex, message ->
                     val index = firstVisibleTurn + visibleIndex
                     ChatMessagePair(
+                        pinGitHubPrompt = index == lastMessageIndex && pinnedGitHubPrompt != null,
                         reservedTurnHeight = if (githubPromptMode && index == lastMessageIndex) (with(density) { listState.layoutInfo.viewportSize.height.toDp() } - composerHeight - 16.dp - innerPadding.calculateTopPadding()).coerceAtLeast(0.dp) else 0.dp,
                         replyRevision = pendingReplies.hashCode().toLong(),
                         replyVisible = listState.layoutInfo.visibleItemsInfo.any { it.key == chatMessagePairKey(message, index) },
@@ -940,7 +940,6 @@ private fun ChatScreenContent(
                             isHoldingEntryCenter = false
                             isFollowingBottom = false
                             isModelTabPositionLocked = true
-                            listState.requestScrollToItem(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset)
                             inspectedCombinedTurn = chatMessagePairKey(message, index).takeIf { uid != null }
                             inspectedCombinedProfileUid = uid
                         },
@@ -948,7 +947,6 @@ private fun ChatScreenContent(
                         isUserTyping = chatViewModel.question.text.isNotEmpty(),
                         targetMessageId = chatViewModel.targetMessageId,
                         onTargetResponseOffset = { targetResponseOffset = it },
-                        onResponseOffset = { if (index == lastMessageIndex) latestResponseOffset = it },
                         onEditQuestion = chatViewModel::openUserMessageEditDialog,
                         onEditAssistant = chatViewModel::openAssistantMessageEditDialog,
                         loadCombinedBlocks = chatViewModel::combinedDocumentBlocks,
@@ -963,7 +961,6 @@ private fun ChatScreenContent(
                             isHoldingEntryCenter = false
                             isFollowingBottom = false
                             isModelTabPositionLocked = true
-                            listState.requestScrollToItem(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset)
                             chatViewModel.updateChatPlatformIndex(turn, platform)
                         },
                         onPlatformLongPress = chatViewModel::togglePlatformDisabled,
@@ -995,6 +992,7 @@ private fun ChatScreenContent(
                         onContinueClick = { chatViewModel.sendContinueResponse() },
                         onActionClick = { prompt -> chatViewModel.sendPromptResponse(prompt) }
                     )
+                    GitHubTurnDecisions(turnDecisions[message.id].orEmpty())
                     val researchExecution = researchExecutions.values.lastOrNull { it.accepted.chatId == chatRoom.id && it.accepted.originatingUserMessageId == message.id && it.accepted.targetSources > 0 }
                     researchExecution?.takeIf { showResearchPanels }?.let { execution ->
                         ResearchAttemptProgressCard(
@@ -1091,14 +1089,47 @@ private fun ChatScreenContent(
                     chatToolConfig.github?.let { github ->
                         item(key = "gateway-engineering-jobs") { GatewayEngineeringPanel(chatRoom.id, github, appAllPlatforms.firstOrNull { it.uid == github.mainProfileUid }, debugMode = debugMode) }
                     }
+                    githubWorkingIndicator(isGenerating = activeMessage != null)
+                }
+                items(pendingPrompts.size, key = { "queued-${pendingPrompts[it].id}" }) { index ->
+                    val prompt = pendingPrompts[index]
+                    val receipt = if (chatToolConfig.github != null) gitHubCommitDecisionBubble(prompt.text, nativeDecisions) else null
+                    QueuedPromptBubble(prompt, chatViewModel::editQueuedPrompt, chatViewModel::removeQueuedPrompt, chatViewModel::pauseQueuedPrompt, followUpProgress[prompt.id], receipt)
+                }
+                if (chatToolConfig.github != null) {
+                    item(key = "gateway-merge-interactions") { GatewayMergeInteractions(chatRoom.id) }
+                    bottomInteractionContent?.let { content -> item(key = "github-saved-patch-approval") { content() } }
                     items(visibleGitHubDecisions.size, key = { "github-decision-${visibleGitHubDecisions[it].id}" }) { index ->
                         val decision = visibleGitHubDecisions[index]
                         GitHubDecisionCard(decision, decision.id in githubWaiting, { option, answer -> chatViewModel.answerGitHubDecision(decision.id, option, answer) }, { chatViewModel.resumeGitHubDecision(decision.id) }, { chatViewModel.stopGitHubDecision(decision.id) })
                     }
-                    githubWorkingIndicator(isGenerating = activeMessage != null)
-                }
-                items(pendingPrompts.size, key = { "queued-${pendingPrompts[it].id}" }) { index ->
-                    QueuedPromptBubble(pendingPrompts[index], chatViewModel::editQueuedPrompt, chatViewModel::removeQueuedPrompt, chatViewModel::pauseQueuedPrompt, followUpProgress[pendingPrompts[index].id])
+                    items(approvals.size, key = { "tool-approval-${approvals[it].id}" }) { index ->
+                        val approval = approvals[index]
+                        GitHubPendingPrompt {
+                            ToolApprovalDialog(
+                                approval = approval,
+                                onDeny = { chatViewModel.decideToolApproval(approval.id, false) },
+                                onAllowOnce = { chatViewModel.decideToolApproval(approval.id, true) },
+                                onAllowInConversation = { chatViewModel.allowToolInConversation(approval.id) },
+                                onAlwaysAllowTool = { chatViewModel.alwaysAllowTool(approval.id) },
+                                onAlwaysAllowProvider = { chatViewModel.alwaysAllowToolProvider(approval.id) },
+                                inline = true
+                            )
+                        }
+                    }
+                    items(inputRequests.size, key = { "mcp-input-${inputRequests[it].id}" }) { index ->
+                        GitHubPendingPrompt { McpInputDialog(inputRequests[index], inline = true, respond = chatViewModel::respondMcpInput) }
+                    }
+                    delegationRecoveryRequests.filter { it.chatId == chatRoom.id }.forEach { request ->
+                        item(key = "delegation-recovery-${request.id}") {
+                            GitHubPendingPrompt { DelegationRecoveryDialog(request, { profileUid -> chatViewModel.respondDelegationRecovery(request.id, profileUid) }, { chatViewModel.respondDelegationRecovery(request.id, null) }, inline = true) }
+                        }
+                    }
+                    freeToolConsent?.let { request ->
+                        item(key = "personal-tool-consent") {
+                            GitHubPendingPrompt { FreeToolConsentDialog(request, chatViewModel::confirmFreeToolConsent, chatViewModel::dismissFreeToolConsent, inline = true) }
+                        }
+                    }
                 }
                 if (groupedMessages.userMessages.isNotEmpty()) {
                     item(key = "chat-bottom-anchor") {
@@ -1115,7 +1146,6 @@ private fun ChatScreenContent(
                     contentAlignment = Alignment.BottomCenter
                 ) {
                     ScrollToBottomButton(isGenerating = !isIdle) {
-                        navigatedFromTarget = true
                         isHoldingEntryCenter = false
                         isModelTabPositionLocked = false
                         if (githubPromptMode) {
@@ -1124,9 +1154,9 @@ private fun ChatScreenContent(
                             githubGestureActive = false
                             promptAnchorRevision++
                         } else {
-                            scope.launch {
-                                listState.scrollToItem((listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0))
-                                isFollowingBottom = true
+                            isFollowingBottom = featureSettings.smoothStreaming
+                            if (!featureSettings.smoothStreaming) {
+                                scope.launch { listState.animateToGitHubBottom(featureSettings.responseAnimation) }
                             }
                         }
                     }
@@ -1145,6 +1175,13 @@ private fun ChatScreenContent(
                     }
             ) {
                 Column(Modifier.navigationBarsPadding()) {
+                    pinnedGitHubPrompt?.let { prompt ->
+                        ActiveGitHubPrompt(
+                            prompt,
+                            gitHubCommitDecisionBubble(prompt.content, nativeDecisions),
+                            onViewPrompt = { chatViewModel.openSelectTextSheet(it) }
+                        )
+                    }
                     chatToolConfig.research?.takeIf { showResearchPanels }?.let { selection ->
                         val profileUid = activePlatformUids.firstOrNull().orEmpty()
                         val target = selection.applyTo(featureSettings.delegationFor(profileUid)).deepResearch.maxPages
@@ -1221,7 +1258,6 @@ private fun ChatScreenContent(
                             combinedWaiting = combined && frozenProfiles.any { it.status != CombinedResponseStatus.COMPLETED },
                             combinedGenerating = combined && dockTurn >= 0 && combinedAnswerStatus(replies.firstOrNull { it.isCombinedSynthesis() }, frozenProfiles, agentRunsById) == CombinedResponseStatus.GENERATING,
                             onSelect = { uid ->
-                                listState.requestScrollToItem(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset)
                                 isHoldingEntryCenter = false
                                 isFollowingBottom = false
                                 isModelTabPositionLocked = true
@@ -1458,6 +1494,7 @@ private fun ChatScreenContent(
 @Composable
 internal fun ChatMessagePair(
     reservedTurnHeight: Dp = 0.dp,
+    pinGitHubPrompt: Boolean = false,
     replyRevision: Long,
     replyVisible: Boolean,
     onAnswerDisplayed: (MessageV2) -> Unit,
@@ -1492,7 +1529,6 @@ internal fun ChatMessagePair(
     isUserTyping: Boolean = false,
     targetMessageId: Int = -1,
     onTargetResponseOffset: (Int) -> Unit = {},
-    onResponseOffset: (Int) -> Unit = {},
     onEditQuestion: (MessageV2) -> Unit,
     onEditAssistant: (Int, Int) -> Unit,
     onCopyText: (String) -> Unit,
@@ -1620,6 +1656,12 @@ internal fun ChatMessagePair(
         }
     }
     val githubTask = message.content.takeIf { LocalChatProgressInHeader.current && !hasCombinedTabs }
+    val selectedRunId = selectedAssistantMessage?.effectiveRunId()
+    val agentRun = selectedRunId?.let(agentRunsById::get)
+    val savedFailure = visibleResponseFailure(assistantTimeline.lastOrNull { it.runError != null }?.runError, agentRun?.terminalError, agentRun?.status)
+    val nativeDecisions = LocalGitHubNativeDecisions.current
+    val approvalCardOrReceipt = LocalGitHubApprovalPending.current || nativeDecisions.any { it.sourceMessageId == message.id }
+    val awaitingGitHubDelivery = pinGitHubPrompt || githubTask != null && gitHubApprovalRetryBlock(savedFailure, approvalCardOrReceipt) != null
     val readAssistantActionText: suspend () -> String = {
         when {
             selectedSourceReader != null -> selectedSourceReader.readAll()
@@ -1630,14 +1672,6 @@ internal fun ChatMessagePair(
     }
     val readLifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current
     val readLifecycleState by readLifecycle.lifecycle.currentStateFlow.collectAsStateWithLifecycle()
-    LaunchedEffect(replyRevision, replyVisible, selectedAssistantMessage, rawAssistantContent, readLifecycleState) {
-        if (replyVisible && !isSourceResponse && readLifecycle.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) {
-            androidx.compose.runtime.withFrameNanos { }
-            selectedAssistantMessage?.let { onAnswerDisplayed(it.copy(content = rawAssistantContent)) }
-        }
-    }
-    val selectedRunId = selectedAssistantMessage?.effectiveRunId()
-    val agentRun = selectedRunId?.let(agentRunsById::get)
     val retainedFailure = remember(selectedAssistantMessage, agentRun?.terminalError) { selectedAssistantMessage?.let { dev.chungjungsoo.gptmobile.data.agent.CombinedRecoveryFailure.retained(it, agentRun?.terminalError) } }
     val needsAnswerCorrection = isCombinedConversation && retainedFailure?.category == dev.chungjungsoo.gptmobile.data.agent.CombinedRecoveryCategory.REQUIREMENTS_UNMET
     val revisionTarget = remember(selectedAssistantMessage, agentRun, needsAnswerCorrection) {
@@ -1677,31 +1711,53 @@ internal fun ChatMessagePair(
         else -> isActiveMessage && loadingStates.getOrElse(displayPlatformIndex) { ChatViewModel.LoadingState.Idle } == ChatViewModel.LoadingState.Loading
     }
     val isResponseLoading = if (hasCombinedTabs) isCurrentPlatformLoading else shouldShowAssistantResponseProgress(isCurrentPlatformLoading, activeAgentRun != null, agentRun?.status)
-    val responseFailure = visibleResponseFailure(assistantTimeline.lastOrNull { it.runError != null }?.runError, agentRun?.terminalError, agentRun?.status)
-    val reviewRetryBlock = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.reviewRetryBlock(responseFailure)
+    val answerCanBeAcknowledged = githubTask == null || !awaitingGitHubDelivery && !isResponseLoading
+    LaunchedEffect(replyRevision, replyVisible, selectedAssistantMessage, rawAssistantContent, readLifecycleState, answerCanBeAcknowledged) {
+        if (answerCanBeAcknowledged && replyVisible && !isSourceResponse && readLifecycle.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) {
+            androidx.compose.runtime.withFrameNanos { }
+            selectedAssistantMessage?.let { onAnswerDisplayed(it.copy(content = rawAssistantContent)) }
+        }
+    }
+    val responseFailure = savedFailure.takeUnless { awaitingGitHubDelivery }
+    val responseFailureRecord = responseFailure?.let { error ->
+        assistantTimeline.lastOrNull { it.runError == error }?.profileFailure
+            ?: dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.classify(error)
+    }
+    val gatewayAdmission = gatewayAdmissionPresentation(responseFailureRecord)
+    val repairGatewayProfile = debugSettings.githubProfileOverrides[selectedPlatformUid]?.engineeringGatewayProfileUid
+        ?.let(enabledPlatformLookup::get)
+    val approvalRetryBlock = gitHubApprovalRetryBlock(responseFailure, approvalCardOrReceipt)
+    val reviewRetryBlock = approvalRetryBlock ?: dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.reviewRetryBlock(responseFailure)
     val responseRecoveryKind = responseFailure?.let { profileRecoveryKind(dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.classify(it).category, it) } ?: ProfileRecoveryKind.NONE
+    val gitHubChat = githubTask != null || currentResearchTools().github != null
+    val commitDecision = remember(gitHubChat, message.content, nativeDecisions) { if (gitHubChat) gitHubCommitDecisionBubble(message.content, nativeDecisions) else null }
     StableChatResponseViewport(contentKey = if (isCombinedConversation) "combined" else selectedPlatformUid, reservedHeight = reservedTurnHeight) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .onSizeChanged {
-                    onResponseOffset(it.height + responseInsetPx * 2)
-                    if (targetAssistantIndex >= 0) onTargetResponseOffset(it.height + responseInsetPx)
+        if (!pinGitHubPrompt) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .onSizeChanged {
+                        if (targetAssistantIndex >= 0) onTargetResponseOffset(it.height + responseInsetPx)
+                    }
+                    .padding(horizontal = 8.dp, vertical = 12.dp),
+                horizontalAlignment = Alignment.End
+            ) {
+                Box {
+                    if (commitDecision != null) {
+                        GitHubDecisionBubble(commitDecision, Modifier.widthIn(max = maximumUserChatBubbleWidth))
+                    } else {
+                        UserChatBubble(
+                            modifier = Modifier.widthIn(max = maximumUserChatBubbleWidth),
+                            text = message.content,
+                            timestamp = (message.createdAt * 1000L).takeIf { debugSettings.messageTimestamps },
+                            files = message.attachments.map { it.filePathForDisplay },
+                            canEdit = canUseChat && isIdle,
+                            onCopyClick = { onCopyText(message.content) },
+                            onSelectClick = { onSelectText(message.content) },
+                            onEditClick = { onEditQuestion(message) }
+                        )
+                    }
                 }
-                .padding(horizontal = 8.dp, vertical = 12.dp),
-            horizontalAlignment = Alignment.End
-        ) {
-            Box {
-                UserChatBubble(
-                    modifier = Modifier.widthIn(max = maximumUserChatBubbleWidth),
-                    text = message.content,
-                    timestamp = (message.createdAt * 1000L).takeIf { debugSettings.messageTimestamps },
-                    files = message.attachments.map { it.filePathForDisplay },
-                    canEdit = canUseChat && isIdle,
-                    onCopyClick = { onCopyText(message.content) },
-                    onSelectClick = { onSelectText(message.content) },
-                    onEditClick = { onEditQuestion(message) }
-                )
             }
         }
 
@@ -1833,6 +1889,7 @@ internal fun ChatMessagePair(
                     debugMode = debugMode,
                     showExecutionTrace = !isCombinedConversation,
                     githubTask = githubTask,
+                    awaitingGitHubDelivery = awaitingGitHubDelivery,
                     responseIcon = if (githubTask != null) {
                         { GPTMobileIcon(loading = isResponseLoading, github = true) }
                     } else {
@@ -1924,10 +1981,12 @@ internal fun ChatMessagePair(
                     onContinueClick = onContinueClick.takeIf { smartSuggestionsEnabled && !isSourceResponse },
                     onActionClick = onActionClick.takeIf { smartSuggestionsEnabled && !isSourceResponse }
                 )
-                responseFailure?.let { error ->
+                responseFailure?.takeUnless { approvalRetryBlock != null }?.let { error ->
                     Column(Modifier.fillMaxWidth().padding(12.dp)) {
                         Text(
-                            if (agentRun?.status == AgentRunStatus.PARTIAL) {
+                            if (gatewayAdmission != null) {
+                                gatewayAdmission.title
+                            } else if (agentRun?.status == AgentRunStatus.PARTIAL) {
                                 "Work remaining"
                             } else if (agentRun?.status == AgentRunStatus.EVIDENCE_MISSING) {
                                 "Evidence needed"
@@ -1939,12 +1998,25 @@ internal fun ChatMessagePair(
                             style = MaterialTheme.typography.titleSmall
                         )
                         Text(error, style = MaterialTheme.typography.bodySmall)
+                        gatewayAdmission?.let { admission ->
+                            Text(admission.guidance, style = MaterialTheme.typography.bodySmall)
+                            repairGatewayProfile?.let { gateway ->
+                                TextButton(onClick = { onProfileSettings(gateway.uid) }, enabled = isIdle && canUseChat) {
+                                    Text("Gateway connection settings · ${gateway.name}")
+                                }
+                            }
+                            if (admission.canRetryAfterRepair && !hasCombinedTabs) {
+                                TextButton(onClick = { onRetry(messageIndex, displayPlatformIndex) }, enabled = isIdle && canUseChat && reviewRetryBlock == null) {
+                                    Text("Recheck gateway and retry")
+                                }
+                            }
+                        }
                         if (error.contains("QUEUE_") && selectedRunId != null) TextButton(onClick = { onCheckQueuedRun(selectedRunId) }) { Text(stringResource(R.string.audit_check_status)) }
                         if (!hasCombinedTabs) {
                             reviewRetryBlock?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-                            if (responseRecoveryKind == ProfileRecoveryKind.NONE) {
-                                TextButton(onClick = { onRetry(messageIndex, displayPlatformIndex) }, enabled = isIdle && canUseChat && reviewRetryBlock == null) { Text(stringResource(R.string.audit_generate_again)) }
-                            } else {
+                            if (gatewayAdmission == null && responseRecoveryKind == ProfileRecoveryKind.NONE && approvalRetryBlock == null) {
+                                TextButton(onClick = { onRetry(messageIndex, displayPlatformIndex) }, enabled = isIdle && canUseChat && reviewRetryBlock == null) { Text(if (agentRun?.status in setOf(AgentRunStatus.PARTIAL, AgentRunStatus.EVIDENCE_MISSING) && githubTask != null) "Resume saved task" else stringResource(R.string.audit_generate_again)) }
+                            } else if (gatewayAdmission == null && responseRecoveryKind != ProfileRecoveryKind.NONE) {
                                 ProfileRecoveryActions(
                                     kind = responseRecoveryKind,
                                     profileName = enabledPlatformLookup[selectedPlatformUid]?.name ?: "Saved profile",
@@ -2044,26 +2116,21 @@ internal fun ChatBottomAutoScroller(
         snapshotFlow {
             val info = listState.layoutInfo
             // The final item is a fixed-height bottom anchor. Follow growth in
-            // measured message rows too, without reacting to their scroll offsets.
+            // measured message rows and composer/keyboard viewport changes too,
+            // without reacting to their scroll offsets or individual text tokens.
             Triple(
                 info.totalItemsCount,
                 info.visibleItemsInfo.map { it.index to it.size },
-                if (githubMotion) Triple(info.viewportSize.height, info.beforeContentPadding, info.afterContentPadding) else null
+                Triple(info.viewportSize.height, info.beforeContentPadding, info.afterContentPadding)
             )
         }.distinctUntilChanged().conflate().collect { (totalItems, _, _) ->
             // Coalesce on the UI frame clock so layout, animation and Compose
             // idling all observe the pending scroll. A wall-clock delay can leave
             // the initial/growing viewport idle before following has started.
             androidx.compose.runtime.withFrameNanos { }
-            val latestItemIndex = totalItems - 1
-            if (latestItemIndex >= 0 && listState.canScrollForward) {
-                if (githubMotion && animate) {
-                    listState.animateToGitHubBottom()
-                } else if (animate) {
-                    listState.animateScrollToItem(latestItemIndex)
-                } else {
-                    listState.scrollToItem(latestItemIndex)
-                }
+            if (totalItems > 0 && listState.canScrollForward) {
+                val nearBottom = listState.gitHubDistanceToBottom() < listState.layoutInfo.viewportSize.height
+                listState.animateToGitHubBottom(animate, durationMillis = if (githubMotion || !nearBottom) GITHUB_BOTTOM_FOLLOW_MILLIS else 240)
             }
         }
     }
@@ -2086,10 +2153,7 @@ internal suspend fun LazyListState.scrollToConversationEntry(targetItem: Int? = 
 }
 
 internal suspend fun LazyListState.animateScrollToLatestChatMessage() {
-    val latestItemIndex = layoutInfo.totalItemsCount - 1
-    if (latestItemIndex >= 0) {
-        animateScrollToItem(latestItemIndex)
-    }
+    animateToGitHubBottom()
 }
 
 @Composable

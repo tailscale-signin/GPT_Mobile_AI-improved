@@ -23,7 +23,11 @@ data class ToolCatalogConnectionDiscovery(
     val revision: String,
     val knownSchemaCount: Int? = null,
     val errorCode: String? = null,
-    val retryAtMillis: Long? = null
+    val retryAtMillis: Long? = null,
+    val phase: String? = null,
+    val validationRule: String? = null,
+    val validationField: String? = null,
+    val upstreamStatus: Int? = null
 )
 
 data class ToolCatalogAcquisition(val connections: List<ToolCatalogConnectionDiscovery>) {
@@ -49,6 +53,21 @@ data class ToolCatalogAcquisition(val connections: List<ToolCatalogConnectionDis
                     buildJsonObject {
                         put("connection_id", connection.connectionUid.replace(Regex("[^A-Za-z0-9_.:-]"), "_").take(128))
                         put("state", connection.state.name)
+                        put("revision", connection.revision)
+                        listOf("phase" to connection.phase, "validation_rule" to connection.validationRule, "validation_field" to connection.validationField).forEach { (key, value) ->
+                            value?.takeIf { it.matches(Regex("[A-Za-z0-9_.:-]{1,96}")) }?.let { put(key, it) }
+                        }
+                        connection.upstreamStatus?.takeIf { it in 100..599 }?.let { put("upstream_status", it) }
+                        put(
+                            "recovery_condition",
+                            when (connection.state) {
+                                ToolCatalogDiscoveryState.CONFIGURATION_REQUIRED -> "CONFIGURATION_REVISION_CHANGED_OR_EXPLICIT_RECONNECT"
+                                ToolCatalogDiscoveryState.AUTHENTICATION_REQUIRED -> "AUTHORIZATION_RESTORED"
+                                ToolCatalogDiscoveryState.STALE -> "CATALOG_REFRESH_COMPLETED"
+                                ToolCatalogDiscoveryState.RECOVERY_BACKOFF -> "RETRY_DEADLINE_REACHED"
+                                else -> "OBSERVE_CONNECTION_STATE"
+                            }
+                        )
                         connection.knownSchemaCount?.let { put("last_observed_schema_count", it) }
                         connection.errorCode?.takeIf { it.matches(Regex("[A-Z0-9_]{1,96}")) }?.let { put("error_code", it) }
                         connection.retryAtMillis?.takeIf { it != Long.MAX_VALUE }?.let { put("retry_at_epoch_ms", it) }

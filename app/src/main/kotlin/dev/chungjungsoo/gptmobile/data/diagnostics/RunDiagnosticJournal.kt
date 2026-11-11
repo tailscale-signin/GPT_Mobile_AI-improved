@@ -13,7 +13,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 @Serializable
-enum class RunDiagnosticKind { INTENT_CONVERSATIONAL, INTENT_SUBSTANTIVE, TOOL_ADMITTED, TOOL_RESULT, CONTINUATION_SELECTED, VERIFICATION_REJECTED, ANSWER_REWRITE, CACHE_OBSERVATION, INPUT_PERSISTED, DISPATCH_ELIGIBLE, PREPARATION_DIRECT, PREPARATION_CONTEXTUAL, PREPARATION_REQUIRED, HTTP_CALL_START, REQUEST_BODY_END, RESPONSE_HEADERS, FIRST_TEXT, FIRST_REASONING, FIRST_TOOL, FIRST_VISIBLE_TEXT, FIRST_PROGRESS, FIRST_VISIBLE_ANSWER, FIRST_SYSTEM_ERROR, FIRST_APPLICATION_REPORT, FIRST_RETAINED_CONTENT, FIRST_UNATTRIBUTED_OUTPUT, PROVIDER_COOLDOWN, PREPARATION_PHASE, REQUEST_SERIALIZED, INVOCATION_STARTED, INVOCATION_FINISHED, ASSIST_DECISION, REDUCER_CHECKPOINT, SEGMENT_COMMITTED, OUTPUT_CHECKPOINT, PROGRESS_STAGE, PROGRESS_DEADLINE, FAILURE_RECEIPT, RUN_TERMINAL, CAPTURE_GAP }
+enum class RunDiagnosticKind { INTENT_CONVERSATIONAL, INTENT_SUBSTANTIVE, TOOL_ADMITTED, TOOL_RESULT, TOOL_RESULTS_RESTORED, CONTINUATION_SELECTED, VERIFICATION_REJECTED, ANSWER_REWRITE, CACHE_OBSERVATION, INPUT_PERSISTED, DISPATCH_ELIGIBLE, PREPARATION_DIRECT, PREPARATION_CONTEXTUAL, PREPARATION_REQUIRED, HTTP_CALL_START, REQUEST_BODY_END, RESPONSE_HEADERS, FIRST_TEXT, FIRST_REASONING, FIRST_TOOL, FIRST_VISIBLE_TEXT, FIRST_PROGRESS, FIRST_VISIBLE_ANSWER, FIRST_SYSTEM_ERROR, FIRST_APPLICATION_REPORT, FIRST_RETAINED_CONTENT, FIRST_UNATTRIBUTED_OUTPUT, PROVIDER_COOLDOWN, PREPARATION_PHASE, REQUEST_SERIALIZED, INVOCATION_STARTED, INVOCATION_FINISHED, ASSIST_DECISION, REDUCER_CHECKPOINT, SEGMENT_COMMITTED, OUTPUT_CHECKPOINT, PROGRESS_STAGE, PROGRESS_DEADLINE, FAILURE_RECEIPT, RUN_TERMINAL, CAPTURE_GAP }
 
 @Serializable
 enum class ProgressDeadlineCode { RUN_DEADLINE_EXCEEDED, GENERATION_STALLED, QUEUE_DEADLINE_EXCEEDED, LOAD_DEADLINE_EXCEEDED, MODEL_PROGRESS_TIMEOUT }
@@ -109,7 +109,8 @@ internal class RunDiagnosticJournal(
     private val retentionMillis: Long = 7L * 86_400_000,
     private val maxStoredBytes: Long = 128L * 1024 * 1024,
     private val maxSnapshotBytes: Long = 4L * 1024 * 1024,
-    private val maxSnapshotEvents: Int = 4096
+    private val maxSnapshotEvents: Int = 4096,
+    private val coalesceMillis: Long = 250
 ) {
     private val json = Json {
         encodeDefaults = true
@@ -154,6 +155,13 @@ internal class RunDiagnosticJournal(
     init {
         scope.launch {
             for (signal in wake) {
+                if (coalesceMillis > 0) {
+                    kotlinx.coroutines.withTimeoutOrNull(coalesceMillis.coerceAtMost(1000)) {
+                        while (synchronized(lock) { pending.isNotEmpty() && pending.size < 32 && pending.none { it.kind in criticalKinds } }) {
+                            wake.receive()
+                        }
+                    }
+                }
                 val (batch, epoch) = synchronized(lock) {
                     pending.toList().also {
                         pending.clear()
@@ -494,49 +502,102 @@ internal class RunDiagnosticJournal(
         runId: String,
         beforeRead: suspend () -> Unit,
         consume: suspend (RunDiagnosticEvent) -> Unit
-    ): RunJournalExportCoverage {
+    ): RunJournalExportCoverage = streamFrozen(runId, freezeRuns(setOf(runId), beforeRead).getValue(runId), beforeRead, consume)
+
+    /** Enumerate retained storage once and freeze all selected runs at one capture boundary. */
+    suspend fun streamRuns(
+        runIds: Set<String>,
+        beforeRead: suspend () -> Unit,
+        consume: suspend (RunDiagnosticEvent) -> Unit,
+        onCoverage: suspend (String, RunJournalExportCoverage) -> Unit
+    ) {
+        if (runIds.isEmpty()) return
+        val frozen = freezeRuns(runIds, beforeRead)
+        for ((runId, boundary) in frozen) {
+            onCoverage(runId, streamFrozen(runId, boundary, beforeRead, consume))
+        }
+    }
+
+    private suspend fun freezeRuns(runIds: Set<String>, beforeRead: suspend () -> Unit): Map<String, FrozenJournalBoundary> {
         beforeRead()
         val capturedAt = now()
-        val runPrefix = "journal-${identity(runId)}-"
-        val statePrefix = "journalcheckpoint-${identity(runId)}-"
         val boundaryRequestedNanos = System.nanoTime()
-        var boundaryLockWaitNanos = 0L
-        var checkpointReadDecodeNanos = 0L
-        var batchReadDecodeNanos = 0L
-        var decodedBatchCount = 0L
         // Freeze the checkpoint VALUES with reference names. A mutable checkpoint may advance
         // immediately after releasing this lock; reading it later would invent a missing tail.
-        val frozen = writes.withLock {
-            boundaryLockWaitNanos = (System.nanoTime() - boundaryRequestedNanos).coerceAtLeast(0)
-            val references = vault.references()
-            val boundaries = linkedMapOf<String, Long>()
-            var unreadableCheckpoints = 0
-            for (reference in references.filter { it.startsWith(statePrefix) }) {
-                beforeRead()
-                val readStartedNanos = System.nanoTime()
-                try {
-                    val bytes = requireNotNull(vault.read(reference))
+        return writes.withLock {
+            val boundaryLockWaitNanos = (System.nanoTime() - boundaryRequestedNanos).coerceAtLeast(0)
+            val indexStartedNanos = System.nanoTime()
+            val runsByIdentity = runIds.associateBy(::identity)
+            val batches = mutableMapOf<String, MutableList<String>>()
+            val checkpoints = mutableMapOf<String, MutableList<String>>()
+            for (reference in vault.references()) {
+                val checkpoint = reference.startsWith("journalcheckpoint-")
+                if (!checkpoint && !reference.startsWith("journal-")) continue
+                val runId = runsByIdentity[reference.substringAfter('-').substringBefore('-')] ?: continue
+                (if (checkpoint) checkpoints else batches).getOrPut(runId) { mutableListOf() }.add(reference)
+            }
+            val referenceIndexNanos = (System.nanoTime() - indexStartedNanos).coerceAtLeast(0)
+            val boundaries = mutableMapOf<String, Map<String, Long>>()
+            val unreadable = mutableMapOf<String, Int>()
+            val checkpointTimings = mutableMapOf<String, Long>()
+            for (runId in runIds) {
+                val streams = linkedMapOf<String, Long>()
+                var unreadableCheckpoints = 0
+                var checkpointReadDecodeNanos = 0L
+                for (reference in checkpoints[runId].orEmpty()) {
+                    beforeRead()
+                    val readStartedNanos = System.nanoTime()
                     try {
-                        require(bytes.size <= 4096)
-                        val checkpoint = json.decodeFromString<RunJournalCheckpoint>(bytes.decodeToString())
-                        require(checkpoint.runId == runId && checkpoint.highWatermark >= 0)
-                        boundaries[checkpoint.streamId] = maxOf(boundaries[checkpoint.streamId] ?: 0L, checkpoint.highWatermark)
+                        val bytes = requireNotNull(vault.read(reference))
+                        try {
+                            require(bytes.size <= 4096)
+                            val checkpoint = json.decodeFromString<RunJournalCheckpoint>(bytes.decodeToString())
+                            require(checkpoint.runId == runId && checkpoint.highWatermark >= 0)
+                            streams[checkpoint.streamId] = maxOf(streams[checkpoint.streamId] ?: 0L, checkpoint.highWatermark)
+                        } finally {
+                            bytes.fill(0)
+                        }
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        unreadableCheckpoints++
                     } finally {
-                        bytes.fill(0)
+                        checkpointReadDecodeNanos += (System.nanoTime() - readStartedNanos).coerceAtLeast(0)
                     }
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (_: Exception) {
-                    unreadableCheckpoints++
-                } finally {
-                    checkpointReadDecodeNanos += (System.nanoTime() - readStartedNanos).coerceAtLeast(0)
                 }
+                boundaries[runId] = streams
+                unreadable[runId] = unreadableCheckpoints
+                checkpointTimings[runId] = checkpointReadDecodeNanos
+            }
+            val sortedBatches = batches.mapValues { (_, references) ->
+                references.sortedBy { it.substringAfter('-').substringAfter('-').substringBefore('-').toLongOrNull() ?: 0L }
             }
             synchronized(lock) {
-                FrozenJournalBoundary(references, boundaries, unreadableCheckpoints, sequences[runId] ?: 0L, (pending + inFlight).filter { it.runId == runId }, runId in privateRuns || privateSession, captureEpoch)
+                val queued = (pending.asSequence() + inFlight.asSequence()).filter { it.runId in runIds }.groupBy { it.runId }
+                runIds.withIndex().associate { (index, runId) ->
+                    runId to FrozenJournalBoundary(
+                        sortedBatches[runId].orEmpty(),
+                        boundaries[runId].orEmpty(), unreadable[runId] ?: 0, sequences[runId] ?: 0L, queued[runId].orEmpty(),
+                        runId in privateRuns || privateSession, captureEpoch, capturedAt,
+                        if (index == 0) boundaryLockWaitNanos else 0L,
+                        checkpointTimings[runId] ?: 0L,
+                        if (index == 0) referenceIndexNanos else 0L,
+                        if (index == 0) 1 else 0
+                    )
+                }
             }
         }
-        if (frozen.privacySuppressed) return RunJournalExportCoverage(capturedAtMillis = capturedAt, privacySuppressed = true)
+    }
+
+    private suspend fun streamFrozen(
+        runId: String,
+        frozen: FrozenJournalBoundary,
+        beforeRead: suspend () -> Unit,
+        consume: suspend (RunDiagnosticEvent) -> Unit
+    ): RunJournalExportCoverage {
+        if (frozen.privacySuppressed) return RunJournalExportCoverage(capturedAtMillis = frozen.capturedAtMillis, privacySuppressed = true)
+        var batchReadDecodeNanos = 0L
+        var decodedBatchCount = 0L
         val boundaries = frozen.highWatermarks.toMutableMap()
         val checkpointStreams = boundaries.keys.toMutableSet()
         val coverage = RunJournalSequenceCoverage()
@@ -561,7 +622,7 @@ internal class RunDiagnosticJournal(
             consume(event)
             records++
         }
-        for (reference in frozen.references.filter { it.startsWith(runPrefix) }.sortedBy { it.split('-').getOrNull(2)?.toLongOrNull() ?: 0L }) {
+        for (reference in frozen.references) {
             beforeRead()
             val readStartedNanos = System.nanoTime()
             val batch = try {
@@ -589,7 +650,7 @@ internal class RunDiagnosticJournal(
         val missing = boundaries.entries.sumOf { (stream, high) -> (high - coverage.count(stream)).coerceAtLeast(0) }
         val gaps = coverage.gaps(boundaries, 128)
         return RunJournalExportCoverage(
-            capturedAtMillis = capturedAt,
+            capturedAtMillis = frozen.capturedAtMillis,
             eventCount = records,
             highWatermarks = boundaries,
             missingSequences = missing,
@@ -601,21 +662,28 @@ internal class RunDiagnosticJournal(
             missingRanges = gaps.first,
             missingRangesTruncated = gaps.second,
             retentionPrunedBatches = retentionPrunedBatches.get(),
-            boundaryLockWaitNanos = boundaryLockWaitNanos,
-            checkpointReadDecodeNanos = checkpointReadDecodeNanos,
+            boundaryLockWaitNanos = frozen.boundaryLockWaitNanos,
+            checkpointReadDecodeNanos = frozen.checkpointReadDecodeNanos,
             batchReadDecodeNanos = batchReadDecodeNanos,
-            decodedBatchCount = decodedBatchCount
+            decodedBatchCount = decodedBatchCount,
+            referenceIndexNanos = frozen.referenceIndexNanos,
+            referenceEnumerations = frozen.referenceEnumerations
         )
     }
 
     private data class FrozenJournalBoundary(
-        val references: Set<String>,
+        val references: List<String>,
         val highWatermarks: Map<String, Long>,
         val unreadableCheckpoints: Int,
         val currentHighWatermark: Long,
         val queued: List<RunDiagnosticEvent>,
         val privacySuppressed: Boolean,
-        val epoch: Long
+        val epoch: Long,
+        val capturedAtMillis: Long,
+        val boundaryLockWaitNanos: Long,
+        val checkpointReadDecodeNanos: Long,
+        val referenceIndexNanos: Long,
+        val referenceEnumerations: Int
     )
 
     suspend fun clear() = writes.withLock {
@@ -678,7 +746,7 @@ internal class RunDiagnosticJournal(
         }
     }
 
-    private val minimalKinds = setOf(RunDiagnosticKind.FAILURE_RECEIPT, RunDiagnosticKind.INVOCATION_STARTED, RunDiagnosticKind.INVOCATION_FINISHED, RunDiagnosticKind.FIRST_TEXT, RunDiagnosticKind.FIRST_REASONING, RunDiagnosticKind.FIRST_TOOL, RunDiagnosticKind.FIRST_PROGRESS, RunDiagnosticKind.FIRST_VISIBLE_ANSWER, RunDiagnosticKind.FIRST_SYSTEM_ERROR, RunDiagnosticKind.FIRST_APPLICATION_REPORT, RunDiagnosticKind.FIRST_RETAINED_CONTENT, RunDiagnosticKind.FIRST_UNATTRIBUTED_OUTPUT, RunDiagnosticKind.INTENT_CONVERSATIONAL, RunDiagnosticKind.INTENT_SUBSTANTIVE, RunDiagnosticKind.TOOL_ADMITTED, RunDiagnosticKind.TOOL_RESULT, RunDiagnosticKind.CONTINUATION_SELECTED, RunDiagnosticKind.VERIFICATION_REJECTED, RunDiagnosticKind.ANSWER_REWRITE, RunDiagnosticKind.RUN_TERMINAL)
+    private val minimalKinds = setOf(RunDiagnosticKind.FAILURE_RECEIPT, RunDiagnosticKind.INVOCATION_STARTED, RunDiagnosticKind.INVOCATION_FINISHED, RunDiagnosticKind.FIRST_TEXT, RunDiagnosticKind.FIRST_REASONING, RunDiagnosticKind.FIRST_TOOL, RunDiagnosticKind.FIRST_PROGRESS, RunDiagnosticKind.FIRST_VISIBLE_ANSWER, RunDiagnosticKind.FIRST_SYSTEM_ERROR, RunDiagnosticKind.FIRST_APPLICATION_REPORT, RunDiagnosticKind.FIRST_RETAINED_CONTENT, RunDiagnosticKind.FIRST_UNATTRIBUTED_OUTPUT, RunDiagnosticKind.INTENT_CONVERSATIONAL, RunDiagnosticKind.INTENT_SUBSTANTIVE, RunDiagnosticKind.TOOL_ADMITTED, RunDiagnosticKind.TOOL_RESULT, RunDiagnosticKind.TOOL_RESULTS_RESTORED, RunDiagnosticKind.CONTINUATION_SELECTED, RunDiagnosticKind.VERIFICATION_REJECTED, RunDiagnosticKind.ANSWER_REWRITE, RunDiagnosticKind.RUN_TERMINAL)
     private val criticalKinds = setOf(RunDiagnosticKind.FAILURE_RECEIPT, RunDiagnosticKind.INTENT_CONVERSATIONAL, RunDiagnosticKind.INTENT_SUBSTANTIVE, RunDiagnosticKind.VERIFICATION_REJECTED, RunDiagnosticKind.ANSWER_REWRITE) + setOf(RunDiagnosticKind.RUN_TERMINAL, RunDiagnosticKind.INVOCATION_FINISHED, RunDiagnosticKind.SEGMENT_COMMITTED, RunDiagnosticKind.PROGRESS_DEADLINE, RunDiagnosticKind.CAPTURE_GAP)
 
     private fun identity(value: String) = java.security.MessageDigest.getInstance("SHA-256").digest(value.toByteArray()).take(12).joinToString("") { "%02x".format(it) }

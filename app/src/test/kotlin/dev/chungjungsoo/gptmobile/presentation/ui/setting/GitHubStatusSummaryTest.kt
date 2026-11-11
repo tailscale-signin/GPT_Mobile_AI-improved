@@ -2,6 +2,9 @@ package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
 import dev.chungjungsoo.gptmobile.data.github.GitHubLiveProcess
 import dev.chungjungsoo.gptmobile.data.github.GitHubLiveStatus
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -9,6 +12,24 @@ import org.junit.Test
 
 class GitHubStatusSummaryTest {
     private fun run(id: String, status: String, parent: String? = null) = GitHubLiveProcess(id, id, status, null, null, parentId = parent)
+
+    @Test fun mismatchedRevisionCanTrackTheRunButCannotRepairTheDraft() {
+        val old = "a".repeat(40)
+        val head = "b".repeat(40)
+        val pull = Json.parseToJsonElement("""{"number":42,"draft":true,"head":{"sha":"$head"}}""") as JsonObject
+        val row = run("91", "failure").copy(headSha = old, runId = 91, attempt = 2)
+        val target = GitHubStatusActionTarget.from(pull, row)
+        assertFalse(target.canFix)
+        assertTrue(target.canTrack)
+        val arguments = target.watchArguments("owner", "repo")
+        assertEquals(JsonPrimitive(old), arguments["commit_sha"])
+        assertEquals(JsonPrimitive(91L), arguments["run_id"])
+        assertFalse("pr_number" in arguments)
+        val repair = GitHubDraftRepair("owner/repo", 42, head, "feature/old", "main", 91, 2)
+        assertTrue(repair.command().contains("from $head"))
+        assertTrue(repair.command().contains("open a new draft pull request into `main`"))
+        assertFalse(repair.branch == repair.sourceBranch)
+    }
 
     @Test fun expandedJobsCannotInflateWorkflowCounts() {
         val state = GitHubLiveStatus(rows = listOf(run("workflow", "failure"), run("job", "failure", "workflow"), run("other", "success")), phase = "READY", checkedAt = 1000)

@@ -12,6 +12,21 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AppAuditPresentationTest {
+    @Test fun recordedDiscoveryRulesSelectSchemaMethodAndEndpointRepairInstructions() {
+        val entry = auditEntry("repair", AppAuditEvidenceKind.LIVE_METADATA)
+        fun reason(rule: String): String {
+            val result = auditResult(entry, AppAuditOutcome.FAIL, AppAuditObservationSource.LIVE, reason = "MCP_DISCOVERY_CONFIGURATION").let {
+                it.copy(observation = it.observation.copy(validationRule = rule))
+            }
+            return appAuditReason(appAuditPresentation(auditRun(listOf(entry), listOf(result))).components.single().entries.single())
+        }
+        assertTrue(reason("PROTOCOL_VERSIONS_ARRAY_REQUIRED").contains("supportedVersions"))
+        assertTrue(reason("PROTOCOL_VERSIONS_ARRAY_REQUIRED").contains("actually implements"))
+        assertTrue(reason("DISCOVERY_METHOD_SUPPORTED_REQUIRED").contains("rejected server/discover"))
+        assertTrue(reason("ENDPOINT_ROUTE_REQUIRED").contains("URL path"))
+        assertTrue(reason("CREDENTIAL_REAUTHORIZATION_REQUIRED").contains("new sign-in"))
+    }
+
     @Test fun measuredScoreCannotHideUnexercisedConfiguredCachedOrBlockedInventory() {
         val passed = auditEntry("local-pass", weight = 3)
         val failed = auditEntry("live-fail", AppAuditEvidenceKind.LIVE_METADATA, "gateway")

@@ -1,0 +1,155 @@
+{
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "7db0c735f9e86eaece24513fbaf5c0a624f13822",
+  "working_branch": "fix/audit-execution-recovery-2026-11-09",
+  "start_sha": "8f30e808460df46d5951a75b88a723eddd19c7aa",
+  "pr": 816,
+  "intent": "Repair all 26 supplied verification, continuation, release-evidence and diagnostic findings, preserving fixture proofs and original budget; retain and finish voice integration.",
+  "state": "HOST_VALIDATED_ANDROID_CI_PENDING",
+  "packages": [
+    {
+      "id": 1,
+      "status": "IMPLEMENTED_HOST_VALIDATED",
+      "qualification": "Deployment/device observations remain separate"
+    },
+    {
+      "id": 2,
+      "status": "IMPLEMENTED_HOST_VALIDATED",
+      "qualification": "Deployment/device observations remain separate"
+    },
+    {
+      "id": 3,
+      "status": "IMPLEMENTED_HOST_VALIDATED",
+      "qualification": "Deployment/device observations remain separate"
+    },
+    {
+      "id": 4,
+      "status": "IMPLEMENTED_HOST_VALIDATED",
+      "qualification": "Deployment/device observations remain separate"
+    },
+    {
+      "id": 5,
+      "status": "IMPLEMENTED_HOST_VALIDATED",
+      "qualification": "Supported fixture matrix is explicit; other mutation lifecycles are untested and excluded only by the new preset, not historical all-tools tasks."
+    },
+    {
+      "id": 6,
+      "status": "IMPLEMENTED_HOST_VALIDATED",
+      "qualification": "Deployment/device observations remain separate"
+    },
+    {
+      "id": 7,
+      "status": "IMPLEMENTED_HOST_VALIDATED",
+      "qualification": "Deployment/device observations remain separate"
+    },
+    {
+      "id": 8,
+      "status": "IMPLEMENTED_HOST_VALIDATED",
+      "qualification": "Deployment/device observations remain separate"
+    },
+    {
+      "id": 9,
+      "status": "IMPLEMENTED_HOST_VALIDATED",
+      "qualification": "Deployment/device observations remain separate"
+    },
+    {
+      "id": 10,
+      "status": "IMPLEMENTED_HOST_VALIDATED",
+      "qualification": "Deployment/device observations remain separate"
+    },
+    {
+      "id": 11,
+      "status": "IMPLEMENTED_HOST_VALIDATED",
+      "qualification": "Deployment/device observations remain separate"
+    },
+    {
+      "id": 12,
+      "status": "IMPLEMENTED_HOST_VALIDATED",
+      "qualification": "Deployment/device observations remain separate"
+    },
+    {
+      "id": 13,
+      "status": "IMPLEMENTED_HOST_VALIDATED",
+      "qualification": "Deployment/device observations remain separate"
+    },
+    {
+      "id": 14,
+      "status": "IMPLEMENTED_HOST_VALIDATED",
+      "qualification": "Deployment/device observations remain separate"
+    },
+    {
+      "id": 15,
+      "status": "IMPLEMENTED_HOST_VALIDATED",
+      "qualification": "Deployment/device observations remain separate"
+    },
+    {
+      "id": 16,
+      "status": "IMPLEMENTED_HOST_VALIDATED",
+      "qualification": "Requires a future successful exact signed workflow producing attested binary receipts."
+    },
+    {
+      "id": 17,
+      "status": "IMPLEMENTED_HOST_VALIDATED",
+      "qualification": "Deployment/device observations remain separate"
+    },
+    {
+      "id": 18,
+      "status": "IMPLEMENTED_HOST_VALIDATED",
+      "qualification": "Deployment/device observations remain separate"
+    },
+    {
+      "id": 19,
+      "status": "IMPLEMENTED_HOST_VALIDATED",
+      "qualification": "Deployment/device observations remain separate"
+    },
+    {
+      "id": 20,
+      "status": "IMPLEMENTED_HOST_VALIDATED",
+      "qualification": "Deployment/device observations remain separate"
+    },
+    {
+      "id": 21,
+      "status": "IMPLEMENTED_HOST_VALIDATED",
+      "qualification": "Deployment/device observations remain separate"
+    },
+    {
+      "id": 22,
+      "status": "IMPLEMENTED_HOST_VALIDATED",
+      "qualification": "Deployment/device observations remain separate"
+    },
+    {
+      "id": 23,
+      "status": "IMPLEMENTED_HOST_VALIDATED",
+      "qualification": "Deployment/device observations remain separate"
+    },
+    {
+      "id": 24,
+      "status": "IMPLEMENTED_HOST_VALIDATED",
+      "qualification": "Deployment/device observations remain separate"
+    },
+    {
+      "id": 25,
+      "status": "IMPLEMENTED_HOST_VALIDATED",
+      "qualification": "Deployment/device observations remain separate"
+    },
+    {
+      "id": 26,
+      "status": "IMPLEMENTED_HOST_VALIDATED",
+      "qualification": "Structural duplication removed; affected-device allocation/latency improvements not measured."
+    }
+  ],
+  "constraints": [
+    "No replay of verified mutations or cleanup",
+    "No fabricated tool, device, provider or binary provenance",
+    "Retain exact authorization and source bindings",
+    "Conditional fixtures require an achievable authorized lifecycle",
+    "Host evidence is separate from deployed integration qualification"
+  ],
+  "integration_parent_sha": "f18cdf21e05658b29417a919707f0761f2698f3a",
+  "evidence": "docs/repairs/evidence/github-verification-continuation-2026-11-10/validation.json",
+  "preserved_voice_commits": [
+    "c6a0badda",
+    "f18cdf21e"
+  ]
+}

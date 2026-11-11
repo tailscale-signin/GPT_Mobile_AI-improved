@@ -96,7 +96,7 @@ class GitHubWorkspaceClient(
             }
         }
         private val json = Json { ignoreUnknownKeys = true }
-        val readActions = GitHubInspection.actions + (GitHubRepositoryLifecycle.actions - GitHubRepositoryLifecycle.writes) + setOf(
+        val readActions = GitHubCollaboration.reads + GitHubInspection.actions + (GitHubRepositoryLifecycle.actions - GitHubRepositoryLifecycle.writes) + setOf(
             "list_commits", "list_open_pull_requests", "get_commit_detail", "get_commit_status_summary",
             "get_account", "list_repositories", "list_installations", "list_installation_repositories", "get_repository", "list_branches", "browse_files",
             "read_code", "get_branch_head", "get_pull_request_files", "get_commit_checks", "compare_refs",
@@ -105,12 +105,12 @@ class GitHubWorkspaceClient(
             "list_releases", "get_release", "get_release_by_tag", "list_tags", "release_status", "get_pull_request_comments",
             "resolve_context", "task_context", "index_status", "build_index", "workflow_catalog", "search_repository", "read_ranges", "ci_failure_digest", "efficiency", "recovery_context"
         )
-        val writeActions = GitHubRepositoryLifecycle.writes + setOf(
+        val writeActions = GitHubCollaboration.writes + GitHubRepositoryLifecycle.writes + setOf(
             "commit_files", "stage_patch", "commit_staged_patch",
             "create_tag", "create_issue", "update_issue", "delete_branch", "delete_fixture_branch",
             "create_release",
             "update_release",
-            "publish_release", "update_pull_request", "mark_ready_for_review", "submit_pull_request_review", "merge_pull_request",
+            "publish_release", "update_pull_request", "mark_ready_for_review", "convert_pull_request_to_draft", "submit_pull_request_review", "merge_pull_request",
             "create_pull_request_review", "reply_pull_request_comment"
         )
         val actions = readActions + writeActions
@@ -146,6 +146,9 @@ class GitHubWorkspaceClient(
     }
     suspend fun taskSnapshot(): GitHubTaskSnapshot? = repositorySession.snapshot()
     suspend fun taskContext(): GitHubRepositoryContext? = repositorySession.context()
+    internal fun transportRetryAfterMillis(): Long = scheduler.transportRetryAfterMillis()
+    internal suspend fun prepareFixtureCreation(arguments: JsonObject) =
+        ownedFixtures.prepareCreation("/repos/${segment(arguments.getValue("owner").jsonPrimitive.content)}/${segment(arguments.getValue("repo").jsonPrimitive.content)}", arguments)
     internal suspend fun retainFixtureCreation(arguments: JsonObject, receipt: JsonObject): JsonObject =
         ownedFixtures.register("/repos/${segment(arguments.getValue("owner").jsonPrimitive.content)}/${segment(arguments.getValue("repo").jsonPrimitive.content)}", arguments, receipt)
     internal suspend fun trackExecution(action: String, arguments: JsonObject, reconcile: (suspend () -> JsonElement?)? = null, block: suspend () -> JsonElement): JsonObject {
@@ -336,7 +339,11 @@ class GitHubWorkspaceClient(
                     put("card_id", "github-approval-$id")
                 }
             }
-            val proof = requireNotNull(reconcileCommit(root, intent, forceLiveRead = true)) { "APPROVAL_PUBLICATION_UNCONFIRMED: The saved patch has no matching remote publication proof. Reconcile the existing native task; do not repeat its commit." }
+            val recordedCommit = status["published_commit_sha"]
+            val proofArguments = if (recordedCommit != null) JsonObject(intent + ("published_commit_sha" to recordedCommit)) else intent
+            val proof = checkNotNull(reconcileCommit(root, proofArguments, forceLiveRead = true)) {
+                "APPROVAL_PUBLICATION_UNCONFIRMED · The live ref and commit do not verify the saved patch. The existing native approval is retained."
+            }
             return JsonObject(
                 proof + buildJsonObject {
                     put("engineering_task_id", id)
@@ -509,6 +516,16 @@ class GitHubWorkspaceClient(
                 reconcile = { reconcileCommit(root, it, forceLiveRead = true) }
             )
             "create_tag" -> createTag(root, args)
+            in GitHubCollaboration.writes, in GitHubCollaboration.reads -> GitHubCollaboration.execute(
+                root,
+                action,
+                args,
+                apiOrigins.rest,
+                request = { path, method, body ->
+                    if (method == HttpMethod.Get) requestUntracked(path, method, body, false, forceLiveRead = true) else request(path, method, body)
+                },
+                graphQl = { query, variables -> graphQl(query, variables) }
+            )
             "create_issue", "update_issue" -> issueMutation(root, action, args)
             "create_release" -> createRelease(root, args)
             "update_release" -> updateRelease(root, args)
@@ -518,7 +535,7 @@ class GitHubWorkspaceClient(
                 restoreDispatchReceipt(root, result)
                 result
             }
-            "update_pull_request", "mark_ready_for_review", "submit_pull_request_review", "merge_pull_request", "create_pull_request_review", "reply_pull_request_comment" -> pullRequestLifecycle(root, action, args)
+            "update_pull_request", "mark_ready_for_review", "convert_pull_request_to_draft", "submit_pull_request_review", "merge_pull_request", "create_pull_request_review", "reply_pull_request_comment" -> pullRequestLifecycle(root, action, args)
             "commit_files" -> commitFiles(root, args)
             else -> error("Unsupported workspace action: $action")
         }
@@ -560,7 +577,7 @@ class GitHubWorkspaceClient(
             require(bytes.size <= 2 * 1024 * 1024 && bytes.none { it == 0.toByte() }) { "Workspace supports UTF-8 ingestion up to 2 MiB." }
             bytes.decodeToString(throwOnInvalidSequence = true).also { if (blobCache) responseCache.putDecodedBlob("${apiOrigins.rest}:$durableIdentity:$root:$sha", it) }
         }
-        val lines = content.split('\n')
+        val lines = GitHubRepositorySession.sourceLines(content)
         val start = startField.ifBlank { "1" }.toInt()
         val end = endField.ifBlank { (start + 299).toString() }.toInt()
         require(start >= 1 && end >= start && end - start < 2000) { "Use a valid range of at most 2,000 lines." }
@@ -1065,69 +1082,76 @@ class GitHubWorkspaceClient(
         val number = args["pull_number"]?.jsonPrimitive?.content?.toIntOrNull()?.also { require(it > 0) } ?: error("pull_number is required.")
         val expected = args["expected_head_sha"]?.jsonPrimitive?.content.orEmpty()
         require(Regex("[a-fA-F0-9]{40}").matches(expected)) { "Read the current PR head and supply expected_head_sha." }
-        val pr = request("$root/pulls/$number").jsonObject
+        val pr = requestUntracked("$root/pulls/$number", HttpMethod.Get, null, false, forceLiveRead = true).jsonObject
         check(pr["head"]?.jsonObject?.get("sha")?.jsonPrimitive?.content == expected) { "Pull request head changed. Refresh before continuing." }
         args["expected_base_sha"]?.let { check(pr["base"]?.jsonObject?.get("sha") == it) { "Pull request base changed. Refresh before continuing." } }
         if (action != "update_pull_request") check(pr["state"]?.jsonPrimitive?.content == "open") { "Pull request is no longer open." }
         val body = args["body"]?.jsonPrimitive?.content.orEmpty()
         val result = when (action) {
-            "update_pull_request" -> request(
-                "$root/pulls/$number",
-                HttpMethod.Patch,
-                buildJsonObject {
-                    listOf("title", "body", "base", "state").forEach { key -> args[key]?.let { put(key, it) } }
-                    require(args.keys.any { it in setOf("title", "body", "base", "state") }) { "Supply title, body, base or state for a PR update." }
-                    args["state"]?.let { require(it.jsonPrimitive.content in setOf("open", "closed")) { "PR state must be open or closed." } }
-                }
-            )
-            "mark_ready_for_review" -> graphQl(
-                "mutation Ready(\$id: ID!) { markPullRequestReadyForReview(input: {pullRequestId: \$id}) { pullRequest { number isDraft url } } }",
-                buildJsonObject { put("id", requireNotNull(pr["node_id"])) },
-                reconcile = {
-                    val observed = request("$root/pulls/$number").jsonObject
-                    if (observed["number"] == JsonPrimitive(number) &&
-                        observed["node_id"] == pr["node_id"] &&
-                        observed["draft"] == JsonPrimitive(false) &&
-                        observed["state"] == JsonPrimitive("open") &&
-                        observed["head"]?.jsonObject?.get("sha") == JsonPrimitive(expected)
+            "update_pull_request" -> {
+                require("draft" !in args) { "Use mark_ready_for_review or convert_pull_request_to_draft for draft transitions; mixed updates are not dispatched." }
+                request(
+                    "$root/pulls/$number",
+                    HttpMethod.Patch,
+                    buildJsonObject {
+                        listOf("title", "body", "base", "state").forEach { key -> args[key]?.let { put(key, it) } }
+                        require(args.keys.any { it in setOf("title", "body", "base", "state") }) { "Supply title, body, base or state for a PR update." }
+                        args["state"]?.let { require(it.jsonPrimitive.content in setOf("open", "closed")) { "PR state must be open or closed." } }
+                    }
+                )
+            }
+            "mark_ready_for_review", "convert_pull_request_to_draft" -> {
+                val draft = action == "convert_pull_request_to_draft"
+                val verification = if (draft) "REMOTE_PR_DRAFT_AT_EXPECTED_HEAD" else "REMOTE_PR_READY_AT_EXPECTED_HEAD"
+                graphQl(
+                    if (draft) "mutation Draft(\$id: ID!) { convertPullRequestToDraft(input: {pullRequestId: \$id}) { pullRequest { number isDraft url } } }" else "mutation Ready(\$id: ID!) { markPullRequestReadyForReview(input: {pullRequestId: \$id}) { pullRequest { number isDraft url } } }",
+                    buildJsonObject { put("id", requireNotNull(pr["node_id"])) },
+                    reconcile = {
+                        val observed = requestUntracked("$root/pulls/$number", HttpMethod.Get, null, false, forceLiveRead = true).jsonObject
+                        if (observed["number"] == JsonPrimitive(number) &&
+                            observed["node_id"] == pr["node_id"] &&
+                            observed["draft"] == JsonPrimitive(draft) &&
+                            observed["state"] == JsonPrimitive("open") &&
+                            observed["head"]?.jsonObject?.get("sha") == JsonPrimitive(expected)
+                        ) {
+                            buildJsonObject {
+                                put("reconciled", true)
+                                put("verification", verification)
+                                put("repository", root.removePrefix("/repos/"))
+                                put("pull_number", number)
+                                put("node_id", observed.getValue("node_id"))
+                                put("state", "open")
+                                put("head_sha", expected)
+                                put("draft", draft)
+                            }
+                        } else {
+                            null
+                        }
+                    }
+                ).let { mutation ->
+                    val observed = requestUntracked("$root/pulls/$number", HttpMethod.Get, null, false, forceLiveRead = true).jsonObject
+                    check(
+                        observed["number"] == JsonPrimitive(number) &&
+                            observed["node_id"] == pr["node_id"] &&
+                            observed["state"] == JsonPrimitive("open") &&
+                            observed["draft"] == JsonPrimitive(draft) &&
+                            observed["head"]?.jsonObject?.get("sha") == JsonPrimitive(expected)
                     ) {
-                        buildJsonObject {
-                            put("reconciled", true)
-                            put("verification", "REMOTE_PR_READY_AT_EXPECTED_HEAD")
+                        "GitHub did not confirm the expected pull request draft state at the selected head. Inspect remote state; do not repeat the mutation."
+                    }
+                    JsonObject(
+                        mutation + buildJsonObject {
+                            put("remote_state_verified", true)
+                            put("verification", verification)
                             put("repository", root.removePrefix("/repos/"))
                             put("pull_number", number)
                             put("node_id", observed.getValue("node_id"))
                             put("state", "open")
                             put("head_sha", expected)
-                            put("draft", false)
+                            put("draft", draft)
                         }
-                    } else {
-                        null
-                    }
+                    )
                 }
-            ).let { mutation ->
-                val observed = request("$root/pulls/$number").jsonObject
-                check(
-                    observed["number"] == JsonPrimitive(number) &&
-                        observed["node_id"] == pr["node_id"] &&
-                        observed["state"] == JsonPrimitive("open") &&
-                        observed["draft"] == JsonPrimitive(false) &&
-                        observed["head"]?.jsonObject?.get("sha") == JsonPrimitive(expected)
-                ) {
-                    "GitHub did not confirm the expected pull request is ready at the selected head. Inspect remote state; do not repeat the mutation."
-                }
-                JsonObject(
-                    mutation + buildJsonObject {
-                        put("remote_state_verified", true)
-                        put("verification", "REMOTE_PR_READY_AT_EXPECTED_HEAD")
-                        put("repository", root.removePrefix("/repos/"))
-                        put("pull_number", number)
-                        put("node_id", observed.getValue("node_id"))
-                        put("state", "open")
-                        put("head_sha", expected)
-                        put("draft", false)
-                    }
-                )
             }
             "submit_pull_request_review" -> {
                 val event = args["event"]?.jsonPrimitive?.content.orEmpty().ifBlank { "COMMENT" }
@@ -1211,7 +1235,7 @@ class GitHubWorkspaceClient(
                     expected
                 )
                 check(health.eligible) { health.detail }
-                val latest = request("$root/pulls/$number").jsonObject
+                val latest = requestUntracked("$root/pulls/$number", HttpMethod.Get, null, false, forceLiveRead = true).jsonObject
                 check(
                     latest["head"]?.jsonObject?.get("sha")?.jsonPrimitive?.content == expected &&
                         latest["base"]?.jsonObject?.get("sha")?.jsonPrimitive?.content == health.baseSha &&
@@ -1425,7 +1449,7 @@ class GitHubWorkspaceClient(
         require(token.isNotBlank()) { "Connect GitHub before changing issues." }
         val creating = action == "create_issue"
         val number = if (creating) null else args["issue_number"]?.jsonPrimitive?.content?.toIntOrNull().also { require(it != null && it > 0) }
-        val before = if (number == null) null else request("$root/issues/$number").jsonObject
+        val before = if (number == null) null else requestUntracked("$root/issues/$number", HttpMethod.Get, null, false, forceLiveRead = true).jsonObject
         if (before != null) {
             require("pull_request" !in before) { "Use github_pr for pull requests." }
             require(!args["expected_updated_at"]?.jsonPrimitive?.content.isNullOrBlank() && args["expected_updated_at"]?.jsonPrimitive?.content == before["updated_at"]?.jsonPrimitive?.content) { "Issue changed; refresh and review it before updating." }
@@ -1712,6 +1736,52 @@ class GitHubWorkspaceClient(
             }
         }
         val correlated = receipt != null && candidate != null
+        val assetEvidence = if (release != null &&
+            candidate != null &&
+            workflow?.get("path") == JsonPrimitive(GitHubReleaseEvidence.WORKFLOW) &&
+            candidate["status"] == JsonPrimitive("completed") &&
+            candidate["conclusion"] == JsonPrimitive("success") &&
+            release["draft"] == JsonPrimitive(false)
+        ) {
+            try {
+                val artifacts = request("$root/actions/runs/$requestedRunId/artifacts?per_page=100").jsonObject
+                val rows = artifacts["artifacts"]?.jsonArray.orEmpty().map { it.jsonObject }
+                require((artifacts["total_count"]?.jsonPrimitive?.intOrNull ?: Int.MAX_VALUE) <= rows.size) { "Release evidence inventory is incomplete." }
+                val artifact = rows.single { it["name"] == JsonPrimitive("release-evidence-$expectedSource") && it["expired"] == JsonPrimitive(false) }
+                val digest = artifact["digest"]?.jsonPrimitive?.content?.removePrefix("sha256:").orEmpty()
+                require(digest.matches(Regex("[a-f0-9]{64}"))) { "Release evidence digest is unavailable." }
+                val id = artifact["id"]?.jsonPrimitive?.longOrNull?.takeIf { it > 0 } ?: error("Release evidence identity is invalid.")
+                refreshCredential()
+                val credential = requestCredential()
+                val text = GitHubCiLogReader(client, credential.token, scheduler, responseCache, requestPriority, credential.authenticationRejected, apiOrigins)
+                    .read("$root/actions/artifacts/$id/zip", immutable = true, archiveEntry = "release-publication.json", archiveDigest = digest).text
+                val proof = json.parseToJsonElement(text).jsonObject
+                val releaseId = release["id"]?.jsonPrimitive?.longOrNull?.takeIf { it > 0 } ?: error("Release identity is invalid.")
+                val currentRelease = requestUntracked("$root/releases/$releaseId", HttpMethod.Get, null, authenticated = false, forceLiveRead = true).jsonObject
+                require(currentRelease["id"] == JsonPrimitive(releaseId) && currentRelease["tag_name"] == JsonPrimitive(tagName)) { "Published release identity changed." }
+                val tag = requestUntracked("$root/commits/${segment(tagName)}", HttpMethod.Get, null, authenticated = false, forceLiveRead = true).jsonObject
+                require(tag["sha"] == JsonPrimitive(expectedSource)) { "Published release tag changed." }
+                val current = requestUntracked("$root/actions/runs/$requestedRunId", HttpMethod.Get, null, authenticated = false, forceLiveRead = true).jsonObject
+                require(current["run_attempt"] == candidate["run_attempt"] && GitHubReleaseEvidence.verify(proof, currentRelease, current, root.removePrefix("/repos/"), expectedSource)) { "Release evidence does not match the current source, run attempt and asset bytes." }
+                buildJsonObject {
+                    put("verified", true)
+                    put("artifact_id", id)
+                    put("artifact_digest", digest)
+                    put("run_id", requestedRunId)
+                    put("run_attempt", current["run_attempt"]!!)
+                    put("source_sha", expectedSource)
+                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                buildJsonObject {
+                    put("verified", false)
+                    put("reason", "TRUSTED_PUBLICATION_RECEIPT_UNAVAILABLE_OR_MISMATCHED")
+                }
+            }
+        } else {
+            null
+        }
         fun compact(run: JsonObject) = project(run, "id", "name", "event", "status", "conclusion", "head_branch", "head_sha", "run_number", "run_attempt", "created_at", "updated_at", "html_url")
         return buildJsonObject {
             put("tag_name", tagName)
@@ -1723,8 +1793,10 @@ class GitHubWorkspaceClient(
             put("workflow_correlation", if (correlated) "DISPATCH_RECEIPT_AND_SOURCE_VERIFIED" else "UNKNOWN_DISPATCH_RECEIPT_NOT_AVAILABLE")
             put("latest_workflow_run", candidate?.takeIf { correlated }?.let(::compact) ?: JsonNull)
             if (!correlated && candidate != null) put("candidate_workflow_run", compact(candidate))
-            put("release_asset_source_verified", false)
-            put("release_asset_verification", "BUILD_ATTESTATION_REQUIRED")
+            put("release_asset_source_verified", assetEvidence?.get("verified") == JsonPrimitive(true))
+            put("release_asset_verification", if (assetEvidence?.get("verified") == JsonPrimitive(true)) "TRUSTED_WORKFLOW_ATTESTATION_AND_REMOTE_DIGEST_VERIFIED" else "BUILD_ATTESTATION_REQUIRED")
+            assetEvidence?.let { put("release_asset_evidence", it) }
+            put("release_asset_recovery", "Use the exact release workflow_run_id and expected_head_sha. A successful trusted release-build workflow must retain release-publication.json with verified attestations; missing or expired evidence remains unverified.")
         }
     }
 
@@ -2491,7 +2563,7 @@ class GitHubWorkspaceClient(
                 }
                 scheduler.recordRequest()
                 if (method != HttpMethod.Get) GitHubMutationAttempts.dispatched()
-                val observationId = GitHubDispatchAccounting.started(method != HttpMethod.Get)
+                val observationId = GitHubDispatchAccounting.started(method != HttpMethod.Get, path)
                 var response = client.githubRequest("${apiOrigins.rest}$path") {
                     this.method = method
                     header(HttpHeaders.Accept, "application/vnd.github+json")
@@ -2511,7 +2583,7 @@ class GitHubWorkspaceClient(
                     // read recovers an evicted body; a repeated 304 is an error.
                     rateLimits.requireAvailable(if (path.startsWith("/search/")) "search" else "core")
                     scheduler.recordRequest()
-                    val recoveryObservationId = GitHubDispatchAccounting.started(false)
+                    val recoveryObservationId = GitHubDispatchAccounting.started(false, path)
                     response = client.githubRequest("${apiOrigins.rest}$path") {
                         header(HttpHeaders.Accept, "application/vnd.github+json")
                         header(HttpHeaders.UserAgent, "GPT-Mobile-App")

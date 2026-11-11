@@ -1,0 +1,95 @@
+{
+  "schema_version": 1,
+  "parent_head": "04ec4a29a7ee41cdd777e85878f5092a5ffac185",
+  "base_sha": "7db0c735f9e86eaece24513fbaf5c0a624f13822",
+  "state": "HOST_VALIDATED_FRESH_ANDROID_CI_REQUIRED",
+  "finding": {
+    "actual_jacoco_xml_bytes": 33371388,
+    "old_shared_limit_bytes": 16777216,
+    "observed_rejection": "REPORT_TOO_LARGE",
+    "prior_audit_coverage_reason": "INVALID_OR_UNEXECUTED_INSTRUMENTED_REPORT"
+  },
+  "repair": {
+    "junit_limit_bytes": 16777216,
+    "coverage_limit_bytes": 67108864,
+    "bounded_read": true,
+    "oversize_reason": "INSTRUMENTED_REPORT_TOO_LARGE",
+    "existing_binding_and_counter_validation_preserved": true
+  },
+  "validation": {
+    "before_fix_large_report_test": "FAILED as expected: valid large report unavailable",
+    "collector_tests": 26,
+    "canonical_fast_tests": 443,
+    "independent_review": "No concrete blocker; all 26 collector tests passed independently",
+    "retained_parent_reprocessed": {
+      "kind": "RETAINED_CI_COVERAGE_COLLECTOR_REGRESSION",
+      "workflow_run_id": 42733380890,
+      "source_head": "e85dec10ec07b1a7dd58e4a4237a3c9e81572d6d",
+      "original_checkout": {
+        "commit": "bf20a2d13d4237e4939bfeca597d20c5f295d319",
+        "parents": [],
+        "tracked_files_clean": true,
+        "identity_meaning": "Observed checkout and source hashes; not independent APK or deployed-service attestation."
+      },
+      "execution_window_start": "2026-11-10T01:23:27+00:00",
+      "original_collected_at": "2026-11-10T01:40:39.060808+00:00",
+      "junit_reports": 1358,
+      "junit_cases": 8704,
+      "junit_current": true,
+      "report_errors": [],
+      "original_coverage": {
+        "available": false,
+        "reason": "INVALID_OR_UNEXECUTED_INSTRUMENTED_REPORT"
+      },
+      "original_qualification_sha256": "cfd9a9e4ee94de1f202912211b342483d1cad019e0ce4a2926023650955b44e8",
+      "coverage_artifact_id": 13727868401,
+      "coverage_artifact_sha256": "d1c6b96d9d9e6676959cc58287ed5bcebfb59ac9f026f3f3b01562867e185e89",
+      "coverage_xml_bytes": 33371388,
+      "collector_source_sha256": "2809c4aa2c841a26d0af6f64f9b0ca17e5343726708920c78834272724d663e5",
+      "reprocessed_coverage": {
+        "available": true,
+        "report_sha256": "39067a6e0948521ac5c9a57034c8c5742f66779336b2880bbfb921051ac549c4",
+        "source_files": 2275,
+        "counters": {
+          "LINE": {
+            "covered": 101216,
+            "missed": 126803,
+            "percent": 44.389283349194585
+          },
+          "BRANCH": {
+            "covered": 95484,
+            "missed": 126105,
+            "percent": 43.090586626592476
+          }
+        },
+        "current_run_sessions": 22,
+        "scope": "Application source files present in this JaCoCo report; excludes native, script and resource inventory."
+      },
+      "scope": "Reprocessed retained parent CI artifacts only. This is not execution of the current revision and does not change historical app audit scores."
+    },
+    "fresh_android": "PENDING"
+  },
+  "source_hashes": {
+    "scripts/collect_app_audit_qualification.py": "2809c4aa2c841a26d0af6f64f9b0ca17e5343726708920c78834272724d663e5",
+    "scripts/tests/test_app_audit_qualification_evidence.py": "44cce57398ea76eea845396f7d66a0571cecc234a53d7af412947a0b165b765c"
+  },
+  "artifacts": [
+    {
+      "path": "docs/repairs/evidence/audit-execution-recovery-2026-11-09/coverage-size-before.log",
+      "sha256": "8a916dbb96b4078e68807de804ba206b448b69f60a123ce45d7a2a91e3807891"
+    },
+    {
+      "path": "docs/repairs/evidence/audit-execution-recovery-2026-11-09/coverage-size-tests.log",
+      "sha256": "36d30096c80c253f58cc0e32b9b9c7770de959858d4c9a7e6e592009fdd56a47"
+    },
+    {
+      "path": "docs/repairs/evidence/audit-execution-recovery-2026-11-09/coverage-size-canonical-fast.log",
+      "sha256": "edc356aaca4cccffccb524d5ac6683a80e2fbc76ccfcbcd8ef95703a7c9821c4"
+    },
+    {
+      "path": "docs/repairs/evidence/audit-execution-recovery-2026-11-09/coverage-size-parent-reprocess.json",
+      "sha256": "95a1b069a573902be332c9fc9d7fe4c15fb95da0e9323184e509137131513151"
+    }
+  ],
+  "scope": "Collector regression and reprocessing of retained exact-parent CI reports. No new model, live-tool, gateway deployment or physical-device result is claimed."
+}

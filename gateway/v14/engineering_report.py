@@ -1,6 +1,7 @@
 """Deterministic final/partial content assembled from persisted evidence only."""
 from v14.engineering_scope import accepted_scope
 from collections import Counter
+from v14.diagnostic_support import terminal_receipt
 
 
 def build_report(job, state, verification):
@@ -8,6 +9,7 @@ def build_report(job, state, verification):
     task_scope = accepted_scope(job['request'])
     if task_scope in {'read', 'plan'}:
         return {'schema_version': 1, 'job_id': job['id'], 'request_id': job['request']['request_id'],
+                'terminal_receipt': terminal_receipt(job, state, verification),
                 'status': state, 'task_scope': task_scope, 'repository': job['request']['repository'],
                 'branch': job['request']['branch'], 'head_sha': data.get('head_sha'),
                 'binding_id': job['request'].get('execution_binding_id'),
@@ -21,6 +23,7 @@ def build_report(job, state, verification):
     counts = dict(Counter(row['status'] for row in requirements))
     completed = state == 'COMPLETED' and verification.get('passed') is True
     return {'schema_version': 1, 'job_id': job['id'], 'request_id': job['request']['request_id'],
+            'terminal_receipt': terminal_receipt(job, state, verification),
             'status': 'COMPLETED' if completed else 'CANCELLED' if state == 'CANCELLED' else 'PARTIAL_UNVERIFIED',
             'repository': job['request']['repository'], 'branch': job['request']['branch'],
             'head_sha': data.get('head_sha'), 'merge_sha': data.get('merge_sha'),

@@ -1,0 +1,43 @@
+package dev.chungjungsoo.gptmobile.data.voice
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class KokoroSpeechTextTest {
+    @Test fun speaksBuildNumbersPrNumbersAndVersions() {
+        assertEquals(
+            "build one hundred forty one and p r number eight hundred sixteen. version zero point nine point sixty six point seven.",
+            normalize("**Build 141** and PR #816. v0.9.66.7.")
+        )
+        assertEquals(
+            "minus one thousand two hundred four point zero five percent",
+            normalize("-1,204.05%")
+        )
+    }
+
+    @Test fun spellsUnknownNamesAndPronouncesKnownPartsOfIdentifiers() {
+        assertEquals(
+            "e m a n u e l used g p u and git hub.",
+            normalize("Emanuél used GPU and [GitHub](https://github.com/example).") { it != "emanuel" && it != "github" }
+        )
+    }
+
+    @Test fun declinesScriptsAndLettersTheEnglishLexiconCannotSpeak() {
+        assertNull(KokoroSpeechText.parts("Build 141 已完成。") { true })
+        assertNull(KokoroSpeechText.parts("Build ١٤١.") { true })
+        assertNull(KokoroSpeechText.parts("Emanuel") { false })
+    }
+
+    @Test fun boundsLongSentencesAndPreservesTheirWords() {
+        val input = List(250) { "turn" }.joinToString(" ")
+        val parts = requireNotNull(KokoroSpeechText.parts(input) { true })
+        assertTrue(parts.all { it.length <= 128 && it.split(' ').size <= 16 })
+        assertEquals(input, parts.joinToString(" "))
+        assertEquals(emptyList<String>(), KokoroSpeechText.parts("**✨**") { true })
+    }
+
+    private fun normalize(text: String, isKnown: (String) -> Boolean = { true }) =
+        KokoroSpeechText.parts(text, isKnown)?.joinToString(" ")
+}

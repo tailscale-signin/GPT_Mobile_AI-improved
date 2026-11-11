@@ -29,7 +29,7 @@ def choose(releases, current):
             continue
         try:
             number = tag.removeprefix('gateway-v')
-            if version(number) <= version(current) or version(number)[0] != 15:
+            if version(number) <= version(current) or version(number)[0] not in {15, 16}:
                 continue
         except ValueError:
             continue

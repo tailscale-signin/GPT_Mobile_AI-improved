@@ -1,6 +1,7 @@
 import json
 import hashlib
 import hmac
+import os
 import sys
 import unittest
 from unittest.mock import patch
@@ -11,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from v14.engineering_routes import install_engineering_routes
+from v14.engineering_backend import GitHubEngineeringBackend
 from v14.identity import Admission
 from v14.config import Config
 import test_gateway_v14_engineering as fixtures
@@ -76,6 +78,22 @@ class EngineeringHTTPTests(unittest.TestCase):
         install_engineering_routes(app, self.service)
         self.client = TestClient(app, client=('127.0.0.1', 12000))
         self.headers = {'Tailscale-User-Login': 'owner@example.test'}
+        # Admission infrastructure boundary: this HTTP suite exercises real policy
+        # parsing/producer resolution, while mirror/image execution is tested separately.
+        self.request['source_sha'] = 'a' * 40
+        policy = Path(self.temp.name) / 'validation.json'
+        policy.write_text(json.dumps({'owner/repo': {'mirror': self.temp.name, 'image': 'fixture@sha256:' + 'a' * 64,
+            'allowed_checks': ['tests'], 'commands': [['fixture-tests']], 'acceptance_map': [{'requirement_id': 'build-fix', 'case_id': 'build-fix',
+                'command_index': 0, 'scope': 'behavior', 'report_path': 'tests.xml'}]}}))
+        import os
+        self.policy_environment = patch.dict(os.environ, GATEWAY_ENGINEERING_VALIDATION_POLICY=str(policy))
+        self.policy_environment.start()
+        self.addCleanup(self.policy_environment.stop)
+        self.validation_probe = patch('v14.engineering_preflight.run_bounded', side_effect=lambda argv, *a, **k: {
+            'exit_code': 0, 'output_tail': 'sha256:' + 'b' * 64 if argv[0] == 'docker' else 'true'})
+        self.validation_probe.start()
+        self.addCleanup(self.validation_probe.stop)
+
 
     def tearDown(self):
         self.client.close()
@@ -84,6 +102,12 @@ class EngineeringHTTPTests(unittest.TestCase):
     def test_app_create_close_resume_updates_and_explicit_merge_endpoint(self):
         response = self.client.post('/v1/gateway/engineering/jobs', json=self.request, headers=self.headers)
         self.assertEqual(202, response.status_code, response.text)
+        self.assertEqual(24, response.json()['duration_hours'])
+        self.assertEqual(512, response.json()['execution_budget']['model_calls'])
+        caps = self.client.get('/gateway/engineering/capabilities', headers=self.headers).json()
+        self.assertIn(24, caps['duration_hours'])
+        self.assertEqual(24, caps['default_duration_hours'])
+        self.assertEqual(512, caps['execution_budget_limits']['model_calls'])
         job_id = response.json()['id']
         # No connected client participates in any of these workflow steps.
         for _ in range(7):
@@ -199,6 +223,65 @@ class EngineeringHTTPTests(unittest.TestCase):
         self.assertFalse(blocked['code_graph']['enabled'])
         self.assertEqual('write_failed', blocked['readiness']['checks']['journal'])
         self.assertTrue(blocked['readiness']['saved_results'])
+
+    def test_default_host_connection_is_configured_without_claiming_remote_access(self):
+        config = {'github-official': {'env': {'GITHUB_TOKEN': 'host-github-secret'}}}
+        self.runtime.load_mcp_config = lambda: config
+        self.service.backend = GitHubEngineeringBackend(self.runtime)
+        self.service.graph.backend = self.service.backend.graph_reader()
+        with patch.dict(os.environ, {}, clear=True), patch('requests.request') as dispatch, patch('requests.get') as read:
+            response = self.client.get('/gateway/engineering/capabilities', headers=self.headers)
+            self.assertEqual(200, response.status_code)
+            readiness = response.json()['readiness']
+            self.assertTrue(readiness['ready'])
+            self.assertEqual('configured', readiness['checks']['host_github_connection'])
+            self.assertIsNone(readiness['github_reachable'])
+            self.assertIsNone(readiness['repository_access'])
+            self.assertNotIn('host-github-secret', response.text)
+            config['github-official']['disabled'] = True
+            rejected = self.client.post('/gateway/engineering/jobs', json=self.request, headers=self.headers)
+            self.assertEqual(503, rejected.status_code)
+            self.assertEqual('missing', rejected.json()['readiness']['checks']['host_github_connection'])
+            self.assertEqual([], self.store.list('tailnet:owner'))
+            dispatch.assert_not_called()
+            read.assert_not_called()
+
+    def test_read_only_graph_readiness_is_independent_from_engineering_worker_and_model(self):
+        config = {'github-official': {'env': {'GITHUB_TOKEN': 'graph-only-secret', 'GITHUB_READ_ONLY': 'true'}}}
+        self.runtime.load_mcp_config = lambda: config
+        self.runtime.LLAMA_BASE = ''
+        self.service.backend = GitHubEngineeringBackend(self.runtime)
+        self.service.graph.backend = self.service.backend.graph_reader()
+        self.service.thread = None
+        with patch.dict(os.environ, {}, clear=True), patch('requests.request') as dispatch, patch('requests.get') as read:
+            response = self.client.get('/gateway/engineering/capabilities', headers=self.headers)
+            self.assertEqual(200, response.status_code)
+            capability = response.json()
+            self.assertFalse(capability['enabled'])
+            self.assertTrue(capability['code_graph']['configured'])
+            self.assertTrue(capability['code_graph']['enabled'])
+            self.assertEqual('missing', capability['readiness']['checks']['host_github_connection'])
+            self.assertEqual('configured', capability['readiness']['checks']['graph_host_github_connection'])
+            self.assertEqual('unavailable', capability['readiness']['checks']['worker'])
+            for field in ('inference_ready', 'github_reachable', 'repository_access'):
+                self.assertIsNone(capability['readiness'][field])
+            self.assertNotIn('graph-only-secret', response.text)
+            payload = {'action': 'status', 'repository': 'owner/repo', 'branch': 'feature', 'commit_sha': 'a' * 40}
+            with patch.object(self.service.graph, 'execute', return_value={'status': 'NOT_INDEXED'}) as graph:
+                response = self.client.post('/gateway/engineering/graph', json=payload, headers=self.headers)
+                self.assertEqual(200, response.status_code, response.text)
+                graph.assert_called_once_with('tailnet:owner', payload)
+                self.service.thread = SimpleNamespace(is_alive=lambda: True)
+                self.assertEqual(503, self.client.post('/gateway/engineering/jobs', json=self.request, headers=self.headers).status_code)
+                self.assertEqual([], self.store.list('tailnet:owner'))
+                config['github-official']['disabled'] = True
+                graph.reset_mock()
+                response = self.client.post('/gateway/engineering/graph', json=payload, headers=self.headers)
+                self.assertEqual(412, response.status_code)
+                self.assertEqual('HOST_GITHUB_CONNECTION_REQUIRED', response.json()['error']['reason'])
+                graph.assert_not_called()
+            dispatch.assert_not_called()
+            read.assert_not_called()
 
     def test_lost_create_receipt_recovers_same_terminal_job_when_new_work_is_unavailable(self):
         created = self.client.post('/gateway/engineering/jobs', json=self.request, headers=self.headers)

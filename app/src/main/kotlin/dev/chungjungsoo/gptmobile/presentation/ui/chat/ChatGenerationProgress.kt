@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.LinearProgressIndicator
@@ -10,7 +11,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -30,6 +30,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import kotlinx.coroutines.delay
 
 internal val LocalChatProgressInHeader = staticCompositionLocalOf { false }
+internal val LocalGitHubApprovalPending = staticCompositionLocalOf { false }
 
 /** One presentation and activity resolver for chat bubbles and the pinned GitHub header. */
 @Composable
@@ -53,7 +54,7 @@ internal fun ChatGenerationProgress(
             completedAtMillis = engineeringJob?.finishedAt?.times(1000)?.toLong() ?: completedAtMillis,
             textSizeIncrease = textSizeIncrease,
             progress = engineeringJob?.progress,
-            modifier = modifier
+            modifier = modifier.fillMaxWidth()
         )
         return
     }
@@ -75,33 +76,15 @@ internal fun ChatGenerationProgress(
 
 @Composable
 private fun GenerationStatusText(toolEvents: List<ToolEvent>, timeline: List<AssistantTimelineItem>, statusOverride: String?, textSizeIncrease: Int, startedAtMillis: Long?, completedAtMillis: Long?, animate: Boolean = true) {
-    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    var dots by remember { mutableIntStateOf(1) }
-    var phase by remember { mutableIntStateOf(0) }
-    val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
-    LaunchedEffect(lifecycle, animate, startedAtMillis) {
-        lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
-            now = System.currentTimeMillis()
-            if (!animate) return@repeatOnLifecycle
-            var ticks = 0
-            while (true) {
-                delay(500)
-                now = System.currentTimeMillis()
-                dots = dots % 3 + 1
-                ticks++
-                if (ticks % 10 == 0) phase++
-            }
-        }
-    }
-
-    val base = remember(phase, toolEvents, timeline, statusOverride) {
+    val base = remember(toolEvents, timeline, statusOverride) {
         statusOverride ?: generationActivityLabel(toolEvents, timeline)
     }
     val style = MaterialTheme.typography.labelSmall.let { it.copy(fontSize = (it.fontSize.value + textSizeIncrease).sp) }
     Row(Modifier.fillMaxWidth().padding(bottom = if (animate) 8.dp else 0.dp)) {
         Text(
-            text = if (animate) base.removeSuffix("...").removeSuffix(".") + ".".repeat(dots) else base,
-            maxLines = 2,
+            text = base,
+            maxLines = 1,
+            softWrap = false,
             overflow = TextOverflow.Ellipsis,
             style = style,
             color = MaterialTheme.colorScheme.primary,
@@ -111,15 +94,33 @@ private fun GenerationStatusText(toolEvents: List<ToolEvent>, timeline: List<Ass
             }
         )
         startedAtMillis?.let { start ->
-            Text(
-                text = dev.chungjungsoo.gptmobile.data.github.githubElapsedTime(start, completedAtMillis ?: now),
-                style = style,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                modifier = Modifier.alignByBaseline().padding(start = 12.dp)
-            )
+            GenerationElapsedTime(start, completedAtMillis, animate, style)
         }
     }
+}
+
+/** Only the timer recomposes each second; activity changes never resize the status row. */
+@Composable
+private fun RowScope.GenerationElapsedTime(start: Long, completed: Long?, active: Boolean, style: androidx.compose.ui.text.TextStyle) {
+    var now by remember(start) { mutableLongStateOf(System.currentTimeMillis()) }
+    val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(lifecycle, active, start, completed) {
+        lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
+            now = System.currentTimeMillis()
+            while (active && completed == null) {
+                delay(1000)
+                now = System.currentTimeMillis()
+            }
+        }
+    }
+    Text(
+        text = dev.chungjungsoo.gptmobile.data.github.githubElapsedTime(start, completed ?: now),
+        style = style.copy(fontFeatureSettings = "tnum"),
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        maxLines = 1,
+        softWrap = false,
+        modifier = Modifier.alignByBaseline().padding(start = 12.dp)
+    )
 }
 
 internal fun generationActivityLabel(toolEvents: List<ToolEvent>, timeline: List<AssistantTimelineItem>): String {
@@ -127,10 +128,11 @@ internal fun generationActivityLabel(toolEvents: List<ToolEvent>, timeline: List
         it.status == dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus.RUNNING ||
             it.status == dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus.PENDING
     }
-    // Refresh from actual activity every five seconds, rather than inventing work phases.
+    // Only changed observations invalidate this label; the visual timer and dots
+    // do not need to rescan retained history.
     val activity = timeline.lastOrNull { it.type == AssistantTimelineItemType.TEXT || it.type == AssistantTimelineItemType.THINKING }
-    val checkpoint = timeline.lastOrNull { it.statusSummary }?.content
-        ?: timeline.lastOrNull { it.progressCheckpoint && it.modelAuthored }?.content
+    val checkpoint = gitHubPublicSummary(timeline)?.content
+        ?: timeline.lastOrNull { it.statusSummary }?.content
     return runningTool?.let { smartToolVerb(it.toolName) } ?: checkpoint ?: when (activity?.type) {
         AssistantTimelineItemType.TEXT -> "Writing"
         AssistantTimelineItemType.THINKING -> "Thinking"

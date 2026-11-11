@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "kind": "OBSERVED_CI_FAILURE_SNAPSHOT",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "head_commit": "44f3907870bae6f27bb2f406e9a4a11698d96cff",
+  "base_commit": "7db0c735f9e86eaece24513fbaf5c0a624f13822",
+  "tested_merge_commit": "8c8045e8b96d7aeb1967e2d811eee486d07f80d4",
+  "source_tree": "0d177cd77b929e91e4522d9e704941fdde124e8e",
+  "run_id": 42729574370,
+  "unit_job_id": 129543953680,
+  "production_compile": "PASS",
+  "test_compile": "PASS",
+  "junit_reports": 1358,
+  "tests": {
+    "total": 8704,
+    "passed": 8696,
+    "failed": 3,
+    "skipped": 5
+  },
+  "failed_cases": [
+    {
+      "class": "GitHubLiveProgressTest",
+      "case": "overflowingActivityExpandsWithoutLosingItsPublicDescriptionOrRepeatingItForAccessibility",
+      "observed": "Legacy graphics reported no visual overflow for the collapsed two-line text."
+    },
+    {
+      "class": "GitHubLiveProgressTest",
+      "case": "summariesUseParagraphTypographyAndOnlyTheNewestActivityHasAnAccent",
+      "observed": "Legacy graphics reported one line instead of two for long wrapped text."
+    },
+    {
+      "class": "GitHubReducedMotionTest",
+      "case": "disabledAnimationsShowActivityImmediatelyAndEnablingMotionDoesNotReplayItsEntrance",
+      "observed": "After a state mutation with a paused clock and zero animation scale, the assertion observed the preceding text."
+    }
+  ],
+  "native_render_fixtures": "All three native dark/expanded-dark/expanded-light progress PNGs generated and visually inspected. They show intended paragraph typography, wrapping and expansion. Rendered fixtures do not replace the failed behavior assertions.",
+  "repair_scope": "Use actual native font measurement for layout-sensitive tests and publish the reduced-motion snapshot update before advancing the paused clock; retain every existing behavior assertion. Fresh CI is required.",
+  "new_model_tests_passed": 29,
+  "new_queue_integration_tests_passed": 3,
+  "android_environment_collector_tests_passed": 4,
+  "named_source_qualification": {
+    "areas": 26,
+    "passed_areas": 15,
+    "partial_areas": 6,
+    "not_qualified_areas": 5,
+    "passed_harnesses": 42,
+    "unobserved_harnesses": 17,
+    "named_passed_cases": 398,
+    "report_errors": 0,
+    "historical_audit_mutation": false,
+    "promotes_audit_score": false
+  },
+  "coverage": {
+    "available": false,
+    "reason": "INSTRUMENTED_REPORT_NOT_AVAILABLE",
+    "explanation": "The failed test task prevented JaCoCo report generation; no coverage percentage is claimed."
+  },
+  "statistics_artifact": {
+    "id": 13725396710,
+    "sha256": "08f52a1d8400cfcd889878224d637fd8b9379480c4987f4f45cd9be9038552ec"
+  },
+  "render_logs_artifact": {
+    "id": 13725057381,
+    "sha256": "cbd3fcf19549761e66f857b590984a689593060c92318b8876afb0a4ad95884e"
+  },
+  "status": "FAILURE_RETAINED_NOT_PROMOTED_BY_LATER_REPAIR",
+  "log_normalization": "Trailing whitespace removed from the preserved timestamped excerpt; messages and outcomes unchanged.",
+  "log_sha256": "f8e50973925ddf85e8752d83a310015c43bb340830e489e428e557627575ef84",
+  "independent_reproduction": {
+    "workflow": "Diagnostic audit validation",
+    "run_id": 42729574673,
+    "artifact_id": 13724579243,
+    "artifact_sha256": "0d148cb360f379f485687f7d2182c8fbb67390ab139aa32590ea6340464810c1",
+    "reports": 1358,
+    "cases": 8704,
+    "failed": 3,
+    "skipped": 5,
+    "same_three_failures": true
+  }
+}

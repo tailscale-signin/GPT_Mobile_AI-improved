@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.network.gateway
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import java.io.IOException
 import java.net.ConnectException
+import java.net.UnknownHostException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancelAndJoin
@@ -24,6 +25,175 @@ import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class GatewayAvailabilityRepositoryTest {
+    @Test fun stalledReadinessCannotEraseCompletedCapabilitiesAtTheSharedProbeDeadline() = runTest {
+        var current = GatewayAvailability()
+        var readinessCancelled = false
+        val repository = repository { _, _, _ ->
+            gatewayAvailabilityProbe(
+                readCapabilities = { GatewayCapabilities(gatewayVersion = "15.0.0", instanceId = "a".repeat(32)) },
+                readReadiness = {
+                    try {
+                        awaitCancellation()
+                    } finally {
+                        readinessCancelled = true
+                    }
+                },
+                now = { testScheduler.currentTime }
+            )
+        }
+        backgroundScope.launch { repository.observe(listOf(target())).collect { current = it.getValue("a") } }
+        runCurrent()
+        advanceTimeBy(8_000)
+        runCurrent()
+        assertTrue(readinessCancelled)
+        assertEquals(GatewayAvailabilityStatus.NOT_READY, current.status)
+        assertTrue(current.isConnected)
+        assertFalse(current.isOnline)
+        assertEquals("gateway_readiness", current.failedPhase)
+        assertEquals("METADATA_DEADLINE_EXCEEDED", current.readinessFailureCode)
+        assertEquals(null, current.capabilitiesFailureCode)
+        assertEquals(0L, current.capabilitiesCheckedAtMillis)
+        assertEquals(0L, current.lastReachableAtMillis)
+        assertEquals(7_000L, current.readinessCheckedAtMillis)
+    }
+
+    @Test fun aCapabilityReadDeadlineRetainsReadinessButNeverGrantsOnline() = runTest {
+        val readiness = requireNotNull(ready(0).readiness)
+        val probe = gatewayAvailabilityProbe(
+            readCapabilities = { withTimeout(100) { awaitCancellation() } },
+            readReadiness = { readiness },
+            now = { testScheduler.currentTime }
+        )
+        assertEquals(readiness, probe.readiness)
+        assertEquals(null, probe.capabilities)
+        assertEquals("METADATA_DEADLINE_EXCEEDED", probe.capabilitiesFailure?.reasonCode)
+        assertEquals(null, probe.readinessFailure)
+        assertEquals(100L, probe.capabilitiesCheckedAtMillis)
+        assertEquals(0L, probe.readinessCheckedAtMillis)
+        var current = GatewayAvailability()
+        val repository = repository { _, _, _ -> probe }
+        backgroundScope.launch { repository.observe(listOf(target())).collect { current = it.getValue("a") } }
+        runCurrent()
+        assertEquals(GatewayAvailabilityStatus.CHECKING, current.status)
+        assertFalse(current.isOnline)
+        assertEquals("gateway_capabilities", current.failedPhase)
+    }
+
+    @Test fun cachedCapabilityMetadataCannotRefreshTheLastReachableTimestamp() = runTest {
+        var current = GatewayAvailability()
+        val repository = repository { _, _, _ ->
+            GatewayAvailabilityProbe(
+                capabilities = GatewayCapabilities(gatewayVersion = "15.0.0"),
+                readiness = null,
+                readinessFailure = GatewayAvailabilityFailure(GatewayAvailabilityStatus.CHECKING, "STREAM_INTERRUPTED"),
+                capabilitiesCheckedAtMillis = testScheduler.currentTime,
+                readinessCheckedAtMillis = testScheduler.currentTime,
+                capabilitiesObservedAtMillis = 0L
+            )
+        }
+        backgroundScope.launch { repository.observe(listOf(target())).collect { current = it.getValue("a") } }
+        runCurrent()
+        advanceTimeBy(10_000)
+        runCurrent()
+        assertEquals(10_000L, current.capabilitiesCheckedAtMillis)
+        assertEquals(0L, current.lastReachableAtMillis)
+        assertFalse(current.isOnline)
+    }
+
+    @Test fun aRecognizedRouteWithTemporarilyMissingMetadataDoesNotBecomeANonGateway() = runTest {
+        var current = GatewayAvailability()
+        var attempts = 0
+        val repository = repository { _, _, _ ->
+            if (++attempts == 2) GatewayAvailabilityProbe(null, null) else ready(testScheduler.currentTime)
+        }
+        backgroundScope.launch { repository.observe(listOf(target())).collect { current = it.getValue("a") } }
+        runCurrent()
+        assertTrue(current.isOnline)
+        advanceTimeBy(10_000)
+        runCurrent()
+        assertEquals(GatewayAvailabilityStatus.CHECKING, current.status)
+        assertEquals(0L, current.lastReachableAtMillis)
+        assertEquals("GATEWAY_CAPABILITY_UNAVAILABLE", current.failureCode)
+        assertFalse(current.isOnline)
+        advanceTimeBy(10_000)
+        runCurrent()
+        assertTrue(current.isOnline)
+    }
+
+    @Test fun independentReadinessTimeoutRetainsCapabilitiesAndResumesAfterBoundedRetry() = runTest {
+        var attempts = 0
+        var current = GatewayAvailability()
+        val repository = repository { _, _, _ ->
+            attempts++
+            if (attempts == 1) {
+                gatewayAvailabilityProbe(
+                    readCapabilities = { GatewayCapabilities(gatewayVersion = "15.0.0", instanceId = "a".repeat(32)) },
+                    readReadiness = { throw java.net.SocketTimeoutException("private route") },
+                    now = { testScheduler.currentTime }
+                )
+            } else {
+                ready(testScheduler.currentTime)
+            }
+        }
+        backgroundScope.launch { repository.observe(listOf(target())).collect { current = it.getValue("a") } }
+        runCurrent()
+        assertEquals(1, attempts)
+        assertEquals(GatewayAvailabilityStatus.NOT_READY, current.status)
+        assertTrue(current.isConnected)
+        assertFalse(current.isOnline)
+        assertEquals("gateway_readiness", current.failedPhase)
+        assertEquals("CONNECT_TIMEOUT", current.readinessFailureCode)
+        assertEquals(null, current.capabilitiesFailureCode)
+        assertEquals(0L, current.capabilitiesCheckedAtMillis)
+        assertEquals(0L, current.readinessCheckedAtMillis)
+        assertEquals(0L, current.lastReachableAtMillis)
+        assertFalse(current.toString().contains("private"))
+        advanceTimeBy(9_999)
+        runCurrent()
+        assertEquals(1, attempts)
+        advanceTimeBy(1)
+        runCurrent()
+        assertEquals(2, attempts)
+        assertTrue(current.isOnline)
+        assertEquals(null, current.failedPhase)
+        assertEquals(null, current.readinessFailureCode)
+    }
+
+    @Test fun simultaneousMetadataFailuresRetainDistinctSafePhasesAndCancellationStopsBothReads() = runTest {
+        val probe = gatewayAvailabilityProbe(
+            readCapabilities = { throw UnknownHostException("private-host") },
+            readReadiness = { throw GatewayDashboardAccessDenied() },
+            now = { 42L }
+        )
+        assertEquals("DNS_FAILED", probe.capabilitiesFailure?.reasonCode)
+        assertEquals("ACCESS_DENIED", probe.readinessFailure?.reasonCode)
+        assertEquals(42L, probe.capabilitiesCheckedAtMillis)
+        assertEquals(42L, probe.readinessCheckedAtMillis)
+        assertFalse(probe.toString().contains("private-host"))
+        var canceledReads = 0
+        val work = backgroundScope.launch {
+            gatewayAvailabilityProbe(
+                readCapabilities = {
+                    try {
+                        awaitCancellation()
+                    } finally {
+                        canceledReads++
+                    }
+                },
+                readReadiness = {
+                    try {
+                        awaitCancellation()
+                    } finally {
+                        canceledReads++
+                    }
+                }
+            )
+        }
+        runCurrent()
+        work.cancelAndJoin()
+        assertEquals(2, canceledReads)
+    }
+
     private val config = ProviderRequestConfig("http://10.0.0.2:8090/v1", "selected-token", profileUid = "gateway")
     private fun target(uid: String = "a", model: String = "exact-model", connection: ProviderRequestConfig = config) =
         GatewayAvailabilityTarget(uid, "gateway", "Gateway", model, connection, false)

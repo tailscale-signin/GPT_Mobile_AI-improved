@@ -170,8 +170,12 @@ class GitHubReplayPlanningTest {
             AgentToolResult("original", ToolResultContent.Json(buildJsonObject { put("body", "retained source ".repeat(15000)) }), false),
             request
         )
-        var replay = listOf(AgentToolExchange(listOf(ProviderEvent.ToolCall("original", name, request)), listOf(first.copy(content = requireNotNull(GitHubReplayRecovery.compact(first.content, 1600))))))
         val definitions = listOf(GitHubOperationTool.definition(name))
+        val originalCall = ProviderEvent.ToolCall("original", name, request)
+        assertNull(GitHubReplayRecovery.nextSavedRead(listOf(AgentToolExchange(listOf(originalCall), listOf(first))), definitions))
+        // Legacy/capacity fallback: no complete original was retained by the
+        // evidence layer, so issued display cursors still need bounded recovery.
+        var replay = listOf(AgentToolExchange(listOf(originalCall), listOf(first.copy(content = requireNotNull(GitHubReplayRecovery.compact(first.content, 1600)), retainedContent = null, executionReceipt = null))))
         val journal = mutableListOf<ProviderEvent.ToolCall>()
         val state = GitHubReplayRecovery.State()
         repeat(32) {

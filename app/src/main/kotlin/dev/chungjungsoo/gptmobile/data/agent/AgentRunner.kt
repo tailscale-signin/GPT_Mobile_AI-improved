@@ -24,6 +24,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 data class AgentRunLimits(
@@ -71,7 +72,10 @@ class AgentRunner(
     private val retryUndispatchedBudgetFailures: Boolean = false,
     private val onToolResult: (suspend (ProviderEvent.ToolCall, AgentToolResult) -> Unit)? = null,
     private val resumeToolBudget: Boolean = false,
-    private val initialToolCallCountOverride: Int? = null
+    private val initialToolCallCountOverride: Int? = null,
+    private val onToolResultCommitted: (suspend (ProviderEvent.ToolCall, AgentToolResult) -> Unit)? = null,
+    private val onToolResultsRestored: (suspend (List<AgentToolExchange>) -> Unit)? = null,
+    private val remainingTaskMillis: (suspend () -> Long?)? = null
 ) {
     private val replayRenderCache = ToolExchangeCompactor.RenderCache()
 
@@ -79,6 +83,30 @@ class AgentRunner(
         ToolExchangeCompactor.compact(exchanges, maxReplayTokens, maxResultTokens, consumedCallIds, replayRenderCache)
 
     fun run(session: AgentProviderSession, tools: List<AgentTool>, dynamicTools: () -> List<AgentTool> = { emptyList() }, selectDefinitions: (List<AgentToolDefinition>) -> List<AgentToolDefinition> = { it }): Flow<AgentRunEvent> = flow {
+        if (minOf(limits.runTimeoutMillis, remainingTaskMillis?.invoke() ?: Long.MAX_VALUE) <= 0L) {
+            // An expired accepted task may deliver retained evidence, but must not
+            // restore queued calls or start the model loop. Delivery remains
+            // cancellable and is not charged a fabricated five-second work budget.
+            if (limits.githubTask) {
+                deliverExpiredTask(session)
+            } else {
+                emit(
+                    AgentRunEvent.Provider(
+                        ProviderEvent.Failed(
+                            "The accepted task time budget has ended. Completed work is saved; increase the budget before continuing.",
+                            errorCode = "RUN_DEADLINE_REACHED",
+                            taskOutcome = "PARTIAL",
+                            failureDetails = buildJsonObject {
+                                put("failed_stage", "admission")
+                                put("dispatched", false)
+                                put("budget_exhausted", true)
+                            }
+                        )
+                    )
+                )
+            }
+            return@flow
+        }
         if (tools.isNotEmpty() && !session.handlesToolsInternally && limits.maxReplayTokens <= 0) {
             emit(
                 AgentRunEvent.Provider(
@@ -112,8 +140,14 @@ class AgentRunner(
         var toolMayHaveExecuted = (recovery?.dispatchedCount ?: 0) > 0
         var retriedWithoutTools = false
 
-        val finishedInTime = if (limits.runTimeoutMillis < Long.MAX_VALUE) {
-            withTimeoutOrNull(limits.runTimeoutMillis) {
+        val acceptedRemainingMillis = remainingTaskMillis?.invoke()
+        val runTimeoutMillis = minOf(limits.runTimeoutMillis, acceptedRemainingMillis ?: Long.MAX_VALUE)
+        if (limits.githubTask && runTimeoutMillis <= 0L) {
+            deliverExpiredTask(session)
+            return@flow
+        }
+        val finishedInTime = if (runTimeoutMillis < Long.MAX_VALUE) {
+            withTimeoutOrNull(runTimeoutMillis) {
                 executeLoop(guardedSession, toolByName, executableToolByName, exposedDefinitions, exchanges, rounds, toolCallCount, toolMayHaveExecuted, retriedWithoutTools, recovery, dynamicTools, selectDefinitions)
             }
         } else {
@@ -122,10 +156,12 @@ class AgentRunner(
         }
 
         if (finishedInTime == null) {
-            if (limits.githubTask && exchanges.isNotEmpty()) {
-                finishFromRetained(guardedSession, ProviderEvent.Failed("Agent run timed out after ${limits.runTimeoutMillis} ms. Completed receipts are retained; unfinished work can be resumed.", errorCode = "RUN_DEADLINE_REACHED"), true)
+            if (limits.githubTask && acceptedRemainingMillis == runTimeoutMillis) {
+                deliverExpiredTask(session)
+            } else if (limits.githubTask && exchanges.isNotEmpty()) {
+                finishFromRetained(guardedSession, ProviderEvent.Failed("Agent run timed out after $runTimeoutMillis ms. Completed receipts are retained; unfinished work can be resumed.", errorCode = "RUN_DEADLINE_REACHED"), true)
             } else {
-                emit(failed("Agent run timed out after ${limits.runTimeoutMillis} ms."))
+                emit(failed("Agent run timed out after $runTimeoutMillis ms."))
             }
         }
     }.withGitHubTerminalDelivery(limits.githubTask && limits.combined == null)
@@ -336,6 +372,41 @@ class AgentRunner(
         state: LoopState
     ): Boolean {
         with(state) {
+            if (limits.githubTask) {
+                val retained = recovery?.completedExchanges.orEmpty().filter { it.calls.single().name in toolByName }
+                if (retained.isEmpty()) return true
+                // Restore current authorization/evidence once, before provider work.
+                // Completion callbacks persist new work and must not replay here.
+                var observedExchange: AgentToolExchange? = null
+                try {
+                    if (onToolResultsRestored != null) {
+                        onToolResultsRestored.invoke(retained)
+                    } else {
+                        for (exchange in retained) {
+                            observedExchange = exchange
+                            onToolResult?.invoke(exchange.calls.single(), exchange.results.single())
+                        }
+                    }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    val observed = observedExchange ?: retained.first()
+                    val failure = ToolFailureMetadata.withAuthorityFailure(observed.results.single(), error, "delivery") ?: throw error
+                    observedExchange?.let { emit(AgentRunEvent.ToolFinished(it.calls.single(), failure)) }
+                    emit(AgentRunEvent.Provider(ToolFailureMetadata.authorityFailure(failure, retainedUnknownOutcome)))
+                    return false
+                }
+                retained.forEach { exchange ->
+                    val call = exchange.calls.single()
+                    val result = exchange.results.single()
+                    if (result.errorCode in ToolResultEnvelope.unknownOutcomeCodes && !replayableRead(call, toolByName[call.name])) {
+                        unknownOutcomes += call.name + ":" + dev.chungjungsoo.gptmobile.data.permissions.ScopedToolGrant.canonicalHash(call.arguments)
+                    }
+                }
+                exchanges += retained
+                emit(AgentRunEvent.ToolResultsRestored(retained.size))
+                return true
+            }
             // Restore all settled batches before model finalization, without executing them.
             // Full GitHub receipts are reloaded by call identity by the evidence observer.
             for (exchange in recovery?.completedExchanges.orEmpty()) {
@@ -344,6 +415,7 @@ class AgentRunner(
                     val result = exchange.results.single()
                     val restored = try {
                         onToolResult?.invoke(call, result)
+                        onToolResultCommitted?.invoke(call, result)
                         result
                     } catch (cancelled: CancellationException) {
                         throw cancelled
@@ -409,7 +481,27 @@ class AgentRunner(
                     executableToolByName = emptyMap()
                     emit(AgentRunEvent.Notice(ROUND_LIMIT_FINAL_RESPONSE_NOTICE, persistent = false))
                 } else {
-                    finishFromRetained(session, ProviderEvent.Failed("Agent could not finalize after ${limits.maxRounds} model/tool rounds.", errorCode = "FINAL_RESPONSE_REQUIRED"), exchanges.isNotEmpty())
+                    finishFromRetained(
+                        session,
+                        ProviderEvent.Failed(
+                            "Agent could not finalize after ${limits.maxRounds} model/tool rounds and its reserved synthesis attempt. Completed receipts remain retained.",
+                            errorCode = "FINAL_RESPONSE_REQUIRED",
+                            taskOutcome = "BLOCKED",
+                            failureDetails = buildJsonObject {
+                                put("failed_stage", "final_synthesis")
+                                put("stop_reason", "MODEL_TOOL_ROUND_LIMIT")
+                                put("rounds_used", rounds)
+                                put("round_limit", limits.maxRounds)
+                                put("tool_calls_used", toolCallCount)
+                                put("tool_call_limit", executionToolCallLimit)
+                                put("tool_calls_remaining", (executionToolCallLimit.toLong() - toolCallCount).coerceAtLeast(0))
+                                put("next_action", "RESUME_SYNTHESIS_FROM_RETAINED_EVIDENCE")
+                                put("dispatched", false)
+                                put("retryable", false)
+                            }
+                        ),
+                        exchanges.isNotEmpty()
+                    )
                     return false
                 }
             }
@@ -476,6 +568,14 @@ class AgentRunner(
             }
         } else {
             emit(AgentRunEvent.Provider(failure))
+        }
+    }
+
+    private suspend fun kotlinx.coroutines.flow.FlowCollector<AgentRunEvent>.deliverExpiredTask(session: AgentProviderSession) {
+        // A diagnostic reply may complete, but it cannot finish the original
+        // execution checkpoint or discard its outstanding cleanup obligations.
+        session.retainedFailureResponse(dev.chungjungsoo.gptmobile.data.github.GitHubExecutionLimits.expiredTaskFailure()).collect {
+            emit(AgentRunEvent.Provider(it))
         }
     }
 
@@ -786,6 +886,7 @@ class AgentRunner(
         healthCatalog?.recordObservation(call.name, result)
         val observed = try {
             onToolResult?.invoke(call, result)
+            onToolResultCommitted?.invoke(call, result)
             result
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -1136,6 +1237,8 @@ class AgentRunner(
         calls.zip(allResults).forEach { (call, result) ->
             if (call.callId !in publishedCallIds) {
                 onToolResult?.invoke(call, result)
+                // Deferred/precheck results were committed before finishBatch.
+                onToolResultCommitted?.invoke(call, result)
                 emit(AgentRunEvent.ToolFinished(call, result))
             }
         }
@@ -1725,6 +1828,7 @@ class AgentRunner(
                 }
             }
             val receipt = ToolFailureMetadata.receipt(AgentContractValidation.receipt(call.callId, result), call.name, replaySafe = replayableRead)
+                .let { if (limits.githubTask) ToolHandoffReceipt.identifySource(it) else it }
             observedReceipt = receipt
             onToolResult?.invoke(call, receipt)
             ToolObservationRetention.bound(if (tool.managesExecutionBudget) receipt else receipt.copy(content = boundContent(receipt.content)))

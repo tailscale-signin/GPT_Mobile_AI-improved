@@ -16,6 +16,8 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionAuthType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
 import dev.chungjungsoo.gptmobile.data.github.GitHubChatPolicy
 import dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext
+import dev.chungjungsoo.gptmobile.data.github.GitHubDecisionMode
+import dev.chungjungsoo.gptmobile.data.github.githubDecisionMode
 import dev.chungjungsoo.gptmobile.data.memory.MemoryGraphRepository
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
@@ -143,7 +145,13 @@ class AgentToolResolver @Inject constructor(
                 )
             }
         ) { current, refreshed ->
-            mcpClientManager.listTools(current, forceRefresh || refreshed, awaitCompletion, passiveBackoff && !refreshed)
+            if (refreshed) {
+                kotlinx.coroutines.withContext(McpDiscoveryContext(McpDiscoveryTrigger.OAUTH_REFRESH)) {
+                    mcpClientManager.listTools(current, true, awaitCompletion, false)
+                }
+            } else {
+                mcpClientManager.listTools(current, forceRefresh, awaitCompletion, passiveBackoff)
+            }
         }
     }
 
@@ -207,7 +215,8 @@ class AgentToolResolver @Inject constructor(
                     val selected = live.conversationGitHub[userMessage.chatId]
                     current?.enabled == true && !current.disableAllTools && !current.disableLocalTools && selected?.sameWorkspace(decisionWorkspace) == true
                 },
-                offered = { gitHubDecisionNotifications?.offered(it) }
+                offered = { gitHubDecisionNotifications?.offered(it) },
+                useSuggestion = { settingRepository.getFeatureSettings().githubDecisionMode(userMessage.chatId, decisionWorkspace) != GitHubDecisionMode.ASK }
             )
             resolved += ResolvedAgentTool(tool, null, "GitHub decisions", tool.definition.name, tool.definition.name)
         }
@@ -1604,7 +1613,7 @@ class AgentToolResolver @Inject constructor(
             workspaceContext != null,
             cachedOnly,
             cached = { mcpClientManager.peekToolsForConnection(connection.connectionUid, connection.endpointUrl, connection.allowCleartext).orEmpty() },
-            discover = { awaitCompletion -> discoverMcpTools(connection, awaitCompletion = awaitCompletion) }
+            discover = { awaitCompletion -> discoverMcpTools(connection, awaitCompletion = awaitCompletion, passiveBackoff = !awaitCompletion) }
         )
         val missing = selectedNames - remoteTools.map { it.name }.toSet()
         val discovery = mcpClientManager.catalogueDiscovery(connection.connectionUid)
@@ -1651,6 +1660,8 @@ class AgentToolResolver @Inject constructor(
                     remoteToolName = remoteTool.name,
                     outputSchema = remoteTool.outputSchema,
                     approvedReadOnly = remoteTool.name in connection.approvedReadTools.lines().map(String::trim),
+                    firecrawlRead = ToolServiceCatalog.forConnection(connection).id == "service:firecrawl" &&
+                        remoteTool.name in setOf("firecrawl_search", "firecrawl_scrape", "firecrawl_map"),
                     clientManager = mcpClientManager,
                     metadata = if (dev.chungjungsoo.gptmobile.data.crawl.CrawlerCompanionGrant.recognizes(connection)) {
                         (
@@ -1793,6 +1804,7 @@ internal class McpAgentTool(
     private val clientManager: McpClientManager,
     private val outputSchema: io.modelcontextprotocol.kotlin.sdk.types.ToolSchema? = null,
     override val approvedReadOnly: Boolean = false,
+    private val firecrawlRead: Boolean = false,
     private val metadata: (suspend () -> JsonObject)? = null
 ) : AgentTool,
     dev.chungjungsoo.gptmobile.data.agent.ApprovedReadOnlyAgentTool {
@@ -1843,6 +1855,14 @@ internal class McpAgentTool(
             )
         }
         val mapped = mapMcpToolResult(callId, result, startLine, endLine)
+        if (firecrawlRead && firecrawlAnonymousAccessRejected(result)) {
+            return dev.chungjungsoo.gptmobile.data.agent.ToolFailureMetadata.receipt(
+                mapped.copy(errorCode = "AUTH_REQUIRED", dispatched = true),
+                definition.name,
+                diagnosticCode = "FIRECRAWL_ANONYMOUS_ACCESS_REJECTED",
+                replaySafe = false
+            )
+        }
         // A remote tool error can follow a successful side effect or refer to a nested
         // operation. Its prose cannot establish that this invocation was undispatched.
         if (result.isError == true) return dispatchedFailure(mapped, "MCP_TOOL_ERROR")

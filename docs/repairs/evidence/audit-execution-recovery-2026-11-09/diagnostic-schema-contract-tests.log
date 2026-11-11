@@ -1,0 +1,9 @@
+test_every_approved_field_survives_ingestion_restart_and_export (test_gateway_session_contract.GatewaySessionContractTests.test_every_approved_field_survives_ingestion_restart_and_export) ... ok
+test_inventory_is_bound_to_owner_capture_and_current_authorization (test_gateway_session_contract.GatewaySessionContractTests.test_inventory_is_bound_to_owner_capture_and_current_authorization) ... ok
+test_routes_and_schema_are_the_reviewed_shared_contract (test_gateway_session_contract.GatewaySessionContractTests.test_routes_and_schema_are_the_reviewed_shared_contract) ... ok
+test_success_requires_acceptance_and_counts_remain_explicit (test_gateway_session_contract.GatewaySessionContractTests.test_success_requires_acceptance_and_counts_remain_explicit) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.125s
+
+OK

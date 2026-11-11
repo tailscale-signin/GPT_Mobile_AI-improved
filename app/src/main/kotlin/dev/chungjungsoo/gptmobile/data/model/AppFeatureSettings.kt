@@ -93,6 +93,7 @@ data class AppFeatureSettings(
     val githubEngineeringSettings: dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringSettings = dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringSettings(),
     val gatewayEngineeringJobs: List<dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringBinding> = emptyList(),
     val githubPrepareIndex: Set<String> = emptySet(),
+    val githubDecisionPreferences: Map<Int, dev.chungjungsoo.gptmobile.data.github.GitHubDecisionPreference> = emptyMap(),
     val conversationReasoning: Map<Int, Boolean> = emptyMap(),
     val profileProgressDeadlines: Map<String, dev.chungjungsoo.gptmobile.data.agent.ProgressDeadlineSettings> = emptyMap(),
     val engineeringProfiles: Map<String, dev.chungjungsoo.gptmobile.data.context.EngineeringProfileSettings> = emptyMap(),

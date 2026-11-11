@@ -1,0 +1,20 @@
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/McpInteractions.kt:34:69: warning: 'val requestedSchema: ElicitRequestParams.RequestedSchema?' is deprecated. Use (params as ElicitRequestFormParams).requestedSchema.
+        val schema = runCatching { Json.encodeToJsonElement(request.requestedSchema).jsonObject }.getOrNull()
+                                                                    ^^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ModernMcpTransport.kt:401:66: warning: 'suspend fun ByteReadChannel.readUTF8Line(max: Int = ...): String?' is deprecated. Use readLineStrict or readLine instead. See deprecation notes for more details.
+                    withMcpStreamIdleDeadline(30_000L) { channel.readUTF8Line(1_048_576) }
+                                                                 ^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ModernMcpTransport.kt:403:29: warning: 'suspend fun ByteReadChannel.readUTF8Line(max: Int = ...): String?' is deprecated. Use readLineStrict or readLine instead. See deprecation notes for more details.
+                    channel.readUTF8Line(1_048_576)
+                            ^^^^^^^^^^^^
+
+JUnit version 4.13.2
+.kotlin-logging: initializing... active logger factory: Slf4jLoggerFactory
+.............................................................
+Time: 14.088
+
+OK (62 tests)
+
+SLF4J(W): No SLF4J providers were found.
+SLF4J(W): Defaulting to no-operation (NOP) logger implementation
+SLF4J(W): See https://www.slf4j.org/codes.html#noProviders for further details.

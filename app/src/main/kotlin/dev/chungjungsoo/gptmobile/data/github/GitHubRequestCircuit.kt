@@ -65,6 +65,8 @@ internal class GitHubRequestCircuit(
         }
     }
 
+    @Synchronized fun retryAfterMillis(): Long = if (openUntil == 0L) 0L else (openUntil - now()).coerceAtLeast(0)
+
     @Synchronized fun metrics() = buildJsonObject {
         put(
             "state",
@@ -77,7 +79,7 @@ internal class GitHubRequestCircuit(
             }
         )
         put("consecutive_transient_failures", failures)
-        put("retry_after_ms", if (openUntil == 0L) 0 else (openUntil - now()).coerceAtLeast(0))
+        put("retry_after_ms", retryAfterMillis())
         put("probe_in_flight", probing)
     }
 }

@@ -21,28 +21,14 @@ internal object GatewayDiagnosticEvent {
     private val hex64 = Regex("[a-f0-9]{64}")
     private val span = Regex("[a-f0-9]{16}")
     private val opaque = Regex("(?:[a-f0-9]{32,64}|[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}|[a-z]{2,16}_[a-f0-9]{32,64})")
-    private val choices = mapOf(
-        "stage" to setOf("request", "response", "transport", "lifecycle", "network", "model_queue", "model_load", "prefill", "decode", "mcp_discovery", "mcp_call", "operation_dispatch", "operation_reconciliation", "renderer", "cancellation", "terminal_delivery", "unknown"),
-        "direction" to setOf("client_to_gateway", "gateway_to_client", "gateway_to_backend", "backend_to_gateway", "local"),
-        "severity" to setOf("debug", "info", "warning", "error", "critical"),
-        "category" to setOf("transport", "authentication", "authorization", "model", "tool", "storage", "renderer", "lifecycle", "network", "cancellation", "unknown"),
-        "owner" to setOf("android", "gateway", "backend", "unknown"),
-        "dispatch_state" to setOf("not_dispatched", "dispatched", "response_received", "unknown"),
-        "retry_class" to setOf("none", "safe_read", "after_backoff", "reconcile", "manual", "unknown"),
-        "error_code" to setOf("NONE", "UNKNOWN_CAUSE", "HTTP_ERROR", "TRANSPORT_FAILURE", "TIMEOUT", "CANCELLED", "AUTHENTICATION_FAILED", "AUTHORIZATION_FAILED", "MODEL_UNAVAILABLE", "MCP_UNAVAILABLE", "TOOL_FAILURE", "REPOSITORY_GRAPH_UNAVAILABLE", "GITHUB_TRANSIENT_NETWORK", "JAVA_HEAP_PRESSURE", "STORAGE_UNAVAILABLE", "RENDERER_STALL", "SOURCE_UNAVAILABLE", "PRECHECK_REJECTED", "DISPATCH_UNCERTAIN")
-    )
-    private val numericAttributes = setOf("status", "received_bytes", "sent_bytes", "queue_ms", "load_ms", "prefill_ms", "decode_ms", "output_tokens", "input_tokens", "frame_count", "slow_frames", "dropped_frames", "gc_count", "heap_bytes", "network_epoch", "android_sdk", "app_version_code", "occurrence_count", "source_record_bytes", "stalls_over_500_ms", "refresh_rate_millihz", "gc_duration_ms", "native_heap_bytes")
-    private val digestAttributes = setOf("profile_digest", "model_digest", "endpoint_digest", "repository_digest", "app_revision", "gateway_revision", "capability_digest", "runtime_config_digest", "source_event_digest")
-    private val boolAttributes = setOf("vendor_log_available", "source_available", "client_metadata_accepted", "truncation_applied", "response_headers_received", "response_headers_sent", "response_body_completed")
-    val routes = setOf("chat", "models", "readiness", "liveness", "capabilities", "dashboard", "job", "engineering", "other")
-    val methods = setOf("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
-    val admissionCodes = setOf("remote_surface_not_admitted", "scope_not_granted", "engineering_scope_required", "tool_scope_required_for_runtime", "local_admin_required", "transport_identity_required", "invalid_host", "invalid_origin", "duplicate_admission_header", "browser_csrf_required", "unknown_job", "CONTINUITY_IDENTITY_MISMATCH", "CONTINUITY_IDENTITY_INVALID", "conversation_storage_disabled", "conversation_storage_unavailable", "cursor_expired")
-    private val enumAttributes = mapOf(
-        "route" to routes,
-        "method" to methods,
-        "client_metadata_acknowledgment" to GatewayMetadataAcknowledgment.entries.map { it.name }.toSet(),
-        "gateway_admission_code" to admissionCodes
-    )
+    private val choices = GatewayDiagnosticSchema.choices
+    private val numericAttributes = GatewayDiagnosticSchema.numericAttributes
+    private val digestAttributes = GatewayDiagnosticSchema.digestAttributes
+    private val boolAttributes = GatewayDiagnosticSchema.boolAttributes
+    private val enumAttributes = GatewayDiagnosticSchema.enumAttributes
+    val routes = enumAttributes.getValue("route")
+    val methods = enumAttributes.getValue("method")
+    val admissionCodes = enumAttributes.getValue("gateway_admission_code")
 
     fun digest(value: String): String = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8)).diagnosticHex()
 

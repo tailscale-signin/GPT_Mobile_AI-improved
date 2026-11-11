@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "kind": "UI_TEST_SETUP_CORRECTION_VALIDATION",
+  "recorded_at_utc": "2026-11-10T01:05:10.075933+00:00",
+  "parent_commit": "44f3907870bae6f27bb2f406e9a4a11698d96cff",
+  "base_commit": "7db0c735f9e86eaece24513fbaf5c0a624f13822",
+  "state": "LOCAL_CHECKS_PASSED_FRESH_ANDROID_CI_REQUIRED",
+  "production_changes": false,
+  "retained_assertions": "All text, line-count, overflow, accessibility, touch-target, stable-position and motion assertions remain unchanged.",
+  "changes": [
+    "Use method-level native graphics for two real-font wrapping/overflow tests.",
+    "Publish the reduced-motion activity snapshot write before advancing the paused test clock."
+  ],
+  "validation": {
+    "canonical_fast_tests": 440,
+    "canonical_fast_status": "PASS",
+    "canonical_fast_log": "ui-test-follow-up-fast.log",
+    "canonical_fast_log_sha256": "01cc0b78e3c60f7843aa8c3dce7578b608f504880541c1ce79dbebee49207b3a",
+    "ktlint": "PASS (1.3.1, both changed Kotlin files)",
+    "whitespace": "PASS"
+  },
+  "source_hashes_sha256": {
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubLiveProgressTest.kt": "2f3ec27a71a4d04fc0263336446bd0460df569d0ed5f1e370232de878137a843",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubReducedMotionTest.kt": "7430cd059ffa8696ed2df25c585403ee78361c4fa8105663d89e3482b4e4c5a0"
+  },
+  "scope": "Test environment correction only. Native screenshots from the parent CI were inspected; no local Compose execution is claimed. The next published head must pass the unchanged behavior assertions in full Android CI."
+}

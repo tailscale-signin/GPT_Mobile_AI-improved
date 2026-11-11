@@ -28,7 +28,7 @@ internal object GitHubIntegrationAcceptance {
     ): JsonArray {
         val eligible = receipts.values.filter(::eligible)
         val catalog = GitHubAuthorizedCatalog.snapshot(receipts, tools)
-        val source = binding(eligible, runtime)
+        val source = binding(receipts.values, runtime)
         val classes = evidenceClasses(receipts)
         return JsonArray(
             GitHubRequestCompletion.requirements(task).map { requirement ->
@@ -85,30 +85,69 @@ internal object GitHubIntegrationAcceptance {
     }
 
     fun binding(receipts: Collection<JsonObject>, runtime: JsonObject = GitHubRuntimeIdentity.current()): JsonObject {
-        val eligible = receipts.filter(::eligible)
-        val identityComplete = runtime.text("identity_source") == "RUNNING_PROCESS_BUILD_CONFIG" &&
-            runtime.text("application_id").isNotBlank() &&
-            runtime.text("version_name").isNotBlank() &&
-            (runtime["version_code"] as? JsonPrimitive)?.intOrNull?.let { it > 0 } == true &&
-            sha.matches(runtime.text("app_source_sha"))
-        val status = eligible.lastOrNull {
-            it.text("tool").substringBefore("__") == "github_context" &&
-                args(it).text("action") == "status" &&
-                sha.matches(data(it).text("commit_sha")) &&
-                it["runtime_identity"] == runtime &&
-                liveRead(it)
+        val missingIdentity = buildList {
+            if (runtime.text("identity_source") != "RUNNING_PROCESS_BUILD_CONFIG") add("identity_source")
+            if (runtime.text("application_id").isBlank()) add("application_id")
+            if (runtime.text("version_name").isBlank()) add("version_name")
+            if ((runtime["version_code"] as? JsonPrimitive)?.intOrNull?.let { it > 0 } != true) add("version_code")
+            if (!sha.matches(runtime.text("app_source_sha"))) add("app_source_sha")
         }
-        val bound = identityComplete && status != null && status.text("repository").isNotBlank()
+        val candidates = receipts.filter { it.text("tool").substringBefore("__") == "github_context" && args(it).text("action") == "status" }
+        fun exclusions(receipt: JsonObject): List<String> = buildList {
+            if (receipt["trusted"] != JsonPrimitive(true)) add("UNTRUSTED_RECEIPT")
+            if (receipt["verification_eligible"] == JsonPrimitive(false)) add("CURRENT_AUTHORIZATION_EXCLUDES_RECEIPT")
+            if (receipt["success"] != JsonPrimitive(true)) add("STATUS_OPERATION_FAILED")
+            if (!sha.matches(data(receipt).text("commit_sha"))) add("FULL_REPOSITORY_SHA_MISSING")
+            if (receipt["runtime_identity"] == null) {
+                add("RECEIPT_BUILD_IDENTITY_MISSING")
+            } else if (receipt["runtime_identity"] != runtime) {
+                add("RECEIPT_BUILD_IDENTITY_DIFFERS")
+            }
+            if (!liveRead(receipt)) add("CURRENT_LIVE_READ_NOT_OBSERVED")
+            if (receipt.text("repository").isBlank()) add("REPOSITORY_IDENTITY_MISSING")
+        }
+        val status = candidates.lastOrNull { exclusions(it).isEmpty() }
+        val bound = missingIdentity.isEmpty() && status != null
+        val reasonCode = when {
+            missingIdentity.isNotEmpty() -> "RUNNING_BUILD_IDENTITY_INCOMPLETE"
+            candidates.isEmpty() -> "STATUS_RECEIPT_NOT_OBSERVED"
+            status == null -> "STATUS_RECEIPTS_EXCLUDED"
+            else -> "CURRENT_BUILD_STATUS_BOUND"
+        }
         return buildJsonObject {
             put("verified", bound)
             put("runtime_identity", runtime)
+            put("reason_code", reasonCode)
+            put("missing_identity_fields", JsonArray(missingIdentity.map(::JsonPrimitive)))
+            put("candidate_receipt_count", candidates.size)
+            put(
+                "excluded_receipts",
+                JsonArray(
+                    candidates.filter { exclusions(it).isNotEmpty() }.takeLast(8).map { receipt ->
+                        buildJsonObject {
+                            receipt["receipt_id"]?.let { put("receipt_id", it) }
+                            put("reasons", JsonArray(exclusions(receipt).map(::JsonPrimitive)))
+                        }
+                    }
+                )
+            )
             status?.let {
                 put("repository", it.text("repository"))
                 put("repository_revision", data(it).text("commit_sha"))
                 put("repository_branch", data(it).text("branch"))
                 put("receipt_ids", JsonArray(listOfNotNull(it["receipt_id"])))
+                it["binding"]?.let { binding -> put("run_binding", binding) }
+                it["run_id"]?.let { run -> put("run_id", run) }
             }
-            put("reason", if (bound) "The receipt binds the running process build to the exact observed target repository revision. App source and target repository SHA are distinct identities." else "A complete running-process build identity and matching current-build repository status receipt at a full commit SHA are required; historical receipts cannot acquire a new identity on restore.")
+            put(
+                "reason",
+                when (reasonCode) {
+                    "CURRENT_BUILD_STATUS_BOUND" -> "The qualifying receipt binds the running process build to the exact observed target repository revision. App source and target repository SHA are distinct identities."
+                    "RUNNING_BUILD_IDENTITY_INCOMPLETE" -> "Running-build qualification is missing or has invalid fields: ${missingIdentity.joinToString()}."
+                    "STATUS_RECEIPT_NOT_OBSERVED" -> "No repository status receipt was observed; matching app and repository SHAs alone do not establish runtime qualification."
+                    else -> "No captured status receipt qualifies: ${candidates.flatMap(::exclusions).distinct().joinToString()}. Historical receipts keep their original build identity."
+                }
+            )
             put("device_execution", "NOT_TESTED")
         }
     }

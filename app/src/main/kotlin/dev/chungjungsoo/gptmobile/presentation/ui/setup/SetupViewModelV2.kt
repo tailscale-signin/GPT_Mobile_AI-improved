@@ -278,6 +278,7 @@ class SetupViewModelV2 @Inject constructor(
                     topP = defaults?.topP ?: 1.0f,
                     topK = defaults?.topK,
                     maxTokens = null,
+                    maxToolCalls = Int.MAX_VALUE,
                     accelerator = defaults?.accelerator,
                     systemPrompt = ModelConstants.DEFAULT_PROMPT,
                     stream = true,

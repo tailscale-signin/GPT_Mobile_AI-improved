@@ -175,18 +175,18 @@ def run_bounded(argv, cwd, timeout, maximum=4 * 1024 * 1024, destination=None):
         reader.join(timeout=.25)
 
 
-def validate(job, changes):
-    identity = patch_identity(job['data']['head_sha'], changes)
+def load_policy(repository):
+    """One parser shared by admission and execution; host policy is never model-selected."""
     policy_path = os.getenv('GATEWAY_ENGINEERING_VALIDATION_POLICY', '')
     if not policy_path:
-        return {'status': 'BLOCKED', 'patch_identity': identity, 'reason': 'Configure an approved repository mirror, immutable container image and command list before publication'}
+        raise ValueError('Configure an approved repository mirror, immutable container image and command list before admission')
     policy_file = Path(policy_path)
     if not policy_file.is_file() or policy_file.stat().st_size > 65536:
         raise ValueError('Validation policy is missing or oversized')
-    policy = json.loads(policy_file.read_text()).get(job['request']['repository'].lower())
+    policy = json.loads(policy_file.read_text()).get(repository.lower())
     if not isinstance(policy, dict):
-        return {'status': 'BLOCKED', 'patch_identity': identity, 'reason': 'Repository has no host-approved validation policy'}
-    mirror = Path(policy['mirror']).resolve(strict=True)
+        raise ValueError('Repository has no host-approved validation policy')
+    mirror = Path(policy['mirror']).resolve()
     image = policy.get('image', '')
     commands = policy.get('commands')
     if not re.fullmatch(r'[A-Za-z0-9./:_-]+@sha256:[a-f0-9]{64}', image):
@@ -201,6 +201,18 @@ def validate(job, changes):
             raise ValueError('Host acceptance coverage must identify an exact behavior case and approved command')
         if Path(item['report_path']).is_absolute() or any(part in {'', '.', '..', '.git'} for part in item['report_path'].split('/')) or '\\' in item['report_path']:
             raise ValueError('Acceptance report must be a bounded checkout-relative path')
+    return policy, mirror, image, commands, coverage
+
+
+def validate(job, changes):
+    identity = patch_identity(job['data']['head_sha'], changes)
+    try:
+        policy, mirror, image, commands, coverage = load_policy(job['request']['repository'])
+    except (OSError, ValueError, KeyError, TypeError):
+        return {'status': 'BLOCKED', 'patch_identity': identity, 'reason': 'Repository validation policy is unavailable or invalid; repair the host policy before continuing'}
+    admitted_policy = job['data'].get('admission', {}).get('policy_sha256')
+    if admitted_policy and admitted_policy != hashlib.sha256(json.dumps(policy, sort_keys=True, separators=(',', ':')).encode()).hexdigest():
+        return {'status': 'BLOCKED', 'patch_identity': identity, 'reason': 'The host validation contract changed after admission; review the new policy before a new job'}
     head = job['data']['head_sha']
     if not re.fullmatch('[a-f0-9]{40}', head):
         raise ValueError('Validation needs an exact source revision')

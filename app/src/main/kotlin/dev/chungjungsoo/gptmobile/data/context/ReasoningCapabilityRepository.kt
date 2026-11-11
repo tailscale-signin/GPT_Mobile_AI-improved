@@ -70,6 +70,9 @@ class ReasoningCapabilityRepository internal constructor(
 
     fun observe(profileUid: String): StateFlow<ReasoningCapabilityObservation?> = entry(profileUid).flow.asStateFlow()
 
+    internal fun recognizesGateway(profile: PlatformV2): Boolean =
+        GatewayClientDiagnostics.runtimeEpoch(ProviderRequestConfig(profile.apiUrl, profile.token, profileUid = profile.uid)) != "unobserved"
+
     suspend fun check(profile: PlatformV2, requested: ReasoningMode, forceRefresh: Boolean = false): ReasoningCapabilityObservation {
         val entry = entry(profile.uid)
         // A route binding is bookkeeping, not a verified gateway observation.
@@ -154,7 +157,10 @@ class ReasoningCapabilityRepository internal constructor(
                 return ReasoningCapabilityProbe(
                     false,
                     runtimeRevision = gatewayFailure?.instanceId,
-                    safeReasonCode = gatewayFailure?.reasonCode ?: gatewayFailure?.failureCode ?: "REASONING_CAPABILITY_UNVERIFIED",
+                    safeReasonCode = gatewayFailure?.selectedModelBlocker()?.name
+                        ?: gatewayFailure?.reasonCode?.takeUnless { it.isSelectedModelBlocker() }
+                        ?: gatewayFailure?.failureCode
+                        ?: "REASONING_CAPABILITY_UNVERIFIED",
                     detailMessage = gatewayFailure?.blockingSummary() ?: capacity.metadataFailure(config, profile.model)?.message
                 )
             }

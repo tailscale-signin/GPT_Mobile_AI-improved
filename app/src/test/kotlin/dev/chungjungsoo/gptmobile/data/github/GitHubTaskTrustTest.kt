@@ -1,6 +1,9 @@
 package dev.chungjungsoo.gptmobile.data.github
 
 import dev.chungjungsoo.gptmobile.data.agent.AgentProviderSession
+import dev.chungjungsoo.gptmobile.data.agent.AgentRunEvent
+import dev.chungjungsoo.gptmobile.data.agent.AgentRunLimits
+import dev.chungjungsoo.gptmobile.data.agent.AgentRunner
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
@@ -12,6 +15,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -235,6 +239,82 @@ class GitHubTaskTrustTest {
             assertTrue(events.none { it is ProviderEvent.ToolCall || it is ProviderEvent.Completed })
             assertTrue(events.any { it is ProviderEvent.TextDelta && it.text.isNotBlank() })
             assertEquals(if (current == "proceed") "BLOCKED" else "PARTIAL", (events.last() as ProviderEvent.Failed).taskOutcome)
+        }
+    }
+
+    @Test fun expiredTaskKeepsItsDeadlineCauseWhenAnOlderApprovalIsStillUnresolved() = runBlocking {
+        val write = AgentToolDefinition("github_write", "Stage a patch", JsonObject(emptyMap()))
+        val book = GitHubEvidenceBook("expired", "o/r", "feature", setOf(write.name))
+        val call = ProviderEvent.ToolCall(
+            "staged",
+            write.name,
+            buildJsonObject {
+                put("action", "commit")
+                put("branch", "feature")
+                put("expected_head_sha", "a".repeat(40))
+                put("stage_id", "saved-stage")
+            }
+        )
+        book.observe(
+            call,
+            AgentToolResult(
+                call.callId,
+                ToolResultContent.Json(
+                    buildJsonObject {
+                        put("engineering_task_id", "approval-42")
+                        put("status", "AWAITING_APPROVAL")
+                        put("committed", false)
+                    }
+                ),
+                false,
+                dispatched = false
+            )
+        )
+        val provider = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): kotlinx.coroutines.flow.Flow<ProviderEvent> = error("Report delivery cannot dispatch work")
+        }
+        var publication: JsonObject? = null
+        val session = GitHubVerifiedSession(provider, book, "Test all GitHub tools", { 8192 }, { error("No extraction") }, {}, {}, authorizedTools = listOf(write), onPublication = { publication = it })
+        val events = session.retainedFailureResponse(GitHubExecutionLimits.expiredTaskFailure()).toList()
+        val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+        assertEquals("GITHUB_TASK_INCOMPLETE", failure.errorCode)
+        assertEquals(JsonPrimitive("task_budget"), failure.failureDetails?.get("failed_stage"))
+        assertEquals(JsonPrimitive("ACCEPTED_TASK_DEADLINE_REACHED"), failure.failureDetails?.get("stop_reason"))
+        val text = events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text }
+        assertTrue(text.contains("Time limit reached"))
+        assertTrue(text.contains("saved approval"))
+        assertFalse(text.contains("The commit has not been published"))
+        assertTrue(events.none { it is ProviderEvent.ToolCall || it is ProviderEvent.Completed })
+        val saved = requireNotNull(publication)
+        assertEquals(JsonPrimitive("BLOCKED"), saved["task_state"])
+        assertEquals(JsonPrimitive("ACCEPTED_TASK_DEADLINE_REACHED"), saved["blocking_condition"])
+        assertEquals(GitHubTaskLifecycle.State.BLOCKED, GitHubTaskLifecycle.terminal(saved))
+        assertEquals(JsonPrimitive("NEW_TASK_REQUIRED"), (saved["execution_ledger"] as JsonObject)["recovery"])
+        assertTrue((saved["pending_approvals"] as JsonArray).isNotEmpty())
+        assertTrue(saved["stop_reason"] is JsonObject)
+    }
+
+    @Test fun expiredRunnerStillDeliversExplicitSavedReportsAndInterruptionExplanations() = runBlocking {
+        val saved = mutableMapOf<String, JsonObject>()
+        val verdict = buildJsonObject {
+            put("binding", "expired")
+            put("task_outcome", "PARTIAL")
+            put("completion_verified", false)
+            put("verification_failure", "GITHUB_TASK_INCOMPLETE")
+        }
+        val book = GitHubEvidenceBook("expired", "o/r", "feature", setOf(read.name), load = { saved[it] }, save = { key, value -> saved[key] = value }, latestVerdict = { verdict })
+        book.retainAnswer("The saved report contains the verified source observations.", verdict)
+        val provider = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): kotlinx.coroutines.flow.Flow<ProviderEvent> = error("Retained delivery cannot invoke the provider")
+        }
+        for (current in listOf("show the full report", "Why did the previous response stop?")) {
+            val session = GitHubVerifiedSession(provider, book, "Fix the repository", { 8192 }, { error("No extraction") }, {}, {}, currentRequest = current)
+            val events = AgentRunner(AgentRunLimits(githubTask = true, runTimeoutMillis = 0)).run(session, emptyList()).toList()
+            val providerEvents = events.filterIsInstance<AgentRunEvent.Provider>().map { it.event }
+            val text = providerEvents.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text }
+            assertTrue(if (current.startsWith("show")) text.contains("The saved report contains the verified source observations.") else text.contains("The previous response ended with **GITHUB_TASK_INCOMPLETE**"))
+            assertFalse(text.contains("Time limit reached"))
+            assertTrue(providerEvents.none { it is ProviderEvent.ToolCall })
         }
     }
 

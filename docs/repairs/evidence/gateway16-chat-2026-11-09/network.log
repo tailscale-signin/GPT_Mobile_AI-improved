@@ -1,0 +1,29 @@
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/llama/LlamaHealthDiagnostics.kt:172:34: warning: unnecessary safe call on a non-null receiver of type 'LlamaHealthDiagnostics.Probe'.
+                    it && gateway?.status == 200 && gatewayModel == true && (capability?.get("generationReady") as? JsonPrimitive)?.booleanOrNull == true
+                                 ^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/llama/LlamaHealthDiagnostics.kt:172:88: warning: unnecessary safe call on a non-null receiver of type 'JsonObject'.
+                    it && gateway?.status == 200 && gatewayModel == true && (capability?.get("generationReady") as? JsonPrimitive)?.booleanOrNull == true
+                                                                                       ^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/llama/LlamaHealthDiagnostics.kt:184:101: warning: unnecessary safe call on a non-null receiver of type 'JsonArray'.
+                    selectedModelListed = ids?.takeIf { modelResult.status == 200 && it.size == data?.size }?.contains(model) ?: gatewayModel,
+                                                                                                    ^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/llama/LlamaHealthDiagnostics.kt:188:123: warning: unnecessary safe call on a non-null receiver of type 'LlamaHealthDiagnostics.Probe'.
+                    gatewayToolsReady = (capability?.get("toolsReady") as? JsonPrimitive)?.booleanOrNull?.takeIf { gateway?.status == 200 },
+                                                                                                                          ^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/llama/LlamaHealthDiagnostics.kt:288:56: warning: 'suspend fun ByteReadChannel.readUTF8Line(max: Int = ...): String?' is deprecated. Use readLineStrict or readLine instead. See deprecation notes for more details.
+                                    val line = channel.readUTF8Line(16 * 1024) ?: break
+                                                       ^^^^^^^^^^^^
+app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/llama/LlamaHealthDiagnosticsTest.kt:367:86: warning: this declaration needs opt-in. Its usage should be marked with '@kotlinx.coroutines.ExperimentalCoroutinesApi' or '@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)'
+            val diagnostics = LlamaHealthDiagnostics({ http }, now = { testScheduler.currentTime })
+                                                                                     ^^^^^^^^^^^
+
+JUnit version 4.13.2
+...................................................
+Time: 6.45
+
+OK (51 tests)
+
+SLF4J(W): No SLF4J providers were found.
+SLF4J(W): Defaulting to no-operation (NOP) logger implementation
+SLF4J(W): See https://www.slf4j.org/codes.html#noProviders for further details.
+OpenJDK 64-Bit Server VM warning: Sharing is only supported for boot loader classes because bootstrap classpath has been appended

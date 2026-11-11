@@ -106,6 +106,7 @@ data class GatewayConversationSnapshot(
     @SerialName("updated_at") val updatedAt: Double = 0.0,
     @SerialName("transcript_available") val transcriptAvailable: Boolean = true,
     @SerialName("active_job_id") val activeJobId: String? = null,
+    @SerialName("job_state") val jobState: String? = null,
     @SerialName("source_branch") val sourceBranch: String? = null,
     @SerialName("source_sha") val sourceSha: String? = null,
     @SerialName("working_branch") val workingBranch: String? = null,

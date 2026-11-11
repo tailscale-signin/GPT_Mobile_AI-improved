@@ -4,12 +4,20 @@ import dev.chungjungsoo.gptmobile.data.audit.AppAuditEvidenceKind
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditOptions
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditSelectedModelProbeSource
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditSelectedModelTarget
+import dev.chungjungsoo.gptmobile.data.audit.appAuditModelFixture
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
 class AppAuditModelBenchmarkPreparationTest {
+    @Test fun preparationRetainsTheExplicitAuditAndRefusesAnotherHistoricalRunOrProfile() = runBlocking {
+        val fixture = appAuditModelFixture()
+        assertEquals(fixture.binding, appAuditPrepareModelBenchmark(fixture.run, fixture.entry, fixture.profile) { fixture.target })
+        assertNull(appAuditPrepareModelBenchmark(fixture.run, fixture.entry, fixture.profile.copy(uid = "replacement")) { fixture.target })
+        assertNull(appAuditPrepareModelBenchmark(fixture.run.copy(plan = emptyList()), fixture.entry, fixture.profile) { fixture.target })
+        assertNull(appAuditPrepareModelBenchmark(fixture.run, fixture.entry, fixture.profile) { fixture.target.copy(configurationRevision = "b".repeat(64)) })
+    }
     private val saved = AppAuditSelectedModelTarget("model:accepted", configured = true, enabled = true, fingerprint = "opaque-fingerprint", configurationRevision = "a".repeat(64))
 
     private suspend fun entry() = AppAuditSelectedModelProbeSource({ listOf(saved) }, { saved })

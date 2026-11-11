@@ -12,6 +12,34 @@ class GatewayAppDiagnosticProjectionTest {
     private val run = "11111111-1111-1111-1111-111111111111"
     private val invocation = "22222222-2222-2222-2222-222222222222"
 
+    @Test fun engineeringAdmissionFailureRetainsCauseDependencyAndRecovery() {
+        val result = requireNotNull(
+            gatewayAppDiagnosticProjection(
+                AppLogEntry(
+                    1000,
+                    "E",
+                    "AgentRun",
+                    structuredDiagnosticEventMessage(
+                        "RUN_TERMINAL",
+                        mapOf(
+                            "runId" to run,
+                            "status" to "BLOCKED",
+                            "executionState" to "PRECHECK_REJECTED",
+                            "dispatched" to false,
+                            "errorCode" to "ACCEPTANCE_PRODUCER_REQUIRED",
+                            "failedStage" to "admission"
+                        )
+                    )
+                )
+            )
+        )
+        val attributes = result["bounded_attributes"] as kotlinx.serialization.json.JsonObject
+        assertEquals(JsonPrimitive("ACCEPTANCE_PRODUCER_REQUIRED"), attributes["reason_code"])
+        assertEquals(JsonPrimitive("admission"), attributes["failed_stage"])
+        assertEquals(JsonPrimitive("acceptance"), attributes["dependency"])
+        assertEquals(JsonPrimitive("repair_configuration"), attributes["recovery_action"])
+    }
+
     @Test fun typedTerminalRetainsCorrelationAndUnsentEvidenceWithoutForwardingMessages() {
         val entry = AppLogEntry(
             1000,

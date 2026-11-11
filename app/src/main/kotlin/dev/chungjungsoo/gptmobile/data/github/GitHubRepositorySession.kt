@@ -892,12 +892,13 @@ internal class GitHubRepositorySession(
 
     private class SearchContextBudget(var remaining: Int = LIMIT, var truncated: Boolean = false) {
         companion object {
+
             const val LIMIT = 48 * 1024
         }
     }
 
     private suspend fun matchSearchFile(context: GitHubTaskSnapshot, item: JsonObject, content: JsonObject, options: GitHubSearchOptions, mode: String, query: String, startedNanos: Long, contextBudget: SearchContextBudget): SearchMatches {
-        val sourceLines = content.s("content").lines()
+        val sourceLines = sourceLines(content.s("content"))
         if (sourceLines.size !in options.minLines..options.maxLines) return SearchMatches(emptyList())
         val lexical = content["index"]?.jsonObject
         val symbolMode = mode in setOf("definitions", "references")
@@ -981,7 +982,7 @@ internal class GitHubRepositorySession(
             val path = range.s("path").also { GitHubWorkspaceClient.filePath(it) }
             val entry = selected.getValue(path)
             val content = sources.getValue(path)
-            val lines = content.split('\n')
+            val lines = sourceLines(content)
             fun lineNumber(key: String): Int? = range[key]?.let { value ->
                 requireNotNull((value as? JsonPrimitive)?.intOrNull) { "$key must be an integer." }
             }
@@ -1323,6 +1324,8 @@ internal class GitHubRepositorySession(
     }
 
     companion object {
+        internal fun sourceLines(content: String): List<String> = if (content.isEmpty()) emptyList() else content.split('\n').let { if (content.endsWith('\n')) it.dropLast(1) else it }
+
         const val MAX_BLOB_BYTES = 2 * 1024 * 1024
         const val MAX_EXCERPT_BYTES = 32 * 1024
         internal fun utf8Prefix(value: String, bytes: Int): String {

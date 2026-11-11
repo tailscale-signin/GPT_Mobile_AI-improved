@@ -33,6 +33,9 @@ import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
+import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem
+import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType
+import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext
 import dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryContext
@@ -72,10 +75,13 @@ class GitHubProgrammerHomeTest {
     }
 
     @Test fun fixedProgressStaysVisibleWhileConversationScrolls() {
+        var state by mutableStateOf(GitHubProgrammerState(runs = listOf(AgentRun("active", 1, 2, 3, "local", "CUSTOM", "model", "RUNNING"))))
+        val preparation = "Preparing response"
+        val publicProgress = "The comparison is pinned; checking the changed Kotlin sources"
         compose.setContent {
             MaterialTheme {
                 Column(Modifier.width(320.dp).height(360.dp)) {
-                    GitHubChatProgress(workspace, GitHubProgrammerState(runs = listOf(AgentRun("active", 1, 2, 3, "local", "CUSTOM", "model", "RUNNING"))))
+                    GitHubChatProgress(workspace, state)
                     androidx.compose.foundation.lazy.LazyColumn(Modifier.weight(1f).testTag("github_test_messages")) {
                         items(100) { androidx.compose.material3.Text("Message $it") }
                     }
@@ -83,11 +89,45 @@ class GitHubProgrammerHomeTest {
                 }
             }
         }
+        val headerBounds = compose.onNodeWithTag("github_chat_progress").fetchSemanticsNode().boundsInRoot
+        compose.onNodeWithTag("github_loading_activity").assertContentDescriptionEquals(preparation).assertIsDisplayed()
         compose.onNodeWithTag("github_test_messages").performScrollToIndex(99)
         compose.onNodeWithText("Message 99").assertIsDisplayed()
         compose.onNodeWithTag("github_chat_progress").assertIsDisplayed()
-        compose.onNodeWithTag("github_loading_activity").assertContentDescriptionEquals("Response in progress").assertIsDisplayed()
-        compose.onAllNodes(hasText("Response in progress") or hasContentDescription("Response in progress")).assertCountEquals(1)
+        assertEquals(headerBounds, compose.onNodeWithTag("github_chat_progress").fetchSemanticsNode().boundsInRoot)
+        compose.onNodeWithTag("github_loading_activity").assertContentDescriptionEquals(preparation).assertIsDisplayed()
+        compose.onAllNodes(hasText(preparation) or hasContentDescription(preparation)).assertCountEquals(1)
+
+        // Selected-model progress replaces preparation in the same pinned,
+        // accessible header; a generic generating override must not hide it.
+        compose.runOnIdle {
+            state = state.copy(
+                messages = listOf(
+                    MessageV2(
+                        id = 3,
+                        chatId = 1,
+                        content = "",
+                        platformType = "local",
+                        currentRunId = "active",
+                        timeline = listOf(
+                            AssistantTimelineItem(
+                                type = AssistantTimelineItemType.NOTICE,
+                                content = publicProgress,
+                                progressCheckpoint = true,
+                                modelAuthored = true,
+                                progressId = "selected-model-progress"
+                            )
+                        )
+                    )
+                )
+            )
+        }
+        compose.onNodeWithTag("github_loading_activity").assertContentDescriptionEquals(publicProgress).assertIsDisplayed()
+        compose.onAllNodes(hasText(publicProgress) or hasContentDescription(publicProgress)).assertCountEquals(1)
+        compose.onAllNodes(hasText(preparation) or hasContentDescription(preparation)).assertCountEquals(0)
+        compose.onAllNodes(hasText("Response in progress") or hasContentDescription("Response in progress")).assertCountEquals(0)
+        assertEquals(headerBounds, compose.onNodeWithTag("github_chat_progress").fetchSemanticsNode().boundsInRoot)
+        compose.onNodeWithText("Message 99").assertIsDisplayed()
     }
 
     @Test fun commandShortcutsUseTheConversationComposerAndProfileChoice() {

@@ -1,0 +1,181 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "7db0c735f9e86eaece24513fbaf5c0a624f13822",
+  "working_branch": "fix/audit-execution-recovery-2026-11-09",
+  "intent": "Implement the user-requested 24 archive findings, 18 process-log findings and the complete app audit remediation: reconcile durable handoffs, resume useful work, reuse compact evidence, scope verification to the request, unify budgets and failure receipts, improve connector compatibility and actionable qualification, and reduce diagnostic/UI overhead with truthful validation.",
+  "state": "HOST_VALIDATED_READY_FOR_FRESH_ANDROID_CI",
+  "task_store": "engineering_agent_checkpoints",
+  "task_store_key": "audit-execution-recovery-2026-11-09",
+  "source_evidence": {
+    "app_audit": "app-audit-1794249031624.json",
+    "audit_run_id": "7a752aec-c8ab-4a47-9263-7121fa5d8f67",
+    "diagnostic_report": "User-supplied 24-finding analysis of chat 13, build 141, 2026-11-09",
+    "source_commit": "7db0c735f9e86eaece24513fbaf5c0a624f13822",
+    "process_log_report": "User-supplied 18-finding analysis of app-diagnostics-9079842559889739562.jsonl (4,282 records)"
+  },
+  "scope": [
+    "A01-A02 durable completed-receipt reconciliation and productive retry",
+    "A03-A05 complete original reuse, compact status and semantic replay compaction",
+    "A06-A09 task-specific acceptance, authoritative call budget, exact comparison policy and issue action recovery",
+    "A10-A12 selected-model progress, useful partial evidence and honest unknown protection",
+    "B13-B16 canonical failure/recovery state, admitted recovery reader, source/projection hash identity and runtime binding reasons",
+    "C17-C20 transient gateway/DNS health, explicit MCP compatibility and credential repair",
+    "D21-D22 stable UI rendering and bounded diagnostic capture",
+    "E23-E24 unchanged-approval recovery and identifiable background watches/refreshes",
+    "App audit exact failure actions, truthful score/coverage and concrete qualification harnesses",
+    "Process04-05 fixture lifecycle, explicit proposal/remote-dispatch/accepted/verified operation states",
+    "Process07 schema allowance scope and directly admitted recovery reader",
+    "Process13-18 recorder/export lock contention, typed criterion export, correlated socket-abort incidents"
+  ],
+  "validation": {
+    "status": "HOST_CHECKS_PASS_ANDROID_AND_LIVE_QUALIFICATION_PENDING",
+    "local_receipt": "docs/repairs/evidence/audit-execution-recovery-2026-11-09/local-validation.json",
+    "canonical_fast_gate": "PASS",
+    "changed_kotlin_formatting": "PASS: 117 files, ktlint 1.3.1",
+    "android_build": "CI_RUNNING: PR #816; original local attempt failed before compilation. Current host has JDK 21 but no Android SDK 37.",
+    "live_connector_and_device_tests": "NOT_RUN",
+    "review_receipt": "docs/repairs/evidence/audit-execution-recovery-2026-11-09/review-validation.json",
+    "review_suites": {
+      "recovery": 193,
+      "github_evidence": 189,
+      "mcp": 61,
+      "gateway_client": 50,
+      "canonical_fast_gate": 405
+    }
+  },
+  "boundaries": [
+    "Do not enable disabled or absent optional plugins without setup intent.",
+    "Do not treat unknown mutation outcomes as permission to replay writes.",
+    "Keep live account, real service, Android device and host regression evidence distinct.",
+    "Do not mark unexecuted source suites or physical performance as verified."
+  ],
+  "publication": {
+    "pull_request": 816,
+    "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/816",
+    "initial_published_head": "901e3eb8184fa2721e8ccd7255b21e2636677833",
+    "initial_tree": "f3c61c0d0f38a58c407db92fa143d88c2ba4d612",
+    "recovery": "Confirmed the remote commit tree exactly matched the recovered staged tree; synchronized local branch without rewriting or redispatching the published commit."
+  },
+  "followup": {
+    "parent_head": "016990710f71b8c1a268fe5e7a0328a72d13a173",
+    "base_sha": "7db0c735f9e86eaece24513fbaf5c0a624f13822",
+    "intent": "Fix the three observed PR #816 test failures; compare the supplied app and ChatGPT screenshots and improve GitHub activity previews and public summaries with specific evidence, readable hierarchy, simple animation and preserved accessibility.",
+    "failed_run": 42716221437,
+    "observed_unit_outcome": {
+      "total": 8654,
+      "passed": 8646,
+      "failed": 3,
+      "skipped": 5
+    },
+    "failures": [
+      "GitHubContinuationInvocationTest.authorizedAliasAndCompactedArgumentsResolveTheOriginalHandoff",
+      "GatewayJobsViewModelTest.transientCatalogFailureBacksOffAndRetainsPreviouslyVerifiedRows",
+      "GitHubProgrammerHomeTest.fixedProgressStaysVisibleWhileConversationScrolls"
+    ],
+    "acceptance": [
+      "Raw provider-call identity survives authorized aliasing and replay compaction without trusting provider fingerprints.",
+      "Gateway retry starts at 10 seconds, caps at 60 seconds, resets after success, and preserves cached rows.",
+      "The pinned progress header exposes the actual preparation or public summary exactly once while scrolling.",
+      "Detailed progress uses explicit public findings, observed subjects and a concrete next action; no invented success or private reasoning.",
+      "Activity previews are concise with accessible full detail and subtle motion; summaries are readable and remain stable during updates.",
+      "Canonical fast validation and fresh Android CI on the published head."
+    ],
+    "validation_receipt": "docs/repairs/evidence/audit-execution-recovery-2026-11-09/follow-up-validation.json",
+    "android_ci_snapshot": "docs/repairs/evidence/audit-execution-recovery-2026-11-09/ci-progress-test-failures.json",
+    "ui_test_correction": "docs/repairs/evidence/audit-execution-recovery-2026-11-09/ui-test-follow-up-validation.json"
+  },
+  "latest_audit": {
+    "file": "app-audit-1794267649957.json",
+    "sha256": "950b32a4f9015e425fd8d46bdc9b992b9fe1afc31295653b910608bee58d910c",
+    "source_commit": "7431c9564c4ca9cecb2ae398c2e81d31d7a077ae",
+    "run_id": "a6a0bec4-62ea-4465-9bb3-69c8ba70af7f",
+    "all_pairs_reconciled": 137,
+    "outcomes": {
+      "passed": 53,
+      "failed": 3,
+      "blocked": 4,
+      "unavailable": 10,
+      "untested": 67
+    },
+    "measured": {
+      "passed": 25,
+      "exercised": 27
+    },
+    "qualification_entries": 67,
+    "scope": "Add all repository-side fixes supported by this capture and run available qualification; preserve the completed UI/narrative and CI repairs. Keep external saved-connection repair, target-fixture/model execution and physical-device evidence explicit when access is unavailable.",
+    "work_packages": [
+      "Bind pending MCP OAuth authorization to the unchanged saved connection and endpoint.",
+      "Bind selected-model benchmark preparation, dispatch and export to the exact audit/configuration revision.",
+      "Retain installed APK and device identity with audit/export and require measured-session provenance for device qualification.",
+      "Collect actual named-suite execution and instrumented coverage evidence without promoting historical audit scores.",
+      "Run repository host suites and full fresh Android CI; retain deployment and device blockers."
+    ],
+    "preserve": [
+      "Strict modern discovery validation and controlled legacy compatibility.",
+      "Zero dispatch for invalid local credentials.",
+      "Disabled/uninstalled optional plugins until requested setup.",
+      "Immutable historical audit outcomes and measured-only score.",
+      "No unknown mutation replay or selected-profile substitution."
+    ],
+    "remediation_record": "docs/repairs/latest-audit-2026-11-09.md",
+    "capture_index": "docs/repairs/evidence/audit-execution-recovery-2026-11-09/latest-audit-capture.json",
+    "historical_outcomes_changed": false
+  },
+  "latest_steering": {
+    "received_at": "2026-11-10T01:13:12.392370+00:00",
+    "intent": "Default Ultra Maximum on client and server; repair host GitHub prerequisite discovery and exact-host setup recovery; restore 1500 ms GitHub summary/preview fading and 50% preview opacity with latest-row theme pan; repair authorized catalog and known-unsent read recovery; redesign and rewire the repository map. Preserve every earlier branch, progress text and audit scope.",
+    "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+    "base_branch": "main",
+    "base_sha": "7db0c735f9e86eaece24513fbaf5c0a624f13822",
+    "working_branch": "fix/audit-execution-recovery-2026-11-09",
+    "parent_sha": "e85dec10ec07b1a7dd58e4a4237a3c9e81572d6d",
+    "status": "HOST_VALIDATED_READY_FOR_FRESH_ANDROID_CI",
+    "constraints": [
+      "Retain actual host authorization and selected model/host identity",
+      "Preserve explicit smaller settings and durable retry identity",
+      "No merge or deployment performed without observed evidence"
+    ],
+    "acceptance": [
+      "New client/server engineering jobs use Ultra Maximum defaults; saved explicit limits and existing job identities remain authoritative.",
+      "A known configured host GitHub connection survives launcher setup and is used deterministically, without forwarding phone credentials.",
+      "Explicit gateway readiness checks refresh only the selected host and submit no job.",
+      "GitHub preview and summary arrival/replacement fades last 1500 ms; preview base alpha is 0.5 and only the active bottom preview pans the theme highlight.",
+      "Retained catalog pages preserve exact authorized names, fingerprints and continuation identities; every page is verified before the denominator becomes final.",
+      "A known-unsent read can resume once under a fresh validated authorization revision, preserving the original receipt and excluding mutations, revoked tools and unknown outcomes.",
+      "Confirmed local proposals do not erase verified fixture cleanup; real or uncertain writes still require matching fixture proof.",
+      "Repository map states and actions are exclusive and useful; selected-host recovery, exact revision binding, real graph relationships and accessible motion are verified.",
+      "Canonical host checks and fresh exact-head Android CI pass before completion is claimed."
+    ],
+    "latest_report": "docs/repairs/evidence/audit-execution-recovery-2026-11-09/github-verification-capture.json",
+    "remediation_record": "docs/repairs/gateway-map-and-verification-follow-up.md",
+    "validation_receipt": "docs/repairs/evidence/audit-execution-recovery-2026-11-09/gateway-map-validation.json"
+  },
+  "coverage_followup": {
+    "parent_head": "04ec4a29a7ee41cdd777e85878f5092a5ffac185",
+    "status": "HOST_VALIDATED_FRESH_ANDROID_CI_REQUIRED",
+    "intent": "Accept the actual bounded aggregate JaCoCo report without weakening per-suite JUnit or execution-identity validation; preserve concurrent repository-casing fix and complete fresh Android CI.",
+    "validation_receipt": "docs/repairs/evidence/audit-execution-recovery-2026-11-09/coverage-size-validation.json",
+    "canonical_fast_tests": 443,
+    "collector_tests": 26
+  },
+  "selected_host_layout_followup": {
+    "parent_head": "fcfdc0bb193f02f25b821c87be0aa69d821a5215",
+    "status": "HOST_VALIDATED_NATIVE_RENDER_PENDING",
+    "intent": "Preserve selected gateway name visibility when the new recovery hint wraps on a narrow screen at large font scale.",
+    "validation_receipt": "docs/repairs/evidence/audit-execution-recovery-2026-11-09/selected-host-header-validation.json"
+  },
+  "windows_schema_followup": {
+    "parent_head": "d1ef3f020558a0ba5833ab17943ea1b679e95c1f",
+    "status": "HOST_VALIDATED_FRESH_WINDOWS_AND_ANDROID_CI_REQUIRED",
+    "intent": "Preserve the reviewed diagnostic contract identity across UTF-8 LF, CRLF and CR checkouts while detecting real contract changes.",
+    "validation_receipt": "docs/repairs/evidence/audit-execution-recovery-2026-11-09/diagnostic-schema-digest-validation.json"
+  },
+  "diagnostic_test_contract_followup": {
+    "parent_head": "d1ef3f020558a0ba5833ab17943ea1b679e95c1f",
+    "status": "FORMATTED_FRESH_ANDROID_COMPILATION_REQUIRED",
+    "intent": "Implement the new diagnostic projection in the sole concrete recorder-test DAO fake; preserve production DAO behavior.",
+    "validation_receipt": "docs/repairs/evidence/audit-execution-recovery-2026-11-09/diagnostic-dao-fake-validation.json"
+  }
+}

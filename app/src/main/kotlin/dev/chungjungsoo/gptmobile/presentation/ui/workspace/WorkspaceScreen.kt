@@ -89,7 +89,7 @@ fun WorkspaceScreen(onBack: () -> Unit, onChat: (Int) -> Unit, initialChat: Int 
     var createRecipe by remember { mutableStateOf(false) }
     var evidenceEdit by remember { mutableStateOf<dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent?>(null) }
     LaunchedEffect(initialChat) { if (initialChat > 0) model.chatId.value = initialChat }
-    inputs.firstOrNull()?.let { dev.chungjungsoo.gptmobile.presentation.ui.chat.McpInputDialog(it) { _, value -> model.interactions.respond(it.id, value) } }
+    inputs.firstOrNull { it.runId == null }?.let { dev.chungjungsoo.gptmobile.presentation.ui.chat.McpInputDialog(it) { _, value -> model.interactions.respond(it.id, value) } }
     Scaffold(topBar = { TopAppBar(title = { Text("Workspaces") }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") } }) }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             WorkspaceNavigation(selectedTab = tab, onSelect = { tab = it })

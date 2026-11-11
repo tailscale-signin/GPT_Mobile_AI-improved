@@ -11,11 +11,14 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.agent.AgentRunCoordinator
 import dev.chungjungsoo.gptmobile.data.agent.AgentRunRequest
+import dev.chungjungsoo.gptmobile.data.agent.CurrentRequestContract
+import dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord
 import dev.chungjungsoo.gptmobile.data.agent.ProviderWaitDeadline
 import dev.chungjungsoo.gptmobile.data.agent.bindAcceptedStage
 import dev.chungjungsoo.gptmobile.data.agent.temperatureFor
 import dev.chungjungsoo.gptmobile.data.agent.tool.DelegationRecoveryInteractions
 import dev.chungjungsoo.gptmobile.data.catalog.CatalogEntry
+import dev.chungjungsoo.gptmobile.data.context.isSelectedModelBlocker
 import dev.chungjungsoo.gptmobile.data.database.entity.ACTIVE_REVISION_LATEST
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunDraft
@@ -40,6 +43,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.rebuildAssistantTimelineF
 import dev.chungjungsoo.gptmobile.data.database.entity.resetActiveRevision
 import dev.chungjungsoo.gptmobile.data.database.entity.selectRevision
 import dev.chungjungsoo.gptmobile.data.database.entity.snapshotLatestAssistantRevision
+import dev.chungjungsoo.gptmobile.data.github.GatewayOwnedTurnPolicy
 import dev.chungjungsoo.gptmobile.data.localmodel.LocalModelStatus
 import dev.chungjungsoo.gptmobile.data.model.AvailableChatTool
 import dev.chungjungsoo.gptmobile.data.model.ChatAttachment
@@ -203,6 +207,11 @@ class ChatViewModel @Inject constructor(
         mcpInteractions?.respond(id, value)
     }
     val pendingToolApprovals get() = toolApprovals?.pending ?: flowOf(emptyList())
+    private var gitHubApprovalPending = false
+
+    internal fun bindGitHubApprovalPending(pending: Boolean) {
+        gitHubApprovalPending = pending
+    }
     data class FreeToolConsentRequest(
         val profileUid: String,
         val profileName: String,
@@ -769,17 +778,25 @@ class ChatViewModel @Inject constructor(
                 return
             }
         }
-        val unavailable = if (acceptedTools.combined != null) emptyList() else _platformsInApp.value.filter { it.uid in acceptedProfiles && (acceptedTools.combined != null || it.uid !in _disabledPlatformUids.value) }.map { it.copy(model = acceptedModels[it.uid] ?: it.model) }.filter { rejectUnavailableFreeProfile(it) }
+        val localAcknowledgement = acceptedTools.github != null && attachments.isEmpty() && CurrentRequestContract.from(questionText).conversational
+        val unavailable = if (acceptedTools.combined != null || localAcknowledgement) emptyList() else _platformsInApp.value.filter { it.uid in acceptedProfiles && (acceptedTools.combined != null || it.uid !in _disabledPlatformUids.value) }.map { it.copy(model = acceptedModels[it.uid] ?: it.model) }.filter { rejectUnavailableFreeProfile(it) }
         if (unavailable.isNotEmpty()) {
             attempt.finish("PROFILE_UNAVAILABLE")
             return
         }
-        if (!gatewayQueued && !reasoningAdmissionChecked && reasoningCapabilities != null) {
+        val gatewayProfile = acceptedProfiles.filterNot { it in _disabledPlatformUids.value }.singleOrNull()
+            ?.let { uid -> _platformsInApp.value.singleOrNull { it.uid == uid } }
+        val newEngineeringJob = !_chatRoom.value.isTemporary &&
+            acceptedTools.combined == null &&
+            !acceptedTools.allToolsDisabled &&
+            GatewayOwnedTurnPolicy.configured(gatewayProfile, acceptedTools.github, featureSettings.value) &&
+            GatewayOwnedTurnPolicy.startsNewJob(questionText)
+        if (!gatewayQueued && !localAcknowledgement && !newEngineeringJob && !reasoningAdmissionChecked && reasoningCapabilities != null) {
             val selected = _platformsInApp.value.filter { it.enabled && it.uid in acceptedProfiles && (acceptedTools.combined != null || it.uid !in _disabledPlatformUids.value) }
                 .map { it.copy(model = acceptedModels[it.uid] ?: it.model) }
                 .filter { it.compatibleType == ClientType.LLAMA }
                 .map { profile -> ReasoningRecoveryRequest(profile, dev.chungjungsoo.gptmobile.data.context.ReasoningPolicy.preference(profile.reasoning, featureSettings.value.llamaReasoningModes[profile.uid], acceptedTools.reasoning)) }
-                .filter { it.mode != dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO }
+                .filter { it.mode != dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO || reasoningCapabilities.recognizesGateway(it.profile) }
             if (selected.isNotEmpty()) {
                 if (reasoningSendChecking) {
                     attempt.finish("REASONING_CAPABILITY_CHECK_PENDING")
@@ -797,7 +814,7 @@ class ChatViewModel @Inject constructor(
                 val toolsAtCheck = _chatToolConfig.value
                 val modesAtCheck = featureSettings.value.llamaReasoningModes
                 reasoningSendChecking = true
-                _attachmentNotice.value = "Checking reasoning support. Your draft is kept."
+                _attachmentNotice.value = "Checking the selected model. Your draft is kept."
                 reasoningSendCheckJob = viewModelScope.launch {
                     var checkingRequest = selected.first()
                     try {
@@ -805,7 +822,11 @@ class ChatViewModel @Inject constructor(
                         for (request in selected) {
                             checkingRequest = request
                             val observation = reasoningCapabilities.check(request.profile, request.mode)
-                            if (!observation.permitsRequest || !observation.routeVerified) {
+                            if (!observation.permitsRequest ||
+                                request.mode != dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO &&
+                                !observation.routeVerified ||
+                                observation.safeReasonCode?.isSelectedModelBlocker() == true
+                            ) {
                                 rejected = request to observation
                                 break
                             }
@@ -818,8 +839,13 @@ class ChatViewModel @Inject constructor(
                         if (rejected != null) {
                             val (request, observation) = rejected
                             _reasoningAdmissionNotice.value = dev.chungjungsoo.gptmobile.presentation.ui.setting.ReasoningAdmissionNotice(request.profile.uid, request.profile.name, request.profile.model, request.mode, dev.chungjungsoo.gptmobile.presentation.ui.setting.ReasoningCapabilityUiState(observation = observation))
-                            _attachmentNotice.value = "${request.profile.name}: reasoning support needs attention. Your draft is kept; no generation was started."
-                            attempt.finish("REASONING_CAPABILITY_REJECTED")
+                            val modelBlocker = observation?.safeReasonCode?.takeIf { it.isSelectedModelBlocker() }
+                            _attachmentNotice.value = if (modelBlocker != null) {
+                                "${request.profile.name}: ${observation?.detailMessage ?: "The selected model is unavailable."} Your draft is kept."
+                            } else {
+                                "${request.profile.name}: reasoning support needs attention. Your draft is kept."
+                            }
+                            attempt.finish(modelBlocker ?: "REASONING_CAPABILITY_REJECTED")
                         } else {
                             _reasoningAdmissionNotice.value = null
                             _attachmentNotice.value = null
@@ -842,8 +868,6 @@ class ChatViewModel @Inject constructor(
                 return
             }
         }
-        val gatewayProfile = acceptedProfiles.filterNot { it in _disabledPlatformUids.value }.singleOrNull()
-            ?.let { uid -> _platformsInApp.value.singleOrNull { it.uid == uid } }
         // Imported gateway conversations need the same draft barrier without a
         // fabricated local GitHub workspace or a newly selected gateway binding.
         val gatewayTurn = !_chatRoom.value.isTemporary &&
@@ -1901,7 +1925,9 @@ class ChatViewModel @Inject constructor(
         val profile = _platformsInApp.value.firstOrNull { it.uid == message.platformType && it.enabled } ?: return null
         if (profile.compatibleType != dev.chungjungsoo.gptmobile.data.model.ClientType.LLAMA) return null
         val details = run.terminalError ?: message.timeline.lastOrNull { it.runError != null }?.runError.orEmpty()
-        if (profileRecoveryKind(dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.classify(details).category, details) != ProfileRecoveryKind.REASONING) return null
+        val category = message.timeline.lastOrNull { it.profileFailure != null }?.profileFailure?.category ?: ProfileFailureRecord.classify(details).category
+        val kind = profileRecoveryKind(category, details)
+        if (!kind.requiresModelRecheck) return null
         val accepted = dev.chungjungsoo.gptmobile.data.agent.CombinedAcceptedTurn.decode(run.synthesisSnapshot)
         val frozen = _chatRoom.value.conversationMode == ConversationMode.COMBINED
         val failedMode = Regex("\\bREASONING_(ON|OFF)_UNSUPPORTED\\b").find(details)?.groupValues?.get(1)?.let { dev.chungjungsoo.gptmobile.data.context.ReasoningMode.valueOf(it) }
@@ -1915,7 +1941,7 @@ class ChatViewModel @Inject constructor(
         )
         // A profile edit is for new requests. Do not qualify old Off, then let a retry send today's Auto.
         if (frozen && failedMode != null && mode != failedMode) return null
-        return ReasoningRecoveryRequest(resolved, mode)
+        return ReasoningRecoveryRequest(resolved, mode, requireRouteReady = kind == ProfileRecoveryKind.MODEL)
     }
 
     fun recheckReasoningFailure(userId: Int, profileUid: String) {
@@ -1929,7 +1955,7 @@ class ChatViewModel @Inject constructor(
         val attempt = message.currentRunId ?: return
         val request = reasoningRecoveryRequest(turnIndex, platformIndex)
         if (request == null) {
-            _attachmentNotice.value = "The original reasoning configuration cannot be qualified from this saved failure. Change settings and start a new request; saved replies remain."
+            _attachmentNotice.value = "The original model configuration could not be verified. Restore its settings and recheck, or start a new request."
             return
         }
         val generation = UUID.randomUUID().toString()
@@ -1989,7 +2015,7 @@ class ChatViewModel @Inject constructor(
         val profile = _platformsInApp.value.singleOrNull { it.uid == notice.profileUid && it.enabled }?.copy(model = notice.model) ?: return
         val generation = ++reasoningSendGeneration
         reasoningSendCheckJob?.cancel()
-        _reasoningAdmissionNotice.value = notice.copy(state = dev.chungjungsoo.gptmobile.presentation.ui.setting.ReasoningCapabilityUiState(checking = true))
+        _reasoningAdmissionNotice.value = notice.copy(state = notice.state.copy(checking = true))
         reasoningSendCheckJob = viewModelScope.launch {
             try {
                 val observation = reasoningCapabilities?.check(profile, notice.requested, forceRefresh = true)
@@ -2047,7 +2073,7 @@ class ChatViewModel @Inject constructor(
                 .filterNot { reviewingCombinedFailureTurn != user.id && combinedCollectionDecisions?.acknowledged(accepted.context.rootBudgetId, it.attemptId) == true }
                 .map { failure ->
                     val responseIndex = row.indexOfFirst { it.platformType == failure.profileUid && it.currentRunId == failure.attemptId }
-                    val qualified = profileRecoveryKind(failure.category, failure.details) == ProfileRecoveryKind.REASONING && permitsReasoningRecovery(index, responseIndex, failure.attemptId)
+                    val qualified = profileRecoveryKind(failure.category, failure.details).requiresModelRecheck && permitsReasoningRecovery(index, responseIndex, failure.attemptId)
                     failure.copy(retryAllowed = failure.retryAllowed || qualified, retrying = "${failure.userMessageId}:${failure.profileUid}:${failure.attemptId}" in pendingCombinedRetries)
                 }
         }
@@ -2268,10 +2294,16 @@ class ChatViewModel @Inject constructor(
         val userMessage = _groupedMessages.value.userMessages.getOrNull(turnIndex) ?: return
         val previousRun = currentAssistantMessage.currentRunId?.let { _agentRunsById.value[it] }
         val failureDetails = previousRun?.terminalError ?: currentAssistantMessage.timeline.lastOrNull { it.runError != null }?.runError
-        val recoveryKind = failureDetails?.let { profileRecoveryKind(dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.classify(it).category, it) } ?: ProfileRecoveryKind.NONE
-        if (recoveryKind != ProfileRecoveryKind.NONE && (recoveryKind != ProfileRecoveryKind.REASONING || !permitsReasoningRecovery(turnIndex, platformIndex, currentAssistantMessage.currentRunId))) {
+        gitHubApprovalRetryBlock(failureDetails, gitHubApprovalPending)?.let {
+            _attachmentNotice.value = it
+            return
+        }
+        val recordedFailure = currentAssistantMessage.timeline.lastOrNull { it.profileFailure != null }?.profileFailure
+        val recoveryKind = failureDetails?.let { profileRecoveryKind(recordedFailure?.category ?: ProfileFailureRecord.classify(it).category, it) } ?: ProfileRecoveryKind.NONE
+        if (recoveryKind != ProfileRecoveryKind.NONE && (!recoveryKind.requiresModelRecheck || !permitsReasoningRecovery(turnIndex, platformIndex, currentAssistantMessage.currentRunId))) {
             _attachmentNotice.value = when (recoveryKind) {
                 ProfileRecoveryKind.REASONING -> "Recheck support for this exact model and reasoning setting before retrying. Explicit Off has not changed."
+                ProfileRecoveryKind.MODEL -> "Recheck the selected model before retrying."
                 ProfileRecoveryKind.BILLING -> "Restore this profile’s provider credits and start a new request. Other replies are saved."
                 else -> "Change the rejected configuration and start a new request. Saved replies and tool results remain."
             }
@@ -2315,13 +2347,17 @@ class ChatViewModel @Inject constructor(
         val prior = dev.chungjungsoo.gptmobile.data.agent.resolveTaskRecovery(_groupedMessages.value.userMessages.take(turnIndex + 1))
         val sourceMessageId = prior?.sourceMessageId ?: userMessage.id
         val recoveryAction = requestedRecovery ?: if (prior?.primaryOnly == true) dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.CONTINUE_PRIMARY_ONLY else dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.RETRY_FAILED_STAGE
-        val recovery = dev.chungjungsoo.gptmobile.data.agent.TaskResumeDescriptor(
-            "${userMessage.chatId}:$sourceMessageId",
-            sourceMessageId,
-            runId,
-            recoveryAction,
-            allowUndispatchedBudgetRetry = recoveryAction == dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.RETRY_FAILED_STAGE
-        )
+        val recovery = if (recordedFailure?.isUnsentSetup == true && accepted == null && requestedRecovery == null) {
+            null
+        } else {
+            dev.chungjungsoo.gptmobile.data.agent.TaskResumeDescriptor(
+                "${userMessage.chatId}:$sourceMessageId",
+                sourceMessageId,
+                runId,
+                recoveryAction,
+                allowUndispatchedBudgetRetry = recoveryAction == dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.RETRY_FAILED_STAGE
+            )
+        }
         _loadingStates.update { states -> states.mapIndexed { index, state -> if (enabledPlatformsInChat.getOrNull(index) == ownerProfileUid) LoadingState.Loading else state } }
 
         viewModelScope.launch {
@@ -2335,8 +2371,10 @@ class ChatViewModel @Inject constructor(
                         ) {
                             "Use Jobs to confirm the original gateway request, or send a follow-up in its saved conversation. Retry cannot replace that accepted command."
                         }
-                        researchSessionStore?.execution(recovery.rootWorkId, !_chatRoom.value.isTemporary)?.takeIf { it.accepted.targetSources > 0 && it.attempt.state.terminal }?.let {
-                            researchSessionStore.resumeExecution(recovery.rootWorkId, "profile-retry:${it.attempt.attemptId}", !_chatRoom.value.isTemporary)
+                        recovery?.let { saved ->
+                            researchSessionStore?.execution(saved.rootWorkId, !_chatRoom.value.isTemporary)?.takeIf { it.accepted.targetSources > 0 && it.attempt.state.terminal }?.let {
+                                researchSessionStore.resumeExecution(saved.rootWorkId, "profile-retry:${it.attempt.attemptId}", !_chatRoom.value.isTemporary)
+                            }
                         }
                         if (accepted?.context?.requested?.singlePass == true && previousRun != null) {
                             val durable = chatRepository.fetchMessageReferencesV2(userMessage.chatId)
@@ -2378,7 +2416,8 @@ class ChatViewModel @Inject constructor(
                                     platform = platformWithChatModel,
                                     userMessages = contextMessages.userMessages,
                                     assistantMessages = contextMessages.assistantMessages,
-                                    chatToolConfig = retryTools
+                                    chatToolConfig = retryTools,
+                                    gatewayAdmissionAllowed = { !_chatToolConfig.value.allToolsDisabled }
                                 )
                             )
                         )

@@ -6,7 +6,11 @@ import android.os.Build
 import android.os.Debug
 import android.os.PowerManager
 import dagger.hilt.android.qualifiers.ApplicationContext
+import dev.chungjungsoo.gptmobile.data.audit.AppAuditModelQualificationException
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditRunner
+import dev.chungjungsoo.gptmobile.data.audit.AppAuditSelectedModelServices
+import dev.chungjungsoo.gptmobile.data.audit.AppAuditSourceInventory
+import dev.chungjungsoo.gptmobile.data.audit.appAuditModelBenchmarkIssue
 import dev.chungjungsoo.gptmobile.data.audit.interrupted
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.localruntime.InferenceAdmission
@@ -56,7 +60,8 @@ class BenchmarkBatchRunner @Inject constructor(
     private val settings: SettingRepository,
     private val runtime: LocalRuntime,
     @param:ApplicationContext private val context: Context,
-    private val appAuditRunner: AppAuditRunner? = null
+    private val appAuditRunner: AppAuditRunner? = null,
+    private val auditModels: AppAuditSelectedModelServices? = null
 ) {
     @Volatile private var child: Deferred<BenchmarkRun>? = null
 
@@ -172,6 +177,8 @@ class BenchmarkBatchRunner @Inject constructor(
     }
 
     private suspend fun executeProfile(batch: BenchmarkBatch, item: BenchmarkQueueItem, progress: (BenchmarkProgress) -> Unit): BenchmarkRun {
+        verifyAuditModelBinding(item)
+        check(item.auditModelBinding == null || batch.mode !in setOf(BenchmarkMode.DELEGATION, BenchmarkMode.APP_AUDIT)) { "An audit model benchmark requires an independent selected-profile suite." }
         val savedProfiles = settings.fetchPlatformV2s()
         fun authenticate(frozen: PlatformV2): PlatformV2 {
             val current = savedProfiles.firstOrNull { it.uid == frozen.uid } ?: error("PROFILE_UNAVAILABLE: ${frozen.name} was deleted.")
@@ -197,6 +204,7 @@ class BenchmarkBatchRunner @Inject constructor(
             val contextTokens = InferenceAdmission.benchmark {
                 try {
                     withTimeout(60_000) {
+                        verifyAuditModelBinding(item)
                         check(batch.mode !in setOf(BenchmarkMode.CPU_EXPERIMENT, BenchmarkMode.PERFORMANCE) || target.compatibleType == ClientType.LITERT_LM) { "UNSUPPORTED_CAPABILITY: Native performance diagnostics require an on-device profile." }
                         if (usesLocal) {
                             checkLocalConditions()
@@ -227,7 +235,7 @@ class BenchmarkBatchRunner @Inject constructor(
                     metadata = { tools, schema -> withContext(BenchmarkRequestContext(policy, schema, readinessProbe = true)) { chats.benchmarkReadiness(primary, tools, schema) } },
                     execute = { test, request, retained ->
                         progress(BenchmarkProgress(item.profile.name, test.label, item.ordinal * suite.size, batch.items.size * suite.size))
-                        executeReadinessProbe(batch, run.id, primary, test, request, supportsTools, usesLocal, retained)
+                        executeReadinessProbe(batch, item, run.id, primary, test, request, supportsTools, usesLocal, retained)
                     },
                     persist = { receipt ->
                         run = run.copy(readiness = receipt, structuredOutputMode = receipt.structuredOutputMode, structuredSchemaModes = receipt.schemaModes, verifiedStructuredCompatibilityKeys = receipt.verifiedStructuredCompatibilityKeys)
@@ -274,6 +282,7 @@ class BenchmarkBatchRunner @Inject constructor(
                         var latestInspection: dev.chungjungsoo.gptmobile.data.localruntime.RuntimeInspectionReceipt? = null
                         var after: BenchmarkRuntimeObservation? = null
                         var executionReceipt: dev.chungjungsoo.gptmobile.data.localruntime.RuntimeExecutionReceipt? = null
+                        val auditSession = item.auditModelBinding?.let { BenchmarkAuditModelSession(it.configurationRevision, { verifyAuditModelBinding(item) }) }
                         val resources = BenchmarkResourceRecorder { scope ->
                             BenchmarkResourceSample(test.id, System.currentTimeMillis(), Debug.getPss(), Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory(), battery(), thermal(), if (usesLocal) runtime.processPssBytes else null, scope, android.os.SystemClock.elapsedRealtime())
                         }
@@ -306,7 +315,18 @@ class BenchmarkBatchRunner @Inject constructor(
                                     chats.runDelegationBenchmark(primary, test, requestId, checkNotNull(batch.delegationSettings).copy(targetProfileUid = target.uid, fallbackToAnotherProfile = false), frozenProfiles = listOfNotNull(primary, target, reviewer).associateBy { it.uid })
                                 } else {
                                     val requestContext = requestContext(run, test, policy)
-                                    val runner = BenchmarkRunner(timeoutMs = benchmarkCaseDeadlineMs(batch.mode, test, batch.suiteVersion), openSession = { turns, tools -> chats.openBenchmarkSession(primary, turns, tools, requestId, test.requestCategory, onInvocation = { invocations.addIfAbsent(it) }, onPhysicalRequest = { physicalRequests.addIfAbsent(it) }) }, now = android.os.SystemClock::elapsedRealtime, onInterrupted = { interruptedSample = it }, observeRuntime = { if (usesLocal) runtime.latestExecutionReceipt else null })
+                                    val runner = BenchmarkRunner(
+                                        timeoutMs = benchmarkCaseDeadlineMs(batch.mode, test, batch.suiteVersion),
+                                        openSession = { turns, tools ->
+                                            val create: suspend () -> dev.chungjungsoo.gptmobile.data.agent.AgentProviderSession = {
+                                                chats.openBenchmarkSession(primary, turns, tools, requestId, test.requestCategory, onInvocation = { invocations.addIfAbsent(it) }, onPhysicalRequest = { physicalRequests.addIfAbsent(it) })
+                                            }
+                                            auditSession?.open(create) ?: create()
+                                        },
+                                        now = android.os.SystemClock::elapsedRealtime,
+                                        onInterrupted = { interruptedSample = it },
+                                        observeRuntime = { if (usesLocal) runtime.latestExecutionReceipt else null }
+                                    )
                                     val prepared = prepareTest(test)
                                     withContext(requestContext) {
                                         if (test.cpuExperiment != null) withContext(dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntimeTrialContext(test.cpuExperiment)) { runner.run(prepared, supportsTools) } else runner.run(prepared, supportsTools)
@@ -340,6 +360,7 @@ class BenchmarkBatchRunner @Inject constructor(
                             var retained = sample.copy(
                                 attemptId = attemptId, runtimeSnapshot = actual, actualRuntimeVersion = runtimeVersion, workerPssBytes = resources.snapshots().lastOrNull { it.scope == "before_cleanup" }?.workerPssBytes, workerPssScope = "before_cleanup", cleanupReceipt = cleanup, runtimeCleanup = cleanupDetails, cleanupDurationMs = cleanupDurationMs, admissionWaitMs = admissionWaitMs, nativeIdentity = nativeIdentity, failure = if (cleanup == "cleanup_unconfirmed_local_blocked") BenchmarkFailure("NATIVE_CLEANUP_UNCONFIRMED", "cleanup", "Native cleanup was not acknowledged; later local work is blocked.", owner = "runtime", scope = "local_runtime") else sample.failure, physicalRequestIds = physicalRequests.toList(), logicalRequestId = requestId, invocationIds = invocations.toList(),
                                 runtimeExecutions = executions,
+                                auditModelConfiguration = auditSession?.receipt,
                                 requestDispatched = if (executions.any { it.knownDispatched }) true else sample.requestDispatched,
                                 requestAdmitted = if (physicalRequests.isNotEmpty() || sample.knownExecuted()) true else sample.requestAdmitted,
                                 loadRegime = resident?.regime ?: "remote_unknown", residentMatch = resident, cacheConfigured = after?.loaded?.cacheEnabled,
@@ -382,6 +403,7 @@ class BenchmarkBatchRunner @Inject constructor(
                                 failure = reason, failureCategory = reason.code, runtimeStage = reason.stage, error = reason.message,
                                 attemptId = attemptId, cleanupReceipt = cleanup, runtimeCleanup = cleanupDetails, cleanupDurationMs = cleanupDurationMs, admissionWaitMs = admissionWaitMs, nativeIdentity = nativeIdentity, physicalRequestIds = physicalRequests.toList(), logicalRequestId = requestId, invocationIds = invocations.toList(),
                                 runtimeExecutions = executions,
+                                auditModelConfiguration = auditSession?.receipt,
                                 requestDispatched = if (executions.any { it.knownDispatched }) true else interruptedSample?.requestDispatched,
                                 requestAdmitted = if (physicalRequests.isNotEmpty() || executions.any { it.knownDispatched }) true else interruptedSample?.requestAdmitted,
                                 runtimeSnapshot = after?.state, actualRuntimeVersion = after?.state?.backend?.let(::actualRuntimeVersion),
@@ -448,6 +470,7 @@ class BenchmarkBatchRunner @Inject constructor(
     /** Probe evidence commits before admission is released, including cancellation and cleanup failure. */
     private suspend fun executeReadinessProbe(
         batch: BenchmarkBatch,
+        item: BenchmarkQueueItem,
         runId: String,
         profile: PlatformV2,
         test: BenchmarkCase,
@@ -470,6 +493,7 @@ class BenchmarkBatchRunner @Inject constructor(
         var sample: BenchmarkSample? = null
         var cleanup: dev.chungjungsoo.gptmobile.data.localruntime.RuntimeCleanupReceipt? = null
         var cleanupMs: Long? = null
+        val auditSession = item.auditModelBinding?.let { BenchmarkAuditModelSession(it.configurationRevision, { verifyAuditModelBinding(item) }) }
         val resources = BenchmarkResourceRecorder { scope ->
             BenchmarkResourceSample(test.id, System.currentTimeMillis(), Debug.getPss(), Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory(), battery(), thermal(), if (usesLocal) runtime.processPssBytes else null, scope, android.os.SystemClock.elapsedRealtime())
         }
@@ -488,7 +512,12 @@ class BenchmarkBatchRunner @Inject constructor(
             }
             val runner = BenchmarkRunner(
                 timeoutMs = request.requestDeadlineMs ?: BenchmarkReadinessRunner.PROBE_DEADLINE_MS,
-                openSession = { turns, tools -> chats.openBenchmarkSession(profile, turns, tools, logical, test.requestCategory, onInvocation = { invocations.addIfAbsent(it) }, onPhysicalRequest = { physical.addIfAbsent(it) }) },
+                openSession = { turns, tools ->
+                    val create: suspend () -> dev.chungjungsoo.gptmobile.data.agent.AgentProviderSession = {
+                        chats.openBenchmarkSession(profile, turns, tools, logical, test.requestCategory, onInvocation = { invocations.addIfAbsent(it) }, onPhysicalRequest = { physical.addIfAbsent(it) })
+                    }
+                    auditSession?.open(create) ?: create()
+                },
                 now = android.os.SystemClock::elapsedRealtime,
                 onInterrupted = { interrupted = it },
                 observeRuntime = { if (usesLocal) runtime.latestExecutionReceipt else null }
@@ -519,6 +548,7 @@ class BenchmarkBatchRunner @Inject constructor(
         result = result.copy(
             attemptId = "$runId:${test.id}:0", logicalRequestId = logical, physicalRequestIds = physical.toList(), invocationIds = invocations.toList(),
             runtimeExecutions = executions, requestDispatched = if (executions.any { it.knownDispatched }) true else result.requestDispatched,
+            auditModelConfiguration = auditSession?.receipt,
             requestAdmitted = if (physical.isNotEmpty()) true else result.requestAdmitted,
             runtimeSnapshot = after?.state, actualRuntimeVersion = after?.state?.backend?.let(::actualRuntimeVersion),
             cleanupReceipt = benchmarkCleanupLabel(cleanup), runtimeCleanup = cleanup, cleanupDurationMs = cleanupMs,
@@ -532,6 +562,24 @@ class BenchmarkBatchRunner @Inject constructor(
         withContext(NonCancellable) { retained(result) }
         failure?.takeIf { it is CancellationException }?.let { throw it }
         result
+    }
+
+    private suspend fun verifyAuditModelBinding(item: BenchmarkQueueItem) {
+        val binding = item.auditModelBinding ?: return
+        benchmarkAuditBindingWithinDeadline {
+            val audit = store.batch(binding.auditRunId)?.audit
+            val current = auditModels?.target(binding.profileUid)
+            appAuditModelBenchmarkIssue(
+                binding,
+                item.profile,
+                audit,
+                current,
+                dev.chungjungsoo.gptmobile.BuildConfig.APP_COMMIT,
+                dev.chungjungsoo.gptmobile.BuildConfig.VERSION_NAME,
+                dev.chungjungsoo.gptmobile.BuildConfig.BUILD_TYPE,
+                AppAuditSourceInventory.sourceDigest
+            )?.let { throw AppAuditModelQualificationException(it) }
+        }
     }
 
     private suspend fun failedProfile(batch: BenchmarkBatch, item: BenchmarkQueueItem, error: Exception, skip: Boolean): BenchmarkRun {
@@ -555,7 +603,7 @@ class BenchmarkBatchRunner @Inject constructor(
     private fun appendFailure(run: BenchmarkRun, suite: List<BenchmarkCase>, failure: BenchmarkFailure): BenchmarkRun {
         val pending = suite.filter { test -> run.samples.none { it.testId == test.id } }
         val first = pending.firstOrNull()
-        val failed = if (first == null) run else run.copy(samples = run.samples + BenchmarkSample(first.id, first.label, first.category, if (failure.code == "USER_SKIP") BenchmarkOutcome.SKIPPED else failure.outcome(), error = failure.message, workload = first.workload, warmup = first.warmup, failureCategory = failure.code, failure = failure, runtimeStage = failure.stage, requestDispatched = if (failure.stage == "preflight") false else null))
+        val failed = if (first == null) run else run.copy(samples = run.samples + BenchmarkSample(first.id, first.label, first.category, if (failure.code == "USER_SKIP") BenchmarkOutcome.SKIPPED else failure.outcome(), error = failure.message, workload = first.workload, warmup = first.warmup, failureCategory = failure.code, failure = failure, runtimeStage = failure.stage, requestDispatched = if (failure.stage == "preflight" || failure.code.startsWith("AUDIT_MODEL_") && failure.stage == "admission") false else null))
         return appendDependentSkips(failed.copy(stoppedReason = failure.message), suite, failure)
     }
 

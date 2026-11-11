@@ -82,6 +82,7 @@ class GitHubEngineeringController @Inject constructor(
             put("expected_head_sha", kotlinx.serialization.json.JsonPrimitive(task.baseSha))
             put("cancelled_before_publication", kotlinx.serialization.json.JsonPrimitive(task.state == EngineeringState.CANCELLED.name && operations.isEmpty()))
             put("publication_may_have_started", kotlinx.serialization.json.JsonPrimitive(operations.isNotEmpty()))
+            GitHubEngineeringPublication.verified(task, run, operations)?.get("sha")?.let { put("published_commit_sha", it) }
             put(
                 "publication_intent",
                 kotlinx.serialization.json.buildJsonObject {

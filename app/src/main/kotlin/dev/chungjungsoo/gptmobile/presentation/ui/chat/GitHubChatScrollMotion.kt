@@ -9,7 +9,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.MotionDurationScale
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
@@ -37,12 +36,17 @@ internal fun GitHubScrollMotion(
     fontScale: Float,
     animate: Boolean
 ) {
+    ChatBottomAutoScroller(
+        listState,
+        isEnabled = enabled && !dragging && mode == GitHubScrollMode.FOLLOW_BOTTOM,
+        animate = animate,
+        githubMotion = true
+    )
     val currentItem by rememberUpdatedState(promptItem)
     val currentMode by rememberUpdatedState(mode)
     val currentDragging by rememberUpdatedState(dragging)
     LaunchedEffect(listState, enabled, mode, dragging, promptKey, revision, fontScale, animate) {
-        if (!enabled || dragging || mode == GitHubScrollMode.USER_HISTORY) return@LaunchedEffect
-        if (mode == GitHubScrollMode.PIN_PROMPT) {
+        if (enabled && !dragging && mode == GitHubScrollMode.PIN_PROMPT) {
             if (promptKey == null || currentItem < 0) return@LaunchedEffect
             snapshotFlow {
                 val layout = listState.layoutInfo
@@ -55,14 +59,6 @@ internal fun GitHubScrollMotion(
                     currentTargetItem = { currentItem },
                     animate = animate
                 )
-            }
-        } else {
-            snapshotFlow {
-                val layout = listState.layoutInfo
-                Triple(layout.totalItemsCount, layout.visibleItemsInfo.map { it.index to it.size }, listOf(layout.viewportSize.height, layout.beforeContentPadding, layout.afterContentPadding))
-            }.distinctUntilChanged().conflate().collect {
-                withFrameNanos { }
-                listState.animateToGitHubBottom(animate)
             }
         }
     }
@@ -100,7 +96,7 @@ internal suspend fun LazyListState.animateToGitHubPrompt(
 }
 
 /** The bottom follower owns this motion; buttons only change its intent. */
-internal suspend fun LazyListState.animateToGitHubBottom(animate: Boolean = true) {
+internal suspend fun LazyListState.animateToGitHubBottom(animate: Boolean = true, durationMillis: Int = GITHUB_BOTTOM_FOLLOW_MILLIS) {
     // A user fling can outlive the drag interaction. Keep the follow request
     // pending instead of losing this coroutine to the higher-priority mutation.
     snapshotFlow { isScrollInProgress }.first { !it }
@@ -111,22 +107,22 @@ internal suspend fun LazyListState.animateToGitHubBottom(animate: Boolean = true
         scrollToItem(lastIndex)
         return
     }
-    if (info.visibleItemsInfo.none { it.index == lastIndex }) {
-        // Preserve lazy-list seeking for a distant destination. Near the bottom,
-        // streaming growth is followed in one scroll mutation with a moving target.
-        animateScrollToItem(lastIndex)
-        return
-    }
     scroll {
-        var previousFrame = withFrameNanos { it }
-        while (canScrollForward) {
-            val frame = withFrameNanos { it }
+        val layout = LazyLayoutScrollScope(this@animateToGitHubBottom, this)
+        var previous = 0f
+        androidx.compose.animation.core.animate(0f, 1f, animationSpec = tween(durationMillis, easing = FastOutSlowInEasing)) { fraction, _ ->
             val current = layoutInfo
-            val footer = current.visibleItemsInfo.lastOrNull { it.index == current.totalItemsCount - 1 } ?: break
-            val remaining = (footer.offset + footer.size + current.afterContentPadding - current.viewportEndOffset).toFloat()
-            val step = gitHubBottomFollowStep(remaining, frame - previousFrame)
-            previousFrame = frame
-            if (step <= 0f || scrollBy(step) <= 0f) break
+            val target = current.totalItemsCount - 1
+            if (target >= 0) {
+                val footer = current.visibleItemsInfo.lastOrNull { it.index == target }
+                val remaining = if (footer != null) {
+                    (footer.offset + footer.size + current.afterContentPadding - current.viewportEndOffset).toFloat()
+                } else {
+                    layout.calculateDistanceTo(target).toFloat()
+                }
+                scrollBy(gitHubBottomFollowStep(remaining, previous, fraction))
+            }
+            previous = fraction
         }
     }
 }

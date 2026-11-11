@@ -1,0 +1,38 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "pull_request": 816,
+  "head_sha": "016990710f71b8c1a268fe5e7a0328a72d13a173",
+  "base_sha": "7db0c735f9e86eaece24513fbaf5c0a624f13822",
+  "tested_merge_sha": "7431c9564c4ca9cecb2ae398c2e81d31d7a077ae",
+  "workflow_run_id": 42716221437,
+  "job_id": 129498398341,
+  "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/42716221437/job/129498398341",
+  "observed_unit_outcome": {
+    "total": 8654,
+    "passed": 8646,
+    "failed": 3,
+    "skipped": 5
+  },
+  "failures": [
+    {
+      "test": "GitHubContinuationInvocationTest.authorizedAliasAndCompactedArgumentsResolveTheOriginalHandoff",
+      "expected": "2 continuation reopens",
+      "actual": "1 continuation reopen",
+      "cause": "New provider handoff trusted a supplied originalInvocationFingerprint before authorized aliasing and argument compaction."
+    },
+    {
+      "test": "GatewayJobsViewModelTest.transientCatalogFailureBacksOffAndRetainsPreviouslyVerifiedRows",
+      "expected": "10000ms first retry",
+      "actual": "60000ms after test-clock retries ran ahead of real IO binding",
+      "cause": "Real Dispatchers.IO work and the virtual polling scheduler did not share a clock."
+    },
+    {
+      "test": "GitHubProgrammerHomeTest.fixedProgressStaysVisibleWhileConversationScrolls",
+      "expected": "Response in progress",
+      "actual": "Preparing response",
+      "cause": "Stale generic-label expectation after precise progress labels were preserved."
+    }
+  ],
+  "interpretation": "Observed parent failure. This receipt is retained unchanged and does not describe the follow-up's final CI result."
+}

@@ -1,10 +1,13 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -16,10 +19,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.agent.tool.McpInputRequest
 import dev.chungjungsoo.gptmobile.data.agent.tool.schemaError
-import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -27,7 +30,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
 @Composable
-internal fun McpInputDialog(request: McpInputRequest, respond: (String, JsonObject?) -> Unit) {
+internal fun McpInputDialog(request: McpInputRequest, inline: Boolean = false, respond: (String, JsonObject?) -> Unit) {
     var values by remember(request.id) { mutableStateOf((request.schema["properties"] as? JsonObject).orEmpty().filterValues { (it as? JsonObject)?.get("type") == JsonPrimitive("boolean") }.mapValues { "false" }) }
     val fields = request.schema["properties"]?.jsonObject.orEmpty()
     val required = (request.schema["required"] as? JsonArray)?.map { it.jsonPrimitive.content }.orEmpty()
@@ -44,13 +47,15 @@ internal fun McpInputDialog(request: McpInputRequest, respond: (String, JsonObje
         }.toMap()
     )
     val valid = schemaError(request.schema, parsed) == null && parsed.size == values.size
-    AlertDialog(
+    ChatInteractionSurface(
+        inline = inline,
         onDismissRequest = { respond(request.id, null) },
         title = { Text(stringResource(R.string.mcp_input_dialog_label_1)) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 Text(request.server)
                 Text(request.message)
+                if (inline) Text("This question is bound to the current operation and expires after 40 seconds. An interrupted connection must request it again.", style = MaterialTheme.typography.bodySmall)
                 Text(stringResource(R.string.mcp_input_dialog_label_2))
                 fields.forEach { (key, value) ->
                     val field = value.jsonObject
@@ -67,8 +72,10 @@ internal fun McpInputDialog(request: McpInputRequest, respond: (String, JsonObje
                     }
                     (field["description"] as? JsonPrimitive)?.content?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                     (field["enum"] as? JsonArray)?.let { options ->
-                        options.forEach { option ->
-                            TextButton(onClick = { values = values + (key to option.jsonPrimitive.content) }) { Text(option.jsonPrimitive.content) }
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            options.forEach { option ->
+                                FilterChip(selected = values[key] == option.jsonPrimitive.content, onClick = { values = values + (key to option.jsonPrimitive.content) }, label = { Text(option.jsonPrimitive.content) })
+                            }
                         }
                     }
                 }

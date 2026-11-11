@@ -1,0 +1,19 @@
+{
+  "source_head_with_failure": "d1ef3f020558a0ba5833ab17943ea1b679e95c1f",
+  "failed_workflow_run": 42744748067,
+  "failed_job": 129594174337,
+  "compiler_log": "audit-unit-results-13731332976/audit-unit-compile.log",
+  "compiler_failure": "ToolEventRecorderTest.kt:431: FakeAgentRunDao does not implement gatewayDiagnosticStates(baseUrl, profileUid)",
+  "repair_file": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/repository/ToolEventRecorderTest.kt",
+  "repair": "Implement the unused diagnostic-state projection as an empty list, following this fake's existing query conventions.",
+  "scope_scan": "All repository Kotlin source references to AgentRunDao were inspected; this is the only explicit test implementation. Other test usages are MockK interfaces.",
+  "checks": {
+    "ktlint_1_3_1_repository_editorconfig": "PASS",
+    "git_diff_check_scoped_file": "PASS",
+    "fresh_android_compilation": "PENDING_CI"
+  },
+  "tests_added_or_execution_claimed": false,
+  "source_sha256": "c731a8933a981bc415415ba66242d0a120be1b195e53f93281fe08a68d23a3ea",
+  "artifact_id": 13731332976,
+  "artifact_sha256": "d4e75280520a824af0e77beff641005a4db0cef69f72b2cd1b07926fcc7c33f2"
+}

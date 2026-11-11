@@ -27,7 +27,8 @@ internal fun structuredDiagnosticLine(
     captureIdentity: String? = null,
     incidentId: String? = null,
     incidentRoot: Boolean = true,
-    exportedAtMillis: Long? = null
+    exportedAtMillis: Long? = null,
+    incidentOutcome: String? = null
 ): String {
     val limit = if (captureSource == "runtime_incident_history") 32 * 1024 else 8000
     val sourceTruncated = "truncatedAtSource=true" in line || "reasonTruncated=true" in line || Regex("(?i)\\[truncated\\]").containsMatchIn(line)
@@ -52,7 +53,7 @@ internal fun structuredDiagnosticLine(
         ?: (parsedFields["exitConfirmed"] as? JsonPrimitive)?.booleanOrNull
     return buildJsonObject {
         put("schema", 7)
-        put("incidentId", incidentId ?: text("incidentId") ?: parentEventId ?: captureIdentity ?: diagnosticEventIdentity(line))
+        put("incidentId", incidentId ?: text("incidentId") ?: text("incident_id") ?: parentEventId ?: captureIdentity ?: diagnosticEventIdentity(line))
         put("incidentRoot", incidentRoot)
         put("eventId", captureIdentity ?: diagnosticEventIdentity(line))
         parentEventId?.let { put("parentEventId", it) }
@@ -61,6 +62,8 @@ internal fun structuredDiagnosticLine(
         put("duplicate", duplicate)
         put("observedFailure", !duplicate && match != null && classification.actionable)
         put("countAsIssue", !duplicate && incidentRoot && match != null && classification.actionable)
+        put("incidentOutcome", incidentOutcome?.takeIf { it == "RECOVERED_METADATA_READ" })
+        put("unresolvedIssue", !duplicate && incidentRoot && match != null && classification.actionable && incidentOutcome != "RECOVERED_METADATA_READ")
         put("issueCountingUnit", "CORRELATED_INCIDENT")
         put(
             "classification",
@@ -96,6 +99,8 @@ internal fun structuredDiagnosticLine(
         put("processSessionId", text("processSessionId"))
         put("workerGenerationId", text("workerGenerationId"))
         put("nativeOperationId", text("nativeOperationId") ?: text("operationId"))
+        put("operationId", text("operation_id") ?: text("operationId"))
+        put("retryAttempt", number("retry_attempt"))
         put("terminationRequested", (parsedFields["terminationRequested"] as? JsonPrimitive)?.booleanOrNull)
         put("workerExitConfirmed", exitConfirmed)
         put("workerExitEvidence", text("workerExitEvidence"))
@@ -109,9 +114,21 @@ internal fun structuredDiagnosticLine(
         put("retainedLength", safe.length)
         put("kind", if (match == null) "continuation" else "event")
         put("message", message)
-        val trace = runCatching { Json.parseToJsonElement(eventMessage) as? JsonObject }.getOrNull()?.takeIf { it["schema"] == JsonPrimitive("github.trace.v1") }
-        put("eventName", if (trace != null) "GITHUB_TOOL_COMPLETED" else eventName)
+        val typedPayload = runCatching { Json.parseToJsonElement(eventMessage) as? JsonObject }.getOrNull()
+        val trace = typedPayload?.takeIf { it["schema"] == JsonPrimitive("github.trace.v1") }
+        val acceptance = typedPayload?.takeIf { it["schema"] in setOf(JsonPrimitive("github.acceptance-criterion.v1"), JsonPrimitive("github.acceptance-summary.v1")) }
+        put(
+            "eventName",
+            if (trace != null) {
+                "GITHUB_TOOL_COMPLETED"
+            } else if (acceptance != null) {
+                "GITHUB_ACCEPTANCE"
+            } else {
+                eventName
+            }
+        )
         if (trace != null) put("trace", diagnosticJsonValue(trace))
+        if (acceptance != null) put("acceptance", diagnosticJsonValue(acceptance))
         if (match != null) {
             put("timestamp", match.groupValues[1])
             put("level", match.groupValues[2])

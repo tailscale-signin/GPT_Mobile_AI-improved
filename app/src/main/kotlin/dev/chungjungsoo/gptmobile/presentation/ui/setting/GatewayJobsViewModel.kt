@@ -22,10 +22,12 @@ import dev.chungjungsoo.gptmobile.data.github.GatewayJobStopReview
 import dev.chungjungsoo.gptmobile.data.github.GatewayJobSummary
 import dev.chungjungsoo.gptmobile.data.github.gatewayIdentityKey
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
+import dev.chungjungsoo.gptmobile.di.IoDispatcher
 import java.io.IOException
 import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -43,7 +45,8 @@ class GatewayJobsViewModel @Inject constructor(
     private val repository: GatewayJobRepository,
     private val conversations: GatewayConversationRepository,
     private val settings: SettingRepository,
-    private val control: GatewayJobControl
+    private val control: GatewayJobControl,
+    @IoDispatcher private val ioDispatcher: CoroutineDispatcher
 ) : ViewModel() {
     private val mutable = MutableStateFlow(GatewayJobsState())
     val state = mutable.asStateFlow()
@@ -71,7 +74,7 @@ class GatewayJobsViewModel @Inject constructor(
         consecutiveCatalogFailures = 0
         mutable.value = GatewayJobsState(profileUid = profileUid)
         if (profileUid == null) return
-        observer = viewModelScope.launch(Dispatchers.IO) {
+        observer = viewModelScope.launch(ioDispatcher) {
             try {
                 repository.observeConfiguration(profileUid).collectLatest { route ->
                     if (binding != bindingGeneration) return@collectLatest
@@ -254,7 +257,7 @@ class GatewayJobsViewModel @Inject constructor(
     }
 
     fun requestRefresh(loadMore: Boolean = false) {
-        viewModelScope.launch(Dispatchers.IO) { refresh(loadMore, restart = !loadMore) }
+        viewModelScope.launch(ioDispatcher) { refresh(loadMore, restart = !loadMore) }
     }
 
     fun open(candidate: GatewayJobRow, onOpen: (Int) -> Unit) {
@@ -266,7 +269,7 @@ class GatewayJobsViewModel @Inject constructor(
         if (mutable.value.opening != null) return
         mutable.update { it.copy(opening = row.record.key, error = null) }
         val generation = epoch
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             try {
                 if (generation != epoch) return@launch
                 if (row.summary.conversationId == null || mutable.value.legacy) {
@@ -302,7 +305,7 @@ class GatewayJobsViewModel @Inject constructor(
         if (mutable.value.opening != null) return
         val generation = epoch
         mutable.update { it.copy(opening = row.record.key) }
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             try {
                 val binding = repository.legacyBinding(row.record.remoteJobId)
                 if (generation == epoch && mutable.value.legacy) mutable.update { it.copy(legacyDetail = binding, opening = null) }
@@ -333,7 +336,7 @@ class GatewayJobsViewModel @Inject constructor(
         if (currentRow(draft.row) == null) return
         val generation = epoch
         mutable.update { it.copy(instruction = draft.copy(sending = true, attempted = true, error = null)) }
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             try {
                 if (generation != epoch) return@launch
                 conversations.queueInstruction(draft.row.record.key, draft.content, draft.commandId)
@@ -363,7 +366,7 @@ class GatewayJobsViewModel @Inject constructor(
         if (mutable.value.readingTranscript != null) return
         val generation = epoch
         mutable.update { it.copy(readingTranscript = row.record.key, error = null) }
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             try {
                 if (generation != epoch) return@launch
                 val key = conversations.prepareTranscript(row.record.connectionProfileUid, row.record.gatewayId, row.record.principalId, conversationId)
@@ -393,7 +396,7 @@ class GatewayJobsViewModel @Inject constructor(
         if (currentRow(draft.row) == null) return
         val generation = epoch
         mutable.update { it.copy(stop = draft.copy(busy = true, error = null)) }
-        stopAction = viewModelScope.launch(Dispatchers.IO) {
+        stopAction = viewModelScope.launch(ioDispatcher) {
             try {
                 if (generation != epoch) return@launch
                 val review = control.inspect(draft.row.record)
@@ -414,7 +417,7 @@ class GatewayJobsViewModel @Inject constructor(
         if (draft.result?.outcome !in setOf(null, GatewayJobStopOutcome.UNKNOWN)) return
         val generation = epoch
         mutable.update { it.copy(stop = draft.copy(busy = true, error = null)) }
-        stopAction = viewModelScope.launch(Dispatchers.IO) {
+        stopAction = viewModelScope.launch(ioDispatcher) {
             if (generation != epoch) return@launch
             val result = control.stop(review)
             if (generation == epoch) {

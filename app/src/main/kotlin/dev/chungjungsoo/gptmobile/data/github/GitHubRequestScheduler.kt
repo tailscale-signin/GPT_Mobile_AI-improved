@@ -163,6 +163,8 @@ class GitHubRequestScheduler(
     fun recordCacheHit() {
         cacheHits.incrementAndGet()
     }
+    internal fun transportRetryAfterMillis(): Long = circuit.retryAfterMillis()
+
     fun metrics() = synchronized(lock) {
         buildJsonObject {
             put("physical_requests", physical.get())

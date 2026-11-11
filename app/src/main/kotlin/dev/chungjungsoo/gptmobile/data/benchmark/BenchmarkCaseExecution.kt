@@ -186,6 +186,7 @@ internal class BenchmarkCaseExecution(
             onInterrupted(sample(BenchmarkOutcome.CANCELED, "Request interrupted; observed output is retained.").copy(timingEligible = false, throughputExclusion = "INTERRUPTED"))
             throw cancel
         } catch (error: Exception) {
+            if (error is BenchmarkStorageFailure) throw error
             captureExecution()
             val qnn = generateSequence<Throwable>(error) { it.cause }
                 .filterIsInstance<dev.chungjungsoo.gptmobile.data.localruntime.QnnRuntimeFailure>()
@@ -193,7 +194,7 @@ internal class BenchmarkCaseExecution(
             val detail = error.message.orEmpty()
             val reportedQnnStage = Regex("QNN ([A-Z_]+) failed \\[").find(detail)?.groupValues?.getOrNull(1)
             val classified = benchmarkFailure(error, qnn?.stage?.name?.lowercase() ?: reportedQnnStage?.lowercase() ?: providerFailureStage ?: phases.phase)
-            val outputLimitFailure = finishReason?.lowercase() in setOf("length", "max_tokens", "output_limit") && (providerFailure?.errorCode == null || providerFailure?.errorCode in setOf("OUTPUT_LIMIT", "LOCAL_OUTPUT_LIMIT"))
+            val outputLimitFailure = !classified.code.startsWith("AUDIT_MODEL_") && finishReason?.lowercase() in setOf("length", "max_tokens", "output_limit") && (providerFailure?.errorCode == null || providerFailure?.errorCode in setOf("OUTPUT_LIMIT", "LOCAL_OUTPUT_LIMIT"))
             val outcome = when {
                 classified.code == "NO_VISIBLE_ANSWER" || text.isBlank() && outputLimitFailure -> BenchmarkOutcome.ERROR
                 outputLimitFailure && text.isNotBlank() -> BenchmarkOutcome.PARTIAL
@@ -215,6 +216,7 @@ internal class BenchmarkCaseExecution(
                     nativeEntryObserved || chunks > 0 || calls.isNotEmpty() || rounds.isNotEmpty() -> true
                     providerFailure?.providerLimit?.category == "PROVIDER_RATE_LIMITED" -> true
                     providerFailure?.providerLimit?.let { it.knownNotAccepted && it.category in setOf("LOCAL_COOLDOWN_ACTIVE", "LOCAL_ALLOWANCE_EXHAUSTED") } == true -> false
+                    failure.code.startsWith("AUDIT_MODEL_") && failure.stage == "admission" -> false
                     failure.code in setOf("RESOURCE_ADMISSION", "NATIVE_QUARANTINED", "COOLDOWN_ACTIVE", "LOCAL_ALLOWANCE_BLOCKED", "UNSUPPORTED_OUTPUT_CONTRACT", "POLICY_BLOCKED", "STRUCTURED_OUTPUT_MODE_UNSUPPORTED", "STRUCTURED_OUTPUT_COMPATIBILITY_CHANGED") -> false
                     else -> null
                 },

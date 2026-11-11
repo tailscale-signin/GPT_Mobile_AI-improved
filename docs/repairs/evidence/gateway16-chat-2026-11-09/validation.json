@@ -1,0 +1,104 @@
+{
+  "schema_version": 1,
+  "base_sha": "0116890e7e411c544babb4afd6c6d67ff35c3f1b",
+  "parent_pr": 816,
+  "source_hashes": {
+    "app/src/main/assets/diagnostics/app-code-inventory.json": "677b86de7259f8359ca994736effc90338a26a28f6f57c8a5a4442db41bc4b29",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/McpInteractions.kt": "ff55fe26faa2e87f396bd804f014afe752488aadbb5f14ccdb7ffdd2f96da6ca",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ModernMcpTransport.kt": "bbfcb394367ba7e3c5bd3684e70ffced2473982ac5a688c04004f39706ed6b2b",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditSourceInventory.kt": "70894bba383623055a2e9369275ceb6a69db39393b5e6c7cf94f01bd81e892d0",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayJobModels.kt": "8432e7743c9712b64ed0eb8fbb1c1da174628af5efeb5f9cb1ec25d73cf869aa",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubExecutionContinuation.kt": "5374cfe37a2c6016a9c9ad4922d2c17e480cb6117cd3695d6ff4eff22a5fd13e",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSession.kt": "850488670d3a2e66f11af453299cce668f667fdd688677b45642c67f08d8b7c9",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatInteractionSurface.kt": "5ea9e846ea780f3299397b1eb11221deebe9f5db3a427d12892da915c5358156",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatScreen.kt": "d775a0965b8995a935a6a6807ca410d79e286547ff1622f10cf11b24f6fa8454",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/DelegationRecoveryDialog.kt": "247aa3ddf24827fa49bd87cd732f094496b0945bbd704406e86a2158d632559e",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubBottomFollowMotion.kt": "f6a92a70a9d91cfbf81e15507cb66414ff8285638c96b79b22ddfd70d1533051",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubChatScrollMotion.kt": "3f797b9e48b7bd3164fffb931d4ab77da2f61667170a6700e1577e37a40ca5af",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/McpInputDialog.kt": "f68e9ce18016f4e248a698d89fec1bf39070230a5c1ff4ce01480e432947ab79",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ToolPermissionDialogs.kt": "2502bae30d7eb777974820c260763682cccaff84aa64a096fa09eacdded8a188",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/GatewayConversationActivity.kt": "824f9d3dc782d64f31c09c3ab4120e5096fcf642bea5bc6c99b53491a995dfa8",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/GatewayConversationIcon.kt": "47f0691437978f5bb3ff96febf33d539ba291a42f54d0d7a4e44c92bf3e82962",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/GatewayConversationsScreen.kt": "7912ac2d6d3dc358eca435153f9545f85dfd2b92310b5a435ac5b4e4f8d09111",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/GatewayConversationsViewModel.kt": "8363fcb7439a83b0fd5b8b1263fc3e0f92c832b1dbaaf8bd870bdc8d1c86f45c",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/HomeScreen.kt": "ee7019fa4455886b18ad95426b2b073baeae7e55a43d3c230c6b64ff50c00593",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubChatConversation.kt": "69458c297d14a84374f06b7bc89ed4eaa3a749b056fa40c4a37676da1bd01281",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubWorkspaceScreen.kt": "88243551f09491f5a1aabbf6018cc12add9604bef058bc8de83e0939c48f2a48",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/workspace/WorkspaceScreen.kt": "0f563eb60ee99c4805faee942adef2e56ae31bb4697f20f5f89696d607fee522",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/McpInteractionScopeTest.kt": "4111e3a05745b7bf8a1cba0a75b2f658537449c41ad7097e2894ec27d1292196",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubProgressContinuationTest.kt": "31e2768c5a1a220db2ad740223a4767f84acff8172b12d55ef5f5a23bb635abc",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayV14CapabilitiesTest.kt": "6d652e60a8e8f46908c209315eccd4912a59b7194a742f0dcac692ba6a34efc1",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatInlineInteractionTest.kt": "01f9a8f25937e2495b0633b8128b900795b6676a775a2e732b139716afcd7c91",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubBottomFollowMotionTest.kt": "22596c6db2c82baea126352d74461c0afb348647bf71453d93d3aa6151244e9b",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubChatScrollMotionTest.kt": "9f34a8d0a466da5377284fbf4277ed6bdfd7a5506470551368309a9bfb9c748f",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/ConversationProgressPresentationTest.kt": "1db34494de30b58c16638f8bbebd2ef03432f54b55ff4671cc6689b0b421dbd3",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/GatewayConversationActivityTest.kt": "a1549d83c010f82f06efab219df0be29e63c44b62e7191bbecc4657dff3c21e2",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/GatewayConversationsViewModelTest.kt": "68d7f626161e5304717f19deacc702bde5874cf06b9c762ff12dd222716e03c0",
+    "app/src/test/resources/gateway-v16-capabilities-full.json": "012a1472a7e65f5278137f733c4efe04d46f10dd56287d8b8866f10d810243c2",
+    "gateway/GATEWAY_CONVERSATIONS.md": "f93dd11e6e8662f97a6a3051d82da16cde5af43d0ee49eb735e28959ffebc1ed",
+    "gateway/INTELLIGENT_ENGINEERING.md": "01a6ef132a1cdecd181c96425e8acef9d671bc994f1bb2e087e8464e9bd34e2c",
+    "gateway/README.md": "a1281db85b9a9f5df14a7cf74e67422429b81b1e0947c46b47dbb67db448dbea",
+    "gateway/V14_UPGRADE.md": "5014ffc3bc4cfa4c65ade2097715947d5d4f3caee7dae471b5635a2b65402e12",
+    "gateway/contracts/v16/capabilities.json": "5308b1fadc864833e675bdb933009c8fcd3936de99626ce38f0527c371d6a9d6",
+    "gateway/contracts/v16/gateway-v16-capabilities-full.json": "012a1472a7e65f5278137f733c4efe04d46f10dd56287d8b8866f10d810243c2",
+    "gateway/desktop/README.md": "b942362c793c8a84fba39c6e3673552834c24681673e1cd4ac168a445dd4e0b4",
+    "gateway/desktop/releases.py": "f1e8a287e923c4744c7043369ba721941929c9a3a7e2124ca227f265e8522ef4",
+    "gateway/gateway_v14.py": "ec839f4a26ed223c7a5d019fa30b1dc66f4b2949366186ec8dfec6c6bcec9973",
+    "gateway/manifest-v14.json": "4fbbf28b9cbcc9ca8639e1389ac8ae84a8738ca3b59b08407e24f537fe08f74d",
+    "gateway/tests/gateway_capability_fixture.py": "c68ac73bf9047975a1158ccbb20885c58030fe7cf38d8e4aa69a5ee0f5f676ac",
+    "gateway/tests/test_gateway_capabilities.py": "21711a54742955d7320509e60631a9675e675f374e62e89827442d104f136006",
+    "gateway/tests/test_gateway_conversations.py": "222b468b05ee06a0b872587bbd091a78566d2fc45d0b4a9df58d6469929590a6",
+    "gateway/tests/test_gateway_desktop.py": "0cbb9ff3aae8e194838786f40c53da27ed2d4bb4699b53dcc595346d32609510",
+    "gateway/tests/test_gateway_v14.py": "c3f1043ad01a186c15a7b8c3d15d532af21331d2549a56e380753b9bf26b52ad",
+    "gateway/v14/__init__.py": "d8da4d5cb20589240c8bdd83751810e6f31ee9327e5a96e4eb40df63d7d9e42e",
+    "gateway/v14/conversations.py": "b507c300575f475fe3a43922bf375e08770325ae6f8c5d0d065cb7c4dbff5f83",
+    "gateway/v14/debug_projection.py": "7827a6d1865df1a9037205655d3f429e56d4c1eb1cc90145ec734146074e09ab",
+    "gateway/v14/identity.py": "2598f74df8def25392fa6a75027d44acf5ca65c5c090b6b3d8e5f4689e8f676d",
+    "scripts/tests/test_gateway_capability_fixtures.py": "7b1d36a815503e23fb4805cb9a73d08c796727d96b6aa7fdbef619cf6675daac"
+  },
+  "results": {
+    "gateway": {
+      "cases": 730,
+      "passed": 729,
+      "skipped": 1,
+      "javascript_passed": 7,
+      "skip": "No bindable non-loopback LAN IPv4 interface on host"
+    },
+    "fast": {
+      "passed": 446
+    },
+    "github_recovery": {
+      "passed": 200
+    },
+    "motion_and_job_state": {
+      "passed": 12
+    },
+    "gateway_clients": {
+      "passed": 51
+    },
+    "mcp": {
+      "passed": 62
+    },
+    "android_local": {
+      "state": "BLOCKED",
+      "command": "bash scripts/validate.sh all",
+      "reason": "Gradle 9.8.0 distribution download: java.net.SocketException: Network is unreachable"
+    },
+    "android_ci": {
+      "state": "PENDING_PUBLICATION"
+    },
+    "physical_device": {
+      "state": "NOT_RUN"
+    },
+    "ktlint": {
+      "state": "PASSED",
+      "version": "1.3.1"
+    }
+  },
+  "boundaries": [
+    "Host Kotlin uses cached dependencies with declared Android/settings/Room boundaries.",
+    "MCP host compiles the exact ToolRunContext value declaration; the unchanged tool wrapper is outside that harness.",
+    "Fixture gateway backend and mocked native GitHub tool results are not live model or account execution.",
+    "Suite counts overlap and do not establish whole-app coverage."
+  ]
+}

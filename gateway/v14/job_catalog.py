@@ -119,7 +119,8 @@ def install_routes(app, conversations, engineering, service, ownership):
                 return JSONResponse({'error': {'code': 'not_found'}}, status_code=404)
             return value
         except ExecutionBindingError as error:
-            return JSONResponse({'error': {'code': error.code, 'message': str(error), 'retryable': False}}, status_code=error.status)
+            return JSONResponse({'error': {'code': error.code, 'message': str(error), 'retryable': False},
+                                 **({'preflight': error.result} if hasattr(error, 'result') else {})}, status_code=error.status)
         except QueueFull:
             return JSONResponse({'error': {'code': 'queue_full', 'retryable': True}}, status_code=429)
         except CursorExpired:
@@ -196,14 +197,13 @@ def install_routes(app, conversations, engineering, service, ownership):
                 raise ValueError('Expected a conversation command')
             submission = dict(payload['engineering_request'], conversation_id=conversation_id, command_id=payload['command_id'], request_id=payload['command_id'], objective=payload['content'], expected_revision=payload['expected_revision'])
             from v14.engineering import validate_request, public_job
-            submission = validate_request(submission)
+            validate_request(submission)
             old = engineering.store.existing_request(request.state.principal.id, submission)
             if old:
                 return public_job(old)
-            engineering.validate_submission(request.state.principal.id, submission)
             if not engineering.readiness()['ready']:
                 raise ConversationConflict('Engineering service is unavailable')
-            job = engineering.store.create(request.state.principal.id, submission)
+            job = engineering.admit(request.state.principal.id, submission)
             engineering.wake.set()
             return public_job(job)
         return await execute(save)

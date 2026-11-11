@@ -25,12 +25,24 @@ internal object GitHubProgressPresentation {
             .trim().take(120).dropLastWhile(Char::isHighSurrogate).trimEnd().ifBlank { "your repository request" }
     }
 
-    fun introduction(task: String): String = "I have received your request and am preparing the work. Next, " + when {
-        GitHubStatusRequest.matches(task) -> "I will check the repository status, current branch, pull requests and latest checks."
-        GitHubTaskCoverage.matches(task) -> "I will map the available GitHub operations, check their results and report failures separately from tests that were actually executed."
-        Regex("(?i)\\b(?:fix|repair|debug|resolve)\\b").containsMatchIn(task) -> "I will trace the affected code, check the failure conditions and identify the smallest change that addresses the cause."
-        Regex("(?i)\\b(?:review|examine|investigate|post[- ]?mortem|diagnos[a-z]*)\\b").containsMatchIn(task) -> "I will compare the available evidence with the implementation, identify what interrupted the work and prioritize the remaining issues."
-        else -> "I will establish the repository state, locate the relevant implementation and check what is needed to complete the request."
+    fun introduction(task: String): String = when {
+        GitHubStatusRequest.matches(task) -> "I’ll check the repository status, current branch, pull requests and latest checks. Next, I’ll identify which work is ready, still running or needs attention."
+        GitHubTaskCoverage.matches(task) -> "I’ll identify the authorized GitHub operations and their available test coverage. Next, I’ll exercise the relevant paths and keep observed failures separate from unexecuted checks."
+        Regex("(?i)\\b(?:fix|repair|debug|resolve)\\b").containsMatchIn(task) -> "I’ll trace the reported failure through the affected implementation and its recent changes. Next, I’ll reproduce the relevant behavior and choose a repair supported by that evidence."
+        Regex("(?i)\\b(?:review|examine|investigate|post[- ]?mortem|diagnos[a-z]*)\\b").containsMatchIn(task) -> "I’ll connect the available diagnostics and repository changes to the behavior under review. Next, I’ll inspect the relevant source and distinguish confirmed findings from questions that need validation."
+        else -> "I’ll locate the implementation and repository state relevant to your request. Next, I’ll identify the required change and the evidence needed to check its behavior."
+    }
+
+    /** Obsolete application templates carry no new finding and must not replace public model prose. */
+    fun isGenericProgress(text: String): Boolean {
+        val normalized = text.trim().replace(Regex("\\s+"), " ")
+        return Regex("(?i)^I have completed \\d+ repository operations\\b|^Saved operation results:\\s*\\d+|^I have received (?:your|the) request\\b|^\\d+ tool calls finished\\. Recent work:").containsMatchIn(normalized) ||
+            normalized.trimEnd('.', '…').lowercase(java.util.Locale.ROOT) in setOf(
+                "reviewing the latest result and the next step",
+                "reviewing the latest result",
+                "result received",
+                "looking through the repository information for the task"
+            )
     }
 
     /** Counters are state, not another event in the public activity history. */

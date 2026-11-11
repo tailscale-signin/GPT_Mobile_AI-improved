@@ -60,7 +60,12 @@ class GitHubVerificationReportRecoveryTest {
             AgentToolDefinition("github_decide", "Decision", json("""{"type":"object"}"""))
         )
         val rows = GitHubTestChecklist.rows(emptyMap(), tools, "test all tools").filterIsInstance<JsonObject>()
-        assertTrue(rows.all { it["status"] == JsonPrimitive("BLOCKED") })
+        val fixture = rows.single { it["id"] == JsonPrimitive("github_ci:dispatch") }
+        assertEquals(JsonPrimitive("BLOCKED"), fixture["status"])
+        val decision = rows.single { it["id"] == JsonPrimitive("github_decide:") }
+        assertEquals(JsonPrimitive("UNTESTED"), decision["status"])
+        assertEquals(JsonPrimitive("CONDITIONAL_USER_DECISION"), decision["applicability"])
+        assertEquals(JsonPrimitive(false), decision["required"])
         assertEquals(null, GitHubTestChecklist.nextCall("test all tools", tools, emptyMap()))
         assertFalse(GitHubTestChecklist.apiComplete("test all tools", emptyMap(), tools))
     }

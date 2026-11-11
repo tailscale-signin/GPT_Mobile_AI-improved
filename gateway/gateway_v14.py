@@ -108,6 +108,8 @@ install_graph_tool(runtime, engineering, lambda principal: principal_authorized(
 debug_log = DebugLogStore(os.getenv("GATEWAY_DEBUG_LOG") or str(Path(runtime.GATEWAY_JOB_DB_PATH).with_name("gateway-debug.jsonl")),
                           enabled=os.getenv("GATEWAY_DEBUG_MODE", "false").lower() == "true")
 runtime.gateway_debug = debug_log
+from v14.diagnostic_support import engineering_inventory
+debug_log.support_inventory = lambda principal, session: engineering_inventory(engineering, principal, session)
 try:
     diagnostic_route = configured_route(runtime, str(getattr(runtime, 'GATEWAY_INFERENCE_PROVIDER', None) or os.getenv('GATEWAY_INFERENCE_PROVIDER') or 'LLAMA').upper())
 except ExecutionBindingError:
@@ -121,7 +123,7 @@ debug_log.configure_identity(gatewayVersion=VERSION, sourceCommit=build_identity
                              configurationFingerprint=fingerprint({'backend': diagnostic_route['runtime_config_revision'],
                                                                    'mode': config.mode, 'durableJobs': runtime.GATEWAY_DURABLE_JOBS}),
                              startupReason=os.getenv('GATEWAY_STARTUP_REASON', 'process_start'))
-app = FastAPI(title="Private Gateway 15", version=VERSION, lifespan=debug_lifecycle(debug_log, engineering.lifecycle(service.lifespan(runtime, config.shutdown_grace))),
+app = FastAPI(title="Private Gateway 16", version=VERSION, lifespan=debug_lifecycle(debug_log, engineering.lifecycle(service.lifespan(runtime, config.shutdown_grace))),
               docs_url="/gateway/docs", openapi_url="/gateway/openapi.json")
 app.add_middleware(LoadGuard, config=config, state=service)
 app.add_middleware(ActivityMiddleware, tracker=activity)
@@ -337,6 +339,8 @@ async def v14_capabilities(request: Request, model: str = ""):
     return result
 
 
+@app.get("/gateway/v16")
+@app.get("/v1/gateway/v16")
 @app.get("/gateway/v15")
 @app.get("/v1/gateway/v15")
 @app.get("/gateway/v14")

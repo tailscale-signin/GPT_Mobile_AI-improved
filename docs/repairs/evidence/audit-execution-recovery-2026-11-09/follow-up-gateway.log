@@ -1,0 +1,72 @@
+test_gateway_backend_diagnostics.py: Ran 12 tests in 0.027s; OK
+test_gateway_capabilities.py: Ran 4 tests in 2.004s; OK
+test_gateway_completion_recovery.py: Ran 25 tests in 0.283s; OK
+test_gateway_connection_soak.py: Ran 1 test in 2.260s; OK
+test_gateway_conversations.py: Ran 32 tests in 13.776s; OK
+test_gateway_dashboard.py: Ran 12 tests in 0.128s; OK
+test_gateway_debug_evidence.py: Ran 9 tests in 0.237s; OK
+test_gateway_desktop.py: Ran 27 tests in 1.930s; OK
+test_gateway_desktop_dashboard.py: Ran 3 tests in 0.002s; OK
+test_gateway_diagnostic_delivery.py: Ran 5 tests in 0.010s; OK
+test_gateway_engineering_retention.py: Ran 18 tests in 16.771s; OK
+test_gateway_general_routing.py: Ran 6 tests in 0.771s; OK
+test_gateway_message_contract.py: Ran 16 tests in 0.020s; OK
+test_gateway_model_preparation.py: Ran 16 tests in 0.011s; OK
+test_gateway_multisearch.py: Ran 6 tests in 0.052s; OK
+test_gateway_network.py: Ran 15 tests in 3.820s; OK (skipped=1)
+test_gateway_reasoning_capabilities.py: Ran 4 tests in 2.098s; OK
+test_gateway_recovery_payload.py: Ran 3 tests in 0.426s; OK
+test_gateway_reliability_faults.py: Ran 27 tests in 0.297s; OK
+test_gateway_repository_lifecycle.py: Ran 28 tests in 11.830s; OK
+test_gateway_repository_lifecycle_http.py: Ran 3 tests in 0.933s; OK
+test_gateway_saved_work_admission.py: Ran 3 tests in 0.269s; OK
+test_gateway_security.py: Ran 5 tests in 0.208s; OK
+test_gateway_selected_execution.py: Ran 18 tests in 6.734s; OK
+test_gateway_selected_model_benchmark.py: Ran 2 tests in 0.001s; OK
+test_gateway_singleflight.py: Ran 4 tests in 0.001s; OK
+test_gateway_stream_observation.py: Ran 3 tests in 0.009s; OK
+test_gateway_v12.py: Ran 17 tests in 0.013s; OK
+test_gateway_v13.py: Ran 29 tests in 0.348s; OK
+test_gateway_v14.py: Ran 25 tests in 5.376s; OK
+test_gateway_v14_actions.py: Ran 10 tests in 0.382s; OK
+test_gateway_v14_batch.py: Ran 11 tests in 0.084s; OK
+test_gateway_v14_browser.py: Ran 5 tests in 5.434s; OK
+test_gateway_v14_catalog_readiness.py: Ran 5 tests in 0.001s; OK
+test_gateway_v14_code_graph.py: Ran 31 tests in 0.331s; OK
+test_gateway_v14_component_readiness.py: Ran 5 tests in 0.004s; OK
+test_gateway_v14_continuity.py: Ran 24 tests in 8.874s; OK
+test_gateway_v14_contracts.py: Ran 6 tests in 0.001s; OK
+test_gateway_v14_deadlines.py: Ran 4 tests in 0.385s; OK
+test_gateway_v14_debug.py: Ran 11 tests in 1.513s; OK
+test_gateway_v14_diagnostic_events.py: Ran 25 tests in 5.620s; OK
+test_gateway_v14_engineering.py: Ran 19 tests in 1.224s; OK
+test_gateway_v14_engineering_backend.py: Ran 12 tests in 0.009s; OK
+test_gateway_v14_engineering_http.py: Ran 12 tests in 0.710s; OK
+test_gateway_v14_engineering_memory.py: Ran 7 tests in 0.367s; OK
+test_gateway_v14_events.py: Ran 2 tests in 0.000s; OK
+test_gateway_v14_evidence.py: Ran 25 tests in 1.363s; OK
+test_gateway_v14_github.py: Ran 10 tests in 0.109s; OK
+test_gateway_v14_http.py: Ran 1 test in 1.726s; OK
+test_gateway_v14_jobs.py: Ran 23 tests in 25.638s; OK
+test_gateway_v14_readiness.py: Ran 9 tests in 0.059s; OK
+test_gateway_v14_stability.py: Ran 31 tests in 3.332s; OK
+test_gateway_v14_state_lock.py: Ran 1 test in 0.062s; OK
+test_gateway_v14_upgrade.py: Ran 10 tests in 0.068s; OK
+test_gateway_v14_usage.py: Ran 6 tests in 0.284s; OK
+test_gateway_v14_validation.py: Ran 15 tests in 1.137s; OK
+test_gateway_diagnostic_stress.py: test_50000_events_restart_and_digest_expiry_never_resurrect_evicted_replay (test_gateway_diagnostic_stress.DiagnosticJournalStressTests.test_50000_events_restart_and_digest_expiry_never_resurrect_evicted_replay) ... Durable diagnostic stress: committed_events=10048 commits=157 elapsed_seconds=0.704; Durable diagnostic stress: committed_events=20032 commits=313 elapsed_seconds=1.505; Durable diagnostic stress: committed_events=30016 commits=469 elapsed_seconds=2.334; Durable diagnostic stress: committed_events=40000 commits=625 elapsed_seconds=3.179; Durable diagnostic stress: committed_events=50000 commits=782 elapsed_seconds=4.002; Ran 1 test in 4.226s; OK
+✔ the three logged mutation endpoints receive the token and original JSON (20.574073ms)
+✔ concurrent writes share one session lookup (8.239973ms)
+✔ external requests and reads are untouched and never acquire a token (1.473466ms)
+✔ a stale session is refreshed only on explicit pre-dispatch admission failure (3.469992ms)
+✔ ordinary upstream rejection and network failures never replay mutations (3.137302ms)
+✔ Request input preserves body and cancellation signal (4.321017ms)
+✔ session failure blocks writes instead of bypassing CSRF (1.305338ms)
+ℹ tests 7
+ℹ suites 0
+ℹ pass 7
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 175.449492

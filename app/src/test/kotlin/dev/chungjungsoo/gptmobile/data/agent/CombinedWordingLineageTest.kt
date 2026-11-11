@@ -2,10 +2,48 @@ package dev.chungjungsoo.gptmobile.data.agent
 
 import dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CombinedWordingLineageTest {
+    @Test fun mappingCacheBindsTheSourceAttemptAndAncestry() {
+        val text = "The city approved the river restoration project in 2024."
+        val source = CombinedModelResponse("cache-profile", "Cache", content = text, attemptId = "first", ancestryIds = setOf("parent-one"))
+        val first = CombinedAnswerMappings.get(text, listOf(source))
+        assertSame(first, CombinedAnswerMappings.get(text, listOf(source)))
+        val attempt = CombinedAnswerMappings.get(text, listOf(source.copy(attemptId = "second")))
+        val ancestry = CombinedAnswerMappings.get(text, listOf(source.copy(ancestryIds = setOf("parent-two"))))
+        assertNotEquals(first.corpusDigest, attempt.corpusDigest)
+        assertNotEquals(first.corpusDigest, ancestry.corpusDigest)
+    }
+
+    @Test fun repeatedDisjointPassagesRetainEveryProvenLinkAndReuseTheCompletedMap() {
+        val text = "The city approved the river restoration project in 2024."
+        val answer = List(1100) { text }.joinToString("\n\n")
+        val source = CombinedModelResponse("bounded-profile", "Bounded", content = text)
+        val mapping = CombinedAnswerMappings.get(answer, listOf(source))
+        assertTrue(mapping.evaluated)
+        assertEquals(1100, mapping.links.size)
+        assertTrue(mapping.links.all { it.profileUids == setOf("bounded-profile") })
+        assertTrue(mapping.matches(answer))
+        assertSame(mapping, CombinedAnswerMappings.get(answer, listOf(source)))
+    }
+
+    @Test fun excessiveProvenanceExpansionKeepsCheckedLinksAndAnUnevaluatedRemainder() {
+        val text = "The city approved the river restoration project in 2024."
+        val answer = List(1100) { text }.joinToString("\n\n")
+        val source = CombinedModelResponse("many-occurrences", "Occurrences", content = List(1000) { text }.joinToString("\n\n"))
+        val mapping = CombinedAnswerMappings.get(answer, listOf(source))
+        assertFalse(mapping.evaluated)
+        assertTrue(mapping.links.isNotEmpty())
+        assertTrue(mapping.links.size < 1100)
+        assertTrue(mapping.matches(answer))
+        assertSame(mapping, CombinedAnswerMappings.get(answer, listOf(source)))
+    }
+
     private val athens = "Wealth from trade and silver mines funded public works and naval power."
     private val tang = "Poetry flourished as Li Bai and Du Fu became revered across China."
     private val sources = listOf(

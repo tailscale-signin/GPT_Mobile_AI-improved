@@ -102,7 +102,7 @@ class GitHubEngineeringMemory @Inject constructor(
         val authorizedScopes = (listOf(scope) + legacyScopes).distinct()
         val rows = authorizedScopes.flatMap { workspace.dao.engineeringMemory(it) }.distinctBy { it.id }.sortedByDescending { it.updatedAt }.take(128)
         val candidates = rows.mapNotNull { row ->
-            workspace.protectedSynthesisCheckpoint(row.id)?.takeIf { it["scope"] in authorizedScopes.map(::JsonPrimitive) && (it["kind"] != JsonPrimitive("task_checkpoint") || it["chat_id"] == JsonPrimitive(chatId)) }?.let { row.id to it }
+            workspace.protectedSynthesisCheckpoint(row.id)?.takeIf { it["kind"] != JsonPrimitive("task_checkpoint_reference") && it["scope"] in authorizedScopes.map(::JsonPrimitive) && (it["kind"] != JsonPrimitive("task_checkpoint") || it["chat_id"] == JsonPrimitive(chatId)) }?.let { row.id to it }
         }.toMap()
         val resume = task.trim().lowercase().trimEnd('.', '!') in setOf("continue", "resume", "keep going", "continue testing")
         val tokens = GitHubEngineeringMemoryPolicy.terms(task)
@@ -149,26 +149,51 @@ class GitHubEngineeringMemory @Inject constructor(
         if (!settings.githubTools || settings.engineeringMemory == GitHubEngineeringMemoryMode.SESSION_ONLY) return
         GitHubEngineeringMemoryPolicy.checkpoint(receipt)?.let { checkpoint ->
             val scope = scope(context, refreshAuthorization = false)
-            val id = GitHubEvidenceBook.digest(receipt.toString())
-            workspace.saveProtectedSynthesisCheckpoint(
-                "engineering:$scope:coverage:$id",
-                chatId,
-                scope,
-                buildJsonObject {
-                    put("schema_version", 1)
-                    put("scope", scope)
-                    put("kind", "task_checkpoint")
-                    put("chat_id", chatId)
-                    put("commit_sha", context.commitSha)
-                    put("observed_at_ms", receipt["verified_at_ms"] ?: JsonPrimitive(0))
-                    put("source_receipt", "verification:$id")
-                    put("confidence", "HISTORICAL_COVERAGE_NOT_CURRENT_PROOF")
-                    put("content", checkpoint.toString())
-                    put("checkpoint", checkpoint)
-                },
-                appendOnly = true,
-                engineeringMemory = true
-            )
+            val id = GitHubEvidenceBook.digest(checkpoint.toString())
+            val sourceId = GitHubEvidenceBook.digest(receipt.toString())
+            val key = "engineering:$scope:coverage:$chatId:$id"
+            if (workspace.dao.get(key) == null) {
+                workspace.saveProtectedSynthesisCheckpoint(
+                    key,
+                    chatId,
+                    scope,
+                    buildJsonObject {
+                        put("schema_version", 1)
+                        put("scope", scope)
+                        put("kind", "task_checkpoint")
+                        put("chat_id", chatId)
+                        put("commit_sha", context.commitSha)
+                        put("observed_at_ms", receipt["verified_at_ms"] ?: JsonPrimitive(0))
+                        put("source_receipt", "verification:$sourceId")
+                        put("checkpoint_sha256", id)
+                        put("confidence", "HISTORICAL_COVERAGE_NOT_CURRENT_PROOF")
+                        put("content", "${(checkpoint["task"] as? JsonPrimitive)?.contentOrNull.orEmpty().take(1500)}\nSaved task outcome: ${(checkpoint["task_outcome"] as? JsonPrimitive)?.contentOrNull.orEmpty()}. Resume only unresolved requirements; canonical checkpoint $id.")
+                        put("checkpoint", checkpoint)
+                    },
+                    appendOnly = true,
+                    engineeringMemory = true
+                )
+            }
+            val reference = "engineering:$scope:coverage-reference:$sourceId"
+            if (workspace.dao.get(reference) == null) {
+                workspace.saveProtectedSynthesisCheckpoint(
+                    reference,
+                    chatId,
+                    scope,
+                    buildJsonObject {
+                        put("schema_version", 1)
+                        put("scope", scope)
+                        put("kind", "task_checkpoint_reference")
+                        put("chat_id", chatId)
+                        put("source_receipt", "verification:$sourceId")
+                        put("checkpoint_ref", key)
+                        put("checkpoint_sha256", id)
+                        put("confidence", "HISTORICAL_COVERAGE_NOT_CURRENT_PROOF")
+                    },
+                    appendOnly = true,
+                    engineeringMemory = false
+                )
+            }
             return
         }
         if (receipt["schema"] != JsonPrimitive("github.evidence.v1") || receipt["trusted"] != JsonPrimitive(true)) return

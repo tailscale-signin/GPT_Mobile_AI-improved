@@ -60,8 +60,14 @@ internal class RequestDispatchContext(private val candidates: Set<JsonObject>, p
     }
 
     /** A later rejected retry never erases a previous transmitted or uncertain attempt. */
-    fun provenEntirelyUnsent(unsent: Set<String> = provenUnsentAttemptIds()): Boolean =
-        if (receipts.isEmpty()) preflightRejection != null else receipts.all { it.physicalAttemptId in unsent }
+    fun provenEntirelyUnsent(): Boolean =
+        if (receipts.isEmpty()) {
+            preflightRejection != null
+        } else {
+            receipts.all { receipt ->
+                receipt.physicalAttemptId?.let { attemptTraces[it]?.provenUnsent } == true
+            }
+        }
 
     fun provenUnsentAttemptIds(): Set<String> {
         val unsent = attemptTraces.filterValues { it.provenUnsent }.keys

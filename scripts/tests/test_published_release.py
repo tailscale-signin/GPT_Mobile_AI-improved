@@ -27,6 +27,34 @@ def not_found():
 
 
 class PublishedReleaseTest(unittest.TestCase):
+    def test_safe_http_diagnostics_do_not_disclose_stderr(self):
+        stderr = io.StringIO()
+        error = subprocess.CalledProcessError(1, ["gh", "api"], stderr="private credential example (HTTP 403)")
+        with patch.object(verifier.subprocess, "check_output", side_effect=error), contextlib.redirect_stderr(stderr):
+            with self.assertRaises(subprocess.CalledProcessError):
+                verifier.gh_json("api", ROOT + "/commits/" + TAG)
+        self.assertIn("http_status=403", stderr.getvalue())
+        self.assertNotIn("private credential", stderr.getvalue())
+
+    def test_attestations_pin_exact_source_and_workflow_and_reject_empty_results(self):
+        commands = []
+        def execute(command, **options):
+            commands.append(command)
+            return "gh version 2.102.0" if command[1] == "--version" else '[{"verificationResult":{"statement":{}}}]'
+        assets = [{"name": "app.apk", "sha256": "b" * 64, "bytes": 10}]
+        signer = "owner/repo/.github/workflows/release-build.yml"
+        with patch.object(verifier.subprocess, "check_output", execute):
+            receipts = verifier.verify_asset_attestations(Path("/tmp"), assets, "owner/repo", SHA, signer)
+        self.assertEqual(SHA, receipts[0]["sourceSha"])
+        self.assertIn("--deny-self-hosted-runners", commands[1])
+        self.assertEqual(SHA, commands[1][commands[1].index("--source-digest") + 1])
+        with patch.object(verifier.subprocess, "check_output", side_effect=["gh version 2.102.0", "[]"]):
+            with self.assertRaisesRegex(ValueError, "No verified attestation"):
+                verifier.verify_asset_attestations(Path("/tmp"), assets, "owner/repo", SHA, signer)
+        with patch.object(verifier.subprocess, "check_output", return_value="gh version 2.101.0"):
+            with self.assertRaisesRegex(ValueError, "2.102.0"):
+                verifier.verify_asset_attestations(Path("/tmp"), assets, "owner/repo", SHA, signer)
+
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
@@ -235,7 +263,20 @@ def missing():
     print("gh: Not Found (HTTP 404)", file=sys.stderr)
     sys.exit(1)
 
-if args[:2] == ["release", "create"]:
+if args == ["--version"]:
+    save()
+    print("gh version 2.102.0")
+elif args[:2] == ["attestation", "verify"]:
+    binary = Path(args[2])
+    assert binary.read_bytes() == (root / "remote" / binary.name).read_bytes()
+    assert args[3:] == ["--repo", "owner/repo", "--signer-workflow", "owner/repo/.github/workflows/release-build.yml",
+                       "--source-digest", "a" * 40, "--signer-digest", "a" * 40,
+                       "--deny-self-hosted-runners", "--format", "json"]
+    save()
+    if state.get("invalid_attestation"):
+        sys.exit(1)
+    print(json.dumps([{"verificationResult": {"statement": "trusted fixture"}}]))
+elif args[:2] == ["release", "create"]:
     assert args[2] == release["tag_name"] and "--draft" in args
     assert args[args.index("--target") + 1] == "a" * 40
     state["creates"] += 1
@@ -279,7 +320,7 @@ else:
 
 
 class ReleasePublicationWorkflowTest(unittest.TestCase):
-    def run_publication(self, *, lost_create=False, lost_publish=False, wrong_target=False, corrupt_bytes=False):
+    def run_publication(self, *, lost_create=False, lost_publish=False, wrong_target=False, corrupt_bytes=False, invalid_attestation=False):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             artifacts = root / "release-artifacts"
@@ -303,7 +344,7 @@ class ReleasePublicationWorkflowTest(unittest.TestCase):
                 (root / "remote" / "app.apk").write_bytes(b"wrong data")
             (root / "state.json").write_text(json.dumps({
                 "release": release, "creates": 0, "publications": 0, "commands": [],
-                "lost_create": lost_create, "lost_publish": lost_publish
+                "lost_create": lost_create, "lost_publish": lost_publish, "invalid_attestation": invalid_attestation
             }))
             scripts = root / "scripts"
             scripts.mkdir()
@@ -342,9 +383,11 @@ class ReleasePublicationWorkflowTest(unittest.TestCase):
                 self.assertEqual("PUBLISHED_VERIFIED", receipt["status"])
                 self.assertEqual(17, receipt["releaseId"])
                 self.assertEqual(SHA, receipt["sourceSha"])
+                self.assertTrue(receipt["assetSourceVerified"])
+                self.assertEqual(2, len(receipt["assetAttestations"]))
 
     def test_wrong_target_or_asset_bytes_stop_before_publication_despite_old_receipt(self):
-        for case in ({"wrong_target": True}, {"corrupt_bytes": True}):
+        for case in ({"wrong_target": True}, {"corrupt_bytes": True}, {"invalid_attestation": True}):
             with self.subTest(case=case):
                 result, state, receipt = self.run_publication(**case)
                 self.assertNotEqual(0, result.returncode)

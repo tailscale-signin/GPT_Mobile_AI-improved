@@ -233,24 +233,38 @@ class AgentPolicyInvalidationTest {
     }
 
     @Test fun policyFailureWhileRestoringEvidenceRetainsUnknownOutcomeWithoutAnotherRound() = runTest {
-        for (policy in listOf(
-            DispatchPolicyChangedException(listOf("engineering")),
-            dev.chungjungsoo.gptmobile.data.permissions.ToolAuthorizationRejected("POLICY_STALE", "Selected authority changed")
-        )) {
-            val checkpoint = ToolBatchCheckpoint(null, "restored-observer")
-            val prior = ProviderEvent.ToolCall("prior", "write_fixture", args)
-            val original = AgentToolResult(prior.callId, ToolResultContent.Text("retained uncertain receipt"), true, errorCode = "TOOL_OUTCOME_UNKNOWN")
-            checkpoint.enqueue(listOf(prior))
-            checkpoint.execute(prior) { original }
-            val events = AgentRunner(AgentRunLimits(githubTask = true), checkpoint, onToolResult = { _, _ -> throw policy })
-                .run(session { error("No provider round after restoration authority failure") }, listOf(tool(prior.name) { error("No replay") })).toList()
-            val restored = events.filterIsInstance<AgentRunEvent.ToolFinished>().single().result
-            assertEquals(original.content, restored.content)
-            assertEquals(original.errorCode, restored.errorCode)
-            assertTrue(restored.dispatched)
-            assertEquals("RECONCILIATION_REQUIRED", terminal(events).errorCode)
-            assertEquals("PARTIAL", terminal(events).taskOutcome)
-            assertEquals(1, checkpoint.recoverySnapshot().unknownCount)
+        for (bulkRestore in listOf(false, true)) {
+            for (policy in listOf(
+                DispatchPolicyChangedException(listOf("engineering")),
+                dev.chungjungsoo.gptmobile.data.permissions.ToolAuthorizationRejected("POLICY_STALE", "Selected authority changed")
+            )) {
+                val checkpoint = ToolBatchCheckpoint(null, "restored-observer")
+                val prior = ProviderEvent.ToolCall("prior", "write_fixture", args)
+                val original = AgentToolResult(prior.callId, ToolResultContent.Text("retained uncertain receipt"), true, errorCode = "TOOL_OUTCOME_UNKNOWN")
+                checkpoint.enqueue(listOf(prior))
+                checkpoint.execute(prior) { original }
+                val runner = if (bulkRestore) {
+                    AgentRunner(AgentRunLimits(githubTask = true), checkpoint, onToolResultsRestored = { retained ->
+                        assertEquals(original.content, retained.single().results.single().content)
+                        throw policy
+                    })
+                } else {
+                    AgentRunner(AgentRunLimits(githubTask = true), checkpoint, onToolResult = { _, _ -> throw policy })
+                }
+                val events = runner.run(session { error("No provider round after restoration authority failure") }, listOf(tool(prior.name) { error("No replay") })).toList()
+                val delivered = events.filterIsInstance<AgentRunEvent.ToolFinished>()
+                if (bulkRestore) {
+                    assertTrue(delivered.isEmpty())
+                } else {
+                    val restored = delivered.single().result
+                    assertEquals(original.content, restored.content)
+                    assertEquals(original.errorCode, restored.errorCode)
+                    assertTrue(restored.dispatched)
+                }
+                assertEquals("RECONCILIATION_REQUIRED", terminal(events).errorCode)
+                assertEquals("PARTIAL", terminal(events).taskOutcome)
+                assertEquals(1, checkpoint.recoverySnapshot().unknownCount)
+            }
         }
     }
 

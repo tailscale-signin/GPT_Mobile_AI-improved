@@ -21,6 +21,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -64,7 +65,22 @@ internal fun GitHubStatusLight(status: String, modifier: Modifier = Modifier) {
 }
 
 @Composable
-internal fun GitHubRepositoryStatusPanel(connection: ToolConnection, selection: GitHubRepositoryContext, pulls: List<JsonObject>, refreshPulls: () -> Unit, chatId: Int? = null, profile: PlatformV2? = null, graphContext: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext? = null, model: GitHubLiveStatusViewModel = hiltViewModel()) {
+internal fun rememberGitHubStatusActions(model: GitHubLiveStatusViewModel, connection: ToolConnection, selection: GitHubRepositoryContext, chatId: Int?, profile: PlatformV2?, onRepairDraft: ((GitHubDraftRepair) -> Unit)?): GitHubStatusActions {
+    val watched by remember(model, chatId) { model.observeWatches(chatId) }.collectAsStateWithLifecycle(emptyList())
+    val track: ((GitHubStatusActionTarget, Boolean) -> Unit)? = if (profile != null && chatId != null) {
+        { target, enabled -> model.setTracking(connection, selection, profile.uid, chatId, target, enabled) }
+    } else {
+        null
+    }
+    return GitHubStatusActions(
+        watched.filter { it.connectionUid == connection.connectionUid && it.profileUid == profile?.uid && "${it.owner}/${it.repo}".equals(selection.fullName, true) },
+        track,
+        onRepairDraft?.let { queue -> { target -> model.repairDraft(connection, selection, target, queue) } }
+    )
+}
+
+@Composable
+internal fun GitHubRepositoryStatusPanel(connection: ToolConnection, selection: GitHubRepositoryContext, pulls: List<JsonObject>, refreshPulls: () -> Unit, chatId: Int? = null, profile: PlatformV2? = null, graphContext: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext? = null, model: GitHubLiveStatusViewModel = hiltViewModel(), graphProfile: PlatformV2? = null, onConfigureGateway: (() -> Unit)? = null, actions: GitHubStatusActions? = null) {
     val state by model.state.collectAsStateWithLifecycle()
     val currentPulls by androidx.compose.runtime.rememberUpdatedState(pulls)
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -107,7 +123,7 @@ internal fun GitHubRepositoryStatusPanel(connection: ToolConnection, selection: 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         GitHubRepositoryStatusSummary(selection, summary, pulls.size, profile?.name, model::refresh) { open("https://github.com/${selection.fullName}/actions") }
         if (graphContext != null) {
-            dev.chungjungsoo.gptmobile.presentation.ui.chat.RepositoryGraphStatusMap(graphContext, profile)
+            dev.chungjungsoo.gptmobile.presentation.ui.chat.RepositoryGraphStatusMap(graphContext, graphProfile, onConfigureGateway = onConfigureGateway)
         } else {
             Surface(
                 shape = RoundedCornerShape(22.dp),
@@ -116,7 +132,10 @@ internal fun GitHubRepositoryStatusPanel(connection: ToolConnection, selection: 
             ) {
                 Column(Modifier.padding(18.dp)) {
                     Text("Repository map", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-                    Text("Choose a repository, revision and private gateway AI profile to visualize its source graph.", style = MaterialTheme.typography.bodySmall)
+                    Text("Choose a repository, revision and AI profile to open its source map. Select the map’s gateway connection in GitHub settings.", style = MaterialTheme.typography.bodySmall)
+                    onConfigureGateway?.let { configure ->
+                        TextButton(onClick = configure) { Text("GitHub settings") }
+                    }
                 }
             }
         }
@@ -139,7 +158,7 @@ internal fun GitHubRepositoryStatusPanel(connection: ToolConnection, selection: 
             }
         }
         if (searching) androidx.compose.material3.OutlinedTextField(value = query, onValueChange = { query = it }, label = { Text("Find a check") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        GitHubStatusOverview(pulls, state.rows.filter { query.isBlank() || it.title.contains(query, true) || it.status.contains(query, true) }, selection.ref, summary.stale, ::open) { row ->
+        GitHubStatusOverview(pulls, state.rows.filter { query.isBlank() || it.title.contains(query, true) || it.status.contains(query, true) }, selection.ref, summary.stale, ::open, actions) { row ->
             selectedRun = row.id
             if (row.id !in state.expanded) model.expand(row.id)
         }

@@ -29,10 +29,11 @@ class GitHubProgressNarratorTest {
     @Test fun onlySelectedSessionNarratesNewEvidenceAtTheAdmittedCadence() = runTest {
         var clock = 0L
         var revision = 1L
+        var newObservation = false
         var calls = 0
         val summaries = mutableListOf<ApiState.ActivitySummary>()
         val narrator = GitHubProgressNarrator(
-            snapshot = { state(revision) },
+            snapshot = { state(revision).let { if (newObservation) it.copy(recentSteps = it.recentSteps + "Job 7 diagnostic is available.") else it } },
             openSelected = { prompt, cap ->
                 calls++
                 assertTrue(prompt.contains("Job 7"))
@@ -55,6 +56,10 @@ class GitHubProgressNarratorTest {
         clock = 30_000
         narrator.beforeRound()
         assertEquals(1, calls)
+        revision++
+        narrator.beforeRound()
+        assertEquals("A revision or counter change alone is not new narrative evidence", 1, calls)
+        newObservation = true
         revision++
         narrator.beforeRound()
         assertEquals(2, calls)
@@ -256,6 +261,44 @@ class GitHubProgressNarratorTest {
         assertEquals(null, GitHubProgressNarrator.validSummary("Seven tools were tested. $prose", evidence))
         assertEquals(null, GitHubProgressNarrator.validSummary("7 tools were tested. $prose", evidence))
         assertEquals(null, GitHubProgressNarrator.validSummary("2 authorized tools remain. $prose", evidence))
+    }
+
+    @Test fun newerFailureDuringValidationPreventsPublishingAnObsoleteFallback() = runTest {
+        var clock = 0L
+        var current = state()
+        val summaries = mutableListOf<ApiState.ActivitySummary>()
+        val narrator = GitHubProgressNarrator(
+            snapshot = { current },
+            openSelected = { _, _ -> error("Default progress must not invoke a model") },
+            validate = { current = current.copy(revision = 2, failed = 2, recentSteps = listOf("The authentication request failed.")) },
+            admit = { _, _ -> error("No inference allowance is needed") },
+            publish = { summaries += it },
+            now = { clock }
+        )
+        clock = 15_000
+        narrator.beforeRound()
+        assertTrue(summaries.isEmpty())
+    }
+
+    @Test fun newEvidenceDuringOptionalGenerationPreventsPublishingItsOutdatedProse() = runTest {
+        var clock = 0L
+        var current = state()
+        val summaries = mutableListOf<ApiState.ActivitySummary>()
+        val narrator = GitHubProgressNarrator(
+            snapshot = { current },
+            openSelected = { _, _ ->
+                current = current.copy(revision = 2, failed = 2, recentSteps = listOf("The authentication request failed."))
+                session(ProviderEvent.TextDelta(prose), ProviderEvent.Completed)
+            },
+            validate = {},
+            admit = { _, _ -> true },
+            publish = { summaries += it },
+            now = { clock },
+            deterministic = false
+        )
+        clock = 15_000
+        narrator.beforeRound()
+        assertTrue(summaries.isEmpty())
     }
 
     @Test fun roleConstraintsKeepSelectedRouteAndAcceptedReasoningWithoutTools() {

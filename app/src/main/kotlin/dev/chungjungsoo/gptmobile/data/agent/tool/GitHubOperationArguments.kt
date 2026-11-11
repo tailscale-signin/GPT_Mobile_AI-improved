@@ -18,8 +18,8 @@ internal object GitHubOperationArguments {
                 listOf("delete_fixture_branch") to listOf("branch", "expected_head_sha", "origin_head_sha"),
                 listOf("commit", "commit_staged_patch") to listOf("stage_id", "branch", "message", "expected_head_sha")
             )
-            "github_pr" -> listOf(listOf("list") to emptyList(), listOf("headers", "context", "comments", "reviews") to listOf("pull_number"), listOf("create") to listOf("title", "head", "base"), listOf("update", "merge", "review") to listOf("pull_number", "expected_head_sha"), listOf("comment") to listOf("pull_number", "body", "expected_head_sha"), listOf("reply") to listOf("pull_number", "comment_id", "body", "expected_head_sha"))
-            "github_issue" -> listOf(listOf("list") to emptyList(), listOf("headers", "context", "comments", "history") to listOf("issue_number"), listOf("create") to listOf("title"), listOf("update") to listOf("issue_number", "expected_updated_at"))
+            "github_pr" -> listOf(listOf("list") to emptyList(), listOf("headers", "context", "comments", "reviews", "threads") to listOf("pull_number"), listOf("create") to listOf("title", "head", "base"), listOf("update", "merge", "review", "ready", "draft") to listOf("pull_number", "expected_head_sha"), listOf("comment") to listOf("pull_number", "body", "expected_head_sha"), listOf("reply") to listOf("pull_number", "comment_id", "body", "expected_head_sha"), dev.chungjungsoo.gptmobile.data.github.GitHubCollaboration.prActions.toList() to listOf("pull_number", "expected_head_sha"))
+            "github_issue" -> listOf(listOf("list") to emptyList(), listOf("headers", "context", "comments", "history") to listOf("issue_number"), listOf("create") to listOf("title"), listOf("update") to listOf("issue_number", "expected_updated_at"), dev.chungjungsoo.gptmobile.data.github.GitHubCollaboration.issueActions.toList() to listOf("issue_number", "expected_updated_at"))
             "github_ci" -> listOf(listOf("failure", "workflows", "definitions", "runs", "status") to emptyList(), listOf("run", "artifacts", "rerun", "rerun_failed_jobs", "rerun_all", "cancel", "jobs") to listOf("run_id"), listOf("job", "logs", "jobs") to listOf("job_id"), listOf("dispatch") to listOf("workflow_id", "ref", "expected_head_sha"))
             else -> return null
         }
@@ -196,6 +196,7 @@ internal object GitHubOperationArguments {
                 }
             }
             "github_pr" -> {
+                if (text("action") in dev.chungjungsoo.gptmobile.data.github.GitHubCollaboration.prActions) required("pull_number", "expected_head_sha")
                 positive("pull_number")
                 positive("comment_id")
                 when (text("action").ifBlank { "context" }) {
@@ -209,8 +210,9 @@ internal object GitHubOperationArguments {
                         if (listOf("title", "body", "base", "state").none { it in args }) errors += "update requires at least one of title, body, base or state"
                         if ("state" in args && text("state") !in setOf("open", "closed")) errors += "state must be open or closed for an update"
                         unused("head", "draft", "comment_id", "event", "comments")
+                        if ("draft" in args) errors += "Use action=ready or action=draft for an explicit draft-state transition"
                     }
-                    "merge" -> {
+                    "merge", "ready", "draft" -> {
                         required("pull_number", "expected_head_sha")
                         unused("title", "body", "head", "base", "state", "draft", "comment_id", "event", "comments")
                     }
@@ -230,6 +232,7 @@ internal object GitHubOperationArguments {
                 }
             }
             "github_issue" -> {
+                if (text("action") in dev.chungjungsoo.gptmobile.data.github.GitHubCollaboration.issueActions) required("issue_number", "expected_updated_at")
                 positive("issue_number")
                 when (text("action")) {
                     "headers", "context", "comments", "history" -> if (text("issue_number").isBlank()) {
@@ -253,6 +256,19 @@ internal object GitHubOperationArguments {
                 }
                 if (text("action") == "create_tag" && text("target_commitish").isBlank() && text("ref").isBlank()) errors += "create_tag requires target_commitish or ref from repository discovery"
                 if (text("action") !in setOf("publish")) unused("inputs", "release_strategy")
+            }
+        }
+        if (operation in setOf("github_pr", "github_issue")) {
+            when (text("action")) {
+                "resolve_thread", "reopen_thread" -> required("thread_id")
+                "dismiss_review" -> required("review_id", "body")
+                "edit_comment", "edit_review_comment" -> required("comment_id", "body", "expected_comment_updated_at")
+                "remove_label" -> required("label")
+                "react" -> required("reaction")
+                "remove_reaction" -> required("reaction", "reaction_id")
+                "add_labels" -> if ((args["labels"] as? JsonArray).isNullOrEmpty()) errors += "labels must be nonempty"
+                "add_assignees", "remove_assignees" -> if ((args["assignees"] as? JsonArray).isNullOrEmpty()) errors += "assignees must be nonempty"
+                "request_reviewers", "remove_reviewers" -> if ((args["reviewers"] as? JsonArray).isNullOrEmpty() && (args["team_reviewers"] as? JsonArray).isNullOrEmpty()) errors += "Supply reviewers or team_reviewers"
             }
         }
         return errors

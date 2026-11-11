@@ -71,7 +71,7 @@ class GatewayEngineeringClient internal constructor(
                     }
                 }.execute { response ->
                     if (repositoryRequest) GitHubDispatchAccounting.responded(body != null, response.status.value, repositoryRequestId, response.headers["X-Request-ID"])
-                    GatewayClientDiagnostics.observe(diagnostic, response.status.value) { response.headers[it] }
+                    GatewayClientDiagnostics.observe(diagnostic, response.status.value, response.call.request.headers["traceparent"]) { response.headers[it] }
                     if (path == "capabilities" && response.status.value in setOf(404, 501)) throw UnsupportedEngineeringGateway()
                     val payload = response.boundedMetadata(if (path == "capabilities") 128 * 1024 else 2_000_000)
                     if (!response.status.isSuccess()) {
@@ -83,6 +83,13 @@ class GatewayEngineeringClient internal constructor(
                             val readiness = runCatching { error?.get("readiness")?.let { json.decodeFromJsonElement(GatewayEngineeringReadiness.serializer(), it) } }.getOrNull()
                             val missing = GatewayGraphPrerequisite.missing(GatewayEngineeringCapabilities("engineering-gateway", 1, readiness = readiness))
                             throw GatewayGraphUnavailableException("The selected gateway graph prerequisites changed before this request.", missing)
+                        }
+                        val preflight = runCatching { error?.get("preflight")?.let { json.decodeFromJsonElement(GatewayEngineeringPreflight.serializer(), it) } }.getOrNull()
+                        if (preflight != null && !preflight.ready && preflight.blockers.isNotEmpty()) {
+                            throw GatewayEngineeringRequestRejected(response.status.value, preflight.blockers.joinToString("\n") { "${it.message} (${it.failedStage}: ${it.reasonCode}; ${it.recoveryAction})" })
+                        }
+                        if (code in setOf("ENGINEERING_REPOSITORY_ACCESS_REQUIRED", "SOURCE_REVISION_CHANGED", "SOURCE_REVISION_REQUIRED", "VALIDATION_POLICY_REQUIRED")) {
+                            throw GatewayEngineeringRequestRejected(response.status.value, "$code: ${detail?.get("message")?.jsonPrimitive?.content.orEmpty().take(1000)}")
                         }
                         if (body != null && response.status.value in 400..499 && response.status.value !in setOf(408, 499)) {
                             val message = when (response.status.value) {
@@ -115,8 +122,23 @@ class GatewayEngineeringClient internal constructor(
         return if (body == null) LocalEndpointConnectionPolicy.probe(endpoint, evictIdleConnections, exchange) else exchange()
     }
 
-    suspend fun capabilities(config: ProviderRequestConfig): GatewayEngineeringCapabilities {
-        val attempt = capabilityCache.getOrLoad(capabilityKey(config)) {
+    /** Explicit repair check: discard stale admission evidence before reading this exact saved route. */
+    suspend fun refreshCapabilities(config: ProviderRequestConfig): GatewayEngineeringCapabilities {
+        GatewaySurfacePolicy.shared.invalidate(GatewaySurfacePolicy.identity(config), GatewaySurfacePolicy.Surface.CAPABILITIES)
+        LocalServiceHealth.checkAgain(config.apiUrl)
+        return capabilities(config, forceRefresh = true)
+    }
+
+    suspend fun preflight(config: ProviderRequestConfig, request: GatewayEngineeringRequest): GatewayEngineeringPreflight {
+        val result = json.decodeFromString<GatewayEngineeringPreflight>(this.request(config, "preflight", json.encodeToString(request)))
+        check(result.schema == "github.engineering-admission.v1" && result.objectiveSha256 == GitHubRepositoryStateStore.digest(request.objective) && result.sourceSha == request.sourceSha) { "The gateway preflight does not match this objective and source revision." }
+        if (!result.ready) throw GatewayEngineeringRequestRejected(412, result.blockers.joinToString("\n") { "${it.message} (${it.failedStage}: ${it.reasonCode}; ${it.recoveryAction})" }.ifBlank { "Engineering prerequisites have not been verified." })
+        check(request.taskScope != "implement" || result.acceptance.isNotEmpty()) { "The gateway did not provide a testable acceptance contract." }
+        return result
+    }
+
+    suspend fun capabilities(config: ProviderRequestConfig, forceRefresh: Boolean = false): GatewayEngineeringCapabilities {
+        val attempt = capabilityCache.getOrLoad(capabilityKey(config), forceRefresh = forceRefresh) {
             if (GatewaySurfacePolicy.shared.rememberedStatus(GatewaySurfacePolicy.identity(config), GatewaySurfacePolicy.Surface.CAPABILITIES) != null) return@getOrLoad null
             val payload = try {
                 request(config, "capabilities")
@@ -176,12 +198,7 @@ class GatewayEngineeringClient internal constructor(
         }
     }
 
-    suspend fun requireGraphReady(config: ProviderRequestConfig): String {
-        val capability = capabilities(config)
-        capability.unavailableReason(graph = true)?.let { throw GatewayGraphUnavailableException(it, GatewayGraphPrerequisite.missing(capability)) }
-        if (capability.codeGraph?.schemaVersion != 1) throw GatewayGraphUnavailableException("The selected gateway repository graph protocol is unsupported. Update the desktop gateway.", listOf(GatewayGraphPrerequisite.GRAPH_PROTOCOL_UNSUPPORTED))
-        return requireNotNull(capability.principalId)
-    }
+    suspend fun requireGraphReady(config: ProviderRequestConfig): String = capabilities(config).requireGraphReadiness()
 
     internal fun diagnosticEvents(config: ProviderRequestConfig, jobId: String, after: Int): kotlinx.coroutines.flow.Flow<JsonObject> = kotlinx.coroutines.flow.flow {
         require(jobId.matches(Regex("diag_[a-f0-9]{32}")) && after in 0..3)
@@ -198,7 +215,7 @@ class GatewayEngineeringClient internal constructor(
                     socketTimeoutMillis = 30_000
                 }
             }.execute { response ->
-                GatewayClientDiagnostics.observe(diagnostic, response.status.value) { response.headers[it] }
+                GatewayClientDiagnostics.observe(diagnostic, response.status.value, response.call.request.headers["traceparent"]) { response.headers[it] }
                 check(response.status.isSuccess()) { "Gateway diagnostic stream failed (HTTP ${response.status.value})." }
                 val channel = response.bodyAsChannel()
                 var seen = after

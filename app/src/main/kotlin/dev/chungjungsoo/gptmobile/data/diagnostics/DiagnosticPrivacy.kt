@@ -82,7 +82,7 @@ private fun redactDiagnosticTree(value: JsonElement, credentials: Boolean): Json
             val normalized = key.lowercase(Locale.ROOT).replace('-', '_')
             when {
                 privateJsonKey.containsMatchIn(normalized) -> JsonPrimitive("[private payload redacted]")
-                credentials && secretJsonKey.matches(normalized) -> JsonPrimitive("[redacted]")
+                credentials && secretJsonKey.matches(normalized) && !diagnosticSemanticAuthorization(value, key, child) -> JsonPrimitive("[redacted]")
                 else -> redactDiagnosticTree(child, credentials)
             }
         }

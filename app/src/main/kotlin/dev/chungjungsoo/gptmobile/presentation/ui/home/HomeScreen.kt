@@ -187,7 +187,9 @@ fun HomeScreen(
     navigateToGateway: () -> Unit = {}
 ) {
     // Start the retained process monitor; destination visibility never depends on a probe.
-    hiltViewModel<GatewayMenuViewModel>()
+    val gatewayMenu: GatewayMenuViewModel = hiltViewModel()
+    val gatewayConnections by gatewayMenu.connections.collectAsStateWithLifecycle()
+    val gatewayProfileUids = remember(gatewayConnections) { gatewayConnections.filter { it.canBrowseHistory }.mapTo(mutableSetOf()) { it.profileUid } }
     val listState = rememberLazyListState()
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     val homeFeatures by homeViewModel.featureSettings.collectAsStateWithLifecycle()
@@ -213,9 +215,9 @@ fun HomeScreen(
     val lifecycleState by lifecycleOwner.lifecycle.currentStateFlow.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
-    val selectedChatCount = chatListState.selectedChats.count { it }
-    val selectedChat = chatListState.chats.filterIndexed { index, _ -> chatListState.selectedChats.getOrElse(index) { false } }.singleOrNull()
-    val selectedRooms = chatListState.chats.filter { it.id in chatListState.selectedChatIds }
+    val selectedRooms = remember(chatListState.chats, chatListState.selectedChatIds) { chatListState.chats.filter { it.id in chatListState.selectedChatIds } }
+    val selectedChatCount = selectedRooms.size
+    val selectedChat = selectedRooms.singleOrNull()
     val duplicatedChatMessage = stringResource(R.string.duplicated_chat)
     val deletedChatsMessage = stringResource(R.string.deleted_chats, selectedChatCount)
     val archiveSnackbarState = remember { SnackbarHostState() }
@@ -534,6 +536,7 @@ fun HomeScreen(
                                         isGitHub = isGitHub,
                                         usingPlatform = usingPlatform,
                                         profileLabels = chatProfileLabels,
+                                        isGateway = chatRoom.conversationMode == ConversationMode.GATEWAY || chatRoom.id in homeFeatures.conversationGateway || chatProfiles.any { it.uid in gatewayProfileUids },
                                         isServerChat = chatProfiles.singleOrNull()?.compatibleType in setOf(ClientType.OLLAMA, ClientType.LLAMA, ClientType.LITERT_LM),
                                         onItemClick = {
                                             if (chatListState.isSelectionMode) {
@@ -584,6 +587,7 @@ fun HomeScreen(
                                         isGitHub = isGitHub,
                                         usingPlatform = usingPlatform,
                                         profileLabels = chatProfileLabels,
+                                        isGateway = chatRoom.conversationMode == ConversationMode.GATEWAY || chatRoom.id in homeFeatures.conversationGateway || chatProfiles.any { it.uid in gatewayProfileUids },
                                         isServerChat = chatProfiles.singleOrNull()?.compatibleType in setOf(ClientType.OLLAMA, ClientType.LLAMA, ClientType.LITERT_LM),
                                         onItemClick = {
                                             homeViewModel.openConversation(chatRoom, openExistingChat)
@@ -1009,6 +1013,7 @@ fun FancySwipeChatCard(
     hasUnreadResponse: Boolean,
     usingPlatform: String,
     profileLabels: List<dev.chungjungsoo.gptmobile.data.model.ProfileLabel>,
+    isGateway: Boolean = chatRoom.conversationMode == ConversationMode.GATEWAY,
     isServerChat: Boolean = false,
     isResearch: Boolean = false,
     isGitHub: Boolean = false,
@@ -1168,6 +1173,7 @@ fun FancySwipeChatCard(
                 hasUnreadResponse = hasUnreadResponse,
                 usingPlatform = usingPlatform,
                 profileLabels = profileLabels,
+                isGateway = isGateway,
                 isServerChat = isServerChat,
                 isResearch = isResearch,
                 isGitHub = isGitHub,
@@ -1194,6 +1200,7 @@ internal fun ChatListItem(
     hasUnreadResponse: Boolean,
     usingPlatform: String,
     profileLabels: List<dev.chungjungsoo.gptmobile.data.model.ProfileLabel>,
+    isGateway: Boolean = chatRoom.conversationMode == ConversationMode.GATEWAY,
     isServerChat: Boolean = false,
     isResearch: Boolean = false,
     isGitHub: Boolean = false,
@@ -1210,7 +1217,7 @@ internal fun ChatListItem(
     val interaction = remember { MutableInteractionSource() }
     val lifecycle by androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle.currentStateFlow.collectAsStateWithLifecycle()
     val motionEnabled = animateStatus && android.animation.ValueAnimator.areAnimatorsEnabled() && lifecycle.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)
-    val titleAlpha = if (hasUnreadResponse && motionEnabled) {
+    val titleAlpha = if (hasUnreadResponse && motionEnabled && !isGateway) {
         val transition = rememberInfiniteTransition(label = "unreadTitle")
         val alpha by transition.animateFloat(1f, 0.8f, infiniteRepeatable(tween(1600, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "unreadTitleAlpha")
         alpha
@@ -1286,15 +1293,19 @@ internal fun ChatListItem(
                     )
                 } else {
                     Box(dragHandleModifier.size(48.dp), contentAlignment = Alignment.Center) {
-                        if (isGenerating) {
+                        if (isGenerating && !isGateway) {
                             if (motionEnabled) {
                                 CircularProgressIndicator(Modifier.size(40.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.primary)
                             } else {
                                 CircularProgressIndicator(progress = { 1f }, modifier = Modifier.size(40.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.primary)
                             }
                         }
-                        ConversationModeSymbol(chatRoom, isResearch, hasUnreadResponse, isGitHub)
-                        if (hasUnreadResponse) {
+                        if (isGateway) {
+                            GatewayConversationIcon(isGenerating, hasUnreadResponse, animate = motionEnabled)
+                        } else {
+                            ConversationModeSymbol(chatRoom, isResearch, hasUnreadResponse, isGitHub)
+                        }
+                        if (hasUnreadResponse && !isGateway) {
                             dev.chungjungsoo.gptmobile.presentation.common.AppGlassSurface(
                                 modifier = Modifier.align(AbsoluteAlignment.BottomRight).size(18.dp),
                                 shape = CircleShape,

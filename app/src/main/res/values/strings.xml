@@ -1178,4 +1178,16 @@
     <string name="github_chat_description">Work on a repository with one AI profile</string>
     <string name="chat_retry_formatting">Retry formatting</string>
     <string name="gateway_network_connection_hint">For Gateway, enter the PC IP or hostname, for example http://192.168.1.100:8090/v1. Leave the API key empty for open network access. Set the PC listener to its network IP or 0.0.0.0, then use Test connection.</string>
+    <string name="gateway_recovery_wait_model">The selected model is loading. Readiness will be checked again.</string>
+    <string name="gateway_recovery_load_model">Load the selected model on the gateway host. Readiness will be checked again.</string>
+    <string name="gateway_recovery_select_model">The selected model is unavailable. Check its model name and installation on the host.</string>
+    <string name="gateway_recovery_backend">Check that the model backend is running and reachable from the gateway.</string>
+    <string name="gateway_recovery_access">Check the gateway’s access to its model backend.</string>
+    <string name="gateway_recovery_storage">Restore writable storage on the gateway host so work can be saved.</string>
+    <string name="gateway_recovery_draining">The gateway is finishing a shutdown or restart. Waiting for it to accept work again.</string>
+    <string name="gateway_recovery_configuration">Check the gateway’s backend address and configuration.</string>
+    <string name="gateway_recovery_authorize">Restore the required connection or authorization, then check again.</string>
+    <string name="gateway_recovery_reconcile">Reconnect to the original job to check its result before retrying.</string>
+    <string name="gateway_recovery_verify">Review the remaining acceptance evidence before marking the task complete.</string>
+    <string name="gateway_recovery_inspect">Open the gateway diagnostics to inspect the failed dependency and recovery condition.</string>
 </resources>

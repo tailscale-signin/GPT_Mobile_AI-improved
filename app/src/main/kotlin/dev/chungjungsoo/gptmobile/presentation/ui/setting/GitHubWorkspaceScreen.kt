@@ -78,6 +78,7 @@ import dev.chungjungsoo.gptmobile.presentation.common.FadingDialog as Dialog
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDropdownMenu as DropdownMenu
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import dev.chungjungsoo.gptmobile.presentation.common.diagnosticFrameTiming
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.jsonObject
 
@@ -127,10 +128,14 @@ fun GitHubWorkspaceScreen(
     val engineering by engineeringModel.state.collectAsStateWithLifecycle()
     dev.chungjungsoo.gptmobile.presentation.ui.chat.GatewayEngineeringObservation(engineeringModel, visibleProgrammer.chatId)
     val engineeringProfile = visibleProgrammer.profiles.firstOrNull { it.uid == commandContext?.mainProfileUid }
+    val repositoryGraphProfile = dev.chungjungsoo.gptmobile.data.github.engineeringGatewayProfile(
+        visibleProgrammer.profiles,
+        visibleProgrammer.profileSettings.engineeringGatewayProfileUid
+    )
     val jobsModel: GatewayJobsViewModel = hiltViewModel()
     val gatewayJobs by jobsModel.state.collectAsStateWithLifecycle()
     GatewayJobsObservation(jobsModel, commandContext?.mainProfileUid ?: visibleProgrammer.profileUid)
-    val repositoryMapAvailable = commandContext != null && visibleProgrammer.chatId?.let { it > 0 } == true && visibleProgrammer.chatId == programmerState.chatId && dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.supportsSavedJobs(engineeringProfile)
+    val repositoryMapAvailable = commandContext != null && visibleProgrammer.chatId?.let { it > 0 } == true && visibleProgrammer.chatId == programmerState.chatId
     var repositoryMapOpen by remember(commandContext) { mutableStateOf(false) }
     val engineeringJob = if (dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.supportsSavedJobs(engineeringProfile)) {
         engineering.bindings.lastOrNull { it.chatId == visibleProgrammer.chatId && (it.request.profileId ?: it.profileUid) == engineeringProfile?.uid && it.job?.terminal == false }?.job
@@ -144,10 +149,24 @@ fun GitHubWorkspaceScreen(
         if (state.uiReady && !state.setupRequired && commandContext != null && programmerState.draftLoaded && programmerState.chatId == null) programmer.ensureConversation()
     }
     val commitReview: dev.chungjungsoo.gptmobile.presentation.ui.workspace.GitHubReviewViewModel = hiltViewModel()
+    val pendingCommit by commitReview.pendingEngineeringTask.collectAsStateWithLifecycle()
+    val savedEngineeringTasks by commitReview.engineeringTasks.collectAsStateWithLifecycle()
     val publishedContinuations by commitReview.publishedContinuations.collectAsStateWithLifecycle()
-    LaunchedEffect(commandContext) {
-        commitReview.restrictTo(commandContext)
+    val nativeDecisions by commitReview.decisionReceipts.collectAsStateWithLifecycle()
+    val pendingEngineeringRun by commitReview.selectedEngineeringRun.collectAsStateWithLifecycle()
+    val approvalChatId = visibleProgrammer.chatId
+    val latestApprovalRun = visibleProgrammer.runs.lastOrNull()
+    LaunchedEffect(commandContext, approvalChatId) {
+        commitReview.restrictTo(commandContext, approvalChatId)
         if (commandContext != null) commitReview.observeWorkspaceApproval(commandContext)
+    }
+    LaunchedEffect(commandContext, approvalChatId, pendingCommit, pendingEngineeringRun?.patchDigest, visibleProgrammer.decisionMode, latestApprovalRun?.status, latestApprovalRun?.terminalError) {
+        val task = pendingEngineeringRun?.takeIf { it.taskId == pendingCommit } ?: return@LaunchedEffect
+        if (approvalChatId == null || visibleProgrammer.decisionMode != dev.chungjungsoo.gptmobile.data.github.GitHubDecisionMode.AUTO_APPROVE) return@LaunchedEffect
+        commitReview.busy.first { !it }
+        commitReview.approveAutomatically(task.taskId, task.patchDigest, approvalChatId) { sha ->
+            if (commitReview.review.value?.branch == commandContext?.ref) viewModel.acceptPublishedCommit(sha)
+        }
     }
     LaunchedEffect(publishedContinuations, visibleProgrammer.chatId, visibleProgrammer.submitting, visibleProgrammer.error, commandContext) {
         if (commandContext != null && !visibleProgrammer.submitting && visibleProgrammer.error == null) {
@@ -225,7 +244,15 @@ fun GitHubWorkspaceScreen(
     androidx.compose.runtime.CompositionLocalProvider(LocalGitHubCompositionTiming provides GitHubCompositionTiming(navigationTrace, state.recentChatId != null || savedContext != null)) {
         Dialog(onDismissRequest = { close() }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
             if (repositoryMapOpen && repositoryMapAvailable && commandContext != null) {
-                dev.chungjungsoo.gptmobile.presentation.ui.chat.RepositoryGraphPanel(commandContext, engineeringProfile, onDismiss = { repositoryMapOpen = false })
+                dev.chungjungsoo.gptmobile.presentation.ui.chat.RepositoryGraphPanel(
+                    commandContext,
+                    repositoryGraphProfile,
+                    onDismiss = { repositoryMapOpen = false },
+                    onConfigureGateway = {
+                        repositoryMapOpen = false
+                        tab = 5
+                    }
+                )
             }
             Scaffold(
                 modifier = Modifier.diagnosticFrameTiming("GitHubWorkspace").fillMaxSize().imePadding().drawWithContent {
@@ -334,11 +361,6 @@ fun GitHubWorkspaceScreen(
                                 3 -> {
                                     val chatId = visibleProgrammer.chatId
                                     if (chatId != null && commandContext != null) {
-                                        dev.chungjungsoo.gptmobile.presentation.ui.workspace.GitHubChatApprovalCard(commitReview) { sha ->
-                                            val publishedBranch = commitReview.review.value?.branch
-                                            if (publishedBranch == commandContext.ref) viewModel.acceptPublishedCommit(sha)
-                                            commitReview.refreshEngineeringTasks()
-                                        }
                                         GitHubChatChecks(chatId)
                                         androidx.compose.foundation.layout.Box(Modifier.weight(1f)) {
                                             GitHubChatConversation(
@@ -355,7 +377,16 @@ fun GitHubWorkspaceScreen(
                                                 recoveryRequest = recoveryRequest,
                                                 onRecoveryHandled = { recoveryRequest = null },
                                                 exportRequested = exportChatId == chatId,
-                                                onExportHandled = { exportChatId = null }
+                                                onExportHandled = { exportChatId = null },
+                                                approvalPending = savedEngineeringTasks.any { it.taskId == pendingCommit && it.state == "AWAITING_APPROVAL" },
+                                                nativeDecisions = nativeDecisions.filter { it.chatId == chatId },
+                                                bottomInteractionContent = {
+                                                    dev.chungjungsoo.gptmobile.presentation.ui.workspace.GitHubChatApprovalCard(commitReview) { sha ->
+                                                        val publishedBranch = commitReview.review.value?.branch
+                                                        if (publishedBranch == commandContext.ref) viewModel.acceptPublishedCommit(sha)
+                                                        commitReview.refreshEngineeringTasks()
+                                                    }
+                                                }
                                             )
                                         }
                                     } else {
@@ -388,7 +419,8 @@ fun GitHubWorkspaceScreen(
                                             { repositoryMapOpen = true }
                                         } else {
                                             null
-                                        }
+                                        },
+                                        onDecisionMode = programmer::setDecisionMode
                                     )
                                     if (state.selection != null) {
                                         OutlinedTextField(branchName, { branchName = it }, label = { Text("New working branch") }, singleLine = true, modifier = Modifier.fillMaxWidth())
@@ -448,11 +480,19 @@ fun GitHubWorkspaceScreen(
                                     }
                                 }
                                 2 -> {
+                                    val selection = requireNotNull(state.selection)
                                     var taskDetailsOpen by rememberSaveable(state.selection?.fullName, visibleProgrammer.chatId) { mutableStateOf(false) }
                                     var allPullsOpen by rememberSaveable(state.selection?.fullName) { mutableStateOf(false) }
                                     val statusProfile = visibleProgrammer.profiles.singleOrNull {
                                         it.uid == (commandContext?.mainProfileUid ?: state.cachedProfileUid ?: initialProfileUid)
                                     }
+                                    val statusModel: GitHubLiveStatusViewModel = hiltViewModel()
+                                    val queueRepair: ((GitHubDraftRepair) -> Unit)? = if (commandContext != null && !visibleProgrammer.submitting) {
+                                        { repair -> programmer.repairDraft(repair) { tab = 3 } }
+                                    } else {
+                                        null
+                                    }
+                                    val statusActions = rememberGitHubStatusActions(statusModel, connection, selection, visibleProgrammer.chatId, statusProfile, queueRepair)
                                     // Status is bound to the actually loaded revision, even before
                                     // a chat exists; gateway admission rechecks selected permissions.
                                     val mapContext = state.selection?.takeIf {
@@ -471,12 +511,16 @@ fun GitHubWorkspaceScreen(
                                     }
                                     GitHubRepositoryStatusPanel(
                                         connection,
-                                        requireNotNull(state.selection),
+                                        selection,
                                         state.pullRequests,
                                         viewModel::loadPullRequests,
                                         chatId = visibleProgrammer.chatId,
                                         profile = statusProfile,
-                                        graphContext = mapContext
+                                        graphContext = mapContext,
+                                        model = statusModel,
+                                        graphProfile = repositoryGraphProfile,
+                                        onConfigureGateway = { tab = 5 },
+                                        actions = statusActions
                                     )
                                     OutlinedButton(onClick = { taskDetailsOpen = !taskDetailsOpen }, modifier = Modifier.fillMaxWidth()) {
                                         Text(if (taskDetailsOpen) "Hide task details" else "Task details")
@@ -491,7 +535,8 @@ fun GitHubWorkspaceScreen(
                                             onExport = {
                                                 exportChatId = visibleProgrammer.chatId
                                                 tab = 3
-                                            }
+                                            },
+                                            approvalPending = savedEngineeringTasks.any { it.taskId == pendingCommit && it.state == "AWAITING_APPROVAL" }
                                         )
                                         visibleProgrammer.chatId?.let { GitHubChatChecks(it, expanded = true) }
                                     }
@@ -508,17 +553,13 @@ fun GitHubWorkspaceScreen(
                                     }
                                     if (state.pullRequests.isEmpty() && !state.busy) WorkspaceEmpty(Icons.Rounded.AccountTree, "No pull requests loaded", "Refresh to see the repository's open requests, or create a draft from your working branch.")
                                     (if (allPullsOpen) state.pullRequests else state.pullRequests.take(3)).forEach { pr ->
-                                        Surface(onClick = { viewModel.inspectPullRequest(pr.text("number").toInt()) }, enabled = !state.busy, shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth()) {
-                                            Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                                GitHubStatusLight(pr.text("check_state"))
-                                                GitHubCheckBadge(pr.text("check_state"))
-                                                Column(Modifier.weight(1f)) {
-                                                    Text(pr.text("title"), style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                                    Text("#${pr.text("number")} · ${if (pr.flag("draft")) "Draft" else pr.text("state")}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                                }
-                                                pr.text("html_url").takeIf { it.startsWith("https://github.com/") }?.let { url -> IconButton(onClick = { uriHandler.openUri(url) }) { Icon(Icons.Rounded.Launch, "Open pull request") } }
-                                            }
-                                        }
+                                        GitHubPullRequestActionTile(
+                                            pr,
+                                            statusActions,
+                                            !state.busy,
+                                            inspect = { pr.text("number").toIntOrNull()?.let { viewModel.inspectPullRequest(it) } },
+                                            open = pr.text("html_url").takeIf { it.startsWith("https://github.com/") }?.let { url -> { uriHandler.openUri(url) } }
+                                        )
                                     }
                                     if (state.pullRequests.size > 3) {
                                         TextButton(onClick = { allPullsOpen = !allPullsOpen }) {

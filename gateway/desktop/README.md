@@ -1,10 +1,10 @@
-# Gateway 15 for Windows
+# Gateway 16 for Windows
 
 Gateway connects GPT Mobile to your model backend and approved PC tools. The Windows x64 installer bundles Python and the pinned gateway dependencies. The model server is a separate prerequisite. No Tailscale installation is needed.
 
 ## Install and connect
 
-1. Run `Gateway-15.0.0-windows-x64-setup.exe` under your normal Windows account. Choose the installation folder, backend origin, port, worker/chat limits, shutdown grace, MCP configuration, listen address, optional LAN firewall rule, startup preference and update policy.
+1. Run `Gateway-16.0.0-windows-x64-setup.exe` under your normal Windows account. Choose the installation folder, backend origin, port, worker/chat limits, shutdown grace, MCP configuration, listen address, optional LAN firewall rule, startup preference and update policy.
 2. Start your model server. Default backend: `http://127.0.0.1:8080`. Gateway listens only on `127.0.0.1:8090` by default. Backend origins must omit `/v1`; remote backends require HTTPS. MCP commands run with your Windows account permissions: use configuration from sources you trust.
 3. Open **Gateway Settings** from the Start menu to check status, edit settings, restart, stop, check updates or install an available update. Notify is the default; select Auto for unattended updates. Restart applies saved connection/concurrency changes after work finishes.
 4. For phone access, set **Listen address** to the PC interface IP or `0.0.0.0` (all IPv4 interfaces), save and restart. On Android, use a LLAMA connection with `http://<PC-IP-or-hostname>:8090/v1` and leave the API key empty. `0.0.0.0` is a listener setting, not the phone's destination. The PC hostname is admitted automatically; add custom aliases in **Additional hostnames** if needed.

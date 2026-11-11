@@ -182,7 +182,7 @@ class McpClientManager internal constructor(
             else -> ToolCatalogDiscoveryState.NOT_DISCOVERED
         }
         val revision = dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest("$state|${health.lastSuccessAtMs}|${health.lastFailureAtMs}|${health.availableToolCount}|${health.lastErrorCode}|$policyEpoch|$networkEpoch")
-        return ToolCatalogConnectionDiscovery(connectionUid, state, revision, health.availableToolCount, health.lastErrorCode, health.nextRetryAtMs)
+        return ToolCatalogConnectionDiscovery(connectionUid, state, revision, health.availableToolCount, health.lastErrorCode, health.nextRetryAtMs, health.failedStage, health.lastValidationRule, health.lastValidationField, health.lastHttpStatus)
     }
 
     fun peekTools(config: McpConnectionConfig): List<Tool>? = catalogue.peek(config.validatedKey() + ":" + dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.epoch)?.value
@@ -246,21 +246,36 @@ class McpClientManager internal constructor(
     }
 
     suspend fun listTools(config: McpConnectionConfig, forceRefresh: Boolean = false, awaitCompletion: Boolean = false, passiveBackoff: Boolean = false): List<Tool> {
+        val discoveryContext = kotlinx.coroutines.currentCoroutineContext()[McpDiscoveryContext]
+            ?: McpDiscoveryContext(if (forceRefresh) McpDiscoveryTrigger.EXPLICIT_UNSPECIFIED else McpDiscoveryTrigger.AUTOMATIC_RESOLUTION)
+        fun recordDecision(decision: McpDiscoveryDecision) = AppLogRecorder.record("MCP", mcpDiscoveryDiagnostic(config, discoveryContext.trigger, forceRefresh, decision))
+        recordDecision(McpDiscoveryDecision.REQUESTED)
         val policyEpoch = dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.epoch
         protocolFailures[config.connectionUid]?.takeIf { !forceRefresh && it.first == config.catalogueIdentity() }?.let { (_, failure) ->
+            recordDecision(McpDiscoveryDecision.PAUSED_CONFIGURATION)
             if (passiveBackoff && !awaitCompletion) return emptyList()
             throw failure
         }
-        if (!forceRefresh && healthSnapshot(config.connectionUid).state == McpConnectionHealthState.AUTHENTICATION_REQUIRED && providerCooldowns[config.connectionUid]?.first == config.validatedKey()) throw McpAuthenticationRequiredException()
+        if (!forceRefresh && healthSnapshot(config.connectionUid).state == McpConnectionHealthState.AUTHENTICATION_REQUIRED && providerCooldowns[config.connectionUid]?.first == config.validatedKey()) {
+            recordDecision(McpDiscoveryDecision.PAUSED_AUTHENTICATION)
+            throw McpAuthenticationRequiredException()
+        }
         val key = config.validatedKey() + ":" + policyEpoch
         val ready = if (forceRefresh || !catalogueAvailability(config).executionAvailable) null else catalogue.peek(key, 300_000)
         kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.readiness.ReadinessCacheObservation]?.read(ready != null)
         ready?.let {
+            recordDecision(McpDiscoveryDecision.LIVE_CACHE)
             catalogueIdentities[config.connectionUid] = policyEpoch to key
             return it.value
         }
         val connectionHealth = healthSnapshot(config.connectionUid)
-        if (passiveBackoff && !forceRefresh && !awaitCompletion && (connectionHealth.nextRetryAtMs ?: 0) > nowMs()) {
+        if (passiveBackoff &&
+            !forceRefresh &&
+            !awaitCompletion &&
+            transportConfigurationKeys[config.connectionUid] == config.validatedKey() &&
+            (connectionHealth.nextRetryAtMs ?: 0) > nowMs()
+        ) {
+            recordDecision(McpDiscoveryDecision.WAITING_BACKOFF)
             // Optional discovery must not wait on a known-down endpoint. Its existing
             // health controller owns recovery; execution still validates live access.
             return peekToolsForConnection(config.connectionUid, config.endpointUrl, config.allowCleartext).orEmpty()
@@ -293,7 +308,10 @@ class McpClientManager internal constructor(
             // Awaiters can observe a terminal producer before its completion handler
             // removes it. Only share live discovery; explicit refresh must not inherit
             // an already-completed failure from that cleanup window.
-            catalogueProducers[key]?.takeUnless { it.isCompleted } ?: catalogueScope.async(start = kotlinx.coroutines.CoroutineStart.LAZY) {
+            catalogueProducers[key]?.takeUnless { it.isCompleted }?.also {
+                recordDecision(McpDiscoveryDecision.SHARED_PRODUCER)
+            } ?: catalogueScope.async(context = discoveryContext, start = kotlinx.coroutines.CoroutineStart.LAZY) {
+                recordDecision(McpDiscoveryDecision.START_ACQUISITION)
                 withTimeout(catalogueTimeoutMs) {
                     val epoch = catalogue.epoch
                     val tools = fetchCatalogue(config, forceRefresh).toList()
@@ -655,10 +673,6 @@ class McpClientManager internal constructor(
             )
         }
         if (previousState != McpConnectionHealthState.CONNECTED || catalogChanged) {
-            AppLogRecorder.record(
-                "MCP",
-                "Health · connection=$connectionUid · state=CONNECTED · latencyMs=${healthSnapshot(connectionUid).latencyMs ?: "unknown"} · tools=${healthSnapshot(connectionUid).availableToolCount ?: "Not discovered"} · toolReadiness=${healthSnapshot(connectionUid).toolReadiness}"
-            )
         }
     }
 
@@ -748,9 +762,31 @@ class McpClientManager internal constructor(
                 current + (connectionUid to updated)
             }
             statistics?.observeHealth(connectionUid, updated.state.name, "PASSIVE_FAILURE", now)
-            AppLogRecorder.record(
+            AppLogRecorder.recordEvent(
                 "MCP",
-                "Health · connection=$connectionUid · state=${updated.state} · failures=${updated.consecutiveFailures} · retryAtMs=${updated.nextRetryAtMs} · failureClass=${updated.connectionHealth} · failedStage=${updated.failedStage} · errorCode=${updated.lastErrorCode} · retryable=${updated.failureRetryable} · error=${updated.lastError.orEmpty()}",
+                "MCP_FAILURE",
+                mapOf(
+                    "connection" to connectionUid,
+                    "operation_id" to dev.chungjungsoo.gptmobile.data.research.researchHash("mcp:$connectionUid:${observation.epoch}:${observation.request}"),
+                    "mcpPhase" to if (stage == "discovery") {
+                        "discovery"
+                    } else if (stage == "execution") {
+                        "execution"
+                    } else {
+                        "connection"
+                    },
+                    "failedStage" to updated.failedStage,
+                    "errorCode" to updated.lastErrorCode,
+                    "upstream_status" to updated.lastHttpStatus,
+                    "retryable" to updated.failureRetryable,
+                    "recoveryAction" to if (updated.state == McpConnectionHealthState.AUTHENTICATION_REQUIRED) {
+                        "authorize"
+                    } else if (updated.failureRetryable == true) {
+                        "retry_discovery"
+                    } else {
+                        "repair_configuration"
+                    }
+                ),
                 "W"
             )
         }

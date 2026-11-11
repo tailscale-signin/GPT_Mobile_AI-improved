@@ -104,6 +104,7 @@ class MultiEngineSearchTool(
     )
 
     private val resultCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, AgentToolResult>>()
+    private val retainedEngines = java.util.concurrent.ConcurrentHashMap<String, Map<Int, Pair<Long, Response>>>()
     private val queryLocks = Array(32) { Mutex() }
 
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
@@ -119,8 +120,23 @@ class MultiEngineSearchTool(
                 }
             } else {
                 resultCache.clear()
+                retainedEngines.clear()
             }
-            val result = search(callId, arguments)
+            val retained = if (reusable) retainedEngines[key].orEmpty().filterValues { now - it.first in 0..30_000L } else emptyMap()
+            val result = search(callId, arguments, retained.mapValues { it.value.second }) { initial ->
+                if (reusable && initial.any { it.outcome in setOf("timeout", "dns_failed", "unavailable", "cooldown", "rate_limited") }) {
+                    val checkedAt = clock.millis()
+                    val successes = initial.mapIndexedNotNull { index, response ->
+                        if (response.outcome != "success" || response.result.outputBudgetExhausted || response.result.toolCallBudgetExhausted) return@mapIndexedNotNull null
+                        index to (retained[index] ?: (checkedAt to response))
+                    }.toMap()
+                    if (successes.isNotEmpty()) {
+                        retainedEngines.entries.removeIf { entry -> entry.value.values.none { checkedAt - it.first in 0..30_000L } }
+                        if (retainedEngines.size >= 16 && !retainedEngines.containsKey(key)) retainedEngines.keys.firstOrNull()?.let(retainedEngines::remove)
+                        retainedEngines[key] = successes
+                    }
+                }
+            }
             val partial = (((result.content as? ToolResultContent.Json)?.value as? JsonObject)?.get("merge") as? JsonObject)?.get("partial") == JsonPrimitive(true)
             if (reusable &&
                 !partial &&
@@ -131,6 +147,7 @@ class MultiEngineSearchTool(
                 resultCache.entries.removeIf { now - it.value.first > 30_000L }
                 if (resultCache.size >= 32) resultCache.keys.firstOrNull()?.let(resultCache::remove)
                 resultCache[key] = clock.millis() to result
+                retainedEngines.remove(key)
             }
             result
         }
@@ -139,7 +156,7 @@ class MultiEngineSearchTool(
     private data class Response(val result: AgentToolResult, val outcome: String, val effectiveCount: Int)
     private data class Prepared(val invoke: suspend () -> AgentToolResult, val effectiveCount: Int)
 
-    private suspend fun search(callId: String, arguments: JsonObject): AgentToolResult = supervisorScope {
+    private suspend fun search(callId: String, arguments: JsonObject, previousEngines: Map<Int, Response> = emptyMap(), onInitial: (List<Response>) -> Unit = {}): AgentToolResult = supervisorScope {
         val revision = configurationRevision()
         fun emptyKey(index: Int) = "$revision|${selected[index].selectionId()}"
         fun invalid(message: String) = AgentToolResult(callId, ToolResultContent.Text(message), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
@@ -228,7 +245,7 @@ class MultiEngineSearchTool(
             }
         }
         // Serial permission preflight is outside the provider deadline; each reservation still belongs to the bound child.
-        val prepared = selected.indices.map { prepare(it, fetchRequest, false) }
+        val prepared = selected.indices.map { index -> if (index in previousEngines) null else prepare(index, fetchRequest, false) }
         val started = nanoTime()
         fun remainingMillis() = (searchTimeoutMillis - (nanoTime() - started) / 1_000_000L).coerceAtLeast(0)
         suspend fun attempt(index: Int, ready: Prepared, refill: Boolean): Response {
@@ -292,7 +309,30 @@ class MultiEngineSearchTool(
             }
             return Response(if (outcome == "malformed_response") result.copy(isError = true, errorCode = result.errorCode ?: "PARSE_FAILED") else result, outcome, ready.effectiveCount)
         }
-        val initial = selected.indices.map { index -> async { enginePermits.withPermit { attempt(index, prepared[index], false) } } }.awaitAll()
+        val initial = selected.indices.map { index ->
+            async {
+                val saved = previousEngines[index]
+                if (saved != null) {
+                    saved.copy(
+                        result = saved.result.copy(
+                            callId = "$callId:engine:$index",
+                            dispatched = false,
+                            sharedResult = true,
+                            executionReceipt = buildJsonObject {
+                                put("schema", "gptmobile.retained-search.v1")
+                                put("call_id", "$callId:engine:$index")
+                                put("dispatched", false)
+                                put("retained_call_id", saved.result.callId)
+                                saved.result.executionReceipt?.let { put("retained_execution_receipt", it) }
+                            }
+                        )
+                    )
+                } else {
+                    enginePermits.withPermit { attempt(index, requireNotNull(prepared[index]), false) }
+                }
+            }
+        }.awaitAll()
+        onInitial(initial)
         val allAttempts = initial.toMutableList()
         fun candidates(index: Int, response: Response): List<SearchCandidate> {
             if (response.result.isError) return emptyList()
@@ -317,6 +357,7 @@ class MultiEngineSearchTool(
             val eligible = selected.indices.filter { index ->
                 val response = initial[index]
                 !response.result.isError &&
+                    index !in previousEngines &&
                     !response.result.outputBudgetExhausted &&
                     !response.result.toolCallBudgetExhausted &&
                     response.effectiveCount > 0 &&
@@ -344,6 +385,7 @@ class MultiEngineSearchTool(
                 put("tool", selected[index].realToolName)
                 put("callId", response.result.callId)
                 put("dispatched", response.result.dispatched)
+                if (index in previousEngines) put("retainedResult", true)
                 response.result.errorCode?.let { put("errorCode", it) }
                 response.result.executionReceipt?.let { put("receipt", it) }
                 put("status", if (response.result.isError) "unavailable" else "completed")

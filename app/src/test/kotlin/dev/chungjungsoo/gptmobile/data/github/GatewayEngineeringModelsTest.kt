@@ -21,13 +21,13 @@ class GatewayEngineeringModelsTest {
         assertFalse(encoded.contains("approve-and-merge"))
     }
 
-    @Test fun progressUsesMilestonesAndDefaultBudgetIsThreeHours() {
+    @Test fun progressUsesMilestonesAndNewSettingsDefaultToUltraDuration() {
         val job = GatewayEngineeringJob("id", "owner/repo", "feature", state = "CI", revision = 2, createdAt = 1.0, deadline = 999999.0, message = "CI", milestonesCompleted = 6, milestonesTotal = 10)
         assertEquals(.6f, job.progress)
         assertFalse(job.mergeReady)
         assertFalse(job.terminal)
         assertTrue(job.copy(state = "COMPLETED").terminal)
-        assertEquals(3, GatewayEngineeringSettings().durationHours)
+        assertEquals(24, GatewayEngineeringSettings().durationHours)
     }
 
     @Test fun derivedWorkingBranchMatchesOnlyThePinnedCanonicalRequestAndNeverTheBase() {

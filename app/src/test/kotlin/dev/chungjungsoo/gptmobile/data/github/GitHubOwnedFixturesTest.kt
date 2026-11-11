@@ -59,6 +59,32 @@ class GitHubOwnedFixturesTest {
         put("remote_state_verified", true)
     }
 
+    @Test fun creationIntentSurvivesRestartWithoutGrantingOwnershipOrCleanup() = runBlocking {
+        val directory = Files.createTempDirectory("github-fixture-intent").toFile()
+        try {
+            val firstStore = GitHubRepositoryStateStore(directory)
+            GitHubOwnedFixtures(firstStore, "task").prepareCreation(root, creation())
+            val store = GitHubRepositoryStateStore(directory)
+            val restored = GitHubOwnedFixtures(store, "task")
+            val key = "fixture:" + GitHubRepositoryStateStore.digest("$root|$branch")
+            val intent = requireNotNull(store.read("task", key))
+            assertEquals(JsonPrimitive("CREATION_PENDING"), intent["status"])
+            assertEquals(JsonPrimitive("CLEANUP_PENDING"), intent["lifecycle_state"])
+            assertEquals(JsonPrimitive(false), intent["ownership_verified"])
+            assertTrue(runCatching { restored.prepareCommit(root, args(origin, false)) }.isFailure)
+            val remote = Remote()
+            assertTrue(runCatching { remote.clean(restored, origin) }.isFailure)
+            assertEquals(0, remote.deletes)
+            restored.register(root, creation(), created())
+            assertEquals(JsonPrimitive(true), store.read("task", key)?.get("ownership_verified"))
+            remote.clean(restored, origin)
+            assertEquals(1, remote.deletes)
+            assertEquals(JsonPrimitive("REMOVED_VERIFIED"), store.read("task", key)?.get("lifecycle_state"))
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
     private inner class Remote {
         var head: String? = origin
         var deletes = 0
@@ -188,6 +214,21 @@ class GitHubOwnedFixturesTest {
         }
     }
 
+    @Test fun circuitRejectionBeforeDeleteReleasesOnlyTheUnsentIntent() = runBlocking {
+        val ledger = GitHubOwnedFixtures(GitHubRepositoryStateStore(), "account:connection:conversation:task")
+        val remote = Remote()
+        ledger.register(root, creation(), created())
+        val failure = runCatching {
+            ledger.cleanup(root, cleanup(origin), "main", remote::read, { throw GitHubRequestCircuit.Open(30_000) }) { null }
+        }.exceptionOrNull()
+        assertTrue(failure is GitHubRequestCircuit.Open)
+        assertEquals(origin, remote.head)
+        assertEquals(0, remote.deletes)
+        val result = remote.clean(ledger, origin)
+        assertEquals(JsonPrimitive(true), result["absence_verified"])
+        assertEquals(1, remote.deletes)
+    }
+
     private fun awaiting(intent: JsonObject) = buildJsonObject {
         put("engineering_task_id", "saved-approval")
         put("status", "AWAITING_APPROVAL")
@@ -216,6 +257,8 @@ class GitHubOwnedFixturesTest {
             val restored = GitHubOwnedFixtures(GitHubRepositoryStateStore(directory), "task")
             val status = restored.recoverApproval(root, approvalStatus(intent), remote::read, { remote.head == null }) { error("An active approval cannot reconcile or publish") }
             assertEquals(JsonPrimitive("WAITING_FOR_APPROVAL"), status?.get("cleanup_status"))
+            assertEquals(JsonPrimitive("DELIBERATELY_RETAINED"), status?.get("lifecycle_state"))
+            assertEquals(JsonPrimitive("APPROVE_OR_CANCEL_EXISTING_PATCH"), status?.get("next_action"))
             assertEquals(JsonPrimitive("saved-approval"), status?.get("engineering_task_id"))
             assertTrue(runCatching { remote.clean(restored, origin) }.exceptionOrNull()?.message.orEmpty().contains("WAITING_FOR_APPROVAL"))
             assertEquals(0, remote.publications)
@@ -236,7 +279,17 @@ class GitHubOwnedFixturesTest {
             original.awaitApproval(root, intent, awaiting(intent))
             remote.publish(intent, first)
             val restored = GitHubOwnedFixtures(GitHubRepositoryStateStore(directory), "task")
-            val proof = restored.recoverApproval(root, approvalStatus(intent, "MONITORING_CI"), remote::read, { remote.head == null }) { saved -> GitHubCommitReconciliation.recover(root, saved, request = remote::read) }
+            suspend fun recover(expectedCommit: String): JsonObject? {
+                val status = JsonObject(approvalStatus(intent, "MONITORING_CI") + ("published_commit_sha" to JsonPrimitive(expectedCommit)))
+                return restored.recoverApproval(root, status, remote::read, { remote.head == null }) { saved ->
+                    GitHubCommitReconciliation.recover(root, saved, request = remote::read)
+                }
+            }
+            val mismatch = runCatching { recover("d".repeat(40)) }.exceptionOrNull()
+            assertEquals("FIXTURE_RECONCILE_REQUIRED", GitHubFailurePolicy.recordedCode(mismatch?.message.orEmpty()))
+            assertEquals(1, remote.publications)
+            assertEquals(0, remote.deletes)
+            val proof = recover(first)
             assertEquals(JsonPrimitive("PUBLISHED"), proof?.get("approval_state"))
             assertEquals(JsonPrimitive(true), proof?.get("remote_state_verified"))
             assertEquals(JsonPrimitive(first), proof?.get("sha"))

@@ -2,10 +2,13 @@ package dev.chungjungsoo.gptmobile.data.agent
 
 import dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
@@ -50,6 +53,45 @@ class GitHubContinuationInvocationTest {
         assertEquals(2, reopens)
         assertTrue(events.none { it is AgentRunEvent.Provider && it.event is ProviderEvent.Failed })
         assertEquals("Saved prefix. Confirmed suffix.", events.filterIsInstance<AgentRunEvent.Provider>().mapNotNull { (it.event as? ProviderEvent.TextDelta)?.text }.joinToString(""))
+    }
+
+    @Test fun restoredAliasedInvocationKeepsUnknownDurableOutcomePendingDespiteStaleCompactedSuccess() = runBlocking {
+        val original = ProviderEvent.ToolCall(
+            "write",
+            "github_commit",
+            buildJsonObject { put("message", "Prepared change") },
+            originalInvocationFingerprint = "f".repeat(64)
+        )
+        val definition = AgentToolDefinition("github_commit__fixture", "Authorized fixture", buildJsonObject { put("type", "object") })
+        var checkpoint: JsonObject? = null
+        GitHubOutputContinuationSession(session(original, ProviderEvent.Completed), saveCheckpoint = { checkpoint = it }) { _, _, _ -> error("Unexpected continuation") }
+            .streamRound(listOf(definition), emptyList()).toList()
+        assertEquals(JsonArray(listOf(JsonPrimitive(fingerprint(original)))), checkpoint?.get("pending_calls"))
+
+        val authorized = original.copy(name = definition.name, originalInvocationFingerprint = fingerprint(original))
+        val batch = ToolBatchCheckpoint(null, "authorized-alias")
+        batch.enqueue(listOf(authorized))
+        batch.complete(authorized, AgentToolResult(authorized.callId, ToolResultContent.Text("Outcome unknown"), true, errorCode = "TOOL_OUTCOME_UNKNOWN"))
+        val compacted = authorized.copy(arguments = JsonObject(emptyMap()))
+        val stale = AgentToolExchange(listOf(compacted), listOf(AgentToolResult(compacted.callId, ToolResultContent.Text("Stale success"), false)))
+        var modelRequests = 0
+        val selected = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                modelRequests++
+                emit(ProviderEvent.TextDelta("Must remain blocked"))
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val resumed = GitHubOutputContinuationSession(
+            selected,
+            durableToolReceipts = batch::handoffReceipts,
+            readCheckpoint = { checkpoint },
+            saveCheckpoint = { checkpoint = it }
+        ) { _, _, _ -> selected }.streamRound(listOf(definition), listOf(stale)).toList()
+        assertEquals(0, modelRequests)
+        assertEquals("OUTPUT_CONTINUATION_PENDING_TOOLS", (resumed.single() as ProviderEvent.Failed).errorCode)
+        assertEquals(JsonPrimitive("TOOL_HANDOFF"), checkpoint?.get("state"))
+        assertEquals(JsonArray(listOf(JsonPrimitive(fingerprint(original)))), checkpoint?.get("pending_calls"))
     }
 
     @Test fun authorizedRecoveryRecipeRetainsItsOriginalInvocationAcrossRunnerRounds() = runBlocking {

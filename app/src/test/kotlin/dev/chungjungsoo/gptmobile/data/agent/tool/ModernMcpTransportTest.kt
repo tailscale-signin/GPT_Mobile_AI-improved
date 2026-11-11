@@ -27,6 +27,40 @@ class ModernMcpTransportTest {
     private fun obj(value: String) = Json.parseToJsonElement(value).jsonObject
     private val config = McpConnectionConfig("modern", "https://example.com/mcp", false, "Bearer secret")
 
+    @Test fun modernUnknownMethodAndMissingRouteHaveDistinctRepairRulesAndRemainPaused() = runBlocking {
+        for ((body, rule) in listOf(
+            """{"jsonrpc":"2.0","error":{"code":-32601,"message":"private server detail"}}""" to "DISCOVERY_METHOD_SUPPORTED_REQUIRED",
+            "<html>private missing route</html>" to "ENDPOINT_ROUTE_REQUIRED"
+        )) {
+            val methods = mutableListOf<String>()
+            HttpClient(
+                MockEngine { request ->
+                    methods += Json.parseToJsonElement((request.body as TextContent).text).jsonObject.getValue("method").jsonPrimitive.content
+                    respond(body, HttpStatusCode.NotFound)
+                }
+            ).use { client ->
+                val manager = McpClientManager(client, modern = ModernMcpTransport(client))
+                try {
+                    val failure = runCatching { manager.listTools(config, awaitCompletion = true) }.exceptionOrNull()
+                    assertTrue(failure is McpProtocolConfigurationException)
+                    failure as McpProtocolConfigurationException
+                    assertEquals(404, failure.httpStatus)
+                    assertEquals(rule, failure.validationRule)
+                    assertEquals(if (rule == "ENDPOINT_ROUTE_REQUIRED") "endpoint" else "server_discover", failure.validationField)
+                    assertFalse(failure.message.orEmpty().contains("private"))
+                    assertTrue(runCatching { manager.listTools(config, awaitCompletion = true) }.isFailure)
+                    assertEquals(listOf("server/discover"), methods)
+                    assertEquals(false, manager.healthSnapshot(config.connectionUid).failureRetryable)
+                    assertEquals(rule, manager.healthSnapshot(config.connectionUid).lastValidationRule)
+                    assertTrue(runCatching { manager.listTools(config, forceRefresh = true, awaitCompletion = true) }.isFailure)
+                    assertEquals(listOf("server/discover", "server/discover"), methods)
+                } finally {
+                    manager.closeAll()
+                }
+            }
+        }
+    }
+
     @Test fun modernRequestsCarryMetadataAndMirroredHeadersAndDecodeRequestScopedSse() = runBlocking {
         val methods = mutableListOf<String>()
         val engine = MockEngine { request ->

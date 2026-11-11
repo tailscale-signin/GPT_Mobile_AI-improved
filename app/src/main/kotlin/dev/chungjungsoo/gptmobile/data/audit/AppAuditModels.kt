@@ -182,7 +182,8 @@ data class AppAuditRun(
     val updatedAtEpochMs: Long = startedAtEpochMs,
     val finishedAtEpochMs: Long? = null,
     val stopReasonCode: String? = null,
-    val networkProbesAttempted: Int = networkProbesDispatched
+    val networkProbesAttempted: Int = networkProbesDispatched,
+    val environment: AppAuditEnvironmentIdentity? = null
 ) {
     val pendingEntries: List<AppAuditPlanEntry> get() = plan.filter { entry -> results.none { it.entryId == entry.id } && activeProbeId != entry.id }
     val deadlineAtEpochMs: Long get() = startedAtEpochMs + limits.totalTimeoutMs

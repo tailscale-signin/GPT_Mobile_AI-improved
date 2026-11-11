@@ -7,6 +7,26 @@ import kotlinx.serialization.json.put
 
 /** Retain known response/admission evidence before considering an exception a transport failure. */
 internal fun providerExceptionDetails(error: Exception, partialOutput: Boolean, nowMillis: Long = System.currentTimeMillis()): ErrorDetail? {
+    if (error is dev.chungjungsoo.gptmobile.data.github.GitHubRequestCircuit.Open) {
+        return ErrorDetail(
+            message = "GitHub is temporarily cooling down. Resume the saved request after the retry time.",
+            type = "github_transport_admission",
+            code = "GITHUB_CIRCUIT_OPEN",
+            retryable = true,
+            failureDetails = buildJsonObject {
+                put("failed_stage", "repository_admission")
+                put("attempt_dispatch_state", "NOT_DISPATCHED")
+                put("retry_after_ms", error.retryAfterMs)
+                put("retry_not_before_ms", nowMillis + error.retryAfterMs)
+                put("partial_output_preserved", partialOutput)
+                if (!partialOutput) {
+                    put("dispatch_state", "PRECHECK_REJECTED")
+                    put("dispatched", false)
+                    put("remote_acceptance", "NO")
+                }
+            }
+        )
+    }
     if (error is dev.chungjungsoo.gptmobile.data.agent.GitHubToolContextBudgetException) {
         val failure = error.providerFailure()
         return ErrorDetail(
@@ -78,6 +98,22 @@ internal fun providerExceptionDetails(error: Exception, partialOutput: Boolean, 
                 error.httpStatus?.let { put("http_status", it) }
                 // Only this preflight is known unsent. Earlier attempts and saved
                 // command outcomes remain the invocation owner's responsibility.
+            }
+        )
+    }
+    if (error is dev.chungjungsoo.gptmobile.data.context.SelectedModelUnavailableException) {
+        return ErrorDetail(
+            message = requireNotNull(error.message),
+            type = "local_admission",
+            code = error.reason.name,
+            retryable = false,
+            failureDetails = buildJsonObject {
+                put("code", error.reason.name)
+                put("failed_stage", "provider_admission")
+                put("attempt_dispatch_state", "NOT_DISPATCHED")
+                put("retryable", false)
+                put("partial_output_preserved", partialOutput)
+                error.observation.failureFields().forEach { (name, value) -> put(name, value) }
             }
         )
     }

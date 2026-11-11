@@ -14,6 +14,20 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ChatDebugRedactorTest {
+    @Test fun captureScopedRedactorAppliesTheSameCredentialPolicyToEveryRecordWithoutRetainingRecords() {
+        val credentials = mutableListOf("configured-secret-value", "configured-secret-value")
+        val redactor = ChatDebugRedactor(credentials)
+        credentials.clear()
+        for (sequence in 1..3) {
+            val source = buildJsonObject {
+                put("sequence", sequence)
+                put("embedded", """{"result":"configured-secret-value","token":"other-secret"}""")
+            }
+            assertEquals(redactChatDebugData(source, listOf("configured-secret-value")), redactor.redact(source))
+            assertFalse(redactor.redact(source).toString().contains("configured-secret-value"))
+        }
+    }
+
     @Test fun historicalBareLiteralsBecomeStringsWithoutChangingJsonScalars() {
         val retained = Json.parseToJsonElement("""{"profiles":[builtin-free-ovhcloud,builtin-free-kilo],"usage":[123,true,false,null,1.25,1e3],"authorization":"Bearer old-private-key"}""")
         val clean = redactChatDebugData(retained)

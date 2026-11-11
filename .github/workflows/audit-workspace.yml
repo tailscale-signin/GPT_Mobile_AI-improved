@@ -73,7 +73,6 @@ jobs:
           cache-read-only: ${{ github.event_name != 'push' || github.ref != 'refs/heads/main' }}
           validate-wrappers: true
       - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd
-        id: environment
         with:
           packages: 'platforms;android-37.0 build-tools;37.0.0'
       - name: Provision verified memory model outside Gradle
@@ -84,7 +83,8 @@ jobs:
           trap 'echo "::error::Android native dependency installation failed or timed out. Retry after checking the Ubuntu package mirror and dpkg lock."' ERR
           apt_options=(-o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o DPkg::Lock::Timeout=60)
           sudo timeout --kill-after=15s 180s apt-get "${apt_options[@]}" update
-          sudo env DEBIAN_FRONTEND=noninteractive timeout --kill-after=15s 180s apt-get "${apt_options[@]}" install --no-install-recommends -y glslc libvulkan-dev spirv-headers
+          # A slow mirror fallback can consume most of the download window.
+          sudo env DEBIAN_FRONTEND=noninteractive timeout --kill-after=15s 240s apt-get "${apt_options[@]}" install --no-install-recommends -y glslc libvulkan-dev spirv-headers
       - name: Provision verified Robolectric runtimes
         timeout-minutes: 10
         run: python3 scripts/provision_robolectric_sdks.py
@@ -100,6 +100,7 @@ jobs:
           python3 scripts/gradle_retry.py --timeout-seconds 540 -- :app:kspDebugKotlin :app:kaptDebugKotlin --no-daemon --max-workers=1 --console=plain 2>&1 | tee audit-ksp.log
       - name: Compile production sources in a separate process
         timeout-minutes: 20
+        id: production_compile
         shell: bash
         run: |
           set -o pipefail
@@ -134,7 +135,7 @@ jobs:
       - name: Debug APK build
         timeout-minutes: 20
         id: apk
-        if: ${{ !cancelled() && steps.environment.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.production_compile.outcome == 'success' }}
         shell: bash
         run: |
           set -o pipefail
@@ -168,7 +169,7 @@ jobs:
           python3 scripts/gradle_retry.py --timeout-seconds 1140 -- --no-daemon --max-workers=1 --stacktrace :app:assembleDebug '-Dorg.gradle.jvmargs=-Xmx3072m -XX:MaxMetaspaceSize=1024m -Djava.util.concurrent.ForkJoinPool.common.parallelism=2 -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8' 2>&1 | tee audit-apk.log
       - name: Android lint
         timeout-minutes: 35
-        if: ${{ !cancelled() && steps.environment.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.production_compile.outcome == 'success' }}
         shell: bash
         run: |
           set -o pipefail

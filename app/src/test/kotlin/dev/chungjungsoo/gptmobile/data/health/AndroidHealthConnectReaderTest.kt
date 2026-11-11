@@ -33,7 +33,7 @@ class AndroidHealthConnectReaderTest {
     private val client = mockk<HealthConnectClient>()
     private val permissions = mockk<PermissionController>()
     private val now = Instant.parse("2026-10-11T19:00:00Z")
-    private val query = HealthQuery(now.minusSeconds(3600), now, ZoneId.of("UTC"))
+    private val query = HealthQuery(now.minusSeconds(3600), now, ZoneId.of("UTC"), requestedAt = now)
 
     init {
         every { client.permissionController } returns permissions
@@ -74,8 +74,7 @@ class AndroidHealthConnectReaderTest {
             HealthMetric.STEPS.permission,
             HEALTH_HISTORY_PERMISSION
         )
-        val current = Instant.now()
-        val oldQuery = query.copy(start = current.minus(Duration.ofDays(60)), end = current)
+        val oldQuery = query.copy(start = now.minus(Duration.ofDays(60)))
         val error = runCatching { AndroidHealthConnectReader(client).read("summary", oldQuery) }.exceptionOrNull()
         assertTrue(error is IllegalArgumentException)
         assertTrue(error?.message.orEmpty().contains("explicit local import"))

@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AccountTree
 import androidx.compose.material.icons.outlined.Code
@@ -26,13 +28,18 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.AbsoluteAlignment
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
@@ -50,7 +57,8 @@ internal fun GraphMiniMap(nodes: List<JsonObject>, edges: List<JsonObject>, sele
     val bubbleHeight = (56.dp + 32.dp * density.fontScale).coerceAtLeast(88.dp)
     val graphHeight = if (nodes.size > 6) (bubbleHeight + 8.dp) * ((nodes.size + 2) / 3) else (bubbleHeight * 3.5f).coerceAtLeast(310.dp)
     BoxWithConstraints(
-        Modifier.fillMaxWidth().height(graphHeight)
+        Modifier.fillMaxWidth().height(graphHeight).clip(RoundedCornerShape(20.dp))
+            .background(Brush.verticalGradient(listOf(colors.primary.copy(alpha = .035f), colors.surfaceContainer.copy(alpha = .65f))))
             .testTag("github_repository_bubble_network")
             .semantics { contentDescription = "Interactive repository network with ${nodes.size} source-backed bubbles" },
         // Canvas coordinates are physical; bubble placement must use the same
@@ -78,8 +86,19 @@ internal fun GraphMiniMap(nodes: List<JsonObject>, edges: List<JsonObject>, sele
             }
         }
         val nodeIndices = remember(nodes) { nodes.mapIndexed { index, node -> node.graphText("id") to index }.toMap() }
+        val visibleEdges = remember(edges, nodeIndices) { edges.filter { it.graphText("source") in nodeIndices && it.graphText("target") in nodeIndices } }
         Canvas(Modifier.fillMaxSize()) {
-            edges.forEach { edge ->
+            val grid = 24.dp.toPx()
+            var x = grid / 2
+            while (x < size.width) {
+                var y = grid / 2
+                while (y < size.height) {
+                    drawCircle(colors.outlineVariant.copy(alpha = .45f), radius = .7.dp.toPx(), center = Offset(x, y))
+                    y += grid
+                }
+                x += grid
+            }
+            visibleEdges.forEach { edge ->
                 val source = nodeIndices[edge.graphText("source")] ?: return@forEach
                 val target = nodeIndices[edge.graphText("target")] ?: return@forEach
                 if (source == target) return@forEach
@@ -94,10 +113,16 @@ internal fun GraphMiniMap(nodes: List<JsonObject>, edges: List<JsonObject>, sele
                 val from = start + unit * 25.dp.toPx()
                 val to = end - unit * 25.dp.toPx()
                 val focused = selectedId != null && (nodes[source].graphText("id") == selectedId || nodes[target].graphText("id") == selectedId)
-                val color = if (focused) colors.primary else colors.outline.copy(alpha = .6f)
-                drawLine(color, from, to, strokeWidth = if (focused) 2.dp.toPx() else 1.5.dp.toPx())
-                val arrow = unit * 7.dp.toPx()
-                val wing = Offset(-unit.y, unit.x) * 3.5.dp.toPx()
+                val color = if (focused) colors.primary else colors.outline.copy(alpha = if (selectedId == null) .6f else .25f)
+                val control = (from + to) / 2f + Offset(-unit.y, unit.x) * (length * .08f).coerceAtMost(18.dp.toPx())
+                val path = Path().apply {
+                    moveTo(from.x, from.y)
+                    quadraticBezierTo(control.x, control.y, to.x, to.y)
+                }
+                drawPath(path, color, style = Stroke(width = if (focused) 2.5.dp.toPx() else 1.5.dp.toPx()))
+                val tangent = (to - control) / (to - control).getDistance().coerceAtLeast(1f)
+                val arrow = tangent * 7.dp.toPx()
+                val wing = Offset(-tangent.y, tangent.x) * 3.5.dp.toPx()
                 drawLine(color, to, to - arrow + wing, strokeWidth = 1.5.dp.toPx())
                 drawLine(color, to, to - arrow - wing, strokeWidth = 1.5.dp.toPx())
             }
@@ -108,6 +133,7 @@ internal fun GraphMiniMap(nodes: List<JsonObject>, edges: List<JsonObject>, sele
             val path = node.graphText("path", node.graphText("qualified", name))
             val kind = node.graphText("kind")
             val isSelected = id == selectedId
+            val connections = visibleEdges.count { it.graphText("source") == id || it.graphText("target") == id }
             val accent = when (kind.lowercase()) {
                 "community", "module", "package" -> colors.tertiary
                 "file" -> colors.secondary
@@ -120,12 +146,13 @@ internal fun GraphMiniMap(nodes: List<JsonObject>, edges: List<JsonObject>, sele
                     .semantics {
                         selected = isSelected
                         contentDescription = path
+                        stateDescription = "$connections visible source connections"
                     }
                     .clickable(role = Role.Button, onClickLabel = "Inspect source") { onSelect(node) },
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                Surface(shape = CircleShape, color = accent.copy(alpha = if (isSelected) .24f else .12f), border = BorderStroke(if (isSelected) 2.dp else 1.dp, accent), modifier = Modifier.size(48.dp)) {
+                Surface(shape = CircleShape, color = if (isSelected) accent.copy(alpha = .24f) else colors.surfaceContainerHigh, border = BorderStroke(if (isSelected) 2.dp else 1.dp, accent.copy(alpha = if (isSelected) 1f else .65f)), shadowElevation = if (isSelected) 3.dp else 1.dp, modifier = Modifier.size(48.dp)) {
                     androidx.compose.foundation.layout.Box(contentAlignment = Alignment.Center) {
                         Icon(
                             when (kind.lowercase()) {

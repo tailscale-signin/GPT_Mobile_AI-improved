@@ -27,7 +27,7 @@ class GitHubChatProgressTest {
         clock = 3000
         val preview = progress.tick().filterIsInstance<ApiState.ProgressCheckpoint>().single().text
         assertTrue(preview.contains("Job 123"))
-        assertTrue(preview.contains("observed result"))
+        assertTrue(preview.length < 100)
         assertFalse(preview.contains("failing") || preview.contains("error"))
     }
 
@@ -67,7 +67,8 @@ class GitHubChatProgressTest {
         progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_completed", toolName = "github_read")))
         clock = 15_000
         val summary = progress.tick().filterIsInstance<ApiState.ActivitySummary>().single().text
-        assertTrue(summary.contains("completed 1"))
+        assertEquals(1, progress.summarySnapshot().completed)
+        assertTrue(summary.contains("source read", ignoreCase = true))
         assertTrue(summary.contains("Next"))
         assertTrue(summary.split(Regex("\\s+")).size >= 20)
     }
@@ -99,8 +100,9 @@ class GitHubChatProgressTest {
         progress.observe(ApiState.Thinking("All changes succeeded; private reasoning"))
         clock = 15_000
         val summary = progress.tick().filterIsInstance<ApiState.ActivitySummary>().single().text
-        assertTrue(summary.contains("no repository operation has completed"))
-        assertTrue(summary.contains("1 operations need recovery"))
+        assertEquals(0, progress.summarySnapshot().completed)
+        assertEquals(1, progress.summarySnapshot().failed)
+        assertTrue(summary.contains("failed"))
         assertFalse(summary.contains("succeeded") || summary.contains("private reasoning"))
     }
 
@@ -158,7 +160,8 @@ class GitHubChatProgressTest {
         val completed = ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_completed", jobId = "job", sequence = 7, toolName = "github_read"))
         repeat(3) { progress.observe(completed) }
         clock = 15_000
-        assertTrue(progress.tick().filterIsInstance<ApiState.ActivitySummary>().single().text.contains("completed 1 repository operations"))
+        assertTrue(progress.tick().any { it is ApiState.ActivitySummary })
+        assertEquals(1, progress.summarySnapshot().completed)
     }
 
     @Test fun sameCallIdInDifferentJobsIsCountedSeparately() {
@@ -170,7 +173,8 @@ class GitHubChatProgressTest {
             progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_finished", jobId = job, sequence = 2, toolCallId = "call", toolName = "github_read")))
         }
         clock = 15_000
-        assertTrue(progress.tick().filterIsInstance<ApiState.ActivitySummary>().single().text.contains("completed 2 repository operations"))
+        assertTrue(progress.tick().any { it is ApiState.ActivitySummary })
+        assertEquals(2, progress.summarySnapshot().completed)
     }
 
     @Test fun newerFailureReplacesPendingProseWithCurrentRecoveryFacts() {
@@ -182,7 +186,8 @@ class GitHubChatProgressTest {
         clock = 15_000
         val summary = progress.tick().filterIsInstance<ApiState.ActivitySummary>().single()
         assertFalse(summary.modelAuthored)
-        assertTrue(summary.text.contains("1 operations need recovery"))
+        assertTrue(summary.text.contains("failed"))
+        assertEquals(1, progress.summarySnapshot().failed)
     }
 
     @Test fun selectedProseIsDeliveredBeforeTheNextToolEventWithoutWaitingForTheTicker() {
@@ -211,5 +216,98 @@ class GitHubChatProgressTest {
         assertEquals(first, progress.forward(first))
         assertEquals(second, progress.forward(second))
         assertEquals(null, progress.forward(ApiState.ProgressCheckpoint("Reviewing the latest result.")))
+    }
+
+    @Test fun selectedPublicFindingsSurviveLaterToolTicksUntilNewFindingsOrAProblem() {
+        var clock = 0L
+        val progress = GitHubChatProgress("Inspect the build") { clock }
+        progress.tick()
+        val prose = ApiState.ActivitySummary("The workflow uses the same validation command as the local build. I’ll inspect the job log to identify the actual failing diagnostic before choosing a repair.", modelAuthored = true)
+        assertEquals(prose, progress.forward(prose))
+        progress.forward(ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_started", toolName = "github_ci", toolCallId = "logs")))
+        clock = 15_000
+        assertTrue(progress.tick().none { it is ApiState.ActivitySummary })
+        progress.forward(ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_completed", toolName = "github_ci", toolCallId = "logs")))
+        clock = 30_000
+        assertTrue(progress.tick().none { it is ApiState.ActivitySummary })
+        assertEquals(prose.text, progress.heartbeat())
+        assertEquals(null, progress.forward(ApiState.ActivitySummary("A generic application summary cannot displace selected-model findings.")))
+    }
+
+    @Test fun deterministicFallbackIsAdmittedAndRepeatedResultCountersDoNotCreateNewProse() {
+        var clock = 0L
+        val progress = GitHubChatProgress("Inspect source") { clock }
+        progress.tick()
+        val args = kotlinx.serialization.json.Json.parseToJsonElement("""{"ranges":[{"path":"src/Reader.kt"}]}""") as kotlinx.serialization.json.JsonObject
+        progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_completed", toolName = "github_read", toolCallId = "first", toolArgs = args)))
+        val fallback = ApiState.ActivitySummary(GitHubProgressNarrator.factualSummary(progress.summarySnapshot()))
+        assertEquals(fallback, progress.forward(fallback))
+        assertTrue(fallback.text.contains("Reader.kt"))
+        progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_completed", toolName = "github_read", toolCallId = "second", toolArgs = args)))
+        clock = 15_000
+        assertTrue(progress.tick().none { it is ApiState.ActivitySummary })
+        assertEquals(2, progress.summarySnapshot().completed)
+        assertFalse(progress.heartbeat().contains("2 repository operations"))
+    }
+
+    @Test fun mutationResultsRemainUnverifiedAndRawBodiesNeverBecomeProgress() {
+        var clock = 0L
+        val progress = GitHubChatProgress("Fix the source") { clock }
+        progress.tick()
+        val args = kotlinx.serialization.json.Json.parseToJsonElement("""{"branch":"repair","commit_sha":"${"a".repeat(40)}"}""") as kotlinx.serialization.json.JsonObject
+        progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_completed", toolName = "github_commit", toolCallId = "proposal", toolArgs = args, toolResult = "private tool payload: all tests passed and committed")))
+        clock = 15_000
+        val summary = progress.tick().filterIsInstance<ApiState.ActivitySummary>().single().text
+        assertTrue(summary.contains("repair") && summary.contains("verification"))
+        assertFalse(summary.contains("private tool payload") || summary.contains("tests passed") || summary.contains("committed"))
+        assertFalse(summary.contains("a".repeat(12)))
+        assertTrue(GitHubChatProgress.milestone("github_commit", false, false, args).contains("verification pending"))
+    }
+
+    @Test fun skippedAndBlockedEventsReplaceStaleAuthoredProgressWithoutCountingSuccess() {
+        listOf("tool_skipped", "tool_blocked").forEach { event ->
+            var clock = 0L
+            val progress = GitHubChatProgress("Validate change") { clock }
+            progress.tick()
+            progress.forward(ApiState.ActivitySummary("I’m examining the requested validation and will report its actual result when the current operation returns.", modelAuthored = true))
+            progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_started", toolName = "github_ci", toolCallId = "validate")))
+            progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(event = event, toolName = "github_ci", toolCallId = "validate")))
+            clock = 15_000
+            val summary = progress.tick().filterIsInstance<ApiState.ActivitySummary>().single()
+            assertFalse(summary.modelAuthored)
+            assertTrue(summary.text.contains(if (event == "tool_skipped") "skipped" else "blocked"))
+            assertEquals(0, progress.summarySnapshot().completed)
+            assertEquals(0, progress.summarySnapshot().pending)
+            assertEquals(1, progress.summarySnapshot().skipped + progress.summarySnapshot().blocked)
+        }
+    }
+
+    @Test fun aLegacyFailedFinishAndEarlierFailureSurviveLaterSuccessfulReads() {
+        var clock = 0L
+        val progress = GitHubChatProgress("Inspect changes") { clock }
+        progress.tick()
+        progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_finished", status = "failed", toolName = "github_ci", toolCallId = "failed")))
+        repeat(9) { index ->
+            val args = kotlinx.serialization.json.Json.parseToJsonElement("""{"path":"Source$index.kt"}""") as kotlinx.serialization.json.JsonObject
+            progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_completed", toolName = "github_read", toolCallId = "read-$index", toolArgs = args)))
+        }
+        clock = 15_000
+        val summary = progress.tick().filterIsInstance<ApiState.ActivitySummary>().single().text
+        assertTrue(summary.contains("failed") && summary.contains("Source8.kt"))
+        assertEquals(9, progress.summarySnapshot().completed)
+        assertEquals(1, progress.summarySnapshot().failed)
+    }
+
+    @Test fun gatewayCounterTemplateCannotReplaceTheCurrentConcretePreview() {
+        var clock = 0L
+        val progress = GitHubChatProgress("Inspect source") { clock }
+        progress.tick()
+        val args = kotlinx.serialization.json.Json.parseToJsonElement("""{"path":"src/Reader.kt"}""") as kotlinx.serialization.json.JsonObject
+        progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_started", toolName = "github_read", toolCallId = "read", toolArgs = args)))
+        progress.observe(ApiState.ProgressCheckpoint("10 tool calls finished. Recent work: github read, github context."))
+        clock = 3000
+        val preview = progress.tick().filterIsInstance<ApiState.ProgressCheckpoint>().single().text
+        assertTrue(preview.contains("Reader.kt"))
+        assertFalse(preview.contains("tool calls") || preview.contains("10"))
     }
 }

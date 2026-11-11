@@ -34,16 +34,46 @@ def _evidence_path(reference):
 
 
 def _check_acceptance_receipt(case, path):
-    # Our committed machine-generated fixture receipts have a known schema.
-    # A file path alone is not proof that this specific case/commit passed.
-    if path.parent != (SCOPE / 'evidence').resolve() or path.suffix != '.json':
-        return
+    # A source file, report, or unqualified metadata blob cannot certify PASS.
+    # The two original committed fixture receipts already use this case-bound format.
+    _require(path.parent == (SCOPE / 'evidence').resolve() and path.suffix == '.json',
+             f"{case['id']}: PASS requires a scoped machine-readable case receipt")
     receipt = json.loads(path.read_text(encoding='utf-8'))
     _require(receipt.get('commit') == case['commit'],
              f"{case['id']}: fixture receipt commit does not match declared commit")
     fixtures = receipt.get('acceptance_fixtures', {}).get(case['id'], [])
-    _require(bool(fixtures) and all(row.get('outcome') == 'PASS' for row in fixtures),
+    _require(isinstance(fixtures, list) and bool(fixtures) and
+             all(isinstance(row, dict) and row.get('outcome') == 'PASS' and
+                 isinstance(row.get('test'), str) and row['test'].strip()
+                 for row in fixtures),
              f"{case['id']}: fixture receipt has no passing case evidence")
+
+
+def _check_done_receipts(task, references):
+    # A plain source file or baseline document is not DONE evidence.
+    # Reviewers must validate execution details externally before committing receipts.
+    qualified = False
+    for reference in references:
+        path = _evidence_path(reference)
+        if path.parent != (SCOPE / 'evidence').resolve() or path.suffix != '.json':
+            continue
+        receipt = json.loads(path.read_text(encoding='utf-8'))
+        if receipt.get('schema') != 'unified-reliability-v2-task-verification.v1':
+            continue
+        _require(receipt.get('task_id') == task['id'], f"{task['id']}: task receipt identity mismatch")
+        _require(receipt.get('implementation_commits') == task.get('implementation_commits'),
+                 f"{task['id']}: task receipt revision mismatch")
+        _require(set(receipt.get('acceptance_ids', [])) == set(task['acceptance_ids']),
+                 f"{task['id']}: task receipt acceptance scope mismatch")
+        proof = receipt.get('proof', {})
+        _require(proof.get('reviewed') is True and
+                 isinstance(proof.get('reviewer'), str) and bool(proof['reviewer'].strip()) and
+                 isinstance(proof.get('command'), str) and bool(proof['command'].strip()) and
+                 isinstance(proof.get('artifact_sha256'), str) and
+                 bool(re.fullmatch(r'[a-f0-9]{64}', proof['artifact_sha256'])),
+                 f"{task['id']}: task receipt needs reviewed command and artifact digest")
+        qualified = True
+    _require(qualified, f"{task['id']}: DONE needs a reviewed structured task receipt")
 
 
 def validate(require_done=False):
@@ -82,6 +112,7 @@ def validate(require_done=False):
             _require(all(case_by_id[case_id]['outcome'] == 'PASS'
                          for case_id in task['acceptance_ids']),
                      f"{task['id']}: required acceptance case not passed")
+            _check_done_receipts(task, task.get('evidence', []))
 
     for case in cases:
         _require(case['outcome'] in {'NOT_RUN', 'PASS', 'FAIL', 'BLOCKED'},

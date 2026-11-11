@@ -5,7 +5,7 @@ Android closes, loses its network, or restarts. The gateway makes bounded llama
 requests, saves each phase and operation receipt in its SQLite job database,
 and owns execution independently of the HTTP request or phone process.
 
-These are additive Gateway 15 workflow capabilities in the existing 14.3
+These are additive Gateway 16 workflow capabilities in the existing 14.3
 package layout. Install the whole package and manifest through the v14 upgrade
 procedure; replacing a single launcher is insufficient.
 
@@ -15,9 +15,11 @@ procedure; replacing a single launcher is insufficient.
 2. Choose **Autonomous engineering → Start job** in the conversation. Enter the
    objective, dedicated working branch and PR base. Starting authorizes reviewed
    changes on that working branch and draft PR publication.
-3. Choose 3, 6 or 12 hours, or **Until done**. The default is 3 hours and five
-   repair attempts per failure. Until done has a 72-hour hard limit, 256 workflow
-   steps and 20 total repairs. No setting authorizes a merge.
+3. New jobs default to **Ultra Maximum**: up to 24 hours, 512 model invocations
+   and 2,097,152 aggregate model tokens, with five repair attempts per failure.
+   Smaller saved duration and budget choices remain authoritative. The existing
+   **Until done** setting has a 72-hour hard limit; all jobs retain the 256-step
+   and 20-total-repair bounds. No setting authorizes a merge.
 4. Close the app if needed. Keep the gateway host and llama server running.
    Opening the same conversation loads the saved job immediately and fetches
    all missed update pages, without creating a replacement job. **Updates**
@@ -35,6 +37,24 @@ stores the pending create key before dispatch and reuses it after a lost
 response. Backup restore maps the local conversation by stable identity while
 preserving the original remote request, job ID and authorization binding.
 
+The gateway advertises its supported durations and execution-budget limits.
+Android records both the requested and effective allowance before admission;
+the saved-work panel labels it **Accepted** only when the server returns the
+budget receipt. An older host's 12-hour/256-model-call ceiling is shown as a
+lower host allowance rather than a 24-hour Ultra job. Lower engineering modes
+request smaller budgets, and explicit profile/run limits remain in force.
+Native GitHub's separate 512-tool-call Ultra ceiling is not a model-invocation
+count. New non-free profiles use the default profile allowance so that this
+native ceiling is reachable; saved caps, including historical 50 or 100, are
+not upgraded or bypassed.
+
+New admission stores every effective budget field with the request. A retry
+after a lost response reconciles against that accepted snapshot before applying
+current defaults. Legacy jobs without a budget snapshot keep their original
+three-hour request default and 128-model-call/4,194,304-token runtime fallback.
+Selected-model identity, provider output/context limits, cancellation and
+verification/final-report reserves remain authoritative.
+
 ## Host setup
 
 Follow [V14_UPGRADE.md](V14_UPGRADE.md) for the private listener, durable state
@@ -43,13 +63,35 @@ must remain enabled. The existing `GATEWAY_JOB_DB` holds engineering jobs,
 dispatch intents, receipts and update events. Back it up with the gateway
 stopped; retained source and logs require the same protection as the repository.
 
-Autonomous execution needs a GitHub credential on the host, independent of the
-phone's native GitHub connection. Select an already configured, enabled MCP
-connection using `GATEWAY_ENGINEERING_GITHUB_SERVER`, whose `env` contains
-`GITHUB_PERSONAL_ACCESS_TOKEN` or `GITHUB_TOKEN`. Alternatively configure
-`GATEWAY_ENGINEERING_GITHUB_TOKEN` in the host's protected service environment.
-Credentials are resolved for each request and never included in job snapshots
-or Android backups. Jobs stop if the GitHub account changes.
+Autonomous execution uses a GitHub credential configured on the selected gateway
+host. The phone's native GitHub connection remains on the phone. Host credential
+selection follows this order:
+
+1. `GATEWAY_ENGINEERING_GITHUB_SERVER` selects one existing enabled MCP entry from
+   that gateway's configured MCP file. Its protected `env` supplies
+   `GITHUB_PERSONAL_ACCESS_TOKEN` or `GITHUB_TOKEN`. An invalid or disabled explicit
+   selection stops admission; it never falls through to another account.
+2. With no selector, `GATEWAY_ENGINEERING_GITHUB_TOKEN` supplies an explicitly
+   configured engineering credential from the host's protected service environment.
+3. With neither setting, exactly one enabled `github-official` or `github-codefirst`
+   entry is used automatically. Multiple enabled candidates require an explicit
+   selector. Unrelated MCP entries and process-wide `GITHUB_TOKEN`/`GH_TOKEN`
+   values are never searched for a substitute.
+
+The managed desktop launcher preserves these two explicit engineering settings
+while retaining its own listener, identity, consent and state-directory settings.
+Use the desktop's selected MCP configuration file, or its default `data/mcp.json`.
+Apply environment settings to the desktop supervisor/service process that launches
+the gateway, then use the normal restart procedure after active work permits it.
+An updated package must be installed on the host for this default selection to apply.
+
+Missing, disabled, malformed or conflicting credentials remain unavailable.
+Reusing an MCP credential also preserves its read-only/lockdown restrictions and
+GitHub destination: a connection configured for an enterprise host is not sent
+to this backend's `api.github.com` endpoint. Credentials are resolved for every
+request and never included in job snapshots or Android backups. Jobs stop if the
+GitHub account changes. This local configuration check does not verify remote
+GitHub authorization or repository access.
 
 For Tailscale principals, explicitly add `engineering` to that user's
 `GATEWAY_TRUSTED_USERS` scopes alongside the existing chat/jobs/tools grants.
@@ -67,7 +109,12 @@ requests or register a model-facing merge-approval tool.
 The versioned `readiness` object separates journal access, the configured host
 GitHub connection, and the running engineering worker. `code_graph.enabled`
 reflects the graph service's own prerequisites; graph reads do not require the
-background job worker. These local checks leave GitHub network/repository access
+background job worker. Its `checks.graph_host_github_connection` is separate from
+engineering's `host_github_connection`: read-only host GitHub configuration can
+serve source maps without authorizing engineering writes. The graph adapter
+allows GitHub GET/HEAD requests only, with no request body or engineering job.
+Lockdown-filtered connections remain unavailable because the graph does not
+implement that filter. These local checks leave GitHub network/repository access
 and model inference unverified until the corresponding operation runs. A working
 chat endpoint therefore cannot establish engineering readiness. Android caches
 the handshake for ten seconds by authenticated route, network generation and

@@ -66,7 +66,7 @@ class GatewayAPIImpl @Inject constructor(
                             socketTimeoutMillis = CAPABILITY_REQUEST_TIMEOUT_MS
                         }
                     }.execute { response ->
-                        GatewayClientDiagnostics.observe(config, response.status.value) { response.headers[it] }
+                        GatewayClientDiagnostics.observe(config, response.status.value, response.call.request.headers["traceparent"]) { response.headers[it] }
                         GatewaySurfacePolicy.shared.observe(GatewaySurfacePolicy.identity(config), GatewaySurfacePolicy.Surface.CAPABILITIES, response.status.value)
                         when {
                             response.status.value in setOf(404, 501) -> null
@@ -141,7 +141,7 @@ class GatewayAPIImpl @Inject constructor(
                 config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
                 requestHeaders.forEach { (key, value) -> header(key, value) }
             }.execute { response ->
-                GatewayClientDiagnostics.observe(config, response.status.value) { response.headers[it] }
+                GatewayClientDiagnostics.observe(config, response.status.value, response.call.request.headers["traceparent"]) { response.headers[it] }
                 if (!response.status.isSuccess()) {
                     throw GatewayEventReplayException("Gateway event replay failed with HTTP ${response.status.value}.")
                 }
@@ -200,7 +200,7 @@ class GatewayAPIImpl @Inject constructor(
                             socketTimeoutMillis = RECOVERY_REQUEST_TIMEOUT_MS
                         }
                     }.execute { response ->
-                        GatewayClientDiagnostics.observe(config, response.status.value) { response.headers[it] }
+                        GatewayClientDiagnostics.observe(config, response.status.value, response.call.request.headers["traceparent"]) { response.headers[it] }
                         when {
                             response.status.isSuccess() -> {
                                 val body = response.boundedMetadata(4 * 1024 * 1024)
@@ -251,7 +251,7 @@ class GatewayAPIImpl @Inject constructor(
                         socketTimeoutMillis = RECOVERY_REQUEST_TIMEOUT_MS
                     }
                 }.execute { response ->
-                    GatewayClientDiagnostics.observe(config, response.status.value) { response.headers[it] }
+                    GatewayClientDiagnostics.observe(config, response.status.value, response.call.request.headers["traceparent"]) { response.headers[it] }
                     if (response.status.isSuccess()) response.body<String>() else null
                 }
             } ?: return null

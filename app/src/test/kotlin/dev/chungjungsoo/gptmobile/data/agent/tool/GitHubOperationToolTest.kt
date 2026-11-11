@@ -58,6 +58,13 @@ class GitHubOperationToolTest {
         val before = observed.size
         assertTrue(search.execute("unsafe", args("""{"action":"delete","query":"checkpoint"}""")).isError)
         assertEquals(before, observed.size)
+        val invalid = search.execute("page-size", args("""{"query":"checkpoint","commit_sha":"$sha","per_page":50}"""))
+        assertFalse(invalid.dispatched)
+        assertEquals(before, observed.size)
+        val correction = (invalid.content as ToolResultContent.Json).value.jsonObject.getValue("correction_call").jsonObject
+        val corrected = correction.getValue("arguments").jsonObject
+        assertEquals(args("""{"query":"checkpoint","commit_sha":"$sha"}"""), corrected)
+        valid("github_search", corrected)
     }
 
     @Test fun structuredReadValidationPreservesPinnedCandidatesAndUsesTheActiveToolRoute() = runBlocking {

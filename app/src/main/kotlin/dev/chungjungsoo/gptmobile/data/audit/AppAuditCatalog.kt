@@ -11,9 +11,14 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
-/** Freezes the accepted scope before any live probe can run. Planning reads configuration only. */
+/** Freezes scope before live probes. Planning reads local configuration and installed identity only. */
 @Singleton
-class AppAuditCatalog @Inject constructor(sources: Set<@JvmSuppressWildcards AppAuditProbeSource>) {
+class AppAuditCatalog internal constructor(
+    sources: Set<AppAuditProbeSource>,
+    private val captureEnvironment: suspend () -> AppAuditEnvironmentIdentity? = { null }
+) {
+    @Inject constructor(sources: Set<@JvmSuppressWildcards AppAuditProbeSource>, environment: AppAuditEnvironmentCollector) : this(sources, environment::capture)
+
     private val sourcesById = sources.associateBy { it.sourceId }.also { require(it.size == sources.size) }
 
     suspend fun create(
@@ -90,7 +95,8 @@ class AppAuditCatalog @Inject constructor(sources: Set<@JvmSuppressWildcards App
             plan = plan,
             sourceAreas = AppAuditSourceInventory.areas,
             options = frozenOptions,
-            limits = limits
+            limits = limits,
+            environment = captureEnvironment()
         )
     }
 

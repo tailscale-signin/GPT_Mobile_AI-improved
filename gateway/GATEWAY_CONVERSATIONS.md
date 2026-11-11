@@ -1,6 +1,6 @@
 # Saved gateway conversations and job discovery
 
-Gateway 15 extends the existing ordinary generation worker and engineering supervisor with a shared read catalog, saved user-facing conversations and durable command receipts. The gateway owns accepted work. Disconnecting an Android observer does not issue cancellation or take ownership of worker finalization.
+Gateway 16 extends the existing ordinary generation worker and engineering supervisor with a shared read catalog, saved user-facing conversations and durable command receipts. The gateway owns accepted work. Disconnecting an Android observer does not issue cancellation or take ownership of worker finalization.
 
 These APIs use the gateway's existing admission policy. In `open_network` mode the principal remains `network:shared`; an installation ID is not a credential or an additional access control mechanism. The `/v1` prefix is optional on every route described here.
 
@@ -136,3 +136,7 @@ Active, queued and waiting records are pinned independently of terminal cache pr
 Regression coverage in `tests/test_gateway_conversations.py` and `tests/test_gateway_v14_continuity.py` exercises real SQLite transactions and ASGI routes, including schema-import rollback, bounded multipart integrity, explicit retention gaps, signed cursor recovery, pinned-source checks, lost-response replay, one assistant publication, full visible history import, scoped catalog paging, private chat exclusion, process identity changes, durable queue execution after phone detachment, generation-fenced worker finalization, restart dispatch proof, active retention, read-only task transport denial and authorization isolation. Existing jobs/engineering tests continue to cover strict journal failure, client-tool handoff, independent supervision, operation reconciliation, event paging and exact merge approval.
 
 These host tests do not constitute physical Android force-stop, Windows installer, LAN/firewall or real-provider qualification. Record those observations against the exact gateway package and APK before making corresponding release claims.
+
+## Version 16 activity evidence
+
+Snapshots and catalog rows include `job_state`, read from the same principal-scoped durable engine record. The legacy `active_job_id` remains a recovery reference and may identify a completed job; it is never evidence of current activity. Clients use a known running state for animation. Missing state from older gateways, cached observations, queued jobs, approval pauses and terminal jobs do not establish generation. Android keeps one lifecycle-owned catalog observer: 10 seconds while work is active, two minutes when idle, and bounded backoff after failures. Detaching this observer does not cancel a gateway job.

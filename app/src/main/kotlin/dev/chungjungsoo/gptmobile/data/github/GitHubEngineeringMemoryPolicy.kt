@@ -24,7 +24,7 @@ internal object GitHubEngineeringMemoryPolicy {
     }
 
     fun requirements(task: String): JsonArray {
-        val lines = task.lineSequence().map(String::trim).filter(String::isNotBlank).toList()
+        val lines = GitHubRequestCompletion.requirements(task)
         // A long task remains one exact requirement; it is never silently truncated to the first N bullets.
         val items = if (lines.size in 1..64) lines else listOf(task)
         return JsonArray(

@@ -1,11 +1,14 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.home
 
 import android.app.Application
+import android.graphics.Bitmap
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.CompositionLocalProvider
@@ -16,6 +19,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.MotionDurationScale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.WindowInfo
@@ -25,6 +29,7 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsOn
+import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -35,8 +40,11 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.ClientType
+import dev.chungjungsoo.gptmobile.data.model.ThemeMode
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAvailability
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAvailabilityStatus
+import dev.chungjungsoo.gptmobile.presentation.theme.GPTMobileTheme
+import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -84,6 +92,43 @@ class GatewayProfileAvailabilityTest {
         compose.onNodeWithText(profile.name, useUnmergedTree = true).performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layout) }
         assertTrue(layout.single().lineCount > 1)
         assertFalse(layout.single().hasVisualOverflow)
+    }
+
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    @Config(qualifiers = "w320dp-h800dp-mdpi")
+    @Test
+    fun selectedConnectionNameRemainsVisibleAboveLongRecoveryAtLargeFont() {
+        compose.setContent {
+            CompositionLocalProvider(LocalDensity provides Density(1f, fontScale = 2f)) {
+                GPTMobileTheme(themeMode = ThemeMode.DARK) {
+                    Surface(Modifier.width(320.dp).testTag("gateway_selected_connection_capture")) {
+                        GatewaySelectedConnectionHeader(
+                            profile.name,
+                            GatewayAvailability(status = GatewayAvailabilityStatus.MODEL_UNAVAILABLE, recoveryAction = "select_available_model"),
+                            Modifier.padding(16.dp)
+                        )
+                    }
+                }
+            }
+        }
+        val name = compose.onNodeWithTag("gateway_selected_connection_name").assertIsDisplayed()
+        val status = compose.onNodeWithTag("gateway_selected_connection_status").assertIsDisplayed()
+        val recovery = compose.onNodeWithTag("gateway_recovery_hint").assertIsDisplayed()
+        compose.onNodeWithText(profile.name).assertIsDisplayed()
+        val nameBounds = name.fetchSemanticsNode().boundsInRoot
+        val statusBounds = status.fetchSemanticsNode().boundsInRoot
+        assertTrue(nameBounds.width > 0f)
+        assertTrue(nameBounds.bottom <= statusBounds.top)
+        listOf(name, recovery).forEach { text ->
+            val layout = mutableListOf<TextLayoutResult>()
+            text.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layout) }
+            assertTrue(layout.single().lineCount > 1)
+            assertFalse(layout.single().hasVisualOverflow)
+        }
+        val file = File("build/reports/reliability-ui/gateway-selected-host-dark-large.png").apply { parentFile.mkdirs() }
+        val bitmap = compose.onNodeWithTag("gateway_selected_connection_capture").captureToImage().asAndroidBitmap()
+        assertEquals(320, bitmap.width)
+        file.outputStream().use { assertTrue(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) }
     }
 
     @Test fun offlineObservationsNeverDisableOrSilentlyChangeTheSavedSelection() {

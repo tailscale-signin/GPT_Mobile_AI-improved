@@ -82,7 +82,7 @@ class GatewayJobsViewModelTest {
         coEvery { repository.refresh("profile-a", any()) } returns page
         coEvery { repository.refresh("profile-b", any()) } returns page.copy(gatewayId = "other-installation", items = emptyList())
         coEvery { settings.fetchPlatformV2s() } returns listOf(PlatformV2(uid = "gateway-a", name = "Gateway A"), PlatformV2(uid = "gateway-b", name = "Gateway B"))
-        model = GatewayJobsViewModel(repository, conversations, settings, control)
+        model = GatewayJobsViewModel(repository, conversations, settings, control, dispatcher)
         owner.put("jobs", model)
     }
 
@@ -178,7 +178,7 @@ class GatewayJobsViewModelTest {
     }
 
     @Test fun leavingTheVisibleScreenStopsPollingWithoutStoppingTheJob() = runTest(StandardTestDispatcher(dispatcher.scheduler)) {
-        // Keep polling and cancellation on one scheduler; binding emits from real IO threads.
+        // Binding, polling and cancellation all use this controlled scheduler.
         val observing = backgroundScope.launch { model.visible("profile-a") }
         model.state.first { it.loaded && !it.loading }
         observing.cancelAndJoin()
@@ -239,6 +239,45 @@ class GatewayJobsViewModelTest {
         assertEquals(listOf(record), model.state.value.rows.map { it.record })
         observing.cancelAndJoin()
         coVerify(exactly = 0) { control.stop(any()) }
+    }
+
+    @Test fun repeatedCatalogFailuresAreCappedAndSuccessfulRefreshResetsTheBackoff() = runTest(StandardTestDispatcher(dispatcher.scheduler)) {
+        coEvery { repository.refresh("profile-a", any()) } throws IOException("Offline fixture")
+        val observing = backgroundScope.launch { model.visible("profile-a") }
+        runCurrent()
+        var refreshes = 1
+        for (delayMillis in listOf(10_000L, 20_000L, 40_000L, 60_000L)) {
+            assertEquals(delayMillis, model.state.value.refreshDelayMillis)
+            advanceTimeBy(delayMillis - 1)
+            runCurrent()
+            coVerify(exactly = refreshes) { repository.refresh("profile-a", null) }
+            advanceTimeBy(1)
+            runCurrent()
+            refreshes++
+            coVerify(exactly = refreshes) { repository.refresh("profile-a", null) }
+            assertEquals(listOf(record), model.state.value.rows.map { it.record })
+        }
+        assertEquals(60_000L, model.state.value.refreshDelayMillis)
+
+        coEvery { repository.refresh("profile-a", any()) } returns page
+        advanceTimeBy(60_000)
+        runCurrent()
+        assertEquals(GatewayCatalogState.CURRENT, model.state.value.catalogState)
+        assertNull(model.state.value.error)
+        assertEquals(5_000L, model.state.value.refreshDelayMillis)
+
+        coEvery { repository.refresh("profile-a", any()) } throws IOException("Offline again")
+        advanceTimeBy(4_999)
+        runCurrent()
+        coVerify(exactly = refreshes + 1) { repository.refresh("profile-a", null) }
+        advanceTimeBy(1)
+        runCurrent()
+        coVerify(exactly = refreshes + 2) { repository.refresh("profile-a", null) }
+        assertEquals(10_000L, model.state.value.refreshDelayMillis)
+        assertEquals(listOf(record), model.state.value.rows.map { it.record })
+        observing.cancelAndJoin()
+        coVerify(exactly = 0) { control.stop(any()) }
+        coVerify(exactly = 0) { conversations.queueInstruction(any(), any(), any()) }
     }
 
     @Test fun anUnverifiedConfigurationCannotDisplayCachedAccountsOrUseTheirActions() = runTest(dispatcher) {

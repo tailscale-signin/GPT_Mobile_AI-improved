@@ -8,6 +8,38 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GatewayAvailabilityReadinessTest {
+    @Test fun storageBlockerDoesNotBorrowAnUnrelatedBackendFailure() {
+        val base = readinessFixture("selected", ready = false)
+        val backend = JsonObject(
+            (base["capabilities"] as JsonObject) + mapOf(
+                "reasonCode" to JsonPrimitive("BACKEND_CONNECTION_REFUSED"),
+                "dependency" to JsonPrimitive("model_backend"),
+                "upstreamStatus" to JsonPrimitive(502)
+            )
+        )
+        val result = parseGatewayReadiness(JsonObject(base + mapOf("capabilities" to backend, "reasonCode" to JsonPrimitive("DURABLE_STORAGE_UNAVAILABLE"))), 503, "selected", 100)
+        assertEquals("DURABLE_STORAGE_UNAVAILABLE", result.reasonCode)
+        assertEquals("durable_storage", result.dependency)
+        assertEquals("restore_storage", result.recoveryAction)
+        assertNull(result.upstreamStatus)
+    }
+
+    @Test fun selectedModelRecoveryHintAndBackendStatusSurviveUnavailableReadiness() {
+        val base = readinessFixture("selected", ready = false)
+        val backend = JsonObject(
+            (base["capabilities"] as JsonObject) + mapOf(
+                "reasonCode" to JsonPrimitive("SELECTED_MODEL_LOADING"),
+                "dependency" to JsonPrimitive("selected_model"),
+                "upstreamStatus" to JsonPrimitive(503)
+            )
+        )
+        val result = parseGatewayReadiness(JsonObject(base + ("capabilities" to backend)), 503, "selected", 100)
+        assertEquals("SELECTED_MODEL_LOADING", result.reasonCode)
+        assertEquals("wait_for_model", result.recoveryAction)
+        assertEquals(503, result.upstreamStatus)
+        assertEquals("selected_model_loaded", gatewayRecoveryCondition(result.recoveryAction!!))
+    }
+
     @Test fun busyCapacityAndAdmissionAreReadFromExplicitTypedFields() {
         val base = readinessFixture("selected")
         val capabilities = base["capabilities"] as JsonObject

@@ -4,6 +4,7 @@ import java.io.Closeable
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.io.InputStream
 import java.io.Writer
 
 /** Immutable disk copies owned by one export. Always close after their bytes have been packaged. */
@@ -52,15 +53,34 @@ internal object DiagnosticLogFiles {
     const val RECENT_FILE_BYTES = 1_000_000L
     const val REDUCED_RECENT_FILE_BYTES = 32 * 1024L
 
-    fun copyTail(source: File, destination: File, maximumSourceBytes: Long): DiagnosticLogSource {
+    /** Open under the writer lock; the descriptor survives rename/unlink and its length cannot advance. */
+    class FrozenSource internal constructor(val name: String, internal val input: FileInputStream, internal val length: Long) : Closeable {
+        override fun close() = input.close()
+    }
+
+    fun freeze(source: File): FrozenSource {
+        val input = FileInputStream(source)
+        return try {
+            FrozenSource(source.name, input, input.channel.size())
+        } catch (failure: Throwable) {
+            input.close()
+            throw failure
+        }
+    }
+
+    fun copyTail(source: File, destination: File, maximumSourceBytes: Long): DiagnosticLogSource =
+        freeze(source).use { copyTail(it, destination, maximumSourceBytes) }
+
+    /** Reads, redaction and serialization happen after releasing the writer lock. */
+    fun copyTail(source: FrozenSource, destination: File, maximumSourceBytes: Long): DiagnosticLogSource {
         require(maximumSourceBytes > 0)
         var recordCount = 0L
         var truncatedRecords = 0L
         var byteCount = 0L
         var skipped = 0L
         val line = ByteArray(MAX_RECORD_BYTES)
-        FileInputStream(source).use { fileInput ->
-            val sourceBytes = fileInput.channel.size()
+        source.input.use { fileInput ->
+            val sourceBytes = source.length
             skipped = (sourceBytes - maximumSourceBytes).coerceAtLeast(0L)
             val beginsWithFragment = if (skipped > 0) {
                 fileInput.channel.position(skipped - 1)
@@ -70,7 +90,23 @@ internal object DiagnosticLogFiles {
             } else {
                 false
             }
-            fileInput.buffered(BUFFER_BYTES).use { input ->
+            val frozenInput = object : InputStream() {
+                private var remaining = sourceBytes - skipped
+                override fun read(): Int {
+                    if (remaining <= 0) return -1
+                    val next = fileInput.read()
+                    if (next >= 0) remaining--
+                    return next
+                }
+                override fun read(bytes: ByteArray, offset: Int, length: Int): Int {
+                    if (length == 0) return 0
+                    if (remaining <= 0) return -1
+                    val read = fileInput.read(bytes, offset, minOf(length.toLong(), remaining).toInt())
+                    if (read > 0) remaining -= read
+                    return read
+                }
+            }
+            frozenInput.buffered(BUFFER_BYTES).use { input ->
                 // Do not publish a fragment of the first record after seeking into a tail.
                 if (beginsWithFragment) {
                     while (true) {

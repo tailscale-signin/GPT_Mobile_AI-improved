@@ -116,6 +116,28 @@ class GitHubApprovalRecoveryTest {
         assertFalse(checkpoint["completion_verified"] == JsonPrimitive(true))
     }
 
+    @Test fun providerFailureRemainsPrimaryAndRetainsUnresolvedApprovalAsSecondaryEvidence() {
+        val prior = buildJsonObject {
+            put("task_outcome", "PARTIAL")
+            put("task_state", "WAITING_FOR_APPROVAL")
+            put("blocking_condition", "WAITING_FOR_APPROVAL")
+            put("failure_code", "429")
+            put("original_failure", buildJsonObject { put("code", "429") })
+        }
+        val checkpoint = GitHubExecutionLedger.attach(prior, mapOf("pending" to pending()))
+        val ledger = checkpoint.getValue("execution_ledger").jsonObject
+        assertEquals(JsonPrimitive("PARTIAL"), checkpoint["task_state"])
+        assertEquals(JsonPrimitive("429"), checkpoint["blocking_condition"])
+        assertEquals(JsonPrimitive("INSPECT_EXECUTION_FAILURE"), ledger["recovery"])
+        assertEquals(JsonPrimitive(false), ledger["retryable_without_new_input"])
+        assertEquals(1, (ledger["pending_approvals"] as JsonArray).size)
+        assertEquals(GitHubTaskLifecycle.State.PARTIAL, GitHubTaskLifecycle.terminal(checkpoint))
+        val unknown = JsonObject(pending() + mapOf("success" to JsonPrimitive(false), "error_code" to JsonPrimitive("DISPATCH_OUTCOME_UNKNOWN")))
+        val uncertain = GitHubExecutionLedger.attach(prior, mapOf("pending" to pending(), "unknown" to unknown))
+        assertEquals(JsonPrimitive("RECONCILE_REMOTE_OUTCOME"), uncertain.getValue("execution_ledger").jsonObject["recovery"])
+        assertEquals(JsonPrimitive("RECONCILE_REMOTE_OUTCOME"), uncertain["blocking_condition"])
+    }
+
     @Test fun outcomeCategoriesKeepRemoteReadsMutationCacheAndLocalSuppressionSeparate() {
         fun observation(origin: String, result: JsonObject = JsonObject(emptyMap()), acceptedMutations: Int = 0) = buildJsonObject {
             put("success", true)
@@ -125,7 +147,9 @@ class GitHubApprovalRecoveryTest {
             put("execution", buildJsonObject { put("accepted_mutations", acceptedMutations) })
         }
         assertEquals(GitHubExecutionLedger.ObservationKind.REMOTE_API_SUCCESS, GitHubExecutionLedger.observationKind(observation("LIVE")))
-        assertEquals(GitHubExecutionLedger.ObservationKind.MUTATION_COMPLETED, GitHubExecutionLedger.observationKind(observation("LIVE", acceptedMutations = 1)))
+        assertEquals(GitHubExecutionLedger.ObservationKind.MUTATION_ACCEPTED, GitHubExecutionLedger.observationKind(observation("LIVE", acceptedMutations = 1)))
+        val verifiedMutation = JsonObject(observation("LIVE", buildJsonObject { put("receipt_verified", true) }, acceptedMutations = 1) + ("remote_mutation" to JsonPrimitive(true)))
+        assertEquals(GitHubExecutionLedger.ObservationKind.MUTATION_VERIFIED, GitHubExecutionLedger.observationKind(verifiedMutation))
         assertEquals(GitHubExecutionLedger.ObservationKind.CACHE_HIT, GitHubExecutionLedger.observationKind(observation("CACHED")))
         assertEquals(GitHubExecutionLedger.ObservationKind.LOCAL_RESULT, GitHubExecutionLedger.observationKind(observation("LOCAL")))
         assertEquals(GitHubExecutionLedger.ObservationKind.SUPPRESSED, GitHubExecutionLedger.observationKind(observation("LOCAL", buildJsonObject { put("schema", "github.repeat.v1") })))

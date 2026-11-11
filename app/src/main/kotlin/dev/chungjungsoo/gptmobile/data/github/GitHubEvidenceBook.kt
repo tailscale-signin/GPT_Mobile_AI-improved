@@ -32,7 +32,8 @@ internal class GitHubEvidenceBook(
     private val retentionLimitRecords: Int = 4096,
     private val retentionLimitBytes: Int = 16 * 1024 * 1024,
     private val runtimeIdentity: () -> JsonObject = GitHubRuntimeIdentity::current,
-    private val readSources: Set<String> = emptySet()
+    private val readSources: Set<String> = emptySet(),
+    authorizationRevision: String? = null
 ) {
     init {
         require(retentionLimitRecords in 1..4096)
@@ -47,6 +48,7 @@ internal class GitHubEvidenceBook(
     private var epoch = 0L
     private var observedHead: String? = null
     private var overflow = false
+    private val authorizationDigest = authorizationRevision?.takeIf(String::isNotBlank)?.let(::digest)
 
     private fun attemptKey(tool: String, arguments: JsonObject): AttemptKey =
         GitHubActionIdentity.digest(binding, repository, tool, arguments)?.let { AttemptKey(tool, JsonObject(emptyMap()), it) }
@@ -92,12 +94,14 @@ internal class GitHubEvidenceBook(
             else -> null
         }
         // Originals remain immutable. The current proof decision is a separate projection.
-        return JsonObject(
-            saved.filterKeys { it !in setOf("verification_eligible", "exclusion_reason") } + buildJsonObject {
+        val current = JsonObject(
+            saved.filterKeys { it !in setOf("verification_eligible", "exclusion_reason", GitHubPolicyReadRecovery.REVALIDATED) } + buildJsonObject {
                 put("verification_eligible", exclusion == null && saved["trusted"] == JsonPrimitive(true))
                 exclusion?.let { put("exclusion_reason", it) }
             }
         )
+        val revalidated = GitHubPolicyReadRecovery.revalidated(current, authorizationDigest)
+        return if (revalidated == null) current else JsonObject(current + (GitHubPolicyReadRecovery.REVALIDATED to JsonPrimitive(revalidated)))
     }
 
     suspend fun observe(call: ProviderEvent.ToolCall, result: AgentToolResult) = mutex.withLock {
@@ -164,11 +168,14 @@ internal class GitHubEvidenceBook(
             if (remoteChange || !result.isError && headObservation && head != null && observedHead != null && head != observedHead) epoch++
             if (!result.isError && head != null && (headObservation || remoteChange)) observedHead = head
         }
+        val sourceSerialization = content.toString()
+        val sourceDigest = digest(sourceSerialization)
         val receipt = buildJsonObject {
             put("schema", "github.evidence.v1")
             put("receipt_id", id)
             put("binding", binding)
             put("call_id", call.callId)
+            put("original_invocation_fingerprint", call.originalInvocationFingerprint ?: digest("${call.callId}:${call.name}:${call.arguments}"))
             put("tool", call.name)
             put("repository", evidenceRepository)
             put(
@@ -184,6 +191,7 @@ internal class GitHubEvidenceBook(
                 }
             )
             put("runtime_identity", runtimeIdentity())
+            authorizationDigest?.let { put(GitHubPolicyReadRecovery.AUTHORITY, it) }
             put("branch", targetBranch)
             put("workspace_branch", branch)
             val resourceBranch = (root?.get("head_branch") as? JsonPrimitive)?.contentOrNull
@@ -224,6 +232,7 @@ internal class GitHubEvidenceBook(
             put("shared_result", result.sharedResult)
             put("evidence_origin", origin)
             put("remote_mutation", mutation)
+            put("remote_mutation_scope", "OPERATION_CLASSIFICATION_NOT_PROOF_OF_DISPATCH")
             if (result.retainedContent != null && result.executionReceipt?.get("retained_original_complete") == JsonPrimitive(true)) {
                 put("retained_result_complete", true)
                 put("retained_remote_continuations", result.executionReceipt?.get("retained_remote_continuations") ?: kotlinx.serialization.json.JsonArray(emptyList()))
@@ -238,6 +247,7 @@ internal class GitHubEvidenceBook(
                 }
             )
             result.executionReceipt?.let { put("execution", it) }
+            result.executionReceipt?.get("semantic_summary")?.let { put("semantic_summary", it) }
             put("error_code", result.errorCode?.let(::JsonPrimitive) ?: JsonNull)
             put("result", content)
             val visible = when (val body = result.content) {
@@ -249,18 +259,25 @@ internal class GitHubEvidenceBook(
             if (!result.isError && operation != null && effectiveArguments["view_cursor"] == null) {
                 GitHubInventoryObservation.capture(content, visible)?.let { put("inventory_observation", it) }
             }
-            put("result_sha256", digest(content.toString()))
-            put("result_bytes", content.toString().encodeToByteArray().size)
+            put("result_sha256", sourceDigest)
+            put("source_result_sha256", sourceDigest)
+            put("hash_scope", "IMMUTABLE_SOURCE_RESULT")
+            visible?.let {
+                put("projection_sha256", digest(it.toString()))
+                put("projection_hash_scope", "MODEL_VISIBLE_RESULT")
+            }
+            put("result_bytes", sourceSerialization.encodeToByteArray().size)
         }
         // The bounded review projection must not discard the durable receipt of an
         // already executed mutation. Persist first; capacity only blocks verification.
+        val classified = JsonObject(receipt + ("operation_outcome" to GitHubOperationOutcome.snapshot(receipt)))
         try {
-            saveReceipt(id, receipt)
+            saveReceipt(id, classified)
         } catch (failure: Exception) {
             overflow = true // A transient storage error must not turn an unpersisted receipt into proof.
             throw failure
         }
-        retain(id, receipt)
+        retain(id, classified)
     }
 
     private fun retain(id: String, value: JsonObject) {
@@ -549,9 +566,9 @@ internal class GitHubEvidenceBook(
         save("policy_" + digest(policy.toString()).take(24), policy)
     }
 
-    suspend fun retainProgress(task: String, tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition>, failureCode: String? = null, failure: ProviderEvent.Failed? = null) {
+    suspend fun retainProgress(task: String, tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition>, failureCode: String? = null, failure: ProviderEvent.Failed? = null, remainingToolCalls: Int? = null) {
         val (receipts, _) = snapshot()
-        val checkpoint = GitHubTestChecklist.checkpoint(task, receipts, tools)
+        val checkpoint = GitHubTestChecklist.checkpoint(task, receipts, tools, remainingToolCalls)
         val retention = retentionStatus()
         val previous = diagnostic() ?: load("verification_current_" + digest(binding).take(24))
         if (previous == null) {

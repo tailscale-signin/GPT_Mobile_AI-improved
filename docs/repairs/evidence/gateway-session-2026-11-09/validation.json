@@ -1,0 +1,130 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "branch": "fix/audit-execution-recovery-2026-11-09",
+  "parent_head": "ba0ff0a0c95bf1bf703236937f7a9939e93d45ba",
+  "base_sha": "7db0c735f9e86eaece24513fbaf5c0a624f13822",
+  "checks": {
+    "canonical_fast": {
+      "passed": 444
+    },
+    "gateway_python": {
+      "total": 727,
+      "passed": 726,
+      "skipped": 1
+    },
+    "gateway_javascript": {
+      "passed": 7
+    },
+    "engineering_after_terminal_stage_change": {
+      "passed": 68
+    },
+    "session_contract_final": {
+      "passed": 4
+    },
+    "projection_privacy_host": {
+      "passed": 147
+    },
+    "availability_host": {
+      "passed": 62
+    },
+    "support_host": {
+      "passed": 34
+    },
+    "network_clients_host": {
+      "passed": 51
+    },
+    "mcp_host": {
+      "passed": 61
+    },
+    "cross_runtime_roundtrip": {
+      "approved_values": 962,
+      "passed": true
+    },
+    "ktlint": {
+      "files": 36,
+      "version": "1.3.1",
+      "passed": true
+    },
+    "android_full": {
+      "status": "BLOCKED",
+      "reason": "Gradle 9.8.0 download: Network is unreachable; resources/icons/provenance preflights passed."
+    },
+    "device_and_deployed_gateway": {
+      "status": "NOT_RUN"
+    }
+  },
+  "source_sha256": {
+    "app/src/main/assets/diagnostics/app-code-inventory.json": "cdd2b15362f5917ab6897292e8c0d3ea0b371e66c9674a73a7b44a3ae381e7fb",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/McpClientManager.kt": "bfb09f1a66ab6afb1509b4e27f485aa5a5cdefe3dcf4b431b505c7e5b3c14580",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditSourceInventory.kt": "24651d6df2d31805646293b76b9e35e3f8f3e31e162f683629759ad400b37f4a",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/LlamaCapacityRepository.kt": "264ab8e3e281440da5409b1f2755202225b153fd5cc7a0e7135290fdd330da0d",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/database/dao/AgentRunDao.kt": "9fa3592e1db2a03f1e477b4f256be91f4b9fc29654748f1be340e2fba4782341",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayConversationCommandClient.kt": "26cee23f07f213c38bf0415dbab7cc388b66b51ffadb3f7f528071cdf4558091",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayEngineeringClient.kt": "0cdc4c02fc4a5cd5281fbc1aeb2d95a256ac0aaa4cc8bcdcdb0b804f96a073e0",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayJobClient.kt": "ef19ee3633e3cd43a64dca55c440263e064011ce35b68442dba603a0def546ae",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/llama/LlamaHealthDiagnostics.kt": "3d2a22649cb8d29a82243a399326d28011f0cfc4945b1a5232bd80ae6644253d",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/OpenAIAPIImpl.kt": "ca9bce374058ad10db448fe8becc96a6eec4f3189294c28e2db27c672601c74c",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayAPIImpl.kt": "48c871ef2990e26e7d514cf3642c10397a1e114ccc979af6218283ff182cc395",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayAppDiagnosticProjection.kt": "e29827f79a54dd8d80f157c29c93b2b571e28407b9f1b8dba46be4aef8aa3e57",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayAvailability.kt": "e4b1b17aab194cdb2b19c5f883d41d1da8b6d766f89e433ce6453bc8cf0b1eaa",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayAvailabilityRepository.kt": "ad47e2358bb87207b1d6c2cf0f4e8b6ac84b0dddac40aca149ddc411ac5778f8",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayClientDiagnostics.kt": "eed1fbf2d3e35c42b5b617c0a511d815b2e8d01f98b2af755c87c92c7992ce24",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayClientExchange.kt": "59db88fc4152618f8b668dd75ea3e3559d360adc42f4199f22e883d4efc2579f",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayDashboardClient.kt": "e462a6b232b4818678dc832c2f312081610a2cb418ca8656d5014c137b898ca7",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayDashboardModels.kt": "14dc72e50a36bc4e7672e7558d9bcfb975fd59d3d8296870f9b096540ff67a91",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayDiagnosticBridge.kt": "c963d56afaa467807fa3e96afc8774f1f27bc3f821b45000402117e8df2ae129",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayDiagnosticEvent.kt": "a5a02d6a82137395e25f5c587e6a396b583b50d8dc081d7282de559a53b803ac",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayDiagnosticRecovery.kt": "6fcc03dcb07658808c8961f64d5cca55f576c1d6e42a48081301c7e1da1d7617",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayDiagnosticSchema.kt": "194c23ddcc61973e62673c2203b71765c8125ea259902de9f9d30895be49b229",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayDiagnosticSpool.kt": "c83c0b0dd6a593fc9187f49761c3a2b46a61ca9292aeb0140b6f6842f394c5ec",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayDiagnosticSupportBundle.kt": "0da3c44a42845084911fd00ab05e9a83c42b3c5d7a3cac1886423e19b908cd29",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayDiagnosticSync.kt": "56400402565ff2f5adcba571520a9ada0eef0f37ab700fdcc739b23b83d9229e",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayFrameDiagnostic.kt": "300cdc7249a80f6b10811d93563addefb49d82a6a5cdde920107eff92f8e64a6",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayObserverCancellation.kt": "9037b2490359b152cf9e07acb7f36e021f4583756c858a747905eb2156bd3bb9",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayRunDiagnosticInventory.kt": "1a7e41bc73865c8b5430cd07ecc973a2b36277784ee6081b8880eb2f9632a896",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/GatewayProfileStatus.kt": "69ad66c7b9d28c56c1309edfa223e9c4e0cdf2b364a3f2ffb9dc1836bd79f038",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GatewayDiagnosticPanel.kt": "3abe41647e9c439214affd3dab116b4d1831ad21250e985d70bed152852df6e5",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubGatewayStatusViewModel.kt": "185a2d9eae08c570fbdb84328ebc457d367822042839603cc3b25e610ce24635",
+    "app/src/main/res/values/strings.xml": "190d2e564c00db2edb330b7376e7ef97e8357558daa38130f6aa587fcf0c8dd6",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayAvailabilityReadinessTest.kt": "89918597a20650388af297ab78bdd231b9d5198e2624cf3c5a1540fc1c34b81e",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayDiagnosticSupportBundleTest.kt": "4b3588974086b0319e5ea597ce9eb7c7aeba2589c9f9a92238807cc0d47ce315",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayRunDiagnosticInventoryTest.kt": "61d75bfc0ddaf4c33c3892b5691eb5ccd1886fb884c085ab0f613a5be8c8c26c",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewaySessionDiagnosticsTest.kt": "db17ae6774534e93f4af9a844515f03987f60f5efe541777d3fde6ee322ee7dd",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubGatewayStatusViewModelTest.kt": "809a10ca731facd7ce4f2aad82930a68e3d0260971cbc4b2a25ac1e132a5604c",
+    "gateway/gateway_v14.py": "0f25f3f79d78c9324258e52f7f475026ca7b8856525afad2f841b12212d598b6",
+    "gateway/manifest-v14.json": "47fb8e32c91e99097691e8803fe7435647049034584efa95be7eb56501c3bb4d",
+    "gateway/tests/test_gateway_session_contract.py": "a680fd73ed4d941cc4912b06ddb28bd51caafa7d89a3f4d76090a690973c89f6",
+    "gateway/v14/debug.py": "65e8d677492f9766bc7033c4766fe0aec720809c124664b97ec545c0a18eed8f",
+    "gateway/v14/diagnostic_events.py": "7aa752cf3898619491e4a6de84d6cf0b46c41bf1719e48938d9e9850300d8fe9",
+    "gateway/v14/diagnostic_schema.py": "25d098fa763d2f64458b4c74d4e50080e32e66127fbd1f72c698309d8f490e5d",
+    "gateway/v14/diagnostic_support.py": "9082fce1c13e2e254e9fb3d1984778e559a260c078dc9f44e6960358bff71a63",
+    "gateway/v14/engineering.py": "f48f1e37214997b14da2cff69979427faa66c84e3b5732da8c7da5df1e167b0e",
+    "gateway/v14/engineering_report.py": "1cca9061b999fd02261027f83cc5da4dfd10ce20c23e6d47a00572b710b8ffb2",
+    "scripts/check_diagnostic_roundtrip.py": "947103edf38b7c205e707107198f22068c11b340b79064a482a42f992bcf0402",
+    "scripts/diagnostic-roundtrip/GatewayDiagnosticRoundTrip.kt": "0f02292c2f019d1e794ec400005f3e66e7cc08db23e417b9160c46c1c13df0a4",
+    "scripts/generate_diagnostic_schema.py": "57d51b52b37acda906edeb1b7e2a9e39003eb37fd2b6e8c830be279ff2bcc0a7",
+    "scripts/validate-local.sh": "02c8903cc2ad289a63b2fb2abcb911711d9fb8c9eb5137ec1902e045240072a7"
+  },
+  "log_sha256": {
+    "fast.log": "d29862fd85a6befeac6401beff3b1774da41e046d1b04e3e5b47d175a4a7c905",
+    "gateway.log": "d16fd31bc83497b53c245b572cb5a2eca9122035233f2bc7c650d15912664112",
+    "engineering-final.log": "13981a5372f346526d44546877f170d87ec344512472e62aad308d28ea92c4a8",
+    "contract-final.log": "f8ddc3f944eb1f66d649ee1a85cc521a1f16f7c215eecfeda4255b14a99e32fc",
+    "projection-tests.log": "f6b8bec383ca135d88249ef22cb69f0cfae1d24c4ceadfdb9facb0a37319513f",
+    "availability-tests.log": "e4e3fadfca2b6833569f381f967ca4c388bb60f697ff4b76687838456e2a53dc",
+    "support-tests.log": "f611735003262aa195df230137ea3eb1c88ef915afc70b0de7b984e4033cbe52",
+    "network-tests.log": "339cdc87fd1354e2eb01b8ece7f5ac94de3db3e9162a1c5808ec12dfa02f8bb7",
+    "mcp-tests.log": "fa04c73ef7989d7e0b8dd3063f367ec4a4322395f8827c9bc27431e710aab519",
+    "roundtrip.log": "7e526de59814c24eb0befcbe13fa58c68a7c2bff8401a22f7a7ed73dd5cfb90d",
+    "ktlint.log": "a6feb3968dcc32dcef48b7fb3ab939a84229336ba987e5f0e2174a51c4476663",
+    "android-full.log": "8857992a802bb519ba376b3d591ef0511b1d002dbfe6d917647d01af51e9253e"
+  },
+  "limitations": [
+    "Host Kotlin uses explicit Android/service boundaries and is not Android/Hilt/Room/Compose execution.",
+    "Counts overlap; no code coverage percentage is inferred.",
+    "One gateway test needs a bindable LAN IPv4 interface unavailable on this host.",
+    "Engineering final-stage metadata changed after the full gateway run; all 68 engineering cases and 4 contract cases then passed.",
+    "Exact published-head CI and live host/model/device qualification remain required."
+  ]
+}

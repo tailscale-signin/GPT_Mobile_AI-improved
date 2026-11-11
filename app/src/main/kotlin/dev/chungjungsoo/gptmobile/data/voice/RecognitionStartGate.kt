@@ -44,11 +44,13 @@ internal class RecognitionStartGate(private val now: () -> Long = { System.nanoT
         if (activeOwner != owner) return
         release(owner)
         val delay = if (tooManyRequests) {
-            throttles++
+            // Application retry pacing, not a claimed Android quota/reset time.
+            // Keep it across recognizer recreation and require explicit retry in the caller.
+            throttles = (throttles + 1).coerceAtMost(3)
             when (throttles) {
-                1 -> 1_000L
-                2 -> 2_500L
-                else -> 5_000L
+                1 -> 15_000L
+                2 -> 30_000L
+                else -> 60_000L
             }
         } else {
             500L

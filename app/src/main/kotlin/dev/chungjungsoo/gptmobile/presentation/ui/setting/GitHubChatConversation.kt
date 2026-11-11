@@ -40,7 +40,10 @@ internal fun GitHubChatConversation(
     onRecoveryHandled: () -> Unit = {},
     exportRequested: Boolean = false,
     onExportHandled: () -> Unit = {},
-    onProfileSettings: (String) -> Unit = {}
+    onProfileSettings: (String) -> Unit = {},
+    approvalPending: Boolean = false,
+    nativeDecisions: List<dev.chungjungsoo.gptmobile.data.github.GitHubNativeDecisionReceipt> = emptyList(),
+    bottomInteractionContent: (@Composable () -> Unit)? = null
 ) {
     key(chatId) {
         val controller = rememberNavController()
@@ -57,6 +60,10 @@ internal fun GitHubChatConversation(
                 val room by model.chatRoom.collectAsStateWithLifecycle()
                 val grouped by model.groupedMessages.collectAsStateWithLifecycle()
                 val savedRuns by model.agentRunsById.collectAsStateWithLifecycle()
+                androidx.compose.runtime.DisposableEffect(model, approvalPending) {
+                    model.bindGitHubApprovalPending(approvalPending)
+                    onDispose { model.bindGitHubApprovalPending(false) }
+                }
                 androidx.compose.runtime.LaunchedEffect(model, room.id, recoveryRequest, grouped, savedRuns) {
                     val request = recoveryRequest?.takeIf { it.chatId == chatId && it.chatId == room.id } ?: return@LaunchedEffect
                     val run = savedRuns[request.runId] ?: return@LaunchedEffect
@@ -78,7 +85,11 @@ internal fun GitHubChatConversation(
                         registerExit(null)
                     }
                 }
-                androidx.compose.runtime.CompositionLocalProvider(dev.chungjungsoo.gptmobile.presentation.ui.chat.LocalChatProgressInHeader provides true) {
+                androidx.compose.runtime.CompositionLocalProvider(
+                    dev.chungjungsoo.gptmobile.presentation.ui.chat.LocalChatProgressInHeader provides true,
+                    dev.chungjungsoo.gptmobile.presentation.ui.chat.LocalGitHubApprovalPending provides approvalPending,
+                    dev.chungjungsoo.gptmobile.presentation.ui.chat.LocalGitHubNativeDecisions provides nativeDecisions
+                ) {
                     val typography = MaterialTheme.typography
                     fun larger(style: androidx.compose.ui.text.TextStyle) = style.copy(fontSize = (style.fontSize.value + 2).sp, lineHeight = (style.lineHeight.value + 2).sp)
                     MaterialTheme(
@@ -100,7 +111,8 @@ internal fun GitHubChatConversation(
                             showTopBar = false,
                             allowResearchPanels = false,
                             exportRequestedForChatId = chatId.takeIf { exportRequested },
-                            onExportHandled = onExportHandled
+                            onExportHandled = onExportHandled,
+                            bottomInteractionContent = bottomInteractionContent
                         )
                     }
                 }
@@ -156,7 +168,7 @@ internal fun GitHubChatProgress(workspace: GitHubWorkspaceState, state: GitHubPr
         githubPresentation = true,
         statusOverride = when {
             waiting -> state.progressDescription()
-            generating -> "Response in progress"
+            generating -> null
             profileNotice != null -> profileNotice
             workspace.busy -> "Refreshing the repository"
             !active -> state.progressDescription()

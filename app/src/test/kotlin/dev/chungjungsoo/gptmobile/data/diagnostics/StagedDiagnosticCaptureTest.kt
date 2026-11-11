@@ -26,6 +26,16 @@ import org.junit.Test
 class StagedDiagnosticCaptureTest {
     private val available = DiagnosticCaptureOptions(minimumHeadroomBytes = 0)
 
+    @Test fun missingUnrecordedLogsRequireNewCaptureInsteadOfImpossibleResume() = temporary { directory ->
+        runBlocking {
+            val result = StagedDiagnosticCapture.capture(directory, "logs-disabled", listOf(stage("logs") { it.omit("TRACKING_DISABLED_NO_RETAINED_LOGS") }), available)
+            assertEquals(JsonPrimitive(false), result.manifest["continuationAvailable"])
+            assertEquals(JsonPrimitive(false), result.manifest["resumable"])
+            assertEquals(JsonPrimitive("NEW_CAPTURE_REQUIRED"), result.manifest["recoveryAction"])
+            assertTrue(result.manifest["recovery"].toString().contains("reproduce"))
+        }
+    }
+
     @Test fun stageTraceClosesOnFailureAndIsNotReopenedForReusedEvidence() = temporary { directory ->
         runBlocking {
             val observations = mutableListOf<String>()

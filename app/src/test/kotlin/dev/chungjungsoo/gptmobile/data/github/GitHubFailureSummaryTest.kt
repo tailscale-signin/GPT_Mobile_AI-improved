@@ -1,12 +1,23 @@
 package dev.chungjungsoo.gptmobile.data.github
 
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubFailureSummaryTest {
+    @Test fun policyFailureReportNamesRecordedFieldsAndPreservesTheHistoricalRejection() {
+        val receipt = Json.parseToJsonElement("""{"trusted":true,"success":false,"dispatched":false,"call_id":"comments","error_code":"DISPATCH_POLICY_CHANGED","execution":{"changed_policy_fields":["tools","private-token-value"]}}""").jsonObject
+        val report = GitHubFailureSummary.render(mapOf("comments" to receipt))
+        assertTrue(report.contains("DISPATCH_POLICY_CHANGED | 1"))
+        assertTrue(report.contains("Recorded fields: tools"))
+        assertTrue(report.contains("resume the saved task"))
+        assertFalse(report.contains("private-token-value"))
+    }
+
     @Test fun reportPreservesObservedFailuresWithoutClaimingARootCauseOrExposingRawPayloads() {
         val receipt = buildJsonObject {
             put("trusted", true)

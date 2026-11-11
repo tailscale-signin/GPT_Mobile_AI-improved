@@ -1,7 +1,5 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -24,7 +22,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -38,6 +36,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -51,9 +50,10 @@ internal fun GitHubDecisionCard(decision: GitHubChatDecision, waiting: Boolean, 
     var custom by rememberSaveable(decision.id) { mutableStateOf(false) }
     var answer by rememberSaveable(decision.id) { mutableStateOf("") }
     val colors = MaterialTheme.colorScheme
+    val shape = RoundedCornerShape(24.dp)
     Card(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).testTag("github_decision_${decision.id}"),
-        shape = RoundedCornerShape(24.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).gitHubDecisionOutline(shape, active = decision.answer == null).testTag("github_decision_${decision.id}"),
+        shape = shape,
         colors = CardDefaults.cardColors(containerColor = colors.surfaceContainerLow),
         border = BorderStroke(1.dp, colors.primary.copy(alpha = 0.3f))
     ) {
@@ -88,9 +88,8 @@ internal fun GitHubDecisionCard(decision: GitHubChatDecision, waiting: Boolean, 
                     OutlinedTextField(value = answer, onValueChange = { answer = it.take(2000) }, modifier = Modifier.fillMaxWidth().testTag("github_decision_custom"), label = { Text("Your preference") }, minLines = 2, maxLines = 5, supportingText = { Text("${answer.length}/2000") })
                     Button(onClick = { onAnswer(null, answer) }, enabled = answer.isNotBlank(), modifier = Modifier.fillMaxWidth()) { Text("Use my answer") }
                 }
-                Text(if (waiting) "Work that depends on this choice is waiting for you." else "The task was interrupted. Choosing an answer resumes it with your direction.", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
             } else {
-                Surface(color = colors.secondaryContainer, shape = RoundedCornerShape(12.dp)) { Text(decision.answer, Modifier.fillMaxWidth().padding(12.dp), color = colors.onSecondaryContainer) }
+                decision.bubble()?.let { GitHubDecisionBubble(it) }
                 if (!waiting && !decision.cancelled) Button(onClick = onResume, modifier = Modifier.fillMaxWidth()) { Text("Continue with my choice") }
             }
             TextButton(onClick = onStop) { Text("Stop this task") }
@@ -106,6 +105,10 @@ internal fun GitHubLiveProgressCard(timeline: List<dev.chungjungsoo.gptmobile.da
     }
     val lines = remember(timeline, task, search != null) { gitHubActivityLines(timeline, task, searchActive = search != null) }
     var visibleEntries by remember(task, expanded) { androidx.compose.runtime.mutableIntStateOf(20) }
+    // Saved history and rows revealed by "Show earlier" are already available;
+    // reserve the entrance fade for new arrivals during this presentation.
+    val seenEntries = remember(task) { lines.mapTo(mutableSetOf()) { (it.progressId ?: it.content) to it.statusSummary } }
+    SideEffect { lines.forEach { seenEntries.add((it.progressId ?: it.content) to it.statusSummary) } }
     Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
         val visibleLines = remember(lines, visibleEntries) { gitHubVisibleActivityLines(lines, compact = true, entryLimit = visibleEntries) }
         val latestPreview = visibleLines.lastIndex.takeIf { active && it >= 0 && !visibleLines[it].statusSummary } ?: -1
@@ -116,10 +119,11 @@ internal fun GitHubLiveProgressCard(timeline: List<dev.chungjungsoo.gptmobile.da
             }
             visibleLines.forEachIndexed { index, item ->
                 androidx.compose.runtime.key(item.progressId ?: item.content, item.statusSummary) {
+                    val animateEntry = remember { ((item.progressId ?: item.content) to item.statusSummary) !in seenEntries }
                     if (item.statusSummary) {
-                        GitHubActivitySummary(item.content)
+                        GitHubActivitySummary(item.content, animateEntry)
                     } else {
-                        GitHubActivityPreview(item.content, latest = index == latestPreview, motion = motion, search = search.takeIf { index == latestPreview && dev.chungjungsoo.gptmobile.data.github.GitHubProgressPresentation.liveKey(item.content) == null })
+                        GitHubActivityPreview(item.content, latest = index == latestPreview, motion = motion, search = search.takeIf { index == latestPreview && dev.chungjungsoo.gptmobile.data.github.GitHubProgressPresentation.liveKey(item.content) == null }, animateEntry = animateEntry)
                     }
                 }
             }
@@ -128,18 +132,28 @@ internal fun GitHubLiveProgressCard(timeline: List<dev.chungjungsoo.gptmobile.da
 }
 
 @Composable
-private fun GitHubActivitySummary(text: String) {
-    val entry = remember { Animatable(0f) }
-    LaunchedEffect(Unit) { entry.animateTo(1f, tween(300, easing = androidx.compose.animation.core.LinearEasing)) }
-    Text(
+private fun GitHubActivitySummary(text: String, animateEntry: Boolean) {
+    val entry = rememberGitHubActivityEntry(animateEntry)
+    GitHubActivityCrossfade(
         text,
-        style = MaterialTheme.typography.titleSmall,
-        color = MaterialTheme.colorScheme.onSurface,
-        // Translation changes only drawing, not text composition or measurement.
-        modifier = Modifier.graphicsLayer { translationY = (-6).dp.toPx() * (1f - entry.value) }
-            .testTag("github_activity_summary")
-            .semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite }
-    )
+        // Preserve the complete authored paragraphs. Fade only the drawing so
+        // neither scrolling nor neighbouring rows move during the entrance.
+        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp).graphicsLayer { alpha = entry.value }
+    ) { displayed, current ->
+        Text(
+            displayed,
+            style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 1.5.em),
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.fillMaxWidth().then(
+                if (current) {
+                    Modifier.testTag("github_activity_summary")
+                        .semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite }
+                } else {
+                    Modifier
+                }
+            )
+        )
+    }
 }
 
 @Composable

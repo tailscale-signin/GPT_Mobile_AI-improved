@@ -36,7 +36,7 @@ See `docs/ci-cd/modernization.md` for remaining settings and evidence gates.
 | `marketplace-contracts.yml` | Marketplace contracts | push, pull_request | contracts |
 | `native-memory-smoke.yml` | Minified native memory smoke | pull_request, workflow_dispatch | R8 and real JNI on Android 16 |
 | `post-merge-validation.yml` | Post-merge correctness | push, workflow_dispatch | Post-merge contracts |
-| `pr-validation.yml` | PR Validation | pull_request, push, merge_group, workflow_dispatch | Unified Reliability v2 completion gate, Unit tests/heap/APK, Android lint, Repository and gateway contracts, Changed Kotlin formatting, Required verification |
+| `pr-validation.yml` | PR Validation | pull_request, push, merge_group, workflow_dispatch | Unified Reliability v2 scope / strict release gate, case-level JVM reconciliation, Unit tests/heap/APK, Android lint, Repository and gateway contracts, Changed Kotlin formatting, Required verification |
 | `release-0950-acceptance.yml` | v0.9.50 Android acceptance | pull_request, push, workflow_dispatch | emulator |
 | `release-build.yml` | Publish Signed Release | workflow_dispatch, push | Check whether the version changed, Validate exact release commit, Build, verify and publish |
 | `remote-diagnostics.yml` | Remote diagnostics | workflow_dispatch | Resource and XML preflight, ${{ matrix.label }}, PR diagnostic report |

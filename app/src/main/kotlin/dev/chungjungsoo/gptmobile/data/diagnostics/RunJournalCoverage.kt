@@ -29,6 +29,8 @@ internal data class RunJournalExportCoverage(
     val checkpointReadDecodeNanos: Long? = null,
     val batchReadDecodeNanos: Long? = null,
     val decodedBatchCount: Long? = null,
+    val referenceIndexNanos: Long? = null,
+    val referenceEnumerations: Int? = null,
     val counterScope: String = "retention_counter_process_session; coverage_selected_run",
     val ordering: String = "Sort within streamId by sequence; capturedAtMillis and eventId correlate cross-source observations.",
     val sourceCompleteness: String = "Retained lifecycle metadata; unknown legacy tails, queue losses and expired history remain explicit. Provider wire payloads are not captured."

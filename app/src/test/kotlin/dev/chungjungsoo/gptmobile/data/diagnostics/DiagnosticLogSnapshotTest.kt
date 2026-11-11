@@ -8,6 +8,44 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DiagnosticLogSnapshotTest {
+    @Test fun frozenDescriptorExcludesLaterAppendsWithoutHoldingTheWritersLock() = withDirectory { directory ->
+        val writerLock = Any()
+        val store = BoundedDiagnosticLogStore(directory, "current.log", "previous.log", 1024, 256)
+        synchronized(writerLock) { repeat(4) { store.append("captured event=$it") } }
+        val boundary = synchronized(writerLock) { DiagnosticLogFiles.freeze(File(directory, "current.log")) }
+        boundary.use {
+            val completed = java.util.concurrent.CountDownLatch(1)
+            val producer = Thread {
+                synchronized(writerLock) {
+                    // Rotate and unlink the source repeatedly before the exporter
+                    // reads it. A filename or live EOF would lose this boundary.
+                    repeat(1000) { store.append("later event=$it " + "x".repeat(80)) }
+                }
+                completed.countDown()
+            }
+            producer.start()
+            assertTrue(completed.await(5, java.util.concurrent.TimeUnit.SECONDS))
+            val destination = File(directory, "captured.log")
+            val captured = DiagnosticLogFiles.copyTail(boundary, destination, 1024)
+            assertEquals((0..3).map { "captured event=$it" }, destination.readLines())
+            assertEquals(4L, captured.recordCount)
+            assertEquals(destination.length(), captured.byteCount)
+            assertTrue(File(directory, "current.log").readText().contains("later event=999"))
+            producer.join()
+        }
+    }
+
+    @Test fun frozenLengthDoesNotConsumeNewRecordsAppendedToTheSameInode() = withDirectory { directory ->
+        val source = File(directory, "current.log").apply { writeText("before\n") }
+        DiagnosticLogFiles.freeze(source).use { boundary ->
+            source.appendText("after\n")
+            val destination = File(directory, "captured.log")
+            val captured = DiagnosticLogFiles.copyTail(boundary, destination, 1024)
+            assertEquals("before\n", destination.readText())
+            assertEquals(1L, captured.recordCount)
+        }
+    }
+
     @Test fun ringRemainsBoundedAndKeepsNewestRecordsAcrossRepeatedRotation() = withDirectory { directory ->
         val store = BoundedDiagnosticLogStore(directory, "current.log", "previous.log", 1024, 256)
         repeat(2000) { store.append("event=$it " + "x".repeat(80)) }

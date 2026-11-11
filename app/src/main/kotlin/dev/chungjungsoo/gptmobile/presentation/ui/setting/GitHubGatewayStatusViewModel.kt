@@ -24,7 +24,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 @HiltViewModel
-internal class GitHubGatewayStatusViewModel @Inject constructor(private val settings: SettingRepository, private val client: GatewayDashboardClient, networkRecovery: GatewayNetworkRecoveryMonitor) : ViewModel() {
+internal class GitHubGatewayStatusViewModel @Inject constructor(private val settings: SettingRepository, private val client: GatewayDashboardClient, networkRecovery: GatewayNetworkRecoveryMonitor, private val runDao: dev.chungjungsoo.gptmobile.data.database.dao.AgentRunDao) : ViewModel() {
     private val monitor = GatewayDashboardMonitor(client, networkRecovery.routeAvailable)
     private val mutable = MutableStateFlow(GatewayDashboardState())
     val state = mutable.asStateFlow()
@@ -91,10 +91,13 @@ internal class GitHubGatewayStatusViewModel @Inject constructor(private val sett
     }
 
     suspend fun exportDiagnostics(cacheDirectory: File): File {
-        val config = mutable.value.target?.config ?: throw java.io.IOException("DIAGNOSTIC_SOURCE_UNAVAILABLE")
+        val selected = mutable.value.target ?: throw java.io.IOException("DIAGNOSTIC_SOURCE_UNAVAILABLE")
+        val config = selected.config ?: throw java.io.IOException("DIAGNOSTIC_SOURCE_UNAVAILABLE")
         return dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticExportGate.run {
             val target = File(cacheDirectory, "diagnostics/gateway-session-${java.util.UUID.randomUUID()}.zip")
-            val result = GatewayClientDiagnostics.exportDiagnostics(target, config)
+            val rows = runDao.gatewayDiagnosticStates(config.apiUrl, selected.selectedProfileUid)
+            val inventory = dev.chungjungsoo.gptmobile.data.network.gateway.gatewayRunDiagnosticInventory(rows)
+            val result = GatewayClientDiagnostics.exportDiagnostics(target, config, inventory)
             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                 target.parentFile?.listFiles()?.filter { it.name.startsWith("gateway-session-") && it.extension == "zip" }
                     ?.sortedByDescending(File::lastModified)?.drop(3)?.forEach(File::delete)

@@ -24,6 +24,9 @@ enum class ProviderResponseFormat { TEXT, GITHUB_REVIEW_V1, CLAIM_JSON }
 @Serializable
 enum class ProviderFinishCategory { STOP, TOOL_CALLS, LENGTH, CONTENT_FILTER, OTHER, UNKNOWN }
 
+@Serializable
+enum class FailureDomain { PROVIDER, APPROVAL, APPLICATION_VERIFICATION, TOOL_EXECUTION, UNKNOWN }
+
 /** Fixed fields only: no prompt, endpoint, token, raw model/profile name or exception text. */
 @Serializable
 data class ProviderFailureReceipt(
@@ -46,7 +49,8 @@ data class ProviderFailureReceipt(
     val logicalContinuationAllowed: Boolean? = null,
     val serverRequestId: String? = null,
     val generationId: String? = null,
-    val causeTypes: List<String> = emptyList()
+    val causeTypes: List<String> = emptyList(),
+    val failureDomain: FailureDomain = FailureDomain.UNKNOWN
 ) {
     internal fun valid(): Boolean = provider in setOf("OPENAI", "ANTHROPIC", "GOOGLE", "GROQ", "OPENROUTER", "OLLAMA", "CUSTOM", "LITERT_LM", "LLAMA", "FREE", "NVIDIA") &&
         listOf(profileHash, modelHash).all { it.matches(Regex("[a-f0-9]{64}")) } &&
@@ -84,7 +88,7 @@ data class ProviderFailureReceipt(
             val classified = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.fromProvider(failure.message, failure.errorCode, failure.failureDetails)
             val stage = when {
                 classified.dispatched == false && failedStage in setOf("provider_admission", "connection_preflight", "backend_admission", "request_validation", "message_admission") -> ProviderFailureStage.ADMISSION
-                failedStage == "tool_continuation" -> ProviderFailureStage.CONTINUATION
+                failedStage in setOf("tool_continuation", "tool_reconciliation") || code == "OUTPUT_CONTINUATION_PENDING_TOOLS" -> ProviderFailureStage.CONTINUATION
                 failedStage == "gateway_recovery" -> ProviderFailureStage.DELIVERY
                 role.endsWith("-preflight") || failedStage == "review_compatibility" || code == "GITHUB_REVIEW_INCOMPATIBLE" -> ProviderFailureStage.REVIEW_COMPATIBILITY
                 role.startsWith("github-review") || code.startsWith("GITHUB_REVIEW_") -> ProviderFailureStage.ANSWER_REVIEW
@@ -123,7 +127,14 @@ data class ProviderFailureReceipt(
                 },
                 serverRequestId = classified.serverRequestId,
                 generationId = dev.chungjungsoo.gptmobile.data.network.safeProviderRequestIdentity((failure.failureDetails?.get("generation_id") as? JsonPrimitive)?.contentOrNull),
-                causeTypes = classified.causeTypes
+                causeTypes = classified.causeTypes,
+                failureDomain = when {
+                    code == "WAITING_FOR_APPROVAL" || failedStage == "approval" -> FailureDomain.APPROVAL
+                    code == "GITHUB_TASK_INCOMPLETE" || failedStage == "acceptance_verification" -> FailureDomain.APPLICATION_VERIFICATION
+                    code in setOf("TOOL_OUTCOME_UNKNOWN", "INVALID_ARGUMENTS", "TOOL_PROTOCOL_INVALID_FRAME", "TOOL_UNAVAILABLE", "GITHUB_OPERATION_BLOCKED") -> FailureDomain.TOOL_EXECUTION
+                    failure.invocationId != null || status != null || code in setOf("TRANSPORT_ERROR", "OUTPUT_LIMIT", "INCOMPLETE_PROVIDER_STREAM") -> FailureDomain.PROVIDER
+                    else -> FailureDomain.UNKNOWN
+                }
             )
         }
     }

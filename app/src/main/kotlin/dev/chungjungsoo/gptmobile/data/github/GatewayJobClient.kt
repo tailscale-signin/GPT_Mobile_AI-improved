@@ -50,7 +50,7 @@ class GatewayJobClient internal constructor(private val http: HttpClient, privat
             // One retry owner and one total deadline, for these GETs only.
             withTimeout(deadline) {
                 LocalEndpointConnectionPolicy.probe(endpoint, evictIdleConnections) {
-                    gatewayClientExchange(diagnostic, "job_history", safeRead = true) { headers ->
+                    gatewayClientExchange(diagnostic, "job_catalog", safeRead = true) { headers ->
                         http.prepareRequest(endpoint) {
                             method = HttpMethod.Get
                             config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
@@ -62,7 +62,7 @@ class GatewayJobClient internal constructor(private val http: HttpClient, privat
                                 socketTimeoutMillis = 30_000
                             }
                         }.execute { response ->
-                            GatewayClientDiagnostics.observe(diagnostic, response.status.value) { response.headers[it] }
+                            GatewayClientDiagnostics.observe(diagnostic, response.status.value, response.call.request.headers["traceparent"]) { response.headers[it] }
                             if (surface == GatewayAdmissionSurface.CAPABILITIES) {
                                 GatewaySurfacePolicy.shared.observe(GatewaySurfacePolicy.identity(config), GatewaySurfacePolicy.Surface.CAPABILITIES, response.status.value)
                             }

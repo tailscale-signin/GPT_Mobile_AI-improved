@@ -1,7 +1,24 @@
 package dev.chungjungsoo.gptmobile.data.github
 
+import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+
 /** One policy is applied before binding tools and again before opening the model loop. */
 internal object GitHubExecutionLimits {
+    fun expiredTaskFailure() = ProviderEvent.Failed(
+        "The task's time limit has been reached. Saved results and unfinished work are retained. Start a new task to allow more work.",
+        errorCode = "GITHUB_TASK_INCOMPLETE",
+        taskOutcome = "BLOCKED",
+        failureDetails = buildJsonObject {
+            put("failed_stage", "task_budget")
+            put("failure_domain", "APPLICATION_VERIFICATION")
+            put("stop_reason", "ACCEPTED_TASK_DEADLINE_REACHED")
+            put("dispatched", false)
+            put("retryable", false)
+        }
+    )
+
     /** An explicit task duration survives continuations; an ordinary run timeout does not grant a new task. */
     fun requestedDurationMillis(task: String): Long? = task.lineSequence()
         .flatMap { line ->

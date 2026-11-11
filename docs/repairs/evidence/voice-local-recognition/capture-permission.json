@@ -1,0 +1,18 @@
+{
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "parent": "0b314deb1903a30a9afc62da73652c63b419b1a5",
+  "change": "Recheck RECORD_AUDIO in AndroidVoiceCapture.start immediately before audio focus and AudioRecord creation. Preserve existing exception cleanup and do not suppress lint.",
+  "reason": "Permission may be revoked while the decoder loads. The injected earlier check is not directly visible at the permission-protected Android call.",
+  "validation": {
+    "voice_tests_passed": 101,
+    "voice_test_classes": 13,
+    "production_voice_files_compiled": 13,
+    "compiler_warnings": 0,
+    "source_hashes": "all-voice-tested-sources.json",
+    "canonical_fast_gate_passed": 446,
+    "fast_log": "capture-permission-fast.log",
+    "ktlint": "MoonshineVoiceRecognizer.kt passed ktlint1.3.1",
+    "android_lint": "Exact final-head run required; no claim of local lint execution",
+    "device_audio": "Not measured"
+  }
+}

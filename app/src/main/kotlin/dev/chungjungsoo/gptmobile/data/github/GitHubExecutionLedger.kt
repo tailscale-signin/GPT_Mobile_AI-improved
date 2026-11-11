@@ -13,8 +13,8 @@ import kotlinx.serialization.json.put
 
 /** A bounded projection of durable receipts; model completion never substitutes for acceptance. */
 internal object GitHubExecutionLedger {
-    enum class ReceiptState { PRECHECK_REJECTED, DISPATCHED, WAITING_FOR_APPROVAL, COMPLETED, FAILED, UNKNOWN_OUTCOME }
-    enum class ObservationKind { REMOTE_API_SUCCESS, MUTATION_COMPLETED, CACHE_HIT, LOCAL_RESULT, SUPPRESSED, PENDING_APPROVAL, PRECHECK_REJECTED, FAILED, UNKNOWN_OUTCOME }
+    enum class ReceiptState { PRECHECK_REJECTED, DISPATCHED, PROPOSAL_PREPARED, WAITING_FOR_APPROVAL, COMPLETED, CANCELLED, FAILED, UNKNOWN_OUTCOME }
+    enum class ObservationKind { REMOTE_API_SUCCESS, MUTATION_COMPLETED, MUTATION_ACCEPTED, MUTATION_VERIFIED, PROPOSAL_PREPARED, CACHE_HIT, LOCAL_RESULT, SUPPRESSED, PENDING_APPROVAL, PRECHECK_REJECTED, FAILED, UNKNOWN_OUTCOME }
     private data class ReconciliationKey(
         val binding: String,
         val tool: String,
@@ -30,13 +30,15 @@ internal object GitHubExecutionLedger {
         val phase = execution?.text("phase").orEmpty().uppercase()
         val outcome = execution?.text("outcome").orEmpty().uppercase()
         val unknown = (execution?.get("unknown_mutations") as? JsonPrimitive)?.longOrNull ?: 0
+        val operationOutcome = GitHubOperationOutcome.snapshot(receipt)
         return when {
             unknown > 0 ||
                 phase in setOf("UNKNOWN_OUTCOME", "OUTCOME_UNKNOWN", "RECONCILIATION_REQUIRED") ||
                 outcome in setOf("UNKNOWN", "UNKNOWN_OUTCOME") ||
                 receipt.text("error_code") in ToolResultEnvelope.unknownOutcomeCodes ||
                 receipt.text("error_code") in setOf("GATEWAY_OUTCOME_UNKNOWN", "GATEWAY_TOOL_OUTCOME_UNKNOWN", "REMOTE_OUTCOME_UNKNOWN") -> ReceiptState.UNKNOWN_OUTCOME
-            GitHubPendingApproval.taskId(receipt) != null -> ReceiptState.WAITING_FOR_APPROVAL
+            GitHubPendingApproval.taskId(receipt) != null || operationOutcome["approval_pending"] == JsonPrimitive(true) -> ReceiptState.WAITING_FOR_APPROVAL
+            operationOutcome["proposal_prepared"] == JsonPrimitive(true) -> ReceiptState.PROPOSAL_PREPARED
             receipt["success"] == JsonPrimitive(true) ||
                 receipt.text("error_code") == "RETAINED_RESULT_CAPACITY" &&
                 execution?.get("upstream_completed") == JsonPrimitive(true) &&
@@ -55,11 +57,13 @@ internal object GitHubExecutionLedger {
         return when {
             state == ReceiptState.UNKNOWN_OUTCOME -> ObservationKind.UNKNOWN_OUTCOME
             state == ReceiptState.WAITING_FOR_APPROVAL -> ObservationKind.PENDING_APPROVAL
+            state == ReceiptState.PROPOSAL_PREPARED -> ObservationKind.PROPOSAL_PREPARED
             root?.text("schema") == "github.repeat.v1" -> ObservationKind.SUPPRESSED
             state == ReceiptState.PRECHECK_REJECTED -> ObservationKind.PRECHECK_REJECTED
             state != ReceiptState.COMPLETED -> ObservationKind.FAILED
             receipt["shared_result"] == JsonPrimitive(true) || GitHubEvidenceOrigin.of(receipt) == "CACHED" -> ObservationKind.CACHE_HIT
-            (execution?.get("accepted_mutations") as? JsonPrimitive)?.longOrNull?.let { it > 0 } == true -> ObservationKind.MUTATION_COMPLETED
+            receipt["remote_mutation"] == JsonPrimitive(true) && GitHubOperationOutcome.snapshot(receipt)["remote_outcome_verified"] == JsonPrimitive(true) -> ObservationKind.MUTATION_VERIFIED
+            (execution?.get("accepted_mutations") as? JsonPrimitive)?.longOrNull?.let { it > 0 } == true -> ObservationKind.MUTATION_ACCEPTED
             GitHubEvidenceOrigin.of(receipt) == "LIVE" -> ObservationKind.REMOTE_API_SUCCESS
             else -> ObservationKind.LOCAL_RESULT
         }
@@ -71,6 +75,17 @@ internal object GitHubExecutionLedger {
         val reconciled = reconciliationProofs(receipts)
         val unresolved = uncertain.size - reconciled.size
         val pendingApprovals = GitHubPendingApproval.snapshot(receipts)
+        val resolvedApprovals = receipts.values.mapNotNull { proposal ->
+            GitHubPendingApproval.resolution(proposal, receipts.values)?.let { resolution -> proposal to resolution }
+        }
+        val resolutions = resolvedApprovals.toMap()
+        val currentStates = receipts.values.groupingBy { receipt ->
+            when (resolutions[receipt]?.result()?.text("approval_state")) {
+                "PUBLISHED" -> ReceiptState.COMPLETED
+                "CANCELLED_BEFORE_PUBLICATION" -> ReceiptState.CANCELLED
+                else -> receiptState(receipt)
+            }
+        }.eachCount()
         val acceptance = checkpoint["acceptance_ledger"] as? JsonObject
         val requirements = (acceptance?.get("requirements") as? JsonArray).orEmpty().filterIsInstance<JsonObject>().filter { it["required"] != JsonPrimitive(false) }
         val accepted = requirements.count { it["state"] == JsonPrimitive("PASS") }
@@ -78,6 +93,9 @@ internal object GitHubExecutionLedger {
         val code = checkpoint.text("failure_code").ifBlank { checkpoint.text("verification_failure") }
         val failedStage = checkpoint.text("failed_stage")
         val outcome = checkpoint.text("task_outcome")
+        val originalFailure = checkpoint["original_failure"] as? JsonObject
+        val failureIsPrimary = originalFailure != null && originalFailure.text("code") !in setOf("WAITING_FOR_APPROVAL", "APPROVAL_REQUIRED", "USER_INPUT_REQUIRED", "REVIEW_INPUT_REQUIRED")
+        val deadlineReached = originalFailure?.text("stop_reason") == "ACCEPTED_TASK_DEADLINE_REACHED"
         val reviewFailure = code.startsWith("GITHUB_REVIEW_") ||
             code.startsWith("GITHUB_EXTRACTION_") ||
             failedStage in setOf("answer_review", "claim_extraction") ||
@@ -91,6 +109,7 @@ internal object GitHubExecutionLedger {
         }
         val requestedTask = when {
             completed -> "VERIFIED_COMPLETE"
+            failureIsPrimary -> if (outcome in setOf("BLOCKED", "CONFIGURATION_INVALIDATED")) "BLOCKED" else "INCOMPLETE"
             pendingApprovals.isNotEmpty() -> "WAITING_FOR_APPROVAL"
             outcome in setOf("BLOCKED", "CONFIGURATION_INVALIDATED") -> "BLOCKED"
             checkpoint.text("phase") == "IN_PROGRESS" -> "IN_PROGRESS"
@@ -98,6 +117,10 @@ internal object GitHubExecutionLedger {
         }
         val recovery = when {
             unresolved > 0 -> "RECONCILE_REMOTE_OUTCOME"
+            deadlineReached -> "NEW_TASK_REQUIRED"
+            failureIsPrimary && outcome == "CONFIGURATION_INVALIDATED" -> "RESTORE_AUTHORIZED_CONFIGURATION"
+            failureIsPrimary && reviewFailure -> "RESUME_VERIFICATION"
+            failureIsPrimary -> "INSPECT_EXECUTION_FAILURE"
             pendingApprovals.isNotEmpty() -> "WAITING_FOR_APPROVAL"
             code in setOf("APPROVAL_REQUIRED", "USER_INPUT_REQUIRED", "REVIEW_INPUT_REQUIRED") -> "USER_INPUT_REQUIRED"
             outcome == "CONFIGURATION_INVALIDATED" || code in setOf("DISPATCH_POLICY_CHANGED", "PERMISSION_DENIED", "PERMISSION_REVOKED", "AUTH_REQUIRED", "AUTH_FAILED", "AUTH_FAILURE") -> "RESTORE_AUTHORIZED_CONFIGURATION"
@@ -111,8 +134,24 @@ internal object GitHubExecutionLedger {
             put("receipt_count", receipts.size)
             put("presentation_failures", receipts.values.count { (it["execution"] as? JsonObject)?.text("presentation_state") == "CAPACITY_REJECTED" })
             put("receipt_states", buildJsonObject { ReceiptState.entries.forEach { put(it.name, states.getOrDefault(it, 0)) } })
+            put("receipt_states_scope", "HISTORICAL_OBSERVATIONS")
+            put("current_receipt_states", buildJsonObject { ReceiptState.entries.forEach { put(it.name, currentStates.getOrDefault(it, 0)) } })
             put("observation_kinds", buildJsonObject { ObservationKind.entries.forEach { kind -> put(kind.name, receipts.values.count { observationKind(it) == kind }) } })
             put("pending_approvals", pendingApprovals)
+            put(
+                "resolved_approvals",
+                JsonArray(
+                    resolvedApprovals.map { (proposal, resolution) ->
+                        buildJsonObject {
+                            put("proposal_receipt", proposal["receipt_id"] ?: kotlinx.serialization.json.JsonNull)
+                            put("resolution_receipt", resolution["receipt_id"] ?: kotlinx.serialization.json.JsonNull)
+                            put("state", resolution.result()?.text("approval_state").orEmpty())
+                            put("remote_state_verified", resolution.result()?.get("remote_state_verified") == JsonPrimitive(true))
+                            put("dispatch_attribution", "NATIVE_PUBLICATION_DISPATCH_UNAVAILABLE_USE_REMOTE_STATE_PROOF")
+                        }
+                    }
+                )
+            )
             put("unresolved_remote_outcomes", unresolved)
             put("reconciled_remote_outcomes", reconciled.size)
             put("reconciliation_proofs", JsonObject(reconciled))
@@ -133,8 +172,8 @@ internal object GitHubExecutionLedger {
                 }
             )
             put("recovery", recovery)
-            put("user_input_required", pendingApprovals.isNotEmpty() || recovery == "USER_INPUT_REQUIRED")
-            if (pendingApprovals.isNotEmpty()) put("retryable_without_new_input", false) else (checkpoint["retryable_without_new_input"] as? JsonPrimitive)?.booleanOrNull?.let { put("retryable_without_new_input", it) }
+            put("user_input_required", pendingApprovals.isNotEmpty() || deadlineReached || recovery == "USER_INPUT_REQUIRED")
+            if (pendingApprovals.isNotEmpty() || deadlineReached) put("retryable_without_new_input", false) else (checkpoint["retryable_without_new_input"] as? JsonPrimitive)?.booleanOrNull?.let { put("retryable_without_new_input", it) }
         }
         val limitation = if (unresolved > 0) {
             buildJsonObject {
@@ -143,6 +182,20 @@ internal object GitHubExecutionLedger {
                 put("resume_required", true)
                 put("task_outcome", if (outcome in setOf("BLOCKED", "CONFIGURATION_INVALIDATED")) outcome else "PARTIAL")
                 put("task_state", if (outcome in setOf("BLOCKED", "CONFIGURATION_INVALIDATED")) "BLOCKED" else "PARTIAL")
+                put("blocking_condition", "RECONCILE_REMOTE_OUTCOME")
+                put("pending_approvals", pendingApprovals)
+            }
+        } else if (failureIsPrimary) {
+            buildJsonObject {
+                put("completion_verified", false)
+                put("partial", true)
+                put("resume_required", true)
+                put("task_outcome", outcome.takeIf { it in setOf("BLOCKED", "CONFIGURATION_INVALIDATED", "FAILED") } ?: "PARTIAL")
+                put("task_state", if (outcome == "CONFIGURATION_INVALIDATED") "BLOCKED" else outcome.takeIf { it in setOf("BLOCKED", "FAILED") } ?: "PARTIAL")
+                put("blocking_condition", if (deadlineReached) "ACCEPTED_TASK_DEADLINE_REACHED" else code.ifBlank { "EXECUTION_FAILURE" })
+                put("pending_approvals", pendingApprovals)
+                put("user_input_required", pendingApprovals.isNotEmpty() || deadlineReached)
+                if (pendingApprovals.isNotEmpty() || deadlineReached) put("retryable_without_new_input", false)
             }
         } else if (pendingApprovals.isNotEmpty()) {
             buildJsonObject {
@@ -180,19 +233,19 @@ internal object GitHubExecutionLedger {
         val arguments = receipt["arguments"] as? JsonObject ?: return false
         val native = if (receipt.text("tool").substringBefore("__") == "github") arguments else GitHubOperationTool.nativeArguments(receipt.text("tool"), arguments) ?: return false
         val result = receipt.result() ?: return false
-        if (native.text("action") == "mark_ready_for_review") {
+        if (native.text("action") in setOf("mark_ready_for_review", "convert_pull_request_to_draft")) {
             val expected = native.text("expected_head_sha").takeIf { it.matches(Regex("[a-fA-F0-9]{40}")) } ?: return false
             val number = native.text("pull_number").toLongOrNull()?.takeIf { it > 0 } ?: return false
             val execution = result["execution"] as? JsonObject ?: return false
             return GitHubEvidenceOrigin.of(receipt) == "LIVE" &&
                 result["reconciled"] == JsonPrimitive(true) &&
                 result["remote_state_verified"] == JsonPrimitive(true) &&
-                result.text("verification") == "REMOTE_PR_READY_AT_EXPECTED_HEAD" &&
+                result.text("verification") == (if (native.text("action") == "convert_pull_request_to_draft") "REMOTE_PR_DRAFT_AT_EXPECTED_HEAD" else "REMOTE_PR_READY_AT_EXPECTED_HEAD") &&
                 result.text("repository").equals(receipt.text("repository"), ignoreCase = true) &&
                 result.text("pull_number").toLongOrNull() == number &&
                 result.text("node_id").isNotBlank() &&
                 result.text("state") == "open" &&
-                result["draft"] == JsonPrimitive(false) &&
+                result["draft"] == JsonPrimitive(native.text("action") == "convert_pull_request_to_draft") &&
                 result.text("head_sha") == expected &&
                 execution.text("action") == "graphql.mutation" &&
                 execution.text("status") == "COMPLETED" &&
@@ -230,7 +283,7 @@ internal object GitHubExecutionLedger {
         val scope = listOf("binding", "tool", "repository", "branch").map { receipt.text(it).takeIf(String::isNotBlank) ?: return null }
         val arguments = receipt["arguments"] as? JsonObject ?: return null
         val native = if (scope[1].substringBefore("__") == "github") arguments else GitHubOperationTool.nativeArguments(scope[1], arguments)
-        if (native?.text("action") == "mark_ready_for_review") {
+        if (native != null && native.text("action") in setOf("mark_ready_for_review", "convert_pull_request_to_draft")) {
             val execution = receipt.result()?.get("execution") as? JsonObject ?: return null
             if (execution.text("action") != "graphql.mutation") return null
             val executionId = execution.text("execution_id").takeIf { it.matches(Regex("[a-f0-9]{64}")) } ?: return null
@@ -238,7 +291,7 @@ internal object GitHubExecutionLedger {
             val number = native.text("pull_number").toLongOrNull()?.takeIf { it > 0 } ?: return null
             val expected = native.text("expected_head_sha").takeIf { it.matches(Regex("[a-fA-F0-9]{40}")) } ?: return null
             val request = buildJsonObject {
-                put("action", "mark_ready_for_review")
+                put("action", native.text("action"))
                 put("pull_number", number)
                 put("expected_head_sha", expected)
                 native["expected_base_sha"]?.let { put("expected_base_sha", it) }

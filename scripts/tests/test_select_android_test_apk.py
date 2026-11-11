@@ -34,6 +34,17 @@ class ApkSelectionTest(unittest.TestCase):
         self.metadata([self.apk("universal.apk", ["arm64-v8a", "x86_64"]), self.apk("renamed.apk", ["x86_64"], ["x86_64"]), self.apk("arm.apk", ["arm64-v8a"], ["arm64-v8a"])])
         self.assertEqual("renamed.apk", selector.select_apk(self.folder, "example.app", "x86_64").name)
 
+    def test_explicit_universal_selection_uses_metadata_and_checks_device_abi(self):
+        self.metadata([self.apk("all-native.apk", ["arm64-v8a", "x86_64"]), self.apk("split.apk", ["x86_64"], ["x86_64"])])
+        self.assertEqual("all-native.apk", selector.select_apk(self.folder, "example.app", "x86_64", universal=True).name)
+        with self.assertRaisesRegex(ValueError, "No compatible APK"):
+            selector.select_apk(self.folder, "example.app", "riscv64", universal=True)
+
+    def test_universal_selection_rejects_only_split_outputs(self):
+        self.metadata([self.apk("split.apk", ["x86_64"], ["x86_64"])])
+        with self.assertRaisesRegex(ValueError, "No compatible APK"):
+            selector.select_apk(self.folder, "example.app", "x86_64", universal=True)
+
     def test_incompatible_native_code_is_rejected_despite_its_filename(self):
         self.metadata([self.apk("app-x86_64-debug.apk", ["arm64-v8a"])])
         with self.assertRaisesRegex(ValueError, "No compatible APK"):

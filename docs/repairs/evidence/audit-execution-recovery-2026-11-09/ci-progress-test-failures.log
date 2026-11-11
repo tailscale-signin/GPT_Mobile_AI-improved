@@ -1,0 +1,120 @@
+2026-11-10T00:57:01.1702882Z
+2026-11-10T00:57:01.1703733Z > Task :app:testDebugUnitTest
+2026-11-10T00:57:01.1709471Z Starting process 'Gradle Test Executor 20'. Working directory: /home/runner/work/GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app Command: /usr/lib/jvm/temurin-21-jdk-amd64/bin/java -Djava.awt.headless=true -Djava.library.path=/usr/java/packages/lib:/usr/lib64:/lib64:/lib:/usr/lib:/home/runner/work/GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/src/testDebug/jniLibs:/home/runner/work/GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/src/test/jniLibs -Dorg.gradle.internal.worker.tmpdir=/home/runner/work/GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/build/tmp/testDebugUnitTest/work -Drobolectric.dependency.repo.url=https://repo.maven.apache.org/maven2 -Droom.schemas=/home/runner/work/GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/schemas --add-exports=java.base/jdk.internal.access=ALL-UNNAMED --add-opens=java.base/java.io=ALL-UNNAMED --add-opens=java.base/java.io=ALL-UNNAMED -javaagent:/home/runner/work/GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/build/tmp/.cache/expanded/zip_49786abe1c4ec890a2037eb8852a9679/jacocoagent.jar=destfile=build/outputs/unit_test_code_coverage/debugUnitTest/testDebugUnitTest.exec,append=true,inclnolocationclasses=false,dumponexit=true,output=file,jmx=false @/home/runner/.gradle/.tmp/gradle-worker-classpath17775814762787570585txt -Xmx1024m -Dfile.encoding=UTF-8 -Duser.country -Duser.language=en -Duser.variant -ea worker.org.gradle.process.internal.worker.GradleWorkerMain 'Gradle Test Executor 20'
+2026-11-10T00:57:01.1715723Z Successfully started process 'Gradle Test Executor 20'
+2026-11-10T00:57:01.7702458Z
+2026-11-10T00:57:01.7728226Z Gradle Test Executor 20 started executing tests.
+2026-11-10T00:57:08.6702527Z
+2026-11-10T00:57:08.6703502Z > Task :app:testDebugUnitTest
+2026-11-10T00:57:08.6703943Z
+2026-11-10T00:57:08.6704723Z GitHubLiveProgressTest > overflowingActivityExpandsWithoutLosingItsPublicDescriptionOrRepeatingItForAccessibility FAILED
+2026-11-10T00:57:08.6705343Z     java.lang.AssertionError
+2026-11-10T00:57:08.6705806Z         at org.junit.Assert.fail(Assert.java:87)
+2026-11-10T00:57:08.6706355Z         at org.junit.Assert.assertTrue(Assert.java:42)
+2026-11-10T00:57:08.6706908Z         at org.junit.Assert.assertTrue(Assert.java:53)
+2026-11-10T00:57:08.6707918Z         at dev.chungjungsoo.gptmobile.presentation.ui.chat.GitHubLiveProgressTest.overflowingActivityExpandsWithoutLosingItsPublicDescriptionOrRepeatingItForAccessibility(GitHubLiveProgressTest.kt:187)
+2026-11-10T00:57:08.6708753Z
+2026-11-10T00:57:08.6709050Z GitHubLiveProgressTest > summariesUseParagraphTypographyAndOnlyTheNewestActivityHasAnAccent FAILED
+2026-11-10T00:57:08.6709468Z     java.lang.AssertionError: expected:<2> but was:<1>
+2026-11-10T00:57:08.6709741Z         at org.junit.Assert.fail(Assert.java:89)
+2026-11-10T00:57:08.6710029Z         at org.junit.Assert.failNotEquals(Assert.java:835)
+2026-11-10T00:57:08.6710328Z         at org.junit.Assert.assertEquals(Assert.java:120)
+2026-11-10T00:57:08.6710617Z         at org.junit.Assert.assertEquals(Assert.java:146)
+2026-11-10T00:57:08.6711460Z         at dev.chungjungsoo.gptmobile.presentation.ui.chat.GitHubLiveProgressTest.summariesUseParagraphTypographyAndOnlyTheNewestActivityHasAnAccent(GitHubLiveProgressTest.kt:117)
+2026-11-10T00:57:12.4702665Z
+2026-11-10T00:57:12.4710900Z GitHubReducedMotionTest > disabledAnimationsShowActivityImmediatelyAndEnablingMotionDoesNotReplayItsEntrance FAILED
+2026-11-10T00:57:12.4712559Z     java.lang.AssertionError: Failed to assert the following: (Text + EditableText = [Reviewing the saved results])
+2026-11-10T00:57:12.4713284Z     Semantics of the node:
+2026-11-10T00:57:12.4713859Z     Node #231 at (l=26.0, t=0.0, r=320.0, b=36.0)px, Tag: 'github_latest_preview'
+2026-11-10T00:57:12.4714370Z     LiveRegion = 'Polite'
+2026-11-10T00:57:12.4714806Z     Text = '[Checking changed sources]'
+2026-11-10T00:57:12.4715520Z     Actions = [ClearTextSubstitution, GetTextLayoutResult, SetTextSubstitution, ShowTextSubstitution]
+2026-11-10T00:57:12.4716120Z     Has 1 sibling
+2026-11-10T00:57:12.4716574Z     Selector used: (TestTag = 'github_latest_preview')
+2026-11-10T00:57:12.4717429Z         at androidx.compose.ui.test.AssertionsKt.assert(Assertions.kt:293)
+2026-11-10T00:57:12.4718189Z         at androidx.compose.ui.test.AssertionsKt.assert$default(Assertions.kt:283)
+2026-11-10T00:57:12.4718973Z         at androidx.compose.ui.test.AssertionsKt.assertTextEquals(Assertions.kt:207)
+2026-11-10T00:57:12.4719803Z         at androidx.compose.ui.test.AssertionsKt.assertTextEquals$default(Assertions.kt:203)
+2026-11-10T00:57:12.4721430Z         at dev.chungjungsoo.gptmobile.presentation.ui.chat.GitHubReducedMotionTest.disabledAnimationsShowActivityImmediatelyAndEnablingMotionDoesNotReplayItsEntrance(GitHubReducedMotionTest.kt:68)
+2026-11-10T00:57:13.6702452Z
+2026-11-10T00:58:17.0702155Z
+2026-11-10T00:58:17.0702868Z Gradle Test Executor 22 finished executing tests.
+2026-11-10T00:58:18.2705787Z
+2026-11-10T00:58:18.2706941Z > Task :app:testDebugUnitTest FAILED
+2026-11-10T00:58:18.2707414Z
+2026-11-10T00:58:18.2707748Z 8704 tests completed, 3 failed, 5 skipped
+2026-11-10T00:58:18.2708247Z Generating HTML test report...
+2026-11-10T00:58:18.2709344Z Finished generating test html results (0.425 secs) into: /home/runner/work/GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/build/reports/tests/testDebugUnitTest
+2026-11-10T00:58:18.2710790Z Finished generating test XML results (0.139 secs) into: /home/runner/work/GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/build/test-results/testDebugUnitTest
+2026-11-10T00:58:18.2712125Z gradle/actions: Writing build results to /home/runner/work/_temp/.gradle-actions/build-results/unit_tests-1794271576545.json
+2026-11-10T00:58:18.2712744Z
+2026-11-10T00:58:18.2713636Z [Incubating] Problems report is available at: file:///home/runner/work/GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/build/reports/problems/problems-report.html
+2026-11-10T00:58:18.2714344Z
+2026-11-10T00:58:18.2714695Z FAILURE: Build failed with an exception.
+2026-11-10T00:58:18.2715021Z
+2026-11-10T00:58:18.2715272Z * What went wrong:
+2026-11-10T00:58:18.2715772Z Execution failed for task ':app:testDebugUnitTest'.
+2026-11-10T00:58:18.2717024Z > There were failing tests. See the report at: file:///home/runner/work/GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/build/reports/tests/testDebugUnitTest/index.html
+2026-11-10T00:58:18.2717948Z
+2026-11-10T00:58:18.2718151Z * Try:
+2026-11-10T00:58:18.2718859Z > Run with --scan to get full insights from a Build Scan (powered by Develocity).
+2026-11-10T00:58:18.2719301Z
+2026-11-10T00:58:18.2719830Z Deprecated Gradle features were used in this build, making it incompatible with Gradle 10.
+2026-11-10T00:58:18.2720299Z
+2026-11-10T00:58:18.2721027Z You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+2026-11-10T00:58:18.2723939Z
+2026-11-10T00:58:18.2725522Z For more on this, please refer to https://docs.gradle.org/9.8.0/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+2026-11-10T00:58:18.2727433Z
+2026-11-10T00:58:18.2727730Z BUILD FAILED in 12m 4s
+2026-11-10T00:58:18.2728272Z 70 actionable tasks: 14 executed, 1 from cache, 55 up-to-date
+2026-11-10T00:58:18.5415609Z === TEST FAILURE LOG ===
+2026-11-10T00:58:18.5431558Z     Settings Home native render: /home/runner/work/GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/build/reports/settings-home-render/wide-light.png
+2026-11-10T00:58:18.5432010Z
+2026-11-10T00:58:18.5533799Z ##[group]Run python3 scripts/collect_app_audit_qualification.py --started-at-file app-audit-test-started.txt --coverage app/build/reports/jacoco/jacocoTestReport/jacocoTestReport.xml --output app-audit-source-qualification.json
+2026-11-10T00:58:18.5534834Z [36;1mpython3 scripts/collect_app_audit_qualification.py --started-at-file app-audit-test-started.txt --coverage app/build/reports/jacoco/jacocoTestReport/jacocoTestReport.xml --output app-audit-source-qualification.json[0m
+2026-11-10T00:58:18.5552139Z shell: /usr/bin/bash -e {0}
+2026-11-10T00:58:18.5552307Z env:
+2026-11-10T00:58:18.5552449Z   OBX_DISABLE_ANALYTICS: true
+2026-11-10T00:58:18.5552690Z   JAVA_HOME: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/21.0.13-9/x64
+2026-11-10T00:58:18.5553000Z   JAVA_HOME_21_X64: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/21.0.13-9/x64
+2026-11-10T00:58:18.5553242Z   MAVEN_ARGS: -ntp
+2026-11-10T00:58:18.5553433Z   GRADLE_ACTION_ID: gradle/actions/setup-gradle
+2026-11-10T00:58:18.5553669Z   GRADLE_USER_HOME: /home/runner/.gradle
+2026-11-10T00:58:18.5553864Z   GRADLE_BUILD_ACTION_SETUP_COMPLETED: true
+2026-11-10T00:58:18.5554063Z   GRADLE_BUILD_ACTION_CACHE_RESTORED: true
+2026-11-10T00:58:18.5554345Z   DEVELOCITY_INJECTION_INIT_SCRIPT_NAME: gradle-actions.inject-develocity.init.gradle
+2026-11-10T00:58:18.5554649Z   DEVELOCITY_INJECTION_CUSTOM_VALUE: gradle-actions
+2026-11-10T00:58:18.5554858Z   GITHUB_DEPENDENCY_GRAPH_ENABLED: false
+2026-11-10T00:58:18.5555049Z   ANDROID_HOME: /usr/local/lib/android/sdk
+2026-11-10T00:58:18.5555246Z   ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+2026-11-10T00:58:18.5555437Z ##[endgroup]
+2026-11-10T00:58:18.8660897Z {"output": "app-audit-source-qualification.json", "source_areas": 26, "reports": 1358, "report_errors": 0}
+2026-11-10T00:58:18.8792324Z ##[group]Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+2026-11-10T00:58:18.8792753Z with:
+2026-11-10T00:58:20.8266048Z ##[group]📘 Reading input values
+2026-11-10T00:58:20.8268053Z ##[endgroup]
+2026-11-10T00:58:20.8268564Z ##[group]📦 Process test results
+2026-11-10T00:58:20.8269092Z Preparing 1 report as configured.
+2026-11-10T00:58:21.0857457Z app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubReducedMotionTest.kt:68 | java.lang.AssertionError: Failed to assert the following: (Text + EditableText = [Reviewing the saved results]) 0.047s
+2026-11-10T00:58:21.2442930Z app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubLiveProgressTest.kt:187 | java.lang.AssertionError 0.049s
+2026-11-10T00:58:21.2444475Z app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubLiveProgressTest.kt:117 | java.lang.AssertionError: expected:<2> but was:<1> 0.085s
+2026-11-10T00:58:21.3881066Z ℹ️ Posting with conclusion 'failure' to https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/816 (sha: 44f3907870bae6f27bb2f406e9a4a11698d96cff)
+2026-11-10T00:58:21.3881964Z ##[endgroup]
+2026-11-10T00:58:21.3882331Z ##[group]🚀 Publish results
+2026-11-10T00:58:21.3883144Z ℹ️ - Unit Test Results - 8704 tests run, 8696 passed, 5 skipped, 3 failed.
+2026-11-10T00:58:21.3884050Z    🧪 - app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubReducedMotionTest.kt | java.lang.AssertionError: Failed to assert the following: (Text + EditableText = [Reviewing the saved results])
+2026-11-10T00:58:21.3884930Z    🧪 - app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubLiveProgressTest.kt | java.lang.AssertionError
+2026-11-10T00:58:21.3885719Z    🧪 - app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubLiveProgressTest.kt | java.lang.AssertionError: expected:<2> but was:<1>
+2026-11-10T00:58:21.3933119Z ##[error]java.lang.AssertionError: Failed to assert the following: (Text + EditableText = [Reviewing the saved results])
+Semantics of the node:
+Node #231 at (l=26.0, t=0.0, r=320.0, b=36.0)px, Tag: 'github_latest_preview'
+LiveRegion = 'Polite'
+Text = '[Checking changed sources]'
+Actions = [ClearTextSubstitution, GetTextLayoutResult, SetTextSubstitution, ShowTextSubstitution]
+Has 1 sibling
+Selector used: (TestTag = 'github_latest_preview')
+2026-11-10T00:58:21.3936010Z ##[error]java.lang.AssertionError
+2026-11-10T00:58:21.3937019Z ##[error]java.lang.AssertionError: expected:<2> but was:<1>
+2026-11-10T00:58:21.3968720Z ##[error]❌ Tests reported 3 failures
+2026-11-10T00:58:21.3969343Z ##[endgroup]
+2026-11-10T00:58:21.4383995Z ##[group]Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a

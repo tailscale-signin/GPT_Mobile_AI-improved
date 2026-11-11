@@ -8,6 +8,21 @@ import org.junit.Test
 
 class AppAuditCatalogTest {
     @Test
+    fun auditRetainsItsPlanningEnvironmentWithoutGrantingExecutionEvidence() = runBlocking {
+        val environment = AppAuditEnvironmentIdentity(1234, versionCode = 96607, apkIdentityFailure = AppAuditApkIdentityFailure.APK_UNREADABLE, model = "Pixel 9", androidApiLevel = 36, supportedAbis = listOf("arm64-v8a"))
+        var captures = 0
+        val run = AppAuditCatalog(emptySet()) {
+            captures++
+            environment
+        }.create(id = "identity-plan", now = 1)
+        assertEquals(1, captures)
+        assertEquals(environment, run.environment)
+        assertTrue(run.results.isEmpty())
+        assertEquals(0, appAuditSummary(run).exercised)
+        assertFalse(run.lineCoverageAvailable)
+    }
+
+    @Test
     fun narrowLocalFixturesDoNotRemoveRenderingDatabaseOrDeviceQualification() = runBlocking {
         val source = object : AppAuditProbeSource {
             override val sourceId = "fixture"

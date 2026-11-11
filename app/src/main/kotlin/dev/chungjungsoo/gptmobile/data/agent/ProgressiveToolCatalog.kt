@@ -254,7 +254,7 @@ class ProgressiveToolCatalog(
         }
         lastSelection = identity
         unchangedSelections = 0
-        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ToolCatalog", "SELECTED_SCHEMA · authorized=${(candidates.keys + allowed.map { it.name }).size} · admittedToRound=${allowed.size} · advertised=${selected.size} · names=${selected.joinToString { it.name }} · omitted=${omitted.size} · omissionReasons=${omitted.values.groupingBy { it }.eachCount().toSortedMap()} · estimatedTokens=${selected.sumOf { schemaTokens(it).toLong() }} · measurement=UTF8_ESTIMATE")
+        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ToolCatalog", "SELECTED_SCHEMA · authorized=${(candidates.keys + allowed.map { it.name }).size} · admittedToRound=${allowed.size} · advertised=${selected.size} · names=${selected.joinToString { it.name }} · omitted=${omitted.size} · omissionReasons=${omitted.values.groupingBy { it }.eachCount().toSortedMap()} · estimatedTokens=${selected.sumOf { schemaTokens(it).toLong() }} · selectionTargetTokens=$schemaAllowance · selectionTargetScope=OPTIONAL_SCHEMA_WINDOW · wireContextLimit=HARD · measurement=UTF8_ESTIMATE")
         ToolCatalogDiagnostics.recordOmissions("catalog", omitted, schemaAllowance.toLong(), inventoryNames = (candidates.keys + allowed.map { it.name }).toSet())
     }
 
@@ -529,6 +529,11 @@ class ProgressiveToolCatalog(
             )
             put("schema_budget_excluded", JsonArray(found.filterNot { it.name in active }.map { JsonPrimitive(it.name) }))
             put("schema_token_allowance", schemaAllowance)
+            put("schema_allowance_scope", "OPTIONAL_SCHEMA_WINDOW")
+            put("schema_allowance_is_wire_limit", false)
+            put("required_schema_policy", if (githubUpfront) "AUTHORIZED_GITHUB_AND_RECOVERY_SCHEMAS_UPFRONT" else "REQUEST_REQUIRED_SCHEMAS_FIRST")
+            put("wire_schema_estimate_tokens", (active.mapNotNull(candidates::get) + definition).sumOf { schemaTokens(it).toLong() })
+            put("wire_context_budget_enforced", true)
             put("selection_policy", "Explicitly requested capabilities receive priority; other authorized capabilities remain discoverable. Availability still requires the next request's context admission. Executable permissions are unchanged.")
             val incompleteDiscovery = acquisitionState?.invoke()?.readinessCode != null
             put("availability_note", if (incompleteDiscovery) "Some selected connections are pending or unavailable. A name missing from this snapshot is not proof that its server has no such tool. Ready authorized tools remain available; discovery does not grant permissions." else "Unknown names are not in the authorized catalog. Enable/configure the relevant connection or permission before discovery; schema admission alone cannot grant access.")

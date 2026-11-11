@@ -33,7 +33,7 @@ class GatewayChatSubmission @Inject constructor(
     private val chats: ChatRepository,
     private val workspace: GatewayWorkspacePreflight
 ) {
-    /** Null means this route has no compatible autonomous protocol, before any submission. */
+    /** Null leaves the turn on its selected client inference route, before any engineering submission. */
     suspend fun submitIfSupported(request: AgentRunRequest): GatewayChatHandoff? {
         val tools = request.chatToolConfig
         if (!chats.researchPersistenceAllowed(request.chatId)) return null
@@ -57,8 +57,11 @@ class GatewayChatSubmission @Inject constructor(
         }
         val preferences = features.githubProfileOverrides[request.platform.uid] ?: GitHubChatProfileOverride()
         if (!preferences.githubTools || tools?.allToolsDisabled == true) return null
-        val user = requireNotNull(request.userMessages.lastOrNull()) { "The saved GitHub request is unavailable." }
-        if (user.attachments.isEmpty()) {
+        val user = request.userMessages.lastOrNull() ?: return null
+        val context = tools?.github
+        val newJob = GatewayOwnedTurnPolicy.configured(request.platform, context, features) && GatewayOwnedTurnPolicy.startsNewJob(user.content)
+        val existing = if (context == null) null else engineering.bindings(request.chatId).singleOrNull { it.request.requestId == request.runId }
+        if (user.attachments.isEmpty() && (context == null || newJob || existing != null)) {
             try {
                 engineering.submitBoundTurn(
                     request.chatId, request.platform.uid, request.platform.model, user.content, request.runId,
@@ -71,14 +74,12 @@ class GatewayChatSubmission @Inject constructor(
                 return retainedHandoff(request, failure)
             }
         }
-        val context = tools?.github ?: return null
-        if (context.mainProfileUid != request.platform.uid) return null
-        if (preferences.engineeringGatewayProfileUid.isNullOrBlank()) return null
+        if (existing != null) return GatewayChatHandoff(existing.job != null)
+        if (context == null || !newJob) return null
         if (!engineering.supportsDurableChat(request.platform.uid)) return null
         check(user.attachments.isEmpty()) { "Saved gateway GitHub jobs accept text requests. Remove attachments before starting this server job." }
-        val existing = engineering.bindings(request.chatId).singleOrNull { it.request.requestId == request.runId }
-        val base = existing?.request?.base ?: workspace.defaultBranch(context)
-        val taskScope = existing?.request?.taskScope ?: GatewayChatScope.from(user.content)
+        val base = workspace.defaultBranch(context)
+        val taskScope = GatewayChatScope.from(user.content)
         check(taskScope != "implement" || !GatewayChatScope.forbidsCommit(user.content)) {
             "Gateway implementation jobs include commits. This request explicitly forbids them; revise the task or use a read/planning request."
         }

@@ -71,6 +71,16 @@ internal data class GatewayModelCapabilityObservation(
         "modelState" to modelState
     )
 
+    fun selectedModelBlocker(): InferencePreflightReason? {
+        if (capacity != null || (observationAgeMillis ?: 0) >= 20_000) return null
+        return when {
+            reasonCode == "SELECTED_MODEL_NOT_AVAILABLE" -> InferencePreflightReason.SELECTED_MODEL_NOT_AVAILABLE
+            reasonCode == "SELECTED_MODEL_LOADING" || modelState == "LOADING" -> InferencePreflightReason.SELECTED_MODEL_LOADING
+            reasonCode == "SELECTED_MODEL_NOT_LOADED" || modelState in setOf("UNLOADED", "SLEEPING") -> InferencePreflightReason.SELECTED_MODEL_NOT_LOADED
+            else -> null
+        }
+    }
+
     /** Fixed summaries keep the actual preflight blocker visible without upstream text. */
     fun blockingSummary(): String? = when {
         reasonCode == "BACKEND_METADATA_DENIED" || upstreamStatus in setOf(401, 403) -> "The gateway could not read the configured backend's model metadata. Repair gateway-to-backend authorization, then recheck this profile."

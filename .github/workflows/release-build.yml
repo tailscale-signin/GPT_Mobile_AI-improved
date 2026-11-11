@@ -45,7 +45,9 @@ jobs:
     if: github.event_name == 'pull_request' || needs.release_intent.outputs.publish == 'true'
     name: Validate exact release commit
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    # The measured cold debug phases took 77 minutes, and production lint alone
+    # took 27 minutes. Reserve time for release generation, compilation and lint.
+    timeout-minutes: 150
     outputs:
       tag: ${{ steps.version.outputs.tag }}
       prerelease: ${{ steps.version.outputs.prerelease }}
@@ -324,12 +326,12 @@ jobs:
           if ! gh release create "$TAG" release-artifacts/* --target "$GITHUB_SHA" --title "$TAG" --draft "${FLAGS[@]}" "${NOTES[@]}"; then
             echo 'Release creation was not acknowledged; reconciling the existing draft before publication.' >&2
           fi
-          python3 scripts/verify_published_release.py --repository "$GITHUB_REPOSITORY" --artifacts release-artifacts --output build/reports/release-upload.json
+          python3 scripts/verify_published_release.py --repository "$GITHUB_REPOSITORY" --artifacts release-artifacts --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release-build.yml" --output build/reports/release-upload.json
           RELEASE_ID=$(python3 -c 'import json; print(json.load(open("build/reports/release-upload.json"))["releaseId"])')
           if ! gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" --field draft=false --silent; then
             echo 'Release publication was not acknowledged; reconciling the same release without replay.' >&2
           fi
-          python3 scripts/verify_published_release.py --repository "$GITHUB_REPOSITORY" --artifacts release-artifacts --release-id "$RELEASE_ID" --published --output build/reports/release-publication.json
+          python3 scripts/verify_published_release.py --repository "$GITHUB_REPOSITORY" --artifacts release-artifacts --release-id "$RELEASE_ID" --published --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release-build.yml" --output build/reports/release-publication.json
       - name: Retain exact release and publication receipts
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

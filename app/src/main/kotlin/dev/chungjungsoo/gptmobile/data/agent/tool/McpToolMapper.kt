@@ -128,6 +128,13 @@ internal fun sliceTextLines(
     return "$header\n${formattedLines.joinToString("\n")}"
 }
 
+/** Read-only Firecrawl replies can explicitly refuse anonymous access before serving results. */
+internal fun firecrawlAnonymousAccessRejected(result: CallToolResult): Boolean = result.isError == true &&
+    result.content.filterIsInstance<TextContent>().any {
+        Regex("""(?i)\banonymous (?:access|requests?|usage)\s+(?:(?:is|are)\s+)?(?:not (?:allowed|enabled|supported|permitted)|disabled|rejected|denied)\b""")
+            .containsMatchIn(it.text.take(1024))
+    }
+
 internal fun mapMcpToolResult(
     callId: String,
     result: CallToolResult,

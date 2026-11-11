@@ -13,24 +13,45 @@ internal object GitHubChecklistBudget {
 
     fun remaining(receipts: Map<String, JsonObject>, current: Int? = null): Int? {
         if (current != null) return current.coerceAtLeast(0)
-        return receipts.values.toList().asReversed().firstNotNullOfOrNull { receipt ->
-            val budget = receipt["tool_budget"] as? JsonObject ?: return@firstNotNullOfOrNull null
-            val used = (budget["used"] as? JsonPrimitive)?.intOrNull ?: return@firstNotNullOfOrNull null
-            val limit = (budget["limit"] as? JsonPrimitive)?.intOrNull ?: return@firstNotNullOfOrNull null
-            (limit - used).coerceAtLeast(0)
+        return recorded(receipts)?.let { receipt ->
+            val budget = receipt["tool_budget"] as JsonObject
+            ((budget["limit"] as JsonPrimitive).intOrNull!! - (budget["used"] as JsonPrimitive).intOrNull!!).coerceAtLeast(0)
         }
+    }
+
+    // Restored receipts may arrive out of order. Without a live ledger, use the
+    // conservative high-water observation rather than resurrecting spent calls.
+    private fun recorded(receipts: Map<String, JsonObject>) = receipts.values.filter { receipt ->
+        val budget = receipt["tool_budget"] as? JsonObject
+        (budget?.get("used") as? JsonPrimitive)?.intOrNull != null && (budget?.get("limit") as? JsonPrimitive)?.intOrNull != null
+    }.minByOrNull { receipt ->
+        val budget = receipt["tool_budget"] as JsonObject
+        (budget["limit"] as JsonPrimitive).intOrNull!! - (budget["used"] as JsonPrimitive).intOrNull!!
     }
 
     fun checkpoint(receipts: Map<String, JsonObject>, current: Int? = null, fixtureCalls: Int = FIXTURE_CALLS): JsonObject = buildJsonObject {
         val remaining = remaining(receipts, current)
-        val observed = receipts.values.toList().asReversed().firstNotNullOfOrNull { receipt ->
-            (receipt["tool_budget"] as? JsonObject)?.takeIf { (it["limit"] as? JsonPrimitive)?.intOrNull != null }
-        }
+        val receipt = recorded(receipts)
+        val observed = receipt?.get("tool_budget") as? JsonObject
         observed?.get("limit")?.let { put("effective_call_limit", it) }
         observed?.get("configured")?.let { put("configured_call_limit", it) }
         put("limit_source", if (observed != null) "RECORDED_EXECUTION_ALLOWANCE" else "NOT_RECORDED")
         put("limit_rule", "Minimum of the profile/chat allowance, workflow/task policy and explicit request ceiling.")
         remaining?.let { put("remaining_calls", it) }
+        put(
+            "remaining_source",
+            if (current != null) {
+                "LIVE_EXECUTION_LEDGER"
+            } else if (observed != null) {
+                "RECORDED_EXECUTION_HIGH_WATER"
+            } else {
+                "NOT_RECORDED"
+            }
+        )
+        observed?.get("used")?.let { put("observed_used_calls", it) }
+        observed?.get("sequence")?.let { put("observed_counter_sequence", it) }
+        receipt?.get("receipt_id")?.let { put("observed_counter_receipt_id", it) }
+        put("counter_scope", "Shared task allowance, including automatic result paging and recovery; live execution remaining supersedes receipt snapshots.")
         put("remaining_known", remaining != null)
         put("verification_reserve", minOf(remaining ?: VERIFICATION_RESERVE, VERIFICATION_RESERVE))
         put("fixture_start_minimum", fixtureCalls + VERIFICATION_RESERVE)

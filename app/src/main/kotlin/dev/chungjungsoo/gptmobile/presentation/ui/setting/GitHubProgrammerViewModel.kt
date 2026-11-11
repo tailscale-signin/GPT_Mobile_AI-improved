@@ -9,7 +9,11 @@ import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
+import dev.chungjungsoo.gptmobile.data.github.GitHubChatDecisions
 import dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext
+import dev.chungjungsoo.gptmobile.data.github.GitHubDecisionMode
+import dev.chungjungsoo.gptmobile.data.github.GitHubDecisionPreference
+import dev.chungjungsoo.gptmobile.data.github.githubDecisionMode
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
 import dev.chungjungsoo.gptmobile.data.permissions.ToolApproval
 import dev.chungjungsoo.gptmobile.data.permissions.ToolApprovalManager
@@ -48,6 +52,7 @@ data class GitHubProgrammerState(
     val approvals: List<ToolApproval> = emptyList(),
     val submitting: Boolean = false,
     val prepareIndex: Boolean = false,
+    val decisionMode: GitHubDecisionMode = GitHubDecisionMode.ASK,
     val draft: String = "",
     val draftLoaded: Boolean = false,
     val error: String? = null
@@ -224,6 +229,7 @@ class GitHubProgrammerViewModel @Inject constructor(
                 if (room != null && context != null) migrateComposerDraft(room, context)
                 if (context != null) bootstrapper?.rememberConversation(context, room?.id, mutable.value.draft.isNotBlank() || !room?.draftText.isNullOrBlank())
                 observeConversation(room?.id)
+                mutable.update { it.copy(decisionMode = if (room != null && context != null) features.githubDecisionMode(room.id, context) else GitHubDecisionMode.ASK) }
             }
         }
     }
@@ -331,6 +337,31 @@ class GitHubProgrammerViewModel @Inject constructor(
         }
     }
 
+    fun setDecisionMode(mode: GitHubDecisionMode) {
+        val (chatId, context) = mutable.value.let { (it.chatId ?: return) to (it.context ?: return) }
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val identity = settings.ensureConversationIdentity(chatId)
+                settings.mutateFeatureSettings { current ->
+                    if (current.conversationGitHub[chatId]?.sameWorkspace(context) != true || current.conversationIdentities[chatId] != identity) {
+                        current
+                    } else {
+                        val preferences = if (mode == GitHubDecisionMode.ASK) {
+                            current.githubDecisionPreferences - chatId
+                        } else {
+                            current.githubDecisionPreferences + (chatId to GitHubDecisionPreference(identity, GitHubChatDecisions.workspaceKey(context), mode))
+                        }
+                        current.copy(githubDecisionPreferences = preferences)
+                    }
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                mutable.update { it.copy(error = "Could not save the decision setting.") }
+            }
+        }
+    }
+
     private fun observeConversation(chatId: Int?, reload: Boolean = false) {
         if (observedChat == chatId && !reload) return
         if (observedChat != chatId) historyTurns = 10
@@ -355,6 +386,12 @@ class GitHubProgrammerViewModel @Inject constructor(
 
     fun send(text: String, accepted: () -> Unit) {
         sendCommand(text, null, accepted)
+    }
+
+    internal fun repairDraft(repair: GitHubDraftRepair, accepted: () -> Unit) {
+        val context = mutable.value.context ?: return
+        if (!"${context.owner}/${context.repo}".equals(repair.repository, true)) return
+        sendCommand(repair.command(), repair.key, accepted)
     }
 
     private fun sendCommand(text: String, deduplicationKey: String?, accepted: () -> Unit, publication: dev.chungjungsoo.gptmobile.data.github.GitHubApprovalBinding.Continuation? = null) {

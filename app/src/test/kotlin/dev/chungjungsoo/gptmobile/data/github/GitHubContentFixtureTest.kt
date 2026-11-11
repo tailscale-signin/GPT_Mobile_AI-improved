@@ -13,6 +13,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
@@ -37,7 +38,7 @@ class GitHubContentFixtureTest {
         }
     )
     private val tools = listOf(
-        tool("github_context", "status", "changes", "branch", "branch_dependencies"),
+        tool("github_context", "status", "changes", "branch", "branch_dependencies", "recovery"),
         tool("github_commit", "branch", "commit_staged_patch", "delete_fixture_branch", "delete_branch"),
         tool("github_write", "commit"),
         tool("github_stage_patch"),
@@ -292,6 +293,40 @@ class GitHubContentFixtureTest {
         assertFalse(GitHubSelfTestFixtures.complete(records))
     }
 
+    @Test fun cleanupPreflightRejectionAllowsOneExactRetryWithoutReplayingPublishedWrites() {
+        val records = completed()
+        val deletion = records.values.last()
+        val id = deletion.getValue("receipt_id").jsonPrimitive.content
+        val rejected = JsonObject(
+            deletion + buildJsonObject {
+                put("success", false)
+                put("dispatched", false)
+                put("error_code", "GITHUB_TRANSIENT_NETWORK")
+                put(
+                    "execution",
+                    buildJsonObject {
+                        put("schema", "github.dispatch.v1")
+                        put("phase", "PREFLIGHT_REJECTED")
+                        put("requires_reconciliation", false)
+                        put("read_requests", 21)
+                        put("mutation_requests", 0)
+                        put("accepted_mutations", 0)
+                        put("rejected_mutations", 0)
+                        put("unknown_mutations", 0)
+                    }
+                )
+            }
+        )
+        records[id] = rejected
+        val retry = requireNotNull(GitHubSelfTestFixtures.next("Test all tools with writes", tools, records))
+        assertEquals("github_commit", retry.name)
+        assertEquals(deletion["arguments"], retry.arguments)
+        records[retry.callId] = JsonObject(rejected + ("receipt_id" to JsonPrimitive(retry.callId)))
+        assertNull(GitHubSelfTestFixtures.next("Test all tools with writes", tools, records))
+        records[retry.callId] = receipt(retry, result(retry))
+        assertTrue(GitHubSelfTestFixtures.complete(records))
+    }
+
     @Test fun uncertainDeletionResumesOnlyExactReadOnlyRecoveryAndPublishesItsProof() {
         val records = completed()
         val deletion = records.values.last()
@@ -313,6 +348,84 @@ class GitHubContentFixtureTest {
         assertTrue(GitHubSelfTestFixtures.complete(records))
         assertNull(GitHubSelfTestFixtures.next("Test all tools with writes", definitions, records))
         assertEquals(1, records.values.count { it["arguments"]?.jsonObject?.get("action") == JsonPrimitive("delete_fixture_branch") })
+    }
+
+    @Test fun resolvedApprovedFixtureCommitsSatisfyOriginalProposalsWithoutRepeatingWrites() {
+        val records = linkedMapOf<String, JsonObject>()
+        completed().forEach { (id, original) ->
+            val args = original.getValue("arguments").jsonObject
+            if (original["tool"] == JsonPrimitive("github_write") || args["action"] == JsonPrimitive("commit_staged_patch")) {
+                val task = "approval-$id"
+                records[id] = JsonObject(
+                    original + mapOf(
+                        "remote_mutation" to JsonPrimitive(true),
+                        "evidence_origin" to JsonPrimitive("LOCAL"),
+                        "result" to buildJsonObject {
+                            put("engineering_task_id", task)
+                            put("status", "AWAITING_APPROVAL")
+                            put("committed", false)
+                            put("branch", branch)
+                            put("expected_head_sha", args.getValue("expected_head_sha"))
+                        }
+                    )
+                )
+                val resolutionId = "resolved-$id"
+                records[resolutionId] = JsonObject(
+                    original + mapOf(
+                        "receipt_id" to JsonPrimitive(resolutionId),
+                        "tool" to JsonPrimitive("github_context"),
+                        "arguments" to buildJsonObject {
+                            put("action", "recovery")
+                            put("engineering_task_id", task)
+                        },
+                        "result" to JsonObject(
+                            original.getValue("result").jsonObject + buildJsonObject {
+                                put("engineering_task_id", task)
+                                put("approval_state", "PUBLISHED")
+                                put("remote_state_verified", true)
+                            }
+                        )
+                    )
+                )
+            } else {
+                records[id] = original
+            }
+        }
+        val fixture = GitHubSelfTestFixtures.checkpoint(records).single().jsonObject
+        assertEquals(JsonPrimitive(true), fixture["content_verified"])
+        assertEquals(JsonPrimitive(true), fixture["final_state_verified"])
+        assertEquals(2, (fixture["approval_resolutions"] as JsonArray).size)
+        assertTrue(GitHubPendingApproval.snapshot(records).isEmpty())
+        assertTrue(GitHubSelfTestFixtures.complete(records))
+        assertNull(GitHubSelfTestFixtures.next("Test all GitHub tools with mutations", tools, records))
+        val ledger = GitHubExecutionLedger.attach(JsonObject(emptyMap()), records).getValue("execution_ledger").jsonObject
+        assertEquals(JsonPrimitive(0), ledger.getValue("current_receipt_states").jsonObject["WAITING_FOR_APPROVAL"])
+        assertEquals(2, ledger.getValue("resolved_approvals").jsonArray.size)
+        val cancelled = records.mapValues { (id, row) ->
+            if (!id.startsWith("resolved-")) {
+                row
+            } else {
+                JsonObject(
+                    row + (
+                        "result" to JsonObject(
+                            row.getValue("result").jsonObject + buildJsonObject {
+                                put("approval_state", "CANCELLED_BEFORE_PUBLICATION")
+                                put("remote_mutation_performed", false)
+                            }
+                        )
+                        )
+                )
+            }
+        }
+        val cancelledLedger = GitHubExecutionLedger.attach(JsonObject(emptyMap()), cancelled).getValue("execution_ledger").jsonObject
+        assertEquals(JsonPrimitive(2), cancelledLedger.getValue("current_receipt_states").jsonObject["CANCELLED"])
+        assertFalse(GitHubSelfTestFixtures.complete(cancelled))
+        for (field in listOf("binding", "repository")) {
+            val invalid = LinkedHashMap(records)
+            val resolution = invalid.keys.first { it.startsWith("resolved-") }
+            invalid[resolution] = JsonObject(invalid.getValue(resolution) + (field to JsonPrimitive("foreign")))
+            assertFalse(field, GitHubSelfTestFixtures.complete(invalid))
+        }
     }
 
     @Test fun requiredLiveExistenceReadRunsBeforeCleanupAndIsRetiredAfterVerifiedAbsence() {
@@ -513,6 +626,8 @@ class GitHubContentFixtureTest {
     @Test fun undiscoveredOrRevokedCleanupNeverPermitsContentFixtureCreation() {
         val noCleanup = tools.map { if (it.name == "github_commit") tool("github_commit", "branch", "commit_staged_patch") else it }
         assertNull(GitHubSelfTestFixtures.next("test all tools", noCleanup, initial()))
+        val noRecovery = tools.map { if (it.name == "github_context") tool("github_context", "status", "changes", "branch", "branch_dependencies") else it }
+        assertFalse(GitHubContentFixture.available(noRecovery, branch, "main", origin))
         assertNull(GitHubSelfTestFixtures.next("test all tools read-only", tools, initial()))
         assertNotNull(GitHubSelfTestFixtures.prerequisite("github_pr", "comment"))
         assertFalse(GitHubSelfTestFixtures.supports("github_pr", "comment"))

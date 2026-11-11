@@ -1,0 +1,495 @@
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditModelBenchmarkBinding.kt:44:20: error: unresolved reference 'safeAuditConfigurationRevision'.
+    val revision = safeAuditConfigurationRevision(entry.configurationRevision) ?: return null
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditModelBenchmarkBinding.kt:57:117: error: unresolved reference 'appAuditTargetDigest'.
+        entry.id == "${AppAuditSelectedModelProbeSource.SOURCE_ID}:${AppAuditSelectedModelProbeSource.GENERATION}:${appAuditTargetDigest(AppAuditSelectedModelProbeSource.TARGET_PREFIX + profileUid)}"
+                                                                                                                    ^^^^^^^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditQualification.kt:60:45: error: unresolved reference 'AppAuditPluginProbeSource'.
+                        it.probeId in setOf(AppAuditPluginProbeSource.CONFIGURATION, AppAuditSelectedModelProbeSource.CONFIGURATION) && it.targetId == target
+                                            ^^^^^^^^^^^^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditQualification.kt:63:33: error: unresolved reference 'AppAuditPluginProbeSource'.
+                        ?.let { AppAuditPluginProbeSource.GATEWAY_TARGET_PREFIX + it.removePrefix(AppAuditSelectedModelProbeSource.TARGET_PREFIX) } ?: target
+                                ^^^^^^^^^^^^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditQualification.kt:65:40: error: unresolved reference 'AppAuditPluginProbeSource'.
+                        it.sourceId == AppAuditPluginProbeSource.SOURCE_ID &&
+                                       ^^^^^^^^^^^^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditQualification.kt:67:43: error: cannot infer type for type parameter 'T'. Specify it explicitly.
+                            it.probeId in setOf(AppAuditPluginProbeSource.MCP_DISCOVERY, AppAuditPluginProbeSource.GATEWAY_CAPABILITIES)
+                                          ^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditQualification.kt:67:49: error: unresolved reference 'AppAuditPluginProbeSource'.
+                            it.probeId in setOf(AppAuditPluginProbeSource.MCP_DISCOVERY, AppAuditPluginProbeSource.GATEWAY_CAPABILITIES)
+                                                ^^^^^^^^^^^^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditQualification.kt:67:90: error: unresolved reference 'AppAuditPluginProbeSource'.
+                            it.probeId in setOf(AppAuditPluginProbeSource.MCP_DISCOVERY, AppAuditPluginProbeSource.GATEWAY_CAPABILITIES)
+                                                                                         ^^^^^^^^^^^^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditQualification.kt:97:36: error: unresolved reference 'safeAuditConfigurationRevision'.
+                    val revision = safeAuditConfigurationRevision(entry.configurationRevision)
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditQualification.kt:121:49: error: unresolved reference 'appAuditRemoteIdentityJson'.
+                        val remoteObservation = appAuditRemoteIdentityJson(discoveryResult?.observation?.remoteIdentity)
+                                                ^^^^^^^^^^^^^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditQualification.kt:189:20: error: unresolved reference 'safeAuditConfigurationRevision'.
+    val revision = safeAuditConfigurationRevision(entry.configurationRevision)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditSelectedModelProbeSource.kt:23:47: error: unresolved reference 'appAuditTargetDigest'.
+            id = "$SOURCE_ID:$CONFIGURATION:${appAuditTargetDigest(target.key)}",
+                                              ^^^^^^^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditSelectedModelProbeSource.kt:46:48: error: unresolved reference 'appAuditTargetDigest'.
+                id = "$SOURCE_ID:$GENERATION:${appAuditTargetDigest(target.key)}",
+                                               ^^^^^^^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditSelectedModelProbeSource.kt:70:54: error: unresolved reference 'appAuditTargetDigest'.
+            entry.id == "$SOURCE_ID:$CONFIGURATION:${appAuditTargetDigest(current.key)}"
+                                                     ^^^^^^^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditSelectedModelServices.kt:30:16: error: inapplicable candidate(s): constructor(key: String, configured: Boolean, enabled: Boolean, fingerprint: String, configurationRevision: String?, local: Boolean = ..., profileSnapshotHash: String? = ...): AppAuditSelectedModelTarget
+        return AppAuditSelectedModelTarget(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditSelectedModelServices.kt:35:37: error: unresolved reference 'appAuditConfigurationRevision'.
+            configurationRevision = appAuditConfigurationRevision(fingerprint).takeIf { profile != null && credential != null },
+                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditSelectedModelServices.kt:35:80: error: cannot infer type for type parameter 'T'. Specify it explicitly.
+            configurationRevision = appAuditConfigurationRevision(fingerprint).takeIf { profile != null && credential != null },
+                                                                               ^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditSelectedModelServices.kt:35:87: error: cannot infer type for type parameter 'T'. Specify it explicitly.
+            configurationRevision = appAuditConfigurationRevision(fingerprint).takeIf { profile != null && credential != null },
+                                                                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditSelectedModelServices.kt:42:16: error: return type mismatch: expected 'String?', actual 'Any?'.
+        return try {
+               ^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditSelectedModelServices.kt:47:47: error: cannot infer type for type parameter 'R'. Specify it explicitly.
+            val revision = profile.secretRef?.let { secretVault.recordRevision(it)?.takeIf { revision -> revision.matches(Regex("[a-f0-9]{64}")) } } ?: "no-credential".takeIf { profile.secretRef == null }
+                                              ^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditSelectedModelServices.kt:47:65: error: unresolved reference 'recordRevision' on receiver of type 'SecretVault'.
+            val revision = profile.secretRef?.let { secretVault.recordRevision(it)?.takeIf { revision -> revision.matches(Regex("[a-f0-9]{64}")) } } ?: "no-credential".takeIf { profile.secretRef == null }
+                                                                ^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditSelectedModelServices.kt:47:85: error: cannot infer type for type parameter 'T'. Specify it explicitly.
+            val revision = profile.secretRef?.let { secretVault.recordRevision(it)?.takeIf { revision -> revision.matches(Regex("[a-f0-9]{64}")) } } ?: "no-credential".takeIf { profile.secretRef == null }
+                                                                                    ^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditSelectedModelServices.kt:47:94: error: cannot infer type for type parameter 'T'. Specify it explicitly.
+            val revision = profile.secretRef?.let { secretVault.recordRevision(it)?.takeIf { revision -> revision.matches(Regex("[a-f0-9]{64}")) } } ?: "no-credential".takeIf { profile.secretRef == null }
+                                                                                             ^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditSelectedModelServices.kt:50:58: error: unresolved reference 'recordRevision' on receiver of type 'SecretVault'.
+            if (profile.secretRef != null && secretVault.recordRevision(profile.secretRef) != revision) return null
+                                                         ^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt:3:16: error: unresolved reference 'content'.
+import android.content.Context
+               ^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt:4:19: error: unresolved reference 'BatteryManager'.
+import android.os.BatteryManager
+                  ^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt:6:19: error: unresolved reference 'Debug'.
+import android.os.Debug
+                  ^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt:7:19: error: unresolved reference 'PowerManager'.
+import android.os.PowerManager
+                  ^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt:8:8: error: unresolved reference 'dagger'.
+import dagger.hilt.android.qualifiers.ApplicationContext
+       ^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt:9:46: error: unresolved reference 'AppAuditRunner'.
+import dev.chungjungsoo.gptmobile.data.audit.AppAuditRunner
+                                             ^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt:14:46: error: unresolved reference 'interrupted'.
+import dev.chungjungsoo.gptmobile.data.audit.interrupted
+                                             ^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt:62:12: error: unresolved reference 'ApplicationContext'.
+    @param:ApplicationContext private val context: Context,
+           ^^^^^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt:62:52: error: unresolved reference 'Context'.
+    @param:ApplicationContext private val context: Context,
+                                                   ^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt:63:33: error: unresolved reference 'AppAuditRunner'.
+    private val appAuditRunner: AppAuditRunner? = null,
+                                ^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt:114:32: error: argument type mismatch: actual type is 'String', but 'Any.() -> uninferred R (of fun <T, R> T.run)' was expected.
+                    runner.run(id, progress)
+                               ^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt:114:36: error: too many arguments for 'fun <T, R> T.run(block: T.() -> R): R'.
+                    runner.run(id, progress)
+                                   ^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt:168:179: error: unresolved reference 'interrupted' on receiver of type 'AppAuditRun'.
+                    store.checkpoint(latest.copy(state = BenchmarkBatchState.STORAGE_PAUSED, activeOrdinal = null, endedAt = now, storageWarning = message, audit = latest.audit?.interrupted(now, "STORAGE_CHECKPOINT_FAILED"), items = latest.items.map { if (it.state == BenchmarkQueueState.RUNNING) it.copy(state = BenchmarkQueueState.INTERRUPTED, endedAt = now, failure = BenchmarkFailure("STORAGE_CHECKPOINT_FAILED", "checkpoint", message, owner = "storage", scope = "batch")) else it }), failedRun, event = "STORAGE_PAUSED")
+                                                                                                                                                                                  ^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt:287:90: error: unresolved reference 'Debug'.
+                            BenchmarkResourceSample(test.id, System.currentTimeMillis(), Debug.getPss(), Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory(), battery(), thermal(), if (usesLocal) runtime.processPssBytes else null, scope, android.os.SystemClock.elapsedRealtime())
+                                                                                         ^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt:498:74: error: unresolved reference 'Debug'.
+            BenchmarkResourceSample(test.id, System.currentTimeMillis(), Debug.getPss(), Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory(), battery(), thermal(), if (usesLocal) runtime.processPssBytes else null, scope, android.os.SystemClock.elapsedRealtime())
+                                                                         ^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt:609:110: error: inapplicable candidate(s): constructor(id: String, profileUid: String, profileName: String, provider: String, model: String, configKey: String, local: Boolean, mode: BenchmarkMode, startedAt: Long, samples: List<BenchmarkSample> = ..., canceled: Boolean = ..., finished: Boolean = ..., suiteVersion: Int = ..., device: String = ..., backend: String? = ..., accelerator: String? = ..., peakClientPssKb: Long? = ..., thermalBefore: Int? = ..., thermalAfter: Int? = ..., batteryBefore: Int? = ..., batteryAfter: Int? = ..., engineWasLoaded: Boolean = ..., stoppedReason: String? = ..., delegationSettings: ModelDelegationSettings? = ..., measurementVersion: Int = ..., scoringVersion: Int = ..., plannedTrials: Int = ..., appCommit: String = ..., runtimeVersion: String = ..., powerPolicy: String = ..., networkPolicy: String = ..., fixtureContextTokens: Int? = ..., delegationPlan: BenchmarkMode? = ..., delegationSuiteVersion: Int = ..., reviewerProvider: String? = ..., reviewerModel: String? = ..., billingOrigin: String? = ..., diagnosticMode: Boolean = ..., resources: List<BenchmarkResourceSample> = ..., batchId: String? = ..., queueOrdinal: Int? = ..., state: String = ..., endedAt: Long? = ..., cancellationOrigin: BenchmarkStopOrigin? = ..., loadRegime: String = ..., cacheRegime: String = ..., capabilityManifest: Set<String> = ..., requestedAccelerator: String? = ..., cleanupReceipt: String? = ..., fixtureManifestHash: String? = ..., runtimeSnapshot: LocalRuntimeState? = ..., runtimeCleanup: RuntimeCleanupReceipt? = ..., caseManifest: List<BenchmarkCase>? = ..., preflightDurationMs: Long? = ..., measurementPolicy: String? = ..., aggregatePolicy: String? = ..., peakExecutionWorkerPssBytes: Long? = ..., peakExecutionClientPssKb: Long? = ..., executionPolicy: BenchmarkExecutionPolicy? = ..., fixtureRotationSeed: Long? = ..., fixtureSetVersion: Int? = ..., deviceBuild: String? = ..., readiness: BenchmarkReadinessReceipt? = ..., deadlinePolicy: String? = ..., structuredOutputMode: BenchmarkStructuredOutputMode? = ..., structuredSchemaModes: Map<String, BenchmarkStructuredOutputMode> = ..., verifiedStructuredCompatibilityKeys: Map<String, String> = ...): BenchmarkRun
+    private fun newRun(batch: BenchmarkBatch, item: BenchmarkQueueItem, profile: PlatformV2, planned: Int) = BenchmarkRun(
+                                                                                                             ^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt:614:58: error: unresolved reference 'MANUFACTURER'.
+        runtimeVersion = "unreported", device = "${Build.MANUFACTURER} ${Build.MODEL}",
+                                                         ^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt:614:80: error: unresolved reference 'MODEL'.
+        runtimeVersion = "unreported", device = "${Build.MANUFACTURER} ${Build.MODEL}",
+                                                                               ^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt:630:29: error: unresolved reference 'FINGERPRINT'.
+        deviceBuild = Build.FINGERPRINT.takeIf { it.isNotBlank() },
+                            ^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt:630:41: error: cannot infer type for type parameter 'T'. Specify it explicitly.
+        deviceBuild = Build.FINGERPRINT.takeIf { it.isNotBlank() },
+                                        ^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt:630:48: error: cannot infer type for type parameter 'T'. Specify it explicitly.
+        deviceBuild = Build.FINGERPRINT.takeIf { it.isNotBlank() },
+                                               ^^^^^^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt:638:239: error: unresolved reference 'interrupted' on receiver of type 'AppAuditRun'.
+            store.checkpoint(batch.copy(state = if (origin == BenchmarkStopOrigin.USER_STOP) BenchmarkBatchState.STOPPED else BenchmarkBatchState.INTERRUPTED, stopOrigin = origin, activeOrdinal = null, endedAt = now, audit = batch.audit?.interrupted(now, origin.name)), event = "AUDIT_INTERRUPTED")
+                                                                                                                                                                                                                                              ^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt:650:34: error: unresolved reference 'graphics'.
+            val bitmap = android.graphics.Bitmap.createBitmap(512, 256, android.graphics.Bitmap.Config.ARGB_8888)
+                                 ^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt:650:81: error: unresolved reference 'graphics'.
+            val bitmap = android.graphics.Bitmap.createBitmap(512, 256, android.graphics.Bitmap.Config.ARGB_8888)
+                                                                                ^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt:651:45: error: unresolved reference 'cacheDir'.
+            val file = java.io.File(context.cacheDir, "benchmark-${UUID.randomUUID()}.png")
+                                            ^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt:653:38: error: unresolved reference 'graphics'.
+                val canvas = android.graphics.Canvas(bitmap)
+                                     ^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt:654:42: error: unresolved reference 'graphics'.
+                canvas.drawColor(android.graphics.Color.WHITE)
+                                         ^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt:655:37: error: unresolved reference 'graphics'.
+                val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                                    ^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt:655:60: error: unresolved reference 'graphics'.
+                val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                                                           ^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt:655:92: error: cannot infer type for type parameter 'T'. Specify it explicitly.
+                val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                                                                                           ^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt:655:98: error: cannot infer type for type parameter 'T'. Specify it explicitly.
+                val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                                                                                                 ^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt:656:21: error: unresolved reference 'color'.
+                    color = android.graphics.Color.BLACK
+                    ^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt:656:37: error: unresolved reference 'graphics'.
+                    color = android.graphics.Color.BLACK
+                                    ^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt:657:21: error: unresolved reference 'textSize'.
+                    textSize = 110f
+                    ^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt:658:21: error: unresolved reference 'typeface'.
+                    typeface = android.graphics.Typeface.MONOSPACE
+                    ^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt:658:40: error: unresolved reference 'graphics'.
+                    typeface = android.graphics.Typeface.MONOSPACE
+                                       ^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt:661:73: error: unresolved reference 'graphics'.
+                file.outputStream().use { check(bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)) }
+                                                                        ^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt:665:102: error: unresolved reference 'path'.
+            test.copy(attachments = listOf(dev.chungjungsoo.gptmobile.data.model.ChatAttachment(file.path, file.path, "benchmark-image.png", "image/png", file.length(), width = 512, height = 256)))
+                                                                                                     ^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt:665:113: error: unresolved reference 'path'.
+            test.copy(attachments = listOf(dev.chungjungsoo.gptmobile.data.model.ChatAttachment(file.path, file.path, "benchmark-image.png", "image/png", file.length(), width = 512, height = 256)))
+                                                                                                                ^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt:665:160: error: unresolved reference 'length'.
+            test.copy(attachments = listOf(dev.chungjungsoo.gptmobile.data.model.ChatAttachment(file.path, file.path, "benchmark-image.png", "image/png", file.length(), width = 512, height = 256)))
+                                                                                                                                                               ^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt:669:43: error: unresolved reference 'getSystemService'.
+    private fun battery(): Int? = context.getSystemService(BatteryManager::class.java)?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)?.takeIf { it in 0..100 }
+                                          ^^^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt:669:60: error: unresolved reference 'BatteryManager'.
+    private fun battery(): Int? = context.getSystemService(BatteryManager::class.java)?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)?.takeIf { it in 0..100 }
+                                                           ^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt:669:82: error: cannot infer type for type parameter 'T'. Specify it explicitly.
+    private fun battery(): Int? = context.getSystemService(BatteryManager::class.java)?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)?.takeIf { it in 0..100 }
+                                                                                 ^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt:669:82: error: candidate 'val <T> KClass<T>.java: Class<T>' is inapplicable because of a receiver type mismatch.
+    private fun battery(): Int? = context.getSystemService(BatteryManager::class.java)?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)?.takeIf { it in 0..100 }
+                                                                                 ^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt:669:104: error: unresolved reference 'BatteryManager'.
+    private fun battery(): Int? = context.getSystemService(BatteryManager::class.java)?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)?.takeIf { it in 0..100 }
+                                                                                                       ^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt:669:147: error: cannot infer type for type parameter 'T'. Specify it explicitly.
+    private fun battery(): Int? = context.getSystemService(BatteryManager::class.java)?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)?.takeIf { it in 0..100 }
+                                                                                                                                                  ^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt:669:154: error: cannot infer type for type parameter 'T'. Specify it explicitly.
+    private fun battery(): Int? = context.getSystemService(BatteryManager::class.java)?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)?.takeIf { it in 0..100 }
+                                                                                                                                                         ^^^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt:670:43: error: unresolved reference 'getSystemService'.
+    private fun thermal(): Int? = context.getSystemService(PowerManager::class.java)?.currentThermalStatus
+                                          ^^^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt:670:60: error: unresolved reference 'PowerManager'.
+    private fun thermal(): Int? = context.getSystemService(PowerManager::class.java)?.currentThermalStatus
+                                                           ^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt:670:80: error: cannot infer type for type parameter 'T'. Specify it explicitly.
+    private fun thermal(): Int? = context.getSystemService(PowerManager::class.java)?.currentThermalStatus
+                                                                               ^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt:670:80: error: candidate 'val <T> KClass<T>.java: Class<T>' is inapplicable because of a receiver type mismatch.
+    private fun thermal(): Int? = context.getSystemService(PowerManager::class.java)?.currentThermalStatus
+                                                                               ^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt:672:84: error: unresolved reference 'melo'.
+        dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend.LLAMA_CPP -> dev.melo.gguf.GgufNative.REVISION
+                                                                                   ^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt:673:119: error: unresolved reference 'LITERT_LM_VERSION'.
+        dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend.LITERT_LM -> dev.chungjungsoo.gptmobile.BuildConfig.LITERT_LM_VERSION
+                                                                                                                      ^^^^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt:674:122: error: unresolved reference 'QAIRT_VERSION'.
+        dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend.QUALCOMM_QNN -> dev.chungjungsoo.gptmobile.BuildConfig.QAIRT_VERSION
+                                                                                                                         ^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt:689:263: error: unresolved reference 'LITERT_LM_VERSION'.
+        val actual = "$backend|${features.localCpuThreads}|${features.localModelCache}|${features.qnnAutomaticFallback}|${features.localSpeculativeDecoding}|${features.localNativeMetrics}|${features.localExecutionPolicy}|${dev.chungjungsoo.gptmobile.BuildConfig.LITERT_LM_VERSION}|${dev.chungjungsoo.gptmobile.BuildConfig.QAIRT_VERSION}"
+                                                                                                                                                                                                                                                                      ^^^^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt:689:323: error: unresolved reference 'QAIRT_VERSION'.
+        val actual = "$backend|${features.localCpuThreads}|${features.localModelCache}|${features.qnnAutomaticFallback}|${features.localSpeculativeDecoding}|${features.localNativeMetrics}|${features.localExecutionPolicy}|${dev.chungjungsoo.gptmobile.BuildConfig.LITERT_LM_VERSION}|${dev.chungjungsoo.gptmobile.BuildConfig.QAIRT_VERSION}"
+                                                                                                                                                                                                                                                                                                                                  ^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt:695:34: error: unresolved reference 'PowerManager'.
+        check((thermal() ?: 0) < PowerManager.THERMAL_STATUS_SEVERE) { "ENVIRONMENT_BLOCKED: Severe thermal pressure." }
+                                 ^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/AppAuditModelBenchmarkPreparation.kt:9:46: error: unresolved reference 'appAuditTargetDigest'.
+import dev.chungjungsoo.gptmobile.data.audit.appAuditTargetDigest
+                                             ^^^^^^^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/AppAuditModelBenchmarkPreparation.kt:19:15: error: unresolved reference 'appAuditModelProfileUid'.
+    val uid = appAuditModelProfileUid(entry) ?: return null
+              ^^^^^^^^^^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/AppAuditModelBenchmarkPreparation.kt:23:16: error: cannot infer type for type parameter 'T'. Specify it explicitly.
+    return uid.takeIf {
+               ^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/AppAuditModelBenchmarkPreparation.kt:23:23: error: cannot infer type for type parameter 'T'. Specify it explicitly.
+    return uid.takeIf {
+                      ^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/AppAuditModelBenchmarkPreparation.kt:29:121: error: unresolved reference 'appAuditTargetDigest'.
+            entry.id == "${AppAuditSelectedModelProbeSource.SOURCE_ID}:${AppAuditSelectedModelProbeSource.GENERATION}:${appAuditTargetDigest(current.key)}"
+                                                                                                                        ^^^^^^^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:3:16: error: unresolved reference 'content'.
+import android.content.Context
+               ^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:4:17: error: unresolved reference 'lifecycle'.
+import androidx.lifecycle.SavedStateHandle
+                ^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:5:17: error: unresolved reference 'lifecycle'.
+import androidx.lifecycle.ViewModel
+                ^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:6:17: error: unresolved reference 'lifecycle'.
+import androidx.lifecycle.viewModelScope
+                ^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:7:8: error: unresolved reference 'dagger'.
+import dagger.hilt.android.lifecycle.HiltViewModel
+       ^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:8:8: error: unresolved reference 'dagger'.
+import dagger.hilt.android.qualifiers.ApplicationContext
+       ^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:15:46: error: unresolved reference 'writeAppAuditExport'.
+import dev.chungjungsoo.gptmobile.data.audit.writeAppAuditExport
+                                             ^^^^^^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:62:2: error: unresolved reference 'HiltViewModel'.
+@HiltViewModel
+ ^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:72:17: error: unresolved reference 'SavedStateHandle'.
+    savedState: SavedStateHandle,
+                ^^^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:73:12: error: unresolved reference 'ApplicationContext'.
+    @param:ApplicationContext private val context: Context,
+           ^^^^^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:73:52: error: unresolved reference 'Context'.
+    @param:ApplicationContext private val context: Context,
+                                                   ^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:75:5: error: unresolved reference 'ViewModel'.
+) : ViewModel() {
+    ^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:76:58: error: unresolved reference 'viewModelScope'.
+    val profiles = settings.observePlatformV2s().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+                                                         ^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:77:31: error: cannot infer type for type parameter 'T'. Specify it explicitly.
+    private val selectedUid = MutableStateFlow(savedState.get<String>("profileUid").orEmpty())
+                              ^^^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:77:62: error: no type arguments expected for 'fun MatchGroupCollection.get(name: String): MatchGroup?'.
+    private val selectedUid = MutableStateFlow(savedState.get<String>("profileUid").orEmpty())
+                                                             ^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:77:85: error: unresolved reference 'orEmpty' on receiver of type 'MatchGroup?'.
+    private val selectedUid = MutableStateFlow(savedState.get<String>("profileUid").orEmpty())
+                                                                                    ^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:78:20: error: cannot infer type for type parameter 'T2'. Specify it explicitly.
+    val selected = combine(profiles, selectedUid) { list, uid -> list.firstOrNull { it.uid == uid } ?: list.firstOrNull() }
+                   ^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:78:20: error: cannot infer type for type parameter 'R'. Specify it explicitly.
+    val selected = combine(profiles, selectedUid) { list, uid -> list.firstOrNull { it.uid == uid } ?: list.firstOrNull() }
+                   ^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:78:59: error: cannot infer type for type parameter 'T2'. Specify it explicitly.
+    val selected = combine(profiles, selectedUid) { list, uid -> list.firstOrNull { it.uid == uid } ?: list.firstOrNull() }
+                                                          ^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:79:18: error: unresolved reference 'viewModelScope'.
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+                 ^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:86:43: error: unresolved reference 'viewModelScope'.
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+                                          ^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:88:46: error: unresolved reference 'viewModelScope'.
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+                                             ^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:91:18: error: unresolved reference 'viewModelScope'.
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+                 ^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:94:45: error: cannot access 'androidx.room.RoomDatabase' which is a supertype of 'dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2'. Check your module classpath for missing or conflicting dependencies.
+    private val auditConnections = database.toolConnectionDao().observeConnections()
+                                            ^^^^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:100:37: error: cannot infer type for type parameter 'R'. Specify it explicitly.
+    internal val auditTargetNames = combine(profiles, auditConnections) { currentProfiles, connections ->
+                                    ^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:101:9: error: unresolved reference 'appAuditCurrentTargetNames'.
+        appAuditCurrentTargetNames(currentProfiles.map { it.uid to it.name }, connections.map { it.connectionUid to it.name })
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:102:7: error: cannot infer type for type parameter 'T'. Specify it explicitly.
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+      ^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:102:35: error: cannot infer type for type parameter 'T'. Specify it explicitly.
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+                                  ^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:102:43: error: unresolved reference 'viewModelScope'.
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+                                          ^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:102:97: error: cannot infer type for type parameter 'K'. Specify it explicitly.
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+                                                                                                ^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:102:97: error: cannot infer type for type parameter 'V'. Specify it explicitly.
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+                                                                                                ^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:105:46: error: unresolved reference 'viewModelScope'.
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+                                             ^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:107:46: error: unresolved reference 'viewModelScope'.
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+                                             ^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:110:156: error: unresolved reference 'LITERT_LM_VERSION'.
+            "${features.localSpeculativeDecoding}|${features.localNativeMetrics}|${features.localExecutionPolicy}|${dev.chungjungsoo.gptmobile.BuildConfig.LITERT_LM_VERSION}|${dev.chungjungsoo.gptmobile.BuildConfig.QAIRT_VERSION}"
+                                                                                                                                                           ^^^^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:110:216: error: unresolved reference 'QAIRT_VERSION'.
+            "${features.localSpeculativeDecoding}|${features.localNativeMetrics}|${features.localExecutionPolicy}|${dev.chungjungsoo.gptmobile.BuildConfig.LITERT_LM_VERSION}|${dev.chungjungsoo.gptmobile.BuildConfig.QAIRT_VERSION}"
+                                                                                                                                                                                                                       ^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:111:15: error: unresolved reference 'viewModelScope'.
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, "")
+              ^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:113:18: error: unresolved reference 'viewModelScope'.
+        .stateIn(viewModelScope, SharingStarted.Eagerly, dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings())
+                 ^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:117:18: error: unresolved reference 'viewModelScope'.
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+                 ^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:121:15: error: unresolved reference 'viewModelScope'.
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+              ^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:128:15: error: unresolved reference 'viewModelScope'.
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+              ^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:132:15: error: unresolved reference 'viewModelScope'.
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+              ^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:144:28: error: unresolved reference 'compatibleType' on receiver of type 'Nothing'.
+                !(primary?.compatibleType == ClientType.LITERT_LM && it.compatibleType == ClientType.LITERT_LM)
+                           ^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:146:15: error: unresolved reference 'viewModelScope'.
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+              ^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:149:15: error: unresolved reference 'viewModelScope'.
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+              ^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:153:15: error: unresolved reference 'viewModelScope'.
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+              ^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:165:40: error: cannot access 'androidx.room.RoomDatabase' which is a supertype of 'dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2'. Check your module classpath for missing or conflicting dependencies.
+    private val invocations = database.invocationDao().statistics()
+                                       ^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:166:18: error: unresolved reference 'viewModelScope'.
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+                 ^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:168:18: error: unresolved reference 'viewModelScope'.
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+                 ^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:172:15: error: unresolved reference 'viewModelScope'.
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+              ^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:182:15: error: unresolved reference 'viewModelScope'.
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+              ^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:185:9: error: unresolved reference 'viewModelScope'.
+        viewModelScope.launch(Dispatchers.IO) {
+        ^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:187:53: error: unresolved reference 'getSharedPreferences'.
+                mutableLegacyReport.value = context.getSharedPreferences("connection_doctor", Context.MODE_PRIVATE)
+                                                    ^^^^^^^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:187:95: error: unresolved reference 'Context'.
+                mutableLegacyReport.value = context.getSharedPreferences("connection_doctor", Context.MODE_PRIVATE)
+                                                                                              ^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:188:54: error: cannot infer type for type parameter 'T'. Specify it explicitly.
+                    .getString("last_report", null)?.takeIf { it.startsWith("Benchmark v1") }
+                                                     ^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:188:61: error: cannot infer type for type parameter 'T'. Specify it explicitly.
+                    .getString("last_report", null)?.takeIf { it.startsWith("Benchmark v1") }
+                                                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:195:9: error: unresolved reference 'viewModelScope'.
+        viewModelScope.launch {
+        ^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:205:9: error: unresolved reference 'viewModelScope'.
+        viewModelScope.launch {
+        ^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:228:9: error: unresolved reference 'viewModelScope'.
+        viewModelScope.launch {
+        ^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:231:31: error: unresolved reference 'appAuditModelProfileUid'.
+                    val uid = appAuditModelProfileUid(entry) ?: return@withContext null
+                              ^^^^^^^^^^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:307:9: error: unresolved reference 'viewModelScope'.
+        viewModelScope.launch {
+        ^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:317:57: error: unresolved reference 'viewModelScope'.
+    val debugMode = settings.observeDebugMode().stateIn(viewModelScope, SharingStarted.Eagerly, false)
+                                                        ^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:324:91: error: unresolved reference 'noBackupFilesDir'.
+    private val exportArtifacts = BenchmarkExportArtifactStore(directory = { File(context.noBackupFilesDir, "benchmark-exports") })
+                                                                                          ^^^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:329:9: error: unresolved reference 'viewModelScope'.
+        viewModelScope.launch { restoreRetainedExport() }
+        ^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:363:34: error: unresolved reference 'startAudit' on receiver of type 'BenchmarkExecutionCoordinator'.
+        val accepted = execution.startAudit(options)
+                                 ^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:371:39: error: unresolved reference 'net'.
+    fun exportBenchmarks(uri: android.net.Uri, detailed: Boolean = false, retainedArtifactId: String? = null, auditBatchId: String? = null) {
+                                      ^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:376:9: error: unresolved reference 'viewModelScope'.
+        viewModelScope.launch {
+        ^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:383:52: error: unresolved reference 'BenchmarkExportContent'.
+                    exportArtifacts.prepare(false, BenchmarkExportContent.APP_AUDIT) { output ->
+                                                   ^^^^^^^^^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:383:86: error: too many arguments for 'suspend fun prepare(detailed: Boolean, write: suspend (OutputStream) -> Unit): BenchmarkExportArtifact'.
+                    exportArtifacts.prepare(false, BenchmarkExportContent.APP_AUDIT) { output ->
+                                                                                     ^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:383:88: error: cannot infer type for value parameter 'output'. Specify it explicitly.
+                    exportArtifacts.prepare(false, BenchmarkExportContent.APP_AUDIT) { output ->
+                                                                                       ^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:385:37: error: unresolved reference 'assets'.
+                            context.assets.open(AppAuditSourceInventory.assetPath)
+                                    ^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:389:48: error: unresolved reference 'writeAppAuditExport'.
+                        if (inventory == null) writeAppAuditExport(output, batch) else inventory.use { writeAppAuditExport(output, batch, it) }
+                                               ^^^^^^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:389:98: error: cannot infer type for type parameter 'R'. Specify it explicitly.
+                        if (inventory == null) writeAppAuditExport(output, batch) else inventory.use { writeAppAuditExport(output, batch, it) }
+                                                                                                 ^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:389:104: error: unresolved reference 'writeAppAuditExport'.
+                        if (inventory == null) writeAppAuditExport(output, batch) else inventory.use { writeAppAuditExport(output, batch, it) }
+                                                                                                       ^^^^^^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:397:58: error: unresolved reference 'content' on receiver of type 'BenchmarkExportArtifact'.
+                mutableExportNotice.value = if (prepared.content == BenchmarkExportContent.APP_AUDIT) "Saving app audit evidence…" else "Saving the complete benchmark export…"
+                                                         ^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:397:69: error: unresolved reference 'BenchmarkExportContent'.
+                mutableExportNotice.value = if (prepared.content == BenchmarkExportContent.APP_AUDIT) "Saving app audit evidence…" else "Saving the complete benchmark export…"
+                                                                    ^^^^^^^^^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:398:106: error: unresolved reference 'contentResolver'.
+                saveBenchmarkExportArtifact(exportArtifacts, prepared, settings::getDebugMode) { context.contentResolver.openOutputStream(uri, "wt") }
+                                                                                                         ^^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:399:58: error: unresolved reference 'content' on receiver of type 'BenchmarkExportArtifact'.
+                mutableExportNotice.value = if (prepared.content == BenchmarkExportContent.APP_AUDIT) "Exported the selected app audit, including partial coverage, measured score inputs and safe diagnostic evidence." else "Exported all stored benchmark runs, scores and runtime evidence."
+                                                         ^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:399:69: error: unresolved reference 'BenchmarkExportContent'.
+                mutableExportNotice.value = if (prepared.content == BenchmarkExportContent.APP_AUDIT) "Exported the selected app audit, including partial coverage, measured score inputs and safe diagnostic evidence." else "Exported all stored benchmark runs, scores and runtime evidence."
+                                                                    ^^^^^^^^^^^^^^^^^^^^^^
+app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt:476:59: error: unresolved reference 'name' on receiver of type 'Nothing'.
+        mutableProgress.value = BenchmarkProgress(primary.name, "Saving delegation selection", 0, helpers.size * dev.chungjungsoo.gptmobile.data.benchmark.delegationBenchmarkSuite(plan, paired).size)
+                                                          ^^^^

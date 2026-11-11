@@ -4,9 +4,10 @@ import java.time.Instant
 
 /** Keeps every record while counting one issue per evidenced exception or physical operation. */
 internal class DiagnosticIncidentTracker {
-    data class Association(val id: String, val first: Boolean)
+    data class Association(val id: String, val first: Boolean, val outcome: String? = null)
     private val counted = linkedSetOf<String>()
     private val associations = linkedMapOf<String, String>()
+    private val outcomes = linkedMapOf<String, String>()
     private val identityValue = Regex("[A-Za-z0-9_.:-]{1,128}")
     private val crashes = DiagnosticCrashCorrelation()
     private var indexing = false
@@ -38,7 +39,7 @@ internal class DiagnosticIncidentTracker {
     }
 
     fun accept(line: String, eventId: String, parentEventId: String?): Association {
-        associations[eventId]?.let { return Association(it, false) }
+        associations[eventId]?.let { return Association(it, false, outcomes[it]) }
         val match = record.matchEntire(line)
         if (match == null) {
             val owner = parentEventId?.let { associations[it] ?: it } ?: lastTrace ?: eventId
@@ -51,11 +52,11 @@ internal class DiagnosticIncidentTracker {
         val fields = diagnosticFields(message)
         fun identity(key: String) = fields.diagnosticText(key)?.takeIf(identityValue::matches)?.takeUnless { it in setOf("-1", "0") }
         val network = if (tag in setOf("Network", "FreeProviderFailure")) identity("networkEpisodeId") ?: identity("episode") else null
-        val explicit = identity("causalIncidentId") ?: identity("failureIncidentId") ?: identity("incidentId") ?: network?.let { "network:$it" } ?: identity("failureId")
+        val explicit = identity("causalIncidentId") ?: identity("failureIncidentId") ?: identity("incidentId") ?: identity("incident_id") ?: network?.let { "network:$it" } ?: identity("failureId")
         // The native history writer and Kotlin runtime use different names for
         // the same operation receipt. Normalize the alias before constructing
         // the process-scoped incident identity.
-        val physical = (identity("nativeOperationId") ?: identity("operationId"))?.let { "operationId:$it" }
+        val physical = (identity("nativeOperationId") ?: identity("operationId") ?: identity("operation_id"))?.let { "operationId:$it" }
             ?: listOf("physicalAttemptId", "runtimeRequestId").firstNotNullOfOrNull { key -> identity(key)?.let { "$key:$it" } }
         val operation = physical?.let { "operation:${identity("workerGenerationId") ?: identity("processId") ?: identity("process") ?: "unscoped"}:$it" }
         val causal = explicit ?: operation ?: diagnosticCorrelation(fields, content, tag).invocationId
@@ -89,6 +90,10 @@ internal class DiagnosticIncidentTracker {
             !fatalHeader &&
             exceptionStart.containsMatchIn(content)
         if (causal != null) {
+            if (tag == "Gateway" && content.startsWith("METADATA_READ_OUTCOME") && fields.diagnosticText("outcome") == "COMPLETED") {
+                outcomes[causal] = "RECOVERED_METADATA_READ"
+                while (outcomes.size > 2048) outcomes.remove(outcomes.keys.first())
+            }
             if (begins) setTrace(causal, at, source, fatalHeader)
             return remember(eventId, causal, classification.actionable)
         }
@@ -116,6 +121,6 @@ internal class DiagnosticIncidentTracker {
         val first = actionable && counted.add(owner)
         while (counted.size > 2048) counted.remove(counted.first())
         while (associations.size > 4096) associations.remove(associations.keys.first())
-        return Association(owner, first)
+        return Association(owner, first, outcomes[owner])
     }
 }

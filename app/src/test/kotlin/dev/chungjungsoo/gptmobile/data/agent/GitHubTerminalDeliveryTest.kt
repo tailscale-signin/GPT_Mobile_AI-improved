@@ -6,7 +6,9 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -14,6 +16,43 @@ import org.junit.Test
 
 class GitHubTerminalDeliveryTest {
     private fun provider(event: ProviderEvent) = AgentRunEvent.Provider(event)
+
+    @Test fun interruptedTaskPublishesObservedFactsAndItsExactRecoveryStep() = runTest {
+        val call = ProviderEvent.ToolCall(
+            "pr-list",
+            "github_pr",
+            buildJsonObject {
+                put("action", "list")
+                put("state", "open")
+            }
+        )
+        val result = AgentToolResult(
+            call.callId,
+            ToolResultContent.Json(
+                buildJsonObject {
+                    put("items", JsonArray(emptyList()))
+                    put("has_more", false)
+                    put("page", 1)
+                }
+            ),
+            false
+        )
+        val failure = ProviderEvent.Failed(
+            "Saved batch needs reconciliation",
+            errorCode = "OUTPUT_CONTINUATION_PENDING_TOOLS",
+            failureDetails = buildJsonObject {
+                put("failed_stage", "tool_reconciliation")
+                put("next_action", "RECONCILE_TOOL_RECEIPTS")
+            }
+        )
+        val events = flowOf(AgentRunEvent.ToolFinished(call, result), provider(failure)).withGitHubTerminalDelivery(true).toList()
+        val text = events.filterIsInstance<AgentRunEvent.Provider>().map { it.event }.filterIsInstance<ProviderEvent.TextDelta>().single().text
+        assertTrue(text.contains("Open pull requests observed: 0 (complete captured list)"))
+        assertTrue(text.contains("pr-list"))
+        assertTrue(text.contains("tool_reconciliation"))
+        assertTrue(text.contains("RECONCILE_TOOL_RECEIPTS"))
+        assertTrue(text.contains("do not establish completion"))
+    }
 
     @Test fun failureWithoutTextProducesOneVisibleIncompleteResponseAndPreservesCause() = runTest {
         val failure = ProviderEvent.Failed("Llama is offline", errorCode = "LOCAL_SERVICE_UNREACHABLE")
@@ -31,6 +70,63 @@ class GitHubTerminalDeliveryTest {
         val failure = ProviderEvent.Failed("HTTP 429", providerLimit = limit, invocationId = "actual")
         val events = flowOf(provider(failure)).withGitHubTerminalDelivery(true).toList()
         assertEquals(listOf(provider(failure)), events)
+    }
+
+    @Test fun rateLimitWithoutDurableWaitKeepsItsActionableCauseAndFailureMetadata() = runTest {
+        val failures = listOf(
+            ProviderEvent.Failed("HTTP 429: provider rate limit reached. Resume after the provider cooldown.", errorCode = "429", invocationId = "rate-limit"),
+            ProviderEvent.Failed(
+                "Request rejected",
+                errorCode = "HTTP_ERROR",
+                failureDetails = buildJsonObject {
+                    put("failed_stage", "model_invocation")
+                    put("http_status", 429)
+                    put("retry_after_ms", 30_000)
+                },
+                invocationId = "typed-rate-limit"
+            )
+        )
+        for (failure in failures) {
+            val events = flowOf(provider(failure)).withGitHubTerminalDelivery(true).toList().filterIsInstance<AgentRunEvent.Provider>().map { it.event }
+            val text = events.filterIsInstance<ProviderEvent.TextDelta>().single()
+            assertEquals("The AI provider reached its request limit. Wait for the cooldown, then resume.", text.text)
+            assertEquals(failure.invocationId, text.lineage.invocationId)
+            assertEquals(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.SYSTEM_ERROR, text.lineage.origin)
+            assertFalse(text.text.contains("BLOCKED"))
+            assertFalse(text.text.contains("GITHUB_RUN_INTERRUPTED"))
+            assertEquals(listOf(failure), events.filterIsInstance<ProviderEvent.Failed>())
+            assertFalse(events.any { it is ProviderEvent.Completed })
+        }
+    }
+
+    @Test fun thrownProviderRateLimitRetainsItsStatusAndCooldown() = runTest {
+        val events = flow<AgentRunEvent> { throw dev.chungjungsoo.gptmobile.data.network.ProviderHttpFailure(429, 30_000) }
+            .withGitHubTerminalDelivery(true).toList().filterIsInstance<AgentRunEvent.Provider>().map { it.event }
+        val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+        assertEquals("429", failure.errorCode)
+        assertEquals(kotlinx.serialization.json.JsonPrimitive(429), failure.failureDetails?.get("http_status"))
+        assertEquals(kotlinx.serialization.json.JsonPrimitive(30_000), failure.failureDetails?.get("retry_after_ms"))
+        assertTrue(events.filterIsInstance<ProviderEvent.TextDelta>().single().text.contains("request limit"))
+    }
+
+    @Test fun rateLimitNeverReplacesOrAppendsToAnExistingPartialAnswer() = runTest {
+        val text = provider(ProviderEvent.TextDelta("The inspected source uses a shared queue."))
+        val failure = ProviderEvent.Failed("HTTP 429: provider rate limit reached", errorCode = "429")
+        val events = flowOf(text, provider(failure), provider(ProviderEvent.Completed)).withGitHubTerminalDelivery(true).toList()
+        assertEquals(listOf(text, provider(failure)), events)
+    }
+
+    @Test fun rateLimitStatusCannotReplaceAnUncertainRemoteOutcome() = runTest {
+        val failure = ProviderEvent.Failed(
+            "Reconcile the dispatched operation",
+            errorCode = "RECONCILIATION_REQUIRED",
+            failureDetails = buildJsonObject { put("http_status", 429) }
+        )
+        val events = flowOf(provider(failure)).withGitHubTerminalDelivery(true).toList().filterIsInstance<AgentRunEvent.Provider>().map { it.event }
+        val text = events.filterIsInstance<ProviderEvent.TextDelta>().single().text
+        assertTrue(text.contains("RECONCILIATION_REQUIRED"))
+        assertFalse(text.contains("cooldown"))
+        assertEquals(listOf(failure), events.filterIsInstance<ProviderEvent.Failed>())
     }
 
     @Test fun deniedToolsCannotBePresentedAsPartiallyCompletedActions() = runTest {

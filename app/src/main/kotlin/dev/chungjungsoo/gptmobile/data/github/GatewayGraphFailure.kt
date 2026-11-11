@@ -6,6 +6,13 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
+internal fun GatewayEngineeringCapabilities.requireGraphReadiness(): String {
+    if (codeGraph?.schemaVersion != 1) throw GatewayGraphUnavailableException("The selected gateway repository graph protocol is unsupported. Update the desktop gateway.", listOf(GatewayGraphPrerequisite.GRAPH_PROTOCOL_UNSUPPORTED))
+    val missing = GatewayGraphPrerequisite.missing(this)
+    if (missing.isNotEmpty()) throw GatewayGraphUnavailableException(unavailableReason(graph = true) ?: "The selected gateway repository graph prerequisites are not ready.", missing)
+    return requireNotNull(principalId)
+}
+
 /** Fixed prerequisite codes survive diagnostic previews without exposing gateway payloads. */
 internal enum class GatewayGraphPrerequisite(val nextAction: String) {
     JOURNAL_DISABLED("ENABLE_SELECTED_GATEWAY_DURABLE_STORAGE"),
@@ -25,7 +32,7 @@ internal enum class GatewayGraphPrerequisite(val nextAction: String) {
                 "disabled" -> add(JOURNAL_DISABLED)
                 "unavailable", "write_failed" -> add(JOURNAL_UNAVAILABLE)
             }
-            if (checks?.hostGithubConnection == "missing") add(HOST_GITHUB_CONNECTION_MISSING)
+            if ((checks?.graphHostGithubConnection ?: checks?.hostGithubConnection) == "missing") add(HOST_GITHUB_CONNECTION_MISSING)
             if (checks?.draining == true) add(GATEWAY_DRAINING)
             if (isEmpty() && (capability.codeGraph?.enabled != true || capability.readiness?.graphReady == false)) add(GRAPH_SERVICE_UNAVAILABLE)
         }

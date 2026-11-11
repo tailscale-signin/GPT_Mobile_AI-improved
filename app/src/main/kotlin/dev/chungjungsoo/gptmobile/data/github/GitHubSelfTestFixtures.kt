@@ -226,7 +226,8 @@ internal object GitHubSelfTestFixtures {
         if (fixtures.isEmpty() || fixtures.any { it.text("cleanup_status") != "CLEANED" }) return false
         if (fixtures.any { it.text("fixture_plan") == GitHubOwnedFixtures.PLAN && it["content_verified"] != JsonPrimitive(true) }) return false
         val reconciledDeletions = fixtures.flatMap { (it["reconciled_deletion_receipts"] as? JsonArray).orEmpty() }.toSet()
-        val proved = fixtures.flatMap { listOfNotNull(it["creation_receipt"], it["cleanup_receipt"]) + (it["mutation_receipts"] as? JsonArray).orEmpty() }.toSet() + reconciledDeletions
+        val resolvedProposals = fixtures.flatMap { (it["approval_resolutions"] as? JsonArray).orEmpty() }.filterIsInstance<JsonObject>().mapNotNull { it["proposal_receipt"] }.toSet()
+        val proved = fixtures.flatMap { listOfNotNull(it["creation_receipt"], it["cleanup_receipt"]) + (it["mutation_receipts"] as? JsonArray).orEmpty() }.toSet() + reconciledDeletions + resolvedProposals
         return receipts.values.filter {
             it["trusted"] == JsonPrimitive(true) &&
                 it["verification_eligible"] != JsonPrimitive(false) &&
@@ -237,9 +238,24 @@ internal object GitHubSelfTestFixtures {
 
     private fun requiresFixtureProof(receipt: JsonObject): Boolean {
         val execution = receipt["execution"] as? JsonObject
-        val sent = listOf("mutation_requests", "accepted_mutations", "unknown_mutations").any { ((execution?.get(it) as? JsonPrimitive)?.longOrNull ?: 0) > 0 }
+        val counters = listOf("mutation_requests", "accepted_mutations", "unknown_mutations")
+        fun count(key: String) = (execution?.get(key) as? JsonPrimitive)?.takeUnless { it.isString }?.longOrNull
+        val sent = counters.any { (count(it) ?: 0) > 0 }
+        val invalidCounters = counters.any { key ->
+            execution?.containsKey(key) == true && count(key)?.let { it < 0 } != false
+        }
+        if (sent || invalidCounters) return true
         if (receipt["success"] != JsonPrimitive(true) && receipt["dispatched"] == JsonPrimitive(false) && !sent) return false
-        if (sent || receipt["remote_mutation"] == JsonPrimitive(true)) return true
+        // Current native receipts classify local staging separately from remote
+        // mutation capability. Neither a draft nor an unsubmitted approval creates
+        // a GitHub resource that invalidates an already verified fixture cleanup.
+        if (receipt["remote_mutation"] == JsonPrimitive(false)) return false
+        val outcome = GitHubOperationOutcome.snapshot(receipt)
+        val noWrites = counters.all {
+            count(it) == 0L
+        }
+        if (noWrites && (outcome["proposal_prepared"] == JsonPrimitive(true) || outcome["approval_pending"] == JsonPrimitive(true))) return false
+        if (receipt["remote_mutation"] == JsonPrimitive(true)) return true
         // Legacy receipts predate explicit remote_mutation. Local watch/decide
         // operations create no GitHub resource and need no deletion lifecycle.
         val action = args(receipt)?.text("action").orEmpty()
@@ -247,8 +263,8 @@ internal object GitHubSelfTestFixtures {
             "github_stage_patch" -> true
             "github_commit" -> action in setOf("branch", "commit", "commit_staged_patch", "delete_branch", "delete_fixture_branch", "")
             "github_write" -> action in setOf("commit", "")
-            "github_pr" -> action in setOf("create", "update", "comment", "reply", "review", "merge")
-            "github_issue" -> action in setOf("create", "update")
+            "github_pr" -> action in GitHubCollaboration.prActions || action in setOf("create", "update", "comment", "reply", "review", "merge", "ready", "draft")
+            "github_issue" -> action in GitHubCollaboration.issueActions || action in setOf("create", "update")
             "github_release" -> action in setOf("create_tag", "publish")
             "github_ci" -> action in setOf("dispatch", "rerun", "rerun_failed_jobs", "rerun_all", "cancel")
             "github" -> action in GitHubWorkspaceClient.writeActions || action in setOf("create_branch", "update_file", "create_pull_request", "create_issue_comment", "dispatch_workflow", "rerun_workflow", "rerun_failed_jobs", "cancel_workflow")

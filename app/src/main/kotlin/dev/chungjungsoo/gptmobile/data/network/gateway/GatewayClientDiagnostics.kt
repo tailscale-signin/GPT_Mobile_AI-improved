@@ -29,7 +29,7 @@ internal object GatewayClientDiagnostics {
     private val instancePattern = Regex("[a-f0-9]{32}")
     private val roles = setOf("primary", "github", "review", "synthesis", "diagnostic")
     private val diagnosticHeaders = setOf(CLIENT_HEADER.lowercase(), "x-gateway-diagnostic-session", "x-gateway-diagnostic-started", "traceparent", "tracestate", "baggage")
-    private data class Attempt(val started: Long, val route: String, val method: String, val trace: String, val request: String, val responseReceived: Boolean = false)
+    private data class Attempt(val started: Long, val route: String, val method: String, val trace: String, val request: String, val responseReceived: Boolean = false, val metadataReadId: String? = null, val metadataReadAttempt: Int? = null, val responseStatus: Int? = null, val metadataRequested: Boolean = false, val networkEpoch: Long = LocalServiceHealth.networkEpoch)
     private val dispatched = linkedMapOf<String, Attempt>()
     private val observed = linkedMapOf<String, Attempt>()
     private val tracePattern = Regex("00-([a-f0-9]{32})-([a-f0-9]{16})-[a-f0-9]{2}")
@@ -48,7 +48,7 @@ internal object GatewayClientDiagnostics {
     fun refreshDiagnostics(config: ProviderRequestConfig) = GatewayDiagnosticBridge.refresh(config)
     suspend fun diagnosticStatusFor(config: ProviderRequestConfig) = GatewayDiagnosticBridge.statusFor(config)
     suspend fun diagnosticPage(config: ProviderRequestConfig? = null, offset: Int = 0, failuresOnly: Boolean = true, traceId: String? = null, stages: Set<String> = emptySet()) = GatewayDiagnosticBridge.page(config, offset, failuresOnly, traceId, stages)
-    suspend fun exportDiagnostics(destination: java.io.File, config: ProviderRequestConfig? = null) = GatewayDiagnosticBridge.export(config, destination)
+    suspend fun exportDiagnostics(destination: java.io.File, config: ProviderRequestConfig? = null, inventory: JsonObject? = null) = GatewayDiagnosticBridge.export(config, destination, inventory)
 
     /** Shared capability identity; two profiles on one authenticated route need only one probe. */
     fun routeIdentity(config: ProviderRequestConfig): String {
@@ -122,15 +122,19 @@ internal object GatewayClientDiagnostics {
         if (captureAllowed) config.extraHeaders else withoutDiagnosticHeaders(config.extraHeaders)
 
     /** Recheck at each physical dispatch; a request prepared before Debug was disabled must not upload metadata. */
-    fun requestHeaders(config: ProviderRequestConfig, route: String = "other", method: String = "GET"): Map<String, String> {
+    fun requestHeaders(config: ProviderRequestConfig, route: String = "other", method: String = "GET", metadataReadId: String? = null, metadataReadAttempt: Int? = null, knownGateway: Boolean = false): Map<String, String> {
         if (!captureAllowed) return withoutDiagnosticHeaders(config.extraHeaders)
-        if (config.extraHeaders.keys.none { it.equals(CLIENT_HEADER, true) }) return config.extraHeaders
+        val metadataRequested = config.extraHeaders.keys.any { it.equals(CLIENT_HEADER, true) }
+        val eligible = metadataRequested || knownGateway || config.providerType == "LLAMA" || runtimeEpoch(config) != "unobserved"
+        if (!eligible) return config.extraHeaders
+        GatewayDiagnosticBridge.remember(config)
         val prior = config.extraHeaders.entries.firstOrNull { it.key.equals("traceparent", true) }?.value
         val trace = tracePattern.matchEntire(prior.orEmpty())?.groupValues?.get(1)?.takeIf { it.any { char -> char != '0' } }
             ?: java.util.UUID.randomUUID().toString().replace("-", "")
         val span = java.util.UUID.randomUUID().toString().replace("-", "").take(16)
         val request = config.extraHeaders.entries.firstOrNull { it.key.equals("X-Request-ID", true) }?.value ?: trace
-        val attempt = Attempt(System.nanoTime(), route.takeIf { it in GatewayDiagnosticEvent.routes } ?: "other", method.takeIf { it in GatewayDiagnosticEvent.methods } ?: "GET", trace, researchHash(request))
+        val readId = metadataReadId?.takeIf { GatewayDiagnosticEvent.hex32.matches(it) && metadataReadAttempt in 0..1 && method == "GET" }
+        val attempt = Attempt(System.nanoTime(), route.takeIf { it in GatewayDiagnosticEvent.routes } ?: "other", method.takeIf { it in GatewayDiagnosticEvent.methods } ?: "GET", trace, researchHash(request), metadataRequested = metadataRequested, metadataReadId = readId, metadataReadAttempt = metadataReadAttempt.takeIf { readId != null })
         synchronized(lock) {
             if (dispatched.size >= 256) dispatched.remove(dispatched.keys.first())
             dispatched[span] = attempt
@@ -144,13 +148,17 @@ internal object GatewayClientDiagnostics {
                 put("trace_id", trace)
                 put("span_id", span)
                 put("request_id", attempt.request)
+                attempt.metadataReadId?.let {
+                    put("operation_id", it)
+                    put("incident_id", it)
+                }
                 put("dispatch_state", "dispatched")
                 put("category", "transport")
                 put("retry_class", "unknown")
                 put("bounded_attributes", attributes(config, attempt))
             }
         )
-        return config.extraHeaders.filterKeys { !it.equals("traceparent", true) && !it.equals("X-Request-ID", true) } + GatewayDiagnosticBridge.sessionHeaders(config) + mapOf("traceparent" to "00-$trace-$span-01", "X-Request-ID" to request)
+        return config.extraHeaders.filterKeys { !it.equals("traceparent", true) && !it.equals("X-Request-ID", true) } + (if (metadataRequested) GatewayDiagnosticBridge.sessionHeaders(config) else emptyMap()) + mapOf("traceparent" to "00-$trace-$span-01", "X-Request-ID" to request)
     }
 
     private fun withoutDiagnosticHeaders(headers: Map<String, String>): Map<String, String> {
@@ -160,16 +168,21 @@ internal object GatewayClientDiagnostics {
 
     private fun attributes(config: ProviderRequestConfig, attempt: Attempt): JsonObject = buildJsonObject {
         put("endpoint_digest", routeIdentity(config))
+        config.profileUid?.let { put("profile_digest", researchHash(it)) }
+        put("target_class", "gateway")
+        put("correlation_status", "matched")
         put("route", attempt.route)
         put("method", attempt.method)
         put("response_headers_received", attempt.responseReceived)
+        put("network_epoch", attempt.networkEpoch)
+        attempt.metadataReadAttempt?.let { put("retry_attempt", it) }
     }
 
     /** One terminal client-side record per physical failed attempt, including failures before headers. */
     fun failed(config: ProviderRequestConfig, requestHeaders: Map<String, String>, failure: Throwable, route: String = "other", safeRead: Boolean = false) {
         val fields = failureFields(config, requestHeaders, failure, route, safeRead) ?: return
         GatewayDiagnosticBridge.event(config, fields)
-        AppLogRecorder.record("Gateway", "CLIENT_EXCHANGE · route=${routeIdentity(config)} · transport=${fields.diagnosticText("error_code")} · requestDigest=${fields.diagnosticText("request_id")} · responseHeadersReceived=${(fields["bounded_attributes"] as? JsonObject)?.get("response_headers_received")}")
+        AppLogRecorder.record("Gateway", "CLIENT_EXCHANGE · route=${routeIdentity(config)} · transport=${fields.diagnosticText("error_code")} · requestDigest=${fields.diagnosticText("request_id")} · incident_id=${fields.diagnosticText("incident_id") ?: "unobserved"} · retry_attempt=${(fields["bounded_attributes"] as? JsonObject)?.get("retry_attempt") ?: "unobserved"} · responseHeadersReceived=${(fields["bounded_attributes"] as? JsonObject)?.get("response_headers_received")}")
     }
 
     internal fun failureFields(config: ProviderRequestConfig, requestHeaders: Map<String, String>, failure: Throwable, route: String = "other", safeRead: Boolean = false): JsonObject? {
@@ -178,9 +191,10 @@ internal object GatewayClientDiagnostics {
         val attempt = synchronized(lock) { dispatched.remove(span) ?: observed.remove(span) } ?: return null
         if (!captureAllowed || attempt.trace != trace.groupValues[1]) return null
         val causes = generateSequence(failure) { it.cause?.takeUnless { cause -> cause === it } }.take(8).toList()
-        val cancelled = failure is CancellationException
+        val deadline = causes.any { it is kotlinx.coroutines.TimeoutCancellationException }
+        val cancelled = failure is CancellationException && !deadline
         if (!cancelled && causes.any { it is ProviderHttpFailure || it is io.ktor.client.plugins.ResponseException || it is LocalServiceUnavailableException }) return null
-        val timeout = causes.any { it is java.net.SocketTimeoutException || it is java.util.concurrent.TimeoutException || it.javaClass.simpleName in setOf("ConnectTimeoutException", "HttpRequestTimeoutException", "SocketTimeoutException") }
+        val timeout = deadline || causes.any { it is java.net.SocketTimeoutException || it is java.util.concurrent.TimeoutException || it.javaClass.simpleName in setOf("ConnectTimeoutException", "HttpRequestTimeoutException", "SocketTimeoutException") }
         val transport = timeout || causes.any { it is IOException }
         val securityFailure = causes.any { it is javax.net.ssl.SSLException || it is java.security.cert.CertificateException }
         // HTTP rejection and malformed responses keep their existing response/validation
@@ -207,6 +221,10 @@ internal object GatewayClientDiagnostics {
                 put("parent_span_id", span)
                 put("span_id", java.util.UUID.randomUUID().toString().replace("-", "").take(16))
                 put("request_id", actual.request)
+                actual.metadataReadId?.let {
+                    put("operation_id", it)
+                    put("incident_id", it)
+                }
                 put("dispatch_state", "unknown")
                 put(
                     "retry_class",
@@ -219,7 +237,78 @@ internal object GatewayClientDiagnostics {
                     }
                 )
                 put("local_duration_ms", ((System.nanoTime() - actual.started) / 1_000_000).coerceIn(0, GatewayDiagnosticEvent.CAPTURE_DURATION_MILLIS))
-                put("bounded_attributes", attributes(config, actual))
+                put(
+                    "bounded_attributes",
+                    buildJsonObject {
+                        attributes(config, actual).forEach { (name, value) -> put(name, value) }
+                        put(
+                            "transport_cause",
+                            when {
+                                deadline -> "request_deadline"
+                                causes.any { it is java.net.UnknownHostException } -> "dns"
+                                securityFailure -> "tls"
+                                causes.any { it.javaClass.simpleName == "ConnectTimeoutException" } -> "connect_deadline"
+                                causes.any { it.javaClass.simpleName == "HttpRequestTimeoutException" } -> "request_deadline"
+                                timeout -> "read_deadline"
+                                causes.any { it is java.net.ConnectException } -> "connection_refused"
+                                causes.any { it is java.net.NoRouteToHostException } -> "route_unavailable"
+                                causes.any { it is java.net.SocketException && it.message?.contains("reset", true) == true } -> "connection_reset"
+                                causes.any { it is java.io.EOFException } -> "connection_closed"
+                                transport -> "io"
+                                else -> "unknown"
+                            }
+                        )
+                        if (failure is CancellationException) put("cancellation_origin", if (deadline) "deadline" else (failure as? GatewayObserverCancellation)?.origin ?: "unknown")
+                        put(
+                            "recovery_action",
+                            if (cancelled) {
+                                "none"
+                            } else if (safeRead && !securityFailure) {
+                                "retry_read"
+                            } else if (securityFailure) {
+                                "repair_configuration"
+                            } else {
+                                "reconcile"
+                            }
+                        )
+                    }
+                )
+            }
+        )
+    }
+
+    /** Completion confirms this bounded metadata read, never selected-model generation readiness. */
+    fun metadataReadCompleted(config: ProviderRequestConfig, headers: Map<String, String>) {
+        val fields = metadataReadCompletionFields(config, headers) ?: return
+        GatewayDiagnosticBridge.event(config, fields)
+        AppLogRecorder.record("Gateway", "METADATA_READ_OUTCOME · incident_id=${fields.diagnosticText("incident_id")} · operation_id=${fields.diagnosticText("operation_id")} · outcome=COMPLETED · retry_attempt=${(fields["bounded_attributes"] as? JsonObject)?.get("retry_attempt")} · selectedModelReadiness=not_inferred")
+    }
+
+    internal fun metadataReadCompletionFields(config: ProviderRequestConfig, headers: Map<String, String>): JsonObject? {
+        val span = tracePattern.matchEntire(headers.entries.firstOrNull { it.key.equals("traceparent", true) }?.value.orEmpty())?.groupValues?.get(2) ?: return null
+        val attempt = synchronized(lock) { dispatched[span] ?: observed[span] } ?: return null
+        val readId = attempt.metadataReadId ?: return null
+        if (!captureAllowed || attempt.responseStatus !in 200..299) return null
+        return GatewayDiagnosticEvent.fields(
+            buildJsonObject {
+                put("stage", "operation_reconciliation")
+                put("direction", "local")
+                put("severity", "info")
+                put("category", "transport")
+                put("error_code", "NONE")
+                put("dispatch_state", "response_received")
+                put("retry_class", "none")
+                put("operation_id", readId)
+                put("incident_id", readId)
+                put("trace_id", attempt.trace)
+                put("parent_span_id", span)
+                put(
+                    "bounded_attributes",
+                    buildJsonObject {
+                        attributes(config, attempt).forEach { (name, value) -> put(name, value) }
+                        put("response_body_completed", true)
+                    }
+                )
             }
         )
     }
@@ -230,6 +319,45 @@ internal object GatewayClientDiagnostics {
             dispatched.remove(span)
             observed.remove(span)
         }
+    }
+
+    fun readiness(config: ProviderRequestConfig, headers: Map<String, String>, observation: GatewayReadinessObservation, model: String?) {
+        if (!captureAllowed) return
+        val trace = tracePattern.matchEntire(headers.entries.firstOrNull { it.key.equals("traceparent", true) }?.value.orEmpty())
+        GatewayDiagnosticBridge.event(
+            config,
+            buildJsonObject {
+                put("stage", "operation_reconciliation")
+                put("direction", "local")
+                put("category", "model")
+                put("severity", if (observation.ready) "info" else "warning")
+                put("error_code", if (observation.ready) "NONE" else "MODEL_UNAVAILABLE")
+                put("dispatch_state", "response_received")
+                put("retry_class", if (observation.retryable == true) "after_backoff" else "manual")
+                trace?.let {
+                    put("trace_id", it.groupValues[1])
+                    put("parent_span_id", it.groupValues[2])
+                }
+                put(
+                    "bounded_attributes",
+                    buildJsonObject {
+                        put("route", "readiness")
+                        put("endpoint_digest", routeIdentity(config))
+                        config.profileUid?.let { put("profile_digest", researchHash(it)) }
+                        model?.let { put("model_digest", researchHash(it)) }
+                        observation.reasonCode?.let { put("reason_code", it) }
+                        observation.dependency?.let { put("dependency", it) }
+                        observation.upstreamStatus?.let { put("upstream_status", it) }
+                        observation.observationAgeMillis?.let { put("observation_age_ms", it) }
+                        observation.recoveryAction?.let {
+                            put("recovery_action", it)
+                            put("recovery_condition", gatewayRecoveryCondition(it))
+                        }
+                        put("response_body_completed", true)
+                    }
+                )
+            }
+        )
     }
 
     private fun canonicalRole(role: String): String = when {
@@ -250,34 +378,39 @@ internal object GatewayClientDiagnostics {
     }.toString()
 
     /** Runs before HTTP error handling as restart/auth failures are useful evidence too. */
-    fun observe(config: ProviderRequestConfig, status: Int, header: (String) -> String?) {
+    fun observe(config: ProviderRequestConfig, status: Int, requestTraceParent: String? = null, header: (String) -> String?) {
         val instance = header("X-Gateway-Instance-ID")
         observeInstance(config, instance)
         val protocol = header("X-Gateway-Debug-Protocol")?.toIntOrNull()
-        if (!captureAllowed || protocol !in setOf(1, 2)) return
-        val debugEnabled = header("X-Gateway-Debug-Enabled") == "true"
+        val requestSpan = tracePattern.matchEntire(requestTraceParent.orEmpty())?.groupValues?.get(2)
+        val tracked = requestSpan != null && synchronized(lock) { requestSpan in dispatched || requestSpan in observed }
+        if (!captureAllowed || protocol !in setOf(1, 2) && !tracked) return
+        val debugEnabled = header("X-Gateway-Debug-Enabled")?.toBooleanStrictOrNull()
         GatewayDiagnosticBridge.remember(config, protocol, debugEnabled)
-        val fields = responseFields(config, status, header)
+        val fields = responseFields(config, status, requestTraceParent, header)
         GatewayDiagnosticBridge.event(config, fields)
         val attributes = fields["bounded_attributes"] as JsonObject
         AppLogRecorder.record("Gateway", "CLIENT_EXCHANGE · route=${routeIdentity(config)} · instance=${runtimeEpoch(config)} · http=$status · gatewayDebug=$debugEnabled · clientMetadataAcknowledgment=${attributes.diagnosticText("client_metadata_acknowledgment")} · admissionCode=${attributes.diagnosticText("gateway_admission_code") ?: "not_reported"} · requestDigest=${fields.diagnosticText("operation_id") ?: fields.diagnosticText("request_id") ?: "unavailable"} · httpRequestId=${header("X-Gateway-HTTP-Request-ID")?.takeIf(instancePattern::matches) ?: "unavailable"}")
     }
 
     /** A missing acknowledgement is unknown; HTTP rejection alone proves no metadata-processing outcome. */
-    internal fun responseFields(config: ProviderRequestConfig, status: Int, header: (String) -> String?): JsonObject {
+    internal fun responseFields(config: ProviderRequestConfig, status: Int, header: (String) -> String?): JsonObject = responseFields(config, status, null, header)
+
+    internal fun responseFields(config: ProviderRequestConfig, status: Int, requestTraceParent: String?, header: (String) -> String?): JsonObject {
         val requestDigest = header("X-Gateway-Request-ID")?.takeIf { it.length <= 128 }?.let(::researchHash) ?: "unavailable"
         val physicalRequestId = header("X-Gateway-HTTP-Request-ID")?.takeIf(instancePattern::matches)
-        val trace = tracePattern.matchEntire(header("traceparent").orEmpty())
-        val attempt = header("X-Gateway-Client-Span-ID")?.let { span ->
+        val clientTrace = tracePattern.matchEntire(requestTraceParent.orEmpty())
+        val trace = tracePattern.matchEntire(header("traceparent").orEmpty()) ?: clientTrace
+        val attempt = (clientTrace?.groupValues?.get(2) ?: header("X-Gateway-Client-Span-ID"))?.let { span ->
             synchronized(lock) {
-                dispatched.remove(span)?.copy(responseReceived = true)?.also {
+                dispatched.remove(span)?.copy(responseReceived = true, responseStatus = status)?.also {
                     if (observed.size >= 256) observed.remove(observed.keys.first())
                     observed[span] = it
                 }
             }
         }
         val admissionCode = header("X-Gateway-Admission-Error")?.takeIf { it in GatewayDiagnosticEvent.admissionCodes }
-        val requested = config.extraHeaders.keys.any { it.equals(CLIENT_HEADER, true) }
+        val requested = attempt?.metadataRequested ?: config.extraHeaders.keys.any { it.equals(CLIENT_HEADER, true) }
         val admissionRejected = when (admissionCode) {
             "duplicate_admission_header" -> status == 400
             "transport_identity_required" -> status == 401
@@ -302,8 +435,13 @@ internal object GatewayClientDiagnostics {
                 put("category", "transport")
                 put("dispatch_state", "response_received")
                 put("retry_class", "unknown")
-                put("request_id", physicalRequestId ?: requestDigest)
-                if (physicalRequestId != null) put("operation_id", requestDigest)
+                put("request_id", physicalRequestId ?: attempt?.request ?: requestDigest)
+                if (attempt?.metadataReadId != null) {
+                    put("operation_id", attempt.metadataReadId)
+                    put("incident_id", attempt.metadataReadId)
+                } else if (physicalRequestId != null) {
+                    put("operation_id", requestDigest)
+                }
                 if (trace != null) {
                     put("trace_id", trace.groupValues[1])
                     put("parent_span_id", trace.groupValues[2])
@@ -314,6 +452,7 @@ internal object GatewayClientDiagnostics {
                     "bounded_attributes",
                     buildJsonObject {
                         attempt?.let { attributes(config, it).forEach { (name, value) -> put(name, value) } }
+                        put("correlation_status", if (attempt == null) "response_only" else "matched")
                         put("status", status)
                         put("response_headers_received", true)
                         put("client_metadata_acknowledgment", acknowledgment.name)

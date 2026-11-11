@@ -13,7 +13,7 @@ class ToolProgressTracker {
     }
     companion object {
         const val INTERVAL = 10
-        const val SUMMARY_INSTRUCTION = "Progress checkpoint: before calling more tools, write one or two short user-facing sentences describing the work completed and your next action. Wrap only this public update in <progress_update>...</progress_update>. Do not include private chain-of-thought or tool credentials. Then continue the task."
+        const val SUMMARY_INSTRUCTION = "Progress checkpoint: before calling more tools, write a useful public update in <progress_update>...</progress_update>. Use two to four connected sentences when there is new evidence: name the specific finding or change, explain its practical effect, and say what you will check or change next. Mention a concrete file, feature or failing check only when observed. Separate a proposed change from an applied change and inspection from an executed test. Preserve blockers and uncertainty; do not invent success. Avoid operation-count recaps, generic reassurance and repeating your last update. If nothing material changed, keep the update to the current wait or blocker. Share conclusions and actions, never private reasoning, credentials or raw tool output. Close the tag, then continue the task."
     }
 }
 
@@ -22,6 +22,7 @@ class PublicProgressParser {
     private var pending = ""
     private var inside = false
     val hasPendingText: Boolean get() = pending.isNotEmpty()
+    val insideProgress: Boolean get() = inside
 
     fun reset() {
         pending = ""

@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.network.gateway
 import dev.chungjungsoo.gptmobile.BuildConfig
 import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogEntry
 import dev.chungjungsoo.gptmobile.data.diagnostics.classifyDiagnostic
+import dev.chungjungsoo.gptmobile.data.diagnostics.diagnosticCorrelation
 import dev.chungjungsoo.gptmobile.data.diagnostics.diagnosticEventMessage
 import dev.chungjungsoo.gptmobile.data.diagnostics.diagnosticExecutionEvidence
 import dev.chungjungsoo.gptmobile.data.diagnostics.diagnosticFields
@@ -21,12 +22,23 @@ internal fun gatewayAppDiagnosticProjection(entry: AppLogEntry): JsonObject? {
     val classification = classifyDiagnostic(entry.level, entry.tag, entry.message)
     val fields = diagnosticFields(entry.message)
     val execution = diagnosticExecutionEvidence(fields, eventName)
+    fun text(vararg names: String): String? = names.firstNotNullOfOrNull { (fields[it] as? JsonPrimitive)?.contentOrNull?.takeUnless { value -> value in setOf("null", "unknown", "none", "unavailable") } }
+    val terminal = text("terminalStatus", "status").takeIf { eventName == "RUN_TERMINAL" }
+    val correlation = diagnosticCorrelation(fields, message, entry.tag)
+    val mcpPhase = when (text("mcpPhase", "stage", "failedStage")?.lowercase()) {
+        "connection", "initialization", "protocol_negotiation", "dns", "tls" -> "connection"
+        "discovery" -> "discovery"
+        "execution" -> "execution"
+        else -> if (eventName.contains("DISCOVERY") || eventName.contains("CATALOG")) "discovery" else "unknown"
+    }
+    val frame = if (eventName == "FRAME_TIMING") GatewayFrameDiagnostic.from(fields) else null
     val stage = when {
         eventName == "RUN_TERMINAL" -> "terminal_delivery"
         entry.tag in setOf("Lifecycle", "Application", "AppCrash", "Diagnostics", "ProcessExit") -> "lifecycle"
         entry.tag in setOf("Frame", "Rendering", "ChatRendering") -> "renderer"
         entry.tag in setOf("Network", "Connectivity") -> "network"
-        entry.tag in setOf("MCP", "Mcp", "McpRuntime") -> "mcp_call"
+        entry.tag in setOf("MCP", "Mcp", "McpRuntime") -> if (mcpPhase == "discovery") "mcp_discovery" else "mcp_call"
+        entry.tag == "GatewayAvailability" -> "request"
         entry.tag in setOf("Model", "LocalConnection", "Admission") -> "request"
         entry.tag in setOf("Agent", "AgentRun", "Tool", "ToolExecution", "GitHub", "GitHubTool") -> "operation_dispatch"
         classification.severity in setOf("error", "critical", "warning") -> "unknown"
@@ -37,7 +49,15 @@ internal fun gatewayAppDiagnosticProjection(entry: AppLogEntry): JsonObject? {
         execution.dispatched == false && classification.actionable -> "PRECHECK_REJECTED"
         classification.category in setOf("fatal", "memory_recovery") && message.contains("memory", true) -> "JAVA_HEAP_PRESSURE"
         classification.category in setOf("transport_availability", "network_callback_lifecycle") -> "TRANSPORT_FAILURE"
-        stage == "renderer" && classification.severity in setOf("error", "warning", "critical") -> "RENDERER_STALL"
+        frame != null -> frame.errorCode
+        stage in setOf("mcp_call", "mcp_discovery") && classification.actionable -> when (mcpPhase) {
+            "discovery" -> "MCP_DISCOVERY_FAILED"
+            "execution" -> "MCP_EXECUTION_FAILED"
+            else -> "MCP_UNAVAILABLE"
+        }
+        terminal == "EVIDENCE_MISSING" -> "EVIDENCE_MISSING"
+        terminal == "BLOCKED" -> "TASK_BLOCKED"
+        terminal == "PARTIAL" -> "TASK_PARTIAL"
         classification.severity in setOf("error", "critical") -> "UNKNOWN_CAUSE"
         else -> "NONE"
     }
@@ -64,16 +84,28 @@ internal fun gatewayAppDiagnosticProjection(entry: AppLogEntry): JsonObject? {
                 when (stage) {
                     "renderer" -> "renderer"
                     "network" -> "network"
-                    "mcp_call", "operation_dispatch", "terminal_delivery" -> "tool"
+                    "mcp_call", "mcp_discovery", "operation_dispatch", "terminal_delivery" -> "tool"
                     "lifecycle" -> "lifecycle"
                     "request" -> "model"
                     else -> "unknown"
                 }
             )
-            val names = mapOf("runId" to "run_id", "jobId" to "job_id", "requestDigest" to "request_id", "operationId" to "operation_id", "toolCallId" to "tool_call_id", "bindingId" to "binding_id", "invocationId" to "incident_id", "incidentId" to "incident_id", "causalIncidentId" to "incident_id")
-            names.forEach { (name, field) ->
-                (fields[name] as? JsonPrimitive)?.contentOrNull?.takeIf { it.matches(Regex("[a-z0-9_-]{16,80}")) }?.let { put(field, it) }
+            val identifiers = mapOf(
+                "run_id" to correlation.runId,
+                "incident_id" to (text("causalIncidentId", "incidentId", "incident_id") ?: correlation.invocationId),
+                "job_id" to text("jobId", "job_id", "remoteJobId"),
+                "request_id" to text("requestDigest", "requestId", "request_id"),
+                "operation_id" to text("operationId", "operation_id", "actionId"),
+                "tool_call_id" to text("toolCallId", "tool_call_id", "callId"),
+                "binding_id" to text("bindingId", "binding_id")
+            )
+            identifiers.forEach { (name, value) ->
+                value?.takeIf { it.matches(Regex("[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}")) }?.let {
+                    put(name, if (it.matches(Regex("[a-f0-9]{32,64}|[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}|[a-z]{2,16}_[a-f0-9]{32,64}"))) it else GatewayDiagnosticEvent.digest("$name:$it"))
+                }
             }
+            listOf("trace_id" to "traceId", "span_id" to "spanId", "parent_span_id" to "parentSpanId").forEach { (name, alias) -> text(name, alias)?.let { put(name, it) } }
+            text("elapsedMs", "durationMs", "local_duration_ms")?.toLongOrNull()?.let { put("local_duration_ms", it) }
             put(
                 "bounded_attributes",
                 buildJsonObject {
@@ -83,9 +115,49 @@ internal fun gatewayAppDiagnosticProjection(entry: AppLogEntry): JsonObject? {
                     put("app_version_code", BuildConfig.VERSION_CODE)
                     put("app_revision", BuildConfig.APP_COMMIT)
                     put("android_sdk", android.os.Build.VERSION.SDK_INT)
-                    listOf("slowFrames" to "slow_frames", "frameCount" to "frame_count", "droppedFrames" to "dropped_frames").forEach { (name, field) ->
-                        fields[name]?.let { put(field, it) }
+                    // Every value still passes the shared strict allowlist below.
+                    GatewayDiagnosticSchema.enumAttributes.keys.forEach { name -> fields[name]?.let { put(name, it) } }
+                    GatewayDiagnosticSchema.numericAttributes.forEach { name -> fields[name]?.let { put(name, it) } }
+                    GatewayDiagnosticSchema.digestAttributes.forEach { name -> fields[name]?.let { put(name, it) } }
+                    GatewayDiagnosticSchema.boolAttributes.forEach { name -> fields[name]?.let { put(name, it) } }
+                    val reason = execution.errorCode ?: text("reasonCode", "reason_code", "failureCode")
+                    reason?.let { put("reason_code", it) }
+                    if ("dependency" !in fields) gatewayDiagnosticDependency(reason)?.let { put("dependency", it) }
+                    execution.stage?.lowercase()?.let { put("failed_stage", it) }
+                    terminal?.let { put("terminal_status", it) }
+                    (text("completionDisposition", "completion_disposition") ?: execution.state?.takeIf { it in GatewayDiagnosticSchema.enumAttributes.getValue("completion_disposition") } ?: terminal)?.let { put("completion_disposition", it) }
+                    text("lastCompletedStage", "last_completed_stage")?.let { put("last_completed_stage", it) }
+                    put(
+                        "dispatch_scope",
+                        when (text("dispatchEvidenceScope")) {
+                            "MODEL_INVOCATION", "GATEWAY_JOB_SUBMISSION", "BLOCKED_ACTION" -> "blocked_action"
+                            "RUN_FAILURE", "RUN" -> "run"
+                            else -> "unknown"
+                        }
+                    )
+                    val recovery = text("recoveryAction", "recovery_action") ?: gatewayDiagnosticRecovery(reason, terminal, execution.state)
+                    put("recovery_action", recovery)
+                    put("recovery_condition", gatewayRecoveryCondition(recovery))
+                    (fields["retryable"] as? JsonPrimitive)?.booleanOrNull?.let { put("retryable", it) }
+                    if (stage == "terminal_delivery") {
+                        put("run_state", "terminal")
+                        val required = text("requiredCriteria", "required_criteria")?.toLongOrNull()
+                        val verified = text("verifiedCriteria", "verified_criteria")?.toLongOrNull()
+                        required?.let { put("required_criteria", it) }
+                        verified?.let { put("verified_criteria", it) }
+                        if (required != null && verified != null && verified in 0..required) {
+                            put("remaining_criteria", required - verified)
+                            put("acceptance_verified", required > 0 && required == verified && text("taskVerification") == "VERIFIED")
+                        }
                     }
+                    if (stage in setOf("mcp_call", "mcp_discovery")) {
+                        put("mcp_phase", mcpPhase)
+                        put("target_class", "mcp")
+                        text("connection", "connectionUid", "serverId")?.let { put("server_digest", GatewayDiagnosticEvent.digest(it)) }
+                        text("tool", "toolName")?.let { put("tool_digest", GatewayDiagnosticEvent.digest(it)) }
+                    }
+                    text("checkpointId", "checkpoint")?.let { put("checkpoint_digest", GatewayDiagnosticEvent.digest(it)) }
+                    frame?.attributes()?.forEach { (name, value) -> put(name, value) }
                 }
             )
         }

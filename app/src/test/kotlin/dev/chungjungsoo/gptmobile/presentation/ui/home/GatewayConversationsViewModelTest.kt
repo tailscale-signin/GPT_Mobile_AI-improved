@@ -36,8 +36,11 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import kotlinx.serialization.encodeToString
@@ -95,7 +98,43 @@ class GatewayConversationsViewModelTest {
         }
         coEvery { creator.hasQueueBoundary(any()) } returns false
         val monitor = GatewayMenuMonitor(flowOf(emptyList()), CoroutineScope(Dispatchers.Main))
-        return GatewayConversationsViewModel(SavedStateHandle(), settings, jobs, conversations, scopes, monitor, known, creator, database, queue)
+        val completions = mockk<dev.chungjungsoo.gptmobile.data.chat.GenerationCompletionStore>()
+        every { completions.items } returns MutableStateFlow(emptyList())
+        return GatewayConversationsViewModel(SavedStateHandle(), settings, jobs, conversations, scopes, monitor, known, creator, database, queue, completions)
+    }
+
+    @Test fun visibleObserverCoalescesManualRefreshAndStopsWithItsLifecycle() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val store = ViewModelStore()
+        val response = CompletableDeferred<GatewayConversationPage>()
+        val requests = MutableStateFlow(0)
+        try {
+            coEvery { jobs.listConversations("gateway-profile", null) } coAnswers {
+                requests.value++
+                response.await()
+            }
+            val model = viewModel().also { store.put("browser", it) }
+            model.select(connection())
+            requests.first { it == 1 }
+            val observer = backgroundScope.launch { model.observeVisible() }
+            runCurrent()
+            model.refresh()
+            assertEquals(1, requests.value)
+            response.complete(page.copy(items = listOf(row.copy(activeJobId = "job", jobState = "RUNNING"))))
+            model.state.first { it.page != null && !it.loading }
+            runCurrent()
+            advanceTimeBy(10_001)
+            requests.first { it == 2 }
+            observer.cancel()
+            model.pause()
+            runCurrent()
+            advanceTimeBy(120_000)
+            runCurrent()
+            assertEquals(2, requests.value)
+        } finally {
+            store.clear()
+            Dispatchers.resetMain()
+        }
     }
 
     @Test fun serverInventoryAndCanonicalIdentityAreUsedToOpenConversation() = runTest {
@@ -163,6 +202,34 @@ class GatewayConversationsViewModelTest {
             val failed = model.state.first { it.error == GatewayBrowserError.IDENTITY_CHANGED }
             assertNull(failed.page)
             assertNull(failed.lastSyncedAt)
+        } finally {
+            store.clear()
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test fun backgroundRefreshRetainsExpandedHistoryAndUsesTheFreshCursor() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val store = ViewModelStore()
+        try {
+            val older = row.copy(conversationId = "older", activeJobId = "job", jobState = "RUNNING")
+            val completed = older.copy(jobState = "COMPLETED")
+            val newest = row.copy(conversationId = "newest")
+            coEvery { jobs.listConversations("gateway-profile", null) } returns page.copy(hasMore = true, nextCursor = "original")
+            coEvery { jobs.listConversations("gateway-profile", "original") } returns page.copy(items = listOf(older))
+            val model = viewModel().also { store.put("browser", it) }
+            model.select(connection())
+            model.state.first { it.page != null && !it.loading }
+            model.refresh(loadMore = true)
+            model.state.first { it.page?.items == listOf(row, older) && !it.loading }
+
+            coEvery { jobs.listConversations("gateway-profile", null) } returns page.copy(items = listOf(newest, row), hasMore = true, nextCursor = "fresh")
+            coEvery { jobs.listConversations("gateway-profile", "fresh") } returns page.copy(items = listOf(completed))
+            val observer = backgroundScope.launch { model.observeVisible() }
+            val refreshed = model.state.first { it.page?.items?.firstOrNull() == newest && !it.loading }
+            assertEquals(listOf(newest, row, completed), refreshed.page?.items)
+            assertFalse(requireNotNull(refreshed.page).hasMore)
+            observer.cancel()
         } finally {
             store.clear()
             Dispatchers.resetMain()

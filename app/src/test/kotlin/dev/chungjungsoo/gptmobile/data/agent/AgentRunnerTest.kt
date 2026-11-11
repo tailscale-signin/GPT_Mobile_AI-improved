@@ -1362,6 +1362,22 @@ class AgentRunnerTest {
     }
 
     @Test
+    fun `expired accepted task budget never dispatches another provider request`() = runBlocking {
+        val session = session { _, _ ->
+            error("An expired accepted task budget must not dispatch another model call")
+        }
+        val events = AgentRunner(
+            limits = AgentRunLimits(runTimeoutMillis = 0L, githubTask = true)
+        ).run(session, emptyList()).toList()
+
+        val failure = events.filterIsInstance<AgentRunEvent.Provider>().map { it.event }.filterIsInstance<ProviderEvent.Failed>().single()
+        assertEquals("GITHUB_TASK_INCOMPLETE", failure.errorCode)
+        assertEquals("BLOCKED", failure.taskOutcome)
+        assertEquals(JsonPrimitive(false), failure.failureDetails?.get("dispatched"))
+        assertEquals(JsonPrimitive("ACCEPTED_TASK_DEADLINE_REACHED"), failure.failureDetails?.get("stop_reason"))
+    }
+
+    @Test
     fun `run timeout message uses configured duration`() = runBlocking {
         val session = session { _, _ ->
             flow { awaitCancellation() }

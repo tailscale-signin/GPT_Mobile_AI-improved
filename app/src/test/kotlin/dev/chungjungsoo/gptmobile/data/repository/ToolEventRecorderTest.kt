@@ -7,6 +7,7 @@ import dev.chungjungsoo.gptmobile.data.agent.displayResult
 import dev.chungjungsoo.gptmobile.data.agent.recoveryResult
 import dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao
 import dev.chungjungsoo.gptmobile.data.database.dao.AgentRunDao
+import dev.chungjungsoo.gptmobile.data.database.dao.GatewayRunDiagnosticState
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatPlatformModelV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
@@ -431,6 +432,7 @@ class ToolEventRecorderTest {
 private class FakeAgentRunDao :
     AgentRunDao,
     UnusedPolicySnapshotAccess {
+    override suspend fun gatewayDiagnosticStates(baseUrl: String, profileUid: String): List<GatewayRunDiagnosticState> = emptyList()
     override suspend fun recordGatewayCancellation(runId: String, jobId: String, receipt: String): Int = 0
     override suspend fun finishGatewayRecovery(runId: String, status: String, completedAt: Long, terminalError: String?): Int = 0
     override suspend fun replaceMeasuredUsage(runId: String, inputTokens: Int?, outputTokens: Int?, totalTokens: Int?): Int = 0

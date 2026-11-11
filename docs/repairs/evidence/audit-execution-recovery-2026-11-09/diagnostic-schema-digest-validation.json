@@ -1,0 +1,55 @@
+{
+  "source_sha256": {
+    "scripts/generate_diagnostic_schema.py": "87a5df57f719d8c8572c9145eed4d9100f9e40996d3ff3309dbb00565f1aab27",
+    "gateway/tests/test_gateway_session_contract.py": "4007faa878b7029c3a5eb1a134f2d95396b5f3294ea3475d866540dbbd06deac",
+    "scripts/tests/test_generate_diagnostic_schema.py": "37d2e3fea9ded3a72a1021539cd9716111d4fd79aa50fe4727028d15c5e75e78"
+  },
+  "generated_contract_sha256": "e87ba9e5d345327ff5bdecbffbdc1a46d5edd0412f2b363949e3f5a41f2db353",
+  "generator_tests": 2,
+  "gateway_contract_tests": 4,
+  "generator_check": "PASS",
+  "kotlin_changes": false,
+  "schema_version": 1,
+  "parent_head": "d1ef3f020558a0ba5833ab17943ea1b679e95c1f",
+  "base_sha": "7db0c735f9e86eaece24513fbaf5c0a624f13822",
+  "canonical_fast_tests": 446,
+  "artifacts": [
+    {
+      "path": "docs/repairs/evidence/audit-execution-recovery-2026-11-09/diagnostic-schema-digest-before.log",
+      "sha256": "4ba114c560c6ad3d70ba088b380b2278ac36222b8e26cf39fa754de8c6d07317"
+    },
+    {
+      "path": "docs/repairs/evidence/audit-execution-recovery-2026-11-09/diagnostic-schema-digest-tests.log",
+      "sha256": "1692c7efe23d1d87e165a0c803fefc235b753dc4bcc163ce325db05affecfebf"
+    },
+    {
+      "path": "docs/repairs/evidence/audit-execution-recovery-2026-11-09/diagnostic-schema-contract-tests.log",
+      "sha256": "121ff7dbe2a6cb9564693cbc0b355a373b84250743cd5d2b4716c77d37b60adf"
+    },
+    {
+      "path": "docs/repairs/evidence/audit-execution-recovery-2026-11-09/diagnostic-schema-generation-check.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "docs/repairs/evidence/audit-execution-recovery-2026-11-09/diagnostic-schema-canonical-fast.log",
+      "sha256": "ed5ccff201603adbdf2b1af5a5c16a8e6cccc6cd4e33ae2743e6c20e91c96bdd"
+    }
+  ],
+  "state": "HOST_VALIDATED_FRESH_WINDOWS_AND_ANDROID_CI_REQUIRED",
+  "failure": {
+    "run_id": 42744747927,
+    "job_ids": [
+      129594094373,
+      129594094196
+    ],
+    "platforms": [
+      "Windows Python 3.12",
+      "Windows Python 3.13"
+    ],
+    "suite": "GatewaySessionContractTests.test_routes_and_schema_are_the_reviewed_shared_contract",
+    "lf_digest": "e87ba9e5d345327ff5bdecbffbdc1a46d5edd0412f2b363949e3f5a41f2db353",
+    "crlf_digest": "e66d124cac2292473ac59fee278eb4abb9510ae296550fca2479a992f0d9ef2c",
+    "other_failed_suites": 0
+  },
+  "scope": "Host reproduction of the exact Windows newline mismatch, generator behavior and current source contract. Fresh Windows and Android workflow outcomes remain separate."
+}

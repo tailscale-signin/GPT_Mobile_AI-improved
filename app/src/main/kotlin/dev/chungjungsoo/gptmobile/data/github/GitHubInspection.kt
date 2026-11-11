@@ -70,10 +70,14 @@ internal class GitHubInspection(private val get: suspend (String) -> JsonElement
             }
             "branch_context" -> {
                 val branch = segment(required("branch"))
+                val details = get("$root/branches/$branch")
+                val protection = observed("$root/branches/$branch/protection")
+                val rules = observed("$root/rules/branches/$branch")
                 buildJsonObject {
-                    put("branch", get("$root/branches/$branch"))
-                    put("protection", observed("$root/branches/$branch/protection"))
-                    put("rules", observed("$root/rules/branches/$branch"))
+                    put("branch", details)
+                    put("protection", protection)
+                    put("rules", rules)
+                    put("policy", branchPolicy(protection, rules))
                     put("observed_at", System.currentTimeMillis())
                 }
             }
@@ -161,6 +165,36 @@ internal class GitHubInspection(private val get: suspend (String) -> JsonElement
                 }
             }
             else -> error("Unsupported inspection action")
+        }
+    }
+
+    private fun branchPolicy(protection: JsonObject, rules: JsonObject): JsonObject {
+        val protectionAvailable = protection["available"] == JsonPrimitive(true)
+        val rulesAvailable = rules["available"] == JsonPrimitive(true)
+        val required = mutableListOf<JsonElement>()
+        val classic = ((protection["data"] as? JsonObject)?.get("required_status_checks") as? JsonObject)
+        (classic?.get("contexts") as? JsonArray)?.let { required.addAll(it) }
+        (classic?.get("checks") as? JsonArray)?.mapNotNull { (it as? JsonObject)?.get("context") }?.let { required.addAll(it) }
+        (rules["data"] as? JsonArray)?.filterIsInstance<JsonObject>()?.filter { it.s("type") == "required_status_checks" }?.forEach { rule ->
+            (((rule["parameters"] as? JsonObject)?.get("required_status_checks")) as? JsonArray)?.mapNotNull { (it as? JsonObject)?.get("context") }?.let { required.addAll(it) }
+        }
+        val complete = protectionAvailable && rulesAvailable
+        return buildJsonObject {
+            put("protection_available", protectionAvailable)
+            put("rules_available", rulesAvailable)
+            put(
+                "required_checks_state",
+                if (!complete) {
+                    "UNKNOWN"
+                } else if (required.isEmpty()) {
+                    "VERIFIED_NONE"
+                } else {
+                    "VERIFIED_PRESENT"
+                }
+            )
+            put("observed_required_checks", JsonArray(required.distinct()))
+            put("required_checks_complete", complete)
+            put("interpretation", if (complete) "Both policy sources were retrieved. Observed check results are independent of this requirement policy." else "One or more policy endpoints were unavailable. Branch metadata protected=false or an empty available rules list cannot establish that no checks are required.")
         }
     }
 

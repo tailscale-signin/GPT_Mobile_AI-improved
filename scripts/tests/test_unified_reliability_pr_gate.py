@@ -33,6 +33,12 @@ class ReliabilityV2PrGateTest(unittest.TestCase):
                 self.assertEqual((48, 110), gate.check_pr(ref))
                 validator.assert_called_once_with(require_done=False)
 
+    def test_scope_only_vs_strict_mode_is_explicit(self):
+        self.assertFalse(gate.requires_completion("fix/audit-execution-recovery-2026-11-09"))
+        self.assertFalse(gate.requires_completion("release/v0.9.50.0"))
+        self.assertTrue(gate.requires_completion("release/unified-reliability-v2-next"))
+        self.assertTrue(gate.requires_completion("feat/unified-reliability-v2-next"))
+
     def test_missing_pr_identity_fails_closed(self):
         for ref in ("", "  ", None):
             with self.subTest(ref=ref), patch.object(gate, "validate") as validator:
@@ -50,7 +56,7 @@ class ReliabilityV2PrGateTest(unittest.TestCase):
     def test_completion_gate_runs_independently_of_draft_and_main_tests(self):
         source = (ROOT / ".github/workflows/pr-validation.yml").read_text()
         gate_job = source.split("\n  reliability_v2_completion:\n", 1)[1].split("\n  validate:\n", 1)[0]
-        self.assertIn("name: Unified Reliability v2 completion gate", gate_job)
+        self.assertIn("name: Unified Reliability v2 scope / strict release gate", gate_job)
         self.assertIn("scripts/check_unified_reliability_pr.py", gate_job)
         self.assertIn("HEAD_REF: ${{ github.event.pull_request.head.ref || github.event.merge_group.head_ref || github.ref_name }}", gate_job)
         self.assertNotIn("pull_request.draft ==", gate_job)

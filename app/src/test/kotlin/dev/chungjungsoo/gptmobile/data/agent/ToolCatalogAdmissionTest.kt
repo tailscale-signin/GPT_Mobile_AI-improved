@@ -22,6 +22,33 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ToolCatalogAdmissionTest {
+    @Test fun recoveryReaderIsAdmittedBeforeOptionalSchemasOnEveryGithubRound() {
+        val recovery = AgentToolDefinition("read_recovery_context", "Read retained task receipts", buildJsonObject { put("type", "object") })
+        val context = AgentToolDefinition("github_context", "Pinned status", buildJsonObject { put("type", "object") })
+        val discovery = ProgressiveToolCatalog(emptyList(), "resume task").definition
+        val optional = AgentToolDefinition("optional_reader", "Optional source reader ".repeat(500), buildJsonObject { put("type", "object") })
+        val available = listOf(recovery, context, discovery).sumOf { providerSchemaTokens(it, true).toInt() }
+        val selected = fitProviderToolSchemas(
+            listOf(optional, context, discovery, recovery),
+            AgentRunLimits(githubMode = true, contextTokens = 4096, initialContextTokens = 4096 - 1024 - 256 - available, finalResponseReserveTokens = 1024),
+            0,
+            0
+        )
+        assertEquals(setOf(context.name, discovery.name, recovery.name), selected.map { it.name }.toSet())
+    }
+
+    @Test fun savedRecoveryReaderIsRequiredWithoutTreatingSavedInstructionsAsNewUserAuthority() {
+        val recovery = object : AgentTool {
+            override val definition = AgentToolDefinition("read_recovery_context", "Read this task's retained evidence", buildJsonObject { put("type", "object") })
+            override suspend fun execute(callId: String, arguments: JsonObject) = error("Planning does not execute tools")
+        }
+        val resolved = listOf(ResolvedAgentTool(recovery, null, "Recovery", recovery.definition.name, recovery.definition.name))
+        val current = ConversationTurn(MessageV2(content = "Resume the branch review", platformType = null), null, true)
+        val plan = planAuthorizedToolContext(listOf(current), "Continue saved work", resolved, TokenBudgetSettings(contextTokens = 4096, outputTokens = 1024), true, githubMode = true, requestedTask = current.userMessage.content)
+        assertTrue(plan.tools.any { it.name == recovery.definition.name })
+        assertEquals(listOf(recovery.definition.name), plan.tools.map { it.name }.filter { it != ProgressiveToolCatalog.NAME })
+    }
+
     @Test fun discoveryRemainsAvailableWhenAnOptionalSchemaWouldConsumeItsBudget() {
         val discovery = ProgressiveToolCatalog(emptyList(), "find tools").definition
         val large = AgentToolDefinition("optional_reader", "Read source ranges ".repeat(100), buildJsonObject {})

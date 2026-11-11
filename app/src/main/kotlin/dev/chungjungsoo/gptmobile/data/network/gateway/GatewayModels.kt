@@ -92,7 +92,7 @@ data class GatewayCapabilities(
 ) {
     val supportsKeyFreeConnection: Boolean
         get() = contractVersion == 1 &&
-            gatewayVersion?.matches(Regex("(14|15)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)")) == true &&
+            gatewayVersion?.matches(Regex("(14|15|16)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)")) == true &&
             auth?.apiKeyRequired == false &&
             auth.mode in setOf("loopback", "trusted_proxy", "open_network")
 

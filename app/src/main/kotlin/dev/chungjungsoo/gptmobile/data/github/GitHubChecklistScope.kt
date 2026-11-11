@@ -7,6 +7,8 @@ internal object GitHubChecklistScope {
     private val writeRequest = Regex("(?i)\\b(?:include|allow|perform|test|with)\\s+(?:the\\s+)?(?:writes|mutations)\\b")
     private val negatedRequest = Regex("(?i)(?:\\b(?:not|never|without|no)|\\bdon['’]t)\\s*$")
 
+    fun supportedFixturePlan(task: String): Boolean = "[github-workflow-preset:test_integration]" in task && "supported fixture test matrix" in task.lowercase()
+
     fun readOnly(task: String): Boolean = !negatedReadOnly.containsMatchIn(task) &&
         readOnlyScope.containsMatchIn(task) &&
         writeRequest.findAll(task).none { request ->

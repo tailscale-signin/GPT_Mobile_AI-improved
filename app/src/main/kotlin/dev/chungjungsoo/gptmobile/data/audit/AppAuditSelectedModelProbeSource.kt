@@ -7,7 +7,8 @@ internal data class AppAuditSelectedModelTarget(
     val enabled: Boolean,
     val fingerprint: String,
     val configurationRevision: String?,
-    val local: Boolean = false
+    val local: Boolean = false,
+    val profileSnapshotHash: String? = null
 )
 
 /** Selecting a profile plans generation qualification; metadata checks never generate text. */

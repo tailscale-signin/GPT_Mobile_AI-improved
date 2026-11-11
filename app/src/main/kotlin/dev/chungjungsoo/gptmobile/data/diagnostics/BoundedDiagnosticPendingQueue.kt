@@ -56,6 +56,9 @@ internal class BoundedDiagnosticPendingQueue<T>(
 
     fun poll(): T? = synchronized(lock) { removeFirst()?.value }
 
+    /** A capture copies the same bounded lane order without stealing records from the live writer. */
+    fun snapshot(): List<T> = synchronized(lock) { critical.map { it.value } + ordinary.map { it.value } }
+
     fun drainBatch(maximumBatchRecords: Int = 64, maximumBatchCharacters: Int = 32 * 1024): List<T> = synchronized(lock) {
         require(maximumBatchRecords > 0 && maximumBatchCharacters > 0)
         val result = ArrayList<T>(minOf(maximumBatchRecords, ordinary.size + critical.size))

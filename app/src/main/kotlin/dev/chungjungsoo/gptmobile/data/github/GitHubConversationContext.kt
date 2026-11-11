@@ -33,6 +33,7 @@ data class GitHubConversationContext(
         }
         if (GitHubTaskCoverage.matches(request)) append("Testing acceptance: every requested operation must be passed, failed, blocked or explicitly untested with a reason; retain receipt IDs, exact branch/PR/SHA and pending local/remote pages. Separate authorized isolated write exercises and cleanup from read smoke tests. Application tests need a newly executed run/job at the tested SHA. Report coverage, failures, a measured-scope score or scoring limitation, and solutions. Resume the first unfinished item; do not repeat a partial report without new evidence or a specific blocker. Maintain a checklist of requested tool/actions and features. Execute available authorized checks; reading tests is only inspection. Discover exact paths first. Reuse pinned reads; follow the exact continuation_call tool and arguments. Preserve successful and failed receipts. Continue unfinished authorized work; ask only for a concrete blocker. Report execution coverage separately from generation completion.\n")
         if (GitHubStatusRequest.matches(request)) append(GitHubStatusRequest.INSTRUCTION).append('\n')
+        if (GitHubReviewComparison.matches(request)) append(GitHubReviewComparison.INSTRUCTION).append('\n')
         append("Presentation: one descriptive Markdown # title, then the outcome. Use concise sections, lists or small tables; separate unknowns and next steps.\n")
         append("GitHub workspace: $owner/$repo\nBranch: $ref\nCaptured head at chat binding: $commitSha (newer explicit tool receipts supersede this snapshot)\n")
         append("Local workspace edits: ${stagedFileCount?.let { if (it == 0) "clean at observation" else "$it changed file(s) or staged patch(es)" } ?: "not observed"}\n")
@@ -41,7 +42,7 @@ data class GitHubConversationContext(
         if (recentCommits.isEmpty()) append("Not loaded.\n") else recentCommits.take(3).forEach { append(it.lineSequence().firstOrNull().orEmpty().take(120)).append('\n') }
         append("Complete authorized work or name blockers. Pending CI is incomplete. Use github_watch_checks and github_stage_patch. Discover paths: github_search mode=paths query=*name*. Use file_extension=kt and path_prefix, not extension:/path: qualifiers. Follow continuation_call; view_cursor is an argument on its original tool. Refresh before writes/claims; retain receipts, reconcile uncertain writes and respect cancellation, approvals and budgets.\n")
         append("Verify claims with fresh receipts; never invent tests or metrics. Missing evidence: Not measured. Draft PRs may run CI.\n")
-        append("Public <progress_update> findings: unique previews >=3s apart; summaries every 15s. Keep reasoning private; finish with one complete answer.\n")
+        append("Public <progress_update>: 2-4 sentences: new finding/change, its effect, next action. No filler/private reasoning. Close tag; finish with one complete answer.\n")
         append("Use github_decide for required consequential choices: 2-4 options, one recommendation. Honor prior answers; never infer write approval.")
     }
 

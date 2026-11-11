@@ -55,6 +55,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
 import dev.chungjungsoo.gptmobile.data.github.GatewayConversationAttachment
 import dev.chungjungsoo.gptmobile.data.github.GatewayConversationSnapshot
 import dev.chungjungsoo.gptmobile.data.github.gatewayIdentityKey
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAvailability
 import dev.chungjungsoo.gptmobile.data.queue.GatewayQueuedChatState
 import dev.chungjungsoo.gptmobile.data.queue.GatewayQueuedState
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
@@ -62,7 +63,6 @@ import dev.chungjungsoo.gptmobile.presentation.common.diagnosticFrameTiming
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.GatewayTranscriptDialog
 import java.text.DateFormat
 import java.util.Date
-import kotlinx.coroutines.awaitCancellation
 
 /** The same home navigation, toolbar, chat rows and compose button, scoped to saved gateway work. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -95,11 +95,10 @@ internal fun GatewayConversationsScreen(
     LaunchedEffect(connections.map { it.profileUid to it.navigationIdentity }) {
         viewModel.updateConnections(connections)
     }
-    LaunchedEffect(lifecycle, state.connectionUid) {
+    LaunchedEffect(lifecycle) {
         lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             try {
-                viewModel.refresh()
-                awaitCancellation()
+                viewModel.observeVisible()
             } finally {
                 viewModel.pause()
             }
@@ -152,10 +151,7 @@ internal fun GatewayConversationsScreen(
                         }
                         Text(stringResource(R.string.gateway_home_queue_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         selected?.let { connection ->
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Text(connection.name, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                                GatewayProfileStatus(connection.availability)
-                            }
+                            GatewaySelectedConnectionHeader(connection.name, connection.availability)
                         }
                         if (connections.size > 1) {
                             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -212,15 +208,22 @@ internal fun GatewayConversationsScreen(
                 itemsIndexed(localChats, key = { _, chat -> "local:${chat.id}" }) { index, chat ->
                     val profile = state.profileChoices.firstOrNull { it.profileUid in chat.activePlatform }
                     val queue = state.gatewayStates[chat.id]
+                    val serverWorking = !state.cachedInventory &&
+                        state.page?.let { page ->
+                            page.items.any { conversation ->
+                                conversation.isWorking() && state.localConversationChats[gatewayIdentityKey(page.gatewayId, page.principalId, conversation.conversationId)] == chat.id
+                            }
+                        } == true
                     Column(Modifier.testTag("gateway_chat_${chat.id}")) {
                         ChatListItem(
                             chatRoom = chat,
                             idx = index,
                             chatListState = listState,
-                            isGenerating = chat.id in state.activeChatIds || queue?.state == GatewayQueuedState.RUNNING,
-                            hasUnreadResponse = false,
+                            isGenerating = chat.id in state.activeChatIds || queue?.state == GatewayQueuedState.RUNNING || serverWorking,
+                            hasUnreadResponse = chat.id in state.unreadChatIds,
                             usingPlatform = profile?.name ?: stringResource(R.string.gateway_menu_title),
                             profileLabels = emptyList(),
+                            isGateway = true,
                             isServerChat = true,
                             onItemClick = { viewModel.openLocalChat(chat, onOpenLocalChat) },
                             onItemLongClick = { viewModel.openLocalChat(chat, onOpenLocalChat) }
@@ -258,6 +261,7 @@ internal fun GatewayConversationsScreen(
                     GatewayHistoryRow(
                         conversation,
                         opening = state.openingId == conversation.conversationId,
+                        live = !state.cachedInventory,
                         enabled = state.openingId == null,
                         canOpen = conversation.transcriptAvailable || locallySaved,
                         onOpen = { viewModel.open(conversation, onOpenChat) },
@@ -304,6 +308,15 @@ internal fun GatewayConversationsScreen(
     state.transcriptKey?.let { GatewayTranscriptDialog(it, onDismiss = viewModel::dismissTranscript) }
 }
 
+/** Keep the selected host readable when a recovery paragraph needs the full phone width. */
+@Composable
+internal fun GatewaySelectedConnectionHeader(name: String, availability: GatewayAvailability, modifier: Modifier = Modifier) {
+    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(name, style = MaterialTheme.typography.labelLarge, modifier = Modifier.fillMaxWidth().testTag("gateway_selected_connection_name"))
+        GatewayProfileStatus(availability, Modifier.fillMaxWidth().testTag("gateway_selected_connection_status"))
+    }
+}
+
 @Composable
 private fun gatewayQueuedLabel(value: GatewayQueuedChatState): String = value.message?.takeIf(String::isNotBlank) ?: stringResource(
     when (value.state) {
@@ -316,19 +329,19 @@ private fun gatewayQueuedLabel(value: GatewayQueuedChatState): String = value.me
 )
 
 @Composable
-private fun GatewayHistoryRow(conversation: GatewayConversationSnapshot, opening: Boolean, enabled: Boolean, canOpen: Boolean, onOpen: () -> Unit, onTranscript: () -> Unit) {
+private fun GatewayHistoryRow(conversation: GatewayConversationSnapshot, opening: Boolean, live: Boolean, enabled: Boolean, canOpen: Boolean, onOpen: () -> Unit, onTranscript: () -> Unit) {
     ListItem(
         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
         modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp).testTag("gateway_conversation_${conversation.conversationId}")
             .clickable(enabled = enabled && canOpen, onClick = onOpen),
         headlineContent = { Text(conversation.title.ifBlank { stringResource(R.string.gateway_browser_untitled) }, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-        leadingContent = { Icon(Icons.Rounded.CloudQueue, contentDescription = null) },
+        leadingContent = { GatewayConversationIcon(working = live && conversation.isWorking(), unread = false) },
         supportingContent = {
             Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 if (conversation.model.isNotBlank()) Text(conversation.model, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 val context = listOfNotNull(conversation.repository, conversation.sourceBranch ?: conversation.branch).filter(String::isNotBlank).joinToString(" · ")
                 if (context.isNotBlank()) Text(context, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                if (conversation.activeJobId != null) Text(stringResource(R.string.gateway_browser_active_job), style = MaterialTheme.typography.labelMedium)
+                if (live && conversation.isWorking()) Text(stringResource(R.string.gateway_browser_active_job), style = MaterialTheme.typography.labelMedium)
                 if (!conversation.historyComplete) Text(conversation.historyLimitation ?: stringResource(R.string.gateway_transcript_history_partial), maxLines = 2, overflow = TextOverflow.Ellipsis)
                 if (!conversation.transcriptAvailable) Text(stringResource(R.string.gateway_browser_transcript_unavailable))
                 if (opening) Text(stringResource(R.string.gateway_browser_opening))

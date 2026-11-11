@@ -15,6 +15,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ToolCatalogAcquisitionTest {
+    @Test fun configurationReceiptRetainsTypedCauseAndStateChangeRecovery() {
+        val state = ToolCatalogAcquisition(listOf(ToolCatalogConnectionDiscovery("selected", ToolCatalogDiscoveryState.CONFIGURATION_REQUIRED, "revision", errorCode = "MCP_DISCOVERY_CONFIGURATION", phase = "protocol_negotiation", validationRule = "SUPPORTED_VERSIONS_REQUIRED", validationField = "supportedVersions", upstreamStatus = 400))).receipt()
+        val connection = state.getValue("connections").jsonArray.single().jsonObject
+        assertEquals(JsonPrimitive("supportedVersions"), connection["validation_field"])
+        assertEquals(JsonPrimitive("CONFIGURATION_REVISION_CHANGED_OR_EXPLICIT_RECONNECT"), connection["recovery_condition"])
+        assertEquals(JsonPrimitive(400), connection["upstream_status"])
+        assertEquals(JsonPrimitive(true), state["ready_tools_remain_usable"])
+    }
+
     private val readyTool = AgentToolDefinition("ready_tool", "Ready authorized tool", JsonObject(emptyMap()))
     private val lateTool = AgentToolDefinition("late_tool", "Late authorized tool", JsonObject(emptyMap()))
     private fun payload(result: AgentToolResult) = (result.content as ToolResultContent.Json).value.jsonObject

@@ -196,6 +196,9 @@ class ToolApprovalManager @Inject constructor(private val database: ChatDatabase
         val connection = connections.getConnection(connectionId) ?: return false
         val github = GitHubAuthorizationBoundary.applies(connection)
         val lifecycle = GitHubAuthorizationBoundary.isNativeRepositoryLifecycle(connection, tool, arguments, nativeGitHub)
+        val collaborationWrite = connection.type == "GITHUB" &&
+            tool == "github" &&
+            (arguments["action"] as? kotlinx.serialization.json.JsonPrimitive)?.content in dev.chungjungsoo.gptmobile.data.github.GitHubCollaboration.writes
         // This new path requires a captured generation and connection snapshot even
         // when a caller constructs a manager without the optional trust dependency.
         if (lifecycle && trust == null) return false
@@ -226,7 +229,7 @@ class ToolApprovalManager @Inject constructor(private val database: ChatDatabase
         val readOnly = !lifecycle && githubRead && tool in connection.approvedReadTools.lines().map(String::trim)
         if (!workspaceApproved && policy == ToolPolicy.READ_ONLY && !readOnly) return false
         if (readOnly && !branchSelection) return true
-        val exactApproval = lifecycle || github && !workspaceApproved && (branchSelection || !(if (tool == "github") githubRead else readOnly))
+        val exactApproval = lifecycle || collaborationWrite || github && !workspaceApproved && (branchSelection || !(if (tool == "github") githubRead else readOnly))
         val scope = schema?.let { definition -> database.agentRunDao().getById(runId)?.let { ScopedToolGrant.from(it.chatId, definition, arguments) } }
         val authority = trust?.captureApproval(connection, tool, scope)
         if (trust != null && authority == null) return false

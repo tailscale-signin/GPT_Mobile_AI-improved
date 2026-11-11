@@ -27,6 +27,24 @@ from v14.config import Config
 from v14.execution_binding import ExecutionBindingError
 
 
+class ConversationJobStateTests(unittest.TestCase):
+    def test_saved_job_state_is_principal_scoped_and_distinguishes_terminal_work(self):
+        with sqlite3.connect(':memory:') as db:
+            db.row_factory = sqlite3.Row
+            db.execute('CREATE TABLE gateway_jobs(job_id TEXT, status TEXT, public_json TEXT)')
+            db.execute('CREATE TABLE engineering_jobs(id TEXT, state TEXT, principal TEXT)')
+            db.execute('INSERT INTO gateway_jobs VALUES(?,?,?)', ('generation', 'completed', '{"principal_id":"owner"}'))
+            db.execute('INSERT INTO engineering_jobs VALUES(?,?,?)', ('engineering', 'AWAITING_APPROVAL', 'owner'))
+            generation = dict(active_job='generation', active_kind='generation', principal='owner')
+            engineering = dict(active_job='engineering', active_kind='engineering', principal='owner')
+            self.assertEqual('COMPLETED', Conversations.job_state(db, generation))
+            self.assertEqual('AWAITING_APPROVAL', Conversations.job_state(db, engineering))
+            self.assertIsNone(Conversations.job_state(db, dict(generation, principal='other')))
+            self.assertIsNone(Conversations.job_state(db, dict(engineering, principal='other')))
+            db.execute("UPDATE gateway_jobs SET status='running'")
+            self.assertEqual('RUNNING', Conversations.job_state(db, generation))
+
+
 class ConversationHTTPTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -67,6 +85,9 @@ class ConversationHTTPTests(unittest.TestCase):
             items = client.get('/gateway/conversations').json()['items']
             self.assertEqual([conversation_id], [item['conversation_id'] for item in items])
             self.assertEqual('selected-profile', items[0]['profile_id'])
+            self.assertEqual('COMPLETED', items[0]['job_state'])
+            self.assertIsNotNone(items[0]['active_job_id'])
+            self.assertEqual('COMPLETED', client.get('/gateway/conversations/' + conversation_id).json()['job_state'])
             messages, cursor = [], None
             while True:
                 page = client.get('/gateway/conversations/' + conversation_id + '/messages', params=dict(limit=2, **({'after_cursor': cursor} if cursor else {}))).json()

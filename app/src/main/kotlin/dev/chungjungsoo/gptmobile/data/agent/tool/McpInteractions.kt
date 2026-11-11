@@ -24,19 +24,19 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.longOrNull
 
-data class McpInputRequest(val id: String, val server: String, val message: String, val schema: JsonObject, val response: CompletableDeferred<ElicitResult>)
+data class McpInputRequest(val id: String, val server: String, val message: String, val schema: JsonObject, val response: CompletableDeferred<ElicitResult>, val runId: String? = null, val expiresAtMillis: Long = System.currentTimeMillis() + 40_000, val deadlineNanos: Long = System.nanoTime() + 40_000_000_000)
 
 /** No URL elicitation, secrets, automatic answers or persisted form values. */
 @Singleton
 class McpInteractions @Inject constructor() {
     val pending = MutableStateFlow<List<McpInputRequest>>(emptyList())
-    fun request(server: String, request: ElicitRequest): ElicitResult {
+    fun request(server: String, request: ElicitRequest, runId: String? = null): ElicitResult {
         val schema = runCatching { Json.encodeToJsonElement(request.requestedSchema).jsonObject }.getOrNull()
             ?: return ElicitResult(ElicitResult.Action.Decline)
         val properties = schema["properties"] as? JsonObject ?: return ElicitResult(ElicitResult.Action.Decline)
         if (properties.values.any { it !is JsonObject || !supportedFormField(it) }) return ElicitResult(ElicitResult.Action.Decline)
         if (properties.size > 16 || properties.keys.any { Regex("password|secret|token|credential|credit.card", RegexOption.IGNORE_CASE).containsMatchIn(it) }) return ElicitResult(ElicitResult.Action.Decline)
-        val entry = McpInputRequest(UUID.randomUUID().toString(), server, request.message.take(2000), schema, CompletableDeferred())
+        val entry = McpInputRequest(UUID.randomUUID().toString(), server, request.message.take(2000), schema, CompletableDeferred(), runId)
         return runBlocking(Dispatchers.IO) {
             pending.update { it + entry }
             try {
@@ -48,7 +48,9 @@ class McpInteractions @Inject constructor() {
     }
     fun respond(id: String, values: JsonObject?) {
         val entry = pending.value.firstOrNull { it.id == id } ?: return
-        if (values == null) {
+        if (System.nanoTime() >= entry.deadlineNanos) {
+            entry.response.complete(ElicitResult(ElicitResult.Action.Cancel))
+        } else if (values == null) {
             entry.response.complete(ElicitResult(ElicitResult.Action.Decline))
         } else if (values.toString().length <= 8000 && schemaError(entry.schema, values) == null) {
             entry.response.complete(ElicitResult(ElicitResult.Action.Accept, content = values))

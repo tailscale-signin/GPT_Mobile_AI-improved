@@ -1,9 +1,14 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -17,6 +22,115 @@ import org.junit.Test
 /** Exercises the runner's retry decision and the durable generation boundary together. */
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class GitHubLogicalContinuationRunnerTest {
+    @Test fun expiredTaskDeliversSavedResultsWithoutRestoringQueuedWritesOrFiveSecondTimeout() = runTest {
+        val checkpoint = ToolBatchCheckpoint(null, "expired-task")
+        checkpoint.enqueue(listOf(ProviderEvent.ToolCall("queued-write", "github_write", JsonObject(emptyMap()))))
+        val tool = object : AgentTool {
+            override val definition = AgentToolDefinition("github_write", "Publish the accepted patch", JsonObject(emptyMap()))
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult = error("An expired task cannot dispatch a queued write")
+        }
+        val session = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = error("An expired task cannot open another round")
+            override fun retainedFailureResponse(failure: ProviderEvent.Failed) = flow {
+                assertEquals(JsonPrimitive("ACCEPTED_TASK_DEADLINE_REACHED"), failure.failureDetails?.get("stop_reason"))
+                delay(6_000L)
+                emit(ProviderEvent.TextDelta("Saved results are retained."))
+                emit(failure.copy(transportComplete = true))
+            }
+        }
+        val events = AgentRunner(
+            AgentRunLimits(githubTask = true, runTimeoutMillis = 60_000),
+            checkpoint = checkpoint,
+            onToolResultsRestored = { error("No checkpoint work should be restored") },
+            remainingTaskMillis = { 0L }
+        ).run(session, listOf(tool)).toList()
+        assertEquals(6_000L, testScheduler.currentTime)
+        assertTrue(events.none { it is AgentRunEvent.ToolStarted || it is AgentRunEvent.ToolFinished || it is AgentRunEvent.ToolResultsRestored })
+        val providerEvents = events.filterIsInstance<AgentRunEvent.Provider>().map { it.event }
+        assertEquals(listOf("Saved results are retained."), providerEvents.filterIsInstance<ProviderEvent.TextDelta>().map { it.text })
+        assertEquals("GITHUB_TASK_INCOMPLETE", providerEvents.filterIsInstance<ProviderEvent.Failed>().single().errorCode)
+        val recovery = checkpoint.recoverySnapshot()
+        assertEquals(1, recovery.queuedCount)
+        assertEquals(0, recovery.dispatchedCount)
+    }
+
+    @Test fun acceptedDeadlineDuringModelRoundDeliversPreviouslySavedResults() = runTest {
+        val session = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
+                awaitCancellation()
+            }
+
+            override fun retainedFailureResponse(failure: ProviderEvent.Failed) = flow {
+                assertEquals(JsonPrimitive("ACCEPTED_TASK_DEADLINE_REACHED"), failure.failureDetails?.get("stop_reason"))
+                emit(ProviderEvent.TextDelta("Saved results from the previous attempt."))
+                emit(failure)
+            }
+        }
+        val events = AgentRunner(
+            AgentRunLimits(githubTask = true, runTimeoutMillis = 60_000),
+            remainingTaskMillis = { (1_000L - testScheduler.currentTime).coerceAtLeast(0L) }
+        ).run(session, emptyList()).toList()
+
+        assertEquals(1_000L, testScheduler.currentTime)
+        val providerEvents = events.filterIsInstance<AgentRunEvent.Provider>().map { it.event }
+        assertEquals(listOf("Saved results from the previous attempt."), providerEvents.filterIsInstance<ProviderEvent.TextDelta>().map { it.text })
+        assertEquals("GITHUB_TASK_INCOMPLETE", providerEvents.filterIsInstance<ProviderEvent.Failed>().single().errorCode)
+    }
+
+    @Test fun expiredTaskReportDeliveryStillHonorsUserCancellation() = runTest {
+        val started = CompletableDeferred<Unit>()
+        val events = mutableListOf<AgentRunEvent>()
+        val session = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = error("No work may start")
+            override fun retainedFailureResponse(failure: ProviderEvent.Failed) = flow<ProviderEvent> {
+                started.complete(Unit)
+                awaitCancellation()
+            }
+        }
+        val job = launch {
+            AgentRunner(AgentRunLimits(githubTask = true, runTimeoutMillis = 0)).run(session, emptyList()).collect { events += it }
+        }
+        started.await()
+        job.cancelAndJoin()
+        assertTrue(events.isEmpty())
+    }
+
+    @Test fun bulkRestorationDoesNotEmitFreshResultsOrSpendRemainingBudget() = runTest {
+        val checkpoint = ToolBatchCheckpoint(null, "same-task")
+        repeat(75) { index ->
+            val call = ProviderEvent.ToolCall("saved-$index", "github_read", buildJsonObject { put("path", "file-$index") })
+            checkpoint.enqueue(listOf(call))
+            checkpoint.complete(call, AgentToolResult(call.callId, ToolResultContent.Text("Saved source"), false))
+        }
+        var restores = 0
+        var fresh = 0
+        val tool = object : AgentTool {
+            override val definition = AgentToolDefinition("github_read", "Read", JsonObject(emptyMap()))
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult = error("Must not replay")
+        }
+        val session = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                emit(ProviderEvent.TextDelta("Saved evidence restored"))
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val events = AgentRunner(
+            AgentRunLimits(githubTask = true, maxToolCalls = 256),
+            checkpoint = checkpoint,
+            initialToolCallCountOverride = 76,
+            onToolResult = { _, _ -> fresh++ },
+            onToolResultCommitted = { _, _ -> fresh++ },
+            onToolResultsRestored = {
+                restores++
+                assertEquals(75, it.size)
+            }
+        ).run(session, listOf(tool)).toList()
+        assertEquals(1, restores)
+        assertEquals(0, fresh)
+        assertEquals(listOf(75), events.filterIsInstance<AgentRunEvent.ToolResultsRestored>().map { it.count })
+        assertTrue(events.none { it is AgentRunEvent.ToolFinished || it is AgentRunEvent.ToolStarted })
+    }
+
     @Test fun reasoningOnlyPartialFailureContinuesOnceFromSavedReads() = runTest {
         var reads = 0
         var requests = 0

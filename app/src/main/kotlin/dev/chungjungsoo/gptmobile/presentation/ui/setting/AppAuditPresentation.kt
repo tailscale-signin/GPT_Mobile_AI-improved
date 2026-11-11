@@ -151,6 +151,14 @@ internal fun appAuditOutcomeLabel(outcome: AppAuditOutcome?): String = when (out
 internal fun appAuditReason(item: AppAuditEntryPresentation): String {
     if (item.active) return "This check is in progress."
     val entry = item.entry
+    if (item.result?.outcome in setOf(AppAuditOutcome.FAIL, AppAuditOutcome.BLOCKED)) {
+        when (item.result?.observation?.validationRule) {
+            "CREDENTIAL_REAUTHORIZATION_REQUIRED" -> return "The saved OAuth authorization requires a new sign-in. Open this exact connection, sign in again, then reconnect. This local rejection did not send an MCP request; retrying the unchanged credential cannot repair it."
+            "PROTOCOL_VERSIONS_ARRAY_REQUIRED", "PROTOCOL_VERSIONS_NONEMPTY_REQUIRED", "PROTOCOL_VERSION_FORMAT_REQUIRED" -> return "The discovery response omitted or malformed supportedVersions. Repair the bridge to advertise a nonempty array of protocol revisions it actually implements, then reconnect to verify negotiation and tools/list. HTTP 200 does not make invalid discovery usable and cannot justify silently switching protocols."
+            "DISCOVERY_METHOD_SUPPORTED_REQUIRED" -> return "The endpoint answered JSON-RPC but rejected server/discover. Verify its supported protocol and repair bridge negotiation, then reconnect. This recognized modern unknown-method response does not establish that the endpoint path is missing or that legacy initialization is supported."
+            "ENDPOINT_ROUTE_REQUIRED" -> return "The configured endpoint returned HTTP 404 without a recognized MCP method response. Check the URL path and running service, then reconnect. The supported protocol has not been established."
+        }
+    }
     if (item.result?.observation?.httpStatus == 403 && item.result.reasonCode == "MCP_AUTHENTICATION_REQUIRED") {
         return "The service denied permission (HTTP 403). Review the account's access and server policy, then explicitly check the connection again."
     }

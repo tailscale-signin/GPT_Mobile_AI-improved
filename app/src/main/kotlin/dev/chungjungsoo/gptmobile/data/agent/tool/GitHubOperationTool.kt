@@ -215,15 +215,16 @@ internal class GitHubOperationTool(
         if (operation == "github_pr") {
             val action = (arguments["action"] as? JsonPrimitive)?.content.orEmpty().ifBlank { "context" }
             val requiredFields = when (action) {
-                "headers", "context", "comments", "reviews" -> listOf("pull_number")
+                "headers", "context", "comments", "reviews", "threads" -> listOf("pull_number")
                 "create" -> listOf("title", "head", "base")
-                "update", "merge" -> listOf("pull_number", "expected_head_sha")
+                in dev.chungjungsoo.gptmobile.data.github.GitHubCollaboration.prActions -> listOf("pull_number", "expected_head_sha")
+                "update", "merge", "ready", "draft" -> listOf("pull_number", "expected_head_sha")
                 "comment" -> listOf("pull_number", "body", "expected_head_sha")
                 "review" -> listOf("pull_number", "expected_head_sha")
                 "reply" -> listOf("pull_number", "comment_id", "body", "expected_head_sha")
                 else -> emptyList()
             }
-            val shaActions = setOf("update", "merge", "comment", "reply", "review")
+            val shaActions = dev.chungjungsoo.gptmobile.data.github.GitHubCollaboration.prActions + setOf("update", "merge", "comment", "reply", "review", "ready", "draft")
             if (action in shaActions) {
                 val expected = (arguments["expected_head_sha"] as? JsonPrimitive)?.content.orEmpty()
                 if (!expected.matches(Regex("[a-fA-F0-9]{40}"))) {
@@ -526,8 +527,12 @@ internal class GitHubOperationTool(
                     "list" -> "list_pull_requests"
                     "comments" -> "get_pull_request_comments"
                     "reviews" -> "pull_request_reviews"
+                    "threads" -> "pr_threads"
+                    in dev.chungjungsoo.gptmobile.data.github.GitHubCollaboration.prActions -> "pr_$requested"
                     "create" -> "create_pull_request"
                     "update" -> "update_pull_request"
+                    "ready" -> "mark_ready_for_review"
+                    "draft" -> "convert_pull_request_to_draft"
                     "comment" -> "create_issue_comment"
                     "reply" -> "reply_pull_request_comment"
                     "review" -> if ((args["comments"] as? JsonArray).isNullOrEmpty()) "submit_pull_request_review" else "create_pull_request_review"
@@ -573,6 +578,7 @@ internal class GitHubOperationTool(
                     "context" -> "issue_context"
                     "comments" -> "issue_comments"
                     "history" -> "issue_events"
+                    in dev.chungjungsoo.gptmobile.data.github.GitHubCollaboration.issueActions -> "issue_$requested"
                     "create" -> "create_issue"
                     "update" -> "update_issue"
                     else -> return null
@@ -840,7 +846,7 @@ internal class GitHubOperationTool(
                 }
                 "github_pr" -> {
                     properties["action"] = JsonObject(
-                        choice("list", "headers", "context", "comments", "reviews", "create", "update", "comment", "reply", "review", "merge") + mapOf(
+                        choice("list", "headers", "context", "comments", "reviews", "create", "update", "comment", "reply", "review", "merge", "ready", "draft", "threads", *dev.chungjungsoo.gptmobile.data.github.GitHubCollaboration.prActions.toTypedArray()) + mapOf(
                             "default" to JsonPrimitive("context"),
                             "description" to JsonPrimitive("Choose list when pull_number is unknown. All other read actions require the observed pull_number. The default context action also requires pull_number.")
                         )
@@ -945,7 +951,7 @@ internal class GitHubOperationTool(
                     properties["per_page"] = integer(1, 100, default = 30)
                 }
                 "github_issue" -> {
-                    properties["action"] = choice("list", "headers", "context", "comments", "history", "create", "update")
+                    properties["action"] = JsonObject(choice("list", "headers", "context", "comments", "history", "create", "update", *dev.chungjungsoo.gptmobile.data.github.GitHubCollaboration.issueActions.toTypedArray()) + ("description" to JsonPrimitive("Use list to discover issues. headers/context/comments/history read one observed issue and require issue_number; state=open alone is a list filter.")))
                     properties["issue_number"] = buildJsonObject {
                         put("type", "integer")
                         put("minimum", 1)
@@ -959,19 +965,33 @@ internal class GitHubOperationTool(
                     properties["state"] = choice("open", "closed", "all")
                 }
             }
+            if (operation in setOf("github_pr", "github_issue")) {
+                listOf("thread_id", "after", "label", "expected_comment_updated_at").forEach { properties[it] = field("string") }
+                listOf("review_id", "reaction_id", "comment_id").forEach { properties[it] = integer(1) }
+                listOf("reviewers", "team_reviewers", "labels", "assignees").forEach { key ->
+                    properties[key] = buildJsonObject {
+                        put("type", "array")
+                        put("maxItems", 30)
+                        put("items", field("string"))
+                    }
+                }
+                properties["reaction"] = choice("+1", "-1", "laugh", "confused", "heart", "hooray", "rocket", "eyes")
+                properties["lock_reason"] = choice("off-topic", "too heated", "resolved", "spam")
+                properties["merge_method"] = choice("squash", "merge", "rebase")
+            }
             if (operation in setOf("github_context", "github_ci", "github_pr", "github_read")) properties["response_detail"] = choice("compact", "full")
             val description = when (operation) {
                 "github_repository" -> "Create a repository, fork upstream, import an independent snapshot/history, or clone on the gateway. Explicit destination_owner, destination_repo, owner_type and visibility are required for remote creation; source_owner/source_repo stay separate. Import requires source_ref and copy_mode. Snapshot copies the exact file tree without history; history, Git LFS and local clone require a qualified Git gateway. Status uses expected_repository_id for native creation or operation_id for a gateway transfer, plus operation from the retained receipt. Asynchronous acceptance alone is not completion. Creation never changes the selected workspace."
                 "github_context" -> "Changes:base_sha; fixture recovery:base_sha=origin,commit_sha=head."
-                "github_search" -> "Pinned search; globs; check coverage."
-                "github_read" -> "Pinned ranges/evidence_id; 1-based <=2000; end_line=-1:bounded EOF; view_cursor."
+                "github_search" -> "Pinned glob search using exact continuation_call."
+                "github_read" -> "Lines 1..2000 or evidence_id. end_line=-1 is bounded EOF."
                 "github_stage_patch" -> "Stage an exact replacement with target_file, search_snippet and replacement_snippet, or SHA-checked edits. Reads the pinned blob and rejects ambiguous anchors. Returns immutable version/stage_id and preserves publication receipts. Supply restore_stage_id alone to select a saved local patch at the same branch/base. Commit on a permitted working branch using its current expected_head_sha."
                 "github_commit" -> "Create a working branch, commit a validated stage_id, or delete_branch with expected_head_sha after dependency inspection. Ordinary deletion blocks selected/default/protected branches, unmerged commits, open PRs and active runs. delete_fixture_branch additionally requires durable same-task ownership from fixture_plan=content_v1, origin_head_sha and a verified chain containing only its exact synthetic file; it never grants generic unmerged-branch deletion. GitHub deletion is not an atomic SHA lease."
                 "github_write" -> "Every files item requires a repository-relative path (for example app/src/main/kotlin/.../MainActivity.kt), never an absolute path or directory. Stage up to 20 UTF-8 file creations, replacements or deletions for exact user approval and one atomic commit on a working branch. Supply expected_head_sha and expected_blob_sha for existing files. Replacements require content; deletions require delete=true and no content. Never write to the default branch."
-                "github_pr" -> "Canonical pull-request tool (also known as github_pull_request). Start with {\"action\":\"list\"} when the PR number is unknown. For one known PR use {\"action\":\"context\",\"pull_number\":<observed positive number>}. Use list to discover pull_number. Prefer headers for title/state/head/base only; it uses a minimal API field selection with no bodies or threads. Use context for files/checks and include_health=true for merge readiness. Use github_watch_checks once for ongoing CI; do not repeatedly poll from the model. Writes require the current expected head SHA."
+                "github_pr" -> "Canonical pull-request tool (also known as github_pull_request). Start with {\"action\":\"list\"} when the PR number is unknown. For one known PR use {\"action\":\"context\",\"pull_number\":<observed positive number>}. Use list to discover pull_number. Prefer headers for title/state/head/base only; it uses a minimal API field selection with no bodies or threads. Use context for files/checks and include_health=true for merge readiness. Use github_watch_checks once for ongoing CI; do not repeatedly poll from the model. Writes require the current expected head SHA. Use ready/draft for explicit draft transitions; update does not change draft state. threads returns observed thread IDs for resolve_thread/reopen_thread; follow its pageInfo using after. edit_comment changes discussion comments; edit_review_comment changes inline comments and both require expected_comment_updated_at. enable_auto_merge queues GitHub auto-merge under repository rules and is not evidence that a merge completed."
                 "github_ci" -> "For repository summaries, inspect the selected branch/head and recent relevant runs; traverse full history only when requested. Discover workflows, then runs (100/page), then jobs using run_id. job/logs require job_id; artifacts requires run_id. status inspects run_id/job_id or selected commit/ref checks. Empty collections are valid. definitions reads pinned YAML outlines. Logs use start_line/end_line/start_offset continuations. dispatch requires a discovered workflow_id and explicit ref; a run_id is not a workflow_id. rerun/rerun_failed_jobs retries failed jobs only; rerun_all retries the full completed run. Never cancel an active run to force a retry. Follow continuation_call exactly."
                 "github_watch_checks" -> "Watch pr_number and/or run_id at its exact head. Omit wait_timeout_seconds for background updates in a saved chat; supply 1..30 for bounded inline reads and polling, returning an observed outcome or pending timeout without creating a subscription. Optional follow_pr=true follows new PR revisions."
-                "github_issue" -> "List issues (PRs excluded). Prefer headers for title/state/updated_at without bodies or comments; use context/comments/history only when those details are needed. Create/update requires exact approval; update needs expected_updated_at. Timeline is not a full body-edit history."
+                "github_issue" -> "Discover issues with action=list and optional state=open (PRs excluded). action=headers reads ONE observed issue and requires issue_number; it is not an inventory or listing action. After listing, use headers for title/state/updated_at, or context/comments/history when needed. Create/update requires exact approval; update needs expected_updated_at. Timeline is not a full body-edit history."
                 else -> "Inspect release notes (detail), tags/annotations (tag), paginated tags/list, create_tag or explicitly publish the selected release."
             } + when (operation) {
                 // The shared GitHub tool instruction already requires verbatim continuation_call.

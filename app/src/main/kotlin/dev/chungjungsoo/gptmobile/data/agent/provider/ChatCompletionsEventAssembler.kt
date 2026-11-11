@@ -8,7 +8,8 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 
 class ChatCompletionsEventAssembler {
-    private val toolGuard = ToolStreamGuard(ProviderToolBatchPolicy.PREFERRED_MAX_CALLS)
+    // Fragment slots consume memory even before they become executable calls.
+    private val toolGuard = ToolStreamGuard()
     private data class PendingCall(
         var callId: String? = null,
         var name: String? = null,
@@ -18,6 +19,7 @@ class ChatCompletionsEventAssembler {
     private val pending = sortedMapOf<Pair<Int, Int>, PendingCall>(compareBy({ it.first }, { it.second }))
     private val shape = ArrayDeque<String>()
     private var rejected: ToolBatchOversizeException? = null
+    private var completedCalls = 0
 
     fun accept(
         content: String?,
@@ -33,6 +35,7 @@ class ChatCompletionsEventAssembler {
         toolCalls.orEmpty().forEach { delta ->
             require(choiceIndex >= 0 && delta.index >= 0) { "TOOL_STREAM_INVALID: negative choice/tool index; dispatched=false" }
             val key = choiceIndex to delta.index
+            if (key !in pending && delta.id.isNullOrBlank() && delta.function?.name.isNullOrBlank() && delta.function?.arguments.isNullOrBlank()) return@forEach
             if (shape.size == 12) shape.removeFirst()
             shape.addLast("choice=$choiceIndex,index=${delta.index},id=${!delta.id.isNullOrBlank()},name=${!delta.function?.name.isNullOrBlank()},argumentChars=${delta.function?.arguments?.length ?: 0}")
             try {
@@ -92,6 +95,17 @@ class ChatCompletionsEventAssembler {
             }
         }
         completed.keys.forEach(pending::remove)
+        val invalid = events.filterIsInstance<ProviderEvent.Failed>()
+        if (invalid.isNotEmpty()) return invalid
+        val count = completedCalls + events.size
+        val limit = ProviderToolBatchPolicy.PREFERRED_MAX_CALLS
+        if (count > limit) {
+            val incident = ToolBatchOversizeException("COMPLETE_CALL_COUNT", count, limit, count, shape.joinToString(";"))
+            rejected = incident
+            pending.clear()
+            throw incident
+        }
+        completedCalls = count
         return events
     }
 

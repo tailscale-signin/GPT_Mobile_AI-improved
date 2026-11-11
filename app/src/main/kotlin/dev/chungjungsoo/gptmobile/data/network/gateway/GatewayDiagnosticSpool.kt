@@ -267,7 +267,7 @@ internal class GatewayDiagnosticSpool(
         return GatewayDiagnosticPage(selected, (offset + selected.size).takeIf { it < matching.size }, matching.size)
     }
 
-    fun export(destination: File): File {
+    fun export(destination: File, inventory: JsonObject? = null): File {
         val snapshot = state
         val digest = MessageDigest.getInstance("SHA-256")
         var byteCount = 0L
@@ -285,6 +285,8 @@ internal class GatewayDiagnosticSpool(
             zip.closeEntry()
             val manifest = buildJsonObject {
                 put("schema_version", 2)
+                put("schema_digest", GatewayDiagnosticSchema.DIGEST)
+                inventory?.let { put("run_inventory", it) }
                 put("redaction_version", 1)
                 put("snapshot_id", randomId())
                 put("session_id", snapshot.session)

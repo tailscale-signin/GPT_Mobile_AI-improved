@@ -112,6 +112,28 @@ class GitHubActivityLinesTest {
         assertEquals(null, gitHubPublicSummary(privateItems))
     }
 
+    @Test fun selectedModelProgressIsPromotedInActivityAndSurvivesLaterGenericTickers() {
+        val model = line("The selected head has 18 checks. I will resolve the comparison base next.")
+            .copy(modelAuthored = true, progressId = "invocation-8-progress")
+        val ticker = line("I have completed 5 repository operations. Reviewing the latest result and the next step. Next, I will review these results and continue the remaining requested work. Any remaining checks or blocked operations stay visible until their results can be verified.", true)
+        val count = line("Checks: 16/18 complete.")
+        val retained = listOf(ticker, model, ticker, count)
+        val projected = gitHubActivityLines(retained, "Review the branch")
+        assertEquals(model.copy(statusSummary = true), projected.first())
+        assertTrue(projected.first().modelAuthored)
+        assertEquals("invocation-8-progress", projected.first().progressId)
+        assertFalse(projected.any { it.content == ticker.content })
+        assertTrue(projected.any { it.progressId == "github-check-counts" })
+        assertFalse(model.statusSummary)
+    }
+
+    @Test fun modelProgressDoesNotSuppressMeasuredConnectionOrFailureNotices() {
+        val model = line("The repository context is loaded.").copy(modelAuthored = true)
+        val measured = line("Connection unavailable; the queued request is retained.", true)
+        val lines = gitHubActivityLines(listOf(model, measured), "Inspect")
+        assertEquals(listOf(model.copy(statusSummary = true), measured), lines)
+    }
+
     @Test fun latestPublicSummaryKeepsItsFullSavedBodyAndUpdatesTheMainView() {
         val earlier = line("Earlier findings").copy(modelAuthored = true)
         val latest = line("## Latest findings\n\n" + "A retained observation.\n".repeat(200)).copy(modelAuthored = true)
@@ -119,6 +141,17 @@ class GitHubActivityLinesTest {
         assertEquals(latest.content, primary.text)
         assertEquals(latest.content, primary.timeline.single { it.type == AssistantTimelineItemType.TEXT }.content)
         assertTrue(primary.progressOnly)
+    }
+
+    @Test fun activeDraftIsHiddenWhilePublicSummariesAndPreviewsRemainAvailable() {
+        val summary = line("The branch is resolved. I will check the results.").copy(modelAuthored = true)
+        val preview = line("Reading workflow runs")
+        val answer = AssistantTimelineItem(AssistantTimelineItemType.TEXT, "Retained result")
+        val timeline = listOf(summary, preview, answer)
+        val active = gitHubResponsePresentation(answer.content, timeline, awaitingDelivery = true)
+        assertEquals("", active.text)
+        assertEquals(listOf(summary, preview), active.timeline)
+        assertEquals(answer.content, gitHubResponsePresentation(answer.content, timeline).text)
     }
 
     @Test fun substantiveAnswerKeepsPriorityAndGenericOnlyHistoryCannotInventOne() {

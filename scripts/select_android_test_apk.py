@@ -8,7 +8,7 @@ import zipfile
 from pathlib import Path
 
 
-def select_apk(directory, application_id, abi=None):
+def select_apk(directory, application_id, abi=None, *, universal=False):
     directory = Path(directory).resolve()
     metadata = directory / "output-metadata.json"
     if not metadata.is_file():
@@ -26,6 +26,8 @@ def select_apk(directory, application_id, abi=None):
             raise ValueError(f"APK metadata references a missing or out-of-directory artifact: {filename}")
         filters = element.get("filters", [])
         abi_filters = [item.get("value") for item in filters if item.get("filterType") == "ABI"]
+        if universal and abi_filters:
+            continue
         if abi and abi_filters and abi_filters != [abi]:
             continue
         with zipfile.ZipFile(path) as apk:
@@ -47,9 +49,10 @@ def main():
     parser.add_argument("directory", type=Path)
     parser.add_argument("--application-id", required=True)
     parser.add_argument("--abi")
+    parser.add_argument("--universal", action="store_true", help="Require the unfiltered universal APK")
     args = parser.parse_args()
     try:
-        print(select_apk(args.directory, args.application_id, args.abi))
+        print(select_apk(args.directory, args.application_id, args.abi, universal=args.universal))
     except (ValueError, OSError, zipfile.BadZipFile) as error:
         parser.exit(1, f"APK selection failed: {error}\n")
 

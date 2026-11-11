@@ -6,7 +6,8 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import { CallToolRequestSchema, ListToolsRequestSchema, isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
+import { CallToolRequestSchema, LATEST_PROTOCOL_VERSION, ListToolsRequestSchema, isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
+import { replyToLegacyDiscovery } from '../legacy-discovery.mjs';
 
 export const AMAZON_TOOLS = [
   'search_products', 'get_product', 'get_price_history', 'get_deals',
@@ -89,6 +90,7 @@ export async function createAmazonBridge({
         catch { return reply(res, 400, 'Invalid JSON.'); }
       }
       if (!record) {
+        if (replyToLegacyDiscovery(res, body, LATEST_PROTOCOL_VERSION)) return;
         if (req.method !== 'POST' || !isInitializeRequest(body)) return reply(res, 400, 'Initialize a session first.');
         if (sessions.size + pendingSessions >= maxSessions) return reply(res, 503, 'Session limit reached.');
         pendingSessions++;

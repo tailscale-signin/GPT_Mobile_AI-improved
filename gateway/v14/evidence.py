@@ -156,5 +156,8 @@ def completion_gate(job, readiness, merged=False, *, semantic_receipts=()):
             failures.append('Actual merge result was not verified')
     return {'schema': 'github.completion.v2', 'passed': not failures, 'failures': failures,
             'head_sha': data.get('head_sha'), 'acceptance_configured': bool(job['request'].get('acceptance')), 'requirements': requirements,
+            'verified_requirements': [item['id'] for item in requirements if item['status'] == 'BEHAVIOR_VERIFIED'],
+            'remaining_requirements': [item['id'] for item in requirements if item['status'] != 'BEHAVIOR_VERIFIED'],
+            'next_action': 'REVIEW_EXACT_COMMIT_FOR_MERGE' if not failures and not merged else 'NONE' if not failures else 'VERIFY_REMAINING_REQUIREMENTS',
             'scope': 'Explicit typed feature acceptance evidence plus exact-head workflow and merge receipts.',
             'benchmark_status': 'NOT_MEASURED', 'local_test_execution': 'NOT_MEASURED'}

@@ -246,6 +246,7 @@ class LocalRuntimeSettingsViewModel @Inject constructor(
             model = entry.id,
             accelerator = LocalAccelerators.defaultFor(inspected, soc),
             maxTokens = minOf(entry.defaultConfig.maxTokens, capabilities?.contextTokens ?: entry.defaultConfig.maxTokens).coerceAtLeast(1),
+            maxToolCalls = Int.MAX_VALUE,
             temperature = entry.defaultConfig.temperature,
             topP = entry.defaultConfig.topP,
             topK = entry.defaultConfig.topK,

@@ -7,7 +7,10 @@ import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.database.entity.BuiltInAgentTool
 import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
 import dev.chungjungsoo.gptmobile.data.github.GitHubBoundedResponse
+import dev.chungjungsoo.gptmobile.data.github.GitHubDispatchAccounting
+import dev.chungjungsoo.gptmobile.data.github.GitHubReadRetry
 import dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryContext
+import dev.chungjungsoo.gptmobile.data.github.GitHubRequestCircuit
 import dev.chungjungsoo.gptmobile.data.github.GitHubWorkspaceClient
 import dev.chungjungsoo.gptmobile.data.github.githubRequest
 import dev.chungjungsoo.gptmobile.data.github.normalizeGitHubWorkflowSelector
@@ -24,6 +27,7 @@ import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.util.Base64
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -547,7 +551,7 @@ class GitHubTool(
 
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
         refreshCredential()
-        val accounting = dev.chungjungsoo.gptmobile.data.github.GitHubDispatchAccounting(forceLiveReads = arguments["verify_live"] == JsonPrimitive(true))
+        val accounting = GitHubDispatchAccounting(forceLiveReads = arguments["verify_live"] == JsonPrimitive(true))
         return kotlinx.coroutines.withContext(accounting) {
             try {
                 val action = (arguments["action"] as? JsonPrimitive)?.content.orEmpty()
@@ -1726,6 +1730,7 @@ class GitHubTool(
         val existingText = existingResponse.bodyAsText()
         if (existingResponse.status.isSuccess()) return existingBranchResult(callId, branch, sha, jsonParser.parseToJsonElement(existingText).jsonObject, arguments)
         if (existingResponse.status.value != 404) return classifyGitHubHttpFailure(callId, "create_branch", arguments, existingResponse, existingText)
+        workspaceClient.prepareFixtureCreation(JsonObject(arguments + mapOf("branch" to JsonPrimitive(branch), "base" to JsonPrimitive(base))))
         val response = writeGitHubApi(
             "$BASE_URL/repos/$owner/$repo/git/refs",
             HttpMethod.Post,
@@ -1922,6 +1927,9 @@ class GitHubTool(
         if (throwable is dev.chungjungsoo.gptmobile.data.github.GitHubRequestScheduler.AdmissionRejected) {
             return AgentToolResult(callId, ToolResultContent.Text(detail), true, errorCode = "GITHUB_WAITING_CAPACITY", dispatched = false)
         }
+        if (throwable is GitHubRequestCircuit.Open) {
+            return transportFailure(callId, "GITHUB_CIRCUIT_OPEN", detail, throwable.retryAfterMs)
+        }
         if (detail.startsWith("EVIDENCE_UNAVAILABLE:")) {
             return AgentToolResult(callId, ToolResultContent.Text(detail), true, errorCode = "EVIDENCE_UNAVAILABLE", dispatched = false)
         }
@@ -1954,10 +1962,17 @@ class GitHubTool(
             return AgentToolResult(callId, ToolResultContent.Text(detail), true, errorCode = code)
         }
         if (throwable is java.io.IOException) {
-            val uncertain = action in MUTATING_ACTIONS
-            return AgentToolResult(callId, ToolResultContent.Text(if (uncertain) "GitHub connection interrupted. The write outcome is uncertain; reconcile the saved remote ref/tree or receipt before retrying." else "GitHub connection interrupted after bounded read retries. Retry this read when the connection recovers."), true, errorCode = if (throwable is dev.chungjungsoo.gptmobile.data.github.GitHubReadRetry.HttpFailure) "GITHUB_TRANSIENT_SERVER" else "GITHUB_TRANSIENT_NETWORK", dispatched = true)
+            val uncertain = currentCoroutineContext()[GitHubDispatchAccounting]?.mutationMayHaveTakenEffect() ?: (action in MUTATING_ACTIONS)
+            val httpFailure = throwable as? GitHubReadRetry.HttpFailure
+            val cooldown = maxOf(workspaceClient.transportRetryAfterMillis(), GitHubReadRetry.retryAfterMillis(httpFailure?.retryAfter) ?: 0L)
+            val message = when {
+                uncertain -> "GitHub connection interrupted after a write may have reached GitHub. Reconcile the saved remote state before making another change."
+                action in MUTATING_ACTIONS -> "GitHub connection interrupted during the checks before this change. No write was sent."
+                else -> "GitHub connection interrupted after bounded read retries. Resume this read when the connection recovers."
+            }
+            return transportFailure(callId, if (httpFailure != null) "GITHUB_TRANSIENT_SERVER" else "GITHUB_TRANSIENT_NETWORK", message, cooldown)
         }
-        val normalized = detail.substringBefore(" · ")
+        val normalized = detail.substringBefore(" · ").substringBefore(": ")
         if (normalized in dev.chungjungsoo.gptmobile.data.github.GitHubFailurePolicy.codes || normalized in setOf("GITHUB_AUTHENTICATION_REQUIRED", "GITHUB_NOT_FOUND")) {
             return AgentToolResult(callId, ToolResultContent.Text(detail), true, errorCode = normalized)
         }
@@ -2011,6 +2026,20 @@ class GitHubTool(
             return AgentToolResult(callId, ToolResultContent.Json(dev.chungjungsoo.gptmobile.data.github.GitHubFailurePolicy.notFoundEvidence(action, arguments)), true, errorCode = "GITHUB_NOT_FOUND_OR_INACCESSIBLE", retainedContent = ToolResultContent.Text(detail))
         }
         return AgentToolResult(callId, ToolResultContent.Text("GitHub operation $action failed: $detail. Inspect the retained resource and request receipt before retrying."), true, errorCode = "GITHUB_OPERATION_FAILED")
+    }
+
+    private fun transportFailure(callId: String, code: String, message: String, retryAfterMillis: Long): AgentToolResult {
+        val now = System.currentTimeMillis()
+        return AgentToolResult(
+            callId,
+            ToolResultContent.Text(message),
+            true,
+            errorCode = code,
+            dispatched = false,
+            executionReceipt = buildJsonObject {
+                if (retryAfterMillis > 0) put("retry_not_before_ms", now + retryAfterMillis.coerceAtMost(Long.MAX_VALUE - now))
+            }
+        )
     }
 
     private suspend fun classifyGitHubHttpFailure(
@@ -2115,8 +2144,9 @@ class GitHubTool(
     }
 
     private fun requiredGitHubPermission(action: String): String = when (action) {
+        in dev.chungjungsoo.gptmobile.data.github.GitHubCollaboration.writes -> if (action.startsWith("issue_")) "Issues: write" else "Pull requests: write (auto-merge also requires Contents: write)"
         "create_issue", "update_issue" -> "Issues: write"
-        "create_pull_request", "update_pull_request", "mark_ready_for_review", "submit_pull_request_review", "create_pull_request_review", "reply_pull_request_comment" -> "Pull requests: write"
+        "create_pull_request", "update_pull_request", "mark_ready_for_review", "convert_pull_request_to_draft", "submit_pull_request_review", "create_pull_request_review", "reply_pull_request_comment" -> "Pull requests: write"
         "create_issue_comment" -> "Issues: write or Pull requests: write"
         "dispatch_workflow", "rerun_workflow", "rerun_failed_jobs", "cancel_workflow" -> "Actions: write"
         else -> "Contents: write"

@@ -240,6 +240,7 @@ class DebugLogStore:
         self.queue_dropped = 0
         self.boot_id = uuid.uuid4().hex
         self.provenance = {}
+        self.support_inventory = None
         self.origin_id = digest('gateway:' + str(self.path.absolute()))[:32]
         self.origin_sequences = {}
         self.local_gaps = {}
@@ -352,6 +353,13 @@ class DebugLogStore:
             sequence = self.origin_sequences.get(key, 0) + 1
             self.origin_sequences[key] = sequence
             occurred = fields.pop('occurred_at_utc', int(self.now() * 1000))
+            from .diagnostic_schema import SCHEMA_DIGEST
+            attrs = dict(fields.get('bounded_attributes') or {})
+            attrs.setdefault('schema_digest', SCHEMA_DIGEST)
+            for source, target in (('sourceCommit', 'gateway_revision'), ('configurationFingerprint', 'runtime_config_digest')):
+                if self.provenance.get(source):
+                    attrs.setdefault(target, self.provenance[source])
+            fields['bounded_attributes'] = attrs
             event = sanitize_event(dict(fields, schema_version=2, origin_device_pseudonym=self.origin_id, origin_boot_id=self.boot_id,
                                         origin_sequence=sequence, event_id=event_identity(self.origin_id, self.boot_id, sequence),
                                         occurred_at_utc=occurred, owner='gateway'), imported=False)
@@ -479,7 +487,13 @@ class DebugLogStore:
         if not self.export_lock.acquire(blocking=False):
             raise DiagnosticProtocolError('DIAGNOSTIC_EXPORT_BUSY', 429)
         try:
-            return self.journal.export(principal, session, versions=self.provenance)
+            inventory = {'availability': 'not_configured', 'complete': False, 'jobs': []}
+            if callable(self.support_inventory):
+                try:
+                    inventory = self.support_inventory(principal, session)
+                except Exception:
+                    inventory = {'availability': 'unavailable', 'complete': False, 'jobs': []}
+            return self.journal.export(principal, session, versions=self.provenance, support_inventory=inventory)
         finally:
             self.export_lock.release()
 
@@ -586,7 +600,9 @@ class DebugMiddleware:
 
         def attributes():
             return {'route': context['route'], 'method': context['method'],
-                    'response_headers_sent': response_started, 'response_body_completed': response_completed}
+                    'response_headers_sent': response_started, 'response_body_completed': response_completed,
+                    **({'retry_attempt': context['retryAttempt']} if 'retryAttempt' in context else {}),
+                    **{target: client[source] for source, target in (('modelDigest', 'model_digest'), ('profileDigest', 'profile_digest')) if source in client}}
 
         def event(stage, severity='info', error_code='NONE', **fields):
             principal = scope.get('state', {}).get('principal')

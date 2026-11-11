@@ -54,6 +54,7 @@ internal data class GatewayConversationsState(
     val creationError: String? = null,
     val queuedCounts: Map<Int, Int> = emptyMap(),
     val activeChatIds: Set<Int> = emptySet(),
+    val unreadChatIds: Set<Int> = emptySet(),
     val gatewayStates: Map<Int, GatewayQueuedChatState> = emptyMap(),
     val localConversationKeys: Set<String> = emptySet(),
     val localConversationChats: Map<String, Int> = emptyMap()
@@ -80,7 +81,8 @@ internal class GatewayConversationsViewModel @Inject constructor(
     private val knownProfiles: GatewayKnownProfileStore,
     private val chatCreator: GatewayChatCreator,
     database: ChatDatabaseV2,
-    queue: DurablePromptQueue
+    queue: DurablePromptQueue,
+    completionStore: dev.chungjungsoo.gptmobile.data.chat.GenerationCompletionStore
 ) : ViewModel() {
     val connections = monitor.connections
     private val _state = MutableStateFlow(GatewayConversationsState(connectionUid = savedState["gateway_browser_profile"]))
@@ -89,8 +91,14 @@ internal class GatewayConversationsViewModel @Inject constructor(
     private var openJob: Job? = null
     private var creationJob: Job? = null
     private var generation = 0L
+    private var loadedPages = 0
 
     init {
+        viewModelScope.launch {
+            completionStore.items.collect { items ->
+                _state.update { it.copy(unreadChatIds = homeUnreadReplies(items, emptyMap()).mapTo(mutableSetOf()) { reply -> reply.visibleChatId }) }
+            }
+        }
         viewModelScope.launch {
             database.chatRoomDao().observeGatewayChats().collect { rooms -> _state.update { it.copy(localChats = rooms) } }
         }
@@ -181,6 +189,7 @@ internal class GatewayConversationsViewModel @Inject constructor(
     }
 
     private fun resetHistory(connectionUid: String?, routeIdentity: String? = null) {
+        loadedPages = 0
         _state.update {
             it.copy(
                 connectionUid = connectionUid,
@@ -219,11 +228,25 @@ internal class GatewayConversationsViewModel @Inject constructor(
         }
     }
 
+    /** One lifecycle-owned observer; manual refresh joins the same in-flight request. */
+    suspend fun observeVisible() {
+        var failures = 0
+        while (true) {
+            refresh()
+            refreshJob?.join()
+            val current = _state.value
+            failures = if (current.error == null) 0 else (failures + 1).coerceAtMost(3)
+            val active = current.activeChatIds.isNotEmpty() || current.page?.items?.any { it.isWorking() } == true
+            kotlinx.coroutines.delay(gatewayConversationRefreshDelay(active, failures))
+        }
+    }
+
     fun refresh(loadMore: Boolean = false) {
         val previous = _state.value
         val uid = previous.connectionUid ?: return
         if (refreshJob?.isActive == true || previous.openingId != null) return
         val cursor = if (loadMore) previous.page?.takeIf { it.hasMore }?.nextCursor ?: return else null
+        val pagesToRefresh = if (loadMore) 1 else loadedPages.coerceAtLeast(1)
         val requestGeneration = generation
         _state.value = previous.copy(loading = true, error = null)
         refreshJob = viewModelScope.launch {
@@ -239,20 +262,40 @@ internal class GatewayConversationsViewModel @Inject constructor(
                     if (requestGeneration != generation) return@launch
                     if (cached != null) _state.value = _state.value.copy(page = cached.page, lastSyncedAt = cached.lastSyncedAtMillis, cachedInventory = true)
                 }
-                val page = withContext(Dispatchers.IO) { jobs.listConversations(uid, cursor) }
+                val (page, fetchedPages) = withContext(Dispatchers.IO) {
+                    var result = jobs.listConversations(uid, cursor)
+                    val sameIdentity = previous.page?.let { it.gatewayId == result.gatewayId && it.principalId == result.principalId } != false
+                    val items = result.items.toMutableList()
+                    var fetched = 1
+                    // Only retain the requested history depth within the same account.
+                    while (sameIdentity && fetched < pagesToRefresh) {
+                        val nextCursor = result.nextCursor?.takeIf { result.hasMore } ?: break
+                        val next = jobs.listConversations(uid, nextCursor)
+                        if (next.gatewayId != result.gatewayId || next.principalId != result.principalId) throw GatewayHistoryIdentityChanged()
+                        items.addAll(next.items)
+                        result = next
+                        fetched++
+                    }
+                    result.copy(items = items.distinctBy { it.conversationId }) to fetched
+                }
                 if (requestGeneration != generation) return@launch
                 val merged = if (cursor != null && previous.page != null) {
                     if (page.gatewayId != previous.page.gatewayId || page.principalId != previous.page.principalId) {
-                        _state.value = _state.value.copy(page = null, lastSyncedAt = null, loading = false, error = GatewayBrowserError.IDENTITY_CHANGED)
-                        return@launch
+                        throw GatewayHistoryIdentityChanged()
                     }
                     page.copy(items = (previous.page.items + page.items).distinctBy { it.conversationId })
                 } else {
                     page
                 }
+                loadedPages = if (loadMore) loadedPages + fetchedPages else fetchedPages
                 _state.value = _state.value.copy(page = merged, lastSyncedAt = System.currentTimeMillis(), loading = false, error = null, cachedInventory = false)
             } catch (cancelled: CancellationException) {
                 throw cancelled
+            } catch (_: GatewayHistoryIdentityChanged) {
+                if (requestGeneration == generation) {
+                    loadedPages = 0
+                    _state.value = _state.value.copy(page = null, lastSyncedAt = null, loading = false, error = GatewayBrowserError.IDENTITY_CHANGED, cachedInventory = false)
+                }
             } catch (_: GatewayHistoryUnsupported) {
                 if (requestGeneration == generation) _state.value = _state.value.copy(loading = false, error = GatewayBrowserError.UNSUPPORTED, cachedInventory = _state.value.page != null)
             } catch (_: Exception) {
@@ -262,6 +305,8 @@ internal class GatewayConversationsViewModel @Inject constructor(
             }
         }
     }
+
+    private class GatewayHistoryIdentityChanged : Exception()
 
     fun open(conversation: GatewayConversationSnapshot, onOpen: (GatewayConversationAttachment) -> Unit) {
         val current = _state.value

@@ -14,19 +14,12 @@ internal fun appAuditQualificationPlan(
     targetAliases: Map<String, String>,
     completeEvidence: Boolean
 ): JsonObject {
-    val buildBound = run.sourceCommit.matches(Regex("[a-fA-F0-9]{40}")) &&
-        run.buildVersion.matches(Regex("[0-9]{1,5}(\\.[0-9]{1,5}){1,4}")) &&
-        run.buildVariant in setOf("debug", "release", "benchmark") &&
-        listOf(run.sourceInventoryDigest, run.catalogHash).all { it.matches(Regex("[a-f0-9]{64}")) }
+    val runBinding = appAuditQualificationRunBinding(run)
+    val buildBound = runBinding != null
     val results = run.results.distinctBy { it.entryId }.associateBy { it.entryId }
     val gaps = run.plan.distinctBy { it.id }.filter { entry ->
         entry.evidenceKind in QUALIFICATION_EVIDENCE_KINDS &&
             appAuditScore(run.copy(plan = listOf(entry), results = listOfNotNull(results[entry.id]))).passedWeight == 0
-    }
-    val runBinding = if (buildBound) {
-        appAuditHash("app-audit-qualification-v1\n${run.id}\n${run.sourceCommit}\n${run.buildVersion}\n${run.buildVariant}\n${run.sourceInventoryDigest}\n${run.catalogHash}")
-    } else {
-        null
     }
     return buildJsonObject {
         put("schemaVersion", 1)
@@ -35,6 +28,14 @@ internal fun appAuditQualificationPlan(
         put("importsPromoteAuditScore", false)
         put("completeRetainedEvidence", completeEvidence)
         put("runBinding", runBinding)
+        put(
+            "retainedEnvironment",
+            buildJsonObject {
+                put("installedArtifact", appAuditInstalledArtifactJson(run.environment))
+                put("device", appAuditDeviceIdentityJson(run.environment))
+                put("scope", "Observed at audit creation. A later harness must independently match its installed artifact and device; this snapshot does not prove later execution or source provenance.")
+            }
+        )
         put("pendingChecks", gaps.size)
         put("pendingChecksScope", "RETAINED_PLAN")
         put("scope", "Named target fixtures and external suites require independent execution evidence. This worklist does not execute tools, change retained results, establish service identity, or claim line coverage.")
@@ -107,9 +108,7 @@ internal fun appAuditQualificationPlan(
                         entry.evidenceKind == AppAuditEvidenceKind.MODEL_EXECUTION -> "MODEL_BENCHMARK_REQUIRED"
                         else -> "EXTERNAL_HARNESS_REQUIRED"
                     }
-                    val binding = runBinding?.takeIf { entry.evidenceKind !in TARGET_EXECUTION_KINDS || revision != null }?.let {
-                        appAuditHash("$it\n${entry.id}\n${entry.evidenceKind}\n${entry.configFingerprint}\n$revision\n${entry.fixtureHash}")
-                    }
+                    val binding = appAuditQualificationCheckBinding(run, entry)
                     buildJsonObject {
                         put("checkId", checkIds[entry.id]?.takeIf { it.matches(Regex("check-[1-9][0-9]*")) })
                         put("targetAlias", target?.let(targetAliases::get)?.takeIf { it.matches(Regex("target-[1-9][0-9]*")) })
@@ -150,8 +149,15 @@ internal fun appAuditQualificationPlan(
                         put(
                             "nextAction",
                             when (readiness) {
+                                "CONFIGURATION_REQUIRED" -> "CONFIGURE_EXACT_TARGET_THEN_START_NEW_AUDIT"
+                                "ENABLE_PERMISSION_REQUIRED" -> "REVIEW_OPTIONAL_PLUGIN_PERMISSION_THEN_START_NEW_AUDIT"
                                 "CREDENTIAL_REAUTHORIZATION_REQUIRED" -> "REAUTHORIZE_SAVED_CONNECTION_THEN_RECHECK"
-                                "DISCOVERY_RECHECK_REQUIRED" -> "RECHECK_SAVED_CONNECTION_THEN_RUN_NAMED_FIXTURE"
+                                "DISCOVERY_RECHECK_REQUIRED" -> when (discoveryResult?.observation?.validationRule) {
+                                    "PROTOCOL_VERSIONS_ARRAY_REQUIRED", "PROTOCOL_VERSIONS_NONEMPTY_REQUIRED", "PROTOCOL_VERSION_FORMAT_REQUIRED" -> "REPAIR_MCP_DISCOVERY_SCHEMA_THEN_RECONNECT"
+                                    "DISCOVERY_METHOD_SUPPORTED_REQUIRED" -> "REPAIR_MCP_PROTOCOL_NEGOTIATION_THEN_RECONNECT"
+                                    "ENDPOINT_ROUTE_REQUIRED" -> "CORRECT_MCP_ENDPOINT_THEN_RECONNECT"
+                                    else -> "RECHECK_SAVED_CONNECTION_THEN_RUN_NAMED_FIXTURE"
+                                }
                                 "MODEL_BENCHMARK_REQUIRED" -> "PREPARE_EXACT_SELECTED_PROFILE_BENCHMARK"
                                 else -> "REVIEW_REQUIRED_HARNESS"
                             }
@@ -160,12 +166,31 @@ internal fun appAuditQualificationPlan(
                         put("defaultMaxToolCalls", if (entry.evidenceKind == AppAuditEvidenceKind.TOOL_EXECUTION) JsonPrimitive(1) else JsonNull)
                         put("perFixtureTimeoutMs", run.limits.perProbeTimeoutMs)
                         put("requirements", JsonArray(qualificationRequirements(entry, family).map(::JsonPrimitive)))
-                        put("namedHarnesses", JsonArray(qualificationHarnesses(family).map(::JsonPrimitive)))
+                        put("namedHarnesses", JsonArray(qualificationHarnesses(entry, family).map(::JsonPrimitive)))
+                        put("namedHarnessesScope", "Candidate cases for named behavior only. Run the applicable suites and retain exact-build reports; this mapping neither verifies the entire source area nor supplies device, service, or selected-model evidence.")
                     }
                 }
             )
         )
     }
+}
+
+internal fun appAuditQualificationRunBinding(run: AppAuditRun): String? {
+    if (!run.sourceCommit.matches(Regex("[a-fA-F0-9]{40}")) ||
+        !run.buildVersion.matches(Regex("[0-9]{1,5}(\\.[0-9]{1,5}){1,4}")) ||
+        run.buildVariant !in setOf("debug", "release", "benchmark") ||
+        listOf(run.sourceInventoryDigest, run.catalogHash).any { !it.matches(Regex("[a-f0-9]{64}")) }
+    ) {
+        return null
+    }
+    return appAuditHash("app-audit-qualification-v1\n${run.id}\n${run.sourceCommit}\n${run.buildVersion}\n${run.buildVariant}\n${run.sourceInventoryDigest}\n${run.catalogHash}")
+}
+
+internal fun appAuditQualificationCheckBinding(run: AppAuditRun, entry: AppAuditPlanEntry): String? {
+    val binding = appAuditQualificationRunBinding(run) ?: return null
+    val revision = safeAuditConfigurationRevision(entry.configurationRevision)
+    if (entry.evidenceKind in TARGET_EXECUTION_KINDS && revision == null) return null
+    return appAuditHash("$binding\n${entry.id}\n${entry.evidenceKind}\n${entry.configFingerprint}\n$revision\n${entry.fixtureHash}")
 }
 
 private fun qualificationFamily(entry: AppAuditPlanEntry): String = when (entry.evidenceKind) {
@@ -223,14 +248,11 @@ private fun qualificationRequirements(entry: AppAuditPlanEntry, family: String):
     }
 }
 
-private fun qualificationHarnesses(family: String): List<String> = when (family) {
-    "DEVICE_RENDERING_ACCESSIBILITY_SUITE" -> listOf("dev.chungjungsoo.gptmobile.presentation.ui.chat.GitHubPromptMotionInstrumentedTest", "dev.chungjungsoo.gptmobile.presentation.common.DiagnosticFrameTimingTest", "dev.chungjungsoo.gptmobile.presentation.ui.setting.GitHubWorkspaceFilesTest")
-    "DATABASE_MIGRATION_RECOVERY_SUITE" -> listOf("dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2MigrationsTest", "dev.chungjungsoo.gptmobile.data.database.GatewayJobPersistenceTest", "dev.chungjungsoo.gptmobile.data.database.GatewayJobsMigrationTest")
+private fun qualificationHarnesses(entry: AppAuditPlanEntry, family: String): List<String> = when (family) {
     "MODEL_GENERATION_BENCHMARK" -> listOf("APP_SELECTED_PROFILE_BENCHMARK_QUEUE")
     "DEVICE_MEASUREMENT_SUITE" -> listOf("scripts/qualify_device_performance.py")
-    "GATEWAY_SERVICE_SUITE" -> listOf("gateway/check_gateway.py", "gateway/tests/test_gateway_model_preparation.py")
     "TARGET_TOOL_EXECUTION" -> listOf("EXPLICITLY_NAMED_TARGET_FIXTURE_REQUIRED")
-    else -> emptyList()
+    else -> entry.sourceAreaIds.flatMap { APP_AUDIT_SOURCE_HARNESSES[it].orEmpty() }.distinct()
 }
 
 private val REMOTE_SOURCE_AREAS = setOf("mcp_plugins", "marketplace_plugins", "gateway_client", "model_providers", "gateway_software", "authentication_service", "external_integrations")

@@ -5,6 +5,7 @@ import dev.chungjungsoo.gptmobile.data.context.CapacitySnapshot
 import dev.chungjungsoo.gptmobile.data.context.LlamaCapacityRepository
 import dev.chungjungsoo.gptmobile.data.context.RequestAdmission
 import dev.chungjungsoo.gptmobile.data.context.RuntimeFingerprint
+import dev.chungjungsoo.gptmobile.data.context.SelectedModelUnavailableException
 import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterCatalogLimits
 import dev.chungjungsoo.gptmobile.data.research.researchHash
 import kotlinx.serialization.json.Json
@@ -60,6 +61,10 @@ internal class ModelRequestPreparation(client: NetworkClient) {
                 diagnosticFields + mapOf("runId" to dispatch?.diagnosticRunId, "invocationId" to dispatch?.diagnosticInvocationId),
                 "W"
             )
+            gatewayObservation?.selectedModelBlocker()?.let { reason ->
+                dispatch?.rejectedBeforeInference(reason)
+                throw SelectedModelUnavailableException(reason, gatewayObservation)
+            }
         }
         val catalog = OpenRouterCatalogLimits.forRequest(config.providerType.orEmpty(), config.apiUrl, model)
         val freeModel = config.freeModelSnapshot?.takeIf { it.id == model }

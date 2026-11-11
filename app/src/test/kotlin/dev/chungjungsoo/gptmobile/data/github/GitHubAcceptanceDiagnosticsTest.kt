@@ -86,12 +86,13 @@ class GitHubAcceptanceDiagnosticsTest {
         val acceptance = requireNotNull(GitHubRunAcceptance.assess(captured, "run", 2, 1, 2, "partial"))
         val lines = GitHubRunAcceptance.diagnosticLines(acceptance)
         assertEquals(4, lines.size)
-        assertTrue(lines[1].contains("label=Disposable fixture lifecycle"))
+        val typedRows = lines.drop(1).map { kotlinx.serialization.json.Json.parseToJsonElement(it).jsonObject.getValue("criterion").jsonObject }
+        assertEquals(JsonPrimitive("Disposable fixture lifecycle"), typedRows[0]["label"])
         assertTrue(lines[1].contains("FIXTURE_PROOF_INCOMPLETE"))
         assertTrue(lines[1].contains("MOCKED\":1"))
         assertTrue(lines[1].contains("HISTORICAL_CI_OBSERVATION\":1"))
         assertTrue(lines[2].contains("DEVICE_EXECUTION_NOT_OBSERVED"))
-        assertTrue(lines[3].contains("state=PASS"))
+        assertEquals(JsonPrimitive("PASS"), typedRows[2]["state"])
         assertTrue(lines.all { it.length <= 2000 })
         val exported = lines.joinToString("\n")
         for (private in listOf("private-owner", "private-repo", "private-fixture-id", "private-evidence-id", "secret-token")) assertFalse(private, exported.contains(private))
@@ -127,10 +128,14 @@ class GitHubAcceptanceDiagnosticsTest {
         val assessment = requireNotNull(GitHubRunAcceptance.assess(captured, "run", 1, 1, 1, "partial"))
         val lines = GitHubRunAcceptance.diagnosticLines(assessment)
         assertEquals(146, lines.size)
-        assertTrue(lines.first().contains("included=145 · omitted=0 · pages=3"))
-        assertTrue(lines[1].contains("criterion=2 ·"))
-        assertTrue(lines.last().contains("criterion=1 ·"))
-        assertEquals((1..145).toSet(), lines.drop(1).map { it.substringAfter("criterion=").substringBefore(" ·").toInt() }.toSet())
+        val summary = kotlinx.serialization.json.Json.parseToJsonElement(lines.first()).jsonObject
+        assertEquals(JsonPrimitive(145), summary["included"])
+        assertEquals(JsonPrimitive(0), summary["omitted"])
+        assertEquals(JsonPrimitive(3), summary["pages"])
+        val rows = lines.drop(1).map { kotlinx.serialization.json.Json.parseToJsonElement(it).jsonObject.getValue("criterion").jsonObject }
+        assertEquals(JsonPrimitive(2), rows.first()["ordinal"])
+        assertEquals(JsonPrimitive(1), rows.last()["ordinal"])
+        assertEquals((1..145).map { JsonPrimitive(it) }.toSet(), rows.map { it["ordinal"] }.toSet())
         assertFalse(lines.joinToString().contains("Private criterion"))
     }
 

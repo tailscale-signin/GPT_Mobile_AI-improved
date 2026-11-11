@@ -239,6 +239,7 @@ fun OpponentChatBubble(
     showExecutionTrace: Boolean = true,
     responseIcon: (@Composable () -> Unit)? = null,
     githubTask: String? = null,
+    awaitingGitHubDelivery: Boolean = false,
     profileColorIdentity: dev.chungjungsoo.gptmobile.data.model.ProfileColorIdentity? = null,
     debugMemorySources: Map<String, DebugMemorySource> = emptyMap(),
     invocations: List<dev.chungjungsoo.gptmobile.data.accounting.ModelInvocation> = emptyList(),
@@ -287,7 +288,10 @@ fun OpponentChatBubble(
         if (effectiveExecutionTrace && showReasoning) thoughts.ifBlank { if (isLoading) "" else ThinkingParser.extractThinking(text).thinking.orEmpty() } else ""
     }
     val processToolEvents = if (effectiveExecutionTrace) toolEvents else emptyList()
-    val githubPresentation = remember(text, timeline, githubTask) { if (githubTask != null) gitHubResponsePresentation(text, timeline) else null }
+    val holdGitHubAnswer = githubTask != null && (isLoading || awaitingGitHubDelivery)
+    val githubPresentation = remember(text, timeline, githubTask, holdGitHubAnswer) {
+        if (githubTask != null) gitHubResponsePresentation(text, timeline, holdGitHubAnswer) else null
+    }
     val displayedText = githubPresentation?.text ?: text
     val displayedTimeline = githubPresentation?.timeline ?: timeline
     val contentTimeline = remember(displayedTimeline, showReasoning, effectiveExecutionTrace) {
@@ -297,8 +301,8 @@ fun OpponentChatBubble(
         extractTelemetryNotice(noticeMessages)
     }
     val formattedTime = remember(timestamp) { formatMessageTimestamp(timestamp) }
-    val showContinueAction = remember(text, isLoading, isLastMessage) { shouldShowContinuePrompt(text, isLoading, isLastMessage) }
-    val dynamicActions = remember(text, isLoading) { ChatResponseActionParser.extractDynamicActions(text, isLoading) }
+    val showContinueAction = remember(displayedText, isLoading, isLastMessage) { shouldShowContinuePrompt(displayedText, isLoading, isLastMessage) }
+    val dynamicActions = remember(displayedText, isLoading) { ChatResponseActionParser.extractDynamicActions(displayedText, isLoading) }
     var continueDismissed by rememberSaveable(contentIdentity) { mutableStateOf(false) }
     var actionDismissed by rememberSaveable(contentIdentity) { mutableStateOf(false) }
 
@@ -379,6 +383,7 @@ fun OpponentChatBubble(
         locationToolEvents.isNotEmpty() ||
         (!isLoading && (canRetry || canEdit || isError))
     val showTerminalFallback = !isLoading &&
+        !holdGitHubAnswer &&
         combinedManifest == null &&
         originalSource == null &&
         isLastMessage &&
@@ -386,6 +391,7 @@ fun OpponentChatBubble(
         attachments.isEmpty()
     val shouldShowBubble =
         isLoading ||
+            holdGitHubAnswer ||
             contentTimeline.isNotEmpty() ||
             toolEvents.isNotEmpty() ||
             hasVisibleText ||
@@ -394,14 +400,14 @@ fun OpponentChatBubble(
             showTerminalFallback
 
     val actions = buildList {
-        if (!isError) {
+        if (!isError && !holdGitHubAnswer) {
             add(BubbleAction(stringResource(R.string.select_text), ImageVector.vectorResource(R.drawable.ic_select), !isLoading, onSelectClick))
             add(BubbleAction(stringResource(R.string.copy_text), ImageVector.vectorResource(R.drawable.ic_copy), !isLoading, onCopyClick))
             add(BubbleAction(stringResource(if (isFavorite) R.string.unfavorite else R.string.favorite), if (isFavorite) Icons.Rounded.Star else Icons.Rounded.StarBorder, !isLoading, onFavoriteClick))
             add(BubbleAction(stringResource(R.string.edit), Icons.Rounded.Edit, canEdit && !isLoading, onEditClick))
         }
         onInspectContext?.takeIf { debugMode }?.let { add(BubbleAction(stringResource(R.string.bubble_context), Icons.Rounded.Description, !isLoading, it)) }
-        add(BubbleAction(retryLabel ?: stringResource(R.string.retry), Icons.Rounded.Refresh, canRetry && !isLoading, onRetryClick))
+        add(BubbleAction(retryLabel ?: stringResource(R.string.retry), Icons.Rounded.Refresh, canRetry && !isLoading && !holdGitHubAnswer, onRetryClick))
         if (effectiveExecutionTrace && hasDetails) add(BubbleAction(stringResource(R.string.details), Icons.Rounded.HelpOutline) { activityExpanded = !activityExpanded })
     }
     BubbleActionHost(identity = contentIdentity, actions = actions) {
@@ -460,7 +466,7 @@ fun OpponentChatBubble(
                             responseIcon
                         },
                         beforeAnswer = {
-                            if (githubTask != null && (activityExpanded || isLoading && displayedText.isBlank())) {
+                            if (githubTask != null && (activityExpanded || holdGitHubAnswer)) {
                                 GitHubLiveProgressCard(timeline, githubTask, toolEvents, expanded = activityExpanded, active = isLoading)
                             }
                             if (githubPresentation?.progressOnly == true) {

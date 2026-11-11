@@ -315,6 +315,28 @@ class SelectedExecutionTests(unittest.TestCase):
         self.assertEqual('EXECUTION_RUN_BUDGET_EXHAUSTED', failure.exception.code)
         self.assertEqual(1, len(self.calls))
 
+    def test_ultra_model_call_ceiling_preserves_review_and_final_capacity_at_physical_dispatch(self):
+        self.assertEqual(512, self.job['request']['execution_budget']['model_calls'])
+        for index in range(508):
+            self.store.record_model_attempt(self.job, {'attempt_id': 'seed-' + str(index),
+                'binding_id': self.binding['binding_id'], 'state': 'DISPATCHED', 'dispatched': True,
+                'reserved_tokens': 1, 'role': 'planner'})
+        self.backend.model(self.job, 'planner', {})
+        with self.assertRaises(ExecutionBindingError) as planner:
+            self.backend.model(self.job, 'planner', {})
+        self.assertEqual('EXECUTION_RUN_BUDGET_EXHAUSTED', planner.exception.code)
+        self.assertEqual(1, len(self.calls))
+        self.backend.model(self.job, 'selected-model reviewer', {})
+        self.backend.model(self.job, 'selected-model reviewer', {})
+        self.backend.model(self.job, 'final report', {})
+        with self.assertRaises(ExecutionBindingError) as final:
+            self.backend.model(self.job, 'final report', {})
+        self.assertEqual('EXECUTION_RUN_BUDGET_EXHAUSTED', final.exception.code)
+        self.assertEqual(4, len(self.calls))
+        self.assertTrue(all(call['body']['model'] == 'A' for call in self.calls))
+        dispatched = self.store.tx(lambda db: db.execute('SELECT COUNT(*) FROM engineering_model_attempts WHERE job_id=? AND dispatched=1', (self.job['id'],)).fetchone()[0])
+        self.assertEqual(512, dispatched)
+
 
 class BudgetAndSchedulerTests(unittest.TestCase):
     def test_explicit_output_and_reserves_never_silently_shrink(self):

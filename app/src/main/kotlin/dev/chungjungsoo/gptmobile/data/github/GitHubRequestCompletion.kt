@@ -133,6 +133,7 @@ internal object GitHubRequestCompletion {
         val requirements = requirements(task)
         val coverage = (answer["requirement_claims"] as? JsonObject).orEmpty()
         val unanswered = (answer["questions"] as? JsonArray).orEmpty().isNotEmpty()
+        val comparisonMissing = GitHubReviewComparison.incompleteReason(task, receipts)
         val rows = requirements.map { requirement ->
             val selected = (coverage[id(requirement)] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.intOrNull }
             val covered = if (requirements.size == 1) verified else selected.isNotEmpty() && selected.all { claims.getOrNull(it)?.get("status") in setOf(JsonPrimitive("VERIFIED"), JsonPrimitive("INFERRED")) }
@@ -148,7 +149,8 @@ internal object GitHubRequestCompletion {
                     ?: engineeringAcceptance(it, receipts)
             }
             val implementedAndTested = assessment?.state == GitHubAcceptanceLedger.State.PASS
-            val passed = covered && !unanswered && (informational(task) || implementedAndTested)
+            val reviewBlocker = comparisonMissing?.takeIf { GitHubReviewComparison.requiresComparison(requirement) }
+            val passed = covered && !unanswered && reviewBlocker == null && (informational(task) || implementedAndTested)
             val state = when {
                 passed -> GitHubAcceptanceLedger.State.PASS
                 unanswered -> GitHubAcceptanceLedger.State.BLOCKED
@@ -173,6 +175,8 @@ internal object GitHubRequestCompletion {
                     "acceptance",
                     if (unanswered) {
                         "A user decision remains unresolved"
+                    } else if (reviewBlocker != null) {
+                        reviewBlocker
                     } else if (informational(task) && passed) {
                         "Receipt-supported answer; no implementation or test execution inferred"
                     } else if (!covered && implementedAndTested) {

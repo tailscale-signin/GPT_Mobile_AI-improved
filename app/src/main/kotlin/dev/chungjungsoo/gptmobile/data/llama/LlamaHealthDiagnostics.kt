@@ -244,76 +244,78 @@ internal class LlamaHealthDiagnostics(
         var firstTokenMs: Long? = null
         return try {
             val result = withTimeoutOrNull(15_000L) {
-                client().preparePost(config.buildEndpoint("chat/completions")) {
-                    config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
-                    GatewayClientDiagnostics.requestHeaders(config).filterKeys { !it.equals("X-Gateway-Allow-Local-Tools", ignoreCase = true) }.forEach { (key, value) -> header(key, value) }
-                    header("X-Gateway-Allow-Local-Tools", "false")
-                    header(HttpHeaders.Accept, "text/event-stream, application/json")
-                    parameter("autoload", "false")
-                    contentType(ContentType.Application.Json)
-                    timeout {
-                        connectTimeoutMillis = 3_000
-                        requestTimeoutMillis = 15_000
-                        socketTimeoutMillis = 10_000
-                    }
-                    setBody(
-                        buildJsonObject {
-                            put("model", model)
-                            put("stream", true)
-                            put("max_tokens", 1)
-                            put("tool_choice", "none")
-                            put(
-                                "messages",
-                                JsonArray(
-                                    listOf(
-                                        buildJsonObject {
-                                            put("role", "user")
-                                            put("content", "Reply OK.")
-                                        }
+                gatewayClientExchange(config, "chat", safeRead = false, method = "POST", knownGateway = false) { headers ->
+                    client().preparePost(config.buildEndpoint("chat/completions")) {
+                        config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
+                        headers.filterKeys { !it.equals("X-Gateway-Allow-Local-Tools", ignoreCase = true) }.forEach { (key, value) -> header(key, value) }
+                        header("X-Gateway-Allow-Local-Tools", "false")
+                        header(HttpHeaders.Accept, "text/event-stream, application/json")
+                        parameter("autoload", "false")
+                        contentType(ContentType.Application.Json)
+                        timeout {
+                            connectTimeoutMillis = 3_000
+                            requestTimeoutMillis = 15_000
+                            socketTimeoutMillis = 10_000
+                        }
+                        setBody(
+                            buildJsonObject {
+                                put("model", model)
+                                put("stream", true)
+                                put("max_tokens", 1)
+                                put("tool_choice", "none")
+                                put(
+                                    "messages",
+                                    JsonArray(
+                                        listOf(
+                                            buildJsonObject {
+                                                put("role", "user")
+                                                put("content", "Reply OK.")
+                                            }
+                                        )
                                     )
                                 )
-                            )
-                        }.toString()
-                    )
-                }.execute { response ->
-                    GatewayClientDiagnostics.observe(config, response.status.value) { response.headers[it] }
-                    val evidence = LlamaInferenceProbeEvidence(model)
-                    val streaming = response.headers[HttpHeaders.ContentType].orEmpty().substringBefore(';').trim().equals("text/event-stream", true)
-                    if (streaming) {
-                        val channel = response.bodyAsChannel()
-                        var bytes = 0
-                        try {
-                            while (true) {
-                                val line = channel.readUTF8Line(16 * 1024) ?: break
-                                bytes += line.toByteArray(Charsets.UTF_8).size
-                                check(bytes <= 64 * 1024) { "INFERENCE_PROBE_RESPONSE_TOO_LARGE" }
-                                val payload = dev.chungjungsoo.gptmobile.data.network.SseUtils.extractSseData(line) ?: continue
-                                if (dev.chungjungsoo.gptmobile.data.network.SseUtils.isDone(payload)) {
-                                    evidence.completed = true
-                                    break
+                            }.toString()
+                        )
+                    }.execute { response ->
+                        GatewayClientDiagnostics.observe(config, response.status.value, response.call.request.headers["traceparent"]) { response.headers[it] }
+                        val evidence = LlamaInferenceProbeEvidence(model)
+                        val streaming = response.headers[HttpHeaders.ContentType].orEmpty().substringBefore(';').trim().equals("text/event-stream", true)
+                        if (streaming) {
+                            val channel = response.bodyAsChannel()
+                            var bytes = 0
+                            try {
+                                while (true) {
+                                    val line = channel.readUTF8Line(16 * 1024) ?: break
+                                    bytes += line.toByteArray(Charsets.UTF_8).size
+                                    check(bytes <= 64 * 1024) { "INFERENCE_PROBE_RESPONSE_TOO_LARGE" }
+                                    val payload = dev.chungjungsoo.gptmobile.data.network.SseUtils.extractSseData(line) ?: continue
+                                    if (dev.chungjungsoo.gptmobile.data.network.SseUtils.isDone(payload)) {
+                                        evidence.completed = true
+                                        break
+                                    }
+                                    evidence.observe(payload)
+                                    if (evidence.hasPayload && firstTokenMs == null) firstTokenMs = (nowMs() - started).coerceAtLeast(0)
+                                    if (evidence.completed || evidence.invalid) break
                                 }
-                                evidence.observe(payload)
-                                if (evidence.hasPayload && firstTokenMs == null) firstTokenMs = (nowMs() - started).coerceAtLeast(0)
-                                if (evidence.completed || evidence.invalid) break
+                            } finally {
+                                channel.cancel(null)
                             }
-                        } finally {
-                            channel.cancel(null)
+                        } else {
+                            // Some direct endpoints ignore stream=true. Their full response proves
+                            // generation, but it cannot establish time to the first token.
+                            evidence.observe(response.boundedMetadata(64 * 1024))
+                            evidence.completed = true
                         }
-                    } else {
-                        // Some direct endpoints ignore stream=true. Their full response proves
-                        // generation, but it cannot establish time to the first token.
-                        evidence.observe(response.boundedMetadata(64 * 1024))
-                        evidence.completed = true
+                        val ready = response.status.value in 200..299 && evidence.ready
+                        metadata.copy(
+                            inferenceHttpStatus = response.status.value,
+                            inferenceTested = true,
+                            inferenceReady = ready,
+                            inferenceFailure = if (ready) null else "Inference returned no complete verified generated output (HTTP ${response.status.value}).",
+                            inferenceLatencyMs = (nowMs() - started).coerceAtLeast(0),
+                            timeToFirstTokenMs = firstTokenMs
+                        )
                     }
-                    val ready = response.status.value in 200..299 && evidence.ready
-                    metadata.copy(
-                        inferenceHttpStatus = response.status.value,
-                        inferenceTested = true,
-                        inferenceReady = ready,
-                        inferenceFailure = if (ready) null else "Inference returned no complete verified generated output (HTTP ${response.status.value}).",
-                        inferenceLatencyMs = (nowMs() - started).coerceAtLeast(0),
-                        timeToFirstTokenMs = firstTokenMs
-                    )
                 }
             }
             result ?: metadata.copy(inferenceTested = true, inferenceReady = false, inferenceFailure = "INFERENCE_PROBE_TIMEOUT", inferenceLatencyMs = (nowMs() - started).coerceAtLeast(0), timeToFirstTokenMs = firstTokenMs)
@@ -349,7 +351,7 @@ internal class LlamaHealthDiagnostics(
                         parameter("autoload", "false")
                         if (LocalEndpointConnectionPolicy.freshConnection(endpoint)) header(HttpHeaders.Connection, "close")
                     }
-                    GatewayClientDiagnostics.observe(config, response.status.value) { response.headers[it] }
+                    GatewayClientDiagnostics.observe(config, response.status.value, response.call.request.headers["traceparent"]) { response.headers[it] }
                     val status = response.status.value
                     val body = try {
                         response.boundedMetadata(64 * 1024)

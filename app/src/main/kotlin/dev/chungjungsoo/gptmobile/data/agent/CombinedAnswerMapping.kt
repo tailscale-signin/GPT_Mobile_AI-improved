@@ -43,18 +43,45 @@ data class CombinedAnswerMapping(
 /** One versioned map is consumed by delivery checks, colours, inspector and export. */
 internal object CombinedAnswerMappings {
     private const val MAX_COMPARISONS = 1_000_000L
-    private data class Key(val answer: String, val corpus: String, val selection: String)
+    private const val MAX_WINDOW_CHARACTERS = 4_000_000L
+    private data class Key(val answer: String, val corpus: String, val selection: List<String>?)
     private val cache = LinkedHashMap<Key, CombinedAnswerMapping>(4, 0.75f, true)
-    private data class Destination(val text: String, val span: CombinedCoverageLink, val partialMention: Boolean = false)
+    private data class Destination(val text: String, val span: CombinedCoverageLink, val partialMention: Boolean = false) {
+        val normalized by lazy { CombinedContentCoverage.normalized(text) }
+        val tokens by lazy {
+            words.findAll(text).map { match ->
+                val fingerprint = CombinedClaimMatcher.fingerprint(match.value)
+                WindowToken(match.range, fingerprint.terms + fingerprint.numbers, match.value.first().isLowerCase() && fingerprint.terms.isNotEmpty())
+            }.toList()
+        }
+    }
+    private data class WindowToken(val range: IntRange, val terms: Set<String>, val lowercaseTerm: Boolean)
+    private class WindowWork {
+        private var remaining = MAX_WINDOW_CHARACTERS
+        var exhausted = false
+            private set
+
+        fun consume(characters: Int): Boolean {
+            if (exhausted || remaining < characters) {
+                exhausted = true
+                return false
+            }
+            remaining -= characters
+            return true
+        }
+    }
 
     fun get(answer: String, sources: List<CombinedModelResponse>, claimIds: Set<String>? = null): CombinedAnswerMapping {
-        val index = CombinedContentIndexes.get(sources)
-        val corpus = researchHash(sources.joinToString("\n") { "${it.platformUid.length}:${it.platformUid}:${researchHash(it.content)}:${it.claimExtractionVersion}:${it.contentCompleteness}" })
-        val selection = claimIds?.sorted()?.joinToString("|")?.let(::researchHash).orEmpty()
-        val key = Key(researchHash(answer), corpus, selection)
+        val corpus = researchHash(
+            sources.joinToString("\n") { source ->
+                val identity = listOf(source.platformUid, researchHash(source.content), source.attemptId.orEmpty(), source.createdAt?.toString().orEmpty(), source.claimExtractionVersion.toString(), source.contentCompleteness) + source.ancestryIds.sorted()
+                identity.joinToString("") { "${it.length}:$it" }
+            }
+        )
+        val key = Key(researchHash(answer), corpus, claimIds?.sorted())
         synchronized(cache) { cache[key]?.let { return it } }
         return CombinedOperationTrace.measure("source_mapping", CombinedOperationOwner(digest = key.answer)) {
-            build(answer, sources, index, corpus, key, claimIds)
+            build(answer, sources, CombinedContentIndexes.get(sources), key, claimIds)
         }
     }
 
@@ -62,7 +89,6 @@ internal object CombinedAnswerMappings {
         answer: String,
         sources: List<CombinedModelResponse>,
         index: CombinedContentIndex,
-        corpus: String,
         key: Key,
         claimIds: Set<String>?
     ): CombinedAnswerMapping {
@@ -72,6 +98,7 @@ internal object CombinedAnswerMappings {
         prints.forEachIndexed { i, value -> value.terms.forEach { byTerm.getOrPut(it) { linkedSetOf() } += i } }
         var comparisons = 0L
         var evaluated = true
+        val windowWork = WindowWork()
         val selectedClaims = index.records.filter { claim ->
             claimIds == null ||
                 claim.id in claimIds ||
@@ -79,6 +106,7 @@ internal object CombinedAnswerMappings {
                 claim.candidateIds.any { it in claimIds }
         }
         val claims = selectedClaims.map { claim ->
+            if (!evaluated) return@map CombinedMappedClaim(claim.id, claim.canonicalId, claim.candidateIds, claim.profileUids, "NOT_EVALUATED")
             val source = index.fingerprints.getValue(claim.proposition)
             // Qualifications that span several sentences cannot be detached by a split.
             val qualified = source.negative || source.hedged || source.restrictions.isNotEmpty() || claim.qualifiers.uncertainty.isNotEmpty() || claim.qualifiers.outcome in setOf("NULL_EFFECT", "INSUFFICIENT_EVIDENCE")
@@ -88,18 +116,23 @@ internal object CombinedAnswerMappings {
                 val fingerprint = clausePrints.getValue(text)
                 val candidates = fingerprint.terms.flatMapTo(linkedSetOf()) { byTerm[it].orEmpty() }
                 val matches = mutableListOf<Pair<CombinedCoverageLink, CombinedClaimMatcher.Match>>()
-                candidates.forEach { candidate ->
-                    if (destinations[candidate].partialMention) return@forEach
-                    if (++comparisons > MAX_COMPARISONS) {
+                val normalized = CombinedContentCoverage.normalized(text)
+                for (candidate in candidates) {
+                    if (destinations[candidate].partialMention) continue
+                    if (!evaluated || windowWork.exhausted || ++comparisons > MAX_COMPARISONS) {
                         evaluated = false
-                    } else {
-                        val target = destinations[candidate]
-                        val match = CombinedClaimMatcher.match(fingerprint, prints[candidate])
-                        val identical = CombinedContentCoverage.normalized(text) == CombinedContentCoverage.normalized(target.text) && CombinedClaimMatcher.compatible(fingerprint, prints[candidate])
-                        if (match >= CombinedClaimMatcher.Match.PARAPHRASE || identical) {
-                            val ranges = if (CombinedClaimMatcher.match(prints[candidate], fingerprint) >= CombinedClaimMatcher.Match.PARAPHRASE || identical) listOf(target.span) else fingerprintWindows(answer, fingerprint, listOf(target), listOf(prints[candidate]), prints[candidate].terms.associateWith { setOf(0) })
-                            ranges.forEach { range -> matches += range to if (identical) CombinedClaimMatcher.Match.EXACT else match }
+                        break
+                    }
+                    val target = destinations[candidate]
+                    val match = CombinedClaimMatcher.match(fingerprint, prints[candidate])
+                    val identical = normalized == target.normalized && CombinedClaimMatcher.compatible(fingerprint, prints[candidate])
+                    if (match >= CombinedClaimMatcher.Match.PARAPHRASE || identical) {
+                        val ranges = if (CombinedClaimMatcher.match(prints[candidate], fingerprint) >= CombinedClaimMatcher.Match.PARAPHRASE || identical) {
+                            listOf(target.span)
+                        } else {
+                            fingerprintWindows(answer, fingerprint, listOf(target), listOf(prints[candidate]), prints[candidate].terms.associateWith { setOf(0) }, windowWork)
                         }
+                        ranges.forEach { range -> matches += range to if (identical) CombinedClaimMatcher.Match.EXACT else match }
                     }
                 }
                 matches.distinctBy { it.first }
@@ -112,11 +145,12 @@ internal object CombinedAnswerMappings {
             // partial contribution in an earlier paragraph. This search retains
             // the same quantity, polarity and qualification safeguards.
             val fragments = if (evaluated && !qualified) {
-                clauses.flatMap { fingerprintWindows(answer, clausePrints.getValue(it), destinations, prints, byTerm, linked) }
+                clauses.flatMap { fingerprintWindows(answer, clausePrints.getValue(it), destinations, prints, byTerm, windowWork, linked) }
                     .filterNot { fragment -> linked.any { it.startUtf16 <= fragment.startUtf16 && it.endUtf16 >= fragment.endUtf16 } }
             } else {
                 emptyList()
             }
+            evaluated = evaluated && !windowWork.exhausted
             CombinedMappedClaim(
                 claim.id,
                 claim.canonicalId,
@@ -157,12 +191,26 @@ internal object CombinedAnswerMappings {
         }
 
         val boundaries = ranges.flatMap { listOf(it.first.startUtf16, it.first.endUtf16) }.distinct().sorted()
-        val links = boundaries.zipWithNext().mapNotNull { (start, end) ->
-            val owners = ranges.filter { it.first.startUtf16 <= start && it.first.endUtf16 >= end }.map { it.second }
-            if (owners.isEmpty() || !CombinedSourceClaims.material(answer.substring(start, end)) && cellRanges.none { it.startUtf16 == start && it.endUtf16 == end }) {
-                null
-            } else {
-                CombinedPassageLink(
+        val ordered = ranges.sortedBy { it.first.startUtf16 }
+        val active = mutableListOf<Pair<CombinedCoverageLink, CombinedMappedClaim>>()
+        val links = mutableListOf<CombinedPassageLink>()
+        var nextRange = 0
+        var linkWork = 0L
+        // Sweep only overlapping ranges. Repeated disjoint paragraphs must not
+        // lose their proven attribution through a quadratic all-range scan.
+        for ((start, end) in boundaries.zipWithNext()) {
+            active.removeAll { it.first.endUtf16 <= start }
+            while (nextRange < ordered.size && ordered[nextRange].first.startUtf16 <= start) {
+                active += ordered[nextRange++]
+            }
+            linkWork += active.sumOf { 1L + it.second.profileUids.size + it.second.aliases.size }
+            if (linkWork > MAX_COMPARISONS) {
+                evaluated = false
+                break
+            }
+            val owners = active.map { it.second }
+            if (owners.isNotEmpty() && (CombinedSourceClaims.material(answer.substring(start, end)) || cellRanges.any { it.startUtf16 == start && it.endUtf16 == end })) {
+                links += CombinedPassageLink(
                     start,
                     end,
                     researchHash(answer.substring(start, end)),
@@ -171,7 +219,7 @@ internal object CombinedAnswerMappings {
                 )
             }
         }
-        val result = CombinedAnswerMapping(version = 2, answerDigest = key.answer, corpusDigest = corpus, evaluated = evaluated, claims = claims, links = links)
+        val result = CombinedAnswerMapping(version = 2, answerDigest = key.answer, corpusDigest = key.corpus, evaluated = evaluated, claims = claims, links = links)
         if (answer.length.toLong() + sources.sumOf { it.content.length.toLong() } <= 262_144L) {
             synchronized(cache) {
                 cache[key] = result
@@ -201,30 +249,35 @@ internal object CombinedAnswerMappings {
 
     private val words = Regex("[\\p{L}\\p{N}]+(?:[’'][\\p{L}\\p{N}]+)?")
     private val datedMentionYear = Regex("[12][0-9]{3}")
-    private fun fingerprintWindows(answer: String, source: CombinedClaimMatcher.Fingerprint, destinations: List<Destination>, prints: List<CombinedClaimMatcher.Fingerprint>, byTerm: Map<String, Set<Int>>, covered: List<CombinedCoverageLink> = emptyList()): List<CombinedCoverageLink> {
+    private fun fingerprintWindows(answer: String, source: CombinedClaimMatcher.Fingerprint, destinations: List<Destination>, prints: List<CombinedClaimMatcher.Fingerprint>, byTerm: Map<String, Set<Int>>, work: WindowWork, covered: List<CombinedCoverageLink> = emptyList()): List<CombinedCoverageLink> {
+        if (work.exhausted) return emptyList()
         val candidates = source.terms.flatMapTo(linkedSetOf()) { byTerm[it].orEmpty() }
+        val expected = source.terms + source.numbers
         return candidates.mapNotNull { id ->
             val destination = destinations[id]
+            if (!work.consume(1)) return@mapNotNull null
             if (covered.any { it.startUtf16 <= destination.span.startUtf16 && it.endUtf16 >= destination.span.endUtf16 }) return@mapNotNull null
             val target = prints[id]
             if (!CombinedClaimMatcher.compatible(source, target) || !CombinedClaimMatcher.compatible(target, source)) return@mapNotNull null
+            if (!work.consume(destination.span.endUtf16 - destination.span.startUtf16)) return@mapNotNull null
             val raw = answer.substring(destination.span.startUtf16, destination.span.endUtf16)
             if (raw != destination.text) return@mapNotNull null
-            val tokens = words.findAll(raw).toList()
-            val expected = source.terms + source.numbers
-            val relevant = tokens.indices.filter { i -> CombinedClaimMatcher.fingerprint(tokens[i].value).let { (it.terms + it.numbers).any { token -> token in expected } } }.take(64)
+            val tokens = destination.tokens
+            val relevant = tokens.indices.asSequence().filter { i -> tokens[i].terms.any { it in expected } }.take(64).toList()
             for (width in relevant.size downTo 3) {
                 for (first in 0..relevant.size - width) {
                     val start = tokens[relevant[first]].range.first
                     val end = tokens[relevant[first + width - 1]].range.last + 1
                     if (end - start < 20) continue
-                    val clipped = CombinedClaimMatcher.fingerprint(raw.substring(start, end))
+                    if (!work.consume(end - start)) return@mapNotNull null
+                    val text = raw.substring(start, end)
+                    val clipped = CombinedClaimMatcher.fingerprint(text)
                     if (!CombinedClaimMatcher.compatible(source, clipped) || !CombinedClaimMatcher.compatible(clipped, source)) continue
                     val reverse = CombinedClaimMatcher.match(clipped, source)
                     val exactDatedMention = destination.partialMention && reverse == CombinedClaimMatcher.Match.EXACT && clipped.terms.size >= 2 && clipped.numbers.singleOrNull()?.matches(datedMentionYear) == true
-                    if (!exactDatedMention && (relevant[first]..relevant[first + width - 1]).none { tokens[it].value.first().isLowerCase() && CombinedClaimMatcher.fingerprint(tokens[it].value).terms.isNotEmpty() }) continue
+                    if (!exactDatedMention && (relevant[first]..relevant[first + width - 1]).none { tokens[it].lowercaseTerm }) continue
                     if (reverse >= CombinedClaimMatcher.Match.PARAPHRASE && (CombinedClaimMatcher.match(source, clipped) >= CombinedClaimMatcher.Match.POSSIBLE || reverse == CombinedClaimMatcher.Match.EXACT && clipped.terms.size >= 3 || exactDatedMention)) {
-                        return@mapNotNull CombinedCoverageLink(destination.span.startUtf16 + start, destination.span.startUtf16 + end, researchHash(raw.substring(start, end)))
+                        return@mapNotNull CombinedCoverageLink(destination.span.startUtf16 + start, destination.span.startUtf16 + end, researchHash(text))
                     }
                 }
             }

@@ -1,17 +1,26 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
 import android.app.Application
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.MotionDurationScale
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.unit.dp
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -29,6 +38,45 @@ class GitHubReducedMotionTest {
     }
 
     @get:Rule val compose = createComposeRule(effectContext = durationScale)
+
+    @Test fun disabledAnimationsShowActivityImmediatelyAndEnablingMotionDoesNotReplayItsEntrance() {
+        compose.mainClock.autoAdvance = false
+        lateinit var opacity: State<Float>
+        lateinit var phase: State<Float>
+        var activity by mutableStateOf("Checking changed sources")
+        compose.setContent {
+            MaterialTheme {
+                Column(Modifier.width(320.dp)) {
+                    opacity = rememberGitHubActivityEntry()
+                    phase = rememberGitHubProgressMotion(true)
+                    GitHubActivityPreview(activity, latest = true, motion = phase)
+                }
+            }
+        }
+        compose.mainClock.advanceTimeBy(16)
+        val bounds = compose.onNodeWithTag("github_latest_preview").assertTextEquals(activity).assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        compose.runOnIdle {
+            assertEquals(1f, opacity.value, 0f)
+            assertEquals(0.5f, phase.value, 0f)
+        }
+        compose.mainClock.advanceTimeBy(2400)
+        compose.onNodeWithTag("github_latest_preview").assertTextEquals(activity)
+        assertEquals(bounds, compose.onNodeWithTag("github_latest_preview").fetchSemanticsNode().boundsInRoot)
+        compose.runOnIdle {
+            assertEquals(1f, opacity.value, 0f)
+            assertEquals(0.5f, phase.value, 0f)
+            activity = "Reviewing the saved results"
+        }
+        // Publish the snapshot write before advancing the paused clock at scale zero.
+        compose.waitForIdle()
+        compose.mainClock.advanceTimeBy(16)
+        compose.onNodeWithTag("github_latest_preview").assertTextEquals(activity).assertIsDisplayed()
+        compose.runOnIdle { durationScale.scaleFactor = 1f }
+        compose.waitForIdle()
+        compose.mainClock.advanceTimeBy(32)
+        compose.runOnIdle { assertEquals(1f, opacity.value, 0f) }
+        compose.onNodeWithTag("github_latest_preview").assertTextEquals(activity).assertIsDisplayed()
+    }
 
     @Test fun disabledSystemAnimationsKeepTheActiveProgressVisibleAndStationary() {
         compose.mainClock.autoAdvance = false
@@ -61,5 +109,38 @@ class GitHubReducedMotionTest {
         compose.runOnIdle { assertEquals(0.5f, phase.value, 0f) }
         compose.mainClock.advanceTimeBy(2400)
         compose.runOnIdle { assertEquals(0.5f, phase.value, 0f) }
+    }
+
+    @Test fun disabledMotionSkipsReplacementFadesAndEnablingItDoesNotReplayTheOldText() {
+        compose.mainClock.autoAdvance = false
+        var text by mutableStateOf("Checking changed sources")
+        val rendered = mutableSetOf<String>()
+        compose.setContent {
+            MaterialTheme {
+                GitHubActivityCrossfade(text) { displayed, _ ->
+                    DisposableEffect(displayed) {
+                        rendered.add(displayed)
+                        onDispose { rendered.remove(displayed) }
+                    }
+                    Text(displayed)
+                }
+            }
+        }
+        compose.onNodeWithText(text).assertIsDisplayed()
+        compose.runOnIdle { text = "Reviewing the saved results" }
+        compose.waitForIdle()
+        compose.mainClock.advanceTimeBy(16)
+        compose.onNodeWithText(text).assertIsDisplayed()
+        compose.onNodeWithText("Checking changed sources").assertDoesNotExist()
+        compose.runOnIdle {
+            assertEquals(setOf(text), rendered)
+            durationScale.scaleFactor = 1f
+        }
+        compose.waitForIdle()
+        compose.mainClock.advanceTimeBy(32)
+        compose.runOnIdle { assertEquals(setOf(text), rendered) }
+        compose.onNodeWithText(text).assertIsDisplayed()
+        compose.mainClock.advanceTimeBy(1600)
+        compose.runOnIdle { assertEquals(setOf(text), rendered) }
     }
 }

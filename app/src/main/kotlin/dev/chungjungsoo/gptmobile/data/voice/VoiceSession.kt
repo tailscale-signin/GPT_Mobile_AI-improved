@@ -1,6 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.voice
 
-/** Versioned boundary for a future downloadable voice implementation. No Android or provider APIs. */
+/** Versioned boundary shared by installed local recognition and Android speech. */
 interface VoiceAudio {
     interface Listener {
         fun ending() = Unit
@@ -21,7 +21,7 @@ interface VoiceAudio {
 }
 
 enum class VoicePhase { PAUSED, STARTING, LISTENING, FINALIZING, REVIEWING, THINKING, SPEAKING, ERROR, CLOSED }
-enum class VoiceRecoveryAction { MICROPHONE_PERMISSION, SPEECH_SERVICE, SPEECH_LANGUAGE }
+enum class VoiceRecoveryAction { MICROPHONE_PERMISSION, SPEECH_SERVICE, SPEECH_LANGUAGE, LOCAL_MODEL }
 
 data class VoiceState(
     val phase: VoicePhase = VoicePhase.PAUSED,
@@ -352,6 +352,14 @@ class VoiceSession(
         automaticRetry = false
         stopAudio()
         update(state.copy(phase = VoicePhase.PAUSED, level = 0f))
+    }
+
+    /** A deliberate engine change invalidates old recovery UI; each engine retains its own gate. */
+    fun recognitionConfigurationChanged() {
+        if (state.phase == VoicePhase.CLOSED) return
+        pause()
+        recognitionFailures = 0
+        update(state.copy(retryAtMillis = 0, notice = null, recoveryAction = null))
     }
     fun fail(message: String) {
         if (state.phase == VoicePhase.CLOSED) return

@@ -52,8 +52,10 @@ class AndroidSpeechQualificationTest {
     }
     private class Listener : VoiceAudio.Listener {
         val repairs = mutableListOf<VoiceRecoveryAction>()
+        val messages = mutableListOf<String>()
         override fun repairRequired(message: String, retryMillis: Long, action: VoiceRecoveryAction) {
             repairs += action
+            messages += message
         }
         override fun ready() = Unit
         override fun level(value: Float) = Unit
@@ -112,6 +114,35 @@ class AndroidSpeechQualificationTest {
             service.result(RecognitionQualification(RecognitionSupportStatus.FAILED, SpeechRecognizer.ERROR_TOO_MANY_REQUESTS))
             assertEquals(listOf(VoiceRecoveryAction.SPEECH_SERVICE), listener.repairs)
             assertFalse(listener.repairs.contains(VoiceRecoveryAction.MICROPHONE_PERMISSION))
+            assertTrue(listener.messages.single().contains("request or connection limit"))
+            assertEquals(15000L, audio.retryAfterMillis())
+            verify(service.engine, never()).startListening(any(Intent::class.java))
+        } finally {
+            audio.close()
+        }
+    }
+
+    @Test fun bindingErrorDuringSupportCheckRetainsItsActualStageAndNeverClaimsMicrophoneDispatch() {
+        val context = RuntimeEnvironment.getApplication()
+        shadowOf(context).grantPermissions(Manifest.permission.RECORD_AUDIO)
+        val service = Service()
+        val records = mutableListOf<String>()
+        val audio = AndroidVoiceAudio(context, Executor { it.run() }, { _, _ -> mock(TextToSpeech::class.java) }, service, RecognitionStartGate { 0L }) { tag, message, _ ->
+            if (tag == "VoiceRecognition") records += message
+        }
+        val listener = Listener()
+        try {
+            audio.listen(listener)
+            val platform = ArgumentCaptor.forClass(android.speech.RecognitionListener::class.java)
+            verify(service.engine).setRecognitionListener(platform.capture())
+            platform.value.onError(SpeechRecognizer.ERROR_TOO_MANY_REQUESTS)
+            assertEquals(listOf(VoiceRecoveryAction.SPEECH_SERVICE), listener.repairs)
+            assertTrue(records.single().contains("recognition_error=10"))
+            assertTrue(records.single().contains("errorCode=SPEECH_RATE_LIMITED"))
+            assertTrue(records.single().contains("failedStage=support_check"))
+            assertTrue(records.single().contains("dispatched=false"))
+            assertEquals(15000L, audio.retryAfterMillis())
+            service.result(RecognitionQualification(RecognitionSupportStatus.SUPPORTED))
             verify(service.engine, never()).startListening(any(Intent::class.java))
         } finally {
             audio.close()

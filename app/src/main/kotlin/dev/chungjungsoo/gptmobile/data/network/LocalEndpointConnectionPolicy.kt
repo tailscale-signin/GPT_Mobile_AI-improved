@@ -25,8 +25,9 @@ internal object LocalEndpointConnectionPolicy {
 
     /** Only read-only metadata/template probes belong here. Mutations and inference never do. */
     suspend fun <T> probe(endpoint: String, onStaleConnection: suspend () -> Unit = {}, action: suspend () -> T): T {
+        val readId = java.util.UUID.randomUUID().toString().replace("-", "")
         try {
-            return withContext(LocalMetadataReadAttempt(0)) { action() }
+            return withContext(LocalMetadataReadAttempt(0, readId)) { action() }
         } catch (failure: Exception) {
             val causes = generateSequence<Throwable>(failure) { it.cause?.takeUnless { cause -> cause === it } }.take(8).toList()
             // A response rejection or invalid document is definitive, even when its
@@ -63,7 +64,7 @@ internal object LocalEndpointConnectionPolicy {
             // One retry owner, two attempts total. Stagger simultaneous dashboard,
             // readiness and recovery reads without extending an outer request budget.
             kotlinx.coroutines.delay(kotlin.random.Random.nextLong(150, 451))
-            return withContext(LocalMetadataReadAttempt(1)) { action() }
+            return withContext(LocalMetadataReadAttempt(1, readId)) { action() }
         }
     }
 
@@ -77,6 +78,6 @@ internal object LocalEndpointConnectionPolicy {
 }
 
 /** This ordinal describes only our bounded read loop; it does not count engine or SDK retries. */
-internal class LocalMetadataReadAttempt(val ordinal: Int) : AbstractCoroutineContextElement(Key) {
+internal class LocalMetadataReadAttempt(val ordinal: Int, val readId: String = java.util.UUID.randomUUID().toString().replace("-", "")) : AbstractCoroutineContextElement(Key) {
     companion object Key : CoroutineContext.Key<LocalMetadataReadAttempt>
 }

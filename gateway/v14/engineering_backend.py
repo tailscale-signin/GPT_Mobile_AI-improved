@@ -306,10 +306,12 @@ class GitHubEngineeringBackend:
             operation = self.operations.prepare(job, method, path, body)
             if operation['state'] == 'COMPLETED':
                 return self.operations.service.artifacts.json_value(job, operation['response_ref'])
-            self.operations.dispatch(job, operation)
+            # Physical intent is recorded only after API admission succeeds.
         try:
             with self.github_governor.lease(token, mutating=mutating,
                     cancelled=lambda: self.stopping.is_set() or (job is not None and self.cancelled(job['id']))):
+                if operation:
+                    self.operations.dispatch(job, operation)
                 with requests.request(method, 'https://api.github.com' + path, headers=headers, json=body,
                                       timeout=(10, 60), allow_redirects=False, stream=True) as response:
                     self.github_governor.observe(token, response.status_code, response.headers)

@@ -135,7 +135,7 @@ def deferred_receipt(error, attempt):
     return {'isError': True, 'error': {
         'code': 'BATCH_READ_DEFERRED', 'http_status': 429,
         'original_status': status, 'retry_at': round(time.time() + wait, 3),
-        'retry_source': source}, 'dispatched': True}
+        'retry_source': source}, 'dispatched': getattr(error, 'dispatched', True)}
 
 
 def failed(result):

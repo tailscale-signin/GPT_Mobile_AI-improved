@@ -63,8 +63,7 @@ internal data class ProviderWaitCheckpoint(
 
 internal data class ProviderWaitResume(val request: AgentRunRequest, val saved: ProviderWaitCheckpoint, val row: ProviderWait)
 
-internal class GitHubProviderResumeContext(val checkpoint: dev.chungjungsoo.gptmobile.data.network.GitHubProviderCheckpoint) :
-    kotlin.coroutines.AbstractCoroutineContextElement(Key) {
+internal class GitHubProviderResumeContext(val checkpoint: dev.chungjungsoo.gptmobile.data.network.GitHubProviderCheckpoint) : kotlin.coroutines.AbstractCoroutineContextElement(Key) {
     companion object Key : kotlin.coroutines.CoroutineContext.Key<GitHubProviderResumeContext>
 }
 

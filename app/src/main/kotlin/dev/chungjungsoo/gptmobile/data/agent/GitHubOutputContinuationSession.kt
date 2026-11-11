@@ -93,15 +93,19 @@ internal class GitHubOutputContinuationSession(
                     ToolHandoffReceipt.from(call, result, originalAvailable = false)
                 }
             }.sortedBy { it.invocationFingerprint }
-            GitHubEvidenceBook.digest(JsonArray(receipts.map { receipt ->
-                buildJsonObject {
-                    put("invocation", receipt.invocationFingerprint)
-                    put("result", receipt.sourceResultSha256 ?: receipt.projectionSha256)
-                    put("dispatched", receipt.dispatched)
-                    put("requires_reconciliation", receipt.requiresReconciliation)
-                    receipt.errorCode?.let { put("error", it) }
-                }
-            }).toString())
+            GitHubEvidenceBook.digest(
+                JsonArray(
+                    receipts.map { receipt ->
+                        buildJsonObject {
+                            put("invocation", receipt.invocationFingerprint)
+                            put("result", receipt.sourceResultSha256 ?: receipt.projectionSha256)
+                            put("dispatched", receipt.dispatched)
+                            put("requires_reconciliation", receipt.requiresReconciliation)
+                            receipt.errorCode?.let { put("error", it) }
+                        }
+                    }
+                ).toString()
+            )
         }
         val previous = checkpointMutex.withLock {
             val saved = readCheckpoint() ?: currentCheckpoint
@@ -399,7 +403,9 @@ internal class GitHubOutputContinuationSession(
                     !GatewayOutcomeRecovery.requiresReconciliation(failure?.message.orEmpty(), failure?.errorCode)
                 val limit = failure?.providerLimit
                 val binding = (checkpointContext["task_binding"] as? JsonPrimitive)?.contentOrNull
-                if (limit != null && (limit.knownNotAccepted || limit.checkpointContinuationAllowed) && mayResumeText &&
+                if (limit != null &&
+                    (limit.knownNotAccepted || limit.checkpointContinuationAllowed) &&
+                    mayResumeText &&
                     binding?.matches(Regex("[a-f0-9]{64}")) == true
                 ) {
                     if (interruptedContinuation) interruptionAttempts--

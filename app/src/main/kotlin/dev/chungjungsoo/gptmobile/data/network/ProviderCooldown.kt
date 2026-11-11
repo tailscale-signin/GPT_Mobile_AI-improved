@@ -70,9 +70,13 @@ internal object ProviderCooldown {
     }
 
     fun restore(decision: ProviderLimitDecision) {
-        if (!decision.scope.startsWith("provider:") || decision.consecutiveRejections < 1 && decision.retrySource != "RATE_LIMIT_RESET" ||
+        if (!decision.scope.startsWith("provider:") ||
+            decision.consecutiveRejections < 1 &&
+            decision.retrySource != "RATE_LIMIT_RESET" ||
             decision.retryAt < System.currentTimeMillis() - 1_800_000L
-        ) return
+        ) {
+            return
+        }
         registry.restore(
             decision.scope.removePrefix("provider:"),
             ProviderRetryPolicy.remainingMillis(decision.retryAt, System.currentTimeMillis()),
@@ -95,9 +99,12 @@ internal object ProviderCooldown {
         val admission = registry.admit(identity)
         if (admission.waitMillis > 0) {
             throw ProviderHttpFailure(
-                429, admission.waitMillis, knownNotAccepted = true,
+                429,
+                admission.waitMillis,
+                knownNotAccepted = true,
                 retrySource = if (admission.rejectionCount == 0) "RATE_LIMIT_RESET" else "SHARED_COOLDOWN",
-                consecutiveRejections = admission.rejectionCount, beforeDispatch = true
+                consecutiveRejections = admission.rejectionCount,
+                beforeDispatch = true
             )
         }
         if (admission.rejectionCount == 0 && !admission.ownsProbe) await(config)

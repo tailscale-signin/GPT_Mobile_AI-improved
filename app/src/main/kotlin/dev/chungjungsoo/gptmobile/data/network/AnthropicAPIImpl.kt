@@ -3,8 +3,8 @@ package dev.chungjungsoo.gptmobile.data.network
 import dev.chungjungsoo.gptmobile.data.dto.anthropic.request.MessageRequest
 import dev.chungjungsoo.gptmobile.data.dto.anthropic.response.ErrorDetail
 import dev.chungjungsoo.gptmobile.data.dto.anthropic.response.ErrorResponseChunk
-import dev.chungjungsoo.gptmobile.data.dto.anthropic.response.MessageStopResponseChunk
 import dev.chungjungsoo.gptmobile.data.dto.anthropic.response.MessageResponseChunk
+import dev.chungjungsoo.gptmobile.data.dto.anthropic.response.MessageStopResponseChunk
 import dev.chungjungsoo.gptmobile.util.applyPlatformStreamingTimeout
 import io.ktor.client.call.body
 import io.ktor.client.plugins.HttpRequestTimeoutException
@@ -133,7 +133,9 @@ class AnthropicAPIImpl @Inject constructor(
                             if (!response.status.isSuccess()) {
                                 if (response.status.value in setOf(429, 502, 503, 504, 529)) {
                                     throw ProviderCooldown.rejected(
-                                        config, response.status.value, response.headers[HttpHeaders.RetryAfter],
+                                        config,
+                                        response.status.value,
+                                        response.headers[HttpHeaders.RetryAfter],
                                         knownNotAccepted = response.status.value == 429 && !receivedPayload,
                                         errorOrigin = "provider"
                                     )
@@ -177,9 +179,13 @@ class AnthropicAPIImpl @Inject constructor(
                                 }
                                 if (chunk is ErrorResponseChunk && chunk.error.type == "rate_limit_error" && ProviderCooldown.durableRateLimits()) {
                                     throw ProviderCooldown.rejected(
-                                        config, 429, response.headers[HttpHeaders.RetryAfter],
-                                        knownNotAccepted = !receivedPayload, errorOrigin = "provider",
-                                        errorType = chunk.error.type, checkpointContinuationAllowed = true
+                                        config,
+                                        429,
+                                        response.headers[HttpHeaders.RetryAfter],
+                                        knownNotAccepted = !receivedPayload,
+                                        errorOrigin = "provider",
+                                        errorType = chunk.error.type,
+                                        checkpointContinuationAllowed = true
                                     )
                                 }
                                 if (chunk == MessageStopResponseChunk) ProviderCooldown.accepted(config)

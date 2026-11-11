@@ -41,7 +41,9 @@ internal class GatewayDashboardClient internal constructor(private val http: Htt
     private data class ReadinessAttempt(val observation: GatewayReadinessObservation? = null, val failure: Exception? = null)
     private val cache = RouteCapabilityCache<Attempt>({ System.nanoTime() / 1_000_000 }, positiveTtl = 4_000, negativeTtl = 60_000)
     private val readinessCache = RouteCapabilityCache<ReadinessAttempt>(
-        { System.nanoTime() / 1_000_000 }, positiveTtl = 4_000, negativeTtl = 60_000,
+        { System.nanoTime() / 1_000_000 },
+        positiveTtl = 4_000,
+        negativeTtl = 60_000,
         valueTtl = { attempt -> if (attempt.failure != null || attempt.observation?.ready == false) 30_000 else 4_000 }
     )
 

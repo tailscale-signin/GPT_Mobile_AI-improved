@@ -23,9 +23,12 @@ class ProgressiveToolCatalog(
     override val coordinatesChildWork = true
     private var advanced = advancedTask(task)
     private val integrationPreset = task.lineSequence().any { it.trim() == "[github-workflow-preset:test_integration]" }
-    private val githubUpfront = integrationPreset || githubMode &&
-        (dev.chungjungsoo.gptmobile.data.github.GitHubTestChecklist.integration(task) ||
-            dev.chungjungsoo.gptmobile.data.github.GitHubTaskCoverage.matches(task))
+    private val githubUpfront = integrationPreset ||
+        githubMode &&
+        (
+            dev.chungjungsoo.gptmobile.data.github.GitHubTestChecklist.integration(task) ||
+                dev.chungjungsoo.gptmobile.data.github.GitHubTaskCoverage.matches(task)
+            )
     private val conversational = !githubUpfront && CurrentRequestContract.from(task).conversational
     private val githubInitialTools = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.taskTools(task).let { requested ->
         val core = setOf("github_context", "github_read", "github_search")

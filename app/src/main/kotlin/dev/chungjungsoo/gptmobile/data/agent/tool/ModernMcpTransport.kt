@@ -450,7 +450,9 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
                     throw McpProtocolConfigurationException(
                         "MCP_ENDPOINT_CONFIGURATION",
                         "HTTP 400 rejected the MCP handshake without a matching request ID. Check the endpoint, session and protocol version.",
-                        status, "RESPONSE_ID_MATCH_REQUIRED", "id"
+                        status,
+                        "RESPONSE_ID_MATCH_REQUIRED",
+                        "id"
                     )
                 }
                 val error = envelope?.takeIf { frame -> RPC_RESPONSE_FIELDS.any(frame::containsKey) }?.let { frame ->

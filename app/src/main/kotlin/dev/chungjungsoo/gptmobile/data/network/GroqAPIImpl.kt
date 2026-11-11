@@ -53,7 +53,9 @@ class GroqAPIImpl @Inject constructor(
                     if (!response.status.isSuccess()) {
                         if (response.status.value == 429 && !receivedPayload) {
                             throw ProviderCooldown.rejected(
-                                config, 429, response.headers[HttpHeaders.RetryAfter],
+                                config,
+                                429,
+                                response.headers[HttpHeaders.RetryAfter],
                                 knownNotAccepted = response.headers["X-Gateway-Job-ID"].isNullOrBlank(),
                                 rateReset = response.headers["X-RateLimit-Reset"],
                                 errorOrigin = "provider"
@@ -107,14 +109,20 @@ class GroqAPIImpl @Inject constructor(
                             continue
                         }
                         val error = chunk.error
-                        if (error != null && (error.code == "429" || error.code == "rate_limit_exceeded") &&
-                            ProviderCooldown.durableRateLimits() && response.headers["X-Gateway-Job-ID"].isNullOrBlank()
+                        if (error != null &&
+                            (error.code == "429" || error.code == "rate_limit_exceeded") &&
+                            ProviderCooldown.durableRateLimits() &&
+                            response.headers["X-Gateway-Job-ID"].isNullOrBlank()
                         ) {
                             throw ProviderCooldown.rejected(
-                                config, 429, response.headers[HttpHeaders.RetryAfter],
+                                config,
+                                429,
+                                response.headers[HttpHeaders.RetryAfter],
                                 knownNotAccepted = !receivedPayload,
-                                rateReset = response.headers["X-RateLimit-Reset"], errorOrigin = "provider",
-                                errorType = error.type, checkpointContinuationAllowed = true
+                                rateReset = response.headers["X-RateLimit-Reset"],
+                                errorOrigin = "provider",
+                                errorType = error.type,
+                                checkpointContinuationAllowed = true
                             )
                         }
                         receivedPayload = true

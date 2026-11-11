@@ -145,7 +145,9 @@ class GoogleAPIImpl @Inject constructor(
                                 )
                                 if (response.status.value in TRANSIENT_HTTP_STATUSES && !receivedPayload) {
                                     throw ProviderCooldown.rejected(
-                                        config, response.status.value, response.headers[HttpHeaders.RetryAfter],
+                                        config,
+                                        response.status.value,
+                                        response.headers[HttpHeaders.RetryAfter],
                                         knownNotAccepted = response.status.value == 429,
                                         errorOrigin = "provider"
                                     )
@@ -192,9 +194,13 @@ class GoogleAPIImpl @Inject constructor(
                                 val error = chunk.error
                                 if ((error?.code == 429 || error?.status == "RESOURCE_EXHAUSTED") && ProviderCooldown.durableRateLimits()) {
                                     throw ProviderCooldown.rejected(
-                                        config, 429, response.headers[HttpHeaders.RetryAfter],
-                                        knownNotAccepted = !receivedPayload, errorOrigin = "provider",
-                                        errorType = error?.status, checkpointContinuationAllowed = true
+                                        config,
+                                        429,
+                                        response.headers[HttpHeaders.RetryAfter],
+                                        knownNotAccepted = !receivedPayload,
+                                        errorOrigin = "provider",
+                                        errorType = error?.status,
+                                        checkpointContinuationAllowed = true
                                     )
                                 }
                                 receivedPayload = true

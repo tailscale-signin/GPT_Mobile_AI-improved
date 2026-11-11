@@ -194,10 +194,12 @@ class OpenAIRecoveryTransportTest {
             data: {"error":{"code":429,"message":"Provider capacity"}}
 
         """.trimIndent()
-        withApi(MockEngine {
-            attempts++
-            respond(body, headers = headersOf(HttpHeaders.ContentType, "text/event-stream"))
-        }) { api ->
+        withApi(
+            MockEngine {
+                attempts++
+                respond(body, headers = headersOf(HttpHeaders.ContentType, "text/event-stream"))
+            }
+        ) { api ->
             withContext(ProviderWaitContext(durableRateLimits = true) {}) {
                 val chunks = api.streamChatCompletion(request, 5, config.copy(profileUid = "selected")).toList()
                 assertEquals("Saved prefix", chunks.flatMap { it.choices.orEmpty() }.single().effectiveDelta.content)

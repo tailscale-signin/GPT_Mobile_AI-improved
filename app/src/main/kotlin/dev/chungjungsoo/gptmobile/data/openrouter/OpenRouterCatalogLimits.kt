@@ -40,7 +40,8 @@ internal object OpenRouterCatalogLimits {
     fun compatibleFallbacks(url: String?, primary: String, candidates: List<String>, promptTokens: Int, outputTokens: Int, requiresTools: Boolean): List<String> =
         candidates.distinct().filter { candidate ->
             val capability = forRequest("OPENROUTER", url, candidate)
-            candidate != primary && capability != null &&
+            candidate != primary &&
+                capability != null &&
                 (capability.context ?: 0) >= promptTokens.toLong() + outputTokens &&
                 (capability.output ?: 0) >= outputTokens &&
                 (!requiresTools || capability.toolsSupported)

@@ -507,7 +507,12 @@ class OpenAICompatibleAdapter @Inject constructor(
                 val reservedOutput = effectiveOutputTokens?.takeIf { it > 0 } ?: return@let baseRequest
                 val estimate = (json.encodeToString(baseRequest).encodeToByteArray().size / 3 * 5) / 4
                 val compatible = dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterCatalogLimits.compatibleFallbacks(
-                    platform.apiUrl, platform.model, fallbackModels, estimate, reservedOutput, !requestTools.isNullOrEmpty()
+                    platform.apiUrl,
+                    platform.model,
+                    fallbackModels,
+                    estimate,
+                    reservedOutput,
+                    !requestTools.isNullOrEmpty()
                 )
                 if (compatible.isEmpty()) baseRequest else baseRequest.copy(models = compatible, provider = parsedRouting.copy(requireParameters = true))
             } else if (isNvidia) {
@@ -786,8 +791,10 @@ class OpenAICompatibleAdapter @Inject constructor(
                     // Use the admitted route budget for tools as well as text. Unknown limits
                     // retain the shared 4096-token default; observed ceilings can only lower it.
                     var effectiveOutputTokens: Int? = ProviderRouteCapacity.output(platform, constraints.outputLimit(effectiveMaxTokens))
-                    if (constraints.lockSelectedRoute && (constraints.requestRole ?: "primary") == "primary" &&
-                        exchanges.isEmpty() && !requestTools.isNullOrEmpty()
+                    if (constraints.lockSelectedRoute &&
+                        (constraints.requestRole ?: "primary") == "primary" &&
+                        exchanges.isEmpty() &&
+                        !requestTools.isNullOrEmpty()
                     ) {
                         effectiveOutputTokens = minOf(effectiveOutputTokens ?: 4_096, 4_096)
                     }

@@ -63,7 +63,9 @@ class GitHubOutputContinuationSessionTest {
         val rateLimited = ProviderEvent.Failed("Provider limit", errorCode = "429", providerLimit = limit)
         var checkpoint: JsonObject? = null
         val rejected = GitHubOutputContinuationSession(
-            session(rateLimited), recoveryRevision = "same-run", checkpointContext = context,
+            session(rateLimited),
+            recoveryRevision = "same-run",
+            checkpointContext = context,
             saveCheckpoint = { checkpoint = it }
         ) { _, _, _ -> error("A durable wait owns this retry") }
             .streamRound(listOf(tool), receipts).toList().filterIsInstance<ProviderEvent.Failed>().single()
@@ -71,8 +73,12 @@ class GitHubOutputContinuationSessionTest {
         assertEquals(JsonPrimitive("WAITING_PROVIDER_LIMIT"), checkpoint?.get("state"))
         assertTrue(saved.matches(requireNotNull(checkpoint)))
         val output = GitHubOutputContinuationSession(
-            session(), recoveryRevision = "same-run", expectedProviderCheckpoint = saved, checkpointContext = context,
-            readCheckpoint = { checkpoint }, saveCheckpoint = { checkpoint = it }
+            session(),
+            recoveryRevision = "same-run",
+            expectedProviderCheckpoint = saved,
+            checkpointContext = context,
+            readCheckpoint = { checkpoint },
+            saveCheckpoint = { checkpoint = it }
         ) { draft, exchanges, _ ->
             assertEquals("", draft)
             assertEquals(restored, exchanges)

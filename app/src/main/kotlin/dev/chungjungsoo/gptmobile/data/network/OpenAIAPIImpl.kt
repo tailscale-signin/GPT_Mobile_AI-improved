@@ -480,14 +480,20 @@ class OpenAIAPIImpl @Inject constructor(
                                 continue
                             }
                             val streamError = decoded.error
-                            if (streamError != null && (streamError.code == "429" || rateLimitErrorType(data) == "rate_limit_exceeded") &&
+                            if (streamError != null &&
+                                (streamError.code == "429" || rateLimitErrorType(data) == "rate_limit_exceeded") &&
                                 currentCoroutineContext()[ProviderWaitContext]?.durableRateLimits == true &&
-                                !dispatchRetryGuard.remoteOutcomeUnknown && !receivedGatewayToolActivity &&
-                                !config.requireGatewayConversation && config.gatewayConversationId == null &&
-                                config.gatewayConversationKey == null && response.headers["X-Gateway-Job-ID"].isNullOrBlank()
+                                !dispatchRetryGuard.remoteOutcomeUnknown &&
+                                !receivedGatewayToolActivity &&
+                                !config.requireGatewayConversation &&
+                                config.gatewayConversationId == null &&
+                                config.gatewayConversationKey == null &&
+                                response.headers["X-Gateway-Job-ID"].isNullOrBlank()
                             ) {
                                 throw ProviderCooldown.rejected(
-                                    config, 429, response.headers[HttpHeaders.RetryAfter],
+                                    config,
+                                    429,
+                                    response.headers[HttpHeaders.RetryAfter],
                                     knownNotAccepted = !receivedAssistantPayload,
                                     rateReset = response.headers["X-RateLimit-Reset"],
                                     errorOrigin = response.headers["X-OpenRouter-Error-Origin"],
@@ -843,10 +849,15 @@ class OpenAIAPIImpl @Inject constructor(
                                     }
                                     if (response.status.value in listOf(429, 502, 503, 504)) {
                                         throw ProviderCooldown.rejected(
-                                            effectiveConfig, response.status.value, response.headers[HttpHeaders.RetryAfter],
-                                            knownNotAccepted = response.status.value == 429 && !dispatchRetryGuard.remoteOutcomeUnknown &&
-                                                !receivedResponsePayload && !effectiveConfig.requireGatewayConversation &&
-                                                effectiveConfig.gatewayConversationId == null && effectiveConfig.gatewayConversationKey == null &&
+                                            effectiveConfig,
+                                            response.status.value,
+                                            response.headers[HttpHeaders.RetryAfter],
+                                            knownNotAccepted = response.status.value == 429 &&
+                                                !dispatchRetryGuard.remoteOutcomeUnknown &&
+                                                !receivedResponsePayload &&
+                                                !effectiveConfig.requireGatewayConversation &&
+                                                effectiveConfig.gatewayConversationId == null &&
+                                                effectiveConfig.gatewayConversationKey == null &&
                                                 response.headers["X-Gateway-Job-ID"].isNullOrBlank(),
                                             rateReset = response.headers["X-RateLimit-Reset"],
                                             errorOrigin = response.headers["X-OpenRouter-Error-Origin"],
@@ -895,17 +906,23 @@ class OpenAIAPIImpl @Inject constructor(
                                         is dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseFailedEvent -> decoded.response.error?.code
                                         else -> null
                                     }
-                                    if (errorCode in setOf("429", "rate_limit_exceeded") && ProviderCooldown.durableRateLimits() &&
-                                        !dispatchRetryGuard.remoteOutcomeUnknown && !effectiveConfig.requireGatewayConversation &&
-                                        effectiveConfig.gatewayConversationId == null && effectiveConfig.gatewayConversationKey == null &&
+                                    if (errorCode in setOf("429", "rate_limit_exceeded") &&
+                                        ProviderCooldown.durableRateLimits() &&
+                                        !dispatchRetryGuard.remoteOutcomeUnknown &&
+                                        !effectiveConfig.requireGatewayConversation &&
+                                        effectiveConfig.gatewayConversationId == null &&
+                                        effectiveConfig.gatewayConversationKey == null &&
                                         response.headers["X-Gateway-Job-ID"].isNullOrBlank()
                                     ) {
                                         throw ProviderCooldown.rejected(
-                                            effectiveConfig, 429, response.headers[HttpHeaders.RetryAfter],
+                                            effectiveConfig,
+                                            429,
+                                            response.headers[HttpHeaders.RetryAfter],
                                             knownNotAccepted = !receivedResponsePayload,
                                             rateReset = response.headers["X-RateLimit-Reset"],
                                             errorOrigin = response.headers["X-OpenRouter-Error-Origin"],
-                                            errorType = errorCode, checkpointContinuationAllowed = true
+                                            errorType = errorCode,
+                                            checkpointContinuationAllowed = true
                                         )
                                     }
                                     val streamEvent = when (decoded) {

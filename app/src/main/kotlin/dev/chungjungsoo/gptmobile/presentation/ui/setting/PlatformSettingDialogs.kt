@@ -1824,8 +1824,12 @@ private fun OpenRouterAdvancedSettingsDialog(
                             fields[key] = if (text.isBlank()) kotlinx.serialization.json.JsonNull else Json.parseToJsonElement(text)
                         }
                         val candidates = fallbackModels.split(',').map(String::trim).filter(String::isNotEmpty)
-                        if (candidates.isEmpty()) fields.remove("fallback_models") else fields["fallback_models"] =
-                            kotlinx.serialization.json.JsonArray(candidates.map { kotlinx.serialization.json.JsonPrimitive(it) })
+                        if (candidates.isEmpty()) {
+                            fields.remove("fallback_models")
+                        } else {
+                            fields["fallback_models"] =
+                                kotlinx.serialization.json.JsonArray(candidates.map { kotlinx.serialization.json.JsonPrimitive(it) })
+                        }
                         number("max_tokens", maxTokensText, initialParsed.maxTokens)
                         number("temperature", temperatureText, initialParsed.temperature)
                         number("top_p", topPText, initialParsed.topP)

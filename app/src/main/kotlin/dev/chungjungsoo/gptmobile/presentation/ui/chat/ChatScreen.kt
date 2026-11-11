@@ -1893,7 +1893,8 @@ internal fun ChatMessagePair(
                         .padding(horizontal = 2.dp)
                         .widthIn(max = maximumOpponentChatBubbleWidth),
                     canEdit = canUseChat && isIdle && !isSourceResponse,
-                    canRetry = !waitingForProvider && responseRecoveryKind == ProfileRecoveryKind.NONE &&
+                    canRetry = !waitingForProvider &&
+                        responseRecoveryKind == ProfileRecoveryKind.NONE &&
                         if (isCombinedConversation) {
                             canUseChat &&
                                 isIdle &&

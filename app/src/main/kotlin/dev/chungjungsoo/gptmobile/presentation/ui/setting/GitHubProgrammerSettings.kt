@@ -89,25 +89,35 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
                 Text("Add a separate Llama or Ollama connection in Platforms using the desktop gateway address, then select it here.", style = MaterialTheme.typography.bodySmall)
                 Text("Gateway execution mode", style = MaterialTheme.typography.titleSmall)
                 var batchModeOpen by remember { mutableStateOf(false) }
-                OutlinedButton(onClick = { batchModeOpen = true },
+                OutlinedButton(
+                    onClick = { batchModeOpen = true },
                     enabled = state.profileUid != null && state.profileSettings.engineeringGatewayProfileUid != null,
-                    modifier = Modifier.testTag("github_batch_mode")) {
-                    Text(when (state.profileSettings.executionBatchMode) {
-                        "smart" -> "Smart Batch"
-                        "full" -> "Full Integration Batch"
-                        else -> "Standard"
-                    })
+                    modifier = Modifier.testTag("github_batch_mode"),
+                ) {
+                    Text(
+                        when (state.profileSettings.executionBatchMode) {
+                            "smart" -> "Smart Batch"
+                            "full" -> "Full Integration Batch"
+                            else -> "Standard"
+                        },
+                    )
                 }
                 DropdownMenu(expanded = batchModeOpen, onDismissRequest = { batchModeOpen = false }) {
                     listOf("standard" to "Standard", "smart" to "Smart Batch", "full" to "Full Integration Batch").forEach { (mode, name) ->
-                        DropdownMenuItem(text = { Text(name) }, onClick = {
-                            batchModeOpen = false
-                            onSettings(state.profileSettings.copy(executionBatchMode = mode))
-                        })
+                        DropdownMenuItem(
+                            text = { Text(name) },
+                            onClick = {
+                                batchModeOpen = false
+                                onSettings(state.profileSettings.copy(executionBatchMode = mode))
+                            },
+                        )
                     }
                 }
-                Text("Full Batch requires an explicitly enabled Windows Gateway. This changes only newly admitted jobs, not saved work. GitHub permissions and merge approvals are unchanged.",
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    "Full Batch requires an explicitly enabled Windows Gateway. This changes only newly admitted jobs, not saved work. GitHub permissions and merge approvals are unchanged.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 GitHubGatewayConnectionCheck(
                     dev.chungjungsoo.gptmobile.data.github.engineeringGatewayProfile(state.profiles, state.profileSettings.engineeringGatewayProfileUid)?.uid
                 ) { inspection = it to true }

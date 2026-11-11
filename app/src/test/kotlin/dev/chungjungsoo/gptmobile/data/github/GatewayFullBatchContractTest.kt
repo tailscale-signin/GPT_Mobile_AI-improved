@@ -28,8 +28,17 @@ class GatewayFullBatchContractTest {
     }
 
     @Test fun exactModeRoundTripsWithRequestAndSavedJob() {
-        val request = GatewayEngineeringRequest("a/b", "feature", "main", "Investigate", "local",
-            chatId = 1, requestId = "fixed", executionMode = "full", batchPolicyVersion = 1)
+        val request = GatewayEngineeringRequest(
+            "a/b",
+            "feature",
+            "main",
+            "Investigate",
+            "local",
+            chatId = 1,
+            requestId = "fixed",
+            executionMode = "full",
+            batchPolicyVersion = 1,
+        )
         val frozen = json.decodeFromString<GatewayEngineeringRequest>(json.encodeToString(request))
         assertEquals("full", frozen.executionMode)
         assertEquals(1, frozen.batchPolicyVersion)

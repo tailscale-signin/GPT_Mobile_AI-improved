@@ -135,10 +135,18 @@ internal fun GatewayJobsScreen(model: GatewayJobsViewModel, onOpenConversation: 
                         if (state.legacy) Text(stringResource(R.string.gateway_jobs_legacy_account, row.record.principalId, row.record.gatewayId), style = MaterialTheme.typography.bodySmall)
                         Text(job.phase?.takeIf(String::isNotBlank)?.let(::gatewayPhaseLabel) ?: gatewaySchedulingLabel(job.state.lowercase(java.util.Locale.ROOT)), style = MaterialTheme.typography.bodySmall)
                         job.batchProgress?.let { progress ->
-                            Text(progress.readableLabel, style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.primary, modifier = Modifier.testTag("gateway_full_batch_progress"))
-                            progress.currentState?.let { Text(it.replace('_', ' ').replaceFirstChar(Char::uppercase),
-                                style = MaterialTheme.typography.bodySmall) }
+                            Text(
+                                progress.readableLabel,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.testTag("gateway_full_batch_progress"),
+                            )
+                            progress.currentState?.let {
+                                Text(
+                                    it.replace('_', ' ').replaceFirstChar(Char::uppercase),
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            }
                         }
                         if (job.repository != null) {
                             val source = job.sourceBranch ?: job.branch ?: job.sourceSha?.take(12)

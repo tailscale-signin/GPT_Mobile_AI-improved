@@ -1,6 +1,6 @@
 # Gateway 16 — Full Integration Batch Mode
 
-**Target:** `fix/voice-chat-crash-and-diagnostics-2026-11-11` · PR #819  
+**Target:** `fix/voice-chat-crash-and-diagnostics-2026-11-11` · PR #819
 **Status:** Core opt-in scheduling contracts and durable stage projection implemented; deeper workflow and device qualification remain.
 
 ## Decision and ownership

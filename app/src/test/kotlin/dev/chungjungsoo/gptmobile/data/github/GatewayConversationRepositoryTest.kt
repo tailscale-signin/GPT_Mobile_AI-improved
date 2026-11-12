@@ -312,6 +312,9 @@ class GatewayConversationRepositoryTest {
         assertEquals("RESERVED_ORDINARY", db.gatewayJobDao().submission(command)?.state)
         repository.ordinaryDispatching(command, run.runId)
         db.agentPersistenceDao().updateRunStatus(run.runId, "INTERRUPTED", 1, 2, "Process stopped")
+        coEvery { client.observeCommand(config, command) } returns null
+        repository.reconcileOrdinaryAdmissions(turn.chatRoom.id)
+        assertNull(db.agentRunDao().getById(run.runId)?.gatewayJobId)
         coEvery { client.command(config, command) } returns GatewayCommandReceipt(gatewayId = "gateway", principalId = "owner", commandId = command, conversationId = "conversation", jobKind = "generation", jobId = "saved-job", profileId = "profile", model = "model")
         val reopened = repository.openConversation("profile", "gateway", "owner", "conversation")
         assertEquals(turn.chatRoom.id, reopened.chatId)
@@ -320,6 +323,8 @@ class GatewayConversationRepositoryTest {
         assertEquals("", db.gatewayJobDao().localMessage(run.assistantMessageId)?.content)
         assertEquals(2, messageCount(turn.chatRoom.id))
         assertEquals("ACCEPTED", db.gatewayJobDao().submission(command)?.state)
+        coVerify(exactly = 1) { client.observeCommand(config, command) }
+        coVerify(exactly = 1) { client.command(config, command) }
         coVerify(exactly = 0) { commands.instruction(any(), any(), any()) }
     }
 
@@ -336,7 +341,7 @@ class GatewayConversationRepositoryTest {
             val command = "failed-command-$index"
             repository.reserveOrdinaryTurn(turn.chatRoom.id, "profile", route.endpoint, command, turn.userMessage.id, run.assistantMessageId, run.runId, "model")
             db.agentPersistenceDao().updateRunStatus(run.runId, case.first, 1, 2, case.second)
-            coEvery { client.command(config, command) } returns GatewayCommandReceipt(gatewayId = "gateway", principalId = "owner", commandId = command, conversationId = "conversation-$index", jobKind = "generation", jobId = "saved-job-$index", profileId = "profile", model = "model")
+            coEvery { client.observeCommand(config, command) } returns GatewayCommandReceipt(gatewayId = "gateway", principalId = "owner", commandId = command, conversationId = "conversation-$index", jobKind = "generation", jobId = "saved-job-$index", profileId = "profile", model = "model")
             repository.reconcileOrdinaryAdmissions(turn.chatRoom.id)
             val recovered = requireNotNull(db.agentRunDao().getById(run.runId))
             assertEquals(case.third, recovered.status)
@@ -355,7 +360,7 @@ class GatewayConversationRepositoryTest {
             val command = "excluded-command-$index"
             repository.reserveOrdinaryTurn(turn.chatRoom.id, "profile", route.endpoint, command, turn.userMessage.id, run.assistantMessageId, run.runId, "model")
             db.agentPersistenceDao().updateRunStatus(run.runId, case.first, 1, 2, case.second)
-            coEvery { client.command(config, command) } returns GatewayCommandReceipt(gatewayId = "gateway", principalId = "owner", commandId = command, conversationId = "excluded-$index", jobKind = "generation", jobId = "excluded-job-$index", profileId = "profile", model = "model")
+            coEvery { client.observeCommand(config, command) } returns GatewayCommandReceipt(gatewayId = "gateway", principalId = "owner", commandId = command, conversationId = "excluded-$index", jobKind = "generation", jobId = "excluded-job-$index", profileId = "profile", model = "model")
             repository.reconcileOrdinaryAdmissions(turn.chatRoom.id)
             assertEquals(case.first, db.agentRunDao().getById(run.runId)?.status)
             assertNull(db.agentRunDao().getById(run.runId)?.gatewayJobId)
@@ -474,10 +479,14 @@ class GatewayConversationRepositoryTest {
         coEvery { commands.instruction(config.withGatewayIdentity(GatewayScopeIdentity("gateway", "owner")), "conversation", any()) } throws IOException("Receipt lost")
         assertTrue(runCatching { repository.queueInstruction(record.key, "Inspect before editing", "instruction-command") }.isFailure)
         assertEquals("PENDING_INSTRUCTION", db.gatewayJobDao().submission("instruction-command")?.state)
-        coEvery { client.command(config, "instruction-command") } returns GatewayCommandReceipt(gatewayId = "gateway", principalId = "owner", commandId = "instruction-command", conversationId = "conversation", jobKind = "engineering", jobId = "remote-job")
+        val receipt = GatewayCommandReceipt(gatewayId = "gateway", principalId = "owner", commandId = "instruction-command", conversationId = "conversation", jobKind = "engineering", jobId = "remote-job")
+        coEvery { client.observeCommand(config, "instruction-command") } returns receipt
         repository.refreshPendingInstructions()
         assertEquals("ACCEPTED_INSTRUCTION", db.gatewayJobDao().submission("instruction-command")?.state)
+        coEvery { client.command(config, "instruction-command") } returns receipt
         repository.queueInstruction(record.key, "Inspect before editing", "instruction-command")
+        coVerify(exactly = 1) { client.observeCommand(config, "instruction-command") }
+        coVerify(exactly = 1) { client.command(config, "instruction-command") }
         coVerify(exactly = 1) { commands.instruction(config.withGatewayIdentity(GatewayScopeIdentity("gateway", "owner")), "conversation", any()) }
     }
 

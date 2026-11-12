@@ -75,7 +75,7 @@ class GatewayQueueStoreTest {
         coEvery { settings.fetchPlatformV2s() } returns listOf(profile)
         coEvery { settings.getFeatureSettings() } answers { features }
         coEvery { jobs.originalRoute(profile.uid, profile.apiUrl) } returns route
-        coEvery { conversations.reconcileOrdinaryAdmissions(any(), any(), any()) } returns Unit
+        coEvery { conversations.reconcileOrdinaryAdmissions(any(), any(), any(), any()) } returns Unit
         store = newStore()
     }
 
@@ -174,19 +174,21 @@ class GatewayQueueStoreTest {
         val (result, lease) = claim()
         val saved = reservation(lease)
         database.agentRunDao().upsert(result.runs.single().copy(status = "CANCELED", completedAt = 2))
-        coEvery { client.command(config, saved.commandId) } returns null
+        coEvery { client.observeCommand(config, saved.commandId) } returns null
         assertFalse(newStore().remoteSettled(lease))
         assertEquals(lease, database.gatewayJobDao().queuedDispatches().single())
         val second = prepare("Later prompt")
         assertNull(store.persist(second.prompt, emptyList(), second.request))
         assertNull(database.pendingPromptDao().get(second.prompt.id)?.userMessageId)
+        coVerify(exactly = 1) { client.observeCommand(config, saved.commandId) }
+        coVerify(exactly = 0) { client.command(any(), any()) }
         coVerify(exactly = 0) { gateway.getJobResult(any(), any()) }
     }
 
     @Test fun terminalProofDoesNotDependOnTranscriptDeliveryAndAReleasedLeaseStaysReleased() = runBlocking {
         val (_, lease) = claim()
         val saved = reservation(lease)
-        coEvery { client.command(config, saved.commandId) } returns receipt(saved.commandId)
+        coEvery { client.observeCommand(config, saved.commandId) } returns receipt(saved.commandId)
         coEvery { gateway.getJobResult("saved-job", config) } returns GatewayJobResult("saved-job", "completed", job = GatewaySavedJob(profile.model, "saved-job"))
         coEvery { conversations.refreshChat(lease.chatId) } throws IOException("transcript unavailable")
         assertTrue(store.remoteSettled(lease))
@@ -201,9 +203,9 @@ class GatewayQueueStoreTest {
     @Test fun terminalResultMustMatchTheOriginalAccountJobAndModel() = runBlocking {
         val (_, lease) = claim()
         val saved = reservation(lease)
-        coEvery { client.command(config, saved.commandId) } returns receipt(saved.commandId).copy(principalId = "replacement-principal")
+        coEvery { client.observeCommand(config, saved.commandId) } returns receipt(saved.commandId).copy(principalId = "replacement-principal")
         assertTrue(runCatching { store.remoteSettled(lease) }.isFailure)
-        coEvery { client.command(config, saved.commandId) } returns receipt(saved.commandId)
+        coEvery { client.observeCommand(config, saved.commandId) } returns receipt(saved.commandId)
         coEvery { gateway.getJobResult("saved-job", config) } returns GatewayJobResult("saved-job", "completed", job = GatewaySavedJob("different-model", "saved-job"))
         assertFalse(store.remoteSettled(lease))
         coEvery { gateway.getJobResult("saved-job", config) } returns GatewayJobResult("another-job", "completed", job = GatewaySavedJob(profile.model, "another-job"))
@@ -241,7 +243,7 @@ class GatewayQueueStoreTest {
         assertNull(database.gatewayJobDao().localChat(result.chatRoom.id))
         assertEquals(lease, database.gatewayJobDao().queuedDispatches().single())
         assertEquals(saved, database.gatewayJobDao().submission(saved.commandId))
-        coEvery { client.command(config, saved.commandId) } returns null
+        coEvery { client.observeCommand(config, saved.commandId) } returns null
         assertFalse(store.remoteSettled(lease))
         assertTrue(requireNotNull(store.problem(lease)).contains("removed"))
     }
@@ -256,6 +258,7 @@ class GatewayQueueStoreTest {
         assertEquals(1, dao.markOrdinaryNotDispatched(saved.commandId, requireNotNull(lease.runId)))
         assertEquals("REJECTED_NOT_DISPATCHED", dao.submission(saved.commandId)?.state)
         assertTrue(store.remoteSettled(lease))
+        coVerify(exactly = 0) { client.observeCommand(any(), any()) }
         coVerify(exactly = 0) { client.command(any(), any()) }
         coVerify(exactly = 0) { gateway.getJobResult(any(), any()) }
     }
@@ -271,7 +274,7 @@ class GatewayQueueStoreTest {
         val legacy = reservation(lease, command = "legacy-command", state = "PENDING_ORDINARY")
         assertEquals(0, dao.markOrdinaryNotDispatched(legacy.commandId, requireNotNull(lease.runId)))
         assertEquals("PENDING_ORDINARY", dao.submission(legacy.commandId)?.state)
-        coEvery { client.command(config, any()) } returns null
+        coEvery { client.observeCommand(config, any()) } returns null
         assertFalse(store.remoteSettled(lease))
         assertEquals(lease, dao.queuedDispatches().single())
     }
@@ -280,7 +283,7 @@ class GatewayQueueStoreTest {
         val (result, lease) = claim()
         val saved = reservation(lease)
         database.agentRunDao().upsert(result.runs.single().copy(status = "COMPLETED", completedAt = 2))
-        coEvery { client.command(config, saved.commandId) } returns null
+        coEvery { client.observeCommand(config, saved.commandId) } returns null
         assertNotNull(store.externalWorkBlocker())
         assertEquals("DISPATCHING_ORDINARY", database.gatewayJobDao().submission(saved.commandId)?.state)
         coVerify(exactly = 0) { gateway.getJobResult(any(), any()) }
@@ -351,6 +354,8 @@ class GatewayQueueStoreTest {
             assertFalse(store.reviewRestored(restored))
             assertFalse(store.deliveryReady(restored))
             val saved = reservation(restored, command = "saved-$state")
+            coEvery { client.observeCommand(config, saved.commandId) } returns null
+            assertFalse(store.remoteSettled(restored))
             coEvery { client.command(config, saved.commandId) } returns receipt(saved.commandId)
             coEvery { gateway.getJobResult("saved-job", config) } returns GatewayJobResult("saved-job", "completed", job = GatewaySavedJob(profile.model, "saved-job"))
             assertTrue(store.reviewRestored(restored))

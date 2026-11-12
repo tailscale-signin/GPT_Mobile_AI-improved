@@ -9,6 +9,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -139,8 +140,127 @@ class MoonshineVoiceRecognizerTest {
             assertTrue(fixture.worker.awaitTermination(3, TimeUnit.SECONDS))
             fixture.drain()
             assertTrue(fixture.finals.isEmpty())
-            assertTrue(fixture.errors.single().contains("No speech"))
+            assertTrue(fixture.errors.isEmpty())
+            assertTrue(fixture.retryableErrors.single().contains("No speech"))
+            assertEquals(listOf("VOICE_NO_SPEECH"), fixture.codes)
             assertTrue(fixture.capture.closed)
+        } finally {
+            fixture.close()
+        }
+    }
+
+    @Test fun permissionRevocationAfterPrecheckRequiresPermissionRepairAndReleasesCapture() {
+        val failure = SecurityException("Private platform detail")
+        val decoder = FakeDecoder()
+        val fixture = Fixture(decoder, capture = FakeCapture(startFailure = failure))
+        try {
+            fixture.audio.listen(fixture.listener)
+            assertTrue(decoder.closed.await(3, TimeUnit.SECONDS))
+            fixture.worker.shutdown()
+            assertTrue(fixture.worker.awaitTermination(3, TimeUnit.SECONDS))
+            fixture.drain()
+            assertEquals(listOf(VoiceRecoveryAction.MICROPHONE_PERMISSION), fixture.repairs)
+            assertEquals(listOf("VOICE_MICROPHONE_PERMISSION_REQUIRED"), fixture.codes)
+            assertSame(failure, fixture.causes.single())
+            assertTrue(fixture.errors.isEmpty())
+            assertTrue(fixture.capture.closed)
+            assertEquals(1, fixture.releases.get())
+            assertTrue(VoiceMicrophoneLease.acquire("after-permission-failure"))
+        } finally {
+            fixture.close()
+            VoiceMicrophoneLease.release("after-permission-failure")
+        }
+    }
+
+    @Test fun missingNativeRuntimePreservesCauseAndOffersARepairInsteadOfAnAutomaticRetry() {
+        val failure = UnsatisfiedLinkError("Private native library path")
+        val fixture = Fixture(FakeDecoder(), decoderFactoryFailure = failure)
+        try {
+            fixture.audio.listen(fixture.listener)
+            fixture.worker.shutdown()
+            assertTrue(fixture.worker.awaitTermination(3, TimeUnit.SECONDS))
+            fixture.drain()
+            assertEquals(listOf(VoiceRecoveryAction.LOCAL_MODEL), fixture.repairs)
+            assertEquals(listOf("VOICE_RECOGNIZER_UNAVAILABLE"), fixture.codes)
+            assertSame(failure, fixture.causes.single())
+            assertTrue(fixture.errors.isEmpty())
+            assertTrue(fixture.retryableErrors.isEmpty())
+            assertEquals(1L, fixture.capture.started.count)
+            assertEquals(1, fixture.releases.get())
+        } finally {
+            fixture.close()
+        }
+    }
+
+    @Test fun nativeAllocationFailureIsReportedAndReleasesModelAndMicrophoneOwnership() {
+        val failure = OutOfMemoryError("Private allocation detail")
+        val fixture = Fixture(FakeDecoder(), decoderFactoryFailure = failure)
+        try {
+            fixture.audio.listen(fixture.listener)
+            fixture.worker.shutdown()
+            assertTrue(fixture.worker.awaitTermination(3, TimeUnit.SECONDS))
+            fixture.drain()
+            assertEquals(listOf(VoiceRecoveryAction.LOCAL_MODEL), fixture.repairs)
+            assertEquals(listOf("VOICE_RECOGNIZER_MEMORY_PRESSURE"), fixture.codes)
+            assertSame(failure, fixture.causes.single())
+            assertTrue(fixture.errors.isEmpty())
+            assertTrue(fixture.retryableErrors.isEmpty())
+            assertEquals(1, fixture.releases.get())
+            assertTrue(VoiceMicrophoneLease.acquire("after-memory-failure"))
+        } finally {
+            fixture.close()
+            VoiceMicrophoneLease.release("after-memory-failure")
+        }
+    }
+
+    @Test fun nativeFailureAfterSilenceDeadlineCannotBePromotedToAutomaticRetry() {
+        val entered = CountDownLatch(1)
+        val resume = CountDownLatch(1)
+        val failure = UnsatisfiedLinkError("Private runtime failure")
+        val decoder = FakeDecoder {
+            entered.countDown()
+            assertTrue(resume.await(3, TimeUnit.SECONDS))
+            throw failure
+        }
+        val fixture = Fixture(decoder)
+        try {
+            fixture.audio.listen(fixture.listener)
+            assertTrue(fixture.capture.started.await(3, TimeUnit.SECONDS))
+            assertTrue(fixture.timersReady.await(3, TimeUnit.SECONDS))
+            fixture.capture.chunks.add(FloatArray(1600))
+            assertTrue(entered.await(3, TimeUnit.SECONDS))
+            fixture.deadlines.first { it.first == 12_000L }.second.invoke()
+            resume.countDown()
+            assertTrue(decoder.closed.await(3, TimeUnit.SECONDS))
+            fixture.worker.shutdown()
+            assertTrue(fixture.worker.awaitTermination(3, TimeUnit.SECONDS))
+            fixture.drain()
+            assertEquals(listOf("VOICE_RECOGNIZER_UNAVAILABLE"), fixture.codes)
+            assertEquals(listOf(VoiceRecoveryAction.LOCAL_MODEL), fixture.repairs)
+            assertSame(failure, fixture.causes.single())
+            assertTrue(fixture.retryableErrors.isEmpty())
+        } finally {
+            resume.countDown()
+            fixture.close()
+        }
+    }
+
+    @Test fun silenceDeadlineCannotHideDecoderCleanupFailure() {
+        val failure = IllegalStateException("Private release failure")
+        val decoder = FakeDecoder(closeFailure = failure)
+        val fixture = Fixture(decoder)
+        try {
+            fixture.audio.listen(fixture.listener)
+            assertTrue(fixture.timersReady.await(3, TimeUnit.SECONDS))
+            fixture.deadlines.first { it.first == 12_000L }.second.invoke()
+            assertTrue(decoder.closed.await(3, TimeUnit.SECONDS))
+            fixture.worker.shutdown()
+            assertTrue(fixture.worker.awaitTermination(3, TimeUnit.SECONDS))
+            fixture.drain()
+            assertEquals(listOf("VOICE_RECOGNIZER_FAILED"), fixture.codes)
+            assertTrue(fixture.errors.single().contains("releasing"))
+            assertSame(failure, fixture.causes.single())
+            assertTrue(fixture.retryableErrors.isEmpty())
         } finally {
             fixture.close()
         }
@@ -169,20 +289,29 @@ class MoonshineVoiceRecognizerTest {
             fixture.drain()
             assertTrue(fixture.finals.isEmpty())
             assertTrue(fixture.errors.single().contains("could not keep up"))
+            assertEquals(listOf("VOICE_AUDIO_QUEUE_OVERFLOW"), fixture.codes)
         } finally {
             resume.countDown()
             fixture.close()
         }
     }
 
-    private class Fixture(decoder: FakeDecoder, modelsPresent: Boolean = true, permission: Boolean = true) {
+    private class Fixture(
+        decoder: FakeDecoder,
+        modelsPresent: Boolean = true,
+        permission: Boolean = true,
+        val capture: FakeCapture = FakeCapture(),
+        decoderFactoryFailure: Throwable? = null
+    ) {
         val callbacks = ConcurrentLinkedQueue<() -> Unit>()
         val worker = Executors.newSingleThreadExecutor()
-        val capture = FakeCapture()
         val releases = AtomicInteger()
         val finals = mutableListOf<String>()
         val errors = mutableListOf<String>()
+        val retryableErrors = mutableListOf<String>()
         val repairs = mutableListOf<VoiceRecoveryAction>()
+        val codes = mutableListOf<String>()
+        val causes = mutableListOf<Throwable?>()
         val deadlines = ConcurrentLinkedQueue<Pair<Long, () -> Unit>>()
         val timersReady = CountDownLatch(2)
         val audio = MoonshineVoiceRecognizer(
@@ -201,7 +330,10 @@ class MoonshineVoiceRecognizerTest {
                 val cancel: () -> Unit = {}
                 cancel
             },
-            decoderFactory = { decoder },
+            decoderFactory = {
+                decoderFactoryFailure?.let { throw it }
+                decoder
+            },
             captureFactory = { capture },
             worker = worker
         ).apply { languageTag = "en-CA" }
@@ -218,6 +350,14 @@ class MoonshineVoiceRecognizerTest {
             override fun repairRequired(message: String, retryMillis: Long, action: VoiceRecoveryAction) {
                 repairs += action
             }
+            override fun retryableFailure(message: String, retryMillis: Long) {
+                retryableErrors += message
+            }
+            override fun failure(message: String, code: String, retryMillis: Long, retryable: Boolean, recoveryAction: VoiceRecoveryAction?, cause: Throwable?) {
+                codes += code
+                causes += cause
+                super.failure(message, code, retryMillis, retryable, recoveryAction, cause)
+            }
         }
 
         fun drain() {
@@ -229,7 +369,7 @@ class MoonshineVoiceRecognizerTest {
         }
     }
 
-    private class FakeDecoder(private val accept: FakeDecoder.() -> Unit = {}) : LocalSpeechDecoder {
+    private class FakeDecoder(private val closeFailure: Throwable? = null, private val accept: FakeDecoder.() -> Unit = {}) : LocalSpeechDecoder {
         lateinit var events: (LocalSpeechEvent) -> Unit
         val threads = ConcurrentLinkedQueue<Thread>()
         val closed = CountDownLatch(1)
@@ -247,10 +387,11 @@ class MoonshineVoiceRecognizerTest {
         override fun close() {
             threads.add(Thread.currentThread())
             closed.countDown()
+            closeFailure?.let { throw it }
         }
     }
 
-    private class FakeCapture : LocalVoiceCapture {
+    private class FakeCapture(private val startFailure: Throwable? = null) : LocalVoiceCapture {
         val chunks = LinkedBlockingQueue<FloatArray>()
         val started = CountDownLatch(1)
         val released = CountDownLatch(1)
@@ -258,6 +399,7 @@ class MoonshineVoiceRecognizerTest {
         @Volatile var closed = false
         override fun start() {
             started.countDown()
+            startFailure?.let { throw it }
         }
         override fun read(): FloatArray = chunks.poll(20, TimeUnit.MILLISECONDS) ?: FloatArray(0)
         override fun stop() = Unit

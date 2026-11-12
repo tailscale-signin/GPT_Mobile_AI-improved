@@ -200,7 +200,7 @@ class AndroidVoiceAudio internal constructor(
         if (closed || recognitionActive) return
         stop()
         if (!recognitionGate.acquire(sessionId)) {
-            listener.failure("Speech service is busy. Your chat is still available.", recognitionGate.remainingMillis())
+            listener.failure("Speech service is busy. Your chat is still available.", "VOICE_MICROPHONE_BUSY", recognitionGate.remainingMillis())
             return
         }
         if (closed) {
@@ -210,12 +210,12 @@ class AndroidVoiceAudio internal constructor(
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             recognitionGate.release(sessionId)
             recognitionFailure("SPEECH_PERMISSION_REQUIRED", "permission_precheck", false, error = SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS)
-            listener.repairRequired("Microphone permission is needed for voice chat.", 0, VoiceRecoveryAction.MICROPHONE_PERMISSION)
+            listener.failure("Microphone permission is needed for voice chat.", "VOICE_MICROPHONE_PERMISSION_REQUIRED", recoveryAction = VoiceRecoveryAction.MICROPHONE_PERMISSION)
             return
         }
         if (!VoiceMicrophoneLease.acquire(sessionId)) {
             recognitionGate.release(sessionId)
-            listener.failure("Another voice session is using the microphone. Pause it before trying again.", 500)
+            listener.failure("Another voice session is using the microphone. Pause it before trying again.", "VOICE_MICROPHONE_BUSY", 500)
             return
         }
         recognitionActive = true
@@ -228,7 +228,13 @@ class AndroidVoiceAudio internal constructor(
             recognitionGate.bindingFailed(sessionId)
             recognitionFailure("SPEECH_SERVICE_START_FAILED", failedStage, dispatched, ticket)
             stop()
-            listener.repairRequired("The Android speech service could not start. Review its settings or continue typing in chat.", recognitionGate.remainingMillis(), VoiceRecoveryAction.SPEECH_SERVICE)
+            listener.failure(
+                "The Android speech service could not start. Review its settings or continue typing in chat.",
+                "VOICE_RECOGNIZER_UNAVAILABLE",
+                recognitionGate.remainingMillis(),
+                recoveryAction = VoiceRecoveryAction.SPEECH_SERVICE,
+                cause = failure
+            )
         }
         try {
             val onDevice = !allowOnlineSpeech
@@ -236,14 +242,15 @@ class AndroidVoiceAudio internal constructor(
                 recognitionGate.bindingFailed(sessionId)
                 recognitionFailure("SPEECH_SERVICE_UNAVAILABLE", failedStage, false, ticket)
                 stop()
-                listener.repairRequired(
+                listener.failure(
                     if (onDevice) {
                         "On device speech is unavailable. Choose a compatible speech service, or explicitly allow online speech in Voice settings. You can continue typing in chat."
                     } else {
                         "Speech recognition is unavailable. Install or enable a speech service in Android settings, or continue typing in chat."
                     },
+                    "VOICE_RECOGNIZER_UNAVAILABLE",
                     recognitionGate.remainingMillis(),
-                    VoiceRecoveryAction.SPEECH_SERVICE
+                    recoveryAction = VoiceRecoveryAction.SPEECH_SERVICE
                 )
                 return
             }
@@ -280,7 +287,7 @@ class AndroidVoiceAudio internal constructor(
                                 terminal("timeout_final")
                                 recognitionFailure("SPEECH_FINALIZATION_TIMEOUT", "finalization", true, ticket)
                                 stop()
-                                listener.error("Speech did not finish. Retry microphone or continue in chat.")
+                                listener.failure("Speech did not finish. Retry microphone or continue in chat.", "VOICE_RECOGNIZER_TIMED_OUT")
                             }
                         }
                     }
@@ -338,12 +345,17 @@ class AndroidVoiceAudio internal constructor(
                         error == SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED || error == SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE -> VoiceRecoveryAction.SPEECH_LANGUAGE
                         else -> null
                     }
-                    val failure: (String, Long) -> Unit = when {
-                        repair != null -> { message, retry -> listener.repairRequired(message, retry, repair) }
-                        error in setOf(SpeechRecognizer.ERROR_RECOGNIZER_BUSY, SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT) -> listener::retryableFailure
-                        else -> listener::failure
+                    val reportCode = when {
+                        error == SpeechRecognizer.ERROR_TOO_MANY_REQUESTS -> "VOICE_RECOGNIZER_RATE_LIMITED"
+                        bindingFailure -> "VOICE_RECOGNIZER_UNAVAILABLE"
+                        error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "VOICE_MICROPHONE_PERMISSION_REQUIRED"
+                        error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "VOICE_MICROPHONE_BUSY"
+                        error == SpeechRecognizer.ERROR_NETWORK -> "VOICE_RECOGNIZER_NETWORK_FAILED"
+                        error == SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "VOICE_RECOGNIZER_TIMED_OUT"
+                        repair == VoiceRecoveryAction.SPEECH_LANGUAGE -> "VOICE_RECOGNIZER_LANGUAGE_UNAVAILABLE"
+                        else -> "VOICE_RECOGNIZER_FAILED"
                     }
-                    failure(
+                    listener.failure(
                         if (error == SpeechRecognizer.ERROR_TOO_MANY_REQUESTS) {
                             SPEECH_LIMIT_MESSAGE
                         } else if (bindingFailure) {
@@ -358,7 +370,10 @@ class AndroidVoiceAudio internal constructor(
                                 else -> "The speech service stopped. Retry microphone when you are ready."
                             }
                         },
-                        recognitionGate.remainingMillis()
+                        reportCode,
+                        recognitionGate.remainingMillis(),
+                        retryable = repair == null && error in setOf(SpeechRecognizer.ERROR_RECOGNIZER_BUSY, SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT),
+                        recoveryAction = repair
                     )
                 }
             })
@@ -378,7 +393,7 @@ class AndroidVoiceAudio internal constructor(
                     recognitionGate.bindingFailed(sessionId)
                     recognitionFailure("SPEECH_SUPPORT_TIMEOUT", "support_check", false, ticket)
                     stop()
-                    listener.repairRequired("The speech service did not confirm support for this language. Review Android speech settings or continue typing.", recognitionGate.remainingMillis(), VoiceRecoveryAction.SPEECH_SERVICE)
+                    listener.failure("The speech service did not confirm support for this language. Review Android speech settings or continue typing.", "VOICE_RECOGNIZER_TIMED_OUT", recognitionGate.remainingMillis(), recoveryAction = VoiceRecoveryAction.SPEECH_SERVICE)
                 }
             }
             val handleSupport: (RecognitionQualification) -> Unit = supportResult@{ support ->
@@ -396,15 +411,21 @@ class AndroidVoiceAudio internal constructor(
                         support.status in setOf(RecognitionSupportStatus.LANGUAGE_UNAVAILABLE, RecognitionSupportStatus.UNSUPPORTED) || support.errorCode in setOf(SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED, SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE) -> VoiceRecoveryAction.SPEECH_LANGUAGE
                         else -> VoiceRecoveryAction.SPEECH_SERVICE
                     }
-                    listener.repairRequired(
+                    listener.failure(
                         when (repair) {
                             VoiceRecoveryAction.MICROPHONE_PERMISSION -> "Microphone permission is needed for voice chat."
                             VoiceRecoveryAction.SPEECH_LANGUAGE -> "The selected speech language is not ready for this service. Install or select a supported language in Android speech settings."
                             VoiceRecoveryAction.SPEECH_SERVICE -> if (limited) SPEECH_LIMIT_MESSAGE else "The Android speech service could not confirm this recognition configuration. Review its settings or continue typing."
                             VoiceRecoveryAction.LOCAL_MODEL -> "Install a local speech model in Voice settings, or select Android speech."
                         },
+                        when {
+                            limited -> "VOICE_RECOGNIZER_RATE_LIMITED"
+                            repair == VoiceRecoveryAction.MICROPHONE_PERMISSION -> "VOICE_MICROPHONE_PERMISSION_REQUIRED"
+                            repair == VoiceRecoveryAction.SPEECH_LANGUAGE -> "VOICE_RECOGNIZER_LANGUAGE_UNAVAILABLE"
+                            else -> "VOICE_RECOGNIZER_UNAVAILABLE"
+                        },
                         recognitionGate.remainingMillis(),
-                        repair
+                        recoveryAction = repair
                     )
                     return@supportResult
                 }
@@ -416,7 +437,7 @@ class AndroidVoiceAudio internal constructor(
                             recognitionGate.bindingFailed(sessionId)
                             recognitionFailure("SPEECH_SERVICE_START_TIMEOUT", "service_start", true, ticket)
                             stop()
-                            listener.repairRequired("Microphone did not become ready. Check the Android speech service, or continue typing in chat.", recognitionGate.remainingMillis(), VoiceRecoveryAction.SPEECH_SERVICE)
+                            listener.failure("Microphone did not become ready. Check the Android speech service, or continue typing in chat.", "VOICE_RECOGNIZER_TIMED_OUT", recognitionGate.remainingMillis(), recoveryAction = VoiceRecoveryAction.SPEECH_SERVICE)
                         }
                     }
                     failedStage = "service_start"

@@ -994,19 +994,28 @@ class McpClientManager internal constructor(
                         // Parent cancellation is not a server outage and must not trip the MCP circuit.
                         throw cancelled
                     } catch (error: Exception) {
-                        if (generateSequence(error as Throwable) { it.cause?.takeUnless { cause -> cause === it } }.take(16).any { it is StreamableHttpError }) connectivity.success(endpointHost)
-                        val httpStatus = generateSequence(error as Throwable) { it.cause?.takeUnless { cause -> cause === it } }.take(8).filterIsInstance<StreamableHttpError>().firstOrNull()?.code
-                        AppLogRecorder.record("MCP", "Connect failed · connection=${config.connectionUid} · elapsedMs=${nowMs() - connectStartedAtMs} · transportTimeoutMs=$transportConnectTimeoutMs · initializationTimeoutMs=$effectiveSessionTimeoutMs · errorType=${error.javaClass.simpleName} · httpStatus=${httpStatus ?: "unavailable"}", "E")
+                        val causes = generateSequence(error as Throwable) { it.cause?.takeUnless { cause -> cause === it } }.take(16).toList()
+                        if (causes.any { it is StreamableHttpError }) connectivity.success(endpointHost)
+                        val httpStatus = causes.take(8).filterIsInstance<StreamableHttpError>().firstOrNull()?.code
                         withContext(NonCancellable) { runCatching { withTimeoutOrNull(2_000) { client.close() } } }
-                        if (generateSequence(error as Throwable) { it.cause?.takeUnless { cause -> cause === it } }.take(16).any { it is StreamableHttpError && it.code == 400 } && !isMcpQuotaFailure(error.message.orEmpty())) {
-                            throw McpProtocolConfigurationException("MCP_INITIALIZATION_SCHEMA_INVALID", "The server rejected the initialize handshake (HTTP 400). Validate the endpoint path, initialization request schema and supported protocol version.", 400, "INITIALIZE_REQUEST_ACCEPTANCE_REQUIRED", "initialize")
+                        val reportedFailure = when {
+                            causes.any { it is StreamableHttpError && it.code == 400 } && !isMcpQuotaFailure(error.message.orEmpty()) ->
+                                McpProtocolConfigurationException("MCP_INITIALIZATION_SCHEMA_INVALID", "The server rejected the initialize handshake (HTTP 400). Validate the endpoint path, initialization request schema and supported protocol version.", 400, "INITIALIZE_REQUEST_ACCEPTANCE_REQUIRED", "initialize")
+                            causes.any { it is StreamableHttpError && it.code == 404 } -> {
+                                if (configurationFailures.size >= 64) configurationFailures.keys.firstOrNull()?.let(configurationFailures::remove)
+                                configurationFailures[config.connectionUid] = config.quarantineIdentity()
+                                McpEndpointConfigurationException(404)
+                            }
+                            else -> error
                         }
-                        if (generateSequence(error as Throwable) { it.cause }.any { it is StreamableHttpError && it.code == 404 }) {
-                            if (configurationFailures.size >= 64) configurationFailures.keys.firstOrNull()?.let(configurationFailures::remove)
-                            configurationFailures[config.connectionUid] = config.quarantineIdentity()
-                            throw McpEndpointConfigurationException(404)
-                        }
-                        throw error
+                        AppLogRecorder.record(
+                            "MCP",
+                            "Connect failed · connection=${config.connectionUid} · elapsedMs=${nowMs() - connectStartedAtMs} · transportTimeoutMs=$transportConnectTimeoutMs · initializationTimeoutMs=$effectiveSessionTimeoutMs · errorType=${error.javaClass.simpleName} · httpStatus=${httpStatus ?: "unavailable"}",
+                            "E",
+                            reportCode = dev.chungjungsoo.gptmobile.data.agent.ToolFailureMetadata.classify(reportedFailure),
+                            reportError = error
+                        )
+                        throw reportedFailure
                     }
                 } finally {
                     connectivity.release(lease)

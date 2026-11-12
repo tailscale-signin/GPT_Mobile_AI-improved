@@ -265,9 +265,11 @@ object AppLogRecorder {
 
     internal fun operationCaptureCurrent(epoch: Long): Boolean = mutableEnabled.value && privateSessions.isEmpty() && epoch == captureEpoch.get()
 
-    fun record(tag: String, message: String, level: String = "I") {
+    fun record(tag: String, message: String, level: String = "I") = record(tag, message, level, null)
+
+    fun record(tag: String, message: String, level: String, reportCode: String?, reportError: Throwable? = null) {
         val epoch = captureEpoch.get()
-        if (!privateSessionActive) IssueReportIncidents.log(tag, level, mutableEnabled.value)
+        if (!privateSessionActive) IssueReportIncidents.log(tag, level, mutableEnabled.value, reportCode, reportError)
         recordCaptured(epoch, tag, message, level)
     }
 

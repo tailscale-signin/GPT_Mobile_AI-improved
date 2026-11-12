@@ -12,11 +12,7 @@ internal object IssueReportGitHubFallback {
     fun url(report: IssueReport): String {
         val title = report.title?.takeIf(String::isNotBlank)
             ?: listOfNotNull(report.feature, report.errorCode).joinToString(": ").ifBlank { "Issue reported from GPT Mobile" }
-        val body = buildString {
-            report.description?.takeIf(String::isNotBlank)?.let {
-                appendLine(it)
-                appendLine()
-            }
+        val metadata = buildString {
             appendLine("### App details")
             appendLine("- Version: ${report.version} (${report.build})")
             appendLine("- Commit: ${report.commit}")
@@ -26,6 +22,8 @@ internal object IssueReportGitHubFallback {
             report.feature?.let { appendLine("- Feature: $it") }
             report.errorCode?.let { appendLine("- Error code: $it") }
             report.errorType?.let { appendLine("- Error type: $it") }
+        }
+        val details = buildString {
             if (report.frames.isNotEmpty()) {
                 appendLine()
                 appendLine("### Redacted stack frames")
@@ -36,17 +34,27 @@ internal object IssueReportGitHubFallback {
                 appendLine("### Recent redacted events")
                 report.events.forEach { appendLine("- `${it.replace('`', '\'').take(300)}`") }
             }
-        }.take(BODY_LIMIT)
-        val prefix = "$TRACKER/new?title=${encode(title.take(IssueReport.TITLE_LIMIT))}&body="
-        var boundedBody = body
-        var encodedBody = encode(boundedBody)
-        while (prefix.length + encodedBody.length > URL_LIMIT && boundedBody.isNotEmpty()) {
-            var end = (boundedBody.length * 3 / 4).coerceAtLeast(1)
-            if (boundedBody[end - 1].isHighSurrogate()) end--
-            boundedBody = boundedBody.take(end)
-            encodedBody = encode(boundedBody)
+            report.description?.takeIf(String::isNotBlank)?.let {
+                appendLine()
+                appendLine("### What happened")
+                appendLine()
+                appendLine(it)
+            }
         }
-        return prefix + encodedBody
+        val prefix = "$TRACKER/new?title=${encode(title.issueReportPrefix(IssueReport.TITLE_LIMIT))}&body="
+        fun fits(optional: String): Boolean = metadata.length + optional.length <= BODY_LIMIT &&
+            prefix.length + encode(metadata + optional).length <= URL_LIMIT
+        if (fits(details)) return prefix + encode(metadata + details)
+
+        // Keep build, report identity and failure evidence even when user text expands during URL encoding.
+        val shortened = "\n\n[Additional report text shortened to fit the issue form.]"
+        var low = 0
+        var high = details.length
+        while (low < high) {
+            val middle = (low + high + 1) / 2
+            if (fits(details.issueReportPrefix(middle) + shortened)) low = middle else high = middle - 1
+        }
+        return prefix + encode(metadata + details.issueReportPrefix(low) + shortened)
     }
 
     private fun encode(value: String): String = URLEncoder.encode(value, StandardCharsets.UTF_8.name())

@@ -238,7 +238,7 @@ class GatewayConversationRepository @Inject constructor(
         val job = jobs.summary(record)
         val conversationId = requireNotNull(job.conversationId) { "This legacy job retained evidence but no complete conversation." }
         val route = jobs.originalRoute(record.connectionProfileUid, record.endpoint)
-        reconcileOrdinaryAdmissions(connectionProfileUid = route.profileUid, endpoint = route.endpoint)
+        reconcileOrdinaryAdmissions(connectionProfileUid = route.profileUid, endpoint = route.endpoint, forceRefresh = true)
         reconcileEngineeringAdmissions(route)
         val snapshot = client.conversation(route.config, conversationId)
         requireSameIdentity(snapshot, record.gatewayId, record.principalId, conversationId)
@@ -250,7 +250,7 @@ class GatewayConversationRepository @Inject constructor(
 
     suspend fun openConversation(profileUid: String, gatewayId: String, principalId: String, conversationId: String): GatewayConversationAttachment = attachmentLock.withLock {
         val route = jobs.route(profileUid, useEngineeringGateway = false)
-        reconcileOrdinaryAdmissions(connectionProfileUid = route.profileUid, endpoint = route.endpoint)
+        reconcileOrdinaryAdmissions(connectionProfileUid = route.profileUid, endpoint = route.endpoint, forceRefresh = true)
         reconcileEngineeringAdmissions(route)
         val snapshot = client.conversation(route.config, conversationId)
         requireSameIdentity(snapshot, gatewayId, principalId, conversationId)
@@ -359,12 +359,12 @@ class GatewayConversationRepository @Inject constructor(
     }
 
     /** Resolve an ambiguous ordinary admission without dispatching a replacement generation. */
-    suspend fun reconcileOrdinaryAdmissions(chatId: Int? = null, connectionProfileUid: String? = null, endpoint: String? = null) {
+    suspend fun reconcileOrdinaryAdmissions(chatId: Int? = null, connectionProfileUid: String? = null, endpoint: String? = null, forceRefresh: Boolean = false) {
         for (pending in dao.pendingOrdinary(chatId).asReversed()) {
             if (connectionProfileUid != null && (pending.connectionProfileUid != connectionProfileUid || pending.endpoint != endpoint?.trimEnd('/'))) continue
             val reservation = json.decodeFromString<GatewayOrdinaryReservation>(pending.payload)
             val route = jobs.originalRoute(pending.connectionProfileUid, pending.endpoint)
-            val receipt = client.command(route.config, pending.commandId) ?: continue
+            val receipt = (if (forceRefresh) client.command(route.config, pending.commandId) else client.observeCommand(route.config, pending.commandId)) ?: continue
             check(receipt.jobKind == "generation" && receipt.gatewayId == reservation.gatewayId && receipt.principalId == reservation.principalId && (receipt.profileId == null || receipt.profileId == pending.executionProfileUid) && (receipt.model == null || receipt.model == reservation.model)) { "The original gateway command account or execution profile changed." }
             val conversationKey = gatewayIdentityKey(receipt.gatewayId, receipt.principalId, receipt.conversationId)
             database.withTransaction {
@@ -539,7 +539,7 @@ class GatewayConversationRepository @Inject constructor(
         for (pending in dao.pendingInstructions(chatId)) {
             val local = pending.conversationKey?.let { dao.conversation(it) } ?: continue
             val route = jobs.originalRoute(pending.connectionProfileUid, pending.endpoint)
-            val receipt = client.command(route.config, pending.commandId) ?: continue
+            val receipt = client.observeCommand(route.config, pending.commandId) ?: continue
             acceptInstruction(local, receipt)
         }
     }

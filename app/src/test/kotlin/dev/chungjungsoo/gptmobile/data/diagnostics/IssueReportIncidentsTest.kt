@@ -58,6 +58,77 @@ class IssueReportIncidentsTest {
     }
 
     @Test
+    fun nonfatalFailureRetainsSpecificCodeAndSafeFramesWithoutPrivateExceptionText() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        val error = SecurityException("private microphone request details")
+        error.stackTrace = arrayOf(
+            StackTraceElement("dev.chungjungsoo.gptmobile.data.voice.MoonshineVoiceRecognizer", "capture", "MoonshineVoiceRecognizer.kt", 204),
+            StackTraceElement("other.custom.PrivateClass", "method", "Private.java", 12)
+        )
+
+        IssueReportIncidents.failure(ReportFeature.VOICE, "VOICE_MICROPHONE_PERMISSION_REQUIRED", error)
+
+        val report = IssueReportIncidents.pending.value.single()
+        assertEquals("VOICE_MICROPHONE_PERMISSION_REQUIRED", report.errorCode)
+        assertEquals("SecurityException", report.errorType)
+        assertEquals(listOf("dev.chungjungsoo.gptmobile.data.voice.MoonshineVoiceRecognizer.capture:204"), report.frames)
+        val raw = IssueReport.json.encodeToString(IssueReport.serializer(), report)
+        assertFalse(raw.contains("private microphone request details"))
+        assertFalse(raw.contains("PrivateClass"))
+    }
+
+    @Test
+    fun distinctKnownChatFailuresAreNotCollapsedIntoOneGenericIncident() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        IssueReportIncidents.chatFailure("GATEWAY_ENGINEERING_GITHUB_REQUIRED", false)
+        IssueReportIncidents.chatFailure("GATEWAY_REMOTE_SURFACE_NOT_ADMITTED", false)
+        IssueReportIncidents.chatFailure("GATEWAY_ENGINEERING_GITHUB_REQUIRED", false)
+
+        assertEquals(
+            listOf("GATEWAY_ENGINEERING_GITHUB_REQUIRED", "GATEWAY_REMOTE_SURFACE_NOT_ADMITTED"),
+            IssueReportIncidents.pending.value.map { it.errorCode }
+        )
+    }
+
+    @Test
+    fun toolFailureRetainsOnlyAnAllowlistedCodeAndNeverTheRawProviderCode() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        IssueReportIncidents.log("Tool", "E", tracking = false, code = "INVALID_ARGUMENTS")
+        IssueReportIncidents.log("Tool", "E", tracking = false, code = "PRIVATE_PROVIDER_TOKEN_VALUE")
+        IssueReportIncidents.chatFailure("PRIVATE_PROVIDER_TOKEN_VALUE", true)
+
+        assertEquals(
+            listOf("INVALID_ARGUMENTS", "APP_ERROR", "PROVIDER_RATE_LIMITED"),
+            IssueReportIncidents.pending.value.map { it.errorCode }
+        )
+        assertFalse(IssueReportIncidents.recentEvents().any { "PRIVATE_PROVIDER_TOKEN_VALUE" in it })
+    }
+
+    @Test
+    fun privateSessionSuppressesDetailedFailureMetadata() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        IssueReportIncidents.privacyChanged(true)
+        IssueReportIncidents.failure(ReportFeature.VOICE, "VOICE_RECOGNIZER_FAILED", IllegalStateException("private"))
+        IssueReportIncidents.log("Tool", "E", tracking = true, code = "INVALID_ARGUMENTS", error = IllegalStateException("private"))
+
+        assertTrue(IssueReportIncidents.pending.value.isEmpty())
+        assertTrue(IssueReportIncidents.recentEvents().isEmpty())
+    }
+
+    @Test
+    fun toolTransportCodesSurviveTheRecorderAndRepeatedMcpFailureIsOneIncident() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        val codes = listOf("DNS_RESOLUTION_FAILED", "NETWORK_DISCONNECTED", "CONNECTION_ABORTED", "NETWORK_TIMEOUT", "TLS_FAILURE")
+        for (code in codes) {
+            AppLogRecorder.record("MCP", "private connection details", "E", reportCode = code)
+            AppLogRecorder.record("Tool", "private tool details", "E", reportCode = code)
+        }
+
+        assertEquals(codes, IssueReportIncidents.pending.value.map { it.errorCode })
+        assertFalse(IssueReportIncidents.recentEvents().any { "private" in it })
+    }
+
+    @Test
     fun crashPersistsOnlySafeFramesWithoutTheExceptionMessage() {
         LocalDiagnosticsPolicy.setEnabled(true)
         val error = IllegalStateException("private exception payload")

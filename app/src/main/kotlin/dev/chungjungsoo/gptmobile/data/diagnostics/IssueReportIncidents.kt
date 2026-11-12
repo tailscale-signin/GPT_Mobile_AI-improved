@@ -51,7 +51,9 @@ internal object IssueReportIncidents {
         events.filter { it.first >= now - RECENT_MILLIS }.map { (time, event) -> "-${(now - time).coerceAtLeast(0)}ms $event" }
     }
 
-    fun log(tag: String, level: String, tracking: Boolean) {
+    fun log(tag: String, level: String, tracking: Boolean) = log(tag, level, tracking, null)
+
+    fun log(tag: String, level: String, tracking: Boolean, code: String?, error: Throwable? = null) {
         if (!LocalDiagnosticsPolicy.enabled && !tracking || isPrivate) return
         val severity = level.firstOrNull()?.takeIf { it in "DIWEF" } ?: return
         // Only application-owned tags with known meaning. Ignore raw logcat and the reporting pipeline.
@@ -65,7 +67,7 @@ internal object IssueReportIncidents {
             else -> return
         }
         if (severity == 'E' && LocalDiagnosticsPolicy.enabled && feature != ReportFeature.CHAT && feature != ReportFeature.VOICE) {
-            failure(feature, "APP_ERROR")
+            failure(feature, IssueReportCodes.select(code, "APP_ERROR"), error)
         } else {
             synchronized(lock) {
                 if (!isPrivate) addEvent(severity, feature)
@@ -73,25 +75,27 @@ internal object IssueReportIncidents {
         }
     }
 
-    fun failure(feature: ReportFeature, code: String) {
+    fun failure(feature: ReportFeature, code: String) = failure(feature, code, null)
+
+    fun failure(feature: ReportFeature, code: String, error: Throwable?) {
         if (!LocalDiagnosticsPolicy.enabled || isPrivate || context == null) return
         synchronized(lock) {
             if (!LocalDiagnosticsPolicy.enabled || isPrivate) return
             val now = System.nanoTime() / 1_000_000L
-            val key = feature to code
-            addEvent('E', feature, code)
+            val publicCode = IssueReportCodes.select(code, fallbackCode(feature))
+            val key = feature to publicCode
+            addEvent('E', feature, publicCode)
             if ((lastFailures[key] ?: Long.MIN_VALUE / 2) + DUPLICATE_MILLIS > now) return
             lastFailures[key] = now
-            addPending(IssueReport.debug(feature, code, recentEvents()))
+            addPending(IssueReport.debug(feature, publicCode, recentEvents(), error))
         }
     }
 
-    fun chatFailure(code: String?, rateLimited: Boolean) {
-        val publicCode = when (code) {
-            "LOCAL_PREFILL_TIMEOUT", "LOCAL_SERVICE_UNREACHABLE", "GATEWAY_UNREACHABLE" -> code
-            else -> if (rateLimited) "PROVIDER_RATE_LIMITED" else "CHAT_FAILED"
-        }
-        failure(ReportFeature.CHAT, publicCode)
+    fun chatFailure(code: String?, rateLimited: Boolean) = chatFailure(code, rateLimited, null)
+
+    fun chatFailure(code: String?, rateLimited: Boolean, error: Throwable?) {
+        val publicCode = IssueReportCodes.select(code, if (rateLimited) "PROVIDER_RATE_LIMITED" else "CHAT_FAILED")
+        failure(ReportFeature.CHAT, publicCode, error)
     }
 
     /** Called by the existing uncaught exception handler before it delegates to Android. */

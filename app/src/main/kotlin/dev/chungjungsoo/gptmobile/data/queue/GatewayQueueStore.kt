@@ -137,12 +137,14 @@ class GatewayQueueStore @Inject constructor(
     }
 
     /** Read-only reconciliation; absence of a command receipt is never permission to resubmit. */
-    internal suspend fun remoteSettled(lease: GatewaySubmissionRecord): Boolean {
+    internal suspend fun remoteSettled(lease: GatewaySubmissionRecord): Boolean = remoteSettled(lease, forceRefresh = false)
+
+    private suspend fun remoteSettled(lease: GatewaySubmissionRecord, forceRefresh: Boolean): Boolean {
         val runId = requireNotNull(lease.runId)
         if (dao.submissionsForRun(runId).any { it.state in setOf("PENDING_ORDINARY", "DISPATCHING_ORDINARY") }) {
             // Preserve the recovered acknowledgement on the original run before
             // terminal proof removes that command from the pending-admission set.
-            conversations.reconcileOrdinaryAdmissions(lease.chatId)
+            conversations.reconcileOrdinaryAdmissions(lease.chatId, forceRefresh = forceRefresh)
         }
         val reservations = dao.submissionsForRun(runId)
         if (reservations.isEmpty()) return database.agentRunDao().getById(runId)?.gatewayJobId == null
@@ -156,7 +158,7 @@ class GatewayQueueStore @Inject constructor(
             val original = ordinaryAuthority(reservation)
             check(original.reservationKind == "ordinary" && original.model == selected.model && reservation.connectionProfileUid == selected.profileUid && reservation.endpoint == selected.endpoint)
             val route = jobs.originalRoute(reservation.connectionProfileUid, reservation.endpoint)
-            val receipt = client.command(route.config, reservation.commandId) ?: return false
+            val receipt = (if (forceRefresh) client.command(route.config, reservation.commandId) else client.observeCommand(route.config, reservation.commandId)) ?: return false
             check(receipt.jobKind == "generation" && receipt.gatewayId == original.gatewayId && receipt.principalId == original.principalId && (receipt.profileId == null || receipt.profileId == selected.profileUid) && (receipt.model == null || receipt.model == selected.model)) {
                 "The saved Gateway command identity changed."
             }
@@ -183,7 +185,7 @@ class GatewayQueueStore @Inject constructor(
                 continue
             }
             val route = jobs.originalRoute(pending.connectionProfileUid, pending.endpoint)
-            val receipt = client.command(route.config, pending.commandId)
+            val receipt = client.observeCommand(route.config, pending.commandId)
                 ?: return "An earlier Gateway submission has no confirmed outcome. Open its saved job to reconcile it before new work starts."
             val terminal = if (binding != null) {
                 check(receipt.jobKind == "engineering" && receipt.gatewayId == binding.gatewayId && receipt.principalId == binding.principalId && receipt.profileId == binding.request.profileId && receipt.model == binding.request.model && receipt.repository == binding.request.repository && receipt.base == binding.request.base && dev.chungjungsoo.gptmobile.data.github.gatewayWorkingBranchMatches(binding.request, receipt.branch, receipt.sourceBranch, receipt.sourceSha, receipt.workingBranch)) {
@@ -261,7 +263,7 @@ class GatewayQueueStore @Inject constructor(
     internal suspend fun reviewRestored(lease: GatewaySubmissionRecord): Boolean {
         val runId = requireNotNull(lease.runId)
         val last = dao.submissionsForRun(runId).lastOrNull { it.state !in setOf("REJECTED_NOT_DISPATCHED", "RESERVED_ORDINARY") } ?: return false
-        if (!remoteSettled(lease)) return false
+        if (!remoteSettled(lease, forceRefresh = true)) return false
         val original = ordinaryAuthority(last)
         val route = jobs.originalRoute(last.connectionProfileUid, last.endpoint)
         val receipt = client.command(route.config, last.commandId) ?: return false

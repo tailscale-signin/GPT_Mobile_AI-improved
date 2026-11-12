@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 from authentication.app import create_app
 from authentication.github_broker import Config, challenge_for
 from authentication.issue_report_app import create_app as create_report_app
-from authentication.issue_reports import GitHubIssuePublisher, GitHubRequestError, IssueReporter, REPOSITORY, ReportError, marker
+from authentication.issue_reports import GitHubIssuePublisher, GitHubRequestError, IssueReporter, REPOSITORY, ReportError, issue_from_report, marker
 
 
 class HttpBoundaryTest(unittest.TestCase):
@@ -130,6 +130,42 @@ class IssueReportHttpTest(unittest.TestCase):
             with self.subTest(change=change):
                 self.assertEqual(422, self.submit({**report, "reportId": str(uuid4()), **change}).status_code)
         self.assertEqual(1, len(self.issued))
+
+    def test_specific_voice_gateway_and_tool_failure_codes_survive_public_report_validation(self):
+        for feature, code in (
+            ("voice", "VOICE_MICROPHONE_PERMISSION_REQUIRED"),
+            ("voice", "VOICE_RECOGNIZER_MEMORY_PRESSURE"),
+            ("gateway", "GATEWAY_ENGINEERING_GITHUB_REQUIRED"),
+            ("tools", "INVALID_ARGUMENTS"),
+        ):
+            with self.subTest(code=code):
+                report = {**self.metadata(), "source": "debug", "feature": feature, "errorCode": code,
+                          "events": [f"-023ms E {feature} {code}"]}
+                self.assertEqual(200, self.submit(report).status_code)
+                self.assertIn(code, self.issued[-1]["title"])
+                self.assertIn(f"-023ms E {feature} {code}", self.issued[-1]["body"])
+
+    def test_unknown_extended_failure_codes_remain_rejected(self):
+        report = {**self.metadata(), "source": "debug", "feature": "voice", "errorCode": "VOICE_SESSION_FAILED"}
+        for change in (
+            {"errorCode": "PRIVATE_PROVIDER_TOKEN_VALUE"},
+            {"events": ["-023ms E voice PRIVATE_PROVIDER_TOKEN_VALUE"]},
+            {"errorCode": "VOICE_MICROPHONE_PERMISSION_REQUIRED private message"},
+        ):
+            with self.subTest(change=change):
+                self.assertEqual(422, self.submit({**report, "reportId": str(uuid4()), **change}).status_code)
+        self.assertFalse(self.issued)
+
+    def test_typed_network_and_unknown_outcome_codes_survive_formatting(self):
+        for code in ("DNS_RESOLUTION_FAILED", "NETWORK_DISCONNECTED", "CONNECTION_ABORTED", "NETWORK_TIMEOUT",
+                     "TLS_FAILURE", "AUTH_REQUIRED", "RATE_LIMITED", "READ_DEADLINE",
+                     "DISPATCH_OUTCOME_UNKNOWN", "TIMEOUT_OUTCOME_UNKNOWN"):
+            with self.subTest(code=code):
+                report = {**self.metadata(), "source": "debug", "feature": "tools", "errorCode": code,
+                          "events": [f"-023ms E tools {code}"]}
+                _, issue = issue_from_report(report)
+                self.assertIn(code, issue["title"])
+                self.assertIn(f"-023ms E tools {code}", issue["body"])
 
     def test_uncertain_write_is_reconciled_without_another_post(self):
         report = self.manual()

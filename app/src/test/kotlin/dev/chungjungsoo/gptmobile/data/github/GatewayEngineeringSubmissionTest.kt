@@ -159,11 +159,11 @@ class GatewayEngineeringSubmissionTest {
         coEvery { settings.fetchPlatformV2s() } returns listOf(selected, originalGateway)
         coEvery { client.principal(any(), requireReady = false) } returns "owner"
         coEvery { client.capabilities(any()) } returns capability
-        coEvery { history.command(any(), "original-command") } returns null
+        coEvery { history.observeCommand(any(), "original-command") } returns null
         val repository = repository()
         assertTrue(repository.hasUnconfirmedAdmission(8, selected.uid))
         assertTrue(runCatching { repository.requireNoUnconfirmedAdmission(8, selected.uid, "new-command") }.isFailure)
-        coVerify(exactly = 1) { history.command(any(), "original-command") }
+        coVerify(exactly = 1) { history.observeCommand(any(), "original-command") }
         coVerify(exactly = 0) { client.create(any(), any()) }
     }
 
@@ -199,6 +199,7 @@ class GatewayEngineeringSubmissionTest {
         coEvery { client.principal(any(), requireReady = false) } returns "owner"
         coEvery { client.capabilities(any()) } returns capability
         coEvery { history.command(any(), "command") } returns null
+        coEvery { history.observeCommand(any(), "command") } returns null
         coEvery { client.bindingCapabilities(any(), selection, admission.bindingId) } returns admission
         if (bindingRejected) coEvery { client.bindingCapabilities(any(), selection, admission.bindingId) } throws GatewayExecutionRejected("EXECUTION_MODEL_LOADING", 409, "provider_admission", retryable = true, inferenceAttempted = false)
         coEvery { client.create(any(), binding.request) } throws GatewayEngineeringRequestRejected(409, "Conversation revision changed")
@@ -216,6 +217,7 @@ class GatewayEngineeringSubmissionTest {
         assertEquals(expectedState, admissionState)
         repository.observe("command")
         coVerify(exactly = if (selectionChanged || bindingRejected) 0 else 1) { client.create(any(), any()) }
-        coVerify(exactly = if (expectedUnknown || bindingRejected) 2 else 1) { history.command(any(), "command") }
+        coVerify(exactly = 1) { history.command(any(), "command") }
+        coVerify(exactly = if (expectedUnknown || bindingRejected) 1 else 0) { history.observeCommand(any(), "command") }
     }
 }

@@ -46,7 +46,7 @@ class VoiceContinuousListeningTest {
         session.access(true, true, true)
         session.resume()
         repeat(4) {
-            audio.listeners.last().retryableFailure("busy", 1000)
+            audio.listeners.last().failure("busy", "VOICE_MICROPHONE_BUSY", retryMillis = 1000, retryable = true)
             time += 1000
             session.tick()
         }
@@ -57,6 +57,27 @@ class VoiceContinuousListeningTest {
         time += 2000
         session.tick()
         assertEquals(5, audio.listeners.size)
+    }
+
+    @Test fun localSilenceFailureUsesTheBoundedRetryAndPreservesPartialSpeechForReview() {
+        var time = 0L
+        val audio = Audio()
+        val session = VoiceSession(audio, { error("Silence must not send a message") }, {}, { time }).apply { autoContinue = true }
+        session.access(true, true, true)
+        session.resume()
+        audio.listeners.last().failure("No speech", "VOICE_NO_SPEECH", retryMillis = 500, retryable = true)
+        time = 500
+        session.tick()
+        assertEquals(2, audio.listeners.size)
+        audio.listeners.last().partial("Keep these words")
+        audio.listeners.last().failure("No final result", "VOICE_NO_SPEECH", retryMillis = 500, retryable = true)
+        time = 1000
+        session.tick()
+        assertEquals(2, audio.listeners.size)
+        assertTrue(session.state.hasDraft)
+        session.resume()
+        assertEquals(VoicePhase.REVIEWING, session.state.phase)
+        assertEquals("Keep these words", session.state.transcript)
     }
 
     @Test fun repeatedSilenceHasBoundedAutomaticRetries() {

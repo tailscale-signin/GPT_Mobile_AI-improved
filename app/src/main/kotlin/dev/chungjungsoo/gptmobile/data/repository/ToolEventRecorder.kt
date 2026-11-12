@@ -166,7 +166,8 @@ class ToolEventRecorder @Inject constructor(
                 " · executionState=${dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.executionState(normalizedResult)} · retryable=${dev.chungjungsoo.gptmobile.data.agent.ToolFailureMetadata.retryable(normalizedResult)}" +
                 (normalizedResult.executionReceipt?.let { " · executionReceipt=$it · causalIncidentId=${(it["incident_id"] as? JsonPrimitive)?.content.orEmpty()}" }.orEmpty()) +
                 if (normalizedResult.isError) " · diagnosticPayloadRef=toolEvent:$eventId · displayPreviewTruncated=${safeError.orEmpty().length > 240} · reasonPreview=${dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor.redact(safeError.orEmpty()).take(240)}" else "",
-            if (normalizedResult.isError) "E" else "I"
+            if (normalizedResult.isError) "E" else "I",
+            reportCode = normalizedResult.errorCode.takeUnless { healthEvent }
         )
         return dao.getToolEventById(eventId)
     }

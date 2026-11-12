@@ -295,7 +295,11 @@ class GatewayEngineeringRepository @Inject constructor(
             val capability = client.capabilities(config)
             val identity = if (capability.conversationSync) history.identity(config) else null
             check(identity == null || identity.principalId == binding.principalId && (binding.gatewayId == null || identity.gatewayId == binding.gatewayId)) { "The original gateway installation or account changed." }
-            val receipt = if (capability.conversationSync) history.command(config, requestId) else null
+            val receipt = if (capability.conversationSync) {
+                if (allowCreate) history.command(config, requestId) else history.observeCommand(config, requestId)
+            } else {
+                null
+            }
             if (receipt != null) {
                 check(receipt.commandId == requestId && receipt.jobKind == "engineering" && receipt.principalId == binding.principalId && receipt.gatewayId == identity?.gatewayId && (binding.gatewayId == null || receipt.gatewayId == binding.gatewayId)) { "The saved command receipt belongs to a different gateway or account." }
                 val recovered = client.get(config, receipt.jobId, binding.syncedRevision)

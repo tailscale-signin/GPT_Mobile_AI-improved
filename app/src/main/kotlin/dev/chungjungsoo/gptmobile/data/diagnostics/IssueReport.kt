@@ -36,13 +36,13 @@ internal data class IssueReport(
         internal val json = Json { ignoreUnknownKeys = true }
 
         fun manual(title: String, description: String, events: List<String>): IssueReport = base("manual", events).copy(
-            title = diagnosticMessageForStorage(title.trim()).take(TITLE_LIMIT),
-            description = diagnosticMessageForStorage(description.trim()).take(DESCRIPTION_LIMIT)
+            title = diagnosticMessageForStorage(title.trim()).issueReportPrefix(TITLE_LIMIT),
+            description = diagnosticMessageForStorage(description.trim()).issueReportPrefix(DESCRIPTION_LIMIT)
         )
 
         fun debug(feature: ReportFeature, code: String, events: List<String>, error: Throwable? = null): IssueReport = base("debug", events).copy(
             feature = feature.name.lowercase(),
-            errorCode = code,
+            errorCode = IssueReportCodes.select(code, fallbackCode(feature)),
             errorType = error?.javaClass?.simpleName?.takeIf(typePattern::matches),
             frames = generateSequence(error) { it.cause }.take(4).flatMap { it.stackTrace.asSequence().take(48) }
                 .map { "${it.className}.${it.methodName}:${it.lineNumber.coerceAtLeast(0)}" }
@@ -64,3 +64,14 @@ internal data class IssueReport(
 }
 
 internal enum class ReportFeature { APP, CHAT, VOICE, GATEWAY, LOCAL, TOOLS }
+
+internal fun fallbackCode(feature: ReportFeature): String = when (feature) {
+    ReportFeature.CHAT -> "CHAT_FAILED"
+    ReportFeature.VOICE -> "VOICE_SESSION_FAILED"
+    else -> "APP_ERROR"
+}
+
+internal fun String.issueReportPrefix(limit: Int): String {
+    val end = limit.coerceIn(0, length)
+    return take(if (end > 0 && this[end - 1].isHighSurrogate()) end - 1 else end)
+}

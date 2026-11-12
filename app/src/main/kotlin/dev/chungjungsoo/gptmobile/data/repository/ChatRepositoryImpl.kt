@@ -6924,7 +6924,7 @@ class ChatRepositoryImpl(
             val observedFailure = message.timeline.asReversed().firstNotNullOfOrNull { it.profileFailure }
                 ?: terminalError?.let { dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.classify(it) }
             val failure = dev.chungjungsoo.gptmobile.data.agent.AgentFailureEvidence.reconcile(observedFailure, runId, observedFailure?.invocationId?.let { invocationLedger?.dao?.byId(it) })
-            val terminal = dev.chungjungsoo.gptmobile.data.agent.AgentRunTerminalDiagnostics.from(status, failure, acceptance)
+            val terminal = dev.chungjungsoo.gptmobile.data.agent.AgentRunTerminalDiagnostics.from(status, failure, acceptance, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.lastObservedStage(runId))
             AppLogRecorder.recordEvent(
                 "Agent",
                 "RUN_TERMINAL",
@@ -6936,6 +6936,7 @@ class ChatRepositoryImpl(
                     "reason" to terminal.reason,
                     "errorCode" to terminal.reason.takeUnless { status == AgentRunStatus.COMPLETED },
                     "failedStage" to terminal.stage,
+                    "lastObservedStage" to terminal.lastObservedStage?.name,
                     "recoveryAction" to terminal.recoveryAction,
                     "taskState" to terminal.taskState,
                     "stopCode" to terminal.stopCode,
@@ -6959,6 +6960,9 @@ class ChatRepositoryImpl(
                 )
             )
             acceptance?.let {
+                dev.chungjungsoo.gptmobile.data.github.GitHubRunAcceptance.diagnosticEvents(it, runId).forEach { fields ->
+                    AppLogRecorder.recordEvent("GitHub", "GITHUB_ACCEPTANCE_CRITERION", fields)
+                }
                 dev.chungjungsoo.gptmobile.data.github.GitHubRunAcceptance.diagnosticLines(it, runId).forEach { line ->
                     // Keep the protected acceptance payload as one complete JSON object. Prefixing
                     // it with a legacy key/value field made the JSON part of fields.runId and

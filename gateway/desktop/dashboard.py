@@ -240,7 +240,9 @@ class Dashboard:
             cfg = load(self.root)
             endpoint = f'{cfg["bind_host"]}:{cfg["port"]}'
             mode = 'Key-free network' if cfg['access'] == 'network' else 'This PC only'
-            self.subtitle.configure(text=f'{endpoint}  /  {mode}  /  Model backend: {status.get("backend", "not measured")}')
+            revision = status.get('build', {}).get('sourceCommit', '')
+            build = f'{status.get("version", "unknown")} ({revision[:12] if revision else "revision not observed"})'
+            self.subtitle.configure(text=f'{endpoint}  /  {mode}  /  Gateway {build}  /  Model backend: {status.get("backend", "not measured")}')
         except (OSError, ValueError):
             self.subtitle.configure(text='Connection settings unavailable. Open settings to recover the configuration.')
         usage = self.snapshot.get('usage', {})

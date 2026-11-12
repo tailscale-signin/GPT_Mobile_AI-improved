@@ -328,6 +328,73 @@ class GatewayConversationRepositoryTest {
         coVerify(exactly = 0) { commands.instruction(any(), any(), any()) }
     }
 
+    @Test fun repeatedAbsentReceiptPersistsBackoffAcrossRepositoryRestartAndLaterRecoversOriginalJob() = runBlocking {
+        val turn = turn()
+        val run = turn.runs.single()
+        val command = "missing-receipt"
+        repository.reserveOrdinaryTurn(turn.chatRoom.id, "profile", route.endpoint, command, turn.userMessage.id, run.assistantMessageId, run.runId, "model")
+        db.agentPersistenceDao().updateRunStatus(run.runId, "RUNNING", 1, null, null)
+        repository.ordinaryDispatching(command, run.runId)
+        db.agentPersistenceDao().updateRunStatus(run.runId, "INTERRUPTED", 1, 2, "GATEWAY_OUTCOME_UNKNOWN: response lost")
+        coEvery { client.observeCommand(config, command) } returns null
+        repeat(20) {
+            GatewayConversationRepository(db, settings, client, jobs, commands).reconcileOrdinaryAdmissions(turn.chatRoom.id)
+        }
+        coVerify(exactly = 1) { client.observeCommand(config, command) }
+        val pending = requireNotNull(db.gatewayJobDao().submission(command))
+        assertEquals("DISPATCHING_ORDINARY", pending.state)
+        assertEquals("INTERRUPTED", db.agentRunDao().getById(run.runId)?.status)
+        assertTrue(pending.receipt?.contains("gateway_command_lookup_v1") == true)
+        // Advance only the durable lookup checkpoint, then discover a late acceptance.
+        db.gatewayJobDao().saveSubmission(GatewayCommandReconciliation.deferred(pending, System.currentTimeMillis() - 600_000))
+        coEvery { client.observeCommand(config, command) } returns GatewayCommandReceipt(gatewayId = "gateway", principalId = "owner", commandId = command, conversationId = "original-conversation", jobKind = "generation", jobId = "original-job", profileId = "profile", model = "model")
+        repository.reconcileOrdinaryAdmissions(turn.chatRoom.id)
+        assertEquals("ACCEPTED", db.gatewayJobDao().submission(command)?.state)
+        assertEquals("original-job", db.agentRunDao().getById(run.runId)?.gatewayJobId)
+        coVerify(exactly = 2) { client.observeCommand(config, command) }
+        coVerify(exactly = 0) { commands.instruction(any(), any(), any()) }
+    }
+
+    @Test fun durableRejectionSettlesOnlyOriginalActiveOwnerAndDoesNotOverwriteExplicitStop() = runBlocking {
+        for (status in listOf("WAITING_REMOTE_JOB", "INTERRUPTED", "CANCELED")) {
+            val turn = turn()
+            val run = turn.runs.single()
+            val command = "rejected-$status"
+            repository.reserveOrdinaryTurn(turn.chatRoom.id, "profile", route.endpoint, command, turn.userMessage.id, run.assistantMessageId, run.runId, "model")
+            db.agentPersistenceDao().updateRunStatus(run.runId, status, 1, 2, if (status == "CANCELED") "Stopped by user" else "GATEWAY_OUTCOME_UNKNOWN: response lost")
+            val rejection = GatewayCommandRejection(1, "gateway", "owner", command, "generation", "rejected", "EXECUTION_MODEL_LOADING", 409, "provider_admission", "not_dispatched", false)
+            coEvery { client.observeCommand(config, command) } throws GatewayCommandRejected(rejection)
+            repository.reconcileOrdinaryAdmissions(turn.chatRoom.id)
+            repository.reconcileOrdinaryAdmissions(turn.chatRoom.id)
+            val retained = requireNotNull(db.agentRunDao().getById(run.runId))
+            assertEquals("REJECTED:409", db.gatewayJobDao().submission(command)?.state)
+            assertNull(retained.gatewayJobId)
+            if (status == "CANCELED") {
+                assertEquals("CANCELED", retained.status)
+                assertEquals("Stopped by user", retained.terminalError)
+            } else {
+                assertEquals("BLOCKED", retained.status)
+                assertTrue(retained.terminalError?.contains("EXECUTION_MODEL_LOADING; provider_admission; not_dispatched") == true)
+                val failure = requireNotNull(db.gatewayJobDao().localMessage(run.assistantMessageId)?.timeline?.last()?.profileFailure)
+                assertEquals(false, failure.dispatched)
+                assertEquals(false, failure.requestReplayAllowed)
+            }
+            coVerify(exactly = 1) { client.observeCommand(config, command) }
+        }
+        coVerify(exactly = 0) { commands.instruction(any(), any(), any()) }
+    }
+
+    @Test fun anotherAccountsNegativeReceiptCannotReleaseTheOriginalCommandFence() = runBlocking {
+        val turn = turn()
+        val run = turn.runs.single()
+        repository.reserveOrdinaryTurn(turn.chatRoom.id, "profile", route.endpoint, "original", turn.userMessage.id, run.assistantMessageId, run.runId, "model")
+        val rejection = GatewayCommandRejection(1, "gateway", "other-owner", "original", "generation", "rejected", "queue_full", 429, "provider_admission", "not_dispatched", false)
+        coEvery { client.observeCommand(config, "original") } throws GatewayCommandRejected(rejection)
+        assertTrue(runCatching { repository.reconcileOrdinaryAdmissions(turn.chatRoom.id) }.isFailure)
+        assertEquals("RESERVED_ORDINARY", db.gatewayJobDao().submission("original")?.state)
+        assertNull(db.gatewayJobDao().submission("original")?.receipt)
+    }
+
     @Test fun authenticatedAcceptedReceiptRepairsFailedAndParkedNoHeaderRunsForExistingReadOnlyRecovery() = runBlocking {
         val cases = listOf(
             Triple("FAILED", "GATEWAY_OUTCOME_UNKNOWN: response lost", "FAILED"),

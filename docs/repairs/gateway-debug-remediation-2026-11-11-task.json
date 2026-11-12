@@ -1,0 +1,63 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "e62bded83b3861816c2c6e97116b30c9eb0920f1",
+  "working_branch": "fix/voice-chat-crash-and-diagnostics-2026-11-11",
+  "starting_head": "ab77b77dba3e9e7c928b153e2accf44e937d7e0c",
+  "parent_pr": 819,
+  "intent": "Implement the 23 gateway-debug audit issue groups with exact-model preparation, durable admission and receipt recovery, task-specific tool readiness, bounded generation repair, criterion evidence, complete diagnostics and measured client-performance fixes.",
+  "state": "IMPLEMENTED_PENDING_ANDROID_VALIDATION",
+  "task_store": "engineering_agent_checkpoints",
+  "task_store_key": "gateway-debug-remediation-2026-11-11",
+  "source_capture": {
+    "transport_sha256": "915d458dbc0705c8621c3b18819ea1f41c5390e1f5d9f2f6a47e31dabdd362d6",
+    "diagnostic_sha256": "55e9c61db05955df0f715cb1cbb2221b7e52d420e7b17319b4b10d5c739702fe",
+    "coverage": "Retained evidence only; host listener availability and physical model execution require deployed qualification."
+  },
+  "workstreams": {
+    "model_preparation": "IMPLEMENTED",
+    "admission_reconciliation": "IMPLEMENTED",
+    "diagnostics_export_performance": "IMPLEMENTED",
+    "tools_generation_acceptance": "IMPLEMENTED"
+  },
+  "validation": {
+    "fast": {
+      "status": "PASS",
+      "script_tests": 462,
+      "command": "bash scripts/validate-local.sh fast"
+    },
+    "authentication": {
+      "status": "PASS",
+      "tests": 35
+    },
+    "focused_gateway": {
+      "status": "PASS",
+      "model_preparation": 47,
+      "task_readiness": 10,
+      "debug_evidence": 13,
+      "diagnostic_events": 28,
+      "selected_execution": 23
+    },
+    "android_compile": {
+      "status": "PENDING",
+      "detail": "Verified immutable caches moved from tmpfs to disk. KSP completed; daemon still disappeared during KAPT stubs. Standalone KAPT and PR CI validation remain in progress. No Android compilation or test pass claimed."
+    },
+    "complete_gateway": {
+      "status": "PASS",
+      "python_tests": 880,
+      "python_passed": 878,
+      "python_skipped": 2,
+      "browser_tests_passed": 7,
+      "command": "python3 gateway/check_gateway.py"
+    }
+  },
+  "publication": {
+    "target_pr": 819,
+    "target_branch": "fix/voice-chat-crash-and-diagnostics-2026-11-11",
+    "expected_head": "aa51231a492ae4fde208d1ca2d17e64790f3bf53",
+    "method": "GitHub Git Database API, expected-head fast-forward update",
+    "status": "PREPARED"
+  },
+  "concurrent_head_integrated": "aa51231a492ae4fde208d1ca2d17e64790f3bf53"
+}

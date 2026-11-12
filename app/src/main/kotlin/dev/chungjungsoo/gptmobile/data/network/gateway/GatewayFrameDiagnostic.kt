@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.network.gateway
 
+import dev.chungjungsoo.gptmobile.data.diagnostics.FrameJankPolicy
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -9,7 +10,7 @@ import kotlinx.serialization.json.put
 /** Counts describe the sampled window. Lost samples never become dropped display frames. */
 internal data class GatewayFrameDiagnostic(val frames: Long?, val missed: Long?, val lost: Long?, val maximumNs: Long?, val source: JsonObject) {
     val severe: Boolean get() = (maximumNs ?: 0) >= 100_000_000
-    val jank: Boolean get() = frames != null && frames > 0 && missed != null && missed.toDouble() / frames >= 0.05
+    val jank: Boolean get() = FrameJankPolicy.sustained(frames, missed)
     val errorCode: String get() = when {
         severe -> "RENDERER_STALL"
         jank -> "RENDERER_JANK"
@@ -23,7 +24,8 @@ internal data class GatewayFrameDiagnostic(val frames: Long?, val missed: Long?,
         lost?.let { put("dropped_samples", it) }
         maximumNs?.let { put("maximum_frame_ns", it) }
         put("severe_frame_threshold_ns", 100_000_000L)
-        put("jank_threshold_ppm", 50_000L)
+        put("jank_threshold_ppm", FrameJankPolicy.THRESHOLD_PPM)
+        put("jank_minimum_frames", FrameJankPolicy.MINIMUM_FRAMES)
         put("severe_long_frame", severe)
         put("sustained_jank", jank)
         put("measurement_loss", (lost ?: 0) > 0)

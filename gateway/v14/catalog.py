@@ -1,5 +1,6 @@
 """Revision-fenced, concurrent discovery with a bounded wait and detached producer."""
 import hashlib
+import copy
 import json
 import threading
 import time
@@ -41,6 +42,99 @@ class CatalogCache:
             return {'toolsReady': ready, 'toolsState': state, 'toolConnectionCount': len(keys),
                     'toolCount': count, 'schemaReady': schema_ready, 'executionVerified': execution}
 
+    def connection_observations(self):
+        """Safe, passive connection evidence, without commands, addresses or credentials."""
+        with self.lock:
+            return self._connection_observations(copy.deepcopy(self.runtime.load_mcp_config()))
+
+    def _connection_observations(self, config):
+        now = time.monotonic()
+        result = []
+        with self.lock:
+            for name, value in sorted(config.items()):
+                key = self.key(name, value)
+                cached, health = self.cache.get(key), self.health.get(key, {})
+                fresh = cached is not None and now - cached[0] <= self.ttl
+                schema_ready = bool(fresh and health.get('connectionHealthy') is True and
+                                    health.get('authorized') is not False and not health.get('catalogRejected'))
+                reason = health.get('reasonCode')
+                if not value.get('enabled', True):
+                    state, reason, action = 'DISABLED', 'MCP_CONNECTION_DISABLED', 'CONFIGURE_CONNECTION'
+                    schema_ready = False
+                elif health.get('authorized') is False:
+                    state, reason, action = 'AUTH_REQUIRED', 'MCP_AUTH_REQUIRED', 'REAUTHORIZE_CONNECTION'
+                elif health.get('catalogRejected'):
+                    state, reason, action = 'INVALID_CATALOG', 'MCP_CATALOG_INVALID', 'FIX_TOOL_SCHEMA'
+                elif health.get('connectionHealthy') is False:
+                    state, action = 'UNAVAILABLE', 'CHECK_LISTENER_AND_RETRY_DISCOVERY'
+                    reason = reason or 'MCP_CONNECTION_UNAVAILABLE'
+                elif key in self.flights:
+                    state, reason, action = 'DISCOVERING', 'MCP_DISCOVERY_IN_PROGRESS', 'WAIT_FOR_DISCOVERY'
+                elif not cached:
+                    state, reason, action = 'NOT_DISCOVERED', 'MCP_DISCOVERY_REQUIRED', 'DISCOVER_TOOLS'
+                elif not fresh:
+                    state, reason, action = 'STALE', 'MCP_CATALOG_STALE', 'REFRESH_DISCOVERY'
+                elif not cached[1]:
+                    state, reason, action = 'EMPTY_CATALOG', 'MCP_NO_TOOLS_ADVERTISED', 'CHECK_TOOL_FILTERS'
+                elif schema_ready:
+                    state, reason, action = 'READY_FOR_DISPATCH', None, None
+                else:
+                    state, reason, action = 'NOT_MEASURED', 'MCP_CONNECTION_NOT_MEASURED', 'REFRESH_DISCOVERY'
+                retry_at = health.get('retryAt', 0)
+                result.append({'serviceId': name, 'state': state, 'reasonCode': reason, 'recoveryAction': action,
+                               'schemaReady': schema_ready, 'toolCount': len(cached[1]) if cached else 0,
+                               'executionVerified': health.get('executionVerified'),
+                               'executionObservedAtMs': health.get('executionObservedAt'),
+                               'lastDiscoverySuccessAtMs': health.get('lastDiscoverySuccessAtMs'),
+                               'catalogAgeMs': max(0, int((now - cached[0]) * 1000)) if cached else None,
+                               'retryAfterMs': max(0, int((retry_at - now) * 1000)) if retry_at != float('inf') else None,
+                               'retryRequiresConfigurationChange': retry_at == float('inf')})
+        return result
+
+    def task_readiness(self, required_tools):
+        """Check only exact required tools; discovery never proves successful execution."""
+        if len(required_tools) > 64 or any(not isinstance(name, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', name) for name in required_tools):
+            raise ValueError('At most 64 exact advertised tool names are accepted')
+        tools = []
+        with self.lock:
+            config = copy.deepcopy(self.runtime.load_mcp_config())
+            connections = {row['serviceId']: row for row in self._connection_observations(config)}
+            for tool in dict.fromkeys(required_tools):
+                matches = [(name, cached) for name, cfg in config.items()
+                           if (cached := self.cache.get(self.key(name, cfg))) and tool in cached[2]]
+                if len(matches) != 1:
+                    tools.append({'tool': tool, 'ready': False, 'reasonCode': 'MCP_REQUIRED_TOOL_NOT_ADVERTISED',
+                                  'recoveryAction': 'DISCOVER_EXACT_REQUIRED_TOOL', 'executionVerified': None})
+                    continue
+                name, cached = matches[0]
+                observed = connections[name]
+                health = self.health.get(self.key(name, config[name]), {})
+                tools.append({'tool': tool, 'serviceId': name, 'ready': observed['schemaReady'],
+                              'reasonCode': observed['reasonCode'], 'recoveryAction': observed['recoveryAction'],
+                              'retryAfterMs': observed['retryAfterMs'],
+                              'executionVerified': health.get('executionVerified') if health.get('executionTool') == cached[2][tool]['tool'] else None})
+            current = self.runtime.load_mcp_config()
+            for row in tools:
+                name = row.get('serviceId')
+                if name and (name not in current or self.key(name, current[name]) != self.key(name, config[name])):
+                    row.update(ready=False, reasonCode='MCP_CONFIGURATION_CHANGED', recoveryAction='REFRESH_DISCOVERY', executionVerified=None)
+        return {'ready': all(row['ready'] for row in tools), 'scope': 'REQUESTED_TOOLS_ONLY',
+                'retryable': any(not row['ready'] and (row.get('retryAfterMs') or 0) > 0 for row in tools),
+                'requiredTools': tools, 'executionCoverage': 'Exact observed operations only; schema readiness permits dispatch but does not prove execution'}
+
+    def _discovery_failure(self, key, reason, *, unauthorized=False, invalid=False):
+        previous = self.health.get(key, {})
+        # A late timeout/transport failure cannot undo an observed authorization
+        # or schema rejection. Only a successful discovery restores that contract.
+        unauthorized = unauthorized or previous.get('authorized') is False
+        invalid = invalid or previous.get('catalogRejected', False)
+        reason = 'MCP_AUTH_REQUIRED' if unauthorized else 'MCP_CATALOG_INVALID' if invalid else reason
+        failures = min(10, previous.get('consecutiveFailures', 0) + 1)
+        self.health[key] = {**previous, 'authorized': not unauthorized, 'schemaKnown': key in self.cache,
+                            'connectionHealthy': False, 'executionAvailable': False,
+                            'reasonCode': reason, 'reason': reason.removeprefix('MCP_'), 'catalogRejected': invalid, 'consecutiveFailures': failures,
+                            'retryAt': float('inf') if unauthorized or invalid else time.monotonic() + min(300, 30 * 2 ** (failures - 1))}
+
     def get(self,force=False):
         config=self.runtime.load_mcp_config();keys={name:self.key(name,cfg) for name,cfg in config.items()}
         if len(keys)>64: raise ValueError('MCP connection catalogue exceeds 64 connections')
@@ -56,7 +150,7 @@ class CatalogCache:
                 if key not in keys.values(): self.cache.pop(key,None);self.health.pop(key,None)
             for name,key in keys.items():
                 cached=self.cache.get(key);health=self.health.get(key,{})
-                if force or not cached or time.monotonic()-cached[0]>self.ttl:
+                if force or not cached or time.monotonic()-cached[0]>self.ttl or health.get('connectionHealthy') is False:
                     if key not in self.flights and (force or time.monotonic()>=health.get('retryAt',0)):
                         event=threading.Event();cancel=threading.Event();self.flights[key]=(event,cancel)
                         threading.Thread(target=self._load,args=(name,key,config[name],event,cancel),daemon=True).start()
@@ -79,7 +173,7 @@ class CatalogCache:
             with self.lock:
                 current = self.runtime.load_mcp_config().get(name)
                 if self.flights.get(key,(None,None))[0] is event and current is not None and self.key(name,current)==key:
-                    self.health[key]={'authorized':self.health.get(key,{}).get('authorized',True),'catalogRejected':self.health.get(key,{}).get('catalogRejected',False),'schemaKnown':key in self.cache,'connectionHealthy':False,'executionAvailable':False,'reason':'DISCOVERY_DEADLINE','retryAt':time.monotonic()+30}
+                    self._discovery_failure(key, 'MCP_DISCOVERY_DEADLINE')
                     # Keep physical ownership until the producer exits, even if transport ignores cancellation.
                     # The completed event lets callers leave without starting duplicate hidden requests.
             event.set()
@@ -124,14 +218,19 @@ class CatalogCache:
                                   'executionAvailable': previous.get('executionAvailable'),
                                   'executionVerified': previous.get('executionVerified'),
                                   'executionObservedAt': previous.get('executionObservedAt'),
-                                  'executionTool': previous.get('executionTool'), 'retryAt':0}
+                                  'executionTool': previous.get('executionTool'), 'retryAt':0,
+                                  'consecutiveFailures': 0, 'lastDiscoverySuccessAtMs': int(time.time() * 1000)}
         except Exception as error:
             with self.lock:
                 current = self.runtime.load_mcp_config().get(name)
                 if not cancel.is_set() and current is not None and self.key(name,current)==key:
                     status = getattr(getattr(error, 'response', None), 'status_code', getattr(error, 'status_code', None))
                     unauthorized = isinstance(error,PermissionError) or status in {401,403} or re.search(r'(?i)\b(?:HTTP(?: Error)?\s+|RPC:\s*)(?:401|403)\b|\bunauthori[sz]ed\b',str(error)) is not None
-                    self.health[key]={'authorized':not unauthorized,'schemaKnown':key in self.cache,'connectionHealthy':False,'executionAvailable':False,'reason':type(error).__name__,'catalogRejected':isinstance(error,(ValueError,TypeError)),'retryAt':float('inf') if unauthorized or isinstance(error,(ValueError,TypeError)) else time.monotonic()+30}
+                    invalid = isinstance(error, (ValueError, TypeError))
+                    reason = ('MCP_AUTH_REQUIRED' if unauthorized else 'MCP_CATALOG_INVALID' if invalid else
+                              'MCP_CONNECTION_REFUSED' if getattr(error, 'errno', None) in {61, 111, 10061} or re.search(r'(?i)connection refused|actively refused|winerror 10061', str(error)) else
+                              'MCP_DISCOVERY_DEADLINE' if isinstance(error, TimeoutError) or 'timeout' in type(error).__name__.lower() else 'MCP_CONNECTION_UNAVAILABLE')
+                    self._discovery_failure(key, reason, unauthorized=unauthorized, invalid=invalid)
         finally:
             timer.cancel()
             with self.lock:

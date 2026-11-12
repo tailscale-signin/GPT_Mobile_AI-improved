@@ -364,7 +364,7 @@ class GatewayConversationRepository @Inject constructor(
             if (connectionProfileUid != null && (pending.connectionProfileUid != connectionProfileUid || pending.endpoint != endpoint?.trimEnd('/'))) continue
             val reservation = json.decodeFromString<GatewayOrdinaryReservation>(pending.payload)
             val route = jobs.originalRoute(pending.connectionProfileUid, pending.endpoint)
-            val receipt = (if (forceRefresh) client.command(route.config, pending.commandId) else client.observeCommand(route.config, pending.commandId)) ?: continue
+            val receipt = pendingCommand(pending, route.config, reservation.gatewayId, reservation.principalId, "generation", forceRefresh) ?: continue
             check(receipt.jobKind == "generation" && receipt.gatewayId == reservation.gatewayId && receipt.principalId == reservation.principalId && (receipt.profileId == null || receipt.profileId == pending.executionProfileUid) && (receipt.model == null || receipt.model == reservation.model)) { "The original gateway command account or execution profile changed." }
             val conversationKey = gatewayIdentityKey(receipt.gatewayId, receipt.principalId, receipt.conversationId)
             database.withTransaction {
@@ -393,7 +393,7 @@ class GatewayConversationRepository @Inject constructor(
         for (pending in dao.pendingEngineering()) {
             if (pending.connectionProfileUid != route.profileUid || pending.endpoint != route.endpoint) continue
             val binding = dao.binding(pending.commandId)?.let { json.decodeFromString<GatewayEngineeringBinding>(it.binding) } ?: continue
-            val receipt = client.command(route.config, pending.commandId) ?: continue
+            val receipt = pendingCommand(pending, route.config, binding.gatewayId, binding.principalId, "engineering", forceRefresh = true) ?: continue
             check(receipt.jobKind == "engineering" && receipt.principalId == binding.principalId && (binding.gatewayId == null || receipt.gatewayId == binding.gatewayId) && receipt.profileId == binding.request.profileId && receipt.model == binding.request.model && receipt.repository == binding.request.repository && gatewayWorkingBranchMatches(binding.request, receipt.branch, receipt.sourceBranch, receipt.sourceSha, receipt.workingBranch) && receipt.base == binding.request.base) { "The retained engineering receipt changed its original execution destination." }
             val key = gatewayIdentityKey(receipt.gatewayId, receipt.principalId, receipt.conversationId)
             database.withTransaction {
@@ -539,7 +539,7 @@ class GatewayConversationRepository @Inject constructor(
         for (pending in dao.pendingInstructions(chatId)) {
             val local = pending.conversationKey?.let { dao.conversation(it) } ?: continue
             val route = jobs.originalRoute(pending.connectionProfileUid, pending.endpoint)
-            val receipt = client.observeCommand(route.config, pending.commandId) ?: continue
+            val receipt = pendingCommand(pending, route.config, local.gatewayId, local.principalId, "engineering") ?: continue
             acceptInstruction(local, receipt)
         }
     }
@@ -549,6 +549,30 @@ class GatewayConversationRepository @Inject constructor(
         val pending = requireNotNull(dao.submission(receipt.commandId))
         check(pending.conversationKey == local.key)
         dao.saveSubmission(pending.copy(state = "ACCEPTED_INSTRUCTION", receipt = json.encodeToString(receipt)))
+    }
+
+    private suspend fun pendingCommand(pending: GatewaySubmissionRecord, config: ProviderRequestConfig, gatewayId: String?, principalId: String?, kind: String, forceRefresh: Boolean = false): GatewayCommandReceipt? {
+        if (!forceRefresh && !GatewayCommandReconciliation.due(pending)) return null
+        try {
+            val receipt = if (forceRefresh) client.command(config, pending.commandId) else client.observeCommand(config, pending.commandId)
+            return receipt.also { if (it == null) deferCommand(pending) }
+        } catch (rejected: GatewayCommandRejected) {
+            val outcome = rejected.outcome
+            check(outcome.commandId == pending.commandId && outcome.gatewayId == gatewayId && outcome.principalId == principalId && outcome.jobKind == kind) { "The original gateway command rejection belongs to a different account or execution destination." }
+            retainGatewayCommandRejection(database, pending, outcome)
+            return null
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            deferCommand(pending)
+            throw failure
+        }
+    }
+
+    private suspend fun deferCommand(pending: GatewaySubmissionRecord) = database.withTransaction {
+        dao.submission(pending.commandId)?.takeIf {
+            it.fingerprint == pending.fingerprint && it.payload == pending.payload && it.state in GatewayCommandReconciliation.pendingStates
+        }?.let { dao.saveSubmission(GatewayCommandReconciliation.deferred(it)) }
     }
 
     suspend fun refreshChat(chatId: Int) = attachmentLock.withLock {

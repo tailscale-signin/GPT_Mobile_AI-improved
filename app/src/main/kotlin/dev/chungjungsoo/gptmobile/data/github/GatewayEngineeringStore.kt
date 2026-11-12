@@ -85,6 +85,20 @@ class GatewayEngineeringStore @Inject constructor(private val database: ChatData
 
     suspend fun admissionState(requestId: String): String? = dao.submission(requestId)?.state
 
+    suspend fun commandLookupDue(requestId: String): Boolean = dao.submission(requestId)?.let { GatewayCommandReconciliation.due(it) } != false
+
+    suspend fun deferCommandLookup(requestId: String) = database.withTransaction {
+        dao.submission(requestId)?.takeIf { it.state in GatewayCommandReconciliation.pendingStates }?.let {
+            dao.saveSubmission(GatewayCommandReconciliation.deferred(it))
+        }
+    }
+
+    suspend fun rejectAdmission(requestId: String, outcome: GatewayCommandRejection) {
+        val binding = dao.binding(requestId)?.let { json.decodeFromString<GatewayEngineeringBinding>(it.binding) } ?: return
+        check(outcome.commandId == requestId && outcome.jobKind == "engineering" && outcome.gatewayId == binding.gatewayId && outcome.principalId == binding.principalId) { "The command rejection belongs to a different gateway or account." }
+        dao.submission(requestId)?.let { retainGatewayCommandRejection(database, it, outcome) }
+    }
+
     suspend fun hasMigratedAdmission(chatId: Int, profileUid: String): Boolean = dao.migratedAdmissionCount(chatId, profileUid) > 0
 
     suspend fun markAdmission(requestId: String, state: String) = database.withTransaction {

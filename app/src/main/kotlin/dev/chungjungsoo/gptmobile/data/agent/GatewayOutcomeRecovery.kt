@@ -12,6 +12,7 @@ internal object GatewayOutcomeRecovery {
     const val ERROR_CODE = "GATEWAY_OUTCOME_UNKNOWN"
     const val PARKED_RESULT_PREFIX = "GATEWAY_OUTCOME_UNKNOWN: GATEWAY_RECOVERY_EXPIRED"
     const val ISOLATED_RESULT_PREFIX = "GATEWAY_ISOLATED_RESULT_RECOVERED:"
+    const val REJECTED_COMMAND_PREFIX = "GATEWAY_COMMAND_REJECTED:"
     private const val LEGACY_CATEGORY = "REMOTE_OUTCOME_UNKNOWN"
 
     class UnreconciledTask :
@@ -56,11 +57,12 @@ internal object GatewayOutcomeRecovery {
                     run.status == AgentRunStatus.COMPLETED &&
                         run.terminalError.isNullOrBlank() ||
                         run.status == AgentRunStatus.EVIDENCE_MISSING &&
-                        run.terminalError?.startsWith(ISOLATED_RESULT_PREFIX) == true
+                        run.terminalError?.startsWith(ISOLATED_RESULT_PREFIX) == true ||
+                        run.status == AgentRunStatus.BLOCKED &&
+                        run.terminalError?.startsWith(REJECTED_COMMAND_PREFIX) == true
                     ) &&
                 run.completedAt != null &&
-                !run.gatewayJobId.isNullOrBlank() &&
-                !run.gatewayBaseUrl.isNullOrBlank()
+                (run.terminalError?.startsWith(REJECTED_COMMAND_PREFIX) == true || !run.gatewayJobId.isNullOrBlank() && !run.gatewayBaseUrl.isNullOrBlank())
         }
         val unknownRun = taskRuns.any { requiresReconciliation(it.terminalError.orEmpty()) }
         val unknownMessage = taskMessages.any { message ->

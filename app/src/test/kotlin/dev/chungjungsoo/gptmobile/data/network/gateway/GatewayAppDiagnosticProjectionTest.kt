@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.network.gateway
 
 import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogEntry
 import dev.chungjungsoo.gptmobile.data.diagnostics.structuredDiagnosticEventMessage
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -11,6 +12,72 @@ import org.junit.Test
 class GatewayAppDiagnosticProjectionTest {
     private val run = "11111111-1111-1111-1111-111111111111"
     private val invocation = "22222222-2222-2222-2222-222222222222"
+
+    @Test fun healthyLifecycleAndToolEventsDoNotPrescribeFailureRecovery() {
+        for (tag in listOf("Lifecycle", "GitHub", "Agent")) {
+            val result = requireNotNull(gatewayAppDiagnosticProjection(AppLogEntry(1000, "I", tag, structuredDiagnosticEventMessage("OBSERVED", mapOf("runId" to run)))))
+            assertEquals(JsonPrimitive("NONE"), result["error_code"])
+            assertEquals(JsonPrimitive("none"), result["retry_class"])
+            assertEquals(JsonPrimitive("none"), (result["bounded_attributes"] as JsonObject)["recovery_action"])
+        }
+    }
+
+    @Test fun excludedCriterionDoesNotReportAnUntestedCapabilityAsATaskFailure() {
+        val result = requireNotNull(gatewayAppDiagnosticProjection(AppLogEntry(1000, "I", "GitHub", structuredDiagnosticEventMessage("GITHUB_ACCEPTANCE_CRITERION", mapOf("criterion_state" to "NOT_TESTED", "criterion_required" to false, "criterion_blocker" to "OUT_OF_SCOPE")))))
+        assertEquals(JsonPrimitive("NONE"), result["error_code"])
+        val attributes = result["bounded_attributes"] as JsonObject
+        assertEquals(JsonPrimitive("none"), attributes["recovery_action"])
+        assertEquals(JsonPrimitive("OUT_OF_SCOPE"), attributes["criterion_blocker"])
+    }
+
+    @Test fun knownTerminalCausesAndObservedProgressRemainSpecific() {
+        for ((reason, expected, recovery) in listOf(
+            Triple("TRANSPORT_EOF", "TRANSPORT_EOF", "reconcile"),
+            Triple("COMPLETION_REPAIR_BUDGET_EXHAUSTED", "COMPLETION_REPAIR_BUDGET_EXHAUSTED", "resume_checkpoint"),
+            Triple("INCOMPLETE", "TASK_INCOMPLETE", "resume_checkpoint")
+        )) {
+            val result = requireNotNull(gatewayAppDiagnosticProjection(AppLogEntry(1000, "E", "AgentRun", structuredDiagnosticEventMessage("RUN_TERMINAL", mapOf("runId" to run, "status" to "FAILED", "errorCode" to reason, "lastObservedStage" to "REASONING")))))
+            val attributes = result["bounded_attributes"] as JsonObject
+            assertEquals(JsonPrimitive(expected), result["error_code"])
+            assertEquals(JsonPrimitive(reason), attributes["reason_code"])
+            assertEquals(JsonPrimitive(recovery), attributes["recovery_action"])
+            assertEquals(JsonPrimitive("REASONING"), attributes["last_observed_stage"])
+        }
+    }
+
+    @Test fun criterionEventsKeepBoundedProofIdentityWithoutPrivateCriteria() {
+        val result = requireNotNull(
+            gatewayAppDiagnosticProjection(
+                AppLogEntry(
+                    1000,
+                    "I",
+                    "GitHub",
+                    structuredDiagnosticEventMessage(
+                        "GITHUB_ACCEPTANCE_CRITERION",
+                        mapOf(
+                            "runId" to run,
+                            "criterion_id_digest" to "a".repeat(64),
+                            "criterion_category" to "DEVICE_EXECUTION",
+                            "criterion_state" to "NOT_TESTED",
+                            "criterion_blocker" to "DEVICE_EXECUTION_NOT_OBSERVED",
+                            "criterion_required" to true,
+                            "criterion_ordinal" to 2,
+                            "evidence_receipt_count" to 0,
+                            "criterion_text" to "private-criterion-canary"
+                        )
+                    )
+                )
+            )
+        )
+        val attributes = result["bounded_attributes"] as JsonObject
+        assertEquals(JsonPrimitive("terminal_delivery"), result["stage"])
+        assertEquals(JsonPrimitive("a".repeat(64)), attributes["criterion_id_digest"])
+        assertEquals(JsonPrimitive("NOT_TESTED"), attributes["criterion_state"])
+        assertEquals(JsonPrimitive("DEVICE_EXECUTION_NOT_OBSERVED"), attributes["criterion_blocker"])
+        assertEquals(JsonPrimitive(true), attributes["criterion_required"])
+        assertEquals(JsonPrimitive(0), attributes["evidence_receipt_count"])
+        assertFalse(result.toString().contains("private-criterion-canary"))
+    }
 
     @Test fun engineeringAdmissionFailureRetainsCauseDependencyAndRecovery() {
         val result = requireNotNull(

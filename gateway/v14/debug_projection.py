@@ -1,8 +1,11 @@
 """Static diagnostic vocabulary. No response text, URLs or user-supplied paths are exported."""
+import hashlib
+import json
 import re
 
 from v14.backend_observation import (DEPENDENCIES, FAILURES, MODEL_STATES, UPSTREAM_BODY_STATES,
                                      UPSTREAM_ERROR_CODES, UPSTREAM_ERROR_TYPES, UPSTREAM_MESSAGES)
+from v14.diagnostic_schema import ENUM_ATTRIBUTES
 
 ROUTES = {'chat', 'models', 'readiness', 'liveness', 'capabilities', 'dashboard', 'job', 'engineering',
           'management_dashboard', 'maintenance', 'identity', 'job_catalog', 'conversations', 'messages',
@@ -11,18 +14,39 @@ ROUTES = {'chat', 'models', 'readiness', 'liveness', 'capabilities', 'dashboard'
 ADMISSION_CODES = {'remote_surface_not_admitted', 'scope_not_granted', 'engineering_scope_required',
                    'tool_scope_required_for_runtime', 'local_admin_required', 'transport_identity_required',
                    'invalid_host', 'invalid_origin', 'duplicate_admission_header', 'browser_csrf_required', 'unknown_job'}
-FAILURE_CODES = {value[0] for value in FAILURES.values()} | {
-    'EXECUTION_METADATA_DENIED', 'EXECUTION_METADATA_DEADLINE', 'EXECUTION_METADATA_OVERSIZE',
-    'EXECUTION_BACKEND_UNAVAILABLE', 'EXECUTION_CAPABILITY_UNSUPPORTED', 'EXECUTION_CAPABILITY_INVALID',
-    'EXECUTION_MODEL_IDENTITY_INVALID', 'EXECUTION_MODEL_UNAVAILABLE', 'EXECUTION_MODEL_NOT_LOADED', 'EXECUTION_MODEL_LOADING',
-    'EXECUTION_MODEL_MISMATCH', 'EXECUTION_CONTEXT_UNAVAILABLE', 'EXECUTION_ENDPOINT_INVALID',
-    'EXECUTION_PROVIDER_UNAVAILABLE', 'SELECTED_ONLY_UNSUPPORTED', 'SELECTED_MODEL_UNVERIFIED',
-    'GATEWAY_DRAINING', 'DURABLE_STORAGE_WRITE_FAILED', 'DURABLE_STORAGE_UNAVAILABLE',
-    'HOST_GITHUB_CONNECTION_REQUIRED', 'ENGINEERING_NOT_CONFIGURED', 'ENGINEERING_UNAVAILABLE'} | ADMISSION_CODES
+FAILURE_CODES = ENUM_ATTRIBUTES['failure_code'] | {value[0] for value in FAILURES.values()} | ADMISSION_CODES
 
 
 def choice(value, choices):
     return isinstance(value, str) and value in choices
+
+
+def backend_build_provenance(value):
+    """A build label cannot export hostnames, paths, compiler flags or arbitrary prose."""
+    result = {'backendBuildStatus': 'not_observed'}
+    if type(value) not in {str, int, dict} or value in ('', None):
+        return result
+    try:
+        raw = json.dumps(value, sort_keys=True, separators=(',', ':'), allow_nan=False).encode('utf-8')
+    except (ValueError, TypeError, RecursionError):
+        return result
+    if len(raw) > 4096:
+        return result
+    result.update(backendBuildStatus='digest_only', backendBuildDigest=hashlib.sha256(raw).hexdigest())
+    fields = value if isinstance(value, dict) else {'version': value}
+    for key in ('version', 'build_number', 'build'):
+        candidate = fields.get(key)
+        if type(candidate) is int and 0 <= candidate <= 2 ** 53:
+            candidate = str(candidate)
+        if isinstance(candidate, str) and len(candidate) <= 64 and re.fullmatch(r'b?[0-9]+(?:\.[0-9]+){0,3}(?:-g[a-f0-9]{7,40})?', candidate):
+            result.update(backendBuildVersion=candidate, backendBuildStatus='observed')
+            break
+    for key in ('commit', 'revision', 'source_commit'):
+        candidate = fields.get(key)
+        if isinstance(candidate, str) and re.fullmatch(r'[a-f0-9]{7,40}', candidate):
+            result.update(backendBuildRevision=candidate, backendBuildStatus='observed')
+            break
+    return result
 
 
 def route_kind(path):
@@ -54,12 +78,14 @@ def provenance(value):
     patterns = {'sourceCommit': r'[a-f0-9]{40}', 'gatewayVersion': r'[0-9]+(?:\.[0-9]+){0,3}',
                 'instanceId': r'[a-f0-9]{32}', 'bootId': r'[a-f0-9]{32}',
                 'configurationFingerprint': r'[a-f0-9]{64}', 'backendIdentity': r'[a-f0-9]{64}',
-                'manifestDigest': r'[a-f0-9]{64}'}
+                'manifestDigest': r'[a-f0-9]{64}', 'backendBuildDigest': r'[a-f0-9]{64}',
+                'backendBuildRevision': r'[a-f0-9]{7,40}',
+                'backendBuildVersion': r'b?[0-9]+(?:\.[0-9]+){0,3}(?:-g[a-f0-9]{7,40})?'}
     for key, pattern in patterns.items():
         item = value.get(key)
         if isinstance(item, str) and len(item) <= 64 and re.fullmatch(pattern, item):
             result[key] = item
-    for key in ('processId', 'diagnosticProtocolVersion'):
+    for key in ('processId', 'diagnosticProtocolVersion', 'backendBuildObservedAtMs'):
         item = value.get(key)
         if type(item) is int and 0 <= item <= 2 ** 53:
             result[key] = item
@@ -69,6 +95,8 @@ def provenance(value):
         result['buildStatus'] = value['buildStatus']
     if choice(value.get('startupReason'), {'process_start', 'supervisor_start', 'crash_recovery', 'requested_restart', 'update', 'unknown'}):
         result['startupReason'] = value['startupReason']
+    if choice(value.get('backendBuildStatus'), {'observed', 'digest_only', 'not_observed'}):
+        result['backendBuildStatus'] = value['backendBuildStatus']
     return result
 
 
@@ -80,14 +108,14 @@ def failure_fields(value, *, conditions=True):
         candidate = value.get(field)
         if isinstance(candidate, str) and candidate in FAILURE_CODES:
             result['failureCode' if field == 'code' else field] = candidate
-    if choice(value.get('dependency'), DEPENDENCIES):
+    if choice(value.get('dependency'), DEPENDENCIES | ENUM_ATTRIBUTES['dependency']):
         result['dependency'] = value['dependency']
     if choice(value.get('failureCategory'), set(FAILURES) | {'storage', 'draining'}):
         result['failureCategory'] = value['failureCategory']
     for field in ('retryable', 'ready', 'networkReachable', 'modelAvailable', 'generationReady',
                   'limitsVerified', 'inferenceTested', 'automaticSubstitution', 'draining',
                   'toolsReady', 'schemaReady', 'executionVerified', 'canQueue', 'canAccept', 'modelLoading', 'inferenceVerified',
-                  'modelAdvertised', 'modelLoaded'):
+                  'modelAdvertised', 'modelLoaded', 'inference_attempted'):
         if type(value.get(field)) is bool:
             result[field] = value[field]
         elif field in value and value[field] is None and field in {'ready', 'networkReachable', 'modelAvailable', 'generationReady',
@@ -99,7 +127,12 @@ def failure_fields(value, *, conditions=True):
         if type(candidate) is int and 0 <= candidate <= 2 ** 53:
             if 'Status' not in field or 100 <= candidate <= 599:
                 result[field] = candidate
-    for field, choices in {'metadataAccess': {'unknown', 'available', 'restricted'},
+    for field, choices in {'failed_stage': ENUM_ATTRIBUTES['failed_stage'],
+                           'dispatch_state': ENUM_ATTRIBUTES['execution_dispatch_state'],
+                           'admission_state': ENUM_ATTRIBUTES['admission_state'],
+                           'recovery_action': ENUM_ATTRIBUTES['recovery_action'],
+                           'recovery_condition': ENUM_ATTRIBUTES['recovery_condition'],
+                           'metadataAccess': {'unknown', 'available', 'restricted'},
                            'backend': {'unreachable', 'restricted', 'ready', 'loading', 'unavailable'},
                            'reasoningControlState': {'VERIFIED', 'UNVERIFIED', 'UNSUPPORTED'},
                            'modelState': MODEL_STATES,
@@ -116,6 +149,7 @@ def failure_fields(value, *, conditions=True):
     # Derive the public summary from its code, never copy an upstream body field.
     if result.get('upstreamMessageCode') in UPSTREAM_MESSAGES:
         result['upstreamMessage'] = UPSTREAM_MESSAGES[result['upstreamMessageCode']]
+    result.update({key: item for key, item in provenance(value).items() if key.startswith('backendBuild')})
     nested = value.get('conditions')
     if conditions and isinstance(nested, dict):
         projected = {key: item for key in ('backend', 'health', 'models', 'selectedModel', 'storage', 'process')

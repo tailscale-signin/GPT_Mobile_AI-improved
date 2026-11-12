@@ -67,6 +67,28 @@ class GatewayEngineeringClientTest {
         }
     }
 
+    @Test fun preAdmissionEofIsTypedAsUnsentWhileJobPostEofRemainsAmbiguousAndIsNeverRetried() = runTest {
+        val paths = mutableListOf<String>()
+        http(
+            MockEngine { request ->
+                paths += request.url.encodedPath
+                throw java.io.EOFException("Private socket details")
+            }
+        ).use { http ->
+            val client = GatewayEngineeringClient(http)
+            val request = GatewayEngineeringRequest("owner/repo", "feature", "main", "Inspect", "local", chatId = 1, requestId = "original")
+            val preflight = runCatching { client.preflight(config, request) }.exceptionOrNull()
+            assertTrue(preflight is GatewayAdmissionException)
+            assertEquals(GatewayAdmissionReason.TRANSPORT_INTERRUPTED, (preflight as GatewayAdmissionException).reason)
+            assertEquals(GatewayAdmissionDispatchState.NOT_DISPATCHED, preflight.dispatchState)
+            assertNull(preflight.httpStatus)
+            assertFalse(preflight.message.orEmpty().contains("Private socket"))
+            val create = runCatching { client.create(config, request) }.exceptionOrNull()
+            assertTrue(create is java.io.EOFException)
+            assertEquals(listOf("/v1/gateway/engineering/preflight", "/v1/gateway/engineering/jobs"), paths)
+        }
+    }
+
     @Test fun missingProducerHasAnAdmissionReasonAndCannotBecomeGenericPartialWork() = runTest {
         val objective = "Repair build"
         val result = GatewayEngineeringPreflight("github.engineering-admission.v1", false, blockers = listOf(GatewayEngineeringBlocker("acceptance", "ACCEPTANCE_PRODUCER_REQUIRED", "admission", "Configure the build behavior test", "CONFIGURE_ACCEPTANCE_MAPPING")), objectiveSha256 = GitHubRepositoryStateStore.digest(objective))

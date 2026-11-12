@@ -141,8 +141,8 @@ class GatewayJobClient internal constructor(
     }
 
     private fun diagnosticRoute(surface: GatewayAdmissionSurface): String = when (surface) {
-        GatewayAdmissionSurface.CAPABILITIES -> "capabilities"
         GatewayAdmissionSurface.IDENTITY -> "identity"
+        GatewayAdmissionSurface.CAPABILITIES -> "capabilities"
         GatewayAdmissionSurface.COMMAND -> "commands"
         GatewayAdmissionSurface.TRANSCRIPT -> "messages"
         GatewayAdmissionSurface.CONVERSATIONS -> "conversations"
@@ -154,6 +154,8 @@ class GatewayJobClient internal constructor(
     } catch (cancelled: CancellationException) {
         throw cancelled
     } catch (failure: GatewayAdmissionException) {
+        throw failure
+    } catch (failure: GatewayCommandRejected) {
         throw failure
     } catch (_: Exception) {
         // Decoder causes can embed the response body. Retain only the safe contract category.
@@ -210,11 +212,17 @@ class GatewayJobClient internal constructor(
 
     private suspend fun readCommand(config: ProviderRequestConfig, commandId: String): GatewayCommandReceipt? {
         val payload = try {
-            read(config, "commands/${pathId(commandId)}")
+            read(config, "commands/${pathId(commandId)}?include_outcome=true")
         } catch (_: GatewayHistoryUnsupported) {
             return null
         }
         return decode(GatewayAdmissionSurface.COMMAND) {
+            val document = json.parseToJsonElement(payload) as? JsonObject ?: error("Invalid command receipt")
+            if (document.text("admission_state") == "rejected") {
+                val rejection = json.decodeFromString<GatewayCommandRejection>(payload)
+                rejection.verify(commandId)
+                throw GatewayCommandRejected(rejection)
+            }
             json.decodeFromString<GatewayCommandReceipt>(payload).also {
                 require(it.schemaVersion == 1 && it.commandId == commandId && it.jobKind in setOf("engineering", "generation"))
                 requireGatewayIdentity(it.gatewayId, it.principalId)

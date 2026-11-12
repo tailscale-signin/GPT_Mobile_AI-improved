@@ -7,7 +7,7 @@ import tempfile
 import threading
 import unittest
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import closing
+from contextlib import asynccontextmanager, closing
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -71,14 +71,18 @@ class ModelPreparationHttpTests(unittest.TestCase):
         self.states[model] = 'loaded'
         return Response({'success': True})
 
-    def app(self, config=None, service=None):
-        app = FastAPI()
-        install_model_preparation_routes(app, service or self.service, lambda: 'installation-fixture')
+    def app(self, config=None, service=None, lifecycle=False):
+        active = service or self.service
+        @asynccontextmanager
+        async def parent(app):
+            yield
+        app = FastAPI(lifespan=active.lifecycle(parent) if lifecycle else None)
+        install_model_preparation_routes(app, active, lambda: 'installation-fixture')
         app.add_middleware(Admission, config=(config or Config()).validate(), store=self.devices)
         return app
 
-    def client(self, config=None, service=None, peer='127.0.0.1'):
-        return TestClient(self.app(config, service), base_url='http://127.0.0.1:8090', client=(peer, 1234))
+    def client(self, config=None, service=None, peer='127.0.0.1', lifecycle=False):
+        return TestClient(self.app(config, service, lifecycle), base_url='http://127.0.0.1:8090', client=(peer, 1234))
 
     def request(self, client=None, *, model='selected', operation='selection-1', path='/gateway/models/prepare', headers=None):
         return (client or self.client()).post(path, json={'model': model, 'operationId': operation}, headers=headers)
@@ -325,6 +329,59 @@ class ModelPreparationHttpTests(unittest.TestCase):
         second = self.request(operation='after-eviction')
         self.assertEqual('METADATA_QUALIFIED', second.json()['state'])
         self.assertEqual(2, len(self.mutations()))
+
+    def test_restart_observer_retires_completed_load_while_phone_detached_then_allows_one_new_wake(self):
+        self.post_hook = lambda *args: Response({'success': True})
+        self.assertEqual(202, self.request().status_code)
+        self.assertEqual(1, len(self.mutations()))
+        restarted = ModelPreparationService(InferenceCapabilities(self.runtime), observation_interval=0.01)
+        retired = threading.Event()
+        original = restarted.observe_loaded
+        def observed(model, selected, **kwargs):
+            original(model, selected, **kwargs)
+            if selected.get('limitsVerified') is True:
+                retired.set()
+        self.states['selected'] = 'loaded'
+        with patch.object(restarted, 'observe_loaded', side_effect=observed):
+            with self.client(service=restarted, lifecycle=True) as client:
+                self.assertTrue(retired.wait(2))
+                self.assertEqual(1, len(self.mutations()))
+                self.states['selected'] = 'sleeping'
+                self.assertEqual('METADATA_QUALIFIED', self.request(client).json()['state'])
+                self.post_hook = None
+                self.assertEqual('METADATA_QUALIFIED', self.request(client, operation='after-sleep').json()['state'])
+                self.assertEqual(2, len(self.mutations()))
+                self.assertEqual('METADATA_QUALIFIED', self.request(client, operation='after-sleep').json()['state'])
+                self.assertEqual(2, len(self.mutations()))
+        self.assertFalse(restarted.observation_thread.is_alive())
+        self.assertTrue(restarted.observation_stop.is_set())
+
+    def test_detached_observer_keeps_unknown_outcome_and_requires_current_exact_route(self):
+        self.post_hook = lambda *args: Response({'success': True})
+        self.assertEqual(202, self.request().status_code)
+        for state in ('unloaded', 'sleeping'):
+            self.states['selected'] = state
+            self.service.reconcile_pending()
+            self.assertEqual('LOAD_OUTCOME_UNKNOWN', self.request().json()['state'])
+        self.states['selected'] = 'loaded'
+        self.runtime.LLAMA_BASE = 'http://127.0.0.1:8081/v1'
+        before = len(self.calls)
+        self.service.reconcile_pending()
+        self.assertEqual(before, len(self.calls))
+        self.runtime.LLAMA_BASE = 'http://127.0.0.1:8080/v1'
+        stopped = threading.Event()
+        stopped.set()
+        self.service.reconcile_pending(stopped)
+        self.assertEqual(before, len(self.calls))
+        self.states['selected'] = 'sleeping'
+        self.assertEqual('LOAD_OUTCOME_UNKNOWN', self.request(operation='still-same-load').json()['state'])
+        self.assertEqual(1, len(self.mutations()))
+
+    def test_passive_observer_without_pending_load_creates_no_schema_or_backend_traffic(self):
+        self.service.reconcile_pending()
+        with closing(self.connect()) as db:
+            self.assertIsNone(db.execute("SELECT name FROM sqlite_master WHERE name LIKE 'gateway_model_preparations'").fetchone())
+        self.assertEqual([], self.calls)
 
     def test_unverified_or_different_model_observation_cannot_retire_unknown_load(self):
         self.post_hook = lambda *args: Response({'success': True})

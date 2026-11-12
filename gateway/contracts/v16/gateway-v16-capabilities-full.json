@@ -104,6 +104,7 @@
     "branch_tip_scan_optimization": true,
     "branch_verification_profile": true,
     "clientMemoryAuthority": true,
+    "command_outcomes_v1": true,
     "compact_read_field_projection": true,
     "compare_commits_preferred_when_available": true,
     "context_overflow_auto_retry": true,

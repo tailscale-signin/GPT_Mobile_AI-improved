@@ -5,6 +5,22 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class AgentRunTerminalDiagnosticsTest {
+    @Test fun lastProgressEvidenceIsKeptSeparateFromAnUnprovenFailureStage() {
+        val result = AgentRunTerminalDiagnostics.from(
+            AgentRunStatus.PARTIAL,
+            ProfileFailureRecord("INCOMPLETE", false, phase = "stage_not_recorded"),
+            lastObservedStage = ObservedProgressStage.TOOL
+        )
+        assertEquals("stage_not_recorded", result.stage)
+        assertEquals(ObservedProgressStage.TOOL, result.lastObservedStage)
+    }
+
+    @Test fun completionRepairExhaustionResumesSavedEvidenceWithAnExplicitAllowance() {
+        val result = AgentRunTerminalDiagnostics.from(AgentRunStatus.PARTIAL, ProfileFailureRecord.classify("COMPLETION_REPAIR_BUDGET_EXHAUSTED"))
+        assertEquals("provider_generation", result.stage)
+        assertEquals("RESUME_SAVED_EVIDENCE_WITH_REVISED_OUTPUT_ALLOWANCE", result.recoveryAction)
+    }
+
     @Test fun completedResponseDoesNotClaimVerifiedObjectiveCompletion() {
         val result = AgentRunTerminalDiagnostics.from(AgentRunStatus.COMPLETED, null)
         assertEquals("RESPONSE_FLOW_COMPLETED", result.reason)

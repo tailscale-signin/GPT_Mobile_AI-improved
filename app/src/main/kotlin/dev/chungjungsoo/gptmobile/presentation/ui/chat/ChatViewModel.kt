@@ -131,7 +131,7 @@ class ChatViewModel @Inject constructor(
     private val diagnosticDatabase: dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticDatabaseSource? = null,
     private val reasoningCapabilities: dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityRepository? = null,
     private val diagnosticWorkspace: dev.chungjungsoo.gptmobile.data.workspace.WorkspaceRepository? = null,
-    modelPreparationRepository: dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationRepository? = null
+    private val modelPreparationRepository: dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationRepository? = null
 ) : ViewModel() {
     private val diagnosticPrivacyOwner = java.util.UUID.randomUUID().toString()
     private val visibleHistoryTurns = MutableStateFlow(if (savedStateHandle.get<Int>("targetMessageId") != null) Int.MAX_VALUE else 40)
@@ -937,7 +937,15 @@ class ChatViewModel @Inject constructor(
                         var rejected: Pair<ReasoningRecoveryRequest, dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityObservation?>? = null
                         for (request in selected) {
                             checkingRequest = request
-                            val observation = reasoningCapabilities.check(request.profile, request.mode)
+                            var observation = reasoningCapabilities.check(request.profile, request.mode, forceRefresh = true)
+                            if (observation.safeReasonCode in setOf("SELECTED_MODEL_NOT_LOADED", "SELECTED_MODEL_LOADING") && modelPreparationRepository != null) {
+                                modelPreparationRepository.prepareSelected(request.profile, request.mode, forceRefresh = true) { state ->
+                                    if (generation == reasoningSendGeneration && !leavingConversation) {
+                                        _attachmentNotice.value = state?.message ?: "Checking the selected model. Your draft is kept."
+                                    }
+                                }
+                                observation = reasoningCapabilities.check(request.profile, request.mode, forceRefresh = true)
+                            }
                             if (!observation.permitsRequest ||
                                 request.mode != dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO &&
                                 !observation.routeVerified ||

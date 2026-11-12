@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.github
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
@@ -266,6 +267,25 @@ internal object GitHubRunAcceptance {
                     }.toString()
                 )
             }
+        }
+    }
+
+    /** The shared gateway projection accepts typed fields, never the raw criterion label or tool result. */
+    fun diagnosticEvents(assessment: Assessment, runId: String): List<Map<String, Any?>> {
+        val projection = assessment.diagnostics?.takeIf(GitHubAcceptanceDiagnostics::valid) ?: return emptyList()
+        val digest = projection.text("criteria_sha256")
+        val pages = assessment.diagnosticPages.takeIf { GitHubAcceptanceDiagnostics.validPages(it) && it.first().text("criteria_sha256") == digest }
+        return (pages ?: listOf(projection)).flatMap { (it["criteria"] as JsonArray).filterIsInstance<JsonObject>() }.map { row ->
+            mapOf(
+                "runId" to runId,
+                "criterion_id_digest" to row.text("id_sha256"),
+                "criterion_ordinal" to row.number("ordinal"),
+                "criterion_required" to (row["required"] as? JsonPrimitive)?.booleanOrNull,
+                "criterion_state" to row.text("state"),
+                "criterion_category" to row.text("category"),
+                "criterion_blocker" to row.text("blocker"),
+                "evidence_receipt_count" to row.number("evidence_receipt_count")
+            )
         }
     }
 

@@ -8,6 +8,7 @@ import sqlite3
 import threading
 import time
 import uuid
+from contextlib import asynccontextmanager
 from types import SimpleNamespace
 
 from fastapi import Request
@@ -40,10 +41,94 @@ class PreparationCancelled(Exception):
 
 
 class ModelPreparationService:
-    def __init__(self, capabilities, *, max_active=2, max_records=MAX_RECORDS, deadline_seconds=PREPARATION_SECONDS):
+    def __init__(self, capabilities, *, max_active=2, max_records=MAX_RECORDS, deadline_seconds=PREPARATION_SECONDS,
+                 observation_interval=5):
         self.capabilities, self.runtime = capabilities, capabilities.runtime
         self.max_active, self.max_records, self.deadline_seconds = max_active, max_records, deadline_seconds
         self.lock, self.running = threading.RLock(), set()
+        self.observation_interval = observation_interval
+        self.observation_stop, self.observation_thread = threading.Event(), None
+        self.observation_cursor = ''
+
+    def lifecycle(self, existing):
+        @asynccontextmanager
+        async def lifecycle(app):
+            async with existing(app):
+                self.observation_stop.clear()
+
+                def observe():
+                    while not self.observation_stop.is_set():
+                        self.reconcile_pending(self.observation_stop)
+                        self.observation_stop.wait(self.observation_interval)
+
+                self.observation_thread = threading.Thread(target=observe, name='model-preparation-observer', daemon=True)
+                self.observation_thread.start()
+                try:
+                    yield
+                finally:
+                    self.observation_stop.set()
+                    # Each pass has one shared metadata deadline, including all
+                    # records. Shutdown never leaves an unbounded load worker.
+                    await asyncio.to_thread(self.observation_thread.join, min(self.deadline_seconds, 5) + 1)
+        return lifecycle
+
+    def _pending_records(self, route):
+        if not getattr(self.runtime, 'GATEWAY_DURABLE_JOBS', False) or not self.runtime.durable_job_initialized:
+            return []
+        with self.runtime.durable_job_lock:
+            db = self.runtime._durable_connect()
+            try:
+                db.row_factory = sqlite3.Row
+                exists = db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='gateway_model_preparations'").fetchone()
+                if not exists:
+                    return []
+                def read(cursor):
+                    return db.execute('''SELECT * FROM gateway_model_preparations
+                        WHERE unresolved=1 AND route=? AND id>? ORDER BY id LIMIT ?''',
+                        (route['runtime_config_revision'], cursor, min(self.max_active, 8))).fetchall()
+                rows = read(self.observation_cursor) or read('')
+                self.observation_cursor = rows[-1]['id'] if rows else ''
+                return [self._record(row) for row in rows]
+            finally:
+                db.close()
+
+    def _observer(self, route, provider, deadline_seconds):
+        frozen_runtime = SimpleNamespace(LLAMA_BASE=route['endpoint'], GATEWAY_INFERENCE_PROVIDER=provider,
+                                         GATEWAY_INFERENCE_CONNECTION_ID=route['backend_connection_id'])
+        for name in ('http_get', 'get_http_session'):
+            if hasattr(self.runtime, name):
+                setattr(frozen_runtime, name, getattr(self.runtime, name))
+        return InferenceCapabilities(frozen_runtime, deadline_at=time.monotonic() + deadline_seconds)
+
+    def reconcile_pending(self, stopped=None):
+        """Observe only previously admitted loads while a phone is detached.
+
+        A fresh exact loaded observation retires the old fence before a later
+        sleep. Unknown or absent models retain it indefinitely; this path never
+        invokes prepare_model or sends a load/inference request.
+        """
+        try:
+            provider = str(getattr(self.runtime, 'GATEWAY_INFERENCE_PROVIDER', None) or os.getenv('GATEWAY_INFERENCE_PROVIDER') or 'LLAMA').upper()
+            if provider != 'LLAMA':
+                return
+            route = configured_route(self.runtime, provider)
+            records = self._pending_records(route)
+            bounded = self._observer(route, provider, min(self.deadline_seconds, 5))
+            for record in records:
+                if stopped is not None and stopped.is_set():
+                    return
+                with self.lock:
+                    running = record['id'] in self.running
+                if running or record['receipt']['state'] == 'PREPARING':
+                    continue
+                if configured_route(self.runtime, provider)['runtime_config_revision'] != route['runtime_config_revision']:
+                    return
+                selected = bounded.selected_model(record['model'], force=True)
+                self.observe_loaded(record['model'], selected, expected_route=route)
+        except (ExecutionBindingError, sqlite3.Error, OSError, ValueError, TypeError):
+            # An observation outage cannot erase a dispatch fence or authorize
+            # another mutation. A later bounded pass retries only metadata.
+            return
 
     def _tx(self, action):
         runtime = self.runtime
@@ -135,7 +220,7 @@ class ModelPreparationService:
             finally:
                 db.close()
 
-    def observe_loaded(self, model, selected):
+    def observe_loaded(self, model, selected, *, expected_route=None):
         """Retire unresolved intent on exact passive readback, never dispatch a load.
 
         This matters when the app has detached after a load and only polls its
@@ -153,6 +238,8 @@ class ModelPreparationService:
         try:
             provider = str(getattr(self.runtime, 'GATEWAY_INFERENCE_PROVIDER', None) or os.getenv('GATEWAY_INFERENCE_PROVIDER') or 'LLAMA').upper()
             route = configured_route(self.runtime, provider)
+            if expected_route is not None and route['runtime_config_revision'] != expected_route['runtime_config_revision']:
+                return
             target = fingerprint({'endpoint': route['endpoint_identity'], 'provider': route['provider_kind'], 'model': model})
             record = self._pending(target, route['runtime_config_revision'])
             if record and measured >= int(record['updated_at'] * 1000):
@@ -205,12 +292,7 @@ class ModelPreparationService:
             self.capabilities.invalidate_model(route, model)
             # A fresh bounded observer avoids holding another model's metadata
             # cache gate and shares one deadline across every HTTP exchange.
-            frozen_runtime = SimpleNamespace(LLAMA_BASE=route['endpoint'], GATEWAY_INFERENCE_PROVIDER=provider,
-                                             GATEWAY_INFERENCE_CONNECTION_ID=route['backend_connection_id'])
-            for name in ('http_get', 'get_http_session'):
-                if hasattr(self.runtime, name):
-                    setattr(frozen_runtime, name, getattr(self.runtime, name))
-            bounded = InferenceCapabilities(frozen_runtime, deadline_at=time.monotonic() + self.deadline_seconds)
+            bounded = self._observer(route, provider, self.deadline_seconds)
 
             def before_dispatch(receipt):
                 nonlocal record

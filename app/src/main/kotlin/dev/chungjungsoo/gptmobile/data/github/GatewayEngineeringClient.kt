@@ -111,19 +111,23 @@ class GatewayEngineeringClient internal constructor(
                         }
                         val preflight = runCatching { error?.get("preflight")?.let { json.decodeFromJsonElement(GatewayEngineeringPreflight.serializer(), it) } }.getOrNull()
                         if (preflight != null && !preflight.ready && preflight.blockers.isNotEmpty()) {
-                            throw GatewayEngineeringRequestRejected(response.status.value, preflight.blockers.joinToString("\n") { "${it.message} (${it.failedStage}: ${it.reasonCode}; ${it.recoveryAction})" })
+                            throw GatewayEngineeringRequestRejected(response.status.value, preflight.blockers.joinToString("\n") { "${it.message} (${it.failedStage}: ${it.reasonCode}; ${it.recoveryAction})" }, errorCode = safeEngineeringRejectionCode(code), failedStage = "provider_admission")
                         }
                         if (code in setOf("ENGINEERING_REPOSITORY_ACCESS_REQUIRED", "SOURCE_REVISION_CHANGED", "SOURCE_REVISION_REQUIRED", "VALIDATION_POLICY_REQUIRED")) {
-                            throw GatewayEngineeringRequestRejected(response.status.value, "$code: ${detail?.get("message")?.jsonPrimitive?.content.orEmpty().take(1000)}")
+                            throw GatewayEngineeringRequestRejected(response.status.value, "$code: ${detail?.get("message")?.jsonPrimitive?.content.orEmpty().take(1000)}", errorCode = safeEngineeringRejectionCode(code), failedStage = "provider_admission")
                         }
-                        if (body != null && response.status.value in 400..499 && response.status.value !in setOf(408, 499)) {
+                        val confirmedRejection = detail?.get("admission_state") == JsonPrimitive("rejected") &&
+                            detail["dispatch_state"] == JsonPrimitive("not_dispatched") &&
+                            detail["inference_attempted"] == JsonPrimitive(false)
+                        if (body != null && (response.status.value in 400..499 && response.status.value !in setOf(408, 499) || confirmedRejection)) {
                             val message = when (response.status.value) {
                                 401, 403 -> "Gateway engineering access was rejected. Restore the original account and engineering permission before submitting a new command."
                                 409, 412 -> "The conversation or job changed. Refresh Jobs and review the original task before sending another command."
                                 429 -> "The gateway did not admit this command because its queue or request limit is full."
                                 else -> "The gateway rejected this command (HTTP ${response.status.value}). Review it before sending another command."
                             }
-                            throw GatewayEngineeringRequestRejected(response.status.value, message)
+                            val safeCode = safeEngineeringRejectionCode(code)
+                            throw GatewayEngineeringRequestRejected(response.status.value, message + safeCode?.let { " ($it; provider_admission)" }.orEmpty(), commandOutcomeUnknown = detail?.get("command_outcome_unknown") == JsonPrimitive(true), errorCode = safeCode, failedStage = "provider_admission")
                         }
                     }
                     check(response.status.isSuccess()) {
@@ -141,7 +145,21 @@ class GatewayEngineeringClient internal constructor(
         }
         // Bounded GETs may recover a stale idle socket once. A job POST or approval
         // keeps its original request identity and is never replayed by this layer.
-        return if (body == null) LocalEndpointConnectionPolicy.probe(endpoint, evictIdleConnections, exchange) else exchange()
+        return try {
+            if (body == null) LocalEndpointConnectionPolicy.probe(endpoint, evictIdleConnections, exchange) else exchange()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: GatewayEngineeringRequestRejected) {
+            throw failure
+        } catch (failure: GatewayAdmissionException) {
+            throw failure
+        } catch (failure: Exception) {
+            // These POSTs only verify prerequisites; the durable job POST has
+            // not happened. Keep its draft blocked at admission with a typed
+            // transport cause, while an interrupted jobs POST stays unknown.
+            if (root == "gateway/engineering" && path in setOf("bindings", "preflight")) throw capabilityReadFailure(failure)
+            throw failure
+        }
     }
 
     /** Explicit repair check: discard stale admission evidence before reading this exact saved route. */
@@ -153,7 +171,7 @@ class GatewayEngineeringClient internal constructor(
     suspend fun preflight(config: ProviderRequestConfig, request: GatewayEngineeringRequest): GatewayEngineeringPreflight {
         val result = json.decodeFromString<GatewayEngineeringPreflight>(this.request(config, "preflight", json.encodeToString(request)))
         check(result.schema == "github.engineering-admission.v1" && result.objectiveSha256 == GitHubRepositoryStateStore.digest(request.objective) && result.sourceSha == request.sourceSha) { "The gateway preflight does not match this objective and source revision." }
-        if (!result.ready) throw GatewayEngineeringRequestRejected(412, result.blockers.joinToString("\n") { "${it.message} (${it.failedStage}: ${it.reasonCode}; ${it.recoveryAction})" }.ifBlank { "Engineering prerequisites have not been verified." })
+        if (!result.ready) throw GatewayEngineeringRequestRejected(412, result.blockers.joinToString("\n") { "${it.message} (${it.failedStage}: ${it.reasonCode}; ${it.recoveryAction})" }.ifBlank { "Engineering prerequisites have not been verified." }, errorCode = result.blockers.firstOrNull()?.reasonCode?.let(::safeEngineeringRejectionCode), failedStage = "provider_admission")
         check(request.taskScope != "implement" || result.acceptance.isNotEmpty()) { "The gateway did not provide a testable acceptance contract." }
         return result
     }
@@ -345,7 +363,7 @@ internal class UnsupportedEngineeringGateway : GatewayGraphUnavailableException(
 class GatewayExecutionRejected(
     val code: String,
     httpStatus: Int,
-    val failedStage: String = "provider_admission",
+    override val failedStage: String = "provider_admission",
     val retryable: Boolean? = null,
     val inferenceAttempted: Boolean? = null,
     commandOutcomeUnknown: Boolean = false
@@ -353,14 +371,22 @@ class GatewayExecutionRejected(
     httpStatus,
     "The selected execution profile could not be verified ($code; $failedStage). Saved work is retained; " +
         if (retryable == true) "recheck the selected model when it is ready." else "review the selected profile and gateway status.",
-    commandOutcomeUnknown || code == "EXECUTION_OPERATION_UNKNOWN_OUTCOME"
+    commandOutcomeUnknown || code == "EXECUTION_OPERATION_UNKNOWN_OUTCOME",
+    errorCode = code,
+    failedStage = failedStage
 ) {
     override fun withCommandOutcomeUnknown(unknown: Boolean): GatewayExecutionRejected =
         GatewayExecutionRejected(code, httpStatus, failedStage, retryable, inferenceAttempted, commandOutcomeUnknown || unknown)
 }
 
 /** A response rejected this POST; prior uncertain attempts still require command reconciliation. */
-open class GatewayEngineeringRequestRejected(val httpStatus: Int, message: String, val commandOutcomeUnknown: Boolean = false) : IllegalStateException(message) {
+open class GatewayEngineeringRequestRejected(
+    val httpStatus: Int,
+    message: String,
+    val commandOutcomeUnknown: Boolean = false,
+    val errorCode: String? = null,
+    open val failedStage: String? = null
+) : IllegalStateException(message) {
     open fun withCommandOutcomeUnknown(unknown: Boolean): GatewayEngineeringRequestRejected =
-        GatewayEngineeringRequestRejected(httpStatus, message.orEmpty(), commandOutcomeUnknown || unknown)
+        GatewayEngineeringRequestRejected(httpStatus, message.orEmpty(), commandOutcomeUnknown || unknown, errorCode, failedStage)
 }

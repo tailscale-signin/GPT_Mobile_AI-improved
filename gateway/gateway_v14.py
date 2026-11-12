@@ -125,7 +125,8 @@ debug_log.configure_identity(gatewayVersion=VERSION, sourceCommit=build_identity
                              configurationFingerprint=fingerprint({'backend': diagnostic_route['runtime_config_revision'],
                                                                    'mode': config.mode, 'durableJobs': runtime.GATEWAY_DURABLE_JOBS}),
                              startupReason=os.getenv('GATEWAY_STARTUP_REASON', 'process_start'))
-app = FastAPI(title="Private Gateway 16", version=VERSION, lifespan=debug_lifecycle(debug_log, engineering.lifecycle(service.lifespan(runtime, config.shutdown_grace))),
+model_preparation = ModelPreparationService(engineering.capabilities)
+app = FastAPI(title="Private Gateway 16", version=VERSION, lifespan=model_preparation.lifecycle(debug_lifecycle(debug_log, engineering.lifecycle(service.lifespan(runtime, config.shutdown_grace)))),
               docs_url="/gateway/docs", openapi_url="/gateway/openapi.json")
 app.add_middleware(LoadGuard, config=config, state=service)
 app.add_middleware(ActivityMiddleware, tracker=activity)
@@ -134,7 +135,6 @@ app.add_middleware(DebugMiddleware, store=debug_log, instance_id=service.instanc
 install_debug_routes(app, debug_log)
 install_engineering_routes(app, engineering)
 install_conversation_routes(app, runtime.gateway_conversations, engineering, service, lambda: runtime.device_store)
-model_preparation = ModelPreparationService(engineering.capabilities)
 install_model_preparation_routes(app, model_preparation, runtime.gateway_conversations.gateway_id)
 from v14.maintenance import install_maintenance
 install_maintenance(app, runtime, service, engineering)
@@ -357,10 +357,19 @@ def v14_contract():
 
 @app.get("/gateway/ready")
 @app.get("/v1/gateway/ready")
-async def ready(model: str = ""):
+async def ready(model: str = "", required_tools: str = ""):
     if len(model) > 512:
         return JSONResponse({"error": {"code": "invalid_model_identifier"}}, status_code=400)
+    required = required_tools.split(',') if required_tools else []
+    if len(required) > 64 or any(not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', name) for name in required):
+        return JSONResponse({'error': {'code': 'invalid_required_tools'}}, status_code=400)
     result = await asyncio.to_thread(readiness, runtime, service, model)
+    if required:
+        result['taskReadiness'] = runtime.gateway_catalogue.task_readiness(required)
+        if not result['taskReadiness']['ready']:
+            result['ready'] = False
+            result['reasonCode'] = 'REQUIRED_TOOLS_UNAVAILABLE'
+            result['retryable'] = result.get('retryable', False) or result['taskReadiness']['retryable']
     return JSONResponse(result, status_code=200 if result['ready'] else 503)
 
 
@@ -386,9 +395,11 @@ async def admin_status():
 @app.get("/v1/gateway/connections")
 def connections():
     # Only IDs/state; commands, environment and credential values stay private.
+    observed = {row['serviceId']: row for row in runtime.gateway_catalogue.connection_observations()}
     return {"schemaVersion": 1, "connections": [
         {"serviceId": name, "connectionUid": "gateway:" + name, "owner": "gateway", "kind": "pc-managed-mcp",
-         "enabled": value.get("enabled", True), "supportedActions": ["configure-locally"], "health": "not-probed"}
+         "enabled": value.get("enabled", True), "supportedActions": ["configure-locally"],
+         "health": observed.get(name, {}).get('state', 'NOT_DISCOVERED'), **observed.get(name, {})}
         for name, value in sorted(approved_mcp_config().items())]}
 
 

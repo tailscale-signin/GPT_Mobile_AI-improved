@@ -266,6 +266,61 @@ class DiagnosticJournalTests(unittest.TestCase):
                 self.assertEqual(manifest['last_ingest_sequence'], rows[-1]['gateway_ingest_sequence'])
             writer.result(timeout=20)
 
+    def test_full_bundle_streams_every_retained_capture_and_reports_clock_domains(self):
+        sessions = [SESSION, 'd' * 32]
+        for session in sessions:
+            for first in range(1, 2601, 64):
+                self.store.ingest('paired-owner', batch((event(n) for n in range(first, min(first + 64, 2601))), session=session))
+        debug = DebugLogStore(Path(self.directory.name) / 'debug.jsonl', enabled=True, now=lambda: NOW)
+        debug.journal = self.store
+        with zipfile.ZipFile(io.BytesIO(debug.export_bundle())) as archive:
+            raw = archive.read('diagnostic-events.jsonl')
+            rows = [json.loads(line) for line in raw.splitlines()]
+            manifest = json.loads(archive.read('manifest.json'))
+        self.assertEqual(5200, len(rows))
+        self.assertEqual(set(sessions), {row['session_id'] for row in rows})
+        coverage = manifest['journal']
+        self.assertEqual(5200, coverage['retainedCount'])
+        self.assertEqual(5200, coverage['exportedCount'])
+        self.assertEqual(0, coverage['omittedRetainedCount'])
+        self.assertFalse(coverage['exportTruncated'])
+        self.assertTrue(coverage['retainedExportComplete'])
+        self.assertFalse(coverage['complete'])
+        self.assertEqual([2600, 2600], sorted(capture['exportedCount'] for capture in coverage['captures']))
+        self.assertEqual('origin_sequence_and_causal_trace_only', coverage['clockOrdering'])
+        self.assertIsNone(coverage['clockUncertaintyMs'])
+        self.assertLess(coverage['clockDomains'][0]['minimumObservedMinusOccurredMs'], 0)
+        file = next(item for item in manifest['files'] if item['path'] == 'diagnostic-events.jsonl')
+        self.assertEqual(hashlib.sha256(raw).hexdigest(), file['sha256'])
+        self.assertEqual(5200, file['records'])
+
+    def test_streaming_export_propagates_sink_failure_instead_of_reporting_empty_coverage(self):
+        self.append(1, 1)
+        def broken_sink(event):
+            raise OSError('export sink unavailable')
+        with self.assertRaises(OSError):
+            self.store.local_snapshot(emit_event=broken_sink)
+
+    def test_streaming_snapshot_keeps_ingestion_writable_and_coverage_at_one_commit(self):
+        self.append(1, 1)
+        entered, release = threading.Event(), threading.Event()
+        def slow_sink(event):
+            entered.set()
+            self.assertTrue(release.wait(5))
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            export = pool.submit(self.store.local_snapshot, slow_sink)
+            self.assertTrue(entered.wait(5))
+            writer = pool.submit(self.append, 2, 2)
+            try:
+                writer.result(timeout=3)
+            finally:
+                release.set()
+            _, coverage = export.result(timeout=5)
+        self.assertEqual(1, coverage['retainedCount'])
+        self.assertEqual(1, coverage['exportedCount'])
+        self.assertEqual(1, coverage['sources'][0]['received_count'])
+        self.assertEqual(2, self.store.read('paired-owner', SESSION)['last_ingest_sequence'])
+
     def test_capture_source_and_sequence_metadata_are_bounded(self):
         self.store.ingest('paired-owner', batch([event(1)]))
         with self.assertRaises(DiagnosticProtocolError) as too_far:

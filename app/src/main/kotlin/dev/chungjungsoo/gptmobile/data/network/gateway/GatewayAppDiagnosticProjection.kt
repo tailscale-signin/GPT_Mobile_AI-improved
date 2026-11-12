@@ -24,6 +24,9 @@ internal fun gatewayAppDiagnosticProjection(entry: AppLogEntry): JsonObject? {
     val execution = diagnosticExecutionEvidence(fields, eventName)
     fun text(vararg names: String): String? = names.firstNotNullOfOrNull { (fields[it] as? JsonPrimitive)?.contentOrNull?.takeUnless { value -> value in setOf("null", "unknown", "none", "unavailable") } }
     val terminal = text("terminalStatus", "status").takeIf { eventName == "RUN_TERMINAL" }
+    val criterion = text("criterion_state").takeIf { eventName == "GITHUB_ACCEPTANCE_CRITERION" }
+    val requiredCriterion = criterion != null && (fields["criterion_required"] as? JsonPrimitive)?.booleanOrNull == true
+    val reason = execution.errorCode ?: text("reasonCode", "reason_code", "failureCode", "failure_code")
     val correlation = diagnosticCorrelation(fields, message, entry.tag)
     val mcpPhase = when (text("mcpPhase", "stage", "failedStage")?.lowercase()) {
         "connection", "initialization", "protocol_negotiation", "dns", "tls" -> "connection"
@@ -33,7 +36,7 @@ internal fun gatewayAppDiagnosticProjection(entry: AppLogEntry): JsonObject? {
     }
     val frame = if (eventName == "FRAME_TIMING") GatewayFrameDiagnostic.from(fields) else null
     val stage = when {
-        eventName == "RUN_TERMINAL" -> "terminal_delivery"
+        eventName in setOf("RUN_TERMINAL", "GITHUB_ACCEPTANCE_CRITERION") -> "terminal_delivery"
         entry.tag in setOf("Lifecycle", "Application", "AppCrash", "Diagnostics", "ProcessExit") -> "lifecycle"
         entry.tag in setOf("Frame", "Rendering", "ChatRendering") -> "renderer"
         entry.tag in setOf("Network", "Connectivity") -> "network"
@@ -47,6 +50,9 @@ internal fun gatewayAppDiagnosticProjection(entry: AppLogEntry): JsonObject? {
     val error = when {
         execution.state == "UNKNOWN_OUTCOME" -> "DISPATCH_UNCERTAIN"
         execution.dispatched == false && classification.actionable -> "PRECHECK_REJECTED"
+        reason == "TRANSPORT_EOF" -> "TRANSPORT_EOF"
+        reason == "COMPLETION_REPAIR_BUDGET_EXHAUSTED" -> "COMPLETION_REPAIR_BUDGET_EXHAUSTED"
+        reason in setOf("INCOMPLETE", "TASK_INCOMPLETE", "GITHUB_TASK_INCOMPLETE") -> "TASK_INCOMPLETE"
         classification.category in setOf("fatal", "memory_recovery") && message.contains("memory", true) -> "JAVA_HEAP_PRESSURE"
         classification.category in setOf("transport_availability", "network_callback_lifecycle") -> "TRANSPORT_FAILURE"
         frame != null -> frame.errorCode
@@ -58,6 +64,8 @@ internal fun gatewayAppDiagnosticProjection(entry: AppLogEntry): JsonObject? {
         terminal == "EVIDENCE_MISSING" -> "EVIDENCE_MISSING"
         terminal == "BLOCKED" -> "TASK_BLOCKED"
         terminal == "PARTIAL" -> "TASK_PARTIAL"
+        requiredCriterion && criterion == "BLOCKED" -> "TASK_BLOCKED"
+        requiredCriterion && criterion in setOf("FAIL", "NOT_TESTED") -> "EVIDENCE_MISSING"
         classification.severity in setOf("error", "critical") -> "UNKNOWN_CAUSE"
         else -> "NONE"
     }
@@ -78,7 +86,16 @@ internal fun gatewayAppDiagnosticProjection(entry: AppLogEntry): JsonObject? {
                     "unknown"
                 }
             )
-            put("retry_class", if ((fields["retryable"] as? JsonPrimitive)?.booleanOrNull == false) "manual" else "unknown")
+            put(
+                "retry_class",
+                if (error == "NONE" && !classification.actionable) {
+                    "none"
+                } else if ((fields["retryable"] as? JsonPrimitive)?.booleanOrNull == false) {
+                    "manual"
+                } else {
+                    "unknown"
+                }
+            )
             put(
                 "category",
                 when (stage) {
@@ -120,13 +137,13 @@ internal fun gatewayAppDiagnosticProjection(entry: AppLogEntry): JsonObject? {
                     GatewayDiagnosticSchema.numericAttributes.forEach { name -> fields[name]?.let { put(name, it) } }
                     GatewayDiagnosticSchema.digestAttributes.forEach { name -> fields[name]?.let { put(name, it) } }
                     GatewayDiagnosticSchema.boolAttributes.forEach { name -> fields[name]?.let { put(name, it) } }
-                    val reason = execution.errorCode ?: text("reasonCode", "reason_code", "failureCode")
                     reason?.let { put("reason_code", it) }
                     if ("dependency" !in fields) gatewayDiagnosticDependency(reason)?.let { put("dependency", it) }
                     execution.stage?.lowercase()?.let { put("failed_stage", it) }
                     terminal?.let { put("terminal_status", it) }
                     (text("completionDisposition", "completion_disposition") ?: execution.state?.takeIf { it in GatewayDiagnosticSchema.enumAttributes.getValue("completion_disposition") } ?: terminal)?.let { put("completion_disposition", it) }
                     text("lastCompletedStage", "last_completed_stage")?.let { put("last_completed_stage", it) }
+                    text("lastObservedStage", "last_observed_stage")?.let { put("last_observed_stage", it) }
                     put(
                         "dispatch_scope",
                         when (text("dispatchEvidenceScope")) {
@@ -135,11 +152,17 @@ internal fun gatewayAppDiagnosticProjection(entry: AppLogEntry): JsonObject? {
                             else -> "unknown"
                         }
                     )
-                    val recovery = text("recoveryAction", "recovery_action") ?: gatewayDiagnosticRecovery(reason, terminal, execution.state)
+                    val recovery = when {
+                        error == "NONE" && !classification.actionable -> "none"
+                        requiredCriterion && criterion != "PASS" -> "verify_acceptance"
+                        text("recoveryAction", "recovery_action") == "RESUME_SAVED_EVIDENCE_WITH_REVISED_OUTPUT_ALLOWANCE" -> "resume_checkpoint"
+                        else -> text("recoveryAction", "recovery_action")?.takeIf { it in GatewayDiagnosticSchema.enumAttributes.getValue("recovery_action") }
+                            ?: gatewayDiagnosticRecovery(reason, terminal, execution.state)
+                    }
                     put("recovery_action", recovery)
                     put("recovery_condition", gatewayRecoveryCondition(recovery))
                     (fields["retryable"] as? JsonPrimitive)?.booleanOrNull?.let { put("retryable", it) }
-                    if (stage == "terminal_delivery") {
+                    if (eventName == "RUN_TERMINAL") {
                         put("run_state", "terminal")
                         val required = text("requiredCriteria", "required_criteria")?.toLongOrNull()
                         val verified = text("verifiedCriteria", "verified_criteria")?.toLongOrNull()

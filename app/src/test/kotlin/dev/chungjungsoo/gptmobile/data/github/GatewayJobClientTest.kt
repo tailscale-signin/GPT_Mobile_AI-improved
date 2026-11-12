@@ -88,12 +88,40 @@ class GatewayJobClientTest {
                 calls++
                 assertEquals(HttpMethod.Get, request.method)
                 assertEquals("/v1/gateway/commands/persisted-command", request.url.encodedPath)
+                assertEquals("true", request.url.parameters["include_outcome"])
                 respond("Unknown command", HttpStatusCode.NotFound)
             }
         ) { install(HttpTimeout) }.use { http ->
             assertEquals(null, GatewayJobClient(http).command(config, "persisted-command"))
         }
         assertEquals(1, calls)
+    }
+
+    @Test fun durableRejectionRequiresOriginalCommandIdentityAndProofOfNoDispatch() = runBlocking {
+        val outcome = GatewayCommandRejection(1, "gateway", "owner", "command", "engineering", "rejected", "EXECUTION_MODEL_LOADING", 409, "provider_admission", "not_dispatched", false)
+        for (candidate in listOf(outcome, outcome.copy(commandId = "other-command"), outcome.copy(inferenceAttempted = true), outcome.copy(dispatchState = "unknown"))) {
+            HttpClient(
+                MockEngine { request ->
+                    assertEquals(HttpMethod.Get, request.method)
+                    respond(Json.encodeToString(candidate))
+                }
+            ) { install(HttpTimeout) }.use { http ->
+                val client = GatewayJobClient(http)
+                val failure = runCatching { client.command(config, "command") }.exceptionOrNull()
+                val passiveFailure = runCatching { client.observeCommand(config, "command") }.exceptionOrNull()
+                if (candidate == outcome) {
+                    assertTrue(failure is GatewayCommandRejected)
+                    assertTrue(passiveFailure is GatewayCommandRejected)
+                    assertEquals(outcome, (failure as GatewayCommandRejected).outcome)
+                    assertEquals("EXECUTION_MODEL_LOADING", failure.errorCode)
+                    assertEquals("provider_admission", failure.failedStage)
+                } else {
+                    assertTrue(failure is GatewayAdmissionException)
+                    assertTrue(passiveFailure is GatewayAdmissionException)
+                    assertEquals(GatewayAdmissionReason.INVALID_RESPONSE, (failure as GatewayAdmissionException).reason)
+                }
+            }
+        }
     }
 
     @Test fun passiveMissingCommandsBackOffToOneMinuteWithoutDispatchingOrForgettingThem() = runBlocking {
@@ -104,6 +132,7 @@ class GatewayJobClientTest {
                 calls++
                 assertEquals(HttpMethod.Get, request.method)
                 assertEquals("/v1/gateway/commands/persisted-command", request.url.encodedPath)
+                assertEquals("true", request.url.parameters["include_outcome"])
                 respond("Unknown command", HttpStatusCode.NotFound)
             }
         ) { install(HttpTimeout) }.use { http ->

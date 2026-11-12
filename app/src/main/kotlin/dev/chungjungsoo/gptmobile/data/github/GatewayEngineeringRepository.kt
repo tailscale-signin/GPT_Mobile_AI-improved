@@ -8,6 +8,10 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.workDataOf
 import dagger.hilt.android.qualifiers.ApplicationContext
+import dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority
+import dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationPhase
+import dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationRepository
+import dev.chungjungsoo.gptmobile.data.context.ReasoningPolicy
 import dev.chungjungsoo.gptmobile.data.database.entity.GatewayConversationRecord
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
@@ -16,9 +20,11 @@ import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonPrimitive
 
@@ -30,7 +36,8 @@ class GatewayEngineeringRepository @Inject constructor(
     private val notifications: GitHubDecisionNotifications,
     private val store: GatewayEngineeringStore,
     private val conversations: GatewayConversationRepository,
-    private val history: GatewayJobClient
+    private val history: GatewayJobClient,
+    private val modelPreparation: GatewayModelPreparationRepository
 ) {
     private val synchronization = Mutex()
     private val scheduling = Mutex()
@@ -179,6 +186,15 @@ class GatewayEngineeringRepository @Inject constructor(
         val profile = storedProfile.copy(model = selectedModel ?: storedProfile.model, reasoning = featuresAtAdmission.conversationReasoning[chatId] ?: storedProfile.reasoning)
         require(profile.model.isNotBlank())
         require(GitHubAutonomousEngineeringPolicy.supportsSavedJobs(profile)) { "Autonomous jobs require a local Llama or Ollama engineering profile. Remote profiles cannot start them." }
+        val reasoningMode = ReasoningPolicy.preference(storedProfile.reasoning, featuresAtAdmission.llamaReasoningModes[profile.uid], featuresAtAdmission.conversationReasoning[chatId])
+        val prepared = modelPreparation.prepareSelected(profile, reasoningMode, forceRefresh = true)
+        check(prepared == null || prepared.phase == GatewayModelPreparationPhase.READY && prepared.observation?.permitsRequest == true) {
+            prepared?.message ?: "The exact selected model could not be prepared. Your saved draft was not submitted."
+        }
+        if (!admissionAllowed()) throw GatewayEngineeringRequestRejected(403, "Remote tool permission changed during model preparation. The draft was not submitted.")
+        val afterPreparation = settings.fetchPlatformV2s().singleOrNull { it.uid == profileUid && it.enabled }
+        val currentFeatures = settings.getFeatureSettings()
+        check(afterPreparation != null && ConfiguredDispatchAuthority.profileRevision(afterPreparation) == ConfiguredDispatchAuthority.profileRevision(storedProfile) && currentFeatures.llamaReasoningModes[profile.uid] == featuresAtAdmission.llamaReasoningModes[profile.uid] && currentFeatures.conversationReasoning[chatId] == featuresAtAdmission.conversationReasoning[chatId]) { "The selected model or reasoning setting changed during preparation. Review the retained draft before sending it." }
         val preferences = settings.getFeatureSettings().githubProfileOverrides[profile.uid] ?: GitHubChatProfileOverride()
         val gateway = if (savedBinding == null) {
             settings.engineeringGateway(profile.uid)
@@ -288,6 +304,7 @@ class GatewayEngineeringRepository @Inject constructor(
             mirror(binding)
             return@withLock binding
         }
+        if (!allowCreate && binding.job == null && admissionState != "PENDING" && !store.commandLookupDue(requestId)) return@withLock binding
         val config = config(binding)
         if (System.nanoTime() / 1_000_000 - (lastPoll[requestId] ?: Long.MIN_VALUE / 2) < 2000 && !allowCreate) return@withLock binding
         check(binding.principalId == client.principal(config, requireReady = false)) { "The gateway account changed. Restore the original connection before reconnecting to this job." }
@@ -295,10 +312,22 @@ class GatewayEngineeringRepository @Inject constructor(
             val capability = client.capabilities(config)
             val identity = if (capability.conversationSync) history.identity(config) else null
             check(identity == null || identity.principalId == binding.principalId && (binding.gatewayId == null || identity.gatewayId == binding.gatewayId)) { "The original gateway installation or account changed." }
-            val receipt = if (capability.conversationSync) {
-                if (allowCreate) history.command(config, requestId) else history.observeCommand(config, requestId)
-            } else {
-                null
+            val receipt = try {
+                if (capability.conversationSync) {
+                    if (allowCreate) history.command(config, requestId) else history.observeCommand(config, requestId)
+                } else {
+                    null
+                }
+            } catch (rejected: GatewayCommandRejected) {
+                check(rejected.outcome.gatewayId == binding.gatewayId && rejected.outcome.principalId == binding.principalId && rejected.outcome.commandId == requestId && rejected.outcome.jobKind == "engineering") { "The command rejection belongs to a different gateway or account." }
+                store.rejectAdmission(requestId, rejected.outcome)
+                if (allowCreate) throw rejected
+                return@withLock binding
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                store.deferCommandLookup(requestId)
+                throw failure
             }
             if (receipt != null) {
                 check(receipt.commandId == requestId && receipt.jobKind == "engineering" && receipt.principalId == binding.principalId && receipt.gatewayId == identity?.gatewayId && (binding.gatewayId == null || receipt.gatewayId == binding.gatewayId)) { "The saved command receipt belongs to a different gateway or account." }
@@ -307,11 +336,13 @@ class GatewayEngineeringRepository @Inject constructor(
                 check(recovered.conversationId == receipt.conversationId && recovered.commandId == requestId) { "The saved command conversation changed." }
                 binding = binding.copy(job = recovered.copy(updates = emptyList()))
                 save(binding)
-            } else if (!allowCreate) {
+            } else if (!allowCreate || admissionState != "PENDING") {
+                // A 404 only means that this read did not find a receipt. Reconnect
+                // cannot replay a command whose first POST may have been accepted.
+                store.deferCommandLookup(requestId)
                 lastPoll[requestId] = System.nanoTime() / 1_000_000
                 return@withLock binding
             } else {
-                check(admissionState != "MIGRATED_REVIEW") { "The earlier gateway submission is retained for receipt reconciliation. Its payload must not be replayed in a different protocol." }
                 val selection = requireNotNull(binding.executionSelection) { "This saved request predates strict execution binding. Select a profile explicitly before starting new work." }
                 val accepted = requireNotNull(binding.executionAdmission)
                 accepted.verify(selection)
@@ -351,7 +382,10 @@ class GatewayEngineeringRepository @Inject constructor(
                     store.markAdmission(requestId, if (attemptedBefore || rejected.commandOutcomeUnknown) "OUTCOME_UNKNOWN" else "REJECTED:${rejected.httpStatus}")
                     throw rejected.withCommandOutcomeUnknown(attemptedBefore)
                 } catch (failure: Exception) {
-                    store.markAdmission(requestId, "OUTCOME_UNKNOWN")
+                    withContext(NonCancellable) {
+                        store.markAdmission(requestId, "OUTCOME_UNKNOWN")
+                        store.deferCommandLookup(requestId)
+                    }
                     throw failure
                 }
                 verifyReceipt(binding, job)

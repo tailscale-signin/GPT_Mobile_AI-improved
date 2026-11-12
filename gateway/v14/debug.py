@@ -20,7 +20,8 @@ from fastapi import Request
 from fastapi.responses import JSONResponse, Response
 from .diagnostic_events import (DiagnosticSessionJournal, DiagnosticProtocolError, MAX_BATCH_BYTES, MAX_CAPTURE_SECONDS,
                                 event_identity, sanitize_event, trace_context, HEX32)
-from .debug_projection import (ROUTES, ADMISSION_CODES, route_kind, provenance, failure_fields, response_summary, choice)
+from .debug_projection import (ROUTES, ADMISSION_CODES, route_kind, provenance, failure_fields, response_summary, choice,
+                               backend_build_provenance)
 
 MAX_LINES = 5000
 MAX_LINE_BYTES = 2048
@@ -245,6 +246,8 @@ class DebugLogStore:
         self.origin_sequences = {}
         self.local_gaps = {}
         self.event_error = None
+        self.poll_samples = {}
+        self.suppressed_successful_polls = 0
         # Read a bounded tail; never hydrate an oversized or malformed historical log.
         try:
             with self.path.open('rb') as stream:
@@ -277,7 +280,15 @@ class DebugLogStore:
 
     def configure_identity(self, **fields):
         with self.lock:
-            self.provenance = provenance(dict(fields, bootId=self.boot_id, processId=os.getpid(), diagnosticProtocolVersion=2))
+            self.provenance = provenance(dict(fields, bootId=self.boot_id, processId=os.getpid(), diagnosticProtocolVersion=2,
+                                              backendBuildStatus='not_observed'))
+
+    def observe_backend_build(self, value, observed_at):
+        with self.lock:
+            self.provenance = {key: item for key, item in self.provenance.items() if not key.startswith('backendBuild')}
+            self.provenance.update(backend_build_provenance(value))
+            if type(observed_at) is int and 0 <= observed_at <= 2 ** 53:
+                self.provenance['backendBuildObservedAtMs'] = observed_at
 
     def _ensure_writer(self):
         with self.lock:
@@ -324,6 +335,17 @@ class DebugLogStore:
             self.records.append(item)
             self.pending.set()
 
+    def retain_successful_poll(self, route):
+        """Keep a periodic success pair; every failure and non-poll exchange is retained."""
+        with self.lock:
+            now = time.monotonic()
+            previous = self.poll_samples.get(route)
+            if previous is not None and 0 <= now - previous < 30:
+                self.suppressed_successful_polls += 1
+                return False
+            self.poll_samples[route] = now
+            return True
+
     def snapshot(self):
         with self.lock:
             return {'schemaVersion': 1, 'enabled': self.enabled, 'retainedLines': len(self.records),
@@ -332,6 +354,7 @@ class DebugLogStore:
                     'physicalRequestIds': True, 'structuredFailures': True, 'fullBundleExport': True,
                     'bidirectionalEvents': True, 'recordByteLimit': MAX_LINE_BYTES,
                     'retainedLineLimit': MAX_LINES, 'debugEnabled': self.enabled,
+                    'successfulPollSamplingSeconds': 30, 'suppressedSuccessfulPolls': self.suppressed_successful_polls,
                     'storageChecked': self.journal.storage_checked,
                     'storageReady': (self.write_error is None and self.journal.storage_error is None and self.event_error is None)
                                     if self.journal.storage_checked else None,
@@ -359,6 +382,9 @@ class DebugLogStore:
             for source, target in (('sourceCommit', 'gateway_revision'), ('configurationFingerprint', 'runtime_config_digest')):
                 if self.provenance.get(source):
                     attrs.setdefault(target, self.provenance[source])
+            attrs.setdefault('backend_build_status', self.provenance.get('backendBuildStatus', 'not_observed'))
+            if self.provenance.get('backendBuildDigest'):
+                attrs.setdefault('backend_build_digest', self.provenance['backendBuildDigest'])
             fields['bounded_attributes'] = attrs
             event = sanitize_event(dict(fields, schema_version=2, origin_device_pseudonym=self.origin_id, origin_boot_id=self.boot_id,
                                         origin_sequence=sequence, event_id=event_identity(self.origin_id, self.boot_id, sequence),
@@ -446,7 +472,7 @@ class DebugLogStore:
                 records = [clean for row in self.records if (clean := sanitized_record(row)) is not None]
                 current = dict(self.provenance)
                 queued, dropped = self.event_queue.qsize(), self.queue_dropped
-            events, coverage = self.journal.local_snapshot()
+                suppressed_polls = self.suppressed_successful_polls
             versions = []
             for candidate in [row.get('provenance') for row in records] + [current]:
                 safe = provenance(candidate)
@@ -455,28 +481,50 @@ class DebugLogStore:
             builds = sorted({row['client']['appVersionCode'] for row in records
                              if isinstance(row.get('client'), dict) and type(row['client'].get('appVersionCode')) is int})
             transport = encode_records(records).encode('utf-8')
-            journal = encode_records(events).encode('utf-8')
-            files = {'gateway-debug.jsonl': transport, 'diagnostic-events.jsonl': journal}
+            output = io.BytesIO()
+            archive = zipfile.ZipFile(output, 'w', compression=zipfile.ZIP_DEFLATED)
+            try:
+                archive.writestr('gateway-debug.jsonl', transport)
+                event_hash, event_bytes = hashlib.sha256(), 0
+                with archive.open('diagnostic-events.jsonl', 'w') as stream:
+                    def write_event(event):
+                        nonlocal event_bytes
+                        data = (json.dumps(event, separators=(',', ':'), sort_keys=True) + '\n').encode('utf-8')
+                        stream.write(data)
+                        event_hash.update(data)
+                        event_bytes += len(data)
+                    _, coverage = self.journal.local_snapshot(emit_event=write_event)
+                files = [{'path': 'gateway-debug.jsonl', 'bytes': len(transport), 'sha256': hashlib.sha256(transport).hexdigest()},
+                         {'path': 'diagnostic-events.jsonl', 'bytes': event_bytes, 'records': coverage.get('exportedCount', 0),
+                          'sha256': event_hash.hexdigest()}]
+            except BaseException:
+                archive.close()
+                raise
             manifest = {'schemaVersion': 1, 'diagnosticProtocolVersion': 2, 'exportedAtMs': int(self.now() * 1000),
                         'scope': 'local_admin_retained_diagnostics', 'redaction': 'allowlisted_metadata_only',
                         'versions': versions[-32:], 'versionsTruncated': len(versions) > 32, 'androidBuilds': builds[-64:],
+                        'buildIdentity': {'comparisonFields': ['gatewayVersion', 'sourceCommit', 'manifestDigest'],
+                                          'versionLabelIsUnique': all(len({v.get('sourceCommit') for v in versions if v.get('gatewayVersion') == label}) <= 1
+                                                                     for label in {v.get('gatewayVersion') for v in versions}),
+                                          'backendBuildStatus': current.get('backendBuildStatus', 'not_observed')},
                         'transport': {'retainedCount': len(records), 'recordLimit': MAX_LINES, 'recordByteLimit': MAX_LINE_BYTES,
                                       'firstSequence': min((r.get('sequence', 0) for r in records), default=None),
                                       'lastSequence': max((r.get('sequence', 0) for r in records), default=None),
                                       'captureStartMs': min((r.get('timestampMs', 0) for r in records), default=None),
                                       'captureEndMs': max((r.get('timestampMs', 0) for r in records), default=None),
+                                      'successfulPollSamplingSeconds': 30,
+                                      'suppressedSuccessfulPollsThisBoot': suppressed_polls,
                                       'timing': 'timestampMs is occurrence time; recordedAtMs is write time; durationMs is monotonic',
                                       'httpIdentity': 'httpRequestId identifies one call; operationDigest identifies its caller operation',
                                       'historicalTiming': 'Rows without arrivalAtMs retain legacy timing semantics.'},
                         'journal': dict(coverage, queuedAtSnapshot=queued, queueDropped=dropped),
                         'executionCoverage': 'Captured receipt transitions only. Absence does not prove no inference or lost jobs.',
-                        'files': [{'path': name, 'bytes': len(data), 'sha256': hashlib.sha256(data).hexdigest()}
-                                  for name, data in files.items()]}
-            output = io.BytesIO()
-            with zipfile.ZipFile(output, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
-                for name, data in files.items():
-                    archive.writestr(name, data)
+                        'clockOrdering': 'origin_sequence_and_causal_trace_only', 'clockUncertaintyMs': None,
+                        'files': files}
+            try:
                 archive.writestr('manifest.json', json.dumps(manifest, sort_keys=True, separators=(',', ':')).encode())
+            finally:
+                archive.close()
             return output.getvalue()
         finally:
             self.export_lock.release()
@@ -595,6 +643,7 @@ class DebugMiddleware:
         status = None
         response_started = response_completed = False
         request_logged = False
+        poll_suppressed = client_disconnected = False
         response_at = completed_at = completed_duration = None
         admission, response_body, body_oversize = None, bytearray(), False
 
@@ -626,15 +675,19 @@ class DebugMiddleware:
             request_logged = True
 
         async def observed_receive():
-            nonlocal received
+            nonlocal received, client_disconnected
             message = await receive()
             received += len(message.get('body', b''))
+            client_disconnected = client_disconnected or message['type'] == 'http.disconnect'
             return message
 
         async def observed_send(message):
-            nonlocal status, sent, response_started, response_completed, response_at, completed_at, completed_duration, admission, body_oversize
+            nonlocal status, sent, response_started, response_completed, response_at, completed_at, completed_duration, admission, body_oversize, observed, poll_suppressed
             if message['type'] == 'http.response.start':
                 status = message['status']
+                if observed and context['route'] == 'management_dashboard' and 200 <= status < 400:
+                    observed = self.store.retain_successful_poll(context['route'])
+                    poll_suppressed = not observed
                 additions = {b'x-gateway-instance-id': self.instance_id.encode(), b'x-gateway-debug-protocol': b'2',
                              b'x-gateway-http-request-id': context['httpRequestId'].encode('ascii'),
                              b'x-gateway-debug-enabled': b'true' if self.store.enabled else b'false',
@@ -670,7 +723,8 @@ class DebugMiddleware:
                 body = message.get('body', b'')
                 sent += len(body)
                 metadata = context['route'] in {'models', 'readiness', 'capabilities', 'backend_health', 'backend_properties', 'maintenance'}
-                metadata = metadata or context['route'] == 'engineering' and (status >= 400 or scope.get('path', '').endswith('/capabilities'))
+                metadata = metadata or status is not None and status >= 400
+                metadata = metadata or context['route'] == 'engineering' and scope.get('path', '').endswith('/capabilities')
                 if observed and self.store.enabled and metadata and not body_oversize:
                     if len(response_body) + len(body) <= 65536:
                         response_body.extend(body)
@@ -685,6 +739,11 @@ class DebugMiddleware:
         try:
             await self.app(scope, observed_receive, observed_send)
         except BaseException as error:
+            if poll_suppressed:
+                # A successful status followed by a broken body is still a failure.
+                observed, poll_suppressed = True, False
+                with self.store.lock:
+                    self.store.suppressed_successful_polls -= 1
             if observed:
                 record_request()
                 failure = 'cancelled' if isinstance(error, asyncio.CancelledError) else 'connection_closed' if isinstance(error, (ConnectionError, BrokenPipeError)) else 'request_failed'
@@ -693,9 +752,17 @@ class DebugMiddleware:
                       error_code='CANCELLED' if failure == 'cancelled' else 'TRANSPORT_FAILURE',
                       category='cancellation' if failure == 'cancelled' else 'transport', dispatch_state='unknown',
                       retry_class='none' if failure == 'cancelled' else 'unknown',
-                      local_duration_ms=max(0, int((time.monotonic() - started) * 1000)), bounded_attributes=attributes())
+                      local_duration_ms=max(0, int((time.monotonic() - started) * 1000)),
+                      bounded_attributes={**attributes(), 'dispatch_scope': 'attempt',
+                                          'failed_stage': 'response_stream' if response_started else 'transport',
+                                          **({'cancellation_origin': 'observer_detached' if client_disconnected else 'unknown'}
+                                             if failure == 'cancelled' else {})})
             raise
         finally:
+            if poll_suppressed and not response_completed:
+                observed = True
+                with self.store.lock:
+                    self.store.suppressed_successful_polls -= 1
             if observed:
                 record_request()
                 # A broken connection before response.start is not an observed HTTP
@@ -717,8 +784,11 @@ class DebugMiddleware:
                     receipt = {**attributes(), 'status': status, 'received_bytes': received, 'sent_bytes': sent}
                     receipt.update({key: value for key, value in {
                         'gateway_admission_code': admission, 'failure_code': summary.get('failureCode'),
-                        'reason_code': summary.get('reasonCode'), 'dependency': summary.get('dependency'),
-                        'upstream_status': summary.get('upstreamStatus')}.items() if value is not None})
+                        'reason_code': summary.get('reasonCode') or summary.get('failureCode'), 'dependency': summary.get('dependency'),
+                        'upstream_status': summary.get('upstreamStatus'), 'failed_stage': summary.get('failed_stage'),
+                        'execution_dispatch_state': summary.get('dispatch_state'), 'admission_state': summary.get('admission_state'),
+                        'inference_attempted': summary.get('inference_attempted'), 'retryable': summary.get('retryable'),
+                        'recovery_action': summary.get('recovery_action'), 'recovery_condition': summary.get('recovery_condition')}.items() if value is not None})
                     restricted = admission == 'remote_surface_not_admitted'
                     severity = 'info' if restricted else 'error' if status >= 500 else 'warning' if status >= 400 or summary.get('failureCode') else 'info'
                     code = 'AUTHORIZATION_FAILED' if status in {401, 403} else 'HTTP_ERROR' if status >= 400 else 'SOURCE_UNAVAILABLE' if summary.get('failureCode') else 'NONE'

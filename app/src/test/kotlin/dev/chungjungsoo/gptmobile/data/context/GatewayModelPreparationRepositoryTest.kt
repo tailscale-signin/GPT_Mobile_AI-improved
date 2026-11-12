@@ -4,12 +4,14 @@ import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayCapabilities
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayModelPreparationReceipt
+import dev.chungjungsoo.gptmobile.data.security.SecretVault
 import java.io.IOException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -332,5 +334,152 @@ class GatewayModelPreparationRepositoryTest {
         assertEquals(listOf(profile.token, "changed-token"), seen)
         controller.update(emptyList())
         assertTrue(controller.states.value.isEmpty())
+    }
+
+    @Test fun processRestartAutomaticallyReconcilesThePersistedOperationWithoutAnotherLoadIdentity() = runTest {
+        val vault = ModelPreparationTestVault()
+        val identity = ConfiguredDispatchAuthority.profileRevision(profile)
+        val ids = mutableListOf<String>()
+        var ready = false
+        fun repository() = GatewayModelPreparationRepository(
+            { capabilities },
+            { p, m -> observation(p, m, ready = ready) },
+            { selected, id ->
+                assertEquals(id, GatewayModelPreparationStore(vault).read(identity, profile.model)?.operationId)
+                ids += id
+                if (ids.size == 1) throw IOException("load response lost")
+                ready = true
+                receipt(selected, id)
+            },
+            { 0L },
+            pause = {},
+            maxPolls = 1,
+            operations = GatewayModelPreparationStore(vault)
+        )
+        assertEquals(GatewayModelPreparationPhase.BLOCKED, repository().prepareSelected(profile, ReasoningMode.OFF)?.phase)
+        assertEquals(GatewayModelPreparationPhase.READY, repository().prepareSelected(profile, ReasoningMode.OFF)?.phase)
+        assertEquals(2, ids.size)
+        assertEquals(1, ids.distinct().size)
+        assertNull(GatewayModelPreparationStore(vault).read(identity, profile.model))
+    }
+
+    @Test fun completedRetainedOperationAndFreshSleepPermitExactlyOneNewWake() = runTest {
+        for (readyAfterWake in listOf(true, false)) {
+            val store = GatewayModelPreparationStore(ModelPreparationTestVault())
+            store.write(SavedGatewayModelPreparation(configurationRevision = ConfiguredDispatchAuthority.profileRevision(profile), model = profile.model, operationId = "completed-operation", updatedAtMillis = 0))
+            val ids = mutableListOf<String>()
+            var ready = false
+            val repository = GatewayModelPreparationRepository(
+                { capabilities },
+                { p, m -> observation(p, m, ready = ready) },
+                { selected, id ->
+                    ids += id
+                    if (id != "completed-operation") ready = readyAfterWake
+                    receipt(selected, id, "METADATA_QUALIFIED", "LOADED")
+                },
+                { 0L },
+                pause = {},
+                maxPolls = 1,
+                operations = store
+            )
+            val result = repository.prepareSelected(profile, ReasoningMode.OFF)
+            assertEquals(if (readyAfterWake) GatewayModelPreparationPhase.READY else GatewayModelPreparationPhase.BLOCKED, result?.phase)
+            assertEquals(2, ids.size)
+            assertEquals("completed-operation", ids.first())
+            assertEquals(2, ids.distinct().size)
+            assertEquals(ReasoningMode.OFF, result?.observation?.requested)
+        }
+    }
+
+    @Test fun unavailableOrCorruptOperationStorageBlocksBeforeLoadDispatch() = runTest {
+        for (corrupt in listOf(true, false)) {
+            val vault = ModelPreparationTestVault()
+            if (corrupt) {
+                vault.records["gateway_model_preparation_${ConfiguredDispatchAuthority.profileRevision(profile)}"] = "invalid-record".encodeToByteArray()
+            } else {
+                vault.failWrites = true
+            }
+            val repository = GatewayModelPreparationRepository(
+                { capabilities },
+                { p, m -> observation(p, m) },
+                { _, _ -> error("Storage must precede dispatch") },
+                { 0L },
+                operations = GatewayModelPreparationStore(vault)
+            )
+            val result = repository.prepareSelected(profile, ReasoningMode.OFF)
+            assertEquals(GatewayModelPreparationPhase.BLOCKED, result?.phase)
+            assertTrue(result?.message?.contains("storage") == true)
+        }
+    }
+
+    @Test fun definiteAccessBlockerStopsPollingAndRetainsTheDispatchedIdentity() = runTest {
+        val vault = ModelPreparationTestVault()
+        val store = GatewayModelPreparationStore(vault)
+        var checks = 0
+        var id: String? = null
+        val repository = GatewayModelPreparationRepository(
+            { capabilities },
+            { p, m -> observation(p, m, if (++checks == 1) "SELECTED_MODEL_NOT_LOADED" else "BACKEND_METADATA_DENIED") },
+            { selected, operation ->
+                id = operation
+                receipt(selected, operation)
+            },
+            { 0L },
+            pause = {},
+            maxPolls = 30,
+            operations = store
+        )
+        assertEquals(GatewayModelPreparationPhase.BLOCKED, repository.prepareSelected(profile, ReasoningMode.OFF)?.phase)
+        assertEquals(2, checks)
+        assertEquals(id, store.read(ConfiguredDispatchAuthority.profileRevision(profile), profile.model)?.operationId)
+    }
+
+    @Test fun unchangedSelectionRechecksOnFreshnessAndReconnectWithoutChangingModelOrReasoning() = runTest {
+        var clock = 0L
+        var ready = true
+        var loads = 0
+        val network = MutableStateFlow(0L)
+        val repository = GatewayModelPreparationRepository(
+            { capabilities },
+            { p, m -> observation(p, m, ready = ready) },
+            { p, id ->
+                assertEquals(profile, p)
+                loads++
+                ready = true
+                receipt(p, id, "METADATA_QUALIFIED", "LOADED")
+            },
+            { clock }
+        )
+        val controller = GatewayModelSelectionController(repository, this, { clock }, network)
+        controller.update(listOf(profile), mapOf(profile.uid to ReasoningMode.OFF))
+        runCurrent()
+        ready = false
+        controller.update(listOf(profile), mapOf(profile.uid to ReasoningMode.OFF))
+        runCurrent()
+        assertEquals(0, loads)
+        clock = 20_001
+        controller.update(listOf(profile), mapOf(profile.uid to ReasoningMode.OFF))
+        runCurrent()
+        assertEquals(1, loads)
+        ready = false
+        network.value++
+        runCurrent()
+        assertEquals(2, loads)
+        assertEquals(GatewayModelPreparationPhase.READY, controller.states.value[profile.uid]?.phase)
+        assertEquals(ReasoningMode.OFF, controller.states.value[profile.uid]?.observation?.requested)
+        controller.clear()
+    }
+}
+
+internal class ModelPreparationTestVault : SecretVault {
+    val records = mutableMapOf<String, ByteArray>()
+    var failWrites = false
+    override suspend fun put(secretRef: String, secret: ByteArray) {
+        if (failWrites) throw IOException("storage unavailable")
+        records[secretRef] = secret.copyOf()
+    }
+    override suspend fun read(secretRef: String): ByteArray? = records[secretRef]?.copyOf()
+    override suspend fun delete(secretRef: String) {
+        records.remove(secretRef)
     }
 }

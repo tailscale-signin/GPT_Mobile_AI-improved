@@ -1,6 +1,9 @@
 package dev.chungjungsoo.gptmobile.data.github
 
 import android.content.Context
+import dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationPhase
+import dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationRepository
+import dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationState
 import dev.chungjungsoo.gptmobile.data.database.entity.GatewayConversationRecord
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
@@ -11,6 +14,7 @@ import io.mockk.coVerify
 import io.mockk.mockk
 import io.mockk.slot
 import java.io.IOException
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -31,14 +35,18 @@ class GatewayEngineeringSubmissionTest {
     private val store = mockk<GatewayEngineeringStore>()
     private val conversations = mockk<GatewayConversationRepository>()
     private val history = mockk<GatewayJobClient>()
+    private val modelPreparation = mockk<GatewayModelPreparationRepository>()
     private val selected = PlatformV2(uid = "execution-profile", name = "Selected inference", compatibleType = ClientType.LLAMA, apiUrl = "http://192.168.1.8:8080/v1", model = "profile-default")
     private val originalGateway = PlatformV2(uid = "original-gateway", name = "Original gateway", compatibleType = ClientType.LLAMA, apiUrl = "http://192.168.1.9:8090/v1", model = "unused")
     private val capability = GatewayEngineeringCapabilities("engineering-gateway", 1, enabled = true, samplingPolicyProtocol = 1, principalId = "owner", gatewayId = "gateway", taskScopeProtocol = 1, taskScopes = listOf("read", "plan", "implement"), conversationSync = true, durableDetach = true, durationHours = listOf(3, 6, 12, 24, 0), executionBudgetLimits = GatewayEngineeringBudget(512, 8_388_608, 256, 256, 900))
-    private fun repository() = GatewayEngineeringRepository(mockk<Context>(), settings, client, mockk(), store, conversations, history)
+    private fun repository() = GatewayEngineeringRepository(mockk<Context>(), settings, client, mockk(), store, conversations, history, modelPreparation)
 
     @Before fun admissionDefaults() {
         coEvery { store.bindings(8) } returns emptyList()
         coEvery { store.hasMigratedAdmission(any(), any()) } returns false
+        coEvery { store.commandLookupDue(any()) } returns true
+        coEvery { store.deferCommandLookup(any()) } returns Unit
+        coEvery { modelPreparation.prepareSelected(any(), any(), any(), any()) } returns null
         coEvery { history.identity(any()) } returns GatewayScopeIdentity("gateway", "owner")
         coEvery { conversations.requireSavedSelection(any()) } returns Unit
         coEvery { settings.getFeatureSettings() } returns AppFeatureSettings(githubProfileOverrides = mapOf(selected.uid to GitHubChatProfileOverride(githubTools = true)))
@@ -136,14 +144,44 @@ class GatewayEngineeringSubmissionTest {
         rejectedAdmission("PENDING", "REJECTED:409", expectedUnknown = false)
     }
 
-    @Test fun rejectedRetryCannotEraseAnEarlierUncertainDispatch() = runTest {
-        rejectedAdmission("OUTCOME_UNKNOWN", "OUTCOME_UNKNOWN", expectedUnknown = true)
+    @Test fun blockedExactModelPreparationLeavesTheDraftBeforeAnyEngineeringAdmission() = runTest {
+        val snapshot = GatewayConversationSnapshot(gatewayId = "gateway", principalId = "owner", conversationId = "canonical", profileId = selected.uid, model = selected.model, repository = "owner/repo", branch = "work", base = "main", revision = 42)
+        val local = GatewayConversationRecord("key", "gateway", "owner", "canonical", originalGateway.uid, originalGateway.apiUrl, selected.uid, 8, Json.encodeToString(snapshot))
+        coEvery { conversations.boundSnapshot(8, selected.uid, selected.model) } returns (local to snapshot)
+        coEvery { store.bindings(null) } returns emptyList()
+        coEvery { settings.fetchPlatformV2s() } returns listOf(selected, originalGateway)
+        coEvery { modelPreparation.prepareSelected(any(), any(), any(), any()) } returns GatewayModelPreparationState(selected.uid, selected.model, GatewayModelPreparationPhase.BLOCKED, "The selected model is unavailable")
+        val failure = runCatching { repository().submitBoundTurn(8, selected.uid, selected.model, "Inspect the parser", "command", 11, 12, "run", "read") }.exceptionOrNull()
+        assertTrue(failure?.message?.contains("selected model") == true)
+        coVerify(exactly = 1) { modelPreparation.prepareSelected(match { it.uid == selected.uid && it.model == selected.model }, any(), true, any()) }
+        coVerify(exactly = 0) {
+            client.prepareBinding(any(), any())
+            client.preflight(any(), any())
+            store.add(any())
+            client.create(any(), any())
+        }
     }
 
-    @Test fun bindingReadinessRejectionCannotEraseAnEarlierUncertainDispatch() = runTest {
-        for (state in listOf("DISPATCHING", "OUTCOME_UNKNOWN")) {
-            rejectedAdmission(state, state, expectedUnknown = true, bindingRejected = true)
-            io.mockk.clearMocks(client, history, answers = false)
+    @Test fun repeatedMissingReceiptsAfterDispatchNeverReplayEvenOnExplicitReconnect() = runTest {
+        val pending = GatewayEngineeringBinding(originalGateway.uid, originalGateway.apiUrl, GatewayEngineeringRequest("owner/repo", "work", "main", "Original task", selected.model, chatId = 8, requestId = "original-command", profileId = selected.uid), principalId = "owner", gatewayId = "gateway")
+        coEvery { store.bindings(null) } returns listOf(pending)
+        coEvery { settings.fetchPlatformV2s() } returns listOf(selected, originalGateway)
+        coEvery { client.principal(any(), requireReady = false) } returns "owner"
+        coEvery { client.capabilities(any()) } returns capability
+        coEvery { history.command(any(), "original-command") } returns null
+        // Explicit reconnect bypasses a parked lookup, but still cannot POST.
+        coEvery { store.commandLookupDue("original-command") } returns false
+        for (state in listOf("DISPATCHING", "OUTCOME_UNKNOWN", "MIGRATED_REVIEW")) {
+            coEvery { store.admissionState("original-command") } returns state
+            repeat(3) { assertEquals(pending, repository().reconnect("original-command")) }
+        }
+        coVerify(exactly = 9) { history.command(any(), "original-command") }
+        coVerify(exactly = 9) { store.deferCommandLookup("original-command") }
+        coVerify(exactly = 0) {
+            client.bindingCapabilities(any(), any(), any())
+            client.create(any(), any())
+            client.control(any(), any(), any())
+            store.markAdmission(any(), any())
         }
     }
 
@@ -167,7 +205,7 @@ class GatewayEngineeringSubmissionTest {
         coVerify(exactly = 0) { client.create(any(), any()) }
     }
 
-    private suspend fun rejectedAdmission(initial: String, expectedState: String, expectedUnknown: Boolean, selectionChanged: Boolean = false, bindingRejected: Boolean = false) {
+    private fun retainedBinding(): GatewayEngineeringBinding {
         val selection = executionSelection(selected, null, "saved-privacy-scope")
         val bindingJson = buildJsonObject {
             put("binding_id", "bind_" + "a".repeat(32))
@@ -190,7 +228,13 @@ class GatewayEngineeringSubmissionTest {
                 put("reported_model_id", selection.requestedModelId)
             }
         )
-        val binding = GatewayEngineeringBinding(originalGateway.uid, originalGateway.apiUrl, GatewayEngineeringRequest("owner/repo", "work", "main", "Inspect", selected.model, chatId = 8, requestId = "command", profileId = selected.uid, executionBindingId = admission.bindingId, taskScope = "read"), principalId = "owner", executionSelection = selection, executionAdmission = admission, gatewayId = "gateway")
+        return GatewayEngineeringBinding(originalGateway.uid, originalGateway.apiUrl, GatewayEngineeringRequest("owner/repo", "work", "main", "Inspect", selected.model, chatId = 8, requestId = "command", profileId = selected.uid, executionBindingId = admission.bindingId, taskScope = "read"), principalId = "owner", executionSelection = selection, executionAdmission = admission, gatewayId = "gateway")
+    }
+
+    private suspend fun rejectedAdmission(initial: String, expectedState: String, expectedUnknown: Boolean, selectionChanged: Boolean = false, bindingRejected: Boolean = false) {
+        val binding = retainedBinding()
+        val selection = requireNotNull(binding.executionSelection)
+        val admission = requireNotNull(binding.executionAdmission)
         var admissionState = initial
         coEvery { settings.fetchPlatformV2s() } returns listOf(selected, originalGateway)
         coEvery { store.bindings(null) } returns listOf(binding)
@@ -219,5 +263,45 @@ class GatewayEngineeringSubmissionTest {
         coVerify(exactly = if (selectionChanged || bindingRejected) 0 else 1) { client.create(any(), any()) }
         coVerify(exactly = 1) { history.command(any(), "command") }
         coVerify(exactly = if (expectedUnknown || bindingRejected) 1 else 0) { history.observeCommand(any(), "command") }
+    }
+
+    @Test fun lostCreateResponseAndObserverCancellationRecoverAcceptedJobWithoutAnotherPostOrStop() = runTest {
+        var binding = retainedBinding()
+        val request = binding.request
+        var state = "PENDING"
+        coEvery { settings.fetchPlatformV2s() } returns listOf(selected, originalGateway)
+        coEvery { store.bindings(null) } answers { listOf(binding) }
+        coEvery { store.admissionState("command") } answers { state }
+        coEvery { store.markAdmission("command", any()) } answers { state = secondArg() }
+        coEvery { store.save(any()) } answers {
+            binding = firstArg()
+            state = "ACCEPTED"
+        }
+        coEvery { client.principal(any(), requireReady = false) } returns "owner"
+        coEvery { client.capabilities(any()) } returns capability
+        coEvery { client.bindingCapabilities(any(), any(), any()) } returns requireNotNull(binding.executionAdmission)
+        coEvery { history.command(any(), "command") } returns null
+        coEvery { client.create(any(), request) } throws IOException("Response ended before headers")
+        assertTrue(runCatching { repository().reconnect("command") }.exceptionOrNull() is IOException)
+        assertEquals("OUTCOME_UNKNOWN", state)
+        coEvery { history.observeCommand(any(), "command") } throws CancellationException("Observer detached")
+        assertTrue(runCatching { repository().observe("command") }.exceptionOrNull() is CancellationException)
+        assertEquals("OUTCOME_UNKNOWN", state)
+        val job = GatewayEngineeringJob(
+            id = "eng_" + "a".repeat(32), repository = request.repository, branch = request.branch, chatId = request.chatId,
+            state = "QUEUED", revision = 0, createdAt = 1.0, deadline = 100.0, message = "Accepted",
+            executionBindingId = request.executionBindingId, executionBinding = binding.executionAdmission?.binding,
+            gatewayId = "gateway", principalId = "owner", conversationId = "original-conversation", commandId = "command"
+        )
+        coEvery { history.command(any(), "command") } returns GatewayCommandReceipt(gatewayId = "gateway", principalId = "owner", commandId = "command", conversationId = "original-conversation", jobKind = "engineering", jobId = job.id)
+        coEvery { client.get(any(), job.id, any()) } returns job
+        coEvery { conversations.recordEngineering(any()) } returns Unit
+        val recovered = repository().reconnect("command")
+        assertEquals(job.id, recovered.job?.id)
+        assertEquals(request, recovered.request)
+        assertEquals("ACCEPTED", state)
+        coVerify(exactly = 1) { client.create(any(), request) }
+        coVerify(exactly = 1) { store.deferCommandLookup("command") }
+        coVerify(exactly = 0) { client.control(any(), any(), any()) }
     }
 }

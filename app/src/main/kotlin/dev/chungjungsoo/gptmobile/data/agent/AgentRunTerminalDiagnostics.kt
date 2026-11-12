@@ -16,10 +16,11 @@ internal data class AgentRunTerminalDiagnostics(
     val taskState: String? = null,
     val stopCode: String? = null,
     val approvalState: String? = null,
-    val taskOutcome: String? = null
+    val taskOutcome: String? = null,
+    val lastObservedStage: ObservedProgressStage? = null
 ) {
     companion object {
-        fun from(status: String, failure: ProfileFailureRecord?, acceptance: GitHubRunAcceptance.Assessment? = null): AgentRunTerminalDiagnostics {
+        fun from(status: String, failure: ProfileFailureRecord?, acceptance: GitHubRunAcceptance.Assessment? = null, lastObservedStage: ObservedProgressStage? = null): AgentRunTerminalDiagnostics {
             val completed = status == AgentRunStatus.COMPLETED
             val unknown = failure?.category in setOf("TOOL_OUTCOME_UNKNOWN", "GATEWAY_OUTCOME_UNKNOWN") || acceptance?.verification == "UNKNOWN_OUTCOME"
             val acceptanceIncomplete = acceptance != null && acceptance.verification != "VERIFIED"
@@ -37,6 +38,7 @@ internal data class AgentRunTerminalDiagnostics(
                 else -> "FAILED"
             }
             return AgentRunTerminalDiagnostics(
+                lastObservedStage = lastObservedStage,
                 reason = if (completed) {
                     "RESPONSE_FLOW_COMPLETED"
                 } else {
@@ -98,6 +100,7 @@ internal data class AgentRunTerminalDiagnostics(
             reason in setOf("GITHUB_TOOL_BUDGET_EXHAUSTED", "GITHUB_TASK_BUDGET_EXHAUSTED", "TOOL_BUDGET_EXHAUSTED", "TASK_BUDGET_EXHAUSTED", "VERIFICATION_RESERVE_REACHED") -> "PUBLISH_RETAINED_EVIDENCE_AND_SAVE_REMAINING_CHECKS"
             reason == "SAVED_VIEW_UNAVAILABLE" -> "REOPEN_PINNED_SOURCE_ONCE"
             reason == "DEPENDENCY_DEFERRED" -> "ADMIT_PREREQUISITE_AND_RETRY_DEPENDENT"
+            reason in setOf("COMPLETION_REPAIR_BUDGET_EXHAUSTED", "COMPLETION_REPAIR_BUDGET_UNAVAILABLE", "COMPLETION_REPAIR_USAGE_UNAVAILABLE") -> "RESUME_SAVED_EVIDENCE_WITH_REVISED_OUTPUT_ALLOWANCE"
             else -> "RESUME_UNFINISHED_WORK"
         }
     }

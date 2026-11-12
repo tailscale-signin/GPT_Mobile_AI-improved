@@ -184,8 +184,8 @@ private fun significantFrameWindow(message: String): Boolean {
     fun value(name: String): Double? = Regex("(?:^| · )$name=([0-9]+(?:\\.[0-9]+)?)").find(message)?.groupValues?.get(1)?.toDoubleOrNull()
     if ((value("stallsOver100Ms") ?: 0.0) > 0 || (value("maxMs") ?: 0.0) >= 100 || (value("droppedSamples") ?: 0.0) > 0) return true
     val missed = value("jankFrames") ?: value("jankyFrames") ?: value("slowFrames") ?: return false
-    val frames = value("frames") ?: return missed > 0
-    return frames > 0 && missed / frames >= 0.05
+    val frames = value("frames") ?: return false
+    return FrameJankPolicy.sustained(frames.toLong(), missed.toLong())
 }
 
 /** Strip recorder metadata without swallowing the event label. */

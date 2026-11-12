@@ -146,15 +146,16 @@ class Supervisor:
         temporary = destination.with_suffix('.zip.tmp')
         try:
             with self.http.get(url, params={'format': 'zip'}, headers={'X-Gateway-Management': self.token},
-                               timeout=(2, 15), stream=True, allow_redirects=False) as response:
+                               timeout=(2, 60), stream=True, allow_redirects=False) as response:
                 response.raise_for_status()
                 if response.headers.get('content-type', '').split(';')[0] != 'application/zip':
                     raise ValueError('Gateway does not support the full diagnostic bundle. Update the complete gateway package.')
-                size, deadline = 0, time.monotonic() + 30
+                size, deadline = 0, time.monotonic() + 60
                 with temporary.open('wb') as out:
                     for chunk in response.iter_content(65536):
                         size += len(chunk)
-                        if size > 32 * 1024 * 1024 or time.monotonic() > deadline:
+                        # Sixteen retained captures can each contain 5000 bounded events.
+                        if size > 192 * 1024 * 1024 or time.monotonic() > deadline:
                             raise ValueError('Diagnostic bundle exceeded its export bound')
                         out.write(chunk)
                     out.flush()
@@ -308,7 +309,7 @@ class Supervisor:
             raise
         atomic_json(self.root / 'current.json', {'version': pointer['version'], 'previous': pointer.get('previous'), 'failedVersion': pointer.get('failedVersion')})
         self.control('resume')
-        self.publish(state='running', version=pointer['version'], backend=health['checks']['backend'])
+        self.publish(state='running', version=pointer['version'], backend=health['checks']['backend'], build=health.get('build', {}))
         return 0
 
     def open_window(self, command):
@@ -347,7 +348,7 @@ class Supervisor:
                     except (requests.RequestException, OSError, ValueError):
                         # UI marks older snapshots stale; metrics never block work/recovery.
                         pass
-                    self.observer_stop.wait(2)
+                    self.observer_stop.wait(5)
         self.observer_thread = threading.Thread(target=observe, name='gateway-dashboard-observer', daemon=True)
         self.observer_thread.start()
 

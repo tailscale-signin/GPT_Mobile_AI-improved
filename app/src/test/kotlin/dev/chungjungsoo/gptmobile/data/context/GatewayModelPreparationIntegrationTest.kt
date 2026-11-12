@@ -184,7 +184,7 @@ class GatewayModelPreparationIntegrationTest {
         }
         private val gateway = GatewayAPIImpl(network)
         private val readiness = ReasoningCapabilityRepository(network, gateway)
-        val repository = GatewayModelPreparationRepository(gateway, readiness, GatewayModelPreparationAPI(network))
+        val repository = GatewayModelPreparationRepository(gateway, readiness, GatewayModelPreparationAPI(network), GatewayModelPreparationStore(ModelPreparationTestVault()))
 
         private fun capabilities(selected: JsonObject? = null): String = buildJsonObject {
             put("contractVersion", 1)

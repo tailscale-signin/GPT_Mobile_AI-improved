@@ -15,6 +15,7 @@ import requests
 
 from v14.execution_binding import ExecutionBindingError, canonical, configured_route, fingerprint
 from v14.backend_observation import exception_failure, failure, model_state, record_backend_result, response_failure
+from v14.debug_projection import backend_build_provenance
 
 
 def positive(value, maximum=2097152):
@@ -210,6 +211,10 @@ class InferenceCapabilities:
             with self.lock:
                 generation = self._generation((route['runtime_config_revision'], model))
             observed = self.inspect(route, model, force=force)
+            result.update(backend_build_provenance(observed.get('backend_build')))
+            debug = getattr(self.runtime, 'gateway_debug', None)
+            if debug is not None:
+                debug.observe_backend_build(observed.get('backend_build'), observed['observed_at_ms'])
             self.require(observed, {'requested_model_id': model,
                                    'required_capability_policy': ['SELECTED_ONLY', 'MODEL_IDENTITY', 'CONTEXT_BUDGET']})
             # A context-capacity bound is useful for admission but is not a

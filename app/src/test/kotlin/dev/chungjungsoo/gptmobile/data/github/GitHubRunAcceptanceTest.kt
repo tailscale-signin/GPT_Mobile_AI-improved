@@ -268,6 +268,12 @@ class GitHubRunAcceptanceTest {
         assertTrue(lines.first().contains("\"total\":109"))
         assertTrue(lines.first().contains("\"omitted\":0"))
         assertEquals(109, lines.count { it.contains("github.acceptance-criterion.v1") })
+        val events = GitHubRunAcceptance.diagnosticEvents(acceptance, "run")
+        assertEquals(109, events.size)
+        assertEquals(109, events.map { it["criterion_id_digest"] }.distinct().size)
+        assertTrue(events.all { it["runId"] == "run" && it["criterion_state"] == "NOT_TESTED" })
+        assertTrue(events.all { it["criterion_id_digest"].toString().matches(Regex("[a-f0-9]{64}")) })
+        assertTrue(events.none { "criterion_label" in it || "requirement" in it || "evidence_receipt_digests" in it })
     }
 
     @Test fun incompleteDiagnosticPagesProducePartialEvidenceInsteadOfAcceptance() {

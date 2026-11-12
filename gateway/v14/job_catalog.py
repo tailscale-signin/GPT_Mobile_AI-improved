@@ -173,7 +173,7 @@ def install_routes(app, conversations, engineering, service, ownership):
     @app.get('/v1/gateway/commands/{command_id}')
     async def command(command_id: str, request: Request):
         def read():
-            receipt = conversations.command(request.state.principal.id, command_id)
+            receipt = conversations.command(request.state.principal.id, command_id, include_outcome=request.query_params.get('include_outcome') == 'true')
             allowed = engineering_allowed(request) if receipt and receipt['job_kind'] == 'engineering' else request.state.principal.local_admin or 'jobs' in request.state.principal.scopes
             return receipt if receipt and allowed else None
         return await execute(read)

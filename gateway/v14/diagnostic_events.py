@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 import re
 import sqlite3
+import tempfile
 import threading
 import time
 import uuid
@@ -25,6 +26,7 @@ MAX_BATCH_EVENTS = 64
 MAX_BATCH_BYTES = 65536
 MAX_SOURCES = 16
 MAX_SESSIONS = 16
+MAX_LOCAL_EXPORT_EVENTS = MAX_EVENTS * MAX_SESSIONS
 MAX_CAPTURE_SECONDS = 7 * 86400
 MAX_RANGES = 256
 MAX_SEQUENCE_AHEAD = 100000
@@ -449,81 +451,128 @@ class DiagnosticSessionJournal:
                 self.storage_error = 'DEBUG_STORAGE_UNAVAILABLE'
                 raise DiagnosticProtocolError(self.storage_error, 503) from None
 
-    def local_snapshot(self):
-        """Local-admin export across retained captures, bounded independently of database size.
+    def local_snapshot(self, emit_event=None):
+        """Stream every retained capture from one consistent database snapshot.
 
-        A stopped gateway is opened read-only. Never initialize a missing journal,
-        copy a live WAL, change its lock mode or bypass per-principal remote exports.
+        The live journal owns its exclusive SQLite connection. Its backup API
+        takes a disk snapshot without a second source connection or a WAL copy;
+        compression then releases the writer. Stopped journals open read-only.
         """
-        with self.lock:
-            if self.db is None and not self.path.is_file():
-                return [], {'availability': 'not_observed', 'retainedCount': 0, 'complete': False}
-            db, owned = self.db, self.db is None
-            try:
-                if owned:
+        db, temporary, exported, emitting = None, None, 0, False
+        try:
+            with self.lock:
+                if self.db is None and not self.path.is_file():
+                    return [], {'availability': 'not_observed', 'retainedCount': 0, 'complete': False}
+                if self.db is None:
                     db = sqlite3.connect(self.path.resolve().as_uri() + '?mode=ro', uri=True, timeout=1)
-                    db.row_factory = sqlite3.Row
+                else:
+                    temporary = tempfile.TemporaryDirectory(prefix='gateway-diagnostic-export-')
+                    db = sqlite3.connect(str(Path(temporary.name) / 'snapshot.sqlite3'), timeout=1)
+                    self.db.backup(db)
+                db.row_factory = sqlite3.Row
+                db.execute('BEGIN')
                 total = db.execute('SELECT COUNT(*) FROM events').fetchone()[0]
-                rows = db.execute('SELECT owner,session,cursor,substr(payload,1,?) AS payload FROM events ORDER BY rowid DESC LIMIT ?',
-                                  (MAX_EVENT_BYTES + 1, MAX_EVENTS)).fetchall()
-                captures = db.execute('SELECT owner,session,created,last_ingest,evicted,rejected,dropped FROM captures ORDER BY updated DESC LIMIT ?',
-                                      (MAX_SESSIONS,)).fetchall()
-                clean, rejected = [], 0
-                for row in reversed(rows):
-                    try:
-                        raw = json.loads(row['payload'])
-                        event = sanitize_event(raw, imported=raw.get('owner') != 'gateway')
-                    except (ValueError, TypeError, AttributeError, RecursionError):
-                        event = None
-                    if (event is None or not isinstance(row['owner'], str) or not HEX64.fullmatch(row['owner'])
-                            or not isinstance(row['session'], str) or not HEX32.fullmatch(row['session']) or not integer(row['cursor'])):
-                        rejected += 1
-                        continue
-                    event.update(session_id=row['session'], principal_digest=row['owner'], gateway_ingest_sequence=row['cursor'])
-                    if integer(raw.get('observed_at_utc')):
-                        event['observed_at_utc'] = raw['observed_at_utc']
+            rows = db.execute('SELECT owner,session,cursor,substr(payload,1,?) AS payload FROM events ORDER BY rowid LIMIT ?',
+                              (MAX_EVENT_BYTES + 1, MAX_LOCAL_EXPORT_EVENTS))
+            captures = db.execute('SELECT owner,session,created,last_ingest,evicted,rejected,dropped FROM captures ORDER BY updated DESC LIMIT ?',
+                                  (MAX_SESSIONS,)).fetchall()
+            clean, rejected, exported = [], 0, 0
+            capture_counts, source_windows, clock_domains = {}, {}, {}
+            for row in rows:
+                try:
+                    raw = json.loads(row['payload'])
+                    event = sanitize_event(raw, imported=raw.get('owner') != 'gateway')
+                except (ValueError, TypeError, AttributeError, RecursionError):
+                    event = None
+                if (event is None or not isinstance(row['owner'], str) or not HEX64.fullmatch(row['owner'])
+                        or not isinstance(row['session'], str) or not HEX32.fullmatch(row['session']) or not integer(row['cursor'])):
+                    rejected += 1
+                    continue
+                event.update(session_id=row['session'], principal_digest=row['owner'], gateway_ingest_sequence=row['cursor'])
+                if integer(raw.get('observed_at_utc')):
+                    event['observed_at_utc'] = raw['observed_at_utc']
+                exported += 1
+                key = row['owner'], row['session']
+                capture_counts[key] = capture_counts.get(key, 0) + 1
+                window = source_windows.setdefault(event['owner'], {'firstOccurredAtMs': event['occurred_at_utc'],
+                                                                   'lastOccurredAtMs': event['occurred_at_utc'], 'records': 0})
+                window['firstOccurredAtMs'] = min(window['firstOccurredAtMs'], event['occurred_at_utc'])
+                window['lastOccurredAtMs'] = max(window['lastOccurredAtMs'], event['occurred_at_utc'])
+                window['records'] += 1
+                domain_key = event['owner'], event['origin_device_pseudonym'], event['origin_boot_id']
+                domain = clock_domains.setdefault(domain_key, {'owner': domain_key[0], 'origin': domain_key[1], 'bootId': domain_key[2],
+                                                               'firstOccurredAtMs': event['occurred_at_utc'],
+                                                               'lastOccurredAtMs': event['occurred_at_utc'], 'records': 0})
+                domain['firstOccurredAtMs'] = min(domain['firstOccurredAtMs'], event['occurred_at_utc'])
+                domain['lastOccurredAtMs'] = max(domain['lastOccurredAtMs'], event['occurred_at_utc'])
+                domain['records'] += 1
+                if 'observed_at_utc' in event:
+                    observed = event['observed_at_utc']
+                    delta = observed - event['occurred_at_utc']
+                    domain['firstObservedAtMs'] = min(domain.get('firstObservedAtMs', observed), observed)
+                    domain['lastObservedAtMs'] = max(domain.get('lastObservedAtMs', observed), observed)
+                    domain['minimumObservedMinusOccurredMs'] = min(domain.get('minimumObservedMinusOccurredMs', delta), delta)
+                    domain['maximumObservedMinusOccurredMs'] = max(domain.get('maximumObservedMinusOccurredMs', delta), delta)
+                if emit_event is None:
                     clean.append(event)
-                coverage = []
-                for row in captures:
-                    if not isinstance(row['owner'], str) or not HEX64.fullmatch(row['owner']) or not isinstance(row['session'], str) or not HEX32.fullmatch(row['session']):
-                        continue
-                    item = {'principalDigest': row['owner'], 'sessionId': row['session']}
-                    for key in ('created', 'last_ingest', 'evicted', 'rejected', 'dropped'):
-                        if integer(row[key]):
-                            item[key] = row[key]
-                    item['exportedCount'] = sum(e['session_id'] == row['session'] and e['principal_digest'] == row['owner'] for e in clean)
-                    coverage.append(item)
-                sources = []
-                for row in db.execute('SELECT owner,session,origin,boot,accounted,highest_received,received_count,lost_count,substr(gaps,1,65536) AS gaps FROM origins ORDER BY updated DESC LIMIT ?',
-                                      (MAX_SESSIONS * MAX_SOURCES,)):
-                    if not all(isinstance(row[key], str) and pattern.fullmatch(row[key]) for key, pattern in
-                               (('owner', HEX64), ('session', HEX32), ('origin', HEX32), ('boot', HEX32))):
-                        continue
-                    item = {'principalDigest': row['owner'], 'sessionId': row['session'], 'origin': row['origin'], 'bootId': row['boot']}
-                    for key in ('accounted', 'highest_received', 'received_count', 'lost_count'):
-                        if integer(row[key]):
-                            item[key] = row[key]
-                    try:
-                        gaps = json.loads(row['gaps'])
-                        gaps = gaps if isinstance(gaps, list) else []
-                    except (ValueError, TypeError, RecursionError):
-                        gaps = []
-                    item['gapCount'] = len(gaps)
-                    item['gaps'] = [{'first': gap['first'], 'last': gap['last'], 'reason': gap['reason']} for gap in gaps[-16:]
-                                    if isinstance(gap, dict) and integer(gap.get('first'), 1) and integer(gap.get('last'), gap['first'])
-                                    and isinstance(gap.get('reason'), str) and gap['reason'] in LOSS_REASONS]
-                    item['gapsTruncated'] = len(gaps) > len(item['gaps'])
-                    sources.append(item)
-                return clean, {'availability': 'retained_evidence' if clean else 'not_observed',
-                               'retainedCount': total, 'exportedCount': len(clean), 'eventLimit': MAX_EVENTS,
-                               'exportRejectedCount': rejected, 'exportTruncated': total > MAX_EVENTS,
-                               'captures': coverage, 'sources': sources, 'complete': False,
-                               'coverage': 'Retained capture events only; capture gaps and uncaptured execution are not certified.'}
-            except (OSError, sqlite3.Error, ValueError, TypeError):
-                return [], {'availability': 'unavailable', 'failureCode': 'DEBUG_STORAGE_UNAVAILABLE', 'complete': False}
-            finally:
-                if owned and db is not None:
-                    db.close()
+                else:
+                    emitting = True
+                    emit_event(event)
+                    emitting = False
+            coverage = []
+            for row in captures:
+                if not isinstance(row['owner'], str) or not HEX64.fullmatch(row['owner']) or not isinstance(row['session'], str) or not HEX32.fullmatch(row['session']):
+                    continue
+                item = {'principalDigest': row['owner'], 'sessionId': row['session']}
+                for key in ('created', 'last_ingest', 'evicted', 'rejected', 'dropped'):
+                    if integer(row[key]):
+                        item[key] = row[key]
+                item['exportedCount'] = capture_counts.get((row['owner'], row['session']), 0)
+                coverage.append(item)
+            sources = []
+            for row in db.execute('SELECT owner,session,origin,boot,accounted,highest_received,received_count,lost_count,substr(gaps,1,65536) AS gaps FROM origins ORDER BY updated DESC LIMIT ?',
+                                  (MAX_SESSIONS * MAX_SOURCES,)):
+                if not all(isinstance(row[key], str) and pattern.fullmatch(row[key]) for key, pattern in
+                           (('owner', HEX64), ('session', HEX32), ('origin', HEX32), ('boot', HEX32))):
+                    continue
+                item = {'principalDigest': row['owner'], 'sessionId': row['session'], 'origin': row['origin'], 'bootId': row['boot']}
+                for key in ('accounted', 'highest_received', 'received_count', 'lost_count'):
+                    if integer(row[key]):
+                        item[key] = row[key]
+                try:
+                    gaps = json.loads(row['gaps'])
+                    gaps = gaps if isinstance(gaps, list) else []
+                except (ValueError, TypeError, RecursionError):
+                    gaps = []
+                item['gapCount'] = len(gaps)
+                item['gaps'] = [{'first': gap['first'], 'last': gap['last'], 'reason': gap['reason']} for gap in gaps[-16:]
+                                if isinstance(gap, dict) and integer(gap.get('first'), 1) and integer(gap.get('last'), gap['first'])
+                                and isinstance(gap.get('reason'), str) and gap['reason'] in LOSS_REASONS]
+                item['gapsTruncated'] = len(gaps) > len(item['gaps'])
+                sources.append(item)
+            return clean, {'availability': 'retained_evidence' if exported else 'not_observed',
+                           'retainedCount': total, 'exportedCount': exported, 'eventLimit': MAX_LOCAL_EXPORT_EVENTS,
+                           'perCaptureEventLimit': MAX_EVENTS, 'omittedRetainedCount': max(0, total - exported - rejected),
+                           'exportRejectedCount': rejected, 'exportTruncated': total > MAX_LOCAL_EXPORT_EVENTS,
+                           'retainedExportComplete': exported + rejected == total and rejected == 0,
+                           'sourceTimeWindows': source_windows,
+                           'clockDomains': list(clock_domains.values()),
+                           'clockDeltaMeaning': 'Observation minus occurrence includes clock skew, buffering and transit; it is not latency or an offset estimate.',
+                           'clockOrdering': 'origin_sequence_and_causal_trace_only', 'clockUncertaintyMs': None,
+                           'captures': coverage, 'sources': sources, 'complete': False,
+                           'coverage': 'Retained capture events only; capture gaps and uncaptured execution are not certified.'}
+        except (OSError, sqlite3.Error, ValueError, TypeError):
+            if emitting:
+                raise
+            if emit_event is not None and exported:
+                # A partially written ZIP member must never receive a zero-row manifest.
+                raise DiagnosticProtocolError('DEBUG_STORAGE_UNAVAILABLE', 503) from None
+            return [], {'availability': 'unavailable', 'failureCode': 'DEBUG_STORAGE_UNAVAILABLE', 'complete': False}
+        finally:
+            if db is not None:
+                db.close()
+            if temporary is not None:
+                temporary.cleanup()
 
     def read(self, principal, session, after=0, limit=64, exclude_origin=None):
         if not integer(after) or not integer(limit, 1, MAX_BATCH_EVENTS) or (exclude_origin is not None and not HEX32.fullmatch(exclude_origin)):

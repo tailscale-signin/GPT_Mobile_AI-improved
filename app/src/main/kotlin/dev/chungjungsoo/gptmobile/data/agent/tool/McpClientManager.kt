@@ -91,6 +91,10 @@ class McpBackoffException(
 
 internal class McpCatalogueTimeoutException(timeout: Long) : IllegalStateException("MCP catalogue discovery exceeded $timeout ms; saved catalogue and connection settings retained. Retry discovery or check server load.")
 
+internal class McpInitializationTimeoutException : IllegalStateException(
+    "MCP_INITIALIZATION_TIMEOUT: MCP initialization timed out. Check the server process and protocol endpoint, then retry."
+)
+
 class McpEndpointConfigurationException(val httpStatus: Int? = null) :
     IllegalStateException(
         (if (httpStatus != null) "MCP endpoint returned HTTP $httpStatus during initialization. " else "MCP endpoint configuration is blocked by its previous initialization failure. ") +
@@ -986,7 +990,7 @@ class McpClientManager internal constructor(
                             true
                         }
                         if (connected == true) connectivity.success(endpointHost)
-                        check(connected == true) { "MCP_INITIALIZATION_TIMEOUT: MCP initialization timed out. Check the server process and protocol endpoint, then retry." }
+                        if (connected != true) throw McpInitializationTimeoutException()
                         AppLogRecorder.record("MCP", "Connect completed · connection=${config.connectionUid} · host=$endpointHost · elapsedMs=${nowMs() - connectStartedAtMs}")
                         Session(key, client)
                     } catch (cancelled: CancellationException) {
@@ -1102,12 +1106,19 @@ class McpClientManager internal constructor(
 
 internal class McpAuthenticationRequiredException : IllegalStateException("MCP authentication is required. Open Manage connection and reconnect or update the credential.")
 
-internal fun mcpConnectFailureReportCode(error: Throwable): String = when {
-    error is McpProtocolConfigurationException -> error.diagnosticCode
-    error is McpEndpointConfigurationException -> "MCP_ENDPOINT_CONFIGURATION"
-    error.isMcpUnauthorized() -> "MCP_AUTHENTICATION_REQUIRED"
-    else -> dev.chungjungsoo.gptmobile.data.agent.ToolFailureMetadata.classify(error)
-}
+internal fun mcpConnectFailureReportCode(error: Throwable): String =
+    generateSequence(error) { it.cause?.takeUnless { cause -> cause === it } }.take(8).firstNotNullOfOrNull { cause ->
+        when (cause) {
+            is McpProtocolConfigurationException -> cause.diagnosticCode
+            is McpEndpointConfigurationException -> "MCP_ENDPOINT_CONFIGURATION"
+            is McpInitializationTimeoutException -> "MCP_INITIALIZATION_TIMEOUT"
+            else -> null
+        }
+    } ?: if (error.isMcpUnauthorized()) {
+        "MCP_AUTHENTICATION_REQUIRED"
+    } else {
+        dev.chungjungsoo.gptmobile.data.agent.ToolFailureMetadata.classify(error)
+    }
 
 internal fun Throwable.isMcpUnauthorized(): Boolean = generateSequence(this) { it.cause?.takeUnless { cause -> cause === it } }.take(8)
     .any { error -> error is McpAuthenticationRequiredException || error is McpDiscoveryOAuthRefreshException || (error is StreamableHttpError && error.code in setOf(401, 403)) || (error is ModernMcpError && error.status in setOf(401, 403)) }

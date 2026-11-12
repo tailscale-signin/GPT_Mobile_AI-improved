@@ -32,8 +32,11 @@ class McpFailureDiagnosticsTest {
         val schemaFailure = McpProtocolConfigurationException("MCP_INITIALIZATION_SCHEMA_INVALID", "Invalid initialize response", 400)
         val endpointFailure = McpEndpointConfigurationException(404)
         val authFailure = IOException("Connection failed", McpAuthenticationRequiredException())
-        assertEquals("MCP_INITIALIZATION_SCHEMA_INVALID", mcpConnectFailureReportCode(schemaFailure))
-        assertEquals("MCP_ENDPOINT_CONFIGURATION", mcpConnectFailureReportCode(endpointFailure))
+        val timeoutFailure = McpInitializationTimeoutException()
+        assertEquals("MCP_INITIALIZATION_SCHEMA_INVALID", mcpConnectFailureReportCode(IOException("Connection failed", schemaFailure)))
+        assertEquals("MCP_ENDPOINT_CONFIGURATION", mcpConnectFailureReportCode(IOException("Connection failed", endpointFailure)))
+        assertEquals("MCP_INITIALIZATION_TIMEOUT", mcpConnectFailureReportCode(timeoutFailure))
+        assertEquals(ConnectionHealth.MCP_HANDSHAKE_FAILED, LocalServiceHealth.classify(timeoutFailure))
         assertEquals("MCP_AUTHENTICATION_REQUIRED", mcpConnectFailureReportCode(authFailure))
         assertEquals("TLS_FAILURE", mcpConnectFailureReportCode(SSLHandshakeException("TLS handshake failed")))
     }

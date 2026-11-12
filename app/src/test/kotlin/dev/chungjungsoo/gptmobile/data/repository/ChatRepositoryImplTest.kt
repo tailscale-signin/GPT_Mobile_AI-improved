@@ -1780,7 +1780,7 @@ class ChatRepositoryImplTest {
         val descriptor = dev.chungjungsoo.gptmobile.data.agent.TaskResumeDescriptor("0:1", 1, "retry", dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.RETRY_FAILED_STAGE)
         val pending = MessageV2(id = 2, chatId = 0, content = "", platformType = customPlatform().uid, currentRunId = "retry", timeline = listOf(dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE, recovery = descriptor)))
         val retry = repository.completeChat(listOf(original), listOf(listOf(pending)), customPlatform(), "retry", null).toList()
-        assertTrue(retry.any { it is ApiState.Success && it.textChunk.contains("Resumed final answer") })
+        assertEquals(retry.toString(), "Resumed final answer", retry.filterIsInstance<ApiState.Success>().joinToString("") { it.textChunk })
         assertEquals(2, api.streamChatCompletionCalls)
     }
 
@@ -1974,7 +1974,7 @@ class ChatRepositoryImplTest {
             null
         ).toList()
         assertEquals(states.toString(), 1, api.streamCalls)
-        assertTrue(states.toString(), states.any { it is ApiState.Success && it.textChunk.contains("Chat is working") })
+        assertEquals(states.toString(), "Chat is working", states.filterIsInstance<ApiState.Success>().joinToString("") { it.textChunk })
         assertFalse(states.any { it is ApiState.Error && it.message.contains("SOURCE_PERMISSION_REVOKED") })
     }
 
@@ -2091,7 +2091,7 @@ class ChatRepositoryImplTest {
         assertTrue(inspectedUserIds.isNotEmpty())
         assertTrue(inspectedUserIds.toString(), inspectedUserIds.all { it == listOf(11) })
         assertEquals(states.toString(), 1, api.streamCalls)
-        assertTrue(states.toString(), states.any { it is ApiState.Success && it.textChunk.contains("Fresh answer") })
+        assertEquals(states.toString(), "Fresh answer", states.filterIsInstance<ApiState.Success>().joinToString("") { it.textChunk })
     }
 
     @Test
@@ -2126,7 +2126,7 @@ class ChatRepositoryImplTest {
         ).toList()
         assertTrue(states.toString(), states.any { it is ApiState.Notice && it.message.contains("was not reused") })
         assertEquals(states.toString(), 1, api.streamCalls)
-        assertTrue(states.toString(), states.any { it is ApiState.Success && it.textChunk.contains("Fresh safe answer") })
+        assertEquals(states.toString(), "Fresh safe answer", states.filterIsInstance<ApiState.Success>().joinToString("") { it.textChunk })
         assertFalse(api.lastRequest.toString().contains("PRIVATE_EVIDENCE_DO_NOT_SEND"))
     }
 

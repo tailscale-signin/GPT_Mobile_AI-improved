@@ -15,6 +15,9 @@ internal class ContinuationTextProgress(previous: String = "", requestedRepetiti
 
     fun append(text: String): String = if (stopped) "" else prose.append(overlap.append(text))
 
+    /** Drain confirmed text without resolving a possible overlap or resetting prose history. */
+    fun flushBoundary(): String = prose.finish()
+
     fun finish(): String = prose.append(overlap.finish()) + prose.finish()
 }
 

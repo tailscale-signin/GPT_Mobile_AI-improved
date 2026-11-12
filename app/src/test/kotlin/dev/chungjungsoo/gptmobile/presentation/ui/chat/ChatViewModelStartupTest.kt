@@ -767,24 +767,48 @@ class ChatViewModelStartupTest {
     @Test fun strictOffSendPreservesDraftAndExplicitRecheckNeverAutomaticallyDispatches() = runTest(dispatcher) {
         StartupRecoveryGate.start(backgroundScope) {}
         profiles = profiles.take(1).map { it.copy(compatibleType = dev.chungjungsoo.gptmobile.data.model.ClientType.LLAMA) }
-        val profile = profiles.single()
+        val profile = profiles.single().copy(model = "exact-chat-override")
         val capabilities = mockk<dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityRepository>()
         val unsupported = dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityObservation(profile.uid, profile.model, dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF, dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityStatus.UNSUPPORTED, "opaque", "runtime", System.currentTimeMillis(), "REASONING_OFF_UNSUPPORTED", true, false)
-        coEvery { capabilities.check(any(), any(), false) } returns unsupported
-        coEvery { capabilities.check(any(), any(), true) } returns unsupported.copy(status = dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityStatus.SUPPORTED, supportVerified = true)
+        val supported = unsupported.copy(status = dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityStatus.SUPPORTED, safeReasonCode = null, supportVerified = true)
+        // Cached support cannot admit Send; both Send and manual Recheck require fresh evidence.
+        coEvery { capabilities.check(any(), any(), false) } returns supported
+        coEvery { capabilities.check(any(), any(), true) } returnsMany listOf(unsupported, unsupported, supported, supported)
+        coEvery { repository.persistAgentTurn(any()) } answers {
+            val request = firstArg<PersistAgentTurnRequest>()
+            val draft = request.runs.single()
+            val user = request.userMessage.copy(id = 71)
+            val answer = MessageV2(id = 72, chatId = 7, content = "", platformType = profile.uid, linkedMessageId = 71, currentRunId = draft.runId)
+            val run = AgentRun(draft.runId, 7, 71, 72, profile.uid, profile.compatibleType.name, profile.model)
+            PersistAgentTurnResult(request.chatRoom, user, listOf(answer), listOf(run))
+        }
+        val dispatched = CompletableDeferred<Unit>()
+        every { coordinator.start(any()) } answers {
+            dispatched.complete(Unit)
+            Unit
+        }
         val model = createViewModel(combined = false, reasoningCapabilities = capabilities)
+        model.updateChatPlatformModels(mapOf(profile.uid to profile.model))
         model.question.edit { replace(0, length, "Keep this draft") }
         model.askQuestion()
         model.askQuestion()
         assertEquals("Keep this draft", model.question.text.toString())
         assertEquals(dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF, model.reasoningAdmissionNotice.value?.requested)
+        assertEquals(profile.model, model.reasoningAdmissionNotice.value?.model)
         model.recheckReasoningAdmission()
         assertEquals(dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityStatus.SUPPORTED, model.reasoningAdmissionNotice.value?.state?.observation?.status)
         assertEquals("Keep this draft", model.question.text.toString())
-        coVerify(exactly = 2) { capabilities.check(match { it.uid == profile.uid && it.model == profile.model }, dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF, false) }
-        coVerify(exactly = 1) { capabilities.check(match { it.uid == profile.uid }, dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF, true) }
+        coVerify(exactly = 0) { capabilities.check(any(), any(), false) }
+        coVerify(exactly = 3) { capabilities.check(match { it.uid == profile.uid && it.model == profile.model }, dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF, true) }
         verify(exactly = 0) { coordinator.start(any()) }
         coVerify(exactly = 0) { repository.persistAgentTurn(any()) }
+
+        model.askQuestion()
+        withTimeout(5000) { dispatched.await() }
+        assertEquals("", model.question.text.toString())
+        coVerify(exactly = 4) { capabilities.check(match { it.uid == profile.uid && it.model == profile.model }, dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF, true) }
+        coVerify(exactly = 1) { repository.persistAgentTurn(match { it.userMessage.content == "Keep this draft" && it.runs.single().modelSnapshot == profile.model }) }
+        verify(exactly = 1) { coordinator.start(any()) }
     }
 
     @Test fun draftChangedDuringReasoningCheckCannotSendTheOldRequest() = runTest(dispatcher) {

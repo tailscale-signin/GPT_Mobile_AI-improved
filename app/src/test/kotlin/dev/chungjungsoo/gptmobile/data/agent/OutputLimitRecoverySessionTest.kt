@@ -930,6 +930,127 @@ class OutputLimitRecoverySessionTest {
         assertTrue(events.none { it == ProviderEvent.Completed })
     }
 
+    @Test fun visibleReasoningAndNoticeBoundariesKeepTextChronologyInBothSessionTypes() = runTest {
+        for (internalTools in listOf(false, true)) {
+            val expected = listOf(
+                ProviderEvent.TextDelta("before"),
+                ProviderEvent.ThinkingDelta("Checking the evidence"),
+                ProviderEvent.TextDelta("between"),
+                ProviderEvent.Notice("Evidence checked"),
+                ProviderEvent.TextDelta("after"),
+                ProviderEvent.Completed
+            )
+            val provider = object : AgentProviderSession {
+                override val handlesToolsInternally = internalTools
+                override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                    expected.forEach { emit(it) }
+                }
+            }
+            val wrapper = OutputLimitRecoverySession(provider) { _, _ -> error("No continuation is needed") }
+            assertEquals("handlesToolsInternally=$internalTools", expected, wrapper.streamRound(emptyList(), emptyList()).toList())
+        }
+    }
+
+    @Test fun continuationNoticesCannotResolveAnAmbiguousOverlapBeforeMoreTextArrives() = runTest {
+        val overlap = "The saved introduction ends here. "
+        val previous = "Earlier eras. $overlap"
+        val next = "The next era changed institutions."
+        val notice = ProviderEvent.Notice("Continuing the saved answer")
+        val reasoning = ProviderEvent.ThinkingDelta("Checking the next era")
+        var requests = 0
+        val wrapper = OutputLimitRecoverySession(session { error("The saved request must not replay") }, initialDraft = previous) { _, _ ->
+            requests++
+            session {
+                emit(ProviderEvent.TextDelta(overlap.take(9)))
+                emit(notice)
+                emit(reasoning)
+                emit(ProviderEvent.TextDelta(overlap.drop(9) + next))
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val events = wrapper.streamRound(emptyList(), emptyList()).toList()
+        assertEquals(previous + next, events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text })
+        assertEquals(listOf(notice, reasoning, ProviderEvent.Completed), events.filterNot { it is ProviderEvent.TextDelta })
+        assertEquals(1, requests)
+    }
+
+    @Test fun internallyManagedToolBoundariesPreserveTextOrderUsageAndLineage() = runTest {
+        val lineage = dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.MODEL_TEXT, "internal-tool-invocation")
+        val call = ProviderEvent.ToolCall("owned-call", "read", buildJsonObject {})
+        val result = ProviderEvent.ToolResult(call, AgentToolResult(call.callId, ToolResultContent.Text("Saved evidence"), false))
+        var requests = 0
+        val provider = object : AgentProviderSession {
+            override val handlesToolsInternally = true
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                requests++
+                emit(ProviderEvent.TextDelta("before", lineage))
+                emit(ProviderEvent.Usage(outputTokens = 4, phase = ProviderUsagePhase.INTERIM))
+                emit(call)
+                emit(ProviderEvent.TextDelta("during", lineage))
+                emit(result)
+                emit(ProviderEvent.TextDelta("after", lineage))
+                emit(ProviderEvent.Usage(outputTokens = 7, finishReason = "stop", writerObservationKey = "internal-tool-usage"))
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val wrapper = OutputLimitRecoverySession(provider) { _, _ -> error("Internal tool session must never replay") }
+        val events = wrapper.streamRound(emptyList(), emptyList()).toList()
+        assertEquals(
+            listOf(ProviderEvent.TextDelta("before", lineage), call, ProviderEvent.TextDelta("during", lineage), result, ProviderEvent.TextDelta("after", lineage), ProviderEvent.Completed),
+            events.filterNot { it is ProviderEvent.Usage }
+        )
+        val usage = events.filterIsInstance<ProviderEvent.Usage>().single()
+        assertEquals(7, usage.outputTokens)
+        assertEquals("stop", usage.finishReason)
+        assertEquals("internal-tool-usage", usage.writerObservationKey)
+        assertEquals(ProviderUsagePhase.FINAL, usage.phase)
+        assertFalse(usage.cumulative)
+        assertEquals(1, requests)
+    }
+
+    @Test fun internalToolBoundaryKeepsRepetitionHistoryAcrossInterleavedUsage() = runTest {
+        val repeated = "This repeating passage is not new evidence. "
+        val call = ProviderEvent.ToolCall("already-owned", "read", buildJsonObject {})
+        val result = ProviderEvent.ToolResult(call, AgentToolResult(call.callId, ToolResultContent.Text("Saved evidence"), false))
+        val saved = mutableListOf<String>()
+        var requests = 0
+        var observedTokens = 0
+        var stopped = false
+        val provider = object : AgentProviderSession {
+            override val handlesToolsInternally = true
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                requests++
+                try {
+                    emit(ProviderEvent.TextDelta(repeated))
+                    emit(call)
+                    emit(result)
+                    repeat(100) {
+                        observedTokens++
+                        emit(ProviderEvent.Usage(outputTokens = observedTokens, phase = ProviderUsagePhase.INTERIM))
+                        emit(ProviderEvent.TextDelta(repeated))
+                    }
+                    emit(ProviderEvent.Completed)
+                } finally {
+                    stopped = true
+                }
+            }
+        }
+        val wrapper = OutputLimitRecoverySession(provider, maxContinuations = 10, saveProgress = { draft, _, _, _ -> saved += draft }) { _, _ -> error("Internal tool session must never replay") }
+        val events = wrapper.streamRound(emptyList(), emptyList()).toList()
+        assertTrue(stopped)
+        assertTrue(observedTokens < 100)
+        assertEquals(1, requests)
+        assertEquals(repeated, events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text })
+        assertEquals(listOf(repeated), saved)
+        assertEquals(1, events.count { it == call })
+        assertEquals(1, events.count { it == result })
+        val usage = events.filterIsInstance<ProviderEvent.Usage>().single()
+        assertEquals(observedTokens, usage.outputTokens)
+        assertEquals(ProviderUsagePhase.INTERIM, usage.phase)
+        assertEquals("OUTPUT_CONTINUATION_NO_PROGRESS", events.filterIsInstance<ProviderEvent.Failed>().single().errorCode)
+        assertTrue(events.none { it == ProviderEvent.Completed })
+    }
+
     @Test fun internallyManagedToolsKeepTheirLiveEventsButRepetitiveAnswerCannotReplayThem() = runTest {
         val call = ProviderEvent.ToolCall("already-owned", "read", buildJsonObject {})
         val received = mutableListOf<ProviderEvent>()

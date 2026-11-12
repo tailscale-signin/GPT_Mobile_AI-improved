@@ -99,6 +99,10 @@ internal class OutputLimitRecoverySession(
                             val confirmed = progress.append(event.text)
                             if (confirmed.isNotEmpty()) emit(ProviderEvent.TextDelta(confirmed, textLineage.lineage))
                         } else {
+                            if (event.isVisibleTextBoundary()) {
+                                val confirmed = progress.flushBoundary()
+                                if (confirmed.isNotEmpty()) emit(ProviderEvent.TextDelta(confirmed, textLineage.lineage))
+                            }
                             emit(event)
                         }
                         // transformWhile cancels upstream collection and runs its cleanup.
@@ -312,6 +316,10 @@ internal class OutputLimitRecoverySession(
                         val confirmed = progress.append(event.text)
                         if (confirmed.isNotEmpty()) emit(ProviderEvent.TextDelta(confirmed, lineage.lineage))
                     } else {
+                        if (event.isVisibleTextBoundary()) {
+                            val confirmed = progress.flushBoundary()
+                            if (confirmed.isNotEmpty()) emit(ProviderEvent.TextDelta(confirmed, lineage.lineage))
+                        }
                         emit(event)
                     }
                     !progress.stopped
@@ -359,6 +367,14 @@ internal class OutputLimitRecoverySession(
             emit(ProviderEvent.Completed)
         }
     }
+}
+
+/** Usage and transport progress remain observations within the current text segment. */
+private fun ProviderEvent.isVisibleTextBoundary(): Boolean = when (this) {
+    is ProviderEvent.ToolCall, is ProviderEvent.ToolResult -> true
+    is ProviderEvent.ThinkingDelta -> text.isNotEmpty()
+    is ProviderEvent.Notice -> message.isNotEmpty()
+    else -> false
 }
 
 /** Remove literal restart/overlap without guessing that similar but distinct facts are duplicates. */

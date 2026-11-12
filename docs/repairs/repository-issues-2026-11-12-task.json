@@ -4,7 +4,7 @@
   "pull_request": 819,
   "base_branch": "main",
   "base_sha": "e62bded83b3861816c2c6e97116b30c9eb0920f1",
-  "reviewed_remote_head": "ab77b77dba3e9e7c928b153e2accf44e937d7e0c",
+  "reviewed_remote_head": "eb2bd73d211343df46aef762ffd42095963119a2",
   "working_branch": "fix/voice-chat-crash-and-diagnostics-2026-11-11",
   "task_store": "engineering_agent_checkpoints",
   "task_store_key": "repository-issues-2026-11-12",
@@ -35,20 +35,24 @@
     "canonical_fast": {
       "status": "PASSED",
       "host_tests": 462,
-      "literal_android_regex_patterns": 1548,
-      "resource_xml_files": 34
+      "literal_android_regex_patterns": 1551,
+      "resource_xml_files": 34,
+      "source_revision": "e49771da5bab23284d2514e4ec80a4c8365a9edf",
+      "generated_inventories_refreshed": true
     },
     "voice_host": {
       "status": "PASSED",
       "tests": 78,
       "scope": "Current production voice/diagnostic code; Kotlin/JUnit/Robolectric with controlled recognizer/capture boundaries and cached unrelated app dependencies. No JNI or physical-device qualification.",
-      "validated_before_concurrent_gateway_remediation": true
+      "validated_before_concurrent_gateway_remediation": true,
+      "validated_revision": "aa51231a492ae4fde208d1ca2d17e64790f3bf53"
     },
     "issue_reporting_host": {
       "status": "PASSED",
       "tests": 12,
       "scope": "Current production recorder, incidents, public-code projection and Unicode fallback; real Robolectric dependencies.",
-      "revalidated_after_concurrent_gateway_remediation": true
+      "revalidated_after_concurrent_gateway_remediation": true,
+      "validated_revision": "b5c0e6cf6dbf85a879c1cbe892f5977c4c934a72"
     },
     "authentication_service": {
       "status": "PASSED",
@@ -67,13 +71,15 @@
       },
       "scope": "45 current production files and six current test files, including both queue implementations and new rejection/reconciliation helpers. All 51 source hashes match the integrated revision. Real cached app/platform dependencies; unchanged sameGatewayEndpoint facade provenance retained. No stubbed gateway implementation.",
       "source_manifest_sha256": "63bb4fadc7710a2c4e65a30cd2727574b5a91f9dad75cd4faed9e215e89192d0",
-      "baseline_regression": "97 tests exposed the queue rejection defect and three newly added marker/scheduling failures. The concurrent 52f545c revision repairs marker/scheduling behavior; 13 new queue regressions verify safe settlement."
+      "baseline_regression": "97 tests exposed the queue rejection defect and three newly added marker/scheduling failures. The concurrent 52f545c revision repairs marker/scheduling behavior; 13 new queue regressions verify safe settlement.",
+      "validated_local_revision": "56386cb853d096f2fb31aa9f80d3cee5fd744b60"
     },
     "formatting": {
       "status": "PASSED",
       "ktlint": "1.3.1",
       "kotlin_files": 25,
-      "whitespace": "PASSED"
+      "whitespace": "PASSED",
+      "validated_revision": "aa51231a492ae4fde208d1ca2d17e64790f3bf53"
     },
     "prior_gateway_host": {
       "status": "PASSED",
@@ -96,22 +102,71 @@
       "status": "PASSED",
       "tests": 23,
       "production_sources": 19,
-      "scope": "Current repository, durable operation store, selection controller and preparation API tests; source hashes remained unchanged after integration. Host transport boundaries only, no live model load."
+      "scope": "Current repository, durable operation store, selection controller and preparation API tests; source hashes remained unchanged after integration. Host transport boundaries only, no live model load.",
+      "validated_revision": "52f545c13dd49a25dee6153008bfaaef0a977109"
     },
     "queue_formatting": {
       "status": "PASSED",
       "ktlint": "1.3.1",
       "kotlin_files": 3,
-      "whitespace": "PASSED"
+      "whitespace": "PASSED",
+      "validated_local_revision": "56386cb853d096f2fb31aa9f80d3cee5fd744b60"
+    },
+    "ci_failure_repair": {
+      "triggering_head": "0df839f0bc2f11810e598885bf146bae51bc3a86",
+      "triggering_run": 43158734681,
+      "hosted_unit_summary": {
+        "tests_completed": 9274,
+        "failed": 8,
+        "skipped": 5,
+        "production_and_test_compilation": "PASSED"
+      },
+      "failure_analysis": {
+        "production_regressions": 1,
+        "stale_assertions_or_fixture_contracts": 7,
+        "duplicate_release_run": "SAME_EIGHT_FAILURES"
+      },
+      "chat_repository_and_timeline": {
+        "status": "PASSED",
+        "tests": 103,
+        "baseline_before_chronology_fix": {
+          "tests": 103,
+          "failed": 1
+        },
+        "validated_local_revision": "dc0f9d6f728f9c33490c994c04c5800a366f3209",
+        "source_manifest_sha256": "10bb3760a4de2840553fbf7ad4c93c1f27b7c16f64b3c86cd51ab50a32ebbd6d"
+      },
+      "continuation_and_repetition": {
+        "status": "PASSED",
+        "tests": 57,
+        "validated_local_revision": "b53cee712e84818c301886c7ba4bf667761b799d",
+        "source_manifest_sha256": "6d1b5aead0d332d72f5186f2a5cad6257263126f753cdfd6ae63de36b37873d2"
+      },
+      "strict_off_send_admission": {
+        "status": "PASSED",
+        "focused_tests": 1,
+        "baseline": "REPRODUCED_ORIGINAL_CI_FAILURE",
+        "validated_local_revision": "89552ded6c8467eaa8cac179774e736ad1e3dc39",
+        "source_manifest_sha256": "32af9c31fabc69862745d895b6234ec795f647f25d527462b5e2a4ea59d5e08d"
+      },
+      "integration_source_identity": "The six exercised chat source owners, six continuation source owners, and seven strict-OFF source owners match after preserving concurrent commits 3d773506 and eb2bd73d; the generated AppAudit inventory is refreshed separately. Counts overlap and are not summed.",
+      "host_harness_limit": "Current production Kotlin/JUnit/Robolectric with real cached supporting app/generated classes; no handwritten tested implementation. An unchanged PlatformAgentRunner caller was rebuilt to remove a cached constructor ABI mismatch before accepting the 103-test result. Does not substitute for full current-head Gradle, packaging, emulator or device verification.",
+      "formatting": {
+        "status": "PASSED",
+        "ktlint": "1.3.1",
+        "manual_kotlin_files": 6,
+        "whitespace": "PASSED"
+      },
+      "current_head_hosted_ci": "REQUIRED_AFTER_PUBLICATION"
     }
   },
   "publication": {
     "mode": "GUARDED_FAST_FORWARD_ONLY",
     "force": false,
     "merge_condition": "All applicable current-head checks and effective GitHub rules must pass.",
-    "expected_remote_head": "52f545c13dd49a25dee6153008bfaaef0a977109"
+    "expected_remote_head": "eb2bd73d211343df46aef762ffd42095963119a2"
   },
-  "source_revision": "56386cb853d096f2fb31aa9f80d3cee5fd744b60",
+  "source_revision": "e49771da5bab23284d2514e4ec80a4c8365a9edf",
   "changes": [
     "Moonshine silence uses the existing bounded retry policy; fatal recognition, memory and cleanup failures dominate silence and preserve repair actions.",
     "Voice incidents preserve a single fixed failure code and safe original exception evidence across both local Moonshine and Android fallback recognition.",
@@ -119,11 +174,13 @@
     "Gateway route diagnostics distinguish command, message, conversation, capability and catalog reads.",
     "Approved public reports retain application-owned failure codes and safe frames without raw messages, endpoint identifiers or private-session content.",
     "Unicode-heavy fallback reports retain app version, commit, report identity and error metadata inside the encoded URL budget.",
-    "Verified no-dispatch rejection proofs settle queue leases without waiting for nonexistent output; malformed or unrelated receipts, accepted races, unrepresented older jobs and uncertain restored commands remain fenced. Explicit restore checks each command live and preserves earlier accepted output delivery."
+    "Verified no-dispatch rejection proofs settle queue leases without waiting for nonexistent output; malformed or unrelated receipts, accepted races, unrepresented older jobs and uncertain restored commands remain fenced. Explicit restore checks each command live and preserves earlier accepted output delivery.",
+    "Confirmed streamed text is published before tool, reasoning and notice boundaries in both continuation paths. Ambiguous continuation overlap and prose repetition history remain retained; telemetry cannot flush away repetition detection, and internal tool sessions never replay.",
+    "Seven stale test expectations now enforce complete streamed output, explicit UNKNOWN output lineage, and fresh strict-OFF checks of the exact selected model. Rejected sends preserve the draft; a successful manual recheck cannot dispatch or persist a turn until a separate explicit Send."
   ],
   "source_revision_kind": "LOCAL_VALIDATION_REVISION",
-  "integrated_remote_head": "52f545c13dd49a25dee6153008bfaaef0a977109",
-  "prior_repair_commit": "aa51231a492ae4fde208d1ca2d17e64790f3bf53",
+  "integrated_remote_head": "eb2bd73d211343df46aef762ffd42095963119a2",
+  "prior_repair_commit": "c6fbdf0031be37f426a4832c847c7ab4cfa9b1ec",
   "integration_review": {
     "status": "NO_REMAINING_SCOPED_BLOCKERS",
     "focus": [
@@ -131,7 +188,11 @@
       "restored mixed-command evidence",
       "earlier accepted reply delivery",
       "legacy remote job identity",
-      "safe diagnostics and frame classification"
+      "safe diagnostics and frame classification",
+      "streamed text and visible event chronology",
+      "continuation overlap and repetition protection",
+      "fresh strict-OFF selected-model admission",
+      "preserved concurrent Voice Mode and Gateway desktop changes"
     ],
     "physical_qualification": "NOT_CLAIMED"
   }

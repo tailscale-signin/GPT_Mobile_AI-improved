@@ -15,6 +15,11 @@ _COMMIT_SHA = re.compile(r'^[0-9a-fA-F]{40}$')
 _REPOSITORY_PREFIXES = {'app', 'docs', 'scripts', '.github', 'gateway'}
 
 
+def _valid_commit(value):
+    # Git's null-object placeholder is syntactically hex but cannot name tested code.
+    return isinstance(value, str) and bool(_COMMIT_SHA.fullmatch(value)) and value != '0' * 40
+
+
 def _require(condition, message):
     # Explicit checks still run with PYTHONOPTIMIZE=1 or `python -O`.
     if not condition:
@@ -99,8 +104,7 @@ def validate(require_done=False):
         if task['status'] in {'VERIFIED', 'DONE'}:
             commits = task.get('implementation_commits', [])
             evidence = task.get('evidence', [])
-            _require(bool(commits) and all(isinstance(sha, str) and
-                                          _COMMIT_SHA.fullmatch(sha) for sha in commits),
+            _require(bool(commits) and all(_valid_commit(sha) for sha in commits),
                      f"{task['id']}: verified task needs real commit hashes")
             _require(bool(evidence), f"{task['id']}: verified task needs evidence")
             for reference in evidence:
@@ -118,8 +122,7 @@ def validate(require_done=False):
         _require(case['outcome'] in {'NOT_RUN', 'PASS', 'FAIL', 'BLOCKED'},
                  f"{case['id']}: invalid acceptance result")
         if case['outcome'] == 'PASS':
-            _require(isinstance(case.get('commit'), str) and
-                     _COMMIT_SHA.fullmatch(case['commit']),
+            _require(_valid_commit(case.get('commit')),
                      f"{case['id']}: passing case needs a valid commit hash")
             references = case.get('evidence', [])
             _require(bool(references), f"{case['id']}: passing case needs evidence")

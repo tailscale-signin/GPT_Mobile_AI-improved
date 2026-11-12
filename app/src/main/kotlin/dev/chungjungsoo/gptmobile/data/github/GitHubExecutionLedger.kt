@@ -71,6 +71,12 @@ internal object GitHubExecutionLedger {
         }
     }
 
+    /** A saved approval is secondary evidence when an independent execution stage failed. */
+    fun hasPrimaryFailure(checkpoint: JsonObject): Boolean {
+        val failure = checkpoint["original_failure"] as? JsonObject ?: return false
+        return failure.text("code") !in setOf("WAITING_FOR_APPROVAL", "APPROVAL_REQUIRED", "USER_INPUT_REQUIRED", "REVIEW_INPUT_REQUIRED", "APPROVAL_REJECTED")
+    }
+
     fun attach(checkpoint: JsonObject, receipts: Map<String, JsonObject>): JsonObject {
         val states = receipts.values.groupingBy(::receiptState).eachCount()
         val uncertain = receipts.filterValues { receiptState(it) == ReceiptState.UNKNOWN_OUTCOME }
@@ -93,12 +99,12 @@ internal object GitHubExecutionLedger {
         val acceptance = checkpoint["acceptance_ledger"] as? JsonObject
         val requirements = (acceptance?.get("requirements") as? JsonArray).orEmpty().filterIsInstance<JsonObject>().filter { it["required"] != JsonPrimitive(false) }
         val accepted = requirements.count { it["state"] == JsonPrimitive("PASS") }
-        val completed = unresolved == 0 && pendingApprovals.isEmpty() && rejectedApprovals.isEmpty() && checkpoint["completion_verified"] == JsonPrimitive(true) && acceptance?.get("completion_verified") == JsonPrimitive(true)
-        val code = checkpoint.text("failure_code").ifBlank { checkpoint.text("verification_failure") }
+        val failureIsPrimary = hasPrimaryFailure(checkpoint)
+        val completed = !failureIsPrimary && unresolved == 0 && pendingApprovals.isEmpty() && rejectedApprovals.isEmpty() && checkpoint["completion_verified"] == JsonPrimitive(true) && acceptance?.get("completion_verified") == JsonPrimitive(true)
+        val originalFailure = checkpoint["original_failure"] as? JsonObject
+        val code = checkpoint.text("failure_code").ifBlank { originalFailure?.text("code").orEmpty() }.ifBlank { checkpoint.text("verification_failure") }
         val failedStage = checkpoint.text("failed_stage")
         val outcome = checkpoint.text("task_outcome")
-        val originalFailure = checkpoint["original_failure"] as? JsonObject
-        val failureIsPrimary = originalFailure != null && originalFailure.text("code") !in setOf("WAITING_FOR_APPROVAL", "APPROVAL_REQUIRED", "USER_INPUT_REQUIRED", "REVIEW_INPUT_REQUIRED")
         val deadlineReached = originalFailure?.text("stop_reason") == "ACCEPTED_TASK_DEADLINE_REACHED"
         val reviewFailure = code.startsWith("GITHUB_REVIEW_") ||
             code.startsWith("GITHUB_EXTRACTION_") ||
@@ -107,8 +113,8 @@ internal object GitHubExecutionLedger {
         val verification = when {
             reviewFailure -> "FAILED"
             unresolved > 0 || deadlineReached -> "PENDING"
-            pendingApprovals.isNotEmpty() -> "WAITING_FOR_APPROVAL"
-            rejectedApprovals.isNotEmpty() -> "REJECTED"
+            !failureIsPrimary && pendingApprovals.isNotEmpty() -> "WAITING_FOR_APPROVAL"
+            !failureIsPrimary && rejectedApprovals.isNotEmpty() -> "REJECTED"
             checkpoint["claims_verified"] == JsonPrimitive(true) || completed -> "VERIFIED"
             checkpoint["verification_failure"] != null && code != "GITHUB_TASK_INCOMPLETE" -> "FAILED"
             else -> "PENDING"
@@ -116,9 +122,9 @@ internal object GitHubExecutionLedger {
         val requestedTask = when {
             deadlineReached -> "BLOCKED"
             completed -> "VERIFIED_COMPLETE"
+            failureIsPrimary -> if (outcome in setOf("BLOCKED", "CONFIGURATION_INVALIDATED")) "BLOCKED" else "INCOMPLETE"
             pendingApprovals.isNotEmpty() -> "WAITING_FOR_APPROVAL"
             rejectedApprovals.isNotEmpty() -> "REJECTED"
-            failureIsPrimary -> if (outcome in setOf("BLOCKED", "CONFIGURATION_INVALIDATED")) "BLOCKED" else "INCOMPLETE"
             outcome in setOf("BLOCKED", "CONFIGURATION_INVALIDATED") -> "BLOCKED"
             checkpoint.text("phase") == "IN_PROGRESS" -> "IN_PROGRESS"
             else -> "INCOMPLETE"
@@ -126,11 +132,11 @@ internal object GitHubExecutionLedger {
         val recovery = when {
             unresolved > 0 -> "RECONCILE_REMOTE_OUTCOME"
             deadlineReached -> "NEW_TASK_REQUIRED"
-            pendingApprovals.isNotEmpty() -> "WAITING_FOR_APPROVAL"
-            rejectedApprovals.isNotEmpty() -> "RECONCILE_FIXTURE_AFTER_APPROVAL_REJECTION"
             failureIsPrimary && outcome == "CONFIGURATION_INVALIDATED" -> "RESTORE_AUTHORIZED_CONFIGURATION"
             failureIsPrimary && reviewFailure -> "RESUME_VERIFICATION"
             failureIsPrimary -> "INSPECT_EXECUTION_FAILURE"
+            pendingApprovals.isNotEmpty() -> "WAITING_FOR_APPROVAL"
+            rejectedApprovals.isNotEmpty() -> "RECONCILE_FIXTURE_AFTER_APPROVAL_REJECTION"
             code in setOf("APPROVAL_REQUIRED", "USER_INPUT_REQUIRED", "REVIEW_INPUT_REQUIRED") -> "USER_INPUT_REQUIRED"
             outcome == "CONFIGURATION_INVALIDATED" || code in setOf("DISPATCH_POLICY_CHANGED", "PERMISSION_DENIED", "PERMISSION_REVOKED", "AUTH_REQUIRED", "AUTH_FAILED", "AUTH_FAILURE") -> "RESTORE_AUTHORIZED_CONFIGURATION"
             completed && checkpoint["response_delivered"] == JsonPrimitive(true) -> "NONE"
@@ -211,9 +217,14 @@ internal object GitHubExecutionLedger {
                 put("task_outcome", if (outcome in setOf("BLOCKED", "CONFIGURATION_INVALIDATED")) outcome else "PARTIAL")
                 put("task_state", if (outcome in setOf("BLOCKED", "CONFIGURATION_INVALIDATED")) "BLOCKED" else "PARTIAL")
                 put("blocking_condition", "RECONCILE_REMOTE_OUTCOME")
+                put("stop_code", "RECONCILE_REMOTE_OUTCOME")
                 put("pending_approvals", pendingApprovals)
+                if (pendingApprovals.isNotEmpty()) {
+                    put("user_input_required", true)
+                    put("retryable_without_new_input", false)
+                }
             }
-        } else if (!deadlineReached && pendingApprovals.isNotEmpty()) {
+        } else if (!failureIsPrimary && !deadlineReached && pendingApprovals.isNotEmpty()) {
             buildJsonObject {
                 put("completion_verified", false)
                 put("partial", true)
@@ -227,7 +238,7 @@ internal object GitHubExecutionLedger {
                 put("retryable_without_new_input", false)
                 put("pending_approvals", pendingApprovals)
             }
-        } else if (!deadlineReached && rejectedApprovals.isNotEmpty()) {
+        } else if (!failureIsPrimary && !deadlineReached && rejectedApprovals.isNotEmpty()) {
             val keepFixture = rejectedApprovals.any { (_, resolution) -> resolution.result()?.get("keep_fixture") == JsonPrimitive(true) }
             buildJsonObject {
                 put("completion_verified", false)
@@ -266,10 +277,12 @@ internal object GitHubExecutionLedger {
                 put("task_outcome", outcome.takeIf { it in setOf("BLOCKED", "CONFIGURATION_INVALIDATED", "FAILED") } ?: "PARTIAL")
                 put("task_state", if (outcome == "CONFIGURATION_INVALIDATED") "BLOCKED" else outcome.takeIf { it in setOf("BLOCKED", "FAILED") } ?: "PARTIAL")
                 put("blocking_condition", if (deadlineReached) "ACCEPTED_TASK_DEADLINE_REACHED" else code.ifBlank { "EXECUTION_FAILURE" })
-                if (deadlineReached) put("stop_code", "ACCEPTED_TASK_DEADLINE_REACHED")
+                put("stop_code", if (deadlineReached) "ACCEPTED_TASK_DEADLINE_REACHED" else code.ifBlank { "EXECUTION_FAILURE" })
                 put("pending_approvals", pendingApprovals)
+                if (pendingApprovals.isNotEmpty()) put("approval_state", "WAITING_FOR_APPROVAL")
+                if (rejectedApprovals.isNotEmpty()) put("approval_state", "REJECTED")
                 put("user_input_required", pendingApprovals.isNotEmpty() || deadlineReached)
-                if (pendingApprovals.isNotEmpty() || deadlineReached) put("retryable_without_new_input", false)
+                if (pendingApprovals.isNotEmpty() || rejectedApprovals.isNotEmpty() || deadlineReached) put("retryable_without_new_input", false)
             }
         } else {
             JsonObject(emptyMap())

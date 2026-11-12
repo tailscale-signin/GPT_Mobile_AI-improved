@@ -883,6 +883,7 @@ interface AgentPersistenceDao :
 
     @Transaction
     suspend fun persistAgentTurn(request: PersistAgentTurnRequest): PersistAgentTurnResult {
+        var queuedRecovery: dev.chungjungsoo.gptmobile.data.agent.TaskResumeDescriptor? = null
         request.queuedPromptId?.let { id ->
             val pending = requireNotNull(pendingPrompt(id)) { "Queued input has already been dispatched or removed." }
             require(pending.chatId == request.chatRoom.id && !pending.paused)
@@ -901,6 +902,23 @@ interface AgentPersistenceDao :
             require(firstPendingId(pending.chatId) == id) { "Queue order changed." }
             require(queuedTurnReady(pending.chatId, request.queuedPausedProfiles)) { "Conversation is still running or awaiting its combined answer." }
             require(pending.text == request.userMessage.content && pending.details().attachments == request.userMessage.attachments) { "Queued input was edited." }
+            pending.details().recovery?.let { descriptor ->
+                val original = requireNotNull(rawRecoveryMessage(descriptor.sourceMessageId)) { "The queued continuation's original task is unavailable." }
+                val github = pending.details().tools.github
+                require(
+                    github != null &&
+                        accepted == null &&
+                        request.runs.singleOrNull()?.profileUid == github.mainProfileUid &&
+                        original.chatId == pending.chatId &&
+                        original.platformType == null &&
+                        descriptor.rootWorkId == "${pending.chatId}:${original.id}" &&
+                        descriptor.action == dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.CONTINUE_RUN &&
+                        !descriptor.allowNewToolBudget &&
+                        !descriptor.allowUndispatchedBudgetRetry &&
+                        dev.chungjungsoo.gptmobile.data.github.GitHubNativeContinuation.matches(pending.text)
+                ) { "The queued approval continuation no longer matches its original task." }
+                queuedRecovery = descriptor
+            }
         }
         val pinnedRequestRoom = request.chatRoom.let { room ->
             if (room.conversationMode == dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode.COMBINED && room.combinedPrimaryUid == null) room.copy(combinedPrimaryUid = room.activePlatform.firstOrNull()) else room
@@ -937,6 +955,13 @@ interface AgentPersistenceDao :
                 currentRunId = draft.runId,
                 createdAt = draft.createdAt,
                 timeline = listOfNotNull(
+                    queuedRecovery?.let { descriptor ->
+                        dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(
+                            type = dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE,
+                            content = "Reconciling the saved GitHub approval from its original task.",
+                            recovery = descriptor.copy(generationId = draft.runId)
+                        )
+                    },
                     dev.chungjungsoo.gptmobile.data.agent.CombinedAcceptedTurn.context(draft.synthesisSnapshot)?.let { context ->
                         dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(
                             type = dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE,

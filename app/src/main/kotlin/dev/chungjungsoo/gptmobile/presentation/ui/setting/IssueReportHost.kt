@@ -88,13 +88,24 @@ internal fun IssueReportHost(
                     }
                 } else {
                     val fallbackUrl = receipt.fallbackUrl
-                    val action = snackbar.showSnackbar(
-                        message = resources.getString(R.string.issue_report_send_failed),
-                        actionLabel = fallbackUrl?.let { resources.getString(R.string.issue_report_open_github) },
-                        duration = if (fallbackUrl == null) SnackbarDuration.Long else SnackbarDuration.Indefinite
-                    )
-                    if (action == SnackbarResult.ActionPerformed && fallbackUrl != null) {
-                        runCatching { uriHandler.openUri(fallbackUrl) }
+                    if (fallbackUrl == null) {
+                        snackbar.showSnackbar(
+                            message = resources.getString(R.string.issue_report_send_failed),
+                            duration = SnackbarDuration.Long
+                        )
+                    } else {
+                        offerIssueReportFallback(
+                            url = fallbackUrl,
+                            prompt = { browserUnavailable ->
+                                snackbar.showSnackbar(
+                                    message = resources.getString(if (browserUnavailable) R.string.issue_report_browser_unavailable else R.string.issue_report_send_failed),
+                                    actionLabel = resources.getString(R.string.issue_report_open_github),
+                                    withDismissAction = true,
+                                    duration = SnackbarDuration.Indefinite
+                                ) == SnackbarResult.ActionPerformed
+                            },
+                            openUri = uriHandler::openUri
+                        )
                     }
                 }
                 viewModel.acknowledge(receipt)

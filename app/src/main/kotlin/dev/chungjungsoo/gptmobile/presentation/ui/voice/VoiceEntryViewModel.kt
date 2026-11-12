@@ -4,6 +4,9 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationRepository
+import dev.chungjungsoo.gptmobile.data.context.GatewayModelSelectionController
+import dev.chungjungsoo.gptmobile.data.context.ReasoningPolicy
 import dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
@@ -13,6 +16,11 @@ import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 
 data class VoiceEntryState(
@@ -29,11 +37,22 @@ data class VoiceEntryState(
 class VoiceEntryViewModel @Inject constructor(
     private val savedState: SavedStateHandle,
     private val settings: SettingRepository,
-    private val chats: ChatRepository
+    private val chats: ChatRepository,
+    gatewayPreparation: GatewayModelPreparationRepository? = null
 ) : ViewModel() {
+    private val gatewayModelSelection = GatewayModelSelectionController(gatewayPreparation, viewModelScope)
+    val gatewayModelPreparation = gatewayModelSelection.states
     private val mutable = MutableStateFlow(VoiceEntryState())
     val state = mutable.asStateFlow()
     init {
+        if (gatewayPreparation != null) {
+            combine(settings.observePlatformV2s(), settings.observeFeatureSettings(), state.map { it.selected }.distinctUntilChanged()) { available, features, selected ->
+                val profiles = available.filter { it.uid == selected }
+                profiles to profiles.associate { it.uid to ReasoningPolicy.preference(it.reasoning, features.llamaReasoningModes[it.uid]) }
+            }.distinctUntilChanged().onEach { (profiles, modes) ->
+                gatewayModelSelection.update(profiles, modes)
+            }.launchIn(viewModelScope)
+        }
         viewModelScope.launch {
             try {
                 val features = settings.getFeatureSettings()
@@ -52,6 +71,8 @@ class VoiceEntryViewModel @Inject constructor(
     fun select(uid: String) {
         if (!mutable.value.creating && mutable.value.profiles.any { it.uid == uid }) mutable.value = mutable.value.copy(selected = uid)
     }
+    fun recheckGatewayModel(uid: String) = gatewayModelSelection.recheck(uid)
+
     fun start(enable: Boolean = false) {
         val before = mutable.value
         if (!before.loaded || before.creating || before.route != null || before.selected.isBlank() || (!before.enabled && !enable)) return

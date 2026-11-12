@@ -853,11 +853,14 @@ fun HomeScreen(
         if (showSelectModelDialog) {
             val insightsViewModel: NewChatInsightsViewModel = androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel()
             val insights by insightsViewModel.insights.collectAsStateWithLifecycle()
+            val modelPreparation by homeViewModel.gatewayModelPreparation.collectAsStateWithLifecycle()
             LaunchedEffect(insightsViewModel) { insightsViewModel.refreshWhileVisible() }
             SelectPlatformDialog(
                 platformState,
                 selectedPlatforms = chatListState.selectedPlatforms,
                 insights = insights,
+                modelPreparation = modelPreparation,
+                onRecheckModel = homeViewModel::recheckGatewayModel,
                 onRefreshPrices = insightsViewModel::refreshNow,
                 initialCombined = homeFeatures.lastChatMode == ConversationMode.COMBINED,
                 onDismissRequest = { homeViewModel.closeSelectModelDialog() },

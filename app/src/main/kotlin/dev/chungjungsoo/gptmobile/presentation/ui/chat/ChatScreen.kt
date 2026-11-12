@@ -230,6 +230,7 @@ private fun ChatScreenContent(
     val featureSettings by chatViewModel.featureSettings.collectAsStateWithLifecycle()
     val chatToolConfig by chatViewModel.chatToolConfig.collectAsStateWithLifecycle()
     val sendPreparation by chatViewModel.sendPreparation.collectAsStateWithLifecycle()
+    val gatewayModelPreparation by chatViewModel.gatewayModelPreparation.collectAsStateWithLifecycle()
     val githubContextForLinks = chatToolConfig.github
     var githubLinkOrigin by remember(githubContextForLinks) { mutableStateOf<String?>(null) }
     LaunchedEffect(githubContextForLinks) {
@@ -277,7 +278,11 @@ private fun ChatScreenContent(
     val reasoningAdmission by chatViewModel.reasoningAdmissionNotice.collectAsStateWithLifecycle()
     reasoningAdmission?.let { notice ->
         dev.chungjungsoo.gptmobile.presentation.ui.setting.ReasoningAdmissionDialog(
-            notice,
+            notice.copy(
+                state = gatewayModelPreparation[notice.profileUid]?.takeIf { notice.modelReadiness && it.model == notice.model && it.observation?.requested == notice.requested }?.let {
+                    notice.state.copy(checking = it.busy, observation = it.observation, preparation = it)
+                } ?: notice.state
+            ),
             onRecheck = chatViewModel::recheckReasoningAdmission,
             onSwitchToAuto = { chatViewModel.switchProfileReasoningToAuto(notice.profileUid) },
             onSettings = {
@@ -1168,6 +1173,18 @@ private fun ChatScreenContent(
                     }
             ) {
                 Column(Modifier.navigationBarsPadding()) {
+                    if (gatewayModelPreparation.isNotEmpty()) {
+                        Column(Modifier.fillMaxWidth().heightIn(max = 128.dp).verticalScroll(rememberScrollState())) {
+                            gatewayModelPreparation.values.forEach { state ->
+                                key(state.profileUid, state.model) {
+                                    dev.chungjungsoo.gptmobile.presentation.ui.setting.GatewayModelPreparationContent(
+                                        state,
+                                        onRecheck = { chatViewModel.recheckGatewayModel(state.profileUid) }
+                                    )
+                                }
+                            }
+                        }
+                    }
                     if (githubPromptMode) {
                         Column(
                             Modifier.fillMaxWidth()

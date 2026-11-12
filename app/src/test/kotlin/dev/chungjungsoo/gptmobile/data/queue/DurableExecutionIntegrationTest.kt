@@ -8,6 +8,9 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PersistAgentTurnRequest
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
+import dev.chungjungsoo.gptmobile.data.github.GitHubApprovalBinding
+import dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext
+import dev.chungjungsoo.gptmobile.data.github.GitHubNativeContinuation
 import dev.chungjungsoo.gptmobile.data.knowledge.MemoryDocumentRepository
 import dev.chungjungsoo.gptmobile.data.permissions.ToolApprovalManager
 import dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository
@@ -63,6 +66,65 @@ class DurableExecutionIntegrationTest {
         assertTrue(runCatching { database.agentPersistenceDao().persistAgentTurn(request()) }.isFailure)
         assertEquals(2, database.messageDao().loadMessages(1).size)
         assertEquals(result.userMessage.id, database.agentRunDao().getById("r")!!.userMessageId)
+    }
+
+    @Test fun nativeApprovalContinuationPersistsItsOriginalRootAcrossAnUnrelatedTurn() = runBlocking {
+        val originalRequest = "Test all authorized GitHub tools. Do not merge. Budget: 10 minutes and 17 tool calls."
+        val original = database.agentPersistenceDao().persistAgentTurn(request(originalRequest).copy(queuedPromptId = null, runs = listOf(AgentRunDraft("original", "p", "CUSTOM", "model"))))
+        database.agentRunDao().updateStatus("original", "WAITING_FOR_APPROVAL", 1, 2, "WAITING_FOR_APPROVAL")
+        database.agentPersistenceDao().persistAgentTurn(request("Inspect another pull request").copy(queuedPromptId = null, runs = listOf(AgentRunDraft("unrelated", "p", "CUSTOM", "model"))))
+        database.agentRunDao().updateStatus("unrelated", "COMPLETED", 3, 4, null)
+        val text = "GitHub workspace: owner/repo\nBranch: work\n\n" + GitHubNativeContinuation.cancellation("task-42", true)
+        val source = GitHubApprovalBinding.Source(1, original.userMessage.id, "model", "contract")
+        val descriptor = GitHubNativeContinuation.recovery("task-42", source, "p", database.agentPersistenceDao().getMessages(1))
+        val tools = dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig(github = GitHubConversationContext("github", "owner", "repo", "work", "a".repeat(40), "p"))
+        val payload = PendingPromptPayload(profileUids = listOf("p"), models = mapOf("p" to "model"), tools = tools, recovery = descriptor)
+        database.pendingPromptDao().enqueue(PendingPrompt("q", 1, text, Json.encodeToString(payload), 1))
+
+        val result = database.agentPersistenceDao().persistAgentTurn(request(text))
+        val retained = database.agentPersistenceDao().getMessages(1).single { it.id == result.assistantMessages.single().id }
+        val recovery = requireNotNull(retained.timeline.single().recovery)
+        val users = database.agentPersistenceDao().getMessages(1).filter { it.platformType == null }
+        val resumed = requireNotNull(dev.chungjungsoo.gptmobile.data.agent.resolveTaskRecovery(users, recovery))
+
+        assertEquals("r", recovery.generationId)
+        assertEquals("1:${original.userMessage.id}", recovery.rootWorkId)
+        assertEquals(original.userMessage.id, resumed.sourceMessageId)
+        assertEquals(originalRequest, resumed.originalRequest)
+        assertFalse(resumed.renewsToolBudget)
+        assertFalse(resumed.retryUndispatchedBudgetFailures)
+        assertTrue(runCatching { database.agentPersistenceDao().persistAgentTurn(request(text)) }.isFailure)
+    }
+
+    @Test fun nativeContinuationCannotBeCoalescedIntoAnUnrelatedRunningTurn() = runBlocking {
+        val original = database.agentPersistenceDao().persistAgentTurn(request("Original GitHub task").copy(queuedPromptId = null))
+        database.agentRunDao().updateStatus("r", "RUNNING", 1, null, null)
+        val tools = dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig(github = GitHubConversationContext("github", "owner", "repo", "work", "a".repeat(40), "p"))
+        val descriptor = dev.chungjungsoo.gptmobile.data.agent.TaskResumeDescriptor("1:${original.userMessage.id}", original.userMessage.id, "native-task", dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.CONTINUE_RUN)
+        val payload = PendingPromptPayload(profileUids = listOf("p"), models = mapOf("p" to "model"), tools = tools, recovery = descriptor)
+        val text = GitHubNativeContinuation.publication("a".repeat(40), true)
+        database.pendingPromptDao().enqueue(PendingPrompt("q", 1, text, Json.encodeToString(payload), 1))
+
+        assertEquals(null, database.pendingPromptDao().consumeFollowUp(1, original.userMessage.id, "r", "p", "model", 8000, tools))
+        assertEquals(null, database.pendingPromptDao().get("q")?.userMessageId)
+        assertEquals("Original GitHub task", database.agentPersistenceDao().rawRecoveryMessage(original.userMessage.id)?.content)
+    }
+
+    @Test fun invalidNativeContinuationMetadataKeepsTheQueuedInputUnconsumed() = runBlocking {
+        val original = database.agentPersistenceDao().persistAgentTurn(request("Original GitHub task").copy(queuedPromptId = null, runs = listOf(AgentRunDraft("original", "p", "CUSTOM", "model"))))
+        database.agentRunDao().updateStatus("original", "COMPLETED", 1, 2, null)
+        val descriptor = dev.chungjungsoo.gptmobile.data.agent.TaskResumeDescriptor("1:${original.userMessage.id}", original.userMessage.id, "native-task", dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.CONTINUE_RUN)
+        val tools = dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig(github = GitHubConversationContext("github", "owner", "repo", "work", "a".repeat(40), "p"))
+        val text = GitHubNativeContinuation.cancellation("task-42", false)
+        val invalid = listOf(descriptor.copy(rootWorkId = "2:${original.userMessage.id}"), descriptor.copy(allowNewToolBudget = true), descriptor.copy(sourceMessageId = 999))
+        for (recovery in invalid) {
+            val payload = PendingPromptPayload(profileUids = listOf("p"), tools = tools, recovery = recovery)
+            database.pendingPromptDao().enqueue(PendingPrompt("q", 1, text, Json.encodeToString(payload), 1))
+            assertTrue(runCatching { database.agentPersistenceDao().persistAgentTurn(request(text)) }.isFailure)
+            assertEquals(null, database.pendingPromptDao().get("q")?.userMessageId)
+            assertEquals(2, database.messageDao().loadMessages(1).size)
+            database.pendingPromptDao().delete("q")
+        }
     }
 
     @Test fun `follow-up is atomically appended once and survives a restart`() = runBlocking {

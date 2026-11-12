@@ -130,7 +130,8 @@ class ChatViewModel @Inject constructor(
     private val gitHubDecisionNotifications: dev.chungjungsoo.gptmobile.data.github.GitHubDecisionNotifications? = null,
     private val diagnosticDatabase: dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticDatabaseSource? = null,
     private val reasoningCapabilities: dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityRepository? = null,
-    private val diagnosticWorkspace: dev.chungjungsoo.gptmobile.data.workspace.WorkspaceRepository? = null
+    private val diagnosticWorkspace: dev.chungjungsoo.gptmobile.data.workspace.WorkspaceRepository? = null,
+    modelPreparationRepository: dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationRepository? = null
 ) : ViewModel() {
     private val diagnosticPrivacyOwner = java.util.UUID.randomUUID().toString()
     private val visibleHistoryTurns = MutableStateFlow(if (savedStateHandle.get<Int>("targetMessageId") != null) Int.MAX_VALUE else 40)
@@ -611,6 +612,9 @@ class ChatViewModel @Inject constructor(
 
     private val _reasoningAdmissionNotice = MutableStateFlow<dev.chungjungsoo.gptmobile.presentation.ui.setting.ReasoningAdmissionNotice?>(null)
     val reasoningAdmissionNotice = _reasoningAdmissionNotice.asStateFlow()
+    private val selectedGatewayModels = dev.chungjungsoo.gptmobile.data.context.GatewayModelSelectionController(modelPreparationRepository, viewModelScope)
+    val gatewayModelPreparation = selectedGatewayModels.states
+    fun recheckGatewayModel(profileUid: String) = selectedGatewayModels.recheck(profileUid)
     private var reasoningSendChecking: Boolean
         get() = SendPreparation.MODEL_CHECK in _sendPreparation.value
         set(value) = updateSendPreparation(SendPreparation.MODEL_CHECK, value)
@@ -649,6 +653,7 @@ class ChatViewModel @Inject constructor(
 
     init {
         observeVoiceAdmission()
+        observeSelectedGatewayModels()
         viewModelScope.launch {
             combine(_platformsInApp, _chatPlatformModels, featureSettings, _chatToolConfig) { _, _, _, _ -> Unit }.collect {
                 if (_reasoningRecoveries.value.isNotEmpty()) refreshCombinedFailures()
@@ -702,6 +707,37 @@ class ChatViewModel @Inject constructor(
         loadAvailableChatTools()
         viewModelScope.launch {
             _catalogEntries.value = modelCatalogRepository.getCachedVisibleEntries()
+        }
+    }
+
+    private fun observeSelectedGatewayModels() {
+        viewModelScope.launch {
+            combine(_platformsInApp, _chatPlatformModels, _activePlatformUids, _disabledPlatformUids, nextMessageProfileUid) { profiles, models, active, paused, next ->
+                profiles.filter { it.enabled && it.uid in active && it.uid !in paused && (next == null || it.uid == next) }
+                    .mapNotNull { profile -> models[profile.uid]?.takeIf(String::isNotBlank)?.let { profile.copy(model = it) } }
+            }.combine(_voiceRoomReady) { profiles, restored -> if (restored) profiles else emptyList() }
+                .combine(_chatToolConfig) { profiles, tools -> profiles to tools.reasoning }
+                .combine(featureSettings) { (profiles, conversationReasoning), settings ->
+                    profiles to profiles.associate { it.uid to dev.chungjungsoo.gptmobile.data.context.ReasoningPolicy.preference(it.reasoning, settings.llamaReasoningModes[it.uid], conversationReasoning) }
+                }.distinctUntilChanged().collect { (profiles, modes) ->
+                    if (!leavingConversation) selectedGatewayModels.update(profiles, modes)
+                }
+        }
+        viewModelScope.launch {
+            selectedGatewayModels.states.collect { states ->
+                val notice = _reasoningAdmissionNotice.value ?: return@collect
+                val current = _platformsInApp.value.singleOrNull { it.uid == notice.profileUid && it.enabled }?.let(::resolvePlatformModel)
+                val state = states[notice.profileUid]?.takeIf { it.model == notice.model && current?.model == notice.model && it.observation?.requested == notice.requested } ?: return@collect
+                if (notice.modelReadiness) {
+                    _reasoningAdmissionNotice.value = notice.copy(
+                        state = dev.chungjungsoo.gptmobile.presentation.ui.setting.ReasoningCapabilityUiState(
+                            checking = state.busy,
+                            observation = state.observation,
+                            preparation = state
+                        )
+                    )
+                }
+            }
         }
     }
 
@@ -2107,14 +2143,22 @@ class ChatViewModel @Inject constructor(
 
     fun recheckReasoningAdmission() {
         val notice = _reasoningAdmissionNotice.value ?: return
-        val profile = _platformsInApp.value.singleOrNull { it.uid == notice.profileUid && it.enabled }?.copy(model = notice.model) ?: return
+        val profile = _platformsInApp.value.singleOrNull { it.uid == notice.profileUid && it.enabled }?.let(::resolvePlatformModel) ?: return
+        if (profile.model != notice.model || profile.uid !in _activePlatformUids.value) {
+            dismissReasoningAdmission()
+            return
+        }
+        if (notice.modelReadiness && gatewayModelPreparation.value[notice.profileUid] != null) {
+            selectedGatewayModels.recheck(notice.profileUid)
+            return
+        }
         val generation = ++reasoningSendGeneration
         reasoningSendCheckJob?.cancel()
         _reasoningAdmissionNotice.value = notice.copy(state = notice.state.copy(checking = true))
         reasoningSendCheckJob = viewModelScope.launch {
             try {
                 val observation = reasoningCapabilities?.check(profile, notice.requested, forceRefresh = true)
-                if (generation == reasoningSendGeneration && _reasoningAdmissionNotice.value?.profileUid == notice.profileUid && _platformsInApp.value.singleOrNull { it.uid == notice.profileUid && it.enabled }?.copy(model = notice.model) == profile) {
+                if (generation == reasoningSendGeneration && _reasoningAdmissionNotice.value?.profileUid == notice.profileUid && _platformsInApp.value.singleOrNull { it.uid == notice.profileUid && it.enabled }?.let(::resolvePlatformModel) == profile) {
                     _reasoningAdmissionNotice.value = notice.copy(state = dev.chungjungsoo.gptmobile.presentation.ui.setting.ReasoningCapabilityUiState(observation = observation))
                 }
             } catch (cancelled: CancellationException) {
@@ -2876,6 +2920,7 @@ class ChatViewModel @Inject constructor(
     fun leaveConversation(done: () -> Unit) {
         if (leavingConversation) return
         leavingConversation = true
+        selectedGatewayModels.clear()
         memoryPreview?.clear()
         val room = _chatRoom.value
         val text = question.text.toString()

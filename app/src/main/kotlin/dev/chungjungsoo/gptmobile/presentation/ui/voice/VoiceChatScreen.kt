@@ -134,7 +134,16 @@ internal fun VoiceChatButton(onClick: (Offset) -> Unit) {
 }
 
 @Composable
-internal fun VoiceEntryScreen(state: VoiceEntryState, origin: Offset, select: (String) -> Unit, start: () -> Unit, back: () -> Unit, settings: () -> Unit) {
+internal fun VoiceEntryScreen(
+    state: VoiceEntryState,
+    origin: Offset,
+    select: (String) -> Unit,
+    start: () -> Unit,
+    back: () -> Unit,
+    settings: () -> Unit,
+    modelPreparation: dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationState? = null,
+    recheckModel: () -> Unit = {}
+) {
     NewChatRevealPanel(origin) {
         Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).safeDrawingPadding().padding(24.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -162,6 +171,9 @@ internal fun VoiceEntryScreen(state: VoiceEntryState, origin: Offset, select: (S
                                 })
                             }
                         }
+                    }
+                    modelPreparation?.let { preparation ->
+                        dev.chungjungsoo.gptmobile.presentation.ui.setting.GatewayModelPreparationContent(preparation, recheckModel)
                     }
                     if (state.profiles.isEmpty()) {
                         Button(onClick = settings) { Text("Set up an AI profile") }

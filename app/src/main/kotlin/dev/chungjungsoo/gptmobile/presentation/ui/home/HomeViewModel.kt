@@ -5,6 +5,9 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.chungjungsoo.gptmobile.data.agent.AgentRunCoordinator
 import dev.chungjungsoo.gptmobile.data.chat.GenerationCompletionStore
+import dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationRepository
+import dev.chungjungsoo.gptmobile.data.context.GatewayModelSelectionController
+import dev.chungjungsoo.gptmobile.data.context.ReasoningPolicy
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
@@ -68,8 +71,11 @@ class HomeViewModel @Inject constructor(
     private val foldersRepository: dev.chungjungsoo.gptmobile.data.chat.ConversationFolderRepository,
     private val pinnedOrderStore: dev.chungjungsoo.gptmobile.data.chat.PinnedConversationOrderStore,
     private val researchSessions: dev.chungjungsoo.gptmobile.data.research.ResearchSessionStore? = null,
-    private val combinedBudgets: dev.chungjungsoo.gptmobile.data.agent.CombinedTurnBudgetStore? = null
+    private val combinedBudgets: dev.chungjungsoo.gptmobile.data.agent.CombinedTurnBudgetStore? = null,
+    gatewayPreparation: GatewayModelPreparationRepository? = null
 ) : ViewModel() {
+    private val gatewayModelSelection = GatewayModelSelectionController(gatewayPreparation, viewModelScope)
+    val gatewayModelPreparation = gatewayModelSelection.states
 
     companion object {
         private const val SEARCH_DEBOUNCE_MS = 300L
@@ -279,6 +285,14 @@ class HomeViewModel @Inject constructor(
         )
 
     init {
+        if (gatewayPreparation != null) {
+            combine(_platformState, _chatListState.map { it.selectedPlatforms }.distinctUntilChanged(), settingRepository.observeFeatureSettings()) { available, selected, features ->
+                val profiles = available.filterIndexed { index, _ -> selected.getOrElse(index) { false } }
+                profiles to profiles.associate { it.uid to ReasoningPolicy.preference(it.reasoning, features.llamaReasoningModes[it.uid]) }
+            }.distinctUntilChanged().onEach { (profiles, modes) ->
+                gatewayModelSelection.update(profiles, modes)
+            }.launchIn(viewModelScope)
+        }
         pinnedOrderStore.order.onEach { order ->
             pinnedOrder = order
             _chatListState.update { it.copy(chats = sortChats(it.chats)) }
@@ -500,6 +514,8 @@ class HomeViewModel @Inject constructor(
         val index = _platformState.value.indexOfFirst { it.uid == uid && it.enabled }
         if (index >= 0) updatePlatformCheckedState(index)
     }
+
+    fun recheckGatewayModel(uid: String) = gatewayModelSelection.recheck(uid)
 
     fun updatePlatformCheckedState(idx: Int) {
         if (idx < 0 || idx >= _chatListState.value.selectedPlatforms.size) return

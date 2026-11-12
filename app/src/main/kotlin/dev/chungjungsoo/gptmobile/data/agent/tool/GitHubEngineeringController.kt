@@ -268,6 +268,39 @@ class GitHubEngineeringController @Inject constructor(
         }
     }
 
+    /** Retain the replacement before retiring a review; an approval racing an edit wins safely. */
+    internal suspend fun replacePendingReview(taskId: String, expectedDigest: String, replacementTaskId: String, retainBinding: suspend () -> Unit) {
+        require(taskId != replacementTaskId) { "The edited patch is unchanged. Its existing review has been retained." }
+        val task = requireNotNull(ledger.task(taskId))
+        withRepositoryLock(task) {
+            val original = requireNotNull(ledger.task(taskId))
+            val run = requireNotNull(dao.run(taskId))
+            val replacement = requireNotNull(ledger.task(replacementTaskId))
+            val replacementRun = requireNotNull(dao.run(replacementTaskId))
+            require(original.state == EngineeringState.AWAITING_APPROVAL.name && run.approvedAtEpochMs == null && ledger.operations(taskId).isEmpty()) { "The original patch is no longer awaiting review. Reconcile its saved state before editing." }
+            require(run.patchDigest == expectedDigest && run.patchDigest == GitHubEngineeringAuthorization.digest(original, run)) { "The original patch changed. Review its saved snapshot again." }
+            require(
+                replacement.state == EngineeringState.AWAITING_APPROVAL.name &&
+                    replacementRun.approvedAtEpochMs == null &&
+                    ledger.operations(replacementTaskId).isEmpty() &&
+                    replacement.repositoryOwner.equals(original.repositoryOwner, true) &&
+                    replacement.repositoryName.equals(original.repositoryName, true) &&
+                    replacement.workingBranch == original.workingBranch &&
+                    replacement.baseSha == original.baseSha &&
+                    replacement.requiresHardwareVerification == original.requiresHardwareVerification &&
+                    replacementRun.connectionUid == run.connectionUid &&
+                    replacementRun.commitMessage == run.commitMessage &&
+                    replacementRun.patchDigest == GitHubEngineeringAuthorization.digest(replacement, replacementRun)
+            ) { "The replacement is no longer an unapproved edit of this exact task. Both saved tasks have been retained." }
+            retainBinding()
+            database.withEngineeringTransaction {
+                advance(taskId, EngineeringEvidence.USER_CANCELLED, "Unpublished review replaced by $replacementTaskId")
+                dao.saveRun(run.copy(approvalRevoked = true))
+            }
+            workQueue.cancel(taskId)
+        }
+    }
+
     internal suspend fun execute(taskId: String, automaticAuthority: (suspend () -> Boolean)? = null): String = withContext(Dispatchers.IO) {
         val task = requireNotNull(ledger.task(taskId))
         withRepositoryLock(task) {

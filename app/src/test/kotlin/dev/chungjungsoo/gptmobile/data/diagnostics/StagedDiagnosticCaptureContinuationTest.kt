@@ -1,12 +1,15 @@
 package dev.chungjungsoo.gptmobile.data.diagnostics
 
 import java.io.File
+import java.io.IOException
 import java.nio.file.Files
 import java.security.MessageDigest
 import java.util.zip.ZipFile
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -125,6 +128,92 @@ class StagedDiagnosticCaptureContinuationTest {
                 assertEquals(first.file.name, reference.getValue("source").jsonObject.getValue("archive").jsonObject.getValue("fileName").jsonPrimitive.content)
             }
             StagedDiagnosticCapture.verify(second.file, bounded.maxArchiveBytes)
+        }
+    }
+
+    @Test fun completedLatestStateRefreshesAfterHandoffWhileHistoryContinuesFromItsCursor() = temporary { directory ->
+        runBlocking {
+            var revision = 1
+            val latestStarts = mutableListOf<JsonObject?>()
+            val historyStarts = mutableListOf<Int>()
+            val latest = DiagnosticCaptureStage(
+                "latest_state",
+                "latest-state.jsonl",
+                critical = true,
+                lowMemorySafe = true,
+                resumableRecords = true,
+                refreshOnResume = true
+            ) { sink ->
+                latestStarts += sink.resumeCursor
+                sink.logicalRecord { sink.record("{\"index\":0,\"revision\":$revision}") }
+                sink.checkpoint(cursor(1))
+            }
+            val stages = listOf(latest, cursorStage(20, 64 * 1024, historyStarts))
+            val bounded = options.copy(maxArchiveBytes = 1024 * 1024L, deferArchiveHandoff = true)
+            val first = StagedDiagnosticCapture.capture(directory, "refreshed-latest", stages, bounded)
+            assertFalse(first.complete)
+            val prefix = rows(first.file)
+            assertEquals(JsonPrimitive(1), rows(first.file, "latest-state.jsonl").getValue(0)["revision"])
+            val firstDigest = sha(first.file.readBytes())
+            val delivered = handoff(directory, first)
+
+            revision = 2
+            val second = StagedDiagnosticCapture.capture(directory, "refreshed-latest", stages, bounded, first.sessionId)
+            assertTrue(second.complete)
+            assertEquals(listOf(null, null), latestStarts)
+            assertEquals(JsonPrimitive(2), rows(second.file, "latest-state.jsonl").getValue(0)["revision"])
+            val receipt = (second.manifest.getValue("stages") as JsonArray).single { it.jsonObject["id"] == JsonPrimitive("latest_state") }.jsonObject
+            assertEquals(JsonNull, receipt["sourceReference"])
+            assertEquals(JsonNull, receipt["continuedFrom"])
+            val tail = rows(second.file)
+            assertEquals(listOf(0, prefix.size), historyStarts)
+            assertTrue(prefix.keys.intersect(tail.keys).isEmpty())
+            assertEquals((0 until 20).toSet(), prefix.keys + tail.keys)
+            assertEquals(firstDigest, sha(delivered.readBytes()))
+            assertEquals(firstDigest, second.manifest.getValue("previousArchive").jsonObject.getValue("sha256").jsonPrimitive.content)
+            assertEquals(second.manifest, StagedDiagnosticCapture.verify(second.file, bounded.maxArchiveBytes))
+        }
+    }
+
+    @Test fun partialLatestStateRestartsItsProjectionAfterHandoffWithoutAnOlderCursor() = temporary { directory ->
+        runBlocking {
+            var revision = 1
+            val starts = mutableListOf<Int>()
+            val latest = DiagnosticCaptureStage(
+                "latest_state",
+                "latest-state.jsonl",
+                critical = true,
+                lowMemorySafe = true,
+                resumableRecords = true,
+                refreshOnResume = true
+            ) { sink ->
+                val start = sink.resumeCursor?.get("nextRow")?.jsonPrimitive?.int ?: 0
+                starts += start
+                for (index in start until 2) {
+                    sink.logicalRecord { sink.record("{\"index\":$index,\"revision\":$revision}") }
+                    sink.checkpoint(cursor(index + 1))
+                    if (revision == 1) throw IOException("source temporarily unavailable")
+                }
+            }
+            val bounded = options.copy(deferArchiveHandoff = true)
+            val first = StagedDiagnosticCapture.capture(directory, "partial-latest", listOf(latest), bounded)
+            assertFalse(first.complete)
+            assertEquals(setOf(0), rows(first.file, "latest-state.jsonl").keys)
+            val firstDigest = sha(first.file.readBytes())
+            val delivered = handoff(directory, first)
+
+            revision = 2
+            val second = StagedDiagnosticCapture.capture(directory, "partial-latest", listOf(latest), bounded, first.sessionId)
+            assertTrue(second.complete)
+            assertEquals(listOf(0, 0), starts)
+            val refreshed = rows(second.file, "latest-state.jsonl")
+            assertEquals(setOf(0, 1), refreshed.keys)
+            assertTrue(refreshed.values.all { it["revision"] == JsonPrimitive(2) })
+            val receipt = (second.manifest.getValue("stages") as JsonArray).single().jsonObject
+            assertEquals(JsonNull, receipt["sourceReference"])
+            assertEquals(JsonNull, receipt["continuedFrom"])
+            assertEquals(firstDigest, sha(delivered.readBytes()))
+            assertEquals(second.manifest, StagedDiagnosticCapture.verify(second.file))
         }
     }
 
@@ -258,14 +347,14 @@ class StagedDiagnosticCaptureContinuationTest {
     private fun cursor(next: Int) = buildJsonObject { put("nextRow", next) }
 
     /** Verifies every chunk set before reconstructing its logical JSON row. */
-    private fun rows(file: File): Map<Int, JsonObject> = ZipFile(file).use { zip ->
+    private fun rows(file: File, fileName: String = "workspace.jsonl"): Map<Int, JsonObject> = ZipFile(file).use { zip ->
         val result = linkedMapOf<Int, JsonObject>()
         val pending = mutableListOf<JsonObject>()
         fun retain(row: JsonObject) {
             val index = row.getValue("index").jsonPrimitive.int
             check(result.put(index, row) == null) { "Duplicated logical row" }
         }
-        zip.getInputStream(zip.getEntry("workspace.jsonl")).bufferedReader().useLines { lines ->
+        zip.getInputStream(zip.getEntry(fileName)).bufferedReader().useLines { lines ->
             lines.forEach { line ->
                 val row = Json.parseToJsonElement(line).jsonObject
                 if (row["kind"]?.jsonPrimitive?.content != "diagnostic_record_chunk") {
@@ -288,6 +377,13 @@ class StagedDiagnosticCaptureContinuationTest {
     }
 
     private fun sha(bytes: ByteArray): String = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
+
+    private fun handoff(directory: File, result: DiagnosticCaptureResult): File {
+        val delivered = File(directory, "delivered").apply { mkdir() }
+        val archive = result.file.copyTo(File(delivered, result.file.name))
+        StagedDiagnosticCapture.acknowledgeArchiveHandoff(directory, result)
+        return archive
+    }
 
     private fun temporary(block: (File) -> Unit) {
         val directory = Files.createTempDirectory("diagnostic-continuation").toFile()

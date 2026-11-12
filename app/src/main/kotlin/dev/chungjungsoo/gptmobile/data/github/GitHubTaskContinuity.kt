@@ -32,9 +32,7 @@ internal object GitHubTaskContinuity {
         ).matches(normalized(text))
 
     /** This identifies a resume request only. The claimed commit is verified by read receipts. */
-    fun publishedCommit(text: String): String? = Regex(
-        "^Commit ([a-fA-F0-9]{40}) was approved and published\\. Continue from the saved task using this exact commit\\. Subscribe with github_watch_checks when CI is pending; do not repeat the commit\\.$"
-    ).matchEntire(request(text))?.groupValues?.get(1)?.lowercase(java.util.Locale.ROOT)
+    fun publishedCommit(text: String): String? = GitHubNativeContinuation.publishedCommit(text)
 
     fun control(text: String): Boolean = normalized(text) in
         setOf(
@@ -42,7 +40,7 @@ internal object GitHubTaskContinuity {
             "retry", "retry full", "retry failed stage", "try again", "proceed primary-only", "proceed primary only",
             "continue primary-only", "continue primary only", "primary-only"
         ) ||
-        publishedCommit(text) != null
+        GitHubNativeContinuation.matches(text)
 
     fun followUp(text: String): Boolean = normalized(text) in
         setOf(

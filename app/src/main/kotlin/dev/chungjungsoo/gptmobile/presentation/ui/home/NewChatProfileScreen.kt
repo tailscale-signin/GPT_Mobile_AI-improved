@@ -64,6 +64,7 @@ import dev.chungjungsoo.gptmobile.presentation.common.ProfileLabelChip
 import dev.chungjungsoo.gptmobile.presentation.common.ProfileSearchField
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import dev.chungjungsoo.gptmobile.presentation.common.profileMatchesQuery
+import dev.chungjungsoo.gptmobile.presentation.ui.setting.GatewayModelPreparationContent
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.flowOf
 
@@ -99,6 +100,7 @@ internal fun NewChatProfileScreen(
     val profiles by viewModel.profiles.collectAsStateWithLifecycle()
     val features by viewModel.features.collectAsStateWithLifecycle()
     val selected by viewModel.selectedUids.collectAsStateWithLifecycle()
+    val modelPreparation by viewModel.gatewayModelPreparation.collectAsStateWithLifecycle()
     val primary by viewModel.primaryUid.collectAsStateWithLifecycle()
     val researchDepth by viewModel.researchDepth.collectAsStateWithLifecycle()
     val creating by viewModel.creating.collectAsStateWithLifecycle()
@@ -300,23 +302,28 @@ internal fun NewChatProfileScreen(
                 }
             }
             items(visible, key = { it.uid }) { profile ->
-                SelectPlatformProfileCard(
-                    profile = profile,
-                    selected = profile.uid in currentSelection,
-                    insight = insights[profile.uid]?.takeIf { it.matches(profile) },
-                    onToggle = viewModel::toggleProfile,
-                    onFavorite = { viewModel.toggleFavorite(profile.uid) },
-                    onInsights = { detailsUid = profile.uid },
-                    gatewayAvailability = gatewayAvailability[profile.uid],
-                    animateGateway = profile.uid in visibleKeys && !optionsOpen && !sortOpen && !primaryOpen && detailsUid == null,
-                    onFocus = { focused ->
-                        if (focused) {
-                            focusedUid = profile.uid
-                        } else if (focusedUid == profile.uid) {
-                            focusedUid = null
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    SelectPlatformProfileCard(
+                        profile = profile,
+                        selected = profile.uid in currentSelection,
+                        insight = insights[profile.uid]?.takeIf { it.matches(profile) },
+                        onToggle = viewModel::toggleProfile,
+                        onFavorite = { viewModel.toggleFavorite(profile.uid) },
+                        onInsights = { detailsUid = profile.uid },
+                        gatewayAvailability = gatewayAvailability[profile.uid],
+                        animateGateway = profile.uid in visibleKeys && !optionsOpen && !sortOpen && !primaryOpen && detailsUid == null,
+                        onFocus = { focused ->
+                            if (focused) {
+                                focusedUid = profile.uid
+                            } else if (focusedUid == profile.uid) {
+                                focusedUid = null
+                            }
                         }
+                    )
+                    modelPreparation[profile.uid]?.takeIf { profile.uid in currentSelection }?.let { state ->
+                        GatewayModelPreparationContent(state) { viewModel.recheckGatewayModel(profile.uid) }
                     }
-                )
+                }
             }
         }
     }

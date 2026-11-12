@@ -78,11 +78,15 @@ class GitHubReviewViewModel @Inject constructor(private val connections: ToolCon
     private val dismissedCommitTasks = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     internal val pendingEngineeringTask = MutableStateFlow<String?>(null)
     internal val decisionReceipts = MutableStateFlow<List<dev.chungjungsoo.gptmobile.data.github.GitHubNativeDecisionReceipt>>(emptyList())
+    internal val nativeApprovalProgress = MutableStateFlow<dev.chungjungsoo.gptmobile.data.github.GitHubNativeApprovalProgress?>(null)
+    private val nativeProgressRevision = java.util.concurrent.atomic.AtomicLong()
     internal val programmerScope = MutableStateFlow<dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext?>(null)
 
     @Volatile private var programmerChatId: Int? = null
     fun restrictTo(scope: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext?, chatId: Int? = null) {
         if (programmerScope.value == scope && programmerChatId == chatId) return
+        nativeProgressRevision.incrementAndGet()
+        nativeApprovalProgress.value = null
         programmerScope.value = scope
         programmerChatId = chatId
         engineeringTasks.value = emptyList()
@@ -98,34 +102,45 @@ class GitHubReviewViewModel @Inject constructor(private val connections: ToolCon
     private suspend fun refreshEngineeringTasksNow() {
         val scope = programmerScope.value
         val chatId = programmerChatId
-        val recent = engineering.recent()
-        val tasks = recent.filter { task -> scope == null || belongsToWorkspace(task, scope) }
-        val receipts = mutableListOf<dev.chungjungsoo.gptmobile.data.github.GitHubNativeDecisionReceipt>()
-        if (scope != null && gitHubRepositoryState != null) {
-            tasks.forEach { task ->
-                val publication = engineering.verifiedPublication(task.taskId)
-                if (publication == null && task.state != "CANCELLED") return@forEach
-                val run = engineering.run(task.taskId) ?: return@forEach
-                val cancelled = task.state == "CANCELLED" &&
-                    engineering.approvalStatus(
+        val revision = nativeProgressRevision.incrementAndGet()
+        fun current() = programmerScope.value == scope && programmerChatId == chatId && nativeProgressRevision.get() == revision
+        try {
+            val recent = engineering.recent()
+            val tasks = recent.filter { task -> scope == null || belongsToWorkspace(task, scope) }
+            val receipts = mutableListOf<dev.chungjungsoo.gptmobile.data.github.GitHubNativeDecisionReceipt>()
+            val progressTasks = mutableListOf<dev.chungjungsoo.gptmobile.data.github.GitHubNativeApprovalProgress.Task>()
+            if (scope != null && gitHubRepositoryState != null) {
+                tasks.forEach { task ->
+                    val source = GitHubApprovalBinding.source(gitHubRepositoryState, task.taskId, scope, task.workingBranch)
+                    progressTasks += dev.chungjungsoo.gptmobile.data.github.GitHubNativeApprovalProgress.Task(task.taskId, task.workingBranch, task.state, source?.chatId, source?.messageId)
+                    val publication = engineering.verifiedPublication(task.taskId)
+                    if (publication == null && task.state != "CANCELLED") return@forEach
+                    val run = engineering.run(task.taskId) ?: return@forEach
+                    val cancelled = task.state == "CANCELLED" &&
+                        engineering.approvalStatus(
+                            task.taskId,
+                            scope.connectionUid,
+                            dev.chungjungsoo.gptmobile.data.agent.tool.GitHubEngineeringApi.root(scope.owner, scope.repo)
+                        )?.get("cancelled_before_publication") == kotlinx.serialization.json.JsonPrimitive(true)
+                    GitHubApprovalBinding.receipt(
+                        gitHubRepositoryState,
                         task.taskId,
-                        scope.connectionUid,
-                        dev.chungjungsoo.gptmobile.data.agent.tool.GitHubEngineeringApi.root(scope.owner, scope.repo)
-                    )?.get("cancelled_before_publication") == kotlinx.serialization.json.JsonPrimitive(true)
-                dev.chungjungsoo.gptmobile.data.github.GitHubApprovalBinding.receipt(
-                    gitHubRepositoryState,
-                    task.taskId,
-                    scope,
-                    task.workingBranch,
-                    run.commitMessage,
-                    publication,
-                    cancelled
-                )?.let(receipts::add)
+                        scope,
+                        task.workingBranch,
+                        run.commitMessage,
+                        publication,
+                        cancelled
+                    )?.let(receipts::add)
+                }
             }
-        }
-        if (programmerScope.value == scope && programmerChatId == chatId) {
-            engineeringTasks.value = tasks
-            decisionReceipts.value = receipts
+            if (current()) {
+                engineeringTasks.value = tasks
+                decisionReceipts.value = receipts
+                nativeApprovalProgress.value = scope?.let { dev.chungjungsoo.gptmobile.data.github.GitHubNativeApprovalProgress(it, chatId, progressTasks, receipts) }
+            }
+        } catch (error: Exception) {
+            if (current()) nativeApprovalProgress.value = null
+            throw error
         }
     }
     private suspend fun belongsToWorkspace(task: dev.chungjungsoo.gptmobile.data.agent.tool.EngineeringTaskRow, scope: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext): Boolean {
@@ -451,10 +466,25 @@ class GitHubReviewViewModel @Inject constructor(private val connections: ToolCon
         }
     }
     private fun restageEditedCommit(taskId: String, proposal: GitHubReview) = action {
+        val task = requireNotNull(engineering.task(taskId))
         val old = requireNotNull(engineering.run(taskId))
+        val scope = programmerScope.value
+        val chatId = programmerChatId
+        require(task.state == "AWAITING_APPROVAL") { "The original patch is no longer awaiting review. Reconcile its saved state before editing." }
+        require(proposal.connectionUid == old.connectionUid && proposal.owner == task.repositoryOwner && proposal.repo == task.repositoryName && proposal.branch == task.workingBranch && proposal.head == task.baseSha) { "Review the original patch before editing its saved task." }
+        if (chatId != null) {
+            require(scope != null && gitHubRepositoryState != null && GitHubApprovalBinding.source(gitHubRepositoryState, taskId, scope, task.workingBranch)?.chatId == chatId) { "The original approval binding is unavailable. Its saved review has been retained." }
+        }
         val files = proposal.files.filter { it.changed }.map { dev.chungjungsoo.gptmobile.data.agent.tool.EngineeringFilePatch(it.path, it.before, it.after, it.delete) }
-        val replacement = engineering.prepare(proposal.connectionUid, proposal.owner, proposal.repo, proposal.branch, proposal.head, files, old.commitMessage)
-        engineering.cancel(taskId)
+        val replacement = engineering.prepare(proposal.connectionUid, proposal.owner, proposal.repo, proposal.branch, proposal.head, files, old.commitMessage, task.requiresHardwareVerification)
+        engineering.replacePendingReview(taskId, old.patchDigest, replacement) {
+            if (scope != null && gitHubRepositoryState != null && (chatId != null || GitHubApprovalBinding.source(gitHubRepositoryState, taskId, scope, task.workingBranch) != null)) {
+                GitHubApprovalBinding.bindReplacement(
+                    gitHubRepositoryState, taskId, replacement, scope, task.workingBranch,
+                    task.baseSha, old.patchDigest, requireNotNull(engineering.run(replacement)).patchDigest, chatId
+                )
+            }
+        }
         dismissedCommitTasks += taskId
         reviewEngineeringNow(replacement)
         pendingEngineeringTask.value = replacement
@@ -470,6 +500,10 @@ class GitHubReviewViewModel @Inject constructor(private val connections: ToolCon
             return
         }
         val edited = file.copy(after = file.after.replaceRange(at, at + search.length, replacement))
+        if (edited == file) {
+            notice.value = "The edited patch is unchanged. Its existing review has been retained."
+            return
+        }
         // Keep the visible frozen patch unchanged if validation fails.
         restageEditedCommit(taskId, proposal.copy(files = proposal.files.map { if (it.path == path) edited else it }))
     }

@@ -1345,7 +1345,8 @@ class AgentToolResolver @Inject constructor(
                         requestedModel ?: approvalProfile?.model.orEmpty(),
                         approvalProfile?.let { dev.chungjungsoo.gptmobile.data.github.GitHubApprovalBinding.profileContract(it.compatibleType.name, it.apiUrl, it.providerConnectionUid, it.reasoning) }.orEmpty(),
                         expectedHead,
-                        stagedRun?.patchDigest
+                        stagedRun?.patchDigest,
+                        requireSameSource = true
                     )
                     dev.chungjungsoo.gptmobile.data.github.GitHubApprovalBinding.recordEvent(
                         gitHubRepositoryState,

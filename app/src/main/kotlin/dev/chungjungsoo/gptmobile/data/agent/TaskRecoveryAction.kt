@@ -16,7 +16,7 @@ enum class TaskRecoveryAction {
             "retry writing", "resume writing" -> RETRY_WRITING
             "test again", "retest", "retry", "retry full", "retry failed stage", "try again" -> RETRY_FAILED_STAGE
             "proceed primary-only", "proceed primary only", "continue primary-only", "continue primary only", "primary-only" -> CONTINUE_PRIMARY_ONLY
-            else -> if (dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.publishedCommit(text) != null) CONTINUE_RUN else null
+            else -> if (dev.chungjungsoo.gptmobile.data.github.GitHubNativeContinuation.matches(text)) CONTINUE_RUN else null
         }
     }
 }

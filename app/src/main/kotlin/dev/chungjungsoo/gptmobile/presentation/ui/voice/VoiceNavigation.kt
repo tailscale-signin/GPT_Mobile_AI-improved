@@ -19,6 +19,7 @@ internal fun NavGraphBuilder.voiceNavigation(navController: NavHostController, o
     composable(Route.VOICE_ENTRY, enterTransition = { fadeIn(tween(150)) }, exitTransition = { fadeOut(tween(150)) }) {
         val model: VoiceEntryViewModel = hiltViewModel()
         val state by model.state.collectAsStateWithLifecycle()
+        val modelPreparation by model.gatewayModelPreparation.collectAsStateWithLifecycle()
         LaunchedEffect(state.route) {
             state.route?.let { route -> navController.navigate(route) { popUpTo(Route.VOICE_ENTRY) { inclusive = true } } }
         }
@@ -31,7 +32,9 @@ internal fun NavGraphBuilder.voiceNavigation(navController: NavHostController, o
             model::select,
             { model.start(enable = true) },
             { navController.navigateUp() },
-            { navController.navigate(Route.AI_PLATFORMS) }
+            { navController.navigate(Route.AI_PLATFORMS) },
+            modelPreparation = modelPreparation[state.selected],
+            recheckModel = { model.recheckGatewayModel(state.selected) }
         )
     }
     composable(

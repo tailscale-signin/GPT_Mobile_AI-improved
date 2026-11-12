@@ -4404,12 +4404,33 @@ class ChatRepositoryImpl(
             val pointerKey = "github-active-task:$scope"
             dispatchAuthority.validate()
             check(validateSavedEvidence()) { "Saved GitHub task access changed" }
-            val previous = workspace?.protectedSynthesisCheckpoint(pointerKey)
+            val activePointer = workspace?.protectedSynthesisCheckpoint(pointerKey)
                 ?: workspace?.protectedSynthesisCheckpoint("github-active-task:" + dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest("$scopeIdentity:${dispatchAuthority.revision}"))
-            val previousTask = ((previous?.get("accepted_task") ?: previous?.get("task")) as? kotlinx.serialization.json.JsonPrimitive)?.content.orEmpty()
-            val reuse = identity.isNotBlank() && previous != null && dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.reuse(originalUserRequest, previousTask)
+            val originalSource = sourceMessageId ?: user.id
+            val sourcePointerKey = dev.chungjungsoo.gptmobile.data.github.GitHubTaskEvidenceIdentity.sourceKey(pointerKey, originalSource)
+            val derivedBinding = dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest("$turnKey:$scope")
+            val previous = if (identity.isBlank()) {
+                null
+            } else {
+                dev.chungjungsoo.gptmobile.data.github.GitHubTaskEvidenceIdentity.restore(
+                    "${repository.owner}/${repository.repo}",
+                    originalSource,
+                    derivedBinding,
+                    workspace?.protectedSynthesisCheckpoint(sourcePointerKey),
+                    activePointer
+                ) { binding -> workspace?.protectedSynthesisCheckpoint("github-evidence:$binding:task_contract") }
+            }
+            check(previous != null || !dev.chungjungsoo.gptmobile.data.github.GitHubNativeContinuation.matches(originalUserRequest)) {
+                "GITHUB_TASK_IDENTITY_CHANGED: The original approval task's evidence contract is unavailable. Its saved mutation will not be repeated or given a new budget."
+            }
+            val previousTask = previous?.acceptedTask.orEmpty()
+            val reuse = previous != null &&
+                (
+                    dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.reuse(originalUserRequest, previousTask) ||
+                        dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.request(originalUserRequest) == dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.request(previousTask)
+                    )
             val providerResume = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.GitHubProviderResumeContext]?.checkpoint
-            val binding = if (reuse) (previous?.get("binding") as? kotlinx.serialization.json.JsonPrimitive)?.content.orEmpty() else dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest("$turnKey:$scope")
+            val binding = if (reuse) requireNotNull(previous).binding else derivedBinding
             if (providerResume != null) {
                 check(providerResume.binding == binding) { "PROVIDER_WAIT_TASK_CHANGED" }
             }
@@ -4423,18 +4444,17 @@ class ChatRepositoryImpl(
             }
             if (githubContext != null && !diagnosticFollowUp && !dev.chungjungsoo.gptmobile.data.agent.CurrentRequestContract.from(githubEffectiveTask).conversational) expectGitHubRunAcceptance(runId)
             if (!dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.diagnostic(originalUserRequest)) {
-                workspace?.saveProtectedSynthesisCheckpoint(
-                    pointerKey,
-                    user.chatId,
-                    runId,
-                    buildJsonObject {
-                        put("task", githubEffectiveTask)
-                        put("accepted_task", if (reuse) previousTask else githubEffectiveTask)
-                        put("latest_instruction", originalUserRequest)
-                        put("binding", binding)
-                        put("authorization_revision", dispatchAuthority.revision)
-                    }
-                )
+                val pointer = buildJsonObject {
+                    put("task", githubEffectiveTask)
+                    put("accepted_task", if (reuse) previousTask else githubEffectiveTask)
+                    put("latest_instruction", originalUserRequest)
+                    put("binding", binding)
+                    put("authorization_revision", dispatchAuthority.revision)
+                    put("source_message_id", originalSource)
+                    put("root_work_id", turnKey)
+                }
+                workspace?.saveProtectedSynthesisCheckpoint(pointerKey, user.chatId, runId, pointer)
+                workspace?.saveProtectedSynthesisCheckpoint(sourcePointerKey, user.chatId, runId, pointer)
             }
             dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook(
                 binding = binding,
@@ -4484,19 +4504,19 @@ class ChatRepositoryImpl(
                         dispatchAuthority.validate()
                         check(validateSavedEvidence()) { "Saved GitHub task access changed" }
                         val destinationScope = "${user.chatId}:${platform.uid}:$connectionUid:$identity:${repository.owner}/${repository.repo}:${destination.branch}"
-                        workspace?.saveProtectedSynthesisCheckpoint(
-                            "github-active-task:" + dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest(destinationScope),
-                            user.chatId,
-                            runId,
-                            buildJsonObject {
-                                put("task", githubEffectiveTask)
-                                put("accepted_task", if (reuse) previousTask else githubEffectiveTask)
-                                put("latest_instruction", originalUserRequest)
-                                put("binding", binding)
-                                put("authorization_revision", dispatchAuthority.revision)
-                                put("transition_receipt", id)
-                            }
-                        )
+                        val destinationKey = "github-active-task:" + dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest(destinationScope)
+                        val pointer = buildJsonObject {
+                            put("task", githubEffectiveTask)
+                            put("accepted_task", if (reuse) previousTask else githubEffectiveTask)
+                            put("latest_instruction", originalUserRequest)
+                            put("binding", binding)
+                            put("authorization_revision", dispatchAuthority.revision)
+                            put("transition_receipt", id)
+                            put("source_message_id", originalSource)
+                            put("root_work_id", turnKey)
+                        }
+                        workspace?.saveProtectedSynthesisCheckpoint(destinationKey, user.chatId, runId, pointer)
+                        workspace?.saveProtectedSynthesisCheckpoint(dev.chungjungsoo.gptmobile.data.github.GitHubTaskEvidenceIdentity.sourceKey(destinationKey, originalSource), user.chatId, runId, pointer)
                     }
                 }
             ).also {

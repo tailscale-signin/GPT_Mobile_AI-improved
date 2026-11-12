@@ -46,7 +46,8 @@ internal object GitHubApprovalBinding {
         model: String = "",
         profileContract: String = "",
         expectedHeadSha: String? = null,
-        patchDigest: String? = null
+        patchDigest: String? = null,
+        requireSameSource: Boolean = false
     ): String? {
         require(expectedHeadSha == null || expectedHeadSha.matches(Regex("[a-fA-F0-9]{40}")))
         require(patchDigest == null || patchDigest.matches(Regex("[a-fA-F0-9]{64}")))
@@ -73,20 +74,54 @@ internal object GitHubApprovalBinding {
             patchDigest?.let { put("patch_digest", it.lowercase(java.util.Locale.ROOT)) }
             approvalBindingDigest?.let { put("approval_binding_sha256", it) }
         }
-        store.update(SCOPE, key(taskId)) { previous ->
+        val retained = store.update(SCOPE, key(taskId)) { previous ->
             require(previous == null || matches(previous, taskId, workspace, branch, expectedHeadSha, patchDigest)) { "The saved approval belongs to a different workspace or staged patch. Open its existing review before continuing." }
+            require(previous == null || !requireSameSource || source(previous) == Source(chatId, messageId, model, profileContract)) { "This patch belongs to another saved request. Its existing approval has been retained." }
             if (previous == null) {
                 value
             } else {
                 val upgraded = previous.toMutableMap()
                 if (expectedHeadSha != null && previous["expected_head_sha"] == null) upgraded["expected_head_sha"] = JsonPrimitive(expectedHeadSha.lowercase(java.util.Locale.ROOT))
                 if (patchDigest != null && previous["patch_digest"] == null) upgraded["patch_digest"] = JsonPrimitive(patchDigest.lowercase(java.util.Locale.ROOT))
-                if (approvalBindingDigest != null && previous["approval_binding_sha256"] == null) upgraded["approval_binding_sha256"] = JsonPrimitive(approvalBindingDigest)
+                if (previous["approval_binding_sha256"] == null) {
+                    val head = (upgraded["expected_head_sha"] as? JsonPrimitive)?.contentOrNull
+                    val patch = (upgraded["patch_digest"] as? JsonPrimitive)?.contentOrNull
+                    if (head != null && patch != null) {
+                        val originalSource = requireNotNull(source(previous)) { "The saved approval has no original request identity." }
+                        upgraded["approval_binding_sha256"] = JsonPrimitive(dedupeKey(originalSource.chatId, "${workspace.owner}/${workspace.repo}", branch, head, patch, taskId))
+                    }
+                }
                 JsonObject(upgraded)
             }
         }
         revisions.update { it + 1 }
-        return approvalBindingDigest
+        return retained.text("approval_binding_sha256").takeIf(String::isNotBlank)
+    }
+
+    /** An edited patch retains its originating request, never the original patch's approval. */
+    suspend fun bindReplacement(
+        store: GitHubRepositoryStateStore,
+        taskId: String,
+        replacementTaskId: String,
+        workspace: GitHubConversationContext,
+        branch: String,
+        expectedHeadSha: String,
+        originalPatchDigest: String,
+        replacementPatchDigest: String,
+        chatId: Int? = null
+    ) {
+        require(taskId != replacementTaskId) { "The edited patch is unchanged. Its existing review has been retained." }
+        val original = requireNotNull(store.read(SCOPE, key(taskId))) { "The original approval binding is unavailable. Its saved review has been retained." }
+        require(matches(original, taskId, workspace, branch, expectedHeadSha, originalPatchDigest)) { "The original approval belongs to another workspace or staged patch." }
+        val source = requireNotNull(source(original)) { "The original approval has no saved request to continue." }
+        require(chatId == null || source.chatId == chatId) { "This approval belongs to another saved chat." }
+        bind(
+            store, replacementTaskId, workspace, branch, source.chatId, source.messageId,
+            source.model, source.profileContract, expectedHeadSha, replacementPatchDigest,
+            requireSameSource = true
+        )
+        if (original["keep_fixture"] == JsonPrimitive(true)) keepFixture(store, replacementTaskId, workspace, branch)
+        recordEvent(store, replacementTaskId, "approval_card_created", buildJsonObject { put("replaces_task_id", taskId) })
     }
 
     suspend fun belongs(store: GitHubRepositoryStateStore, taskId: String, workspace: GitHubConversationContext, branch: String): Boolean =

@@ -1,6 +1,9 @@
 package dev.chungjungsoo.gptmobile.data.github
 
+import dev.chungjungsoo.gptmobile.data.agent.AgentRunTerminalDiagnostics
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
+import dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord
+import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -75,7 +78,13 @@ class GitHubApprovalRecoveryTest {
 
     @Test fun localSuccessRetainsExactApprovalAndCannotBecomeOrdinaryContinuation() {
         val receipts = mapOf("pending" to pending())
-        val checkpoint = GitHubExecutionLedger.attach(buildJsonObject { put("task_outcome", "PARTIAL") }, receipts)
+        val checkpoint = GitHubExecutionLedger.attach(
+            buildJsonObject {
+                put("task_outcome", "PARTIAL")
+                put("original_failure", buildJsonObject { put("code", "WAITING_FOR_APPROVAL") })
+            },
+            receipts
+        )
         assertEquals(JsonPrimitive("WAITING_FOR_APPROVAL"), checkpoint["task_state"])
         assertEquals(JsonPrimitive(true), checkpoint["user_input_required"])
         assertEquals(JsonPrimitive(false), checkpoint["retryable_without_new_input"])
@@ -130,12 +139,30 @@ class GitHubApprovalRecoveryTest {
         assertEquals(JsonPrimitive("429"), checkpoint["blocking_condition"])
         assertEquals(JsonPrimitive("INSPECT_EXECUTION_FAILURE"), ledger["recovery"])
         assertEquals(JsonPrimitive(false), ledger["retryable_without_new_input"])
+        assertEquals(JsonPrimitive(false), checkpoint["retryable_without_new_input"])
+        assertEquals(JsonPrimitive("429"), checkpoint["stop_code"])
         assertEquals(1, (ledger["pending_approvals"] as JsonArray).size)
         assertEquals(GitHubTaskLifecycle.State.PARTIAL, GitHubTaskLifecycle.terminal(checkpoint))
+        val captured = GitHubRunAcceptance.capture(checkpoint, "run", 7, 1, 2)
+        val acceptance = requireNotNull(GitHubRunAcceptance.assess(captured, "run", 7, 1, 2, ""))
+        assertEquals("PARTIAL", acceptance.verification)
+        assertEquals("PARTIAL", acceptance.taskState)
+        assertEquals("429", acceptance.stopCode)
+        assertEquals("WAITING_FOR_APPROVAL", acceptance.approvalState)
+        val failure = ProfileFailureRecord.fromProvider("Rate limited", "429")
+        val terminal = AgentRunTerminalDiagnostics.from(AgentRunStatus.PARTIAL, failure, acceptance)
+        assertEquals(failure.category, terminal.reason)
+        assertEquals("PARTIAL", terminal.taskVerification)
+        assertEquals("OBSERVED", terminal.executionState)
         val unknown = JsonObject(pending() + mapOf("success" to JsonPrimitive(false), "error_code" to JsonPrimitive("DISPATCH_OUTCOME_UNKNOWN")))
         val uncertain = GitHubExecutionLedger.attach(prior, mapOf("pending" to pending(), "unknown" to unknown))
         assertEquals(JsonPrimitive("RECONCILE_REMOTE_OUTCOME"), uncertain.getValue("execution_ledger").jsonObject["recovery"])
         assertEquals(JsonPrimitive("RECONCILE_REMOTE_OUTCOME"), uncertain["blocking_condition"])
+        val uncertainAcceptance = GitHubRunAcceptance.capture(uncertain, "run", 7, 1, 2)
+        assertEquals(JsonPrimitive("UNKNOWN_OUTCOME"), uncertainAcceptance["verification"])
+        assertEquals(JsonPrimitive("PARTIAL"), uncertainAcceptance["task_state"])
+        assertEquals(JsonPrimitive("RECONCILE_REMOTE_OUTCOME"), uncertainAcceptance["stop_code"])
+        assertEquals(JsonPrimitive("WAITING_FOR_APPROVAL"), uncertainAcceptance["approval_state"])
     }
 
     @Test fun outcomeCategoriesKeepRemoteReadsMutationCacheAndLocalSuppressionSeparate() {

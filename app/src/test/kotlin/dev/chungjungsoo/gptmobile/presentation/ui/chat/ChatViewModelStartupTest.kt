@@ -715,6 +715,55 @@ class ChatViewModelStartupTest {
     private val exitWork = mockk<dev.chungjungsoo.gptmobile.data.chat.ConversationExitWork>(relaxed = true)
     private var exitAction: (suspend () -> Unit)? = null
 
+    @Test fun restoredGatewaySelectionAndModelChangePrepareWithoutSubmittingTheDraft() = runTest(dispatcher) {
+        StartupRecoveryGate.start(backgroundScope) {}
+        profiles = profiles.take(1).map { it.copy(compatibleType = dev.chungjungsoo.gptmobile.data.model.ClientType.LLAMA) }
+        val selected = profiles.single()
+        val preparation = mockk<dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationRepository>()
+        val models = mutableListOf<String>()
+        coEvery { preparation.prepareSelected(any(), any(), any(), any()) } coAnswers {
+            val profile = firstArg<PlatformV2>()
+            models += profile.model
+            arg<(dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationState?) -> Unit>(3)(
+                dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationState(profile.uid, profile.model, dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationPhase.LOADING, "Loading exact model")
+            )
+            kotlinx.coroutines.awaitCancellation()
+        }
+        val model = createViewModel(combined = false, modelPreparation = preparation)
+        assertEquals(listOf(selected.model), models)
+        assertEquals("Saved draft", model.question.text.toString())
+        model.updateChatPlatformModels(mapOf(selected.uid to "exact-chat-override"))
+        assertEquals(listOf(selected.model, "exact-chat-override"), models)
+        assertEquals("exact-chat-override", model.gatewayModelPreparation.value[selected.uid]?.model)
+        assertEquals("Saved draft", model.question.text.toString())
+        verify(exactly = 0) { coordinator.start(any()) }
+        coVerify(exactly = 0) { repository.persistAgentTurn(any()) }
+        model.togglePlatformDisabled(selected.uid)
+        assertTrue(model.gatewayModelPreparation.value.isEmpty())
+    }
+
+    @Test fun selectedModelPreparationUsesTheSameConversationReasoningOverrideAsSend() = runTest(dispatcher) {
+        StartupRecoveryGate.start(backgroundScope) {}
+        profiles = profiles.take(1).map { it.copy(compatibleType = dev.chungjungsoo.gptmobile.data.model.ClientType.LLAMA) }
+        val selected = profiles.single()
+        for (conversation in listOf(false, true)) {
+            val preparation = mockk<dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationRepository>()
+            val requested = mutableListOf<dev.chungjungsoo.gptmobile.data.context.ReasoningMode>()
+            coEvery { preparation.prepareSelected(any(), any(), any(), any()) } coAnswers {
+                requested += secondArg<dev.chungjungsoo.gptmobile.data.context.ReasoningMode>()
+                null
+            }
+            val settings = features.copy(
+                llamaReasoningModes = mapOf(selected.uid to if (conversation) dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF else dev.chungjungsoo.gptmobile.data.context.ReasoningMode.ON),
+                conversationReasoning = mapOf(7 to conversation)
+            )
+            createViewModel(combined = false, modelPreparation = preparation, testFeatures = settings)
+            assertEquals(listOf(if (conversation) dev.chungjungsoo.gptmobile.data.context.ReasoningMode.ON else dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF), requested)
+            clearViewModels()
+        }
+        verify(exactly = 0) { coordinator.start(any()) }
+    }
+
     @Test fun strictOffSendPreservesDraftAndExplicitRecheckNeverAutomaticallyDispatches() = runTest(dispatcher) {
         StartupRecoveryGate.start(backgroundScope) {}
         profiles = profiles.take(1).map { it.copy(compatibleType = dev.chungjungsoo.gptmobile.data.model.ClientType.LLAMA) }
@@ -990,7 +1039,7 @@ class ChatViewModelStartupTest {
         activeRuns.value = runs.value.filter { it.status == AgentRunStatus.RUNNING }.associate { it.runId to ActiveAgentRun(it.runId, 7, it.profileUid, it.assistantMessageId) }
     }
 
-    private fun createViewModel(chatId: Int = 7, combined: Boolean = true, research: ResearchSessionStore? = null, combinedSettings: ConversationCombinedSettings? = null, toolConnections: ToolConnectionRepository = mockk(relaxed = true), testFeatures: AppFeatureSettings? = null, reasoningCapabilities: dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityRepository? = null, roomAvailable: Boolean = true, profileLoad: CompletableDeferred<List<PlatformV2>>? = null): ChatViewModel {
+    private fun createViewModel(chatId: Int = 7, combined: Boolean = true, research: ResearchSessionStore? = null, combinedSettings: ConversationCombinedSettings? = null, toolConnections: ToolConnectionRepository = mockk(relaxed = true), testFeatures: AppFeatureSettings? = null, reasoningCapabilities: dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityRepository? = null, roomAvailable: Boolean = true, profileLoad: CompletableDeferred<List<PlatformV2>>? = null, modelPreparation: dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationRepository? = null): ChatViewModel {
         val room = ChatRoomV2(id = chatId, title = "Saved chat", enabledPlatform = profiles.map { it.uid }, activePlatform = profiles.map { it.uid }, conversationMode = if (combined) ConversationMode.COMBINED else ConversationMode.STANDARD, draftText = "Saved draft")
         every { repository.observeMessageWindow(chatId, any()) } returns messages
         every { repository.observeTurnCount(chatId) } returns flowOf(messages.value.count { it.platformType == null })
@@ -1035,7 +1084,8 @@ class ChatViewModelStartupTest {
             researchSessionStore = research,
             conversationExitWork = exitWork,
             messageGroupingDispatcher = dispatcher,
-            reasoningCapabilities = reasoningCapabilities
+            reasoningCapabilities = reasoningCapabilities,
+            modelPreparationRepository = modelPreparation
         ).also {
             viewModelJobs += requireNotNull(it.viewModelScope.coroutineContext[Job])
             store.put("chat", it)

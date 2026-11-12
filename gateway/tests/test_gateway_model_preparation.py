@@ -2,6 +2,7 @@
 import json
 import sys
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
@@ -186,6 +187,63 @@ class ModelQualificationTests(unittest.TestCase):
                 release.set()
             self.assertEqual('VERIFIED', pending.result(timeout=1)['reasoningControlState'])
         self.assertEqual({}, capabilities.reasoning_refreshes)
+
+    def test_invalidated_inflight_metadata_cannot_publish_a_late_loaded_observation(self):
+        entered, release = threading.Event(), threading.Event()
+        capability = InferenceCapabilities(runtime(Mock()))
+        route = configured_route(capability.runtime, 'LLAMA')
+        def probe(*args, **kwargs):
+            entered.set()
+            self.assertTrue(release.wait(3))
+            return {'reported_model_id': 'selected', 'limits_verified': True, 'context_tokens': 8192,
+                    'max_output_tokens': 8192, 'output_limit_source': 'context_capacity',
+                    'observed_at_ms': int(time.time() * 1000),
+                    'supported': ['SELECTED_ONLY', 'MODEL_IDENTITY', 'CONTEXT_BUDGET'],
+                    'capability_revision': 'old-allocation', 'template_digest': None}
+        capability._probe = Mock(side_effect=probe)
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            pending = pool.submit(capability.selected_model, 'selected')
+            self.assertTrue(entered.wait(2))
+            capability.invalidate_model(route, 'selected')
+            release.set()
+            result = pending.result(timeout=2)
+        self.assertFalse(result['limitsVerified'])
+        self.assertIsNone(result['modelLoaded'])
+        self.assertEqual('UNVERIFIED', result['reasoningControlState'])
+        self.assertNotIn('reportedModel', result)
+        self.assertEqual({}, capability.cache)
+        self.assertEqual(1, capability._probe.call_count)
+        self.assertTrue(capability.selected_model('selected')['limitsVerified'])
+        self.assertEqual(2, capability._probe.call_count)
+
+    def test_invalidated_template_probe_cannot_restore_capacity_or_reasoning_after_reload(self):
+        entered, release = threading.Event(), threading.Event()
+        capability = InferenceCapabilities(runtime(Mock()))
+        route = configured_route(capability.runtime, 'LLAMA')
+        capability._probe = Mock(return_value={
+            'reported_model_id': 'selected', 'limits_verified': True, 'context_tokens': 8192,
+            'max_output_tokens': 8192, 'output_limit_source': 'context_capacity', 'observed_at_ms': 1,
+            'supported': ['SELECTED_ONLY', 'MODEL_IDENTITY', 'CONTEXT_BUDGET'],
+            'capability_revision': 'old-allocation', 'template_digest': 'old-template',
+            'reasoning_parameters': ['thinking']})
+        def template(method, url, **kwargs):
+            entered.set()
+            self.assertTrue(release.wait(3))
+            return {'prompt': 'prefix<think>' + ('' if kwargs['body']['chat_template_kwargs']['thinking'] else '</think>')}
+        capability._json = Mock(side_effect=template)
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            pending = pool.submit(capability.selected_model, 'selected')
+            self.assertTrue(entered.wait(2))
+            capability.invalidate_model(route, 'selected')
+            release.set()
+            result = pending.result(timeout=2)
+        self.assertFalse(result['limitsVerified'])
+        self.assertEqual('UNVERIFIED', result['reasoningControlState'])
+        self.assertNotIn('reasoningControl', result)
+        self.assertEqual({}, capability.reasoning_cache)
+        self.assertEqual({}, capability.reasoning_states)
+        self.assertEqual(1, capability._probe.call_count)
+        self.assertEqual(1, capability._json.call_count)
 
 
 class ExplicitModelPreparationTests(unittest.TestCase):

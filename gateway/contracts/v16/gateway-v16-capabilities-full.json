@@ -51,6 +51,9 @@
     "gatewayProgress": [
       "gpt-mobile-gateway-progress/2"
     ],
+    "modelPreparation": [
+      "gptmobile.gateway.model-preparation.v1"
+    ],
     "toolArguments": [
       "gptmobile.tool-arguments.v1"
     ]
@@ -82,6 +85,7 @@
     "job_catalog": "/gateway/job-catalog",
     "jobs": "/gateway/jobs",
     "mcp_sessions": "/gateway/mcp/sessions",
+    "model_prepare": "/gateway/models/prepare",
     "result": "/gateway/jobs/{job_id}/result",
     "tools": "/gateway/tools"
   },
@@ -146,6 +150,7 @@
     "merge_action_profile": true,
     "mobileDashboard": true,
     "model_facing_schema_sanitization": true,
+    "model_preparation_v1": true,
     "models_sse_compat": true,
     "modernMcp": true,
     "mutation_identity_preconditions_v1": true,

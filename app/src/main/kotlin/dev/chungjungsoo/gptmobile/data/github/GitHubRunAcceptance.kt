@@ -80,8 +80,12 @@ internal object GitHubRunAcceptance {
         val pendingApprovals = (execution?.get("pending_approvals") as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
         val resolvedApprovals = (execution?.get("resolved_approvals") as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
         val deadlineReached = report.text("blocking_condition") == "ACCEPTED_TASK_DEADLINE_REACHED"
-        val rejectedApproval = !deadlineReached && resolvedApprovals.any { it.text("decision_outcome") == "REJECTED" || it.text("local_resolution_event") == "approval_card_rejected" }
-        val pendingApproval = !deadlineReached && (pendingApprovals.isNotEmpty() || report.text("task_state") == "WAITING_FOR_APPROVAL" || report.text("blocking_condition") == "WAITING_FOR_APPROVAL")
+        val primaryFailure = GitHubExecutionLedger.hasPrimaryFailure(report)
+        val approvalIsPrimary = !deadlineReached && !primaryFailure && (unresolved ?: 0) == 0
+        val hasRejectedApproval = resolvedApprovals.any { it.text("decision_outcome") == "REJECTED" || it.text("local_resolution_event") == "approval_card_rejected" }
+        val hasPendingApproval = pendingApprovals.isNotEmpty() || report.text("task_state") == "WAITING_FOR_APPROVAL" || report.text("blocking_condition") == "WAITING_FOR_APPROVAL"
+        val rejectedApproval = approvalIsPrimary && hasRejectedApproval
+        val pendingApproval = approvalIsPrimary && hasPendingApproval
         val taskState = when {
             pendingApproval -> "WAITING_FOR_APPROVAL"
             rejectedApproval -> "REJECTED"
@@ -94,8 +98,8 @@ internal object GitHubRunAcceptance {
             else -> report.text("stop_code").ifBlank { stopReason?.text("code").orEmpty() }.takeIf(String::isNotBlank)
         }
         val approvalState = when {
-            pendingApproval -> pendingApprovals.firstNotNullOfOrNull { it.text("approval_state").takeIf(String::isNotBlank) ?: it.text("state").takeIf(String::isNotBlank) } ?: "WAITING_FOR_APPROVAL"
-            rejectedApproval -> "REJECTED"
+            hasPendingApproval -> pendingApprovals.firstNotNullOfOrNull { it.text("approval_state").takeIf(String::isNotBlank) ?: it.text("state").takeIf(String::isNotBlank) } ?: "WAITING_FOR_APPROVAL"
+            hasRejectedApproval -> "REJECTED"
             else -> report.text("approval_state").takeIf(String::isNotBlank)
         }
         val taskOutcome = when {
@@ -110,6 +114,9 @@ internal object GitHubRunAcceptance {
         val diagnosticsComplete = diagnostics.number("omitted_count") == 0 || pages != null
         val complete = delivered &&
             responseHash != null &&
+            !primaryFailure &&
+            !hasPendingApproval &&
+            !hasRejectedApproval &&
             report["completion_verified"] == JsonPrimitive(true) &&
             report.text("task_outcome") == "COMPLETED" &&
             !rejectedApproval &&

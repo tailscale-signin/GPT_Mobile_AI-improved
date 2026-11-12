@@ -75,6 +75,13 @@ class GitHubNativeApprovalRecovery @Inject constructor(
         if (source.model != profile.model || source.profileContract != GitHubApprovalBinding.profileContract(profile.compatibleType.name, profile.apiUrl, profile.providerConnectionUid, profile.reasoning)) return true
         if (settings.providerActivationRequired(profile) || FreeProviderPreflight.check(profile) != null) return true
 
+        suspend fun continuationPayload(bound: GitHubConversationContext) = PendingPromptPayload(
+            profileUids = listOf(profile.uid),
+            models = mapOf(profile.uid to profile.model),
+            tools = ChatMcpToolConfig(allowAllByDefault = false, enabledToolIds = setOf(scope.connectionUid), github = bound),
+            recovery = GitHubNativeContinuation.recovery(taskId, source, profile.uid, database.agentPersistenceDao().getMessages(chatId))
+        )
+
         suspend fun queuePublication(): Boolean {
             val publication = engineering.verifiedPublication(taskId) ?: return false
             val continuation = GitHubApprovalBinding.continuation(store, taskId, scope, task.workingBranch, publication) ?: return true
@@ -82,19 +89,11 @@ class GitHubNativeApprovalRecovery @Inject constructor(
             val bound = if (scope.ref == continuation.branch) scope.copy(commitSha = commit, stagedFileCount = 0, recentCommits = emptyList(), observedAtMillis = null) else scope
             if (settings.getFeatureSettings().conversationGitHub[chatId]?.sameWorkspace(scope) != true) return false
             val retainedFixture = GitHubApprovalBinding.fixtureKept(store, taskId)
-            val text = if (retainedFixture) {
-                "GitHub workspace: ${scope.owner}/${scope.repo}\nBranch: ${bound.ref}\n\nCommit $commit was approved and published. Continue from the saved integration task using this exact commit. Reconcile the approval and report that the fixture is intentionally retained by the user's choice. Do not delete the fixture or repeat the commit."
-            } else {
-                "GitHub workspace: ${scope.owner}/${scope.repo}\nBranch: ${bound.ref}\n\nCommit $commit was approved and published. Continue from the saved task using this exact commit. Subscribe with github_watch_checks when CI is pending; do not repeat the commit."
-            }
+            val text = "GitHub workspace: ${scope.owner}/${scope.repo}\nBranch: ${bound.ref}\n\n" + GitHubNativeContinuation.publication(commit, retainedFixture)
             queue.enqueue(
                 chatId,
                 text,
-                PendingPromptPayload(
-                    profileUids = listOf(profile.uid),
-                    models = mapOf(profile.uid to profile.model),
-                    tools = ChatMcpToolConfig(allowAllByDefault = false, enabledToolIds = setOf(scope.connectionUid), github = bound)
-                ),
+                continuationPayload(bound),
                 "github-approved-commit:$commit"
             )
             GitHubApprovalBinding.continuationQueued(store, taskId, commit)
@@ -122,20 +121,11 @@ class GitHubNativeApprovalRecovery @Inject constructor(
             if (isIntegrationFixture && !GitHubApprovalBinding.cancellationContinuationQueued(store, taskId)) {
                 if (settings.getFeatureSettings().conversationGitHub[chatId]?.sameWorkspace(scope) != true) return false
                 val retainFixture = GitHubApprovalBinding.fixtureKept(store, taskId)
-                val retentionInstruction = if (retainFixture) {
-                    "Keep the fixture because the user explicitly chose Keep fixture; verify its current state and report the intentional retention. Do not delete it."
-                } else {
-                    "Reconcile the owned codex-self-test fixture, delete it only after verifying its current head, and verify the branch is absent."
-                }
-                val text = "GitHub workspace: ${scope.owner}/${scope.repo}\nBranch: ${scope.ref}\n\nThe existing approval for task $taskId was rejected and confirmed cancelled before publication. Continue from the saved evidence for this exact integration test. Do not approve or restage the patch, and do not create another fixture. $retentionInstruction Stop if ownership or remote state is uncertain."
+                val text = "GitHub workspace: ${scope.owner}/${scope.repo}\nBranch: ${scope.ref}\n\n" + GitHubNativeContinuation.cancellation(taskId, retainFixture)
                 queue.enqueue(
                     chatId,
                     text,
-                    PendingPromptPayload(
-                        profileUids = listOf(profile.uid),
-                        models = mapOf(profile.uid to profile.model),
-                        tools = ChatMcpToolConfig(allowAllByDefault = false, enabledToolIds = setOf(scope.connectionUid), github = scope)
-                    ),
+                    continuationPayload(scope),
                     "github-cancelled-approval-cleanup:$taskId"
                 )
                 GitHubApprovalBinding.markCancellationContinuationQueued(store, taskId)

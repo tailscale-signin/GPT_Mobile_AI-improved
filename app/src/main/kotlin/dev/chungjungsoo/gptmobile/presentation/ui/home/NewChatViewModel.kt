@@ -4,6 +4,9 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationRepository
+import dev.chungjungsoo.gptmobile.data.context.GatewayModelSelectionController
+import dev.chungjungsoo.gptmobile.data.context.ReasoningPolicy
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.MultiSearchResearchSelection
@@ -24,6 +27,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -34,8 +39,11 @@ class NewChatViewModel @Inject constructor(
     private val savedStateHandle: SavedStateHandle,
     private val settings: SettingRepository,
     private val chats: ChatRepository,
-    private val availability: GatewayAvailabilityRepository
+    private val availability: GatewayAvailabilityRepository,
+    gatewayPreparation: GatewayModelPreparationRepository? = null
 ) : ViewModel() {
+    private val gatewayModelSelection = GatewayModelSelectionController(gatewayPreparation, viewModelScope)
+    val gatewayModelPreparation = gatewayModelSelection.states
     val profiles = settings.observePlatformV2s()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val features = settings.observeFeatureSettings()
@@ -57,6 +65,19 @@ class NewChatViewModel @Inject constructor(
 
     val type: NewChatType?
         get() = NewChatType.entries.firstOrNull { it.name == typeName.value }
+
+    init {
+        if (gatewayPreparation != null) {
+            combine(settings.observePlatformV2s(), settings.observeFeatureSettings(), selectedUids) { available, features, selected ->
+                val profiles = available.filter { it.uid in selected }
+                profiles to profiles.associate { it.uid to ReasoningPolicy.preference(it.reasoning, features.llamaReasoningModes[it.uid]) }
+            }.distinctUntilChanged().onEach { (profiles, modes) ->
+                gatewayModelSelection.update(profiles, modes)
+            }.launchIn(viewModelScope)
+        }
+    }
+
+    fun recheckGatewayModel(uid: String) = gatewayModelSelection.recheck(uid)
 
     fun chooseType(choice: NewChatType): Boolean {
         if (choice.requiredPluginId?.let { !features.value.isToolPluginEnabled(it) } == true) {

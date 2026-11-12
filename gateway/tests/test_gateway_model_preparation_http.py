@@ -7,6 +7,7 @@ import tempfile
 import threading
 import unittest
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -61,7 +62,7 @@ class ModelPreparationHttpTests(unittest.TestCase):
         self.assertEqual('http://127.0.0.1:8080/models/load', url)
         model = kwargs['json']['model']
         # Check the real committed SQLite fence at the external dispatch boundary.
-        with self.connect() as db:
+        with closing(self.connect()) as db:
             rows = db.execute('SELECT receipt FROM gateway_model_preparations WHERE model=? AND unresolved=1', (model,)).fetchall()
         self.assertEqual(1, len(rows))
         self.assertEqual(1, json.loads(rows[0][0])['loadRequests'])
@@ -358,7 +359,7 @@ class ModelPreparationHttpTests(unittest.TestCase):
     def test_passive_loaded_observation_creates_no_preparation_schema_or_mutation(self):
         self.states['selected'] = 'loaded'
         self.service.observe_loaded('selected', self.capabilities.selected_model('selected', force=True))
-        with self.connect() as db:
+        with closing(self.connect()) as db:
             self.assertIsNone(db.execute("SELECT name FROM sqlite_master WHERE name LIKE 'gateway_model_preparations'").fetchone())
         self.assertEqual([], self.mutations())
 

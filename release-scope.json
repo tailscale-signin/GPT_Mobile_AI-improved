@@ -88,7 +88,8 @@
     "Retain exact invocation-owned failed-attempt usage, capacity and review provenance, selected-model readiness binding, typed MCP failure and probe-admission evidence, honest audit coverage and off-main export preparation; keep observed revisions separate from tested SHAs.",
     "Repair retained GitHub checks across repository normalization, voice/privacy admission and reporting, reader HTTP receipts, exact-run diagnostic failure provenance, lazy report dependencies, and durable disconnect rollback; preserve explicit device and deployment blockers.",
     "Retain bounded gateway backend-attempt evidence independently of token usage, preserve current HTTP/SSE failure causes and saved-job provenance, and collect fresh Android and portable-domain JVM qualification without promoting historical audit results.",
-    "Negotiate context-v3 review extensions before hosted report dispatch, preserve immutable original and extended-v2 approvals, and retain prior publisher digests for reconciliation without another issue creation."
+    "Negotiate context-v3 review extensions before hosted report dispatch, preserve immutable original and extended-v2 approvals, and retain prior publisher digests for reconciliation without another issue creation.",
+    "Separate foreground microphone admission from advisory output audio focus, respect Android capture silencing, and retain typed provider failures and rate limits without replaying completed GitHub work or changing approved report contracts."
   ],
   "limitations": [
     "Android GPU qualification requires compatible-device receipts for actual offload, prefill, decode, repeated requests and cancel/recovery; host tests do not establish those results.",
@@ -2301,6 +2302,7 @@
     "docs/repairs/session-reliability-followup-2026-11-12.md",
     "docs/repairs/open-issues-verification-2026-11-12-task.json",
     "docs/repairs/open-issues-verification-2026-11-12.md",
-    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/accounting/GatewayRecoveryEvidence.kt"
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/accounting/GatewayRecoveryEvidence.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidVoiceCaptureTest.kt"
   ]
 }

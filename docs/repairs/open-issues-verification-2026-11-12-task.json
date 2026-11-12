@@ -9,7 +9,7 @@
   "task_store_key": "open-issues-verification-2026-11-12",
   "checkpoint_storage": "repository_file",
   "state": "SOURCE_VALIDATED_PENDING_HOSTED_ANDROID",
-  "intent": "Review all ten open bug reports, implement remaining reproducible source defects, validate the published changes and close only issues with matching resolution evidence.",
+  "intent": "Review all open bug reports, including reports arriving during validation; repair reproducible source defects and close only issues with matching resolution evidence.",
   "open_issues_at_start": [
     839,
     840,
@@ -42,11 +42,28 @@
     "new_source_host_gate": "PASSED_472_TESTS",
     "new_source_authentication": "PASSED_52_TESTS",
     "new_source_kotlin_style": "PASSED_PINNED_KTLINT_1_3_1",
-    "new_source_device": "NOT_RUN_NO_AFFECTED_DEVICE"
+    "new_source_device": "NOT_RUN_NO_AFFECTED_DEVICE",
+    "combined_source_host_gate": "PASSED_473_AT_7aaa9731",
+    "combined_source_authentication": "PASSED_53_AT_7aaa9731",
+    "combined_android": "LATEST_HEAD_RUN_43291878747_IN_PROGRESS; PRIOR_7aaa_RUN_CANCELLED_ON_CONCURRENT_PUSH",
+    "new_report_followup_host_gate": "PASSED_473_TESTS",
+    "new_report_followup_authentication": "PASSED_56_TESTS",
+    "new_report_followup_source_review": "PASSED_INDEPENDENT_PROVIDER_GITHUB_AND_VOICE_REVIEW",
+    "new_report_followup_android": "PENDING_PUBLICATION_AND_EXACT_HEAD_HOSTED_EXECUTION",
+    "new_report_followup_device": "NOT_RUN_NO_AFFECTED_DEVICE",
+    "new_report_followup_kotlin_style": "PASSED_PINNED_KTLINT_1_3_1_ON_13_CHANGED_FILES",
+    "new_report_followup_release_scope": "PASSED_WITH_EXACT_NEW_CAPTURE_TEST_PATH"
   },
   "remaining_evidence": {
-    "841": "Affected ASUS device focus acquisition and actual captured PCM after the published repair remain unobserved.",
-    "848": "Original incomplete task report omits failed criterion and stop reason. Repair its completion-context projection, but do not assume the underlying task cause matches older status incidents."
+    "841": "Concrete output-focus/input-admission defect repaired; await exact-head capture regressions before closing. Physical ASUS capture remains unobserved.",
+    "848": "Original incomplete task report omits failed criterion and stop reason. Repair its completion-context projection, but do not assume the underlying task cause matches older status incidents.",
+    "849": "Bounded LLAMA completion repair exhausted; matching task and backend attempt/output/usage receipts are missing.",
+    "850": "Generic LLAMA chat failure lacks stage, invocation and typed cause; matching saved failure/export needed.",
+    "851": "Unfinished GitHub task lacks failed criterion and stop reason; matching acceptance checkpoint needed.",
+    "852": "Same output-focus/input-admission defect repaired with actual Android capture adapter regressions; exact-head hosted execution pending.",
+    "853": "Typed OpenRouter HTTP 429 and 30156ms cooldown observed; repair report classification without claiming external throttle resolved.",
+    "854": "Model invocation exception mislabeled TOOL_FAILURE; repair boundary classification and preserve unknown outcome without replay.",
+    "855": "Generic chat failure lacks provider, stage and run identity; matching saved failure/export needed."
   },
   "closed_issues": [
     839,
@@ -60,7 +77,29 @@
   ],
   "remaining_open_issues": [
     841,
-    848
+    848,
+    849,
+    850,
+    851,
+    852,
+    853,
+    854,
+    855
   ],
-  "repair_register": "docs/repairs/open-issues-verification-2026-11-12.md"
+  "repair_register": "docs/repairs/open-issues-verification-2026-11-12.md",
+  "additional_issues_during_validation": [
+    849,
+    850,
+    851,
+    852,
+    853,
+    854,
+    855
+  ],
+  "latest_reconciled_published_head": "15e07ae05f1ba9a1c42edb10313d034f5ad098c5",
+  "state_recorded_at": "2026-11-12T19:45:00Z",
+  "closure_candidates_pending_new_android_tests": [
+    841,
+    852
+  ]
 }

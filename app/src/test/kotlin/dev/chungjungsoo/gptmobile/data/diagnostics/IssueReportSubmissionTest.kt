@@ -137,6 +137,62 @@ class IssueReportSubmissionTest {
         assertEquals(listOf(approved), posted)
     }
 
+    @Test fun freshAndRetainedReviewContextsWaitForVersionThreeWithoutChangingApprovedBytes() {
+        for (fields in listOf(mapOf("failed_stage" to "review_comparison"), mapOf("failed_stage" to "approval"), mapOf("next_action" to "SELECT_REVIEW_BASELINE"), mapOf("next_action" to "RESTORE_REVIEW_COMPARISON_EVIDENCE"))) {
+            val fresh = IssueReportContext.fromFields("CHAT_FAILURE", fields, occurredAtMillis = 1_000L)
+            assertEquals(3, fresh.schemaVersion)
+            for (wireVersion in listOf(2, 3)) {
+                val approved = report.copy(context = fresh.copy(schemaVersion = wireVersion)).approvedPayload()
+                val posted = mutableListOf<String>()
+                var dispatchMarkers = 0
+                var supported = "[1,2]"
+                val client = OkHttpClient.Builder().addInterceptor { chain ->
+                    val request = chain.request()
+                    if (request.method == "GET") {
+                        response(request, 200, """{"service":"gpt-mobile-issue-reporter","version":1,"reportContextVersions":$supported}""")
+                    } else {
+                        posted += body(request)
+                        response(request, 200, """{"reportId":"${report.reportId}","number":742}""")
+                    }
+                }.build()
+                val submission = IssueReportSubmission(origin, client)
+                val incompatible = if (wireVersion == 2) listOf("[1,2]", "[3]", "[1,3]", "[1,2,\"3\"]") else listOf("[1,2]", "[1,2,\"3\"]")
+                for (versions in incompatible) {
+                    supported = versions
+                    val stopped = submission.send(report.reportId, approved) { dispatchMarkers++ } as IssueReportSubmission.Failure
+                    assertEquals("REPORT_SERVICE_UPDATE_REQUIRED", stopped.code)
+                    assertTrue(stopped.retryable)
+                    assertFalse(stopped.automaticRetry)
+                    assertEquals(0, dispatchMarkers)
+                    assertTrue(posted.isEmpty())
+                }
+                supported = if (wireVersion == 2) "[1,2,3]" else "[3]"
+                assertEquals(IssueReportSubmission.Confirmed(742), submission.send(report.reportId, approved) { dispatchMarkers++ })
+                assertEquals(1, dispatchMarkers)
+                assertEquals(listOf(approved), posted)
+            }
+        }
+    }
+
+    @Test fun declaredVersionThreeSupportDoesNotMakeInvalidReportsRetryable() {
+        val approved = report.copy(context = IssueReportContext.fromFields("CHAT_FAILURE", mapOf("failed_stage" to "review_comparison"), occurredAtMillis = 1_000L)).approvedPayload()
+        val posted = mutableListOf<String>()
+        val client = OkHttpClient.Builder().addInterceptor { chain ->
+            val request = chain.request()
+            if (request.method == "GET") {
+                response(request, 200, """{"service":"gpt-mobile-issue-reporter","reportContextVersions":[1,2,3]}""")
+            } else {
+                posted += body(request)
+                response(request, 422, """{"error":"INVALID_REPORT"}""")
+            }
+        }.build()
+        val failure = IssueReportSubmission(origin, client).send(report.reportId, approved) as IssueReportSubmission.Failure
+        assertEquals("INVALID_REPORT", failure.code)
+        assertFalse(failure.retryable)
+        assertFalse(failure.automaticRetry)
+        assertEquals(listOf(approved), posted)
+    }
+
     @Test fun transientAndPermanentRejectionsHaveBoundedSafeMetadataAndRetryDeadlines() {
         val client = OkHttpClient.Builder().addInterceptor { response(it.request(), 429, """{"error":"RATE_LIMITED","private":"must not be surfaced"}""", "120") }.build()
         val failure = IssueReportSubmission(origin, client) { 10_000L }.send(report.reportId, report.approvedPayload()) as IssueReportSubmission.Failure

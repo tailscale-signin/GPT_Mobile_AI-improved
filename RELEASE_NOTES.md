@@ -171,3 +171,5 @@ All scoped qualification limitations are retained below. Host and emulator resul
 ## Session repair validation follow-up
 
 Backend completion and repair diagnostics retain bounded serialized allowances, finish categories, observed byte counts and terminal status even when token usage is unknown. Saved-job evidence remains separate from new result reads, and repeated repair errors do not erase the current HTTP/SSE failure cause or authorize a whole-request replay. Fresh portable-domain and Android JVM reports are collected together with measured application coverage; these results do not promote historical audit checks or establish physical-device and live-service acceptance.
+
+Hosted report compatibility now negotiates context-v3 review extensions before dispatch. Original v1/v2 reports retain their bytes; already-approved extended-v2 reports require both v2 wire support and v3 capability, so an older service cannot accept readiness and then permanently reject those reports.

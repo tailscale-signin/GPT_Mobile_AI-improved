@@ -42,7 +42,9 @@ internal class IssueReportSubmission(
         val context = parsed["context"] as? JsonObject
         if (context != null) {
             val version = (context["schemaVersion"] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull ?: return Failure("INVALID_REPORT", retryable = false)
-            contextSupport(version)?.let { return it }
+            val stage = (context["stage"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+            val action = (context["recoveryAction"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+            contextSupport(IssueReportContext.requiredServiceVersions(version, stage, action))?.let { return it }
         }
         val request = Request.Builder().url("${origin.trimEnd('/')}/v1/issue-reports")
             .post(payload.toRequestBody(JSON_MEDIA_TYPE)).build()
@@ -78,7 +80,7 @@ internal class IssueReportSubmission(
         }
     }
 
-    private fun contextSupport(version: Int): Failure? = try {
+    private fun contextSupport(requiredVersions: Set<Int>): Failure? = try {
         client.newCall(Request.Builder().url("${origin.trimEnd('/')}/health/ready").get().build()).execute().use { response ->
             if (!response.isSuccessful) {
                 val retry = response.code in 500..599 || response.code in setOf(408, 425, 429)
@@ -89,7 +91,7 @@ internal class IssueReportSubmission(
             val ready = IssueReport.json.parseToJsonElement(body.string()) as? JsonObject ?: return@use Failure("REPORT_SERVICE_UNAVAILABLE", retryable = true)
             if (ready["service"] != JsonPrimitive("gpt-mobile-issue-reporter")) return@use Failure("REPORT_SERVICE_UNAVAILABLE", retryable = true)
             val versions = (ready["reportContextVersions"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.takeUnless { version -> version.isString }?.intOrNull }
-            if (version in versions) null else Failure("REPORT_SERVICE_UPDATE_REQUIRED", retryable = true, automaticRetry = false)
+            if (versions.containsAll(requiredVersions)) null else Failure("REPORT_SERVICE_UPDATE_REQUIRED", retryable = true, automaticRetry = false)
         }
     } catch (_: IOException) {
         Failure("REPORT_SERVICE_UNAVAILABLE", retryable = true)

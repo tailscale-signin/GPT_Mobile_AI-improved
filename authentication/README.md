@@ -149,13 +149,14 @@ looks for the original issue.
 ### Report context and rollout compatibility
 
 The ready response preserves `service: "gpt-mobile-issue-reporter"` and
-`version: 1`, and advertises `reportContextVersions: [1, 2]`. Clients with a
-context-bearing report check support for that report's schema before the first
-submission. An older service without the required version has not declared
+`version: 1`, and advertises `reportContextVersions: [1, 2, 3]`. Clients with a
+context-bearing report check support for that report's schema and any retained
+review extensions before marking it dispatched or sending the POST. An older
+service without all required versions has not declared
 support: the app retains the approved report and displays a native
 service-update requirement. It must not silently strip context or change a
 previously submitted payload. Deploy the updated reporter before shipping a
-hosted reporting route; the distribution readiness check requires both versions
+hosted reporting route; the distribution readiness check requires all three versions
 so current reports and retained legacy reports remain supported.
 
 The optional top-level `context` object has a schema version, a bounded client
@@ -174,13 +175,30 @@ Schema 1 remains unchanged. Schema 2 adds fixed GitHub acceptance stop/recovery
 codes and the optional integer fields `requiredCriteria`, `verifiedCriteria`
 and `remainingCriteria` (0 through 100,000). Supplied counts must be consistent;
 missing counts stay unknown and are never replaced with zero. The app selects
-schema 2 only when it has this newer acceptance metadata. Each version has its
-own exact `unavailableFields` contract. Neither schema accepts criterion text.
+schema 2 only when it has this acceptance metadata without review extensions.
+Schema 3 adds the `review_comparison` and `approval` stages and the
+`SELECT_REVIEW_BASELINE` and `RESTORE_REVIEW_COMPARISON_EVIDENCE` recovery actions.
+New reports use schema 3 when any of these values is present. Versions 2 and 3
+share the acceptance-count and exact `unavailableFields` contract. No schema
+accepts criterion text.
+
+An earlier app revision used schema 2 for those review extensions. Its approved
+payloads remain unchanged: the app requires readiness support for both their
+declared version 2 and the version-3 review contract, then posts their original
+bytes. An older reporter advertising only `[1, 2]` is blocked before submission;
+the report stays retryable after a service update. An endpoint advertising only
+`[3]` also cannot accept these retained v2 reports, because it has not declared
+support for their wire version. The updated reporter accepts retained extended-v2
+payloads as well as v3, preserving existing issue-body digests and reconciliation.
+Original v2 acceptance reports still need only version 2 at runtime. Native
+GitHub reporting continues to render and hash the exact approved payload without
+hosted-service negotiation. Invalid reports rejected with HTTP 422 remain
+non-retryable; unknown GitHub outcomes still require reconciliation.
 
 The rendered issue shows captured causal facts and unavailable observations
 separately. A missing field does not establish success, non-dispatch or safe
 retry. The full JSON request still has an 8 KiB maximum. Legacy reports without
-`context`, and existing schema-1 reports, retain their original rendering so
+`context`, and existing schema-1 and schema-2 reports, retain their original rendering so
 previously queued report digests remain valid.
 
 Successful submissions return `{"reportId":"<original UUID>","number":42}`.

@@ -43,6 +43,36 @@ class IssueReportGitHubSubmissionTest {
         put("user", buildJsonObject { put("id", account) })
     }
 
+    @Test fun nativeReviewReportsPreserveApprovedVersionTwoAndThreeBytesAcrossRestore() {
+        val fresh = IssueReportContext.fromFields("CHAT_FAILURE", mapOf("failed_stage" to "review_comparison", "next_action" to "SELECT_REVIEW_BASELINE"), 1_000L)
+        for (version in listOf(2, 3)) {
+            val approvedReport = report.copy(context = fresh.copy(schemaVersion = version))
+            val payload = approvedReport.approvedPayload()
+            val directory = files.newFolder()
+            val initial = IssueReportOutbox(directory)
+            initial.approve(approvedReport, payload)
+            initial.bindRoute(approvedReport.reportId, route)
+            val restored = IssueReportOutbox(directory)
+            val entry = requireNotNull(restored.load(approvedReport.reportId))
+            assertEquals(payload, entry.payload)
+            assertEquals(route, entry.route)
+            assertThrows(IllegalStateException::class.java) { restored.approve(approvedReport.copy(context = fresh.copy(schemaVersion = if (version == 2) 3 else 2))) }
+            val rendered = IssueReportGitHubSubmission.render(approvedReport, payload)
+            var posts = 0
+            val client = OkHttpClient.Builder().addInterceptor { chain ->
+                val request = chain.request()
+                assertEquals("POST", request.method)
+                assertEquals("api.github.com", request.url.host)
+                assertEquals(rendered.toString(), Buffer().also { request.body!!.writeTo(it) }.readUtf8())
+                posts++
+                response(request, 201, receipt(body = rendered.getValue("body")).toString())
+            }.build()
+            assertEquals(IssueReportSubmission.Confirmed(742), IssueReportGitHubSubmission(client).send(entry, "private-fixture-token") { restored.dispatching(approvedReport.reportId, route) })
+            assertEquals(1, posts)
+            assertEquals(payload, restored.load(approvedReport.reportId)?.payload)
+        }
+    }
+
     @Test fun lostCreateReceiptAndProcessRestartOnlySearchWithoutReplayingTheWrite() = runTest {
         val directory = files.newFolder()
         var outbox = IssueReportOutbox(directory)

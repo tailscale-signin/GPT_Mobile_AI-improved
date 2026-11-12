@@ -272,13 +272,20 @@ CONTEXT_ACCEPTANCE_RECOVERY = {
     "RECONCILE_CATALOG_CONTRACTS", "RESUME_ISSUED_CATALOG_CONTINUATION", "RECONCILE_CATALOG_SNAPSHOT",
     "RESOLVE_BOUND_APPROVAL", "RECHECK_OWNED_FIXTURE_PREFLIGHT", "RECONCILE_OWNED_FIXTURE",
     "REVIEW_REMAINING_SCOPE_AND_BUDGET", "RESOLVE_CAPABILITY_PREREQUISITE", "NEW_TASK_REQUIRED",
-    "RESTORE_AUTHORIZED_CONFIGURATION", "INSPECT_EXECUTION_FAILURE", "SELECT_REVIEW_BASELINE", "RESTORE_REVIEW_COMPARISON_EVIDENCE",
+    "RESTORE_AUTHORIZED_CONFIGURATION", "INSPECT_EXECUTION_FAILURE",
 }
+CONTEXT_REVIEW_STAGES = {"review_comparison", "approval"}
+CONTEXT_REVIEW_RECOVERY = {"SELECT_REVIEW_BASELINE", "RESTORE_REVIEW_COMPARISON_EVIDENCE"}
 CONTEXT_ENUMS_V2 = {
     **CONTEXT_ENUMS,
-    "stage": CONTEXT_ENUMS["stage"] | {"acceptance_verification", "review_comparison", "approval"},
+    "stage": CONTEXT_ENUMS["stage"] | {"acceptance_verification"},
     "reasonCode": CONTEXT_ENUMS["reasonCode"] | CONTEXT_ACCEPTANCE_REASONS,
     "recoveryAction": CONTEXT_ENUMS["recoveryAction"] | CONTEXT_ACCEPTANCE_RECOVERY,
+}
+CONTEXT_ENUMS_V3 = {
+    **CONTEXT_ENUMS_V2,
+    "stage": CONTEXT_ENUMS_V2["stage"] | CONTEXT_REVIEW_STAGES,
+    "recoveryAction": CONTEXT_ENUMS_V2["recoveryAction"] | CONTEXT_REVIEW_RECOVERY,
 }
 CONTEXT_NUMBERS = {"occurredAtMillis": (1, 9_999_999_999_999), "httpStatus": (100, 599), "retryAfterMillis": (0, 86_400_000)}
 CONTEXT_ACCEPTANCE_NUMBERS = {"requiredCriteria": (0, 100_000), "verifiedCriteria": (0, 100_000), "remainingCriteria": (0, 100_000)}
@@ -289,7 +296,7 @@ CONTEXT_SELECTION_FIELDS = {"profile_uid", "profile_revision", "provider_connect
                             "required_capability_policy", "credential_reference", "credential_account_identity", "approved_alias_mapping"}
 CONTEXT_FIELDS = (set(CONTEXT_ENUMS) | set(CONTEXT_NUMBERS) | CONTEXT_FLAGS | CONTEXT_HASHES | {"missingFields", "invalidFields"}) - {"source", "occurredAtMillis"}
 CONTEXT_FIELDS_V2 = CONTEXT_FIELDS | set(CONTEXT_ACCEPTANCE_NUMBERS)
-CONTEXT_VERSION_FIELDS = {1: CONTEXT_FIELDS, 2: CONTEXT_FIELDS_V2}
+CONTEXT_VERSION_FIELDS = {1: CONTEXT_FIELDS, 2: CONTEXT_FIELDS_V2, 3: CONTEXT_FIELDS_V2}
 CONTEXT_LABELS = {
     "stage": "Failure stage", "provider": "Provider family", "operation": "Operation family", "httpStatus": "HTTP status",
     "retryAfterMillis": "Retry delay (ms)", "dispatched": "Dispatched", "retryable": "Retryable", "resumeAllowed": "Resume allowed",
@@ -347,7 +354,9 @@ def _report_context(value):
     fields = CONTEXT_VERSION_FIELDS[version]
     if set(value) - required - fields:
         raise ReportError(422, "INVALID_REPORT")
-    enums = CONTEXT_ENUMS if version == 1 else CONTEXT_ENUMS_V2
+    # A released client used v2 for review extensions. Accept those exact approved
+    # payloads as well as v3; clients require readiness for both 2 and 3 before sending them.
+    enums = CONTEXT_ENUMS if version == 1 else CONTEXT_ENUMS_V3
     for key, choices in enums.items():
         if key in value and (not isinstance(value[key], str) or value[key] not in choices):
             raise ReportError(422, "INVALID_REPORT")
@@ -355,7 +364,7 @@ def _report_context(value):
     for key, (low, high) in numbers.items():
         if key in value and (type(value[key]) is not int or not low <= value[key] <= high):
             raise ReportError(422, "INVALID_REPORT")
-    if version == 2:
+    if version in (2, 3):
         required_count = value.get("requiredCriteria")
         verified_count = value.get("verifiedCriteria")
         remaining_count = value.get("remainingCriteria")

@@ -69,7 +69,7 @@ class IssueReportCollectorsTest {
             ).collectApiStateUpdates(onUpdate = { _, _, timeline -> retainedStage = timeline.lastOrNull { it.profileFailure != null }?.profileFailure?.phase })
             val report = IssueReportIncidents.pending.value.last()
             val context = requireNotNull(report.context)
-            assertEquals(2, context.schemaVersion)
+            assertEquals(3, context.schemaVersion)
             assertEquals(stage, context.stage)
             assertEquals(stage, retainedStage)
             assertEquals(action, context.recoveryAction)

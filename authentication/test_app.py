@@ -102,7 +102,7 @@ class IssueReportHttpTest(unittest.TestCase):
 
     def context(self, **observed):
         result = {"schemaVersion": 1, "occurredAtMillis": self.now * 1000, "source": "CHAT_FAILURE", **observed}
-        fields = CONTEXT_FIELDS_V2 if result["schemaVersion"] == 2 else CONTEXT_FIELDS
+        fields = CONTEXT_FIELDS_V2 if result["schemaVersion"] in (2, 3) else CONTEXT_FIELDS
         result["unavailableFields"] = sorted(fields - result.keys())
         return result
 
@@ -127,7 +127,7 @@ class IssueReportHttpTest(unittest.TestCase):
         self.assertEqual(200, response.status_code)
         self.assertEqual({"service": "gpt-mobile-issue-reporter", "version": 1},
                          {key: response.json()[key] for key in ("service", "version")})
-        self.assertEqual([1, 2], response.json()["reportContextVersions"])
+        self.assertEqual([1, 2, 3], response.json()["reportContextVersions"])
         self.assertEqual("no-store", response.headers["cache-control"])
         self.assertFalse(self.issued)
         # Old clients may continue posting their original reports without a
@@ -202,17 +202,18 @@ class IssueReportHttpTest(unittest.TestCase):
                     self.assertNotIn("| Verified acceptance criteria |", body)
                     self.assertIn("`verifiedCriteria`", body.split("Unavailable fields:", 1)[1])
 
-    def test_retained_review_and_approval_context_do_not_invent_dispatch_or_invocation(self):
+    def assert_review_context_does_not_invent_dispatch_or_invocation(self, version):
         for stage, action in (("review_comparison", "SELECT_REVIEW_BASELINE"),
                               ("review_comparison", "RESTORE_REVIEW_COMPARISON_EVIDENCE"), ("approval", None)):
-            with self.subTest(stage=stage, action=action):
+            with self.subTest(version=version, stage=stage, action=action):
                 observed = {"stage": stage}
                 if action is not None:
                     observed["recoveryAction"] = action
                 report = {**self.metadata(), "source": "debug", "feature": "chat", "errorCode": "GITHUB_TASK_INCOMPLETE",
-                          "context": self.context(schemaVersion=2, **observed)}
+                          "context": self.context(schemaVersion=version, **observed)}
                 self.assertEqual(200, self.submit(report).status_code)
                 body = self.issued[-1]["body"]
+                self.assertIn(f"| Context schema | `{version}` |", body)
                 self.assertIn(f"| Failure stage | `{stage}` |", body)
                 if action is not None:
                     self.assertIn(f"| Recovery action | `{action}` |", body)
@@ -222,6 +223,12 @@ class IssueReportHttpTest(unittest.TestCase):
                 self.assertIn("`invocationIdHash`", body.split("Unavailable fields:", 1)[1])
                 legacy = {**report, "reportId": str(uuid4()), "context": self.context(**observed)}
                 self.assertEqual(422, self.submit(legacy).status_code)
+
+    def test_review_context_v3_does_not_invent_dispatch_or_invocation(self):
+        self.assert_review_context_does_not_invent_dispatch_or_invocation(3)
+
+    def test_retained_extended_v2_does_not_invent_dispatch_or_invocation(self):
+        self.assert_review_context_does_not_invent_dispatch_or_invocation(2)
 
     def test_acceptance_context_rejects_unbounded_or_inconsistent_counts_and_wrong_schema(self):
         invalid_counts = [{field: value} for field in ("requiredCriteria", "verifiedCriteria", "remainingCriteria")
@@ -233,12 +240,13 @@ class IssueReportHttpTest(unittest.TestCase):
             {"reasonCode": "private-criterion"}, {"recoveryAction": "EXECUTE_PRIVATE_TOOL"},
             {"criterionText": "private-criterion"},
         ]
-        for observed in invalid_counts:
-            with self.subTest(observed=observed):
-                report = {**self.manual(), "context": self.context(schemaVersion=2, **observed)}
-                response = self.submit(report)
-                self.assertEqual(422, response.status_code)
-                self.assertEqual({"error": "INVALID_REPORT"}, response.json())
+        for version in (2, 3):
+            for observed in invalid_counts:
+                with self.subTest(version=version, observed=observed):
+                    report = {**self.manual(), "context": self.context(schemaVersion=version, **observed)}
+                    response = self.submit(report)
+                    self.assertEqual(422, response.status_code)
+                    self.assertEqual({"error": "INVALID_REPORT"}, response.json())
         for observed in ({"requiredCriteria": 1}, {"stage": "acceptance_verification"},
                          {"reasonCode": "UNVERIFIED_ACCEPTANCE_CRITERIA"}, {"recoveryAction": "RESUME_UNFINISHED_WORK"}):
             with self.subTest(legacy=observed):
@@ -275,10 +283,38 @@ class IssueReportHttpTest(unittest.TestCase):
         self.assertFalse(self.issued)
         self.assertNotIn("verifiedCriteria", issue["body"])
 
+    def assert_retained_context_v2_digest_reconciles(self, observed, expected_digest):
+        report = {**self.metadata(), "reportId": "00000000-0000-4000-8000-000000000001", "source": "debug",
+                  "feature": "chat", "errorCode": "GITHUB_TASK_INCOMPLETE",
+                  "context": self.context(schemaVersion=2, **observed)}
+        _, issue = issue_from_report(report)
+        self.assertEqual(expected_digest, hashlib.sha256(json.dumps(issue, sort_keys=True).encode()).hexdigest())
+        with self.reporter._db() as db:
+            db.execute("INSERT INTO reports VALUES (?, ?, 'dispatching', ?, 0, NULL)",
+                       (report["reportId"], expected_digest, self.now - 121))
+        self.found = 77
+        self.assertEqual({"reportId": report["reportId"], "number": 77}, self.submit(report).json())
+        self.assertFalse(self.issued)
+        self.assertEqual(2, report["context"]["schemaVersion"])
+
+    def test_original_context_v2_digest_remains_valid_after_context_v3_upgrade(self):
+        # Frozen from the publisher at 7aaa9731a, before the version-3 repair.
+        self.assert_retained_context_v2_digest_reconciles(
+            {"stage": "acceptance_verification", "reasonCode": "UNVERIFIED_ACCEPTANCE_CRITERIA",
+             "requiredCriteria": 5, "verifiedCriteria": 4, "remainingCriteria": 1},
+            "ff07f986847ec76f52f5d0e6035d32c4d871bf5ee016d49f3df8ea6241d54a12",
+        )
+
+    def test_retained_extended_v2_digest_reconciles_without_rewriting_or_reposting(self):
+        self.assert_retained_context_v2_digest_reconciles(
+            {"stage": "review_comparison", "recoveryAction": "SELECT_REVIEW_BASELINE"},
+            "9c7c90f465bf47dea86a11fc091cbe22c2a6c8c41402b5b7adf7419fffe47852",
+        )
+
     def test_context_never_accepts_private_values_unknown_fields_or_ambiguous_types(self):
         context = self.context(stage="tool_execution")
         changes = (
-            {"rawMessage": "private-content"}, {"schemaVersion": True}, {"schemaVersion": 3},
+            {"rawMessage": "private-content"}, {"schemaVersion": True}, {"schemaVersion": 4},
             {"source": "private-content"}, {"occurredAtMillis": 0}, {"occurredAtMillis": True},
             {"occurredAtMillis": 10_000_000_000_000}, {"stage": "private-content"},
             {"provider": "private-model"}, {"operation": "private-tool"}, {"httpStatus": True},

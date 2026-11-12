@@ -47,7 +47,7 @@ internal data class IssueReportContext(
 
     private fun withAvailability(): IssueReportContext {
         val present = IssueReport.json.encodeToJsonElement(serializer(), this).jsonObject.keys
-        val fields = if (schemaVersion == 2) optionalFields + acceptanceFields else optionalFields
+        val fields = if (schemaVersion in setOf(2, 3)) optionalFields + acceptanceFields else optionalFields
         return copy(unavailableFields = fields.filterNot { it in present })
     }
 
@@ -59,7 +59,9 @@ internal data class IssueReportContext(
         val jobStates = setOf("QUEUED", "RUNNING", "WAITING_FOR_CLIENT_TOOL", "WAITING_FOR_APPROVAL", "PAUSED", "CANCELLING", "CANCELLED", "COMPLETED", "FAILED")
         val recoveryActions = setOf("OPEN_ACTIVE_JOB", "RETURN_CLIENT_TOOL_RESULTS", "WAIT_FOR_ACTIVE_JOB", "QUEUE_INSTRUCTION", "RESOLVE_ACTIVE_JOB", "RECONCILE_ACTIVE_GATEWAY_JOB", "REFRESH_REPOSITORY_ACCESS", "CHANGE_REPOSITORY", "SELECT_REF", "RECONCILE_OUTCOME", "REVIEW_AUTHORIZATION", "RETRY_AFTER_BACKOFF", "RETRY_AFTER_CONFIGURATION_CHANGE", "MICROPHONE_PERMISSION", "RETRY_RECOGNITION", "RETRY_PLAYBACK", "SPEECH_SERVICE", "SPEECH_LANGUAGE", "LOCAL_MODEL")
         val reasonCodes = setOf("SELECTION_NOT_OBJECT", "SELECTION_SCHEMA_INVALID", "SELECTION_IDENTITY_INVALID", "SELECTION_CREDENTIAL_REFERENCE_INVALID")
-        private val acceptanceStages = setOf("acceptance_verification", "review_comparison", "approval")
+        private val acceptanceStages = setOf("acceptance_verification")
+        private val reviewStages = setOf("review_comparison", "approval")
+        private val reviewRecoveryActions = setOf("SELECT_REVIEW_BASELINE", "RESTORE_REVIEW_COMPARISON_EVIDENCE")
         private val acceptanceReasonCodes = setOf(
             "UNVERIFIED_ACCEPTANCE_CRITERIA", "ACCEPTED_TASK_DEADLINE_REACHED", "ACCEPTANCE_EVIDENCE_MISSING",
             "TOOL_BUDGET_EXHAUSTED", "VERIFICATION_RESERVE_REACHED", "FIXTURE_CLEANUP_UNVERIFIED",
@@ -73,11 +75,17 @@ internal data class IssueReportContext(
             "RECONCILE_CATALOG_CONTRACTS", "RESUME_ISSUED_CATALOG_CONTINUATION", "RECONCILE_CATALOG_SNAPSHOT",
             "RESOLVE_BOUND_APPROVAL", "RECHECK_OWNED_FIXTURE_PREFLIGHT", "RECONCILE_OWNED_FIXTURE",
             "REVIEW_REMAINING_SCOPE_AND_BUDGET", "RESOLVE_CAPABILITY_PREREQUISITE", "NEW_TASK_REQUIRED",
-            "RESTORE_AUTHORIZED_CONFIGURATION", "INSPECT_EXECUTION_FAILURE", "SELECT_REVIEW_BASELINE", "RESTORE_REVIEW_COMPARISON_EVIDENCE"
+            "RESTORE_AUTHORIZED_CONFIGURATION", "INSPECT_EXECUTION_FAILURE"
         )
         private val acceptanceFields = listOf("requiredCriteria", "verifiedCriteria", "remainingCriteria")
         val selectionFields = setOf("profile_uid", "profile_revision", "provider_connection_id", "provider_connection_revision", "provider_kind", "configured_endpoint", "requested_model_id", "generation_parameters", "privacy_scope", "tool_owner", "required_capability_policy", "credential_reference", "credential_account_identity", "approved_alias_mapping")
         val optionalFields = listOf("stage", "provider", "operation", "httpStatus", "retryAfterMillis", "dispatched", "retryable", "resumeAllowed", "requiresReconciliation", "remoteAcceptance", "jobState", "recoveryAction", "reasonCode", "missingFields", "invalidFields", "runIdHash", "invocationIdHash", "callIdHash", "jobIdHash", "activeJobIdHash", "exceptionFingerprint")
+
+        private fun needsReviewContext(stage: String?, recoveryAction: String?) = stage in reviewStages || recoveryAction in reviewRecoveryActions
+
+        /** Some approved v2 reports already contain review extensions. Negotiate them without rewriting their bytes. */
+        fun requiredServiceVersions(version: Int, stage: String?, recoveryAction: String?): Set<Int> =
+            if (version == 2 && needsReviewContext(stage, recoveryAction)) setOf(2, 3) else setOf(version)
 
         fun fromFields(source: String, fields: Map<String, Any?> = emptyMap(), occurredAtMillis: Long = System.currentTimeMillis()): IssueReportContext {
             require(source in sources)
@@ -120,9 +128,9 @@ internal data class IssueReportContext(
                 else -> null
             }
             val stage = text("failed_stage", "failedStage", "failurePhase", "phase", "stage")?.lowercase(Locale.ROOT)
-                ?.takeIf { it in stages || it in acceptanceStages }
+                ?.takeIf { it in stages || it in acceptanceStages || it in reviewStages }
             val recoveryAction = text("recovery_action", "next_action", "recoveryAction", "nextAction")?.uppercase(Locale.ROOT)
-                ?.takeIf { it in recoveryActions || it in acceptanceRecoveryActions }
+                ?.takeIf { it in recoveryActions || it in acceptanceRecoveryActions || it in reviewRecoveryActions }
             val reasonCode = text("reasonCode", "reason_code", "stop_reason")?.uppercase(Locale.ROOT)
                 ?.takeIf { it in reasonCodes || it in acceptanceReasonCodes }
             fun criterionCount(key: String): Int? = number(key)?.takeIf { it in 0..100_000 }?.toInt()
@@ -142,7 +150,11 @@ internal data class IssueReportContext(
                 verifiedCriteria != null ||
                 remainingCriteria != null
             return IssueReportContext(
-                schemaVersion = if (acceptanceContext) 2 else 1,
+                schemaVersion = when {
+                    needsReviewContext(stage, recoveryAction) -> 3
+                    acceptanceContext -> 2
+                    else -> 1
+                },
                 occurredAtMillis = occurredAtMillis,
                 source = source,
                 unavailableFields = emptyList(),

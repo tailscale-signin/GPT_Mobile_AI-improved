@@ -15,10 +15,10 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = Application::class)
 class IssueReportContextTest {
-    @Test fun githubStagesAndRecoveryActionsUseVersionTwoWithoutInventingDispatchOrInvocationEvidence() {
+    @Test fun githubStagesAndRecoveryActionsSelectTheirVersionWithoutInventingDispatchOrInvocationEvidence() {
         for (stage in listOf("acceptance_verification", "review_comparison", "approval")) {
             val context = IssueReportContext.fromFields("CHAT_FAILURE", mapOf("failed_stage" to stage))
-            assertEquals(2, context.schemaVersion)
+            assertEquals(if (stage == "acceptance_verification") 2 else 3, context.schemaVersion)
             assertEquals(stage, context.stage)
             assertFalse("stage" in context.unavailableFields)
             assertNull(context.dispatched)
@@ -26,10 +26,11 @@ class IssueReportContextTest {
             assertNull(context.invocationIdHash)
             assertTrue("dispatched" in context.unavailableFields)
             assertTrue("invocationIdHash" in context.unavailableFields)
+            assertTrue(context.unavailableFields.containsAll(listOf("requiredCriteria", "verifiedCriteria", "remainingCriteria")))
         }
         for (action in listOf("RESUME_UNFINISHED_WORK", "RECONCILE_REMOTE_OUTCOME", "SELECT_REVIEW_BASELINE", "RESTORE_REVIEW_COMPARISON_EVIDENCE")) {
             val context = IssueReportContext.fromFields("CHAT_FAILURE", mapOf("next_action" to action))
-            assertEquals(2, context.schemaVersion)
+            assertEquals(if (action in setOf("SELECT_REVIEW_BASELINE", "RESTORE_REVIEW_COMPARISON_EVIDENCE")) 3 else 2, context.schemaVersion)
             assertEquals(action, context.recoveryAction)
             assertFalse("recoveryAction" in context.unavailableFields)
             assertNull(context.retryable)
@@ -182,6 +183,22 @@ class IssueReportContextTest {
         val unknownReason = IssueReportContext.fromFields("CHAT_FAILURE", stage + mapOf("stop_reason" to "private prompt", "recovery_action" to "private instruction"))
         assertNull(unknownReason.reasonCode)
         assertNull(unknownReason.recoveryAction)
+    }
+
+    @Test fun retainedExtendedVersionTwoKeepsItsPayloadAndAvailabilityWhileNewReviewContextUsesThree() {
+        val fresh = IssueReportContext.fromFields("CHAT_FAILURE", mapOf("failed_stage" to "review_comparison", "next_action" to "SELECT_REVIEW_BASELINE"), 1_700_000_000_000)
+        assertEquals(3, fresh.schemaVersion)
+        val approved = """{"reportId":"11111111-1111-4111-8111-111111111111","source":"debug","version":"0.9.66.7","build":141,"commit":"d739321","android":"16","sdk":36,"device":"Device","feature":"chat","errorCode":"CHAT_FAILED","context":{"schemaVersion":2,"occurredAtMillis":1700000000000,"source":"CHAT_FAILURE","unavailableFields":["provider","operation","httpStatus","retryAfterMillis","dispatched","retryable","resumeAllowed","requiresReconciliation","remoteAcceptance","jobState","reasonCode","missingFields","invalidFields","runIdHash","invocationIdHash","callIdHash","jobIdHash","activeJobIdHash","exceptionFingerprint","requiredCriteria","verifiedCriteria","remainingCriteria"],"stage":"review_comparison","recoveryAction":"SELECT_REVIEW_BASELINE"}}"""
+        val restored = IssueReport.json.decodeFromString(IssueReport.serializer(), approved)
+        assertEquals(approved, restored.approvedPayload())
+        assertEquals(fresh.copy(schemaVersion = 2), restored.context)
+        assertEquals(restored.context?.unavailableFields?.filterNot { it == "exceptionFingerprint" }, restored.context?.withException("IllegalStateException", emptyList())?.unavailableFields)
+        assertEquals(fresh.unavailableFields.filterNot { it == "exceptionFingerprint" }, fresh.withException("IllegalStateException", emptyList()).unavailableFields)
+        val invalidCounts = IssueReportContext.fromFields("CHAT_FAILURE", mapOf("failed_stage" to "review_comparison", "required_criteria" to 3, "verified_criteria" to 2, "remaining_criteria" to 2))
+        assertEquals(3, invalidCounts.schemaVersion)
+        assertNull(invalidCounts.requiredCriteria)
+        assertNull(invalidCounts.verifiedCriteria)
+        assertNull(invalidCounts.remainingCriteria)
     }
 
     @Test fun maximalUnicodeDescriptionEventsFramesAndContextFitTheBrokerByteLimit() {

@@ -92,7 +92,7 @@ class ProtectedSynthesisCheckpointTest {
     private suspend fun terminalOwner(chatId: Int): AgentRun {
         database.messageDao().addMessages(
             MessageV2(id = 1, chatId = chatId, content = "Task", platformType = null),
-            MessageV2(id = 2, chatId = chatId, platformType = "p", linkedMessageId = 1, currentRunId = "run", ownershipFence = 7)
+            MessageV2(id = 2, chatId = chatId, content = "", platformType = "p", linkedMessageId = 1, currentRunId = "run", ownershipFence = 7)
         )
         return AgentRun("run", chatId, 1, 2, "p", "CUSTOM", "model", "FAILED", startedAt = 5, ownershipFence = 7).also { database.agentRunDao().upsert(it) }
     }

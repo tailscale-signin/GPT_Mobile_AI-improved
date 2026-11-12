@@ -238,7 +238,7 @@ class ProviderWaitRecoveryTest {
             assertTrue(fixture.store.deferRunning(fixture.request, limit))
             assertEquals(1, fixture.database.agentRunDao().finishActive("run", "FAILED", 10, "PROVIDER_WAIT_CHECKPOINT_CHANGED"))
             val retained = fixture.dao.rawProviderWait("run")
-            fixture.database.messageDao().addMessages(MessageV2(id = 3, chatId = 1, platformType = "p", linkedMessageId = 1, currentRunId = "active", ownershipFence = 4))
+            fixture.database.messageDao().addMessages(MessageV2(id = 3, chatId = 1, content = "", platformType = "p", linkedMessageId = 1, currentRunId = "active", ownershipFence = 4))
             fixture.database.agentRunDao().upsert(AgentRun("active", 1, 1, 3, "p", "CUSTOM", "model", ownershipFence = 4))
             val active = fixture.row(fixture.decision().copy(scope = "active-scope")).copy(runId = "active", fence = 4)
             assertTrue(fixture.dao.deferProvider(active))

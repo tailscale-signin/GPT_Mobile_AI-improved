@@ -27,7 +27,7 @@ class ProviderWaitPersistenceTest {
         val db = Room.inMemoryDatabaseBuilder(RuntimeEnvironment.getApplication(), ChatDatabaseV2::class.java).build()
         try {
             db.chatRoomDao().addChatRoom(ChatRoomV2(id = 1, title = "Waiting"))
-            db.messageDao().addMessages(MessageV2(id = 1, chatId = 1, content = "Question", platformType = null), MessageV2(id = 2, chatId = 1, platformType = "p", currentRunId = "run", ownershipFence = 3))
+            db.messageDao().addMessages(MessageV2(id = 1, chatId = 1, content = "Question", platformType = null), MessageV2(id = 2, chatId = 1, content = "", platformType = "p", currentRunId = "run", ownershipFence = 3))
             db.agentRunDao().upsert(AgentRun("run", 1, 1, 2, "p", "CUSTOM", "model", "WAITING_PROVIDER_LIMIT", startedAt = 5, ownershipFence = 3))
             val dao = db.agentPersistenceDao()
             val prior = ProviderWait("run", 3, "scope", 1, "accepted-checkpoint")

@@ -493,12 +493,14 @@ private class FakeAgentPersistenceDao :
     override suspend fun providerWaits(): List<dev.chungjungsoo.gptmobile.data.agent.ProviderWait> = emptyList()
     override fun observeProviderWaitDeadlines(chatId: Int): Flow<List<dev.chungjungsoo.gptmobile.data.agent.ProviderWaitDeadline>> = kotlinx.coroutines.flow.flowOf(emptyList())
     override suspend fun rawProviderWait(runId: String): dev.chungjungsoo.gptmobile.data.agent.ProviderWait? = null
+    override suspend fun terminalProviderWaitIds(): List<String> = emptyList()
     override suspend fun saveProviderWait(row: dev.chungjungsoo.gptmobile.data.agent.ProviderWait) {
         error("Not used in tool recorder tests")
     }
     override suspend fun markProviderWaiting(runId: String, fence: Long): Int = 0
     override suspend fun markRunningProviderWaiting(runId: String, fence: Long): Int = 0
     override suspend fun claimProviderWait(runId: String, fence: Long): Int = 0
+    override suspend fun markClaimedProviderWaiting(runId: String, fence: Long): Int = 0
     override suspend fun blockProviderWait(runId: String, reason: String): Int = 0
 
     override suspend fun rawSynthesisRunsForTurn(chatId: Int, userId: Int): List<AgentRun> = synthesisRunsForTurn(chatId, userId)

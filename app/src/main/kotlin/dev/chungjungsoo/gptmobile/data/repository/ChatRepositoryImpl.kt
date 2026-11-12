@@ -44,6 +44,8 @@ import dev.chungjungsoo.gptmobile.data.agent.tool.preferNativeGitHubForTask
 import dev.chungjungsoo.gptmobile.data.agent.tool.primaryDelegationTools
 import dev.chungjungsoo.gptmobile.data.agent.tool.selectionId
 import dev.chungjungsoo.gptmobile.data.agent.tool.synthesisSafeTools
+import dev.chungjungsoo.gptmobile.data.agent.withCurrentProviderWaitRows
+import dev.chungjungsoo.gptmobile.data.agent.withCurrentProviderWaitSchedules
 import dev.chungjungsoo.gptmobile.data.agent.withDeviceLocation
 import dev.chungjungsoo.gptmobile.data.agent.withNormalizedAssistantText
 import dev.chungjungsoo.gptmobile.data.agent.withProgressWatchdog
@@ -126,7 +128,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.channelFlow
-import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
@@ -4773,7 +4774,7 @@ class ChatRepositoryImpl(
             ),
             checkpoint = latestUser?.let { user ->
                 val binding = outputContinuation?.toolCheckpointBinding ?: "${user.chatId}:${toolBudgetSourceMessageId ?: user.id}:${platform.uid}:${dispatchAuthority.revision}"
-                dev.chungjungsoo.gptmobile.data.agent.ToolBatchCheckpoint.forTurn(context.filesDir, user.chatId, binding, persistent = agentPersistenceDao.getChatRoom(user.chatId)?.isTemporary == false, jobContext = checkpointJob, expectedProviderEvidenceDigest = outputContinuation?.toolCheckpointEvidenceDigest)
+                dev.chungjungsoo.gptmobile.data.agent.ToolBatchCheckpoint.forTurn(context.filesDir, user.chatId, binding, persistent = agentPersistenceDao.getChatRoom(user.chatId)?.isTemporary == false, jobContext = checkpointJob, expectedProviderEvidenceDigest = outputContinuation?.toolCheckpointEvidenceDigest, expectedProviderJournalDigest = outputContinuation?.toolCheckpointJournalDigest)
             },
             healthCatalog = catalog,
             retryUndispatchedBudgetFailures = retryUndispatchedBudgetFailures,
@@ -5670,6 +5671,7 @@ class ChatRepositoryImpl(
                     expectedProviderCheckpoint = expectedCheckpoint,
                     toolCheckpointBinding = toolCheckpointBinding,
                     toolCheckpointEvidenceDigest = resolvedToolCheckpoint.evidenceDigest,
+                    toolCheckpointJournalDigest = resolvedToolCheckpoint.journalDigest,
                     checkpointContext = buildJsonObject {
                         put("profile_uid", platform.uid)
                         put("provider", platform.compatibleType.name)
@@ -6839,7 +6841,10 @@ class ChatRepositoryImpl(
     override fun observeAgentRuns(chatId: Int) = agentRunDao.observeByChatId(chatId)
 
     override fun observeProviderWaitDeadlines(chatId: Int): Flow<List<ProviderWaitDeadline>> =
-        agentPersistenceDao.observeProviderWaitDeadlines(chatId).distinctUntilChanged().flowOn(Dispatchers.IO)
+        agentPersistenceDao.observeProviderWaitDeadlines(chatId)
+            .withCurrentProviderWaitRows(agentPersistenceDao::observeProviderWaitRows)
+            .withCurrentProviderWaitSchedules(settingRepository::fetchPlatformV2s)
+            .flowOn(Dispatchers.IO)
 
     override fun observeToolEvents(chatId: Int): Flow<List<ToolEvent>> = toolEventRecorder.observeChat(chatId)
 

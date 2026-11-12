@@ -28,7 +28,8 @@ internal object VoiceSpeechText {
             if (text.getOrNull(index + 1)?.isWhitespace() != true) spoken.append(' ')
         }
         while (index < stableEnd) {
-            if (index == 0 || text[index - 1] == '\n') {
+            // A link label is inline text, even when it begins with a number or list marker.
+            if (depth == 0 && (index == 0 || text[index - 1] == '\n')) {
                 val lineEnd = text.indexOf('\n', index).let { if (it < 0) text.length else it }
                 val content = (index until lineEnd).firstOrNull { text[it] != ' ' && text[it] != '\t' } ?: lineEnd
                 if (content == text.length && !final) break

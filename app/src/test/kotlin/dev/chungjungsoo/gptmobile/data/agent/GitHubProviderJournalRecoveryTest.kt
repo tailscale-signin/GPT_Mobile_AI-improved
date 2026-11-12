@@ -94,7 +94,8 @@ class GitHubProviderJournalRecoveryTest {
                     2,
                     resolved.binding,
                     persistent = true,
-                    expectedProviderEvidenceDigest = resolved.evidenceDigest
+                    expectedProviderEvidenceDigest = resolved.evidenceDigest,
+                    expectedProviderJournalDigest = resolved.journalDigest
                 )
                 val recovered = restoredJournal.recoverySnapshot()
                 assertEquals(listOf(call), recovered.completedExchanges.flatMap { it.calls })
@@ -109,6 +110,7 @@ class GitHubProviderJournalRecoveryTest {
                     checkpointContext = context,
                     toolCheckpointBinding = resolved.binding,
                     toolCheckpointEvidenceDigest = resolved.evidenceDigest,
+                    toolCheckpointJournalDigest = resolved.journalDigest,
                     readCheckpoint = { readOutput() },
                     saveCheckpoint = { outputFile.writeText(it.toString()) }
                 ) { draft, exchanges, definitions ->
@@ -205,6 +207,155 @@ class GitHubProviderJournalRecoveryTest {
                 assertUnrestorableLegacyCheckpoint(ambiguousDirectory, saved)
             } finally {
                 ambiguousDirectory.deleteRecursively()
+            }
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test fun compactedProviderReplayRestoresTheCompleteProtectedJournalWithoutRepeatingWrites() = runBlocking {
+        for (legacy in listOf(false, true)) {
+            val directory = Files.createTempDirectory("github-evicted-provider-replay").toFile()
+            try {
+                var writes = 0
+                val written = call.copy(arguments = buildJsonObject { put("content", "Saved fixture content ".repeat(500)) })
+                val laterRead = ProviderEvent.ToolCall("later-read", "github_read", buildJsonObject { put("path", "README.md") })
+                val journal = ToolBatchCheckpoint.forTurn(directory, 2, originalBinding, persistent = true)
+                journal.enqueue(listOf(written))
+                journal.execute(written) {
+                    writes++
+                    AgentToolResult(written.callId, ToolResultContent.Text("Fixture saved"), false)
+                }
+                journal.enqueue(listOf(laterRead))
+                journal.execute(laterRead) { AgentToolResult(laterRead.callId, ToolResultContent.Text("Read completed"), false) }
+                val complete = journal.recoverySnapshot().completedExchanges
+                val replay = ToolExchangeCompactor.compact(complete, maxReplayTokens = 128, maxResultTokens = 64)
+                assertEquals(listOf(laterRead.callId), replay.flatMap { it.calls }.map { it.callId })
+                val replayDigest = GitHubProviderReplayEvidence.digest(GitHubProviderReplayEvidence.receipts(replay))
+                assertFalse(replayDigest == GitHubProviderReplayEvidence.digest(GitHubProviderReplayEvidence.receipts(complete)))
+                val saved = JsonObject(
+                    (if (legacy) legacyCheckpoint(replay) else currentCheckpoint(replay)) +
+                        ("completed_results" to JsonArray(GitHubProviderReplayEvidence.receipts(complete).map { it.json() }))
+                )
+                val protectedBytes = saved.toString()
+                val resolved = GitHubProviderToolCheckpoint.resolve(directory, 2, scope, "configured:resumed-parent", expected(saved), saved, persistent = true)
+                assertEquals(originalBinding, resolved.binding)
+                assertEquals(replayDigest, resolved.evidenceDigest)
+                assertEquals(GitHubProviderReplayEvidence.journalDigest(GitHubProviderReplayEvidence.receipts(complete)), resolved.journalDigest)
+                assertTrue(resolved.journalDigest != null)
+                val restored = ToolBatchCheckpoint.forTurn(directory, 2, resolved.binding, persistent = true, expectedProviderEvidenceDigest = resolved.evidenceDigest, expectedProviderJournalDigest = resolved.journalDigest)
+                assertEquals(complete, restored.recoverySnapshot().completedExchanges)
+                assertTrue(
+                    restored.execute(written) {
+                        writes++
+                        error("A completed write cannot be repeated")
+                    }.sharedResult
+                )
+                assertEquals(1, writes)
+                assertEquals(protectedBytes, saved.toString())
+                assertEquals(JsonPrimitive(replayDigest), saved["provider_evidence_digest"])
+            } finally {
+                directory.deleteRecursively()
+            }
+        }
+    }
+
+    @Test fun protectedJournalBoundaryRejectsChangedIdentitiesAndUnsettledOperationsBeforeDispatch() = runBlocking {
+        for (change in listOf("missing", "extra", "renamed", "source", "dispatched", "error", "unknown", "pending")) {
+            val directory = Files.createTempDirectory("github-changed-journal-boundary").toFile()
+            try {
+                val later = call.copy(callId = "later-read", name = "github_read")
+                suspend fun populate(target: File, changed: Boolean): ToolBatchCheckpoint {
+                    val journal = ToolBatchCheckpoint.forTurn(target, 2, originalBinding, persistent = true)
+                    val first = if (changed && change == "renamed") call.copy(callId = "renamed-write", originalInvocationFingerprint = ToolHandoffReceipt.fingerprint(call)) else call
+                    for (entry in listOf(first, later)) {
+                        if (changed && change == "missing" && entry == later) continue
+                        journal.enqueue(listOf(entry))
+                        journal.execute(entry) {
+                            val altered = changed && entry == first
+                            AgentToolResult(
+                                entry.callId,
+                                ToolResultContent.Text(if (altered && change == "source") "Changed receipt" else "Retained receipt"),
+                                isError = altered && change in setOf("error", "unknown"),
+                                dispatched = !(altered && change == "dispatched"),
+                                errorCode = if (altered && change == "error") {
+                                    "TOOL_FAILED"
+                                } else if (altered && change == "unknown") {
+                                    "TOOL_OUTCOME_UNKNOWN"
+                                } else {
+                                    null
+                                }
+                            )
+                        }
+                    }
+                    if (changed && change in setOf("extra", "pending")) {
+                        val extra = call.copy(callId = "unexpected-write")
+                        journal.enqueue(listOf(extra))
+                        if (change == "extra") journal.execute(extra) { AgentToolResult(extra.callId, ToolResultContent.Text("Unexpected receipt"), false) }
+                    }
+                    return journal
+                }
+                val original = populate(directory, changed = false).recoverySnapshot().completedExchanges
+                val receipts = GitHubProviderReplayEvidence.receipts(original)
+                val saved = JsonObject(currentCheckpoint(original) + ("completed_results" to JsonArray(receipts.map { it.json() })))
+                val resolved = GitHubProviderToolCheckpoint.resolve(directory, 2, scope, "configured:resumed-parent", expected(saved), saved, persistent = true)
+                assertTrue(resolved.journalDigest != null)
+                val replacement = File(directory, "replacement")
+                val changed = populate(replacement, changed = true).recoverySnapshot().completedExchanges
+                if (change == "renamed") {
+                    // A retained invocation fingerprint alone does not bind the current call ID.
+                    assertEquals(resolved.evidenceDigest, GitHubProviderReplayEvidence.digest(GitHubProviderReplayEvidence.receipts(changed)))
+                }
+                val fileName = File(directory, "tool-batches/2").listFiles()!!.single { it.extension == "json" }.name
+                File(replacement, "tool-batches/2/$fileName").copyTo(File(directory, "tool-batches/2/$fileName"), overwrite = true)
+                val guarded = ToolBatchCheckpoint.forTurn(directory, 2, resolved.binding, persistent = true, expectedProviderEvidenceDigest = resolved.evidenceDigest, expectedProviderJournalDigest = resolved.journalDigest)
+                assertEquals(change, "PROVIDER_WAIT_CHECKPOINT_CHANGED", runCatching { guarded.recoverySnapshot() }.exceptionOrNull()?.message)
+                assertEquals(change, "PROVIDER_WAIT_CHECKPOINT_CHANGED", runCatching { guarded.execute(call) { error("Changed journal must never dispatch") } }.exceptionOrNull()?.message)
+            } finally {
+                directory.deleteRecursively()
+            }
+        }
+    }
+
+    @Test fun incompleteOrMalformedProtectedReceiptsCannotAuthorizeCompactedJournalRestoration() = runBlocking {
+        val directory = Files.createTempDirectory("github-incomplete-journal-boundary").toFile()
+        try {
+            val journal = ToolBatchCheckpoint.forTurn(directory, 2, originalBinding, persistent = true)
+            journal.enqueue(listOf(call))
+            journal.execute(call) { AgentToolResult(call.callId, ToolResultContent.Text("Retained receipt"), false) }
+            val receipt = GitHubProviderReplayEvidence.receipts(journal.recoverySnapshot().completedExchanges).single().json()
+            val invalid = listOf(
+                JsonObject(receipt - "source_result_sha256"),
+                JsonObject(receipt + ("source_hash_scope" to JsonPrimitive("REPLAY_PROJECTION_PAYLOAD_UTF8"))),
+                JsonObject(receipt + ("dispatched" to JsonPrimitive("true"))),
+                JsonObject(receipt - "requires_reconciliation"),
+                JsonObject(receipt + ("requires_reconciliation" to JsonPrimitive(true))),
+                JsonObject(receipt + ("invocation_fingerprint" to JsonPrimitive("not-a-sha"))),
+                JsonObject(receipt + ("error_code" to JsonPrimitive(429)))
+            ).map { JsonArray(listOf(it)) } + listOf(JsonArray(listOf(receipt, receipt)), JsonArray(listOf(JsonPrimitive("not-a-receipt"))))
+            for (boundary in invalid) {
+                val saved = JsonObject(currentCheckpoint(emptyList()) + ("completed_results" to boundary))
+                val resolved = GitHubProviderToolCheckpoint.resolve(directory, 2, scope, "configured:resumed-parent", expected(saved), saved, persistent = true)
+                assertNull(resolved.journalDigest)
+                val guarded = ToolBatchCheckpoint.forTurn(directory, 2, resolved.binding, persistent = true, expectedProviderEvidenceDigest = resolved.evidenceDigest, expectedProviderJournalDigest = resolved.journalDigest)
+                assertEquals("PROVIDER_WAIT_CHECKPOINT_CHANGED", runCatching { guarded.recoverySnapshot() }.exceptionOrNull()?.message)
+            }
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test fun anEmptyCompletedBoundaryCannotOverrideEvidenceOfMissingJournalReceipts() = runBlocking {
+        val directory = Files.createTempDirectory("github-missing-protected-journal").toFile()
+        try {
+            val completed = listOf(AgentToolExchange(listOf(call), listOf(AgentToolResult(call.callId, ToolResultContent.Text("Missing retained write"), false))))
+            for (legacy in listOf(false, true)) {
+                val saved = JsonObject((if (legacy) legacyCheckpoint(completed) else currentCheckpoint(completed)) + ("completed_results" to JsonArray(emptyList())))
+                val resolved = GitHubProviderToolCheckpoint.resolve(directory, 2, scope, "configured:resumed-parent", expected(saved), saved, persistent = true)
+                assertNull(resolved.journalDigest)
+                val guarded = ToolBatchCheckpoint.forTurn(directory, 2, resolved.binding, persistent = true, expectedProviderEvidenceDigest = resolved.evidenceDigest, expectedProviderJournalDigest = resolved.journalDigest)
+                assertEquals("PROVIDER_WAIT_CHECKPOINT_CHANGED", runCatching { guarded.recoverySnapshot() }.exceptionOrNull()?.message)
+                assertEquals("PROVIDER_WAIT_CHECKPOINT_CHANGED", runCatching { guarded.execute(call) { error("Missing journal cannot authorize a repeated write") } }.exceptionOrNull()?.message)
             }
         } finally {
             directory.deleteRecursively()

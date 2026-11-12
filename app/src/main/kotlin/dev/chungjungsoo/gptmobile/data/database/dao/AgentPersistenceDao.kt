@@ -41,8 +41,11 @@ interface AgentPersistenceDao :
     @Query("SELECT w.* FROM provider_waits w JOIN agent_runs r ON r.run_id = w.runId WHERE r.status IN ('WAITING_PROVIDER_LIMIT', 'QUEUED', 'RUNNING')")
     suspend fun providerWaits(): List<dev.chungjungsoo.gptmobile.data.agent.ProviderWait>
 
-    @Query("SELECT w.runId, w.fence, w.retryAt FROM provider_waits w JOIN agent_runs r ON r.run_id = w.runId JOIN messages_v2 m ON m.message_id = r.assistant_message_id WHERE r.chat_id = :chatId AND r.status = 'WAITING_PROVIDER_LIMIT' AND r.ownership_fence = w.fence AND m.current_run_id = r.run_id AND m.ownership_fence = w.fence")
+    @Query("SELECT w.runId, w.fence, w.retryAt, NULL AS scheduledRetryAt FROM provider_waits w JOIN agent_runs r ON r.run_id = w.runId JOIN messages_v2 m ON m.message_id = r.assistant_message_id WHERE r.chat_id = :chatId AND r.status = 'WAITING_PROVIDER_LIMIT' AND r.ownership_fence = w.fence AND m.current_run_id = r.run_id AND m.ownership_fence = w.fence ORDER BY w.runId")
     fun observeProviderWaitDeadlines(chatId: Int): Flow<List<dev.chungjungsoo.gptmobile.data.agent.ProviderWaitDeadline>>
+
+    @Query("SELECT * FROM provider_waits WHERE runId IN (:runIds) ORDER BY runId")
+    fun observeProviderWaitRows(runIds: List<String>): Flow<List<dev.chungjungsoo.gptmobile.data.agent.ProviderWait>>
 
     @Upsert
     suspend fun saveProviderWait(row: dev.chungjungsoo.gptmobile.data.agent.ProviderWait)

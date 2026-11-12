@@ -95,7 +95,8 @@
     "Move transcript receipt parsing off composition, reuse bounded immutable projections, retain accepted integration budgets and exact repository action prerequisites, and separate factual support from unmeasured scope.",
     "Negotiate bounded context-v4 recovery, extraction and tool-precheck causes while preserving approved context-v1/v2/v3 bytes; stop unknown extraction outcomes without schema-repair replay and align combined-module JUnit reconciliation with its collector.",
     "Spoken replies project safe readable text while preserving captions and begin bounded system/local speech chunks without waiting for a complete sentence; no physical latency claim.",
-    "Repair exact provider journal/research recovery, bounded claim extraction and precheck evidence, queued selected-model preparation, readable low-buffer speech, required integration stop reasons, and complete bounded JVM report reconciliation; record incident-specific evidence and closure limits."
+    "Repair exact provider journal/research recovery, bounded claim extraction and precheck evidence, queued selected-model preparation, readable low-buffer speech, required integration stop reasons, and complete bounded JVM report reconciliation; record incident-specific evidence and closure limits.",
+    "Preserve the full protected tool-journal boundary across compacted provider replay, project extended shared cooldown deadlines without changing saved ownership, and retain numeric speech link labels and legacy chat-owned voice incidents."
   ],
   "limitations": [
     "Android GPU qualification requires compatible-device receipts for actual offload, prefill, decode, repeated requests and cancel/recovery; host tests do not establish those results.",
@@ -2372,6 +2373,11 @@
     "docs/repairs/open-issue-resolution-2026-11-12.md",
     "docs/repairs/open-provider-issues-2026-11-12-task.json",
     "docs/repairs/tool-precheck-evidence-2026-11-12-task.json",
-    "docs/repairs/tool-precheck-evidence-2026-11-12.md"
+    "docs/repairs/tool-precheck-evidence-2026-11-12.md",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProviderWaitDeadline.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProviderWaitSchedule.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProviderWaitDeadlineTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProviderWaitScheduleRowsTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProviderWaitScheduleTest.kt"
   ]
 }

@@ -97,7 +97,7 @@ internal fun combinedProfileFailures(
             run.chatId == message.chatId &&
             it.retryAt > 0
     }
-    val retryAt = savedDeadline?.retryAt ?: classified.retryAfterMillis
+    val retryAt = savedDeadline?.effectiveRetryAt ?: classified.retryAfterMillis
     val reason = when {
         classified.category == "ENDPOINT_RETIRED" -> "The provider retired this endpoint. Update the endpoint or model before starting a new turn."
         classified.category == "BILLING_UNAVAILABLE" -> "The provider cannot generate with the current account balance. Restore credits before starting a new turn."

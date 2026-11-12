@@ -1732,7 +1732,7 @@ internal fun ChatMessagePair(
     val agentRun = selectedRunId?.let(agentRunsById::get)
     val waitingForProvider = agentRun?.status == AgentRunStatus.WAITING_PROVIDER_LIMIT
     val waitingForApproval = agentRun?.status == AgentRunStatus.WAITING_FOR_APPROVAL
-    val providerRetryAt = selectedRunId?.let(providerWaitDeadlines::get)?.takeIf { it.fence == agentRun?.ownershipFence }?.retryAt
+    val providerRetryAt = selectedRunId?.let(providerWaitDeadlines::get)?.takeIf { it.runId == selectedRunId && it.fence == agentRun?.ownershipFence }?.effectiveRetryAt
     val effectiveAssistantContent = if (selectedSourceReader != null) "" else selectedAssistantMessage?.effectiveContent().orEmpty()
     val rawAssistantContent = remember(effectiveAssistantContent) {
         dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(effectiveAssistantContent)

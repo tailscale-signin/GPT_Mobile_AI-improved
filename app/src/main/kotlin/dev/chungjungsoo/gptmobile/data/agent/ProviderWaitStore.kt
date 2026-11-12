@@ -222,8 +222,21 @@ class ProviderWaitStore @Inject constructor(
         val row = dao.rawProviderWait(runId) ?: return null
         val run = dao.recoveryRun(runId) ?: return null
         if (current.ownershipFence != row.fence || run.ownershipFence != row.fence || run.status !in setOf("WAITING_PROVIDER_LIMIT", "QUEUED", "RUNNING")) return null
-        if (run.status != "RUNNING") ProviderLimitResumeWorker.enqueue(context, row.scope, maxOf(row.retryAt, dev.chungjungsoo.gptmobile.data.network.ProviderCooldown.blockedUntil(row.scope) ?: 0))
-        return ProviderWaitDeadline(runId, row.fence, row.retryAt)
+        val deadline = ProviderWaitSchedule.prepare(listOf(row), settings::fetchPlatformV2s).single().project()
+        // Profile loading can suspend. A cancelled or replaced owner cannot
+        // schedule another wake after the read-only deadline projection.
+        val latest = dao.recoveryMessage(message.id) ?: return null
+        val latestRun = dao.recoveryRun(runId) ?: return null
+        if (dao.rawProviderWait(runId) != row ||
+            latest.currentRunId != runId ||
+            latest.ownershipFence != row.fence ||
+            latestRun.ownershipFence != row.fence ||
+            latestRun.status !in setOf("WAITING_PROVIDER_LIMIT", "QUEUED", "RUNNING")
+        ) {
+            return null
+        }
+        if (latestRun.status != "RUNNING") ProviderLimitResumeWorker.enqueue(context, row.scope, deadline.effectiveRetryAt)
+        return deadline
     }
 
     suspend fun combinedRoots(runIds: Set<String>): List<String> = database.agentPersistenceDao().providerWaits().filter { it.runId in runIds }.mapNotNull { row ->
@@ -298,7 +311,7 @@ class ProviderWaitStore @Inject constructor(
             val platform = saved.platform.copy(token = current?.token)
             val limitedPlatform = requireNotNull(saved.limitPlatform).copy(token = limited?.token)
             val blocked = FreeProviderPreflight.check(limitedPlatform)
-            val deadline = maxOf(row.retryAt, blocked?.retryAt ?: 0, dev.chungjungsoo.gptmobile.data.network.ProviderCooldown.blockedUntil(row.scope) ?: 0)
+            val deadline = effectiveProviderRetryAt(row.retryAt, dev.chungjungsoo.gptmobile.data.network.ProviderCooldown.blockedUntil(row.scope), blocked?.retryAt)
             if (deadline > System.currentTimeMillis()) {
                 nextDeadline = minOf(nextDeadline ?: deadline, deadline)
                 continue

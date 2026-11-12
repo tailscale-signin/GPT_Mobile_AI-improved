@@ -60,7 +60,7 @@ data class ToolBatchRecoverySnapshot(
 }
 
 /** Durable dispatch receipts. A crash after dispatch is unknown, never permission to repeat a side effect. */
-class ToolBatchCheckpoint(private val file: File?, private val binding: String, private val initialJob: ToolBatchJobContext? = null, private val expectedProviderEvidenceDigest: String? = null) {
+class ToolBatchCheckpoint(private val file: File?, private val binding: String, private val initialJob: ToolBatchJobContext? = null, private val expectedProviderEvidenceDigest: String? = null, private val expectedProviderJournalDigest: String? = null) {
     @Serializable private data class Call(val id: String, val name: String, val arguments: JsonObject, val originalInvocationFingerprint: String? = null) {
         fun event() = ProviderEvent.ToolCall(id, name, arguments, originalInvocationFingerprint)
     }
@@ -90,6 +90,7 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
 
     init {
         require(expectedProviderEvidenceDigest == null || expectedProviderEvidenceDigest.matches(Regex("[a-f0-9]{64}")))
+        require(expectedProviderJournalDigest == null || expectedProviderJournalDigest.matches(Regex("[a-f0-9]{64}")))
     }
 
     private fun read(): State {
@@ -108,12 +109,16 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
         require(saved.batches.size <= 1024 && saved.batches.sumOf { it.size } <= 8192 && saved.batches.all { batch -> batch.isNotEmpty() && batch.distinct().size == batch.size && batch.all(saved.entries::containsKey) }) { "Tool recovery journal has invalid batch identities." }
         require(saved.batches.isEmpty() || saved.pending.isEmpty() || saved.batches.last() == saved.pending) { "Tool recovery pending batch no longer matches its original grouping." }
         require(saved.consumedCallIds.size <= 1024 && saved.consumedCallIds.all { saved.entries[it]?.result != null }) { "Tool recovery ledger has invalid consumed identities." }
-        if (!providerRecoveryValidated && expectedProviderEvidenceDigest != null) {
+        if (!providerRecoveryValidated && (expectedProviderEvidenceDigest != null || expectedProviderJournalDigest != null)) {
             val receipts = GitHubProviderReplayEvidence.receipts(saved.settledExchanges())
             ProviderRecoveryFailure.require(
                 saved.entries.values.all { it.result != null } &&
                     receipts.none { it.requiresReconciliation } &&
-                    GitHubProviderReplayEvidence.digest(receipts) == expectedProviderEvidenceDigest,
+                    if (expectedProviderJournalDigest != null) {
+                        GitHubProviderReplayEvidence.journalDigest(receipts) == expectedProviderJournalDigest
+                    } else {
+                        GitHubProviderReplayEvidence.digest(receipts) == expectedProviderEvidenceDigest
+                    },
                 "PROVIDER_WAIT_CHECKPOINT_CHANGED"
             )
         }
@@ -279,7 +284,7 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
                 }
             )
         }
-        if (expectedProviderEvidenceDigest != null) {
+        if (expectedProviderEvidenceDigest != null || expectedProviderJournalDigest != null) {
             locked {
                 if (!providerRecoveryValidated) {
                     ProviderRecoveryFailure.require(read() == state, "PROVIDER_WAIT_CHECKPOINT_CHANGED")
@@ -397,7 +402,7 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
     companion object {
         private val locks = ConcurrentHashMap<String, Mutex>()
         private val deleted = ConcurrentHashMap.newKeySet<String>()
-        fun forTurn(directory: File, chatId: Int, binding: String, persistent: Boolean, jobContext: ToolBatchJobContext? = null, expectedProviderEvidenceDigest: String? = null): ToolBatchCheckpoint = ToolBatchCheckpoint(if (persistent) File(directory, "tool-batches/$chatId/${combinedDigest(binding)}.json") else null, binding, jobContext, expectedProviderEvidenceDigest)
+        fun forTurn(directory: File, chatId: Int, binding: String, persistent: Boolean, jobContext: ToolBatchJobContext? = null, expectedProviderEvidenceDigest: String? = null, expectedProviderJournalDigest: String? = null): ToolBatchCheckpoint = ToolBatchCheckpoint(if (persistent) File(directory, "tool-batches/$chatId/${combinedDigest(binding)}.json") else null, binding, jobContext, expectedProviderEvidenceDigest, expectedProviderJournalDigest)
 
         /**
          * Older output checkpoints did not retain their receipt-journal key. Recover
@@ -416,6 +421,7 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
             if (context["task_binding"] != JsonPrimitive(expected.binding) || "tool_checkpoint_binding" in context) return@withContext null
             val evidenceDigest = (checkpoint["provider_evidence_digest"] as? JsonPrimitive)?.takeIf { it.isString }?.content
                 ?.takeIf { it.matches(Regex("[a-f0-9]{64}")) } ?: return@withContext null
+            val journalDigest = GitHubProviderReplayEvidence.protectedJournalDigest(checkpoint)
             val folder = File(directory, "tool-batches/$chatId")
             val entries = folder.listFiles()?.filter { it.name.matches(Regex("[a-f0-9]{64}\\.json(?:\\.bak)?")) } ?: return@withContext null
             // An incomplete scan cannot establish uniqueness. Large or malformed
@@ -447,7 +453,13 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
                 }
                 if (settled.entries.values.any { it.result == null }) continue
                 val receipts = GitHubProviderReplayEvidence.receipts(candidate.run { settled.settledExchanges() })
-                if (receipts.isEmpty() || receipts.any { it.requiresReconciliation } || GitHubProviderReplayEvidence.digest(receipts) != evidenceDigest) continue
+                if (receipts.isEmpty() || receipts.any { it.requiresReconciliation }) continue
+                val matches = if (journalDigest != null) {
+                    GitHubProviderReplayEvidence.journalDigest(receipts) == journalDigest
+                } else {
+                    GitHubProviderReplayEvidence.digest(receipts) == evidenceDigest
+                }
+                if (!matches) continue
                 if (matched != null) return@withContext null
                 matched = retained
             }

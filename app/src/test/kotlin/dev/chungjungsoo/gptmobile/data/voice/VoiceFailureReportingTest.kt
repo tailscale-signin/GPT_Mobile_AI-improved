@@ -236,6 +236,65 @@ class VoiceFailureReportingTest {
     }
 
     @Test
+    fun legacyClassifiedReplyKeepsTheKnownChatIncidentAndDraftWithoutInventingTransportFacts() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        var captures = 0
+        var submissions = 0
+        val audio = object : VoiceAudio {
+            override fun listen(listener: VoiceAudio.Listener) {
+                captures++
+            }
+            override fun speak(text: String, complete: () -> Unit, error: (String) -> Unit) = Unit
+            override fun stop() = Unit
+            override fun close() = Unit
+        }
+        val session = VoiceSession(audio, {
+            submissions++
+            true
+        }, {}).apply { autoContinue = true }
+        session.access(true, true, true)
+        session.restore("recognized words", "Retained partial answer", review = false, pending = true)
+        // The chat owns this recorded failure. Legacy classification is UI guidance,
+        // not typed evidence of an HTTP response or a provider invocation.
+        IssueReportIncidents.failure(
+            ReportFeature.CHAT,
+            "CHAT_FAILED",
+            null,
+            buildJsonObject { put("run_id", "legacy-run") },
+            "CHAT_FAILURE"
+        )
+        val original = IssueReportIncidents.pending.value.single()
+        session.reply(
+            "legacy-run",
+            "Retained partial answer",
+            failed = true,
+            failure = ProfileFailureRecord.classify("HTTP 429: rate limit")
+        )
+        val report = IssueReportIncidents.pending.value.single()
+        assertEquals(original, report)
+        assertEquals("CHAT_FAILED", report.errorCode)
+        org.junit.Assert.assertNull(report.context?.stage)
+        org.junit.Assert.assertNull(report.context?.dispatched)
+        org.junit.Assert.assertNull(report.context?.remoteAcceptance)
+        org.junit.Assert.assertNull(report.context?.httpStatus)
+        org.junit.Assert.assertNull(report.context?.retryable)
+        org.junit.Assert.assertNull(report.context?.invocationIdHash)
+        assertEquals(dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext.identifierHash("run", "legacy-run"), report.context?.runIdHash)
+        assertFalse(IssueReportIncidents.recentEvents().any { "VOICE_SESSION_FAILED" in it })
+        assertEquals(VoicePhase.ERROR, session.state.phase)
+        assertEquals("Retained partial answer", session.state.reply)
+        assertTrue(session.state.hasDraft)
+        assertFalse(session.state.awaitingReply)
+        session.tick()
+        session.resume()
+        assertEquals(VoicePhase.REVIEWING, session.state.phase)
+        assertEquals("recognized words", session.state.transcript)
+        assertEquals(0, captures)
+        assertEquals(0, submissions)
+        session.close()
+    }
+
+    @Test
     fun typedGatewayAndUnknownOutcomeFailuresKeepOnlyTheOwningChatIncident() {
         val causes = listOf(
             Triple("GATEWAY_ENGINEERING_UNAVAILABLE", "connection_preflight", false),

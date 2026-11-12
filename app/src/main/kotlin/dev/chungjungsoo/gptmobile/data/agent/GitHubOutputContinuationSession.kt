@@ -32,6 +32,7 @@ internal class GitHubOutputContinuationSession(
     private val checkpointContext: JsonObject = JsonObject(emptyMap()),
     val toolCheckpointBinding: String? = null,
     val toolCheckpointEvidenceDigest: String? = null,
+    val toolCheckpointJournalDigest: String? = null,
     private val awaitConnectivity: suspend (Long) -> Boolean = { true },
     private val reconciledCallIds: suspend () -> Set<String> = { emptySet() },
     private val durableToolReceipts: suspend (Set<String>) -> List<ToolHandoffReceipt> = { emptyList() },
@@ -83,6 +84,7 @@ internal class GitHubOutputContinuationSession(
         require(maxContinuations in 0..4)
         require(maxCharacters in 1..1_048_576)
         require(toolCheckpointEvidenceDigest == null || toolCheckpointEvidenceDigest.matches(Regex("[a-f0-9]{64}")))
+        require(toolCheckpointJournalDigest == null || toolCheckpointJournalDigest.matches(Regex("[a-f0-9]{64}")))
     }
 
     override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {

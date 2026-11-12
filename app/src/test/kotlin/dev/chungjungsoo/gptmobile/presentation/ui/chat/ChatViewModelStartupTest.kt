@@ -398,12 +398,13 @@ class ChatViewModelStartupTest {
         verify(exactly = 0) { coordinator.start(any()) }
         coVerify(exactly = 0) { repository.persistAgentRetry(any()) }
 
-        val extended = deadline.copy(retryAt = deadline.retryAt + 60_000)
+        val extended = deadline.withSchedule(deadline.retryAt + 60_000)
         waitDeadlines.value = listOf(extended)
-        assertEquals(extended.retryAt, model.combinedFailures.value.single().retryAfterMillis)
+        assertEquals(deadline.retryAt, extended.retryAt)
+        assertEquals(extended.effectiveRetryAt, model.combinedFailures.value.single().retryAfterMillis)
         clearViewModels()
         val restored = createViewModel()
-        assertEquals(extended.retryAt, restored.combinedFailures.value.single().retryAfterMillis)
+        assertEquals(extended.effectiveRetryAt, restored.combinedFailures.value.single().retryAfterMillis)
         assertEquals(waiting.runId, restored.combinedFailures.value.single().attemptId)
         verify(exactly = 0) { coordinator.start(any()) }
     }

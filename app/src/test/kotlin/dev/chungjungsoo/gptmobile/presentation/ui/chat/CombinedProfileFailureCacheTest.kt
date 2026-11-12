@@ -84,10 +84,30 @@ class CombinedProfileFailureCacheTest {
         assertSame(updated, cache.failures(1, "Question", listOf(message), runs, emptyMap(), emptyMap(), mapOf(changed.runId to changed)).single())
     }
 
+    @Test fun aSharedScheduleExtensionKeepsTheOriginalReceiptAndRefreshesTheVisibleCountdown() {
+        val cache = CombinedProfileFailureCache()
+        val message = partial.copy(content = "")
+        val waiting = failed.copy(status = AgentRunStatus.WAITING_PROVIDER_LIMIT, terminalError = null)
+        val runs = mapOf(waiting.runId to waiting)
+        val original = ProviderWaitDeadline(waiting.runId, waiting.ownershipFence, 30_156)
+        val first = cache.failures(1, "Question", listOf(message), runs, emptyMap(), emptyMap(), mapOf(original.runId to original)).single()
+        assertEquals("Retry available", first.shortStatus(40_000))
+        val extended = original.withSchedule(120_000)
+        val updated = cache.failures(1, "Question", listOf(message), runs, emptyMap(), emptyMap(), mapOf(extended.runId to extended)).single()
+        assertNotSame(first, updated)
+        assertEquals(original.retryAt, extended.retryAt)
+        assertEquals(120_000L, updated.retryAfterMillis)
+        assertEquals("Rate limited · 2m left", updated.shortStatus(40_000))
+        assertSame(updated, cache.failures(1, "Question", listOf(message), runs, emptyMap(), emptyMap(), mapOf(extended.runId to extended.withSchedule(120_000))).single())
+        val expired = extended.withSchedule(null)
+        val ready = cache.failures(1, "Question", listOf(message), runs, emptyMap(), emptyMap(), mapOf(expired.runId to expired)).single()
+        assertEquals("Retry available", ready.shortStatus(120_000))
+    }
+
     @Test fun staleWaitDeadlineCannotAttachToAnotherMessageOwnerOrFence() {
         val message = partial.copy(content = "")
         val waiting = failed.copy(status = AgentRunStatus.WAITING_PROVIDER_LIMIT, terminalError = null)
-        val saved = ProviderWaitDeadline(waiting.runId, waiting.ownershipFence, 91_000)
+        val saved = ProviderWaitDeadline(waiting.runId, waiting.ownershipFence, 91_000).withSchedule(181_000)
         val invalid = listOf(
             message to saved.copy(runId = "older-attempt"),
             message to saved.copy(fence = saved.fence + 1),

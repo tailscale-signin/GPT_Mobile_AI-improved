@@ -13,6 +13,20 @@ class VoiceSpeechTextTest {
         assertAllSnapshots(input)
     }
 
+    @Test fun descriptiveLinkLabelsKeepNumbersWhileDocumentListsOmitTheirMarkers() {
+        val examples = listOf(
+            "Read [1. **Build guide**](https://example.test/private)." to "Read 1. Build guide.",
+            "Read [2) _Setup guide_](https://example.test/private)." to "Read 2) Setup guide."
+        )
+        for ((input, expected) in examples) {
+            assertEquals(expected, VoiceSpeechText.project(input, final = true))
+            assertAllSnapshots(input)
+        }
+        val document = "1. Build guide\n2) Setup guide"
+        assertEquals("Build guide Setup guide", words(VoiceSpeechText.project(document, final = true)))
+        assertAllSnapshots(document)
+    }
+
     @Test fun codeBodiesAndUnfinishedMarkupNeverBecomeSpeech() {
         val input = "Before `hidden_inline` after.\n~~~python\nhidden_fenced()\n~~~\n    hidden_indented()\n<pre>hidden_html()</pre><code>hidden_tag()</code>Done."
         assertEquals("Before Code is available in the chat. after. Done.", words(VoiceSpeechText.project(input, final = true)))

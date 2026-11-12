@@ -574,6 +574,40 @@ class ProviderWaitRecoveryTest {
         }
     }
 
+    @Test fun aSharedCooldownExtensionUpdatesTheProjectionAndRetryWithoutChangingTheSavedReceipt() = runBlocking {
+        val fixture = Fixture(token = "schedule-${java.util.UUID.randomUUID()}")
+        val scheduled = mutableListOf<Long>()
+        mockkObject(ProviderLimitResumeWorker.Companion)
+        try {
+            every { ProviderLimitResumeWorker.enqueue(any(), any(), any(), any()) } answers { scheduled += arg<Long>(2) }
+            fixture.initialize()
+            val config = dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig(fixture.original.apiUrl, fixture.original.token)
+            val originalDeadline = System.currentTimeMillis() + 30_000
+            val decision = fixture.decision().copy(scope = dev.chungjungsoo.gptmobile.data.network.ProviderCooldown.scope(config), retryAt = originalDeadline)
+            assertTrue(fixture.store.deferRunning(fixture.request, decision))
+            val original = requireNotNull(fixture.dao.rawProviderWait("run"))
+            dev.chungjungsoo.gptmobile.data.network.ProviderCooldown.defer(config, "120")
+            val projected = fixture.dao.observeProviderWaitDeadlines(1)
+                .withCurrentProviderWaitRows(fixture.dao::observeProviderWaitRows)
+                .withCurrentProviderWaitSchedules(fixture.settings::fetchPlatformV2s)
+                .first { it.isNotEmpty() }.single()
+            assertEquals(originalDeadline, projected.retryAt)
+            assertTrue(projected.effectiveRetryAt > originalDeadline + 80_000)
+            val reattached = requireNotNull(fixture.store.reattach(fixture.answer))
+            assertEquals(originalDeadline, reattached.retryAt)
+            assertEquals(reattached.effectiveRetryAt, scheduled.last())
+            assertTrue(reattached.effectiveRetryAt > originalDeadline + 80_000)
+            assertEquals(original, fixture.dao.rawProviderWait("run"))
+            assertEquals(decision, fixture.codec.decodeFromString<ProviderWaitCheckpoint>(original.checkpoint).decision)
+            fixture.dao.updateMessage(fixture.answer.copy(ownershipFence = 4))
+            assertTrue(fixture.dao.observeProviderWaitDeadlines(1).first().isEmpty())
+            assertNull(fixture.store.reattach(fixture.answer))
+        } finally {
+            unmockkObject(ProviderLimitResumeWorker.Companion)
+            fixture.database.close()
+        }
+    }
+
     @Test fun initialWaitDeadlineProjectionRequiresItsCurrentWaitingOwner() = runBlocking {
         val fixture = Fixture()
         try {

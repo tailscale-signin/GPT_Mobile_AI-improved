@@ -8,7 +8,7 @@ import kotlinx.serialization.json.contentOrNull
 
 /** A provider wait retains the exact receipt journal, independently of its new coroutine guard. */
 internal object GitHubProviderToolCheckpoint {
-    data class Resolved(val binding: String, val evidenceDigest: String?)
+    data class Resolved(val binding: String, val evidenceDigest: String?, val journalDigest: String? = null)
 
     /** Preserve the original journal and fence its first restoration against the saved provider evidence. */
     suspend fun resolve(directory: File, chatId: Int, scope: String, authorityRevision: String, expected: GitHubProviderCheckpoint?, checkpoint: JsonObject?, persistent: Boolean): Resolved {
@@ -25,7 +25,7 @@ internal object GitHubProviderToolCheckpoint {
         } else {
             null
         }
-        return Resolved(legacy ?: retained, digest)
+        return Resolved(legacy ?: retained, digest, GitHubProviderReplayEvidence.protectedJournalDigest(saved))
     }
 
     fun binding(scope: String, authorityRevision: String, expected: GitHubProviderCheckpoint?, checkpoint: JsonObject?): String {

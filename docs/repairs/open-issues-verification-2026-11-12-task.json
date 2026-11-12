@@ -8,7 +8,7 @@
   "task_store": "engineering_agent_checkpoints",
   "task_store_key": "open-issues-verification-2026-11-12",
   "checkpoint_storage": "repository_file",
-  "state": "SOURCE_RECONCILIATION_PENDING_COMBINED_HOST_AND_ANDROID_VALIDATION",
+  "state": "FOLLOWUP_SOURCE_AND_COMPONENT_GATES_PASSED_PUBLISHED_HEAD_ANDROID_PENDING",
   "intent": "Review all open bug reports, including reports arriving during validation; repair reproducible source defects and close only issues with matching resolution evidence.",
   "open_issues_at_start": [
     839,
@@ -264,8 +264,8 @@
     879,
     880
   ],
-  "latest_reconciled_published_head": "743d447cc2f1293d6a3ae38f171f224ec697005a",
-  "state_recorded_at": "2026-11-12T21:04:39.553052+00:00",
+  "latest_reconciled_published_head": "a08f99e2adbf5a20fd3fafbc7fa3e63ba8b0542b",
+  "state_recorded_at": "2026-11-12T21:58:18Z",
   "closure_candidates_pending_new_android_tests": [
     853,
     854,
@@ -788,5 +788,82 @@
     "source_inventory_files": 2504,
     "source_inventory_areas": 26,
     "source_inventory_is_execution_coverage": false
+  },
+  "post_a08_followup_validation": {
+    "parent": "a08f99e2adbf5a20fd3fafbc7fa3e63ba8b0542b",
+    "status": "SOURCE_AND_COMPONENT_GATES_PASSED_ANDROID_PENDING",
+    "journal": {
+      "result": "PASS",
+      "tests": 14,
+      "test_log_sha256": "d1bddb3085b519d26ae992b6a35aea8735afa2bf55657129724a6e48beff8452",
+      "compiler_log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "pre_fix_control": "11 tests ran: 10 existing passed; compacted replay test alone failed with PROVIDER_WAIT_CHECKPOINT_CHANGED",
+      "source_manifest_sha256": "8922bf21925b64f338fd232d5619dffb949ab644d5c61e877f98803f6801667e",
+      "negative_boundaries": [
+        "missing",
+        "extra",
+        "renamed_call_with_retained_fingerprint",
+        "changed_source",
+        "changed_dispatch",
+        "changed_error",
+        "unknown",
+        "pending",
+        "malformed_or_incomplete_receipt",
+        "empty_boundary_with_nonempty_replay_and_missing_journal"
+      ]
+    },
+    "deadline_registry": {
+      "result": "PASS",
+      "tests": 12,
+      "test_log_sha256": "fd7ef052c8cbd1af7c2452ed408011831c0e877840cd2c4bc1072ebe84b09754",
+      "compiler_log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "deadline_schedule_rows": {
+      "result": "PASS",
+      "tests": 10,
+      "test_log_sha256": "f63d4b88b8447a15d2c99254d527ce839fc2cdbd0b90cb0c656ca4f81fe03fb8",
+      "compiler_log_sha256": "8191837a9f138138bf586dc95defc63990bed60411714618012339e2508318ea"
+    },
+    "speech_and_failure_ownership": {
+      "result": "PASS",
+      "tests": 42,
+      "test_log_sha256": "ef5bd0068fae83f5ddb8d154f011f07a323b2646fd7c2d559fdbfe67e8740f26",
+      "compiler_log_sha256": "c981f75a4a26736277c706c50b48605a86b3a2223c43dcd5d112f2a92d9e28df"
+    },
+    "host_gate": {
+      "command": "bash scripts/validate-local.sh fast",
+      "result": "PASS",
+      "tests": 484,
+      "log_sha256": "6084cec0546beec15525533b9533dfadcf9b0d7a61cf3d6cd7e68ae99c154988"
+    },
+    "source_inventory": {
+      "files": 2508,
+      "areas": 26,
+      "execution_coverage": false
+    },
+    "peer_review": "APPROVED_JOURNAL_IDENTITY_FALLBACK_AND_COOLDOWN_OWNERSHIP",
+    "android": "PENDING_EXACT_PUBLISHED_HEAD_PRODUCTION_TEST_COMPILATION_ROOM_ROBOLECTRIC_AND_REQUIRED_GATES",
+    "physical_device": "NOT_MEASURED",
+    "overlapping_test_counts_summed": false,
+    "behavior": [
+      "Protected full journal identity is separate from unchanged provider replay digest; exact call IDs, unique invocation fingerprints, original source hashes, dispatch/error and no-unknown-outcome facts remain required.",
+      "Empty or incomplete protected boundaries fall back to the exact prior replay digest; they cannot authorize a missing journal. Legacy lookup remains bounded, unique and fenced.",
+      "Visible effective provider retry time follows shared paid/Free limits while original saved decision, checkpoint and owner/fence stay unchanged.",
+      "Lightweight wait ownership and provider-waits-only payload observations avoid reloading large checkpoints on unchanged message-progress updates.",
+      "Nested speech labels preserve numeric prefixes; document list rules apply only at the document level. Known legacy failed chat replies retain their chat-owned incident and recognized draft without prose-derived transport evidence."
+    ],
+    "host_boundaries": [
+      "Journal uses actual current production sources with portable AtomicFile and omitted Robolectric annotations; no Android crash-durability claim.",
+      "Deadline flow compiles current limiter and scheduling helpers with explicit platform/persistence DTO boundaries; Room and ViewModel integration require hosted execution.",
+      "Speech host tests use explicit Android boundaries; no physical response-ready-to-audio latency measurement."
+    ],
+    "kotlin_style": {
+      "result": "PASS",
+      "version": "1.3.1",
+      "files": 26,
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "exact_release_scope": "PASS",
+    "generated_inventories": "PASS"
   }
 }

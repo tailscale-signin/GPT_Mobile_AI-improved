@@ -125,7 +125,7 @@ exception alone does not state the focus-denial cause. Hosted evidence is in
 [artifact 13978924883](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/43293697498/artifacts/13978924883),
 SHA-256 `9abdfbefcfb191000e6ace20fbba6a1a89f41541c6130453fb975f8612d9e8ec`.
 
-Typed upstream chat failures in voice retain their original chat incident and
+Known failed accepted chat replies in voice retain their original chat incident and
 recognized draft. They no longer produce a second generic voice failure or
 silently discard words when the accepted reply fails. Resuming opens draft
 review; it does not resend the turn. Missing-metadata failures keep a correctly
@@ -154,7 +154,7 @@ already prepared words. Nested/escaped labels and matching line-based code
 fences retain readable text without exposing code payloads.
 
 Four actual-session regressions reproduced the original content/startup defects.
-The final merged current-source voice suite passed 102 tests, including the
+The a08f99e2 source checkpoint voice suite passed 102 tests, including the
 concurrent comparison/reference protections and typed reply-failure correlation.
 The earlier speech component passed 69 tests plus 19 independent incremental
 probes before that merge. These prove earlier text eligibility
@@ -279,3 +279,7 @@ corresponding run/invocation or tool receipt. The relevant model
 selection/readiness receipt, acceptance ledger, privacy preflight observation,
 or output/usage ledger is specified above so follow-up can target the missing
 cause rather than repeating a generic failure report.
+
+## Post-publication recovery, cooldown and speech review
+
+The follow-up recorded in [the issue verification register](open-issues-verification-2026-11-12.md#post-a08f99e2-recovery-cooldown-and-speech-follow-up) corrects the initial journal guard for compacted provider replay, aligns the visible countdown with the current shared cooldown, and preserves numeric link labels in spoken text. Its source and validation are separate from the a08f99e2 checkpoint above. Known legacy failed chat replies also retain the chat-owned incident and recognized draft without inferring transport facts from their prose.

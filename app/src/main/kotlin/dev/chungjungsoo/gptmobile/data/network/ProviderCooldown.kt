@@ -26,6 +26,7 @@ internal class ProviderHttpFailure(
 /** A credential's cooldown is shared across profiles and benchmark requests; credentials are never logged. */
 internal object ProviderCooldown {
     private val registry = ProviderThrottleRegistry()
+    val revision = registry.revision
     private fun key(config: ProviderRequestConfig): String = MessageDigest.getInstance("SHA-256")
         .digest((config.apiUrl.trimEnd('/') + "\u0000" + config.token.orEmpty()).encodeToByteArray()).joinToString("") { "%02x".format(it) }
 

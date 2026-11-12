@@ -593,6 +593,7 @@ private class FakeAgentPersistenceDao :
     }
     override suspend fun providerWaits(): List<dev.chungjungsoo.gptmobile.data.agent.ProviderWait> = emptyList()
     override fun observeProviderWaitDeadlines(chatId: Int): Flow<List<dev.chungjungsoo.gptmobile.data.agent.ProviderWaitDeadline>> = kotlinx.coroutines.flow.flowOf(emptyList())
+    override fun observeProviderWaitRows(runIds: List<String>): Flow<List<dev.chungjungsoo.gptmobile.data.agent.ProviderWait>> = kotlinx.coroutines.flow.flowOf(emptyList())
     override suspend fun rawProviderWait(runId: String): dev.chungjungsoo.gptmobile.data.agent.ProviderWait? = null
     override suspend fun terminalProviderWaitIds(): List<String> = emptyList()
     override suspend fun markClaimedProviderWaiting(runId: String, fence: Long): Int = 0

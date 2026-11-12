@@ -8,7 +8,7 @@
   "working_branch": "fix/voice-chat-crash-and-diagnostics-2026-11-11",
   "task_store": "engineering_agent_checkpoints",
   "task_store_key": "diagnostic-followup-2026-11-12",
-  "state": "VALIDATED",
+  "state": "PUBLISHED",
   "intent": "Implement the remaining evidence-backed defects from the attached diagnostic audit on the existing PR branch, preserve concurrent commits, and publish a guarded fast-forward with regression coverage.",
   "ownership": {
     "root": "Rendering, visible-output provenance, cancellation reconciliation, diagnostic export, integration and publication",
@@ -151,9 +151,11 @@
     "target_branch": "fix/voice-chat-crash-and-diagnostics-2026-11-11",
     "force": false,
     "merge_authorized_by_this_request": false,
-    "status": "READY_FOR_GUARDED_FAST_FORWARD",
+    "status": "PUBLISHED",
     "expected_parent_sha": "c6fbdf0031be37f426a4832c847c7ab4cfa9b1ec",
-    "current_head_ci": "CHECK_AFTER_PUBLICATION"
+    "current_head_ci": "CHECK_AFTER_PUBLICATION",
+    "source_commit": "cd7e49234b601e7394f582fb12346f0df8f57287",
+    "source_tree": "56a6ccbdf9478d20e2a18dde5454dcdd7149f803"
   },
   "integrated_remote_head": "c6fbdf0031be37f426a4832c847c7ab4cfa9b1ec",
   "retained_concurrent_commits": [

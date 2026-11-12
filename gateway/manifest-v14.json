@@ -2,7 +2,7 @@
   "baseCommit": "a66155dfdc0cf647dd368019f605d91689d48583",
   "version": "16.0.0",
   "schemaVersion": 1,
-  "sourceCommit": "f22c93b56ffc2406c9d09840a2dd189cd0cecc6a",
+  "sourceCommit": "cd7e49234b601e7394f582fb12346f0df8f57287",
   "files": {
     "COMPLETION_RECOVERY.md": "69f942eab0a85b9c1a2f1f0684a4cf653a3417401814673ffc426605ac3be429",
     "DIAGNOSTICS.md": "652622ecc9a5441af9fbce994d1be6481bdb499003ac7e76cb2cf4bec6f72add",
@@ -95,7 +95,7 @@
     "tests/test_gateway_incremental_delivery.py": "8975ecb7c082f77d52b27b53d9c6034bcfdcc7077e0b3bfb736caa1510fa0604",
     "tests/test_gateway_message_contract.py": "73f2041bf75c99055b9c24964355e68e00b4df6c17be7a6d05699a8d8a1b96dc",
     "tests/test_gateway_model_preparation.py": "10772e169541a907a38262e8072d15540b9f37d1b168163d4920db61ca02bf1b",
-    "tests/test_gateway_model_preparation_http.py": "a726fa34f202912a8e4a40a0b1153be365a488a3428a11c0a1b7e110ff7316f6",
+    "tests/test_gateway_model_preparation_http.py": "22467f1448ccd6aa4f89eef31ee940240d3f0ccbd24a3591e86d1b83e5acfebf",
     "tests/test_gateway_multisearch.py": "94674cf1e6636b22f3afa96931dbdf0f8dd71811b72e9f64248abb9292440def",
     "tests/test_gateway_network.py": "7a3e2bb183120200b6b89012fa7014ed9951fa382996b067d4da4b88041b679d",
     "tests/test_gateway_reasoning_capabilities.py": "64b6b77ce99995cdf8ecce5c47179e11b66bcc69195e53609a7a98d6ce0e5ecf",

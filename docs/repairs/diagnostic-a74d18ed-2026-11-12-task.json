@@ -42,7 +42,7 @@
     },
     "recovery_policy_jvm": {
       "result": "PASS",
-      "tests": 21,
+      "tests": 22,
       "evidence": "evidence/diagnostic-a74d18ed-2026-11-12/recovery-policy-jvm.log",
       "scope": "Actual checkpoint binding, terminal projection, semantic/legacy policy, retry and throttle helper implementations; no Android stubs"
     },
@@ -59,7 +59,7 @@
       "changed_kotlin_files": 56,
       "evidence": "evidence/diagnostic-a74d18ed-2026-11-12/ktlint.log"
     },
-    "app_audit_source_digest": "e193727d3f3f87cc2b22dff7abea3ed7ec3b58c6392e025f544810e1ae785bbd",
+    "app_audit_source_digest": "a73cbb116d3ff4c1bb2e0987484bb3f89beb36255cefe609a8345711022732ef",
     "full_android": {
       "result": "NOT_RUN_LOCALLY",
       "reason": "No local Gradle/Android SDK; final published head requires CI production compilation, Room/Robolectric and full application tests"
@@ -97,10 +97,11 @@
     ]
   },
   "publication": {
-    "source_commit": "52eacb7fa189ae878e06277dfe9c4ef2847fbc61",
-    "source_tree": "7c5187bd828ceca94c740ba919780af1c74ce57f",
     "method": "GitHub Git Data API with expected-head compare",
-    "expected_previous_head": "e1a754336d291ee1ad72878078d7f854d3d0735e",
-    "force": false
+    "expected_previous_head": "6567b4d13aa24d7f8cb80207a62d9fe2964e16ca",
+    "force": false,
+    "initial_source_commit": "52eacb7fa189ae878e06277dfe9c4ef2847fbc61",
+    "initial_source_tree": "7c5187bd828ceca94c740ba919780af1c74ce57f",
+    "follow_up": "Require the same anchored guard-origin grammar in terminal checkpoint projection and compact failure summaries."
   }
 }

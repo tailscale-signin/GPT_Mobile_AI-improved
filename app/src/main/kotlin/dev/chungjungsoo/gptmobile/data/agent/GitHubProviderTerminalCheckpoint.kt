@@ -11,7 +11,7 @@ internal object GitHubProviderTerminalCheckpoint {
     fun reconcile(checkpoint: JsonObject, expected: GitHubProviderCheckpoint, status: String, terminalError: String?): JsonObject? {
         if (status !in terminalStatuses || !expected.matches(checkpoint)) return null
         val requiresReview = status !in setOf("COMPLETED", "CANCELED")
-        val code = terminalError?.let { recoveryGuard.find(it)?.value }
+        val code = terminalError?.trim()?.let { recoveryGuard.find(it)?.groupValues?.get(1) }
             ?: "PROVIDER_WAIT_TERMINATED"
         val updates = linkedMapOf<String, JsonElement>(
             "state" to JsonPrimitive(status),
@@ -42,5 +42,5 @@ internal object GitHubProviderTerminalCheckpoint {
     }
 
     val terminalStatuses = setOf("COMPLETED", "FAILED", "CANCELED", "INTERRUPTED", "PARTIAL", "EVIDENCE_MISSING", "BLOCKED", "WAITING_FOR_APPROVAL")
-    private val recoveryGuard = Regex("\\b(?:PROVIDER_WAIT_CHECKPOINT_CHANGED|RESEARCH_RECOVERY_ACTION_CHANGED|PROVIDER_WAIT_REVIEW_REQUIRED|PROVIDER_WAIT_INPUT_CHANGED|PROVIDER_WAIT_PREFIX_CHANGED|PROVIDER_WAIT_CHECKPOINT_INVALID|USER_CANCELLED|SERVICE_STOPPED|EXCLUDED_FROM_COMBINED_TURN)\\b")
+    private val recoveryGuard = Regex("^(?:An unexpected error occurred: )?(PROVIDER_WAIT_CHECKPOINT_CHANGED|RESEARCH_RECOVERY_ACTION_CHANGED|PROVIDER_WAIT_REVIEW_REQUIRED|PROVIDER_WAIT_INPUT_CHANGED|PROVIDER_WAIT_PREFIX_CHANGED|PROVIDER_WAIT_CHECKPOINT_INVALID|USER_CANCELLED|SERVICE_STOPPED|EXCLUDED_FROM_COMBINED_TURN)(?=$|[:;])")
 }

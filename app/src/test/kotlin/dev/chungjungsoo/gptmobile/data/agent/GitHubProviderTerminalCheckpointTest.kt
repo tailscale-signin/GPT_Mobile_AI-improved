@@ -55,4 +55,19 @@ class GitHubProviderTerminalCheckpointTest {
         assertNull(result["failure_details"])
         assertEquals(saved["failure_details"], result["prior_interruption_details"])
     }
+
+    @Test fun incidentalGuardTextCannotManufactureTheTerminalCause() {
+        for (code in listOf("PROVIDER_WAIT_CHECKPOINT_CHANGED", "RESEARCH_RECOVERY_ACTION_CHANGED", "USER_CANCELLED")) {
+            for (text in listOf("Provider mentioned $code in its response", "An unexpected error occurred: Provider mentioned $code", "${code}_UNTRUSTED_SUFFIX")) {
+                val result = requireNotNull(GitHubProviderTerminalCheckpoint.reconcile(saved, expected, "FAILED", text))
+                assertEquals(JsonPrimitive("PROVIDER_WAIT_TERMINATED"), result["failure_code"])
+                assertEquals(saved["failure_details"], result["prior_interruption_details"])
+                assertEquals(saved["completed_results"], result["completed_results"])
+            }
+            for (text in listOf(code, "An unexpected error occurred: $code", "$code: Reconcile retained results", "$code; recovery stopped")) {
+                val result = requireNotNull(GitHubProviderTerminalCheckpoint.reconcile(saved, expected, "FAILED", text))
+                assertEquals(JsonPrimitive(code), result["failure_code"])
+            }
+        }
+    }
 }

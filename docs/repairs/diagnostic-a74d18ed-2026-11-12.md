@@ -78,7 +78,7 @@ component coverage, not an Android build or physical-device result.
 | Failure classification and compact summary | **20 JVM tests passed**, including guard-origin rejection and retained invocation ownership. |
 | Integration budget, prerequisites and evidence | **71 JVM tests passed** against 56 current pure production classes and explicit service/DTO boundaries. |
 | Gateway polling and selected-model preparation | **61 JVM tests passed**, including ten new polling behaviors and 23 existing selected-model preparation tests. |
-| Recovery checkpoint, policy, retry and throttle helpers | **21 JVM tests passed** against actual production helper sources without Android stubs. |
+| Recovery checkpoint, policy, retry and throttle helpers | **22 JVM tests passed** against actual production helper sources without Android stubs, including rejection of incidental guard words in checkpoint error text. |
 | Gateway diagnostic protocol | **28 Python tests passed** using the repository's hash-pinned dependencies. |
 | Kotlin formatting | **56 changed Kotlin files passed** ktlint 1.3.1. |
 | Gateway package source | **218 file hashes matched** the canonical source manifest and its pinned published source revision; the [binding record](evidence/diagnostic-a74d18ed-2026-11-12/gateway-source-binding.json) identifies the commit. |

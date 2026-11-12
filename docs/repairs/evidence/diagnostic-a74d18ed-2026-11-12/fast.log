@@ -1,14 +1,14 @@
 CI policy passed
 Dependency declarations use the shared version catalog.
-{"output": "/tmp/tmp9egtcupf/qualification.json", "source_areas": 2, "reports": 2, "report_errors": 0}
-{"output": "/tmp/tmp9egtcupf/qualification.json", "source_areas": 2, "reports": 2, "report_errors": 0}
+{"output": "/tmp/tmp9ptndo51/qualification.json", "source_areas": 2, "reports": 2, "report_errors": 0}
+{"output": "/tmp/tmp9ptndo51/qualification.json", "source_areas": 2, "reports": 2, "report_errors": 0}
 {"qualification": "NOT_QUALIFIED", "reason": "BEFORE_MEASUREMENT_IDENTITY_MISSING", "candidateCommit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
 Could not resolve plugin artifact. HTTP 503
 Dependency service throttled or unavailable; retry 2/3 after 0s. Gradle cache is retained.
 Could not resolve dependency. HTTP 503
 Build process deadline expired; terminating its process group. No automatic retry.
 Could not GET resource. HTTP 429
-Dependency service throttled or unavailable; retry 2/3 after 0.09883698200064828s. Gradle cache is retained.
+Dependency service throttled or unavailable; retry 2/3 after 0.09812828700069076s. Gradle cache is retained.
 Downloading https://services.gradle.org/distributions/gradle-9.8.0-bin.zip
 Server returned HTTP response code: 500 for URL: https://github.com/gradle/gradle-distributions/releases/download/v9.8.0/gradle-9.8.0-bin.zip
 Dependency service throttled or unavailable; retry 2/3 after 0s. Gradle cache is retained.
@@ -63,6 +63,6 @@ Icon resources match the reference SVG.
 QNN provenance matches LiteRT-LM 0.18.0 / QAIRT 2.51.0; device execution remains unverified.
 .........................................................................................................................................................................................................................................................................................................................................................................................................................................................................................
 ----------------------------------------------------------------------
-Ran 473 tests in 14.480s
+Ran 473 tests in 13.074s
 
 OK

@@ -79,7 +79,8 @@
     "Stop sustained repetitive prose with bounded text-only repair, deliver continuation text incrementally, retain output ownership through rendering, bound long paragraph layouts, and reduce diagnostic export allocation.",
     "Distinguish local observer Stop from remote Gateway cancellation receipts and close exact-model preparation test resources before Windows cleanup.",
     "Prevent uncertain Gateway instruction replay and stale-job redirection, preserve confirmed acceptance through rejection races, retain live GitHub read evidence after bounded retry, recover stalled Android recognition and preserve actionable public report codes.",
-    "Repair the November 12 execution-selection wire contract, exact pending gateway handoffs and restart grouping, bounded GitHub read/circuit recovery, review baseline and source evidence, compact observed-capability checkpoints and typed diagnostic summaries; retain explicit unresolved incident and device acceptance limits."
+    "Repair the November 12 execution-selection wire contract, exact pending gateway handoffs and restart grouping, bounded GitHub read/circuit recovery, review baseline and source evidence, compact observed-capability checkpoints and typed diagnostic summaries; retain explicit unresolved incident and device acceptance limits.",
+    "Keep native GitHub tool progress current after gateway preflight, suppress gateway-owned duplicate result counts, group repeated nonfatal privacy catalog notices without weakening filtering, and cover restored failed prerequisites in the batch scheduler."
   ],
   "limitations": [
     "Android GPU qualification requires compatible-device receipts for actual offload, prefill, decode, repeated requests and cancel/recovery; host tests do not establish those results.",
@@ -2226,6 +2227,9 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticFailureSummaryTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceLinkTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSourceReadCoverageTest.kt",
-    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSourceReadRecoveryTest.kt"
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSourceReadRecoveryTest.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolCatalogNoticePresentation.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolCatalogNoticePresentationTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/IntelligentToolBatchTest.kt"
   ]
 }

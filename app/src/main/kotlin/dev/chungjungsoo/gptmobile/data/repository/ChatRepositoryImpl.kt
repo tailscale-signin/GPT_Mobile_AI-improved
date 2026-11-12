@@ -2108,7 +2108,7 @@ class ChatRepositoryImpl(
                     // reuse its text, receipts or research, but still allow a new answer.
                     emit(ApiState.Notice("Prior saved work is no longer authorized and was not reused. Starting a fresh response.", persistent = true))
                 }
-                unavailableConnections.forEach { emit(ApiState.Notice(it, persistent = true)) }
+                dev.chungjungsoo.gptmobile.data.agent.ToolCatalogNoticePresentation.notices(unavailableConnections).forEach { emit(ApiState.Notice(it, persistent = true)) }
                 val recallPreparation = preparePrimaryRecall(preparationInput, admission, toolPreparation, preparationStarted, ::emit)
                 val latestUser = recallPreparation.latestUser
                 val researchTask = recallPreparation.researchTask
@@ -5972,7 +5972,7 @@ class ChatRepositoryImpl(
         )
     }
 
-    private fun streamAgentEvents(
+    internal fun streamAgentEvents(
         events: Flow<AgentRunEvent>,
         platform: PlatformV2,
         runId: String,
@@ -5999,6 +5999,7 @@ class ChatRepositoryImpl(
             null
         }
         var gatewayTelemetrySeen = false
+        val nativeToolCalls = mutableSetOf<String>()
         var providerToolCalls = 0
         var providerUsefulToolCalls = 0
         var providerToolFailures = 0
@@ -6201,9 +6202,10 @@ class ChatRepositoryImpl(
                 is AgentRunEvent.ToolStarted -> {
                     dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(runId, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.TOOL_ADMITTED)
                     providerToolCalls += 1
-                    if (!gatewayTelemetrySeen) {
-                        emit(ApiState.GatewayProgressChanged(providerProgress("tool_started", "executing_tools", if (runEvent.call.name == "github_decide") "Waiting for your feature decision" else "Running ${runEvent.call.name}…", runEvent.call.name, "running").copy(toolCallId = runEvent.call.callId, toolArgs = runEvent.call.arguments)))
-                    }
+                    // Gateway inference telemetry does not own client execution.
+                    // Keep native starts/results in the structured progress stream.
+                    nativeToolCalls += runEvent.call.callId
+                    emit(ApiState.GatewayProgressChanged(providerProgress("tool_started", "executing_tools", if (runEvent.call.name == "github_decide") "Waiting for your feature decision" else "Running ${runEvent.call.name}…", runEvent.call.name, "running").copy(toolCallId = runEvent.call.callId, toolArgs = runEvent.call.arguments)))
                 }
 
                 is AgentRunEvent.ToolResultsRestored -> {
@@ -6219,7 +6221,10 @@ class ChatRepositoryImpl(
                     } else {
                         progressTracker.complete(runEvent.call.callId, runEvent.call.name, runEvent.result.isError)?.let { emit(ApiState.ProgressCheckpoint(it)) }
                     }
-                    if (!gatewayTelemetrySeen) {
+                    val nativeFinished = nativeToolCalls.remove(runEvent.call.callId)
+                    // A provider-owned ToolResult may echo its gateway terminal
+                    // event. Only a locally started call overrides that suppression.
+                    if (!gatewayTelemetrySeen || nativeFinished) {
                         if (runEvent.result.isError) providerToolFailures += 1 else providerUsefulToolCalls += 1
                         emit(
                             ApiState.GatewayProgressChanged(

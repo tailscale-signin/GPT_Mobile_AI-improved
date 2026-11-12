@@ -10,6 +10,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -73,6 +74,31 @@ class IntelligentToolBatchTest {
         )
         assertEquals(listOf("read"), dispatched)
         assertTrue(results.drop(1).all { it.errorCode == "DEPENDENCY_FAILED" && !it.dispatched })
+    }
+
+    @Test fun restoredFailedReadBlocksQueuedDependentWithoutReemittingItsReceipt() = runTest {
+        val read = call("read")
+        val write = call("write", "github_commit")
+        val calls = listOf(read, write)
+        val tools = listOf(tool("github_read"), tool("github_commit")).associateBy { it.definition.name }
+        val retained = ToolResultEnvelope.error(read.callId, "READ_FAILED", "Saved failure", dispatched = true).copy(sharedResult = true)
+        val completions = mutableListOf<Pair<ProviderEvent.ToolCall, AgentToolResult>>()
+
+        val results = IntelligentToolBatch(AdaptiveBatchWindow(6)).execute(
+            planIntelligentBatch(calls, tools),
+            dispatch = { error("Neither the restored prerequisite nor its queued dependent may dispatch") },
+            completed = { call, result -> completions += call to result },
+            progress = {},
+            restored = mapOf(read.callId to retained)
+        )
+
+        assertEquals(calls.map { it.callId }, results.map { it.callId })
+        assertSame(retained, results.first())
+        val blocked = results.last()
+        assertEquals("DEPENDENCY_FAILED", blocked.errorCode)
+        assertTrue(blocked.isError)
+        assertFalse(blocked.dispatched)
+        assertEquals(listOf(write to blocked), completions)
     }
 
     @Test fun cancelledWorkerStopsTheCollectorAndLeavesQueuedCallsUndispatched() = runTest {

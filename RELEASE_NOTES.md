@@ -10,6 +10,8 @@ These unreleased repairs preserve the selected gateway request contract and the 
 
 GitHub reads can recover from a proven path or retained search recipe, and eligible reads wait through one bounded circuit cooldown. Reviews require a valid comparison baseline, preserve typed source links and immutable read coverage, and retain observed capability rows without duplicating the unused integration catalog. Diagnostic exports retain bounded failure summaries, critical-section counts and separate logging availability. Voice cooldown re-entry does not create an incident without a new recognition attempt.
 
+Native tool progress now updates the observed steps, failure count and next action after gateway preflight telemetry. Repeated privacy catalog notices are grouped by their actual denial reason and reported tool-entry count; all privacy filtering and per-tool diagnostics remain in place.
+
 These fixes require matching Android and gateway deployment. Passing host or emulator regressions does not identify the cause of older generic incident reports or qualify physical-device behavior. Unified Reliability v2 is not complete; the 99 outstanding acceptance cases and device/release evidence remain outstanding, and no acceptance results are promoted by these changes.
 
 ## PR #816 candidate addendum: Gateway 16 and engineering completion

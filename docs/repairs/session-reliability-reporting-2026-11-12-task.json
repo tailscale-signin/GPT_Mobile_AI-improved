@@ -55,15 +55,15 @@
     }
   ],
   "validation": {
-    "host": "PASSED_472_TESTS_AND_FAST_GATE",
-    "focused_behavior": "CORRECTED_FULL_JVM_SUITE_QUEUED",
-    "android": "PRODUCTION_AND_TEST_COMPILATION_PASSED_AT_6d792622",
-    "gateway": "PASSED_895_SKIPPED_2_BROWSER_PASSED_7",
+    "host": "PASSED_472_TESTS_AND_FAST_GATE_AFTER_FINAL_FOLLOWUPS",
+    "focused_behavior": "FINAL_COMBINED_VALIDATION_PENDING",
+    "android": "PRODUCTION_AND_TEST_COMPILATION_PASSED_AT_82dfad5c",
+    "gateway": "INTEGRATED_30_TESTS_PASSED_CANONICAL_900_CASE_CLEAN_RERUN_INTERRUPTED_WITHOUT_FINAL_RESULT",
     "device": "NOT_RUN_NO_DEVICE",
     "live_services": "NOT_RUN_NO_USER_ENDPOINT_CREDENTIAL_ACCESS",
     "authentication": "PASSED_47_TESTS_AFTER_ANDROID_SERVICE_ERROR_CODE_PARITY_FIX",
-    "kotlin_style": "PASSED_144_CHANGED_FILES",
-    "test_runtime": "Pinned startup ByteBuddy agent verified for restricted attachment namespace; SDK31,32,34,35,36,37 artifacts verified against publisher SHA-512; corrected full rerun pending",
+    "kotlin_style": "PASSED_150_CHANGED_KOTLIN_FILES_WITH_PINNED_1_3_1",
+    "test_runtime": "Prior verified startup ByteBuddy agent and publisher-verified Robolectric SDKs eliminated local runtime failures. Workspace subsequently became unavailable; restored checkout awaits exact combined-head CI.",
     "jvm_initial": {
       "commit": "6d79262254559831a85742bd51f627539fb98894",
       "tests": 9502,
@@ -76,6 +76,15 @@
         "code_and_fixture_followups_corrected": 8,
         "unclassified": 0
       }
+    },
+    "jvm_verified_before_followups": {
+      "commit": "82dfad5cfa79d7225f45723f8107f40788d9e731",
+      "tests": 9526,
+      "passed": 9519,
+      "failed": 2,
+      "skipped": 5,
+      "environment_failures": 0,
+      "followups": "Usage event identity expectation and original status intent preservation through workspace setup corrected in a1f595e618f558e7163d3c3b6f0f8596e5ee3920"
     }
   },
   "external_qualification": [
@@ -88,11 +97,15 @@
   "publication": {
     "mode": "GUARDED_FAST_FORWARD_ONLY",
     "force": false,
-    "state": "PUBLISHED_PR_OPEN_FINAL_REGRESSION_RUN_PENDING",
-    "code_commit": "1407e550ba4ddab972a56a330ae0a175100ee154",
-    "last_verified_remote_head_before_publication": "6d79262254559831a85742bd51f627539fb98894",
+    "state": "FINAL_COMBINED_SOURCE_PREPARED_FOR_FRESH_VALIDATION",
+    "code_commit": "a1f595e618f558e7163d3c3b6f0f8596e5ee3920",
+    "last_verified_remote_head_before_publication": "50e431f35544855ff8cc40671af231d9eeec6365",
     "branch": "fix/session-reliability-reporting-2026-11-12",
-    "pull_request": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/838"
+    "pull_request": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/838",
+    "preserved_independent_updates": [
+      "e7fb818400d66f15afe0838e1e2dcb9cc47f0dd2",
+      "50e431f35544855ff8cc40671af231d9eeec6365"
+    ]
   },
   "repair_register": "docs/repairs/session-reliability-reporting-2026-11-12.md",
   "checkpoint_storage": "repository_file"

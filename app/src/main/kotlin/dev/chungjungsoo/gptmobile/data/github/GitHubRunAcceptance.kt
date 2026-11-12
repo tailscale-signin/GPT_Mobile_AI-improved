@@ -79,8 +79,9 @@ internal object GitHubRunAcceptance {
         val responseHash = report.text("response_sha256").takeIf { it.matches(Regex("[a-f0-9]{64}")) }
         val pendingApprovals = (execution?.get("pending_approvals") as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
         val resolvedApprovals = (execution?.get("resolved_approvals") as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
-        val rejectedApproval = resolvedApprovals.any { it.text("decision_outcome") == "REJECTED" || it.text("local_resolution_event") == "approval_card_rejected" }
-        val pendingApproval = pendingApprovals.isNotEmpty() || report.text("task_state") == "WAITING_FOR_APPROVAL" || report.text("blocking_condition") == "WAITING_FOR_APPROVAL"
+        val deadlineReached = report.text("blocking_condition") == "ACCEPTED_TASK_DEADLINE_REACHED"
+        val rejectedApproval = !deadlineReached && resolvedApprovals.any { it.text("decision_outcome") == "REJECTED" || it.text("local_resolution_event") == "approval_card_rejected" }
+        val pendingApproval = !deadlineReached && (pendingApprovals.isNotEmpty() || report.text("task_state") == "WAITING_FOR_APPROVAL" || report.text("blocking_condition") == "WAITING_FOR_APPROVAL")
         val taskState = when {
             pendingApproval -> "WAITING_FOR_APPROVAL"
             rejectedApproval -> "REJECTED"

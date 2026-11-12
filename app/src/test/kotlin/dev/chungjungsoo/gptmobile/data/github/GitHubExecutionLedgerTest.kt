@@ -92,6 +92,7 @@ class GitHubExecutionLedgerTest {
                     put("expected_head_sha", head)
                     put("patch_digest", patchDigest)
                     put("approval_state", "CANCELLED_BEFORE_PUBLICATION")
+                    put("native_task_state", "CANCELLED")
                     put("cancellation_confirmed", true)
                     put("remote_mutation_performed", false)
                     put("remote_state_verified", false)

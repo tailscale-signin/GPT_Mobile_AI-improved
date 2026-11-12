@@ -17,7 +17,7 @@ internal object GitHubEvidencePolicy {
 
     private val secretField = Regex("(?i)token|secret|password|authorization|cookie")
     private fun historicalReview(task: String): Boolean =
-        Regex("(?i)\\b(saved session|attached capture|archive|historical|as of|audit capture)\\b").containsMatchIn(task) &&
+        Regex("(?i)\\b(saved (?:GitHub )?session|attached capture|archive|historical|as of|audit capture)\\b").containsMatchIn(task) &&
             !GitHubRequestCompletion.requiresLiveSessionReviewRefresh(task) &&
             !Regex("(?i)\\b(current|latest|live|right now|today)\\s+(?:status|state|checks?)\\b").containsMatchIn(task)
 
@@ -305,7 +305,7 @@ internal object GitHubEvidencePolicy {
         val missingComparison = GitHubReviewComparison.incompleteReason(task, receipts)?.let { "\n\n**Branch review incomplete:** $it" }.orEmpty()
         val pendingApprovals = GitHubPendingApproval.snapshot(receipts)
         val waitingForApproval = pendingApprovals.isNotEmpty()
-        val fixturePending = pendingApprovals.any { (it["branch"] as? JsonPrimitive)?.contentOrNull?.startsWith("codex-self-test/") == true }
+        val fixturePending = pendingApprovals.filterIsInstance<JsonObject>().any { it.string("branch").startsWith("codex-self-test/") }
         val rejectedApprovals = receipts.values.mapNotNull { proposal ->
             GitHubPendingApproval.resolution(proposal, receipts.values)?.takeIf(GitHubPendingApproval::isRejectedResolution)
         }

@@ -9,15 +9,15 @@ data class AppAuditSourceArea(val id: String, val label: String, val fileCount: 
 object AppAuditSourceInventory {
     val schemaVersion: Int = 1
     val assetPath: String = "diagnostics/app-code-inventory.json"
-    val sourceDigest: String = "1d753277c841b6e2556ba321816c19a11d8fca607957ecd4e3e753c3d6e6c622"
+    val sourceDigest: String = "6b21855d5d05736a85683e5d58efce7c192e161451c8a6024aa8c268803044c0"
     val fileCount: Int = 2443
-    val lineCount: Int = 386534
+    val lineCount: Int = 386540
     val lineCoverageAvailable: Boolean = false
     val areas: List<AppAuditSourceArea> = listOf(
         AppAuditSourceArea("android_shell", "Android application and lifecycle", 71, 7890),
         AppAuditSourceArea("chat_ui", "Chat, rendering and interaction", 517, 91780),
         AppAuditSourceArea("accessibility_and_localization", "Accessibility, themes and UI resources", 197, 9164),
-        AppAuditSourceArea("agent_execution", "Agent execution and recovery", 209, 34984),
+        AppAuditSourceArea("agent_execution", "Agent execution and recovery", 209, 34987),
         AppAuditSourceArea("agent_tools", "Built-in tool routing and execution", 99, 21697),
         AppAuditSourceArea("mcp_plugins", "MCP connections and tool catalogues", 30, 4511),
         AppAuditSourceArea("marketplace_plugins", "Plugin marketplace", 13, 1732),
@@ -26,7 +26,7 @@ object AppAuditSourceInventory {
         AppAuditSourceArea("local_inference", "Local inference and admission", 111, 14825),
         AppAuditSourceArea("gateway_client", "Android gateway client", 32, 4927),
         AppAuditSourceArea("network", "Networking and readiness", 94, 9084),
-        AppAuditSourceArea("github", "GitHub and engineering workspace", 203, 32862),
+        AppAuditSourceArea("github", "GitHub and engineering workspace", 203, 32865),
         AppAuditSourceArea("research", "Research and source acquisition", 112, 13941),
         AppAuditSourceArea("memory_and_rag", "Memory, retrieval and indexing", 42, 4845),
         AppAuditSourceArea("persistence", "Databases, backup and storage", 108, 14371),

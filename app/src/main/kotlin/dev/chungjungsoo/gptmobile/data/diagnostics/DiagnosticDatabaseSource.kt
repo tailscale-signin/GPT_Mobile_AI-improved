@@ -103,8 +103,8 @@ class DiagnosticDatabaseSource @Inject constructor(
         val verdict = when {
             taskState == "WAITING_FOR_APPROVAL" || approvalState == "WAITING_FOR_APPROVAL" -> "WAITING_FOR_APPROVAL"
             report?.get("completion_verified") == JsonPrimitive(true) -> "VERIFIED"
-            taskOutcome != null -> taskOutcome
             failureCode != null -> failureCode
+            taskOutcome != null -> taskOutcome
             report == null -> run?.second ?: "NOT_RETAINED"
             else -> report?.text("phase") ?: run?.second ?: "NOT_RECORDED"
         }

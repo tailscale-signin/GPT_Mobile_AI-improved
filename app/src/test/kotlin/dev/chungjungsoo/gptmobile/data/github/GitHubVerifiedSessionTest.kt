@@ -513,11 +513,27 @@ class GitHubVerifiedSessionTest {
         assertFalse(events.any { it is ProviderEvent.Completed })
     }
 
-    @Test fun oversizedTaskOrDraftUsesRetainedEvidenceWithoutOpeningFormatter() = runBlocking {
+    @Test fun oversizedTaskStaysIncompleteAndOversizedDraftUsesABoundedExcerpt() = runBlocking {
         for (largeTask in listOf(false, true)) {
-            val gate = GitHubVerifiedSession(answer(if (largeTask) "private" else "private".repeat(1000)), GitHubEvidenceBook("b", "o/r", "main", emptySet()), if (largeTask) "task".repeat(1000) else "task", { 512 }, { error("oversized request must not be dispatched") }, {}, {})
+            val draft = if (largeTask) "private" else "private".repeat(1000)
+            val task = if (largeTask) "task".repeat(1000) else "task"
+            val prompts = mutableListOf<String>()
+            val gate = GitHubVerifiedSession(answer(draft), GitHubEvidenceBook("b", "o/r", "main", emptySet()), task, { 512 }, { prompt ->
+                prompts += prompt
+                answer("""{"claims":[{"kind":"not_measured","subject":"Feature acceptance"}]}""")
+            }, {}, {})
             val events = gate.streamRound(emptyList(), emptyList()).toList()
-            assertTrue(events.single() is ProviderEvent.Failed)
+            if (largeTask) {
+                assertTrue(prompts.isEmpty())
+            } else {
+                val prompt = prompts.single()
+                assertTrue(TextTokenEstimate.estimate(prompt) <= 512)
+                val candidate = Json.parseToJsonElement(prompt).jsonObject.getValue("candidate") as JsonPrimitive
+                assertTrue(candidate.content.length in 1 until draft.length)
+            }
+            assertTrue(events.last() is ProviderEvent.Failed)
+            assertFalse(events.contains(ProviderEvent.Completed))
+            assertTrue(events.filterIsInstance<ProviderEvent.TextDelta>().none { it.text.contains("private") })
         }
     }
 
@@ -525,9 +541,14 @@ class GitHubVerifiedSessionTest {
         val stored = mutableMapOf<String, JsonObject>()
         fun book() = GitHubEvidenceBook("b", "o/r", "main", emptySet(), now = { 1000 }, load = { stored[it] }, save = { key, value -> stored[key] = value })
         val task = "Explain the change\n- Document the source\n- Explain the effect\n- List the remaining work\n- Give the result"
-        val requests = mutableListOf<Int>()
+        val requests = mutableListOf<Pair<Int, Int>>()
         val response = """{"claims":[{"kind":"not_measured","subject":"Feature acceptance"}]}"""
-        fun batch(prompt: String): Int = Json.parseToJsonElement(prompt).jsonObject.getValue("batch").toString().toInt().also(requests::add)
+        fun batch(prompt: String): Int {
+            val request = Json.parseToJsonElement(prompt).jsonObject
+            val batch = request.getValue("batch").toString().toInt()
+            requests += batch to request.getValue("claim_limit").toString().toInt()
+            return batch
+        }
         val privateDraft = "Private draft for the accepted request ".repeat(2_000)
         assertTrue(privateDraft.length > 64_000)
         val initial = GitHubVerifiedSession(answer(privateDraft), book(), task, { 8192 }, { prompt ->
@@ -542,7 +563,8 @@ class GitHubVerifiedSessionTest {
         }, {}, {}, { 1000 })
         val first = initial.streamRound(emptyList(), emptyList()).toList().last() as ProviderEvent.Failed
         assertEquals("GITHUB_EXTRACTION_OUTPUT_LIMIT", first.errorCode)
-        assertEquals(listOf(1, 2), requests)
+        val firstRequests = listOf(1 to 8, 2 to 8, 2 to 4, 2 to 2, 2 to 1)
+        assertEquals(firstRequests, requests)
 
         val unavailableDraft = object : AgentProviderSession {
             override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = error("The saved draft must be reused")
@@ -552,7 +574,7 @@ class GitHubVerifiedSessionTest {
             answer(response)
         }, {}, {}, { 1000 }, currentRequest = "Continue")
         val delivered = resumed.streamRound(emptyList(), emptyList()).toList()
-        assertEquals(listOf(1, 2, 2), requests)
+        assertEquals(firstRequests + (2 to 8), requests)
         assertTrue(delivered.any { it is ProviderEvent.TextDelta })
         val checkpoint = stored.entries.single { it.key.startsWith("claim_extraction_current_") }.value
         assertEquals(JsonPrimitive(false), checkpoint["pending"])
@@ -571,7 +593,7 @@ class GitHubVerifiedSessionTest {
             load = { stored[it] },
             save = { key, value -> stored[key] = value }
         )
-        fun read(callId: String, tool: String, action: String, result: String) {
+        suspend fun read(callId: String, tool: String, action: String, result: String) {
             val call = ProviderEvent.ToolCall(callId, tool, Json.parseToJsonElement("""{"action":"$action","pull_number":42,"verify_live":true}""").jsonObject)
             book.observe(call, AgentToolResult(callId, ToolResultContent.Json(Json.parseToJsonElement(result).jsonObject), false, dispatched = true))
         }

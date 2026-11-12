@@ -180,21 +180,24 @@ data class ProfileFailureRecord(
             val repositoryAdmission = repositoryAdmissionCodes.firstOrNull { details.contains(it, true) }
             val githubSchemaAdmission = githubSchemaAdmissionCodes.firstOrNull { details.contains(it, true) }
             val continuationCode = continuationCodes.firstOrNull { details.contains(it, true) }
-            val verificationCode = typedCodes.firstOrNull {
-                it.startsWith("GITHUB_EXTRACTION_") ||
-                    it in setOf(
-                        "GITHUB_EVIDENCE_ADVANCED_DURING_VERIFICATION",
-                        "GITHUB_TOOL_BUDGET_EXHAUSTED",
-                        "GITHUB_TASK_BUDGET_EXHAUSTED",
-                        "TOOL_BUDGET_EXHAUSTED",
-                        "TASK_BUDGET_EXHAUSTED",
-                        "VERIFICATION_RESERVE_REACHED",
-                        "SAVED_VIEW_UNAVAILABLE",
-                        "SAVED_VIEW_WRONG_OPERATION",
-                        "SAVED_VIEW_CURSOR_ALTERED",
-                        "DEPENDENCY_DEFERRED"
-                    )
-            }?.takeIf { details.contains(it, true) }
+            val verificationCode = typedCodes.firstOrNull { code ->
+                details.contains(code, true) &&
+                    (
+                        code.startsWith("GITHUB_EXTRACTION_") ||
+                            code in setOf(
+                                "GITHUB_EVIDENCE_ADVANCED_DURING_VERIFICATION",
+                                "GITHUB_TOOL_BUDGET_EXHAUSTED",
+                                "GITHUB_TASK_BUDGET_EXHAUSTED",
+                                "TOOL_BUDGET_EXHAUSTED",
+                                "TASK_BUDGET_EXHAUSTED",
+                                "VERIFICATION_RESERVE_REACHED",
+                                "SAVED_VIEW_UNAVAILABLE",
+                                "SAVED_VIEW_WRONG_OPERATION",
+                                "SAVED_VIEW_CURSOR_ALTERED",
+                                "DEPENDENCY_DEFERRED"
+                            )
+                        )
+            }
             val category = when {
                 listOf("TOOL_OUTCOME_UNKNOWN", "TIMEOUT_OUTCOME_UNKNOWN", "DISPATCH_OUTCOME_UNKNOWN", "TOOL_RESULT_ID_MISMATCH", "RECONCILIATION_REQUIRED", "GATEWAY_TOOL_OUTCOME_UNKNOWN").any { details.contains(it, true) } -> "TOOL_OUTCOME_UNKNOWN"
                 details.contains("DISPATCH_POLICY_CHANGED", true) || details.contains("POLICY_STALE", true) -> "POLICY_STALE"

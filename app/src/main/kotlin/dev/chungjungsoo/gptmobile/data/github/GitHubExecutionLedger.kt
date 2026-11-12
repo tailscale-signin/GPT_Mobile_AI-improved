@@ -106,7 +106,7 @@ internal object GitHubExecutionLedger {
             checkpoint["verification_failure"] is JsonObject
         val verification = when {
             reviewFailure -> "FAILED"
-            unresolved > 0 -> "PENDING"
+            unresolved > 0 || deadlineReached -> "PENDING"
             pendingApprovals.isNotEmpty() -> "WAITING_FOR_APPROVAL"
             rejectedApprovals.isNotEmpty() -> "REJECTED"
             checkpoint["claims_verified"] == JsonPrimitive(true) || completed -> "VERIFIED"
@@ -114,6 +114,7 @@ internal object GitHubExecutionLedger {
             else -> "PENDING"
         }
         val requestedTask = when {
+            deadlineReached -> "BLOCKED"
             completed -> "VERIFIED_COMPLETE"
             pendingApprovals.isNotEmpty() -> "WAITING_FOR_APPROVAL"
             rejectedApprovals.isNotEmpty() -> "REJECTED"
@@ -124,9 +125,9 @@ internal object GitHubExecutionLedger {
         }
         val recovery = when {
             unresolved > 0 -> "RECONCILE_REMOTE_OUTCOME"
+            deadlineReached -> "NEW_TASK_REQUIRED"
             pendingApprovals.isNotEmpty() -> "WAITING_FOR_APPROVAL"
             rejectedApprovals.isNotEmpty() -> "RECONCILE_FIXTURE_AFTER_APPROVAL_REJECTION"
-            deadlineReached -> "NEW_TASK_REQUIRED"
             failureIsPrimary && outcome == "CONFIGURATION_INVALIDATED" -> "RESTORE_AUTHORIZED_CONFIGURATION"
             failureIsPrimary && reviewFailure -> "RESUME_VERIFICATION"
             failureIsPrimary -> "INSPECT_EXECUTION_FAILURE"
@@ -212,7 +213,7 @@ internal object GitHubExecutionLedger {
                 put("blocking_condition", "RECONCILE_REMOTE_OUTCOME")
                 put("pending_approvals", pendingApprovals)
             }
-        } else if (pendingApprovals.isNotEmpty()) {
+        } else if (!deadlineReached && pendingApprovals.isNotEmpty()) {
             buildJsonObject {
                 put("completion_verified", false)
                 put("partial", true)
@@ -226,7 +227,7 @@ internal object GitHubExecutionLedger {
                 put("retryable_without_new_input", false)
                 put("pending_approvals", pendingApprovals)
             }
-        } else if (rejectedApprovals.isNotEmpty()) {
+        } else if (!deadlineReached && rejectedApprovals.isNotEmpty()) {
             val keepFixture = rejectedApprovals.any { (_, resolution) -> resolution.result()?.get("keep_fixture") == JsonPrimitive(true) }
             buildJsonObject {
                 put("completion_verified", false)
@@ -265,6 +266,7 @@ internal object GitHubExecutionLedger {
                 put("task_outcome", outcome.takeIf { it in setOf("BLOCKED", "CONFIGURATION_INVALIDATED", "FAILED") } ?: "PARTIAL")
                 put("task_state", if (outcome == "CONFIGURATION_INVALIDATED") "BLOCKED" else outcome.takeIf { it in setOf("BLOCKED", "FAILED") } ?: "PARTIAL")
                 put("blocking_condition", if (deadlineReached) "ACCEPTED_TASK_DEADLINE_REACHED" else code.ifBlank { "EXECUTION_FAILURE" })
+                if (deadlineReached) put("stop_code", "ACCEPTED_TASK_DEADLINE_REACHED")
                 put("pending_approvals", pendingApprovals)
                 put("user_input_required", pendingApprovals.isNotEmpty() || deadlineReached)
                 if (pendingApprovals.isNotEmpty() || deadlineReached) put("retryable_without_new_input", false)

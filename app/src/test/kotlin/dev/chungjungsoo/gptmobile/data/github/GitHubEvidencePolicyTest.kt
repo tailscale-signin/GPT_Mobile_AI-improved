@@ -14,10 +14,12 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
+import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -111,6 +113,7 @@ class GitHubEvidencePolicyTest {
                     put("expected_head_sha", head)
                     put("patch_digest", patchDigest)
                     put("approval_state", "CANCELLED_BEFORE_PUBLICATION")
+                    put("native_task_state", "CANCELLED")
                     put("cancellation_confirmed", true)
                     put("remote_mutation_performed", false)
                     put("keep_fixture", false)
@@ -329,21 +332,22 @@ class GitHubEvidencePolicyTest {
     }
 
     @Test fun failedOrTruncatedExtractorKeepsTheTaskIncompleteWithoutPublishingDraftOrReceipts() = runBlocking {
-        for ((extractor, code) in listOf(
-            flowOf(ProviderEvent.TextDelta("private broken JSON"), ProviderEvent.Failed("output limit", errorCode = "OUTPUT_LIMIT")) to "OUTPUT_LIMIT",
-            flowOf(ProviderEvent.TextDelta("{\"claims\":")) to "GITHUB_EXTRACTION_INVALID_RESPONSE"
-        )) {
+        val cases = listOf(
+            Triple(flowOf(ProviderEvent.TextDelta("private broken JSON"), ProviderEvent.Failed("output limit", errorCode = "OUTPUT_LIMIT")), "OUTPUT_LIMIT", listOf(8)),
+            Triple(flowOf(ProviderEvent.TextDelta("{\"claims\":")), "GITHUB_EXTRACTION_INVALID_RESPONSE", listOf(8, 4, 2, 1))
+        )
+        for ((extractor, code, expectedLimits) in cases) {
             val book = GitHubEvidenceBook("binding", "owner/repo", "main", setOf("github_ci"), { 1000 })
             book.observe(ProviderEvent.ToolCall("read", "github_ci", json("{}")), AgentToolResult("read", ToolResultContent.Json(json("""{"count":3,"content":"private source"}""")), false))
-            var attempts = 0
-            val gate = GitHubVerifiedSession(session("all 99 tests passed"), book, "fix", { 8192 }, {
-                attempts++
+            val limits = mutableListOf<Int>()
+            val gate = GitHubVerifiedSession(session("all 99 tests passed"), book, "fix", { 8192 }, { prompt ->
+                limits += json(prompt).getValue("claim_limit").jsonPrimitive.content.toInt()
                 object : AgentProviderSession {
                     override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = extractor
                 }
             }, {}, {}, { 1000 })
             val events = gate.streamRound(emptyList(), emptyList()).toList()
-            assertEquals(1, attempts)
+            assertEquals(expectedLimits, limits)
             val terminal = events.last() as ProviderEvent.Failed
             assertEquals("PARTIAL", terminal.taskOutcome)
             assertEquals(code, terminal.errorCode)

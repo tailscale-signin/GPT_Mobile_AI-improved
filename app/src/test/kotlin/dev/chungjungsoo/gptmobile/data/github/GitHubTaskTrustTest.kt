@@ -300,6 +300,10 @@ class GitHubTaskTrustTest {
         assertEquals(JsonPrimitive("NEW_TASK_REQUIRED"), (saved["execution_ledger"] as JsonObject)["recovery"])
         assertTrue((saved["pending_approvals"] as JsonArray).isNotEmpty())
         assertTrue(saved["stop_reason"] is JsonObject)
+        val runAcceptance = GitHubRunAcceptance.capture(saved, "expired-run", 1, 2, 3)
+        assertEquals(JsonPrimitive("BLOCKED"), runAcceptance["task_state"])
+        assertEquals(JsonPrimitive("BLOCKED"), runAcceptance["task_outcome"])
+        assertEquals(JsonPrimitive("ACCEPTED_TASK_DEADLINE_REACHED"), runAcceptance["stop_code"])
     }
 
     @Test fun expiredRunnerStillDeliversExplicitSavedReportsAndInterruptionExplanations() = runBlocking {

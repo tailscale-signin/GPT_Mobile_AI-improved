@@ -25,7 +25,7 @@ class StagedDiagnosticCaptureHeapTest {
         val heap = Runtime.getRuntime().maxMemory()
         assertTrue("The gate must actually constrain the test JVM to 64 MiB", heap <= 64L * 1024 * 1024)
         val records = 40_000
-        val payload = "a".repeat(8192)
+        val payload = "a".repeat(4096)
         val generatedBytes = records.toLong() * payload.length
         assertTrue("Generated source must be larger than twice the process heap", generatedBytes > heap * 2)
         val directory = temporary.newFolder("capture")
@@ -51,7 +51,7 @@ class StagedDiagnosticCaptureHeapTest {
                 sink.record("{\"profile\":\"redacted\"}")
             }
         )
-        val options = DiagnosticCaptureOptions(maxStageBytes = 384L * 1024 * 1024, maxArchiveBytes = 512L * 1024 * 1024)
+        val options = DiagnosticCaptureOptions(maxStageBytes = 192L * 1024 * 1024, maxArchiveBytes = 256L * 1024 * 1024)
         val first = StagedDiagnosticCapture.capture(directory, "heap-fixture", stages, options)
         assertFalse(first.complete)
         assertEquals(records.toLong() + 3, first.usefulRecords)

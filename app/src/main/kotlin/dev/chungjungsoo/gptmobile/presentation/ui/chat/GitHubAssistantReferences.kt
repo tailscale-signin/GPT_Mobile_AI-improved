@@ -87,7 +87,7 @@ internal fun GitHubAssistantReferenceContext.withReceiptReferences(receipts: Lis
             links[key] = null
         }
     }
-    for (receipt in receipts.asSequence().takeLast(128)) {
+    for (receipt in receipts.takeLast(128)) {
         if (receipt.arguments.length > 8_192 || receipt.result.orEmpty().length > 32_768) continue
         val args = runCatching { Json.parseToJsonElement(receipt.arguments) as? JsonObject }.getOrNull() ?: continue
         val result = runCatching { Json.parseToJsonElement(receipt.result.orEmpty()) as? JsonObject }.getOrNull() ?: JsonObject(emptyMap())

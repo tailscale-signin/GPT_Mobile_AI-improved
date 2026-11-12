@@ -74,8 +74,10 @@
   "publication": {
     "mode": "GUARDED_FAST_FORWARD_ONLY",
     "force": false,
-    "state": "BRANCH_CREATED",
-    "expected_head": "97f10ff7a1f3789fb82d958b2dc6b22c8074dfdf"
+    "state": "SOURCE_PREPARED_FOR_VALIDATION",
+    "code_commit": "1aa56b67e83638c2e946cfa627186fb5cc37e59d",
+    "last_verified_remote_head_before_publication": "97f10ff7a1f3789fb82d958b2dc6b22c8074dfdf",
+    "branch": "fix/session-reliability-reporting-2026-11-12"
   },
   "repair_register": "docs/repairs/session-reliability-reporting-2026-11-12.md",
   "checkpoint_storage": "repository_file"

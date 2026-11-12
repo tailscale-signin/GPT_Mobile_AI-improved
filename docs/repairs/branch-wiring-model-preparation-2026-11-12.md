@@ -138,3 +138,19 @@ does not establish that the user's physical Gateway has been updated, that its
 `qwen3.5-9b` has actually loaded, or that Android native voice/performance behavior
 has been qualified on the user's device. Those execution claims require the
 updated app/Gateway and actual device or host observations.
+
+## Publication identity
+
+The verified source commit is `ba765dbd164ca0773841bac5fd45b1b93d6f8cd3`, built as a
+child of the reconciled remote head
+`50051e4b18daa77b9895989f863de5288cf2b894`. Its complete Git tree,
+`8e64f079266700be9c51a60aba23707e7c71a64a`, exactly matches local publication candidate
+`1a7467b4f384b090794dfdb3ca9784604d27adc0`. Every uploaded blob and the resulting tree
+were checked against their local Git object hashes.
+
+The final metadata-only follow-up points the Gateway manifest to that reachable
+source commit and records this mapping. It changes no production implementation,
+test, or capability fixture. Publication uses a non-forced branch update guarded
+by the expected remote head; concurrent branch advancement requires reconciliation.
+The source tests described above are distinct from the current published head's
+GitHub Actions result, which must be evaluated separately before merge.

@@ -78,6 +78,16 @@
     "target_branch": "fix/voice-chat-crash-and-diagnostics-2026-11-11",
     "force": false,
     "merge_authorized": false,
-    "tested_source_tree_equivalence_required": true
+    "tested_source_tree_equivalence_required": true,
+    "transport": "GITHUB_GIT_DATA_API",
+    "source_commit": "ba765dbd164ca0773841bac5fd45b1b93d6f8cd3",
+    "validated_upload_tree": "8e64f079266700be9c51a60aba23707e7c71a64a",
+    "validated_local_publication_commit": "1a7467b4f384b090794dfdb3ca9784604d27adc0",
+    "source_tree_verified": true,
+    "metadata_followup_files": [
+      "gateway/manifest-v14.json",
+      "docs/repairs/branch-wiring-model-preparation-2026-11-12-task.json",
+      "docs/repairs/branch-wiring-model-preparation-2026-11-12.md"
+    ]
   }
 }

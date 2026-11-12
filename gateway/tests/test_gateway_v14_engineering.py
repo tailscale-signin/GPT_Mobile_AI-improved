@@ -5,7 +5,6 @@ import sys
 import tempfile
 import threading
 import unittest
-import time
 import requests
 from pathlib import Path
 from types import SimpleNamespace
@@ -688,21 +687,26 @@ class DurableEngineeringTests(unittest.TestCase):
     def test_worker_recovers_failed_checkpoint_without_a_client_or_repeated_commit(self):
         job = self.store.create('owner', self.request)
         complete = self.store.complete
+        ready = threading.Event()
         failed = False
-        def save(current, *args, **kwargs):
+
+        def save(current, lease, phase, output, delay=0):
             nonlocal failed
             if current['state'] == 'COMMIT' and not failed:
                 failed = True
                 raise OSError('simulated interrupted journal write')
-            return complete(current, *args, **kwargs)
+            committed = complete(current, lease, phase, output, delay)
+            if committed and phase == 'MERGE_READY':
+                ready.set()
+            return committed
+
         self.store.complete = save
         self.backend.recovered = {'head_sha': 'a' * 40}
         self.service.start()
         try:
-            deadline = time.monotonic() + 5
-            while time.monotonic() < deadline and self.store.get(job['id'])['state'] != 'MERGE_READY':
-                self.service.wake.set()
-                threading.Event().wait(.02)
+            # The worker waits between journal stages. Observe the committed
+            # transition without forcing extra wakeups or racing a state poll.
+            self.assertTrue(ready.wait(30), 'The worker did not commit the recovered MERGE_READY state')
             self.assertEqual('MERGE_READY', self.store.get(job['id'])['state'])
             self.assertEqual(1, self.backend.calls.count('COMMIT'))
             self.assertIn('reconcile:COMMIT', self.backend.calls)

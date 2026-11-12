@@ -9,7 +9,10 @@ import kotlinx.serialization.json.Json
 internal object GatewayCommandReconciliation {
     private const val MARKER = "gateway_command_lookup_v1"
     private const val MAX_DELAY_MILLIS = 300_000L
-    private val json = Json { ignoreUnknownKeys = true }
+    private val json = Json {
+        encodeDefaults = true
+        ignoreUnknownKeys = true
+    }
     val pendingStates = setOf("PENDING", "DISPATCHING", "OUTCOME_UNKNOWN", "MIGRATED_REVIEW", "RESERVED_ORDINARY", "PENDING_ORDINARY", "DISPATCHING_ORDINARY", "PENDING_INSTRUCTION")
 
     @Serializable

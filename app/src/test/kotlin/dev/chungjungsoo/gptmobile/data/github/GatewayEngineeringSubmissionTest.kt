@@ -1,6 +1,8 @@
 package dev.chungjungsoo.gptmobile.data.github
 
 import android.content.Context
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
 import dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationPhase
 import dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationRepository
 import dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationState
@@ -11,10 +13,14 @@ import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import io.mockk.coEvery
 import io.mockk.coVerify
+import io.mockk.every
 import io.mockk.mockk
+import io.mockk.mockkObject
 import io.mockk.slot
+import io.mockk.unmockkObject
 import java.io.IOException
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -22,6 +28,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
@@ -30,6 +37,7 @@ import org.junit.Before
 import org.junit.Test
 
 class GatewayEngineeringSubmissionTest {
+    private val context = mockk<Context>()
     private val settings = mockk<SettingRepository>()
     private val client = mockk<GatewayEngineeringClient>()
     private val store = mockk<GatewayEngineeringStore>()
@@ -39,7 +47,7 @@ class GatewayEngineeringSubmissionTest {
     private val selected = PlatformV2(uid = "execution-profile", name = "Selected inference", compatibleType = ClientType.LLAMA, apiUrl = "http://192.168.1.8:8080/v1", model = "profile-default")
     private val originalGateway = PlatformV2(uid = "original-gateway", name = "Original gateway", compatibleType = ClientType.LLAMA, apiUrl = "http://192.168.1.9:8090/v1", model = "unused")
     private val capability = GatewayEngineeringCapabilities("engineering-gateway", 1, enabled = true, samplingPolicyProtocol = 1, principalId = "owner", gatewayId = "gateway", taskScopeProtocol = 1, taskScopes = listOf("read", "plan", "implement"), conversationSync = true, durableDetach = true, durationHours = listOf(3, 6, 12, 24, 0), executionBudgetLimits = GatewayEngineeringBudget(512, 8_388_608, 256, 256, 900))
-    private fun repository() = GatewayEngineeringRepository(mockk<Context>(), settings, client, mockk(), store, conversations, history, modelPreparation)
+    private fun repository() = GatewayEngineeringRepository(context, settings, client, mockk(), store, conversations, history, modelPreparation)
 
     @Before fun admissionDefaults() {
         coEvery { store.bindings(8) } returns emptyList()
@@ -50,6 +58,19 @@ class GatewayEngineeringSubmissionTest {
         coEvery { history.identity(any()) } returns GatewayScopeIdentity("gateway", "owner")
         coEvery { conversations.requireSavedSelection(any()) } returns Unit
         coEvery { settings.getFeatureSettings() } returns AppFeatureSettings(githubProfileOverrides = mapOf(selected.uid to GitHubChatProfileOverride(githubTools = true)))
+    }
+
+    @After fun releaseWorkManagerFixture() {
+        unmockkObject(WorkManager.Companion)
+    }
+
+    private fun retainExistingObserver() {
+        val manager = mockk<WorkManager>()
+        val observer = mockk<WorkInfo>()
+        mockkObject(WorkManager.Companion)
+        every { WorkManager.getInstance(context) } returns manager
+        every { observer.state } returns WorkInfo.State.RUNNING
+        every { manager.getWorkInfosForUniqueWorkFlow(any()) } returns flowOf(listOf(observer))
     }
 
     @Test fun importedConversationUsesFrozenServerDestinationAndModelWithoutPhoneWorkspace() = runTest {
@@ -185,6 +206,7 @@ class GatewayEngineeringSubmissionTest {
     }
 
     @Test fun repeatedMissingReceiptsAfterDispatchNeverReplayEvenOnExplicitReconnect() = runTest {
+        retainExistingObserver()
         val pending = GatewayEngineeringBinding(originalGateway.uid, originalGateway.apiUrl, GatewayEngineeringRequest("owner/repo", "work", "main", "Original task", selected.model, chatId = 8, requestId = "original-command", profileId = selected.uid), principalId = "owner", gatewayId = "gateway")
         coEvery { store.bindings(null) } returns listOf(pending)
         coEvery { settings.fetchPlatformV2s() } returns listOf(selected, originalGateway)
@@ -288,6 +310,7 @@ class GatewayEngineeringSubmissionTest {
     }
 
     @Test fun lostCreateResponseAndObserverCancellationRecoverAcceptedJobWithoutAnotherPostOrStop() = runTest {
+        retainExistingObserver()
         var binding = retainedBinding()
         val request = binding.request
         var state = "PENDING"

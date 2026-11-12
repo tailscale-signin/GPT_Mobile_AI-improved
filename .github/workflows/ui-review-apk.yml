@@ -16,6 +16,7 @@ concurrency:
   cancel-in-progress: true
 env:
   OBX_DISABLE_ANALYTICS: "true"
+  ISSUE_REPORT_ORIGIN: ${{ vars.ISSUE_REPORT_ORIGIN }}
 jobs:
   apk:
     name: Build draft review APK

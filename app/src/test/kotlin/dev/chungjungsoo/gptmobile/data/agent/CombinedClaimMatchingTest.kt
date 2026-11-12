@@ -9,6 +9,99 @@ import org.junit.Test
 class CombinedClaimMatchingTest {
     private fun source(uid: String, text: String) = CombinedModelResponse(uid, uid, content = text)
 
+    @Test fun reversedOrMissingParticipantsCannotEstablishExactOrParaphraseCoverage() {
+        val original = "Northwind acquired Contoso after lengthy regulatory negotiations."
+        val changes = listOf(
+            "Contoso acquired Northwind after lengthy regulatory negotiations.",
+            "Northwind was acquired by Contoso after lengthy regulatory negotiations.",
+            "Contoso was acquired after lengthy regulatory negotiations.",
+            "Northwind acquired after lengthy regulatory negotiations."
+        )
+        for (changed in changes) {
+            assertEquals(changed, CombinedClaimMatcher.Match.NONE, CombinedClaimMatcher.match(original, changed))
+            assertEquals(changed, CombinedClaimMatcher.Match.NONE, CombinedClaimMatcher.match(CombinedClaimMatcher.fingerprint(original), CombinedClaimMatcher.fingerprint(changed)))
+            assertEquals(changed, CombinedClaimMatcher.Match.NONE, CombinedClaimMatcher.match(CombinedClaimMatcher.prepare(original), CombinedClaimMatcher.prepare(changed)))
+            assertFalse(changed, CombinedContentCoverage(listOf(source("one", original))).check(changed).accepted)
+            assertTrue(changed, combinedWordingSpans(changed, listOf(source("one", original))).isEmpty())
+        }
+        // An unsupported alignment is not itself proof that either event never happened.
+        assertFalse(CombinedClaimMatcher.possibleConflict(CombinedClaimMatcher.fingerprint(original), CombinedClaimMatcher.fingerprint(changes.first())))
+    }
+
+    @Test fun activeAndPassiveWordingWithTheSameParticipantsRemainLinked() {
+        val pairs = listOf(
+            "Northwind acquired Contoso after lengthy regulatory negotiations." to "Contoso was acquired by Northwind after lengthy regulatory negotiations.",
+            "Northwind never acquired Contoso after lengthy regulatory negotiations." to "Contoso was never acquired by Northwind after lengthy regulatory negotiations.",
+            "The silver mines of Athens financed construction of naval ships." to "Silver mines funded Athenian ships.",
+            "The regional council funded the village library after lengthy public negotiations." to "The village library was funded by the regional council after lengthy public negotiations."
+        )
+        for ((original, rewritten) in pairs) {
+            assertTrue(rewritten, CombinedClaimMatcher.match(original, rewritten) >= CombinedClaimMatcher.Match.PARAPHRASE)
+            assertTrue(rewritten, CombinedClaimMatcher.match(CombinedClaimMatcher.fingerprint(original), CombinedClaimMatcher.fingerprint(rewritten)) >= CombinedClaimMatcher.Match.PARAPHRASE)
+            assertTrue(rewritten, CombinedClaimMatcher.match(CombinedClaimMatcher.prepare(original), CombinedClaimMatcher.prepare(rewritten)) >= CombinedClaimMatcher.Match.PARAPHRASE)
+            assertTrue(rewritten, CombinedContentCoverage(listOf(source("one", original))).check(rewritten).accepted)
+        }
+        assertTrue(CombinedClaimMatcher.match(pairs.first().second, pairs.first().first) >= CombinedClaimMatcher.Match.PARAPHRASE)
+    }
+
+    @Test fun ambiguousRolesAndDroppedCoParticipantsRemainUnresolved() {
+        val pairs = listOf(
+            "Northwind never acquired Contoso after lengthy regulatory negotiations." to "Northwind was never acquired by Contoso after lengthy regulatory negotiations.",
+            "Northwind did not acquire Contoso after lengthy regulatory negotiations." to "Northwind was not acquired by Contoso after lengthy regulatory negotiations.",
+            "Northwind and Fabrikam acquired Contoso after lengthy regulatory negotiations." to "Northwind acquired Contoso after lengthy regulatory negotiations.",
+            "Northwind acquired Contoso and Fabrikam after lengthy regulatory negotiations." to "Northwind acquired Contoso after lengthy regulatory negotiations.",
+            "Northwind Corporation and Fabrikam Corporation acquired Contoso after lengthy regulatory negotiations." to "Northwind Corporation acquired Contoso after lengthy regulatory negotiations.",
+            "Northwind acquired Contoso Corporation and Fabrikam Corporation after lengthy regulatory negotiations." to "Northwind acquired Contoso Corporation after lengthy regulatory negotiations.",
+            "Northwind acquired Contoso after approval from the pension fund." to "Contoso acquired Northwind after approval from the pension fund.",
+            "Northwind, a software company, acquired Contoso after lengthy regulatory negotiations." to "Contoso, a software company, acquired Northwind after lengthy regulatory negotiations."
+        )
+        for ((original, changed) in pairs) {
+            assertEquals(changed, CombinedClaimMatcher.Match.NONE, CombinedClaimMatcher.match(original, changed))
+            assertEquals(changed, CombinedClaimMatcher.Match.NONE, CombinedClaimMatcher.match(CombinedClaimMatcher.fingerprint(original), CombinedClaimMatcher.fingerprint(changed)))
+            assertEquals(changed, CombinedClaimMatcher.Match.NONE, CombinedClaimMatcher.match(CombinedClaimMatcher.prepare(original), CombinedClaimMatcher.prepare(changed)))
+            assertFalse(changed, CombinedContentCoverage(listOf(source("one", original))).check(changed).accepted)
+            assertEquals(CombinedClaimMatcher.Match.EXACT, CombinedClaimMatcher.match(original, original))
+        }
+    }
+
+    @Test fun independentAnswerClausesPreserveValidRelationsWithoutRestoringReversedOnes() {
+        val original = "Northwind acquired Contoso after lengthy regulatory negotiations."
+        val suffix = " The regional council funded the village library after public consultation."
+        for (answer in listOf(original + suffix, "Contoso was acquired by Northwind after lengthy regulatory negotiations." + suffix)) {
+            assertTrue(answer, CombinedClaimMatcher.match(original, answer) >= CombinedClaimMatcher.Match.PARAPHRASE)
+            assertTrue(answer, CombinedClaimMatcher.match(CombinedClaimMatcher.prepare(original), CombinedClaimMatcher.prepare(answer)) >= CombinedClaimMatcher.Match.PARAPHRASE)
+            assertTrue(answer, CombinedContentCoverage(listOf(source("one", original))).check(answer).accepted)
+        }
+        for (answer in listOf("Contoso acquired Northwind after lengthy regulatory negotiations." + suffix, "Northwind was acquired by Contoso after lengthy regulatory negotiations." + suffix)) {
+            assertEquals(answer, CombinedClaimMatcher.Match.NONE, CombinedClaimMatcher.match(original, answer))
+            assertEquals(answer, CombinedClaimMatcher.Match.NONE, CombinedClaimMatcher.match(CombinedClaimMatcher.prepare(original), CombinedClaimMatcher.prepare(answer)))
+            assertFalse(answer, CombinedContentCoverage(listOf(source("one", original))).check(answer).accepted)
+        }
+    }
+
+    @Test fun retainedEvidenceAndDisputedDeclarationsCannotCertifyReversedParticipants() {
+        val original = "Northwind acquired Contoso after lengthy regulatory negotiations."
+        val reversed = "Contoso acquired Northwind after lengthy regulatory negotiations."
+        val evidence = CombinedEvidenceLedger(listOf(CombinedEvidenceRecord("E1", "https://example.org/transaction", passage = original, retrieval = "READABLE_PASSAGE")))
+        assertEquals("CITED_UNVERIFIED", CombinedEvidenceVerifier.assess("claim", reversed, evidence, setOf("E1")).result)
+        assertEquals("TEXT_SUPPORTED_WITH_LIMITS", CombinedEvidenceVerifier.assess("claim", "Contoso was acquired by Northwind after lengthy regulatory negotiations.", evidence, setOf("E1")).result)
+
+        fun check(text: String) = CombinedFinalCheck.check(
+            text,
+            listOf(source("one", original)),
+            evidence,
+            CombinedAnswerPolicy(),
+            declarations = listOf(CombinedClaimReview("C1.1", "DISPUTED", "An attributed account requires qualification.")),
+            revisionId = "report-revision"
+        )
+        val rejected = check(reversed.removeSuffix(".") + ", as reported.")
+        assertEquals("UNRESOLVED", rejected.decisions.single().disposition)
+        assertTrue(rejected.checks.any { it.id.startsWith("SEMANTIC_CONTRIBUTION_UNRESOLVED:") })
+        val retained = check("Contoso was acquired by Northwind after lengthy regulatory negotiations, as reported.")
+        assertEquals("DISPUTED", retained.decisions.single().disposition)
+        assertTrue(retained.decisions.single().finalSpans.isNotEmpty())
+    }
+
     @Test fun conflictScanReusesClauseFingerprintsWithoutChangingDecisions() {
         val first = CombinedClaimMatcher.fingerprint("The council approved 12 houses in 1930.").copy(
             eventClauses = listOf("The council approved 12 houses in 1930.", "The committee approved 14 schools in 1931.")

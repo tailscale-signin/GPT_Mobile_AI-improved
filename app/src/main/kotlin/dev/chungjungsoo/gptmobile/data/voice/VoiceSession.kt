@@ -159,7 +159,7 @@ class VoiceSession(
     }
 
     fun permissionDenied() {
-        fail("Microphone access is off. Allow it in Android app permissions to use voice chat.", "VOICE_MICROPHONE_PERMISSION_REQUIRED")
+        fail("Microphone access is off. Allow it in Android app permissions to use voice chat.", "VOICE_MICROPHONE_PERMISSION_REQUIRED", failureFields = mapOf("failed_stage" to "voice_capture", "operation" to "voice_capture", "recovery_action" to "MICROPHONE_PERMISSION", "dispatched" to false))
         update(state.copy(recoveryAction = VoiceRecoveryAction.MICROPHONE_PERMISSION))
     }
 
@@ -176,13 +176,22 @@ class VoiceSession(
         engaged = true
         reply("replay:$generation", state.reply)
     }
-    private fun update(next: VoiceState, errorCode: String = "VOICE_SESSION_FAILED", error: Throwable? = null, reportFailure: Boolean = true) {
+    private fun update(next: VoiceState, errorCode: String = "VOICE_SESSION_FAILED", error: Throwable? = null, reportFailure: Boolean = true, failureFields: Map<String, Any?> = emptyMap()) {
         if (reportFailure && next.phase == VoicePhase.ERROR && state.phase != VoicePhase.ERROR) {
-            IssueReportIncidents.failure(ReportFeature.VOICE, errorCode, error)
+            IssueReportIncidents.failure(ReportFeature.VOICE, errorCode, error, voiceFailureFields() + failureFields, "VOICE_STATE")
         }
         state = next.copy(awaitingReply = waiting, hasDraft = draftPending)
         mutableState.value = state
         changed(state)
+    }
+    private fun voiceFailureFields(): Map<String, Any?> {
+        val operation = when (state.phase) {
+            VoicePhase.STARTING -> "voice_capture"
+            VoicePhase.LISTENING, VoicePhase.FINALIZING -> "voice_recognition"
+            VoicePhase.SPEAKING -> "voice_playback"
+            else -> null
+        }
+        return mapOf("failed_stage" to operation, "operation" to operation)
     }
     private fun stopAudio() {
         generation++
@@ -252,7 +261,7 @@ class VoiceSession(
         ) {
             if (!valid()) return
             val retry = retryable && recoveryAction == null && autoContinue && !state.muted && ++recognitionFailures <= 3
-            fail(message, code, cause)
+            fail(message, code, cause, mapOf("failed_stage" to "voice_recognition", "operation" to "voice_recognition", "retry_after_ms" to retryMillis, "retryable" to retryable, "recovery_action" to recoveryAction?.name))
             // Partial speech is user input, not a disposable failed attempt.
             automaticRetry = retry && !draftPending
             update(state.copy(retryAtMillis = now() + if (retryable) maxOf(500, retryMillis) else retryMillis, recoveryAction = recoveryAction))
@@ -390,7 +399,7 @@ class VoiceSession(
         automaticRetry = false
         if (streamComplete) waiting = false
         if (waiting) {
-            IssueReportIncidents.failure(ReportFeature.VOICE, "VOICE_PLAYBACK_FAILED")
+            IssueReportIncidents.failure(ReportFeature.VOICE, "VOICE_PLAYBACK_FAILED", null, mapOf("failed_stage" to "voice_playback", "operation" to "voice_playback"), "VOICE_STATE")
         }
         update(state.copy(phase = if (waiting) VoicePhase.THINKING else VoicePhase.ERROR, notice = message, level = 0f), "VOICE_PLAYBACK_FAILED")
     }
@@ -485,14 +494,14 @@ class VoiceSession(
         recognitionFailures = 0
         update(state.copy(retryAtMillis = 0, notice = null, recoveryAction = null))
     }
-    fun fail(message: String, code: String = "VOICE_SESSION_FAILED", cause: Throwable? = null) {
+    fun fail(message: String, code: String = "VOICE_SESSION_FAILED", cause: Throwable? = null, failureFields: Map<String, Any?> = emptyMap()) {
         if (state.phase == VoicePhase.CLOSED) return
         if (state.phase in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING) && state.transcript.isNotBlank()) draftPending = true
         engaged = false
         automaticRetry = false
         stopAudio()
         waiting = false
-        update(state.copy(phase = VoicePhase.ERROR, level = 0f, notice = message, recoveryAction = null), code, cause)
+        update(state.copy(phase = VoicePhase.ERROR, level = 0f, notice = message, recoveryAction = null), code, cause, failureFields = failureFields)
     }
     fun close() {
         if (state.phase == VoicePhase.CLOSED) return

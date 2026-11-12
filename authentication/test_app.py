@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 from authentication.app import create_app
 from authentication.github_broker import Config, challenge_for
 from authentication.issue_report_app import create_app as create_report_app
-from authentication.issue_reports import ERROR_CODES, GitHubIssuePublisher, GitHubRequestError, IssueReporter, REPOSITORY, ReportError, issue_from_report, marker
+from authentication.issue_reports import CONTEXT_FIELDS, CONTEXT_SELECTION_FIELDS, ERROR_CODES, GitHubIssuePublisher, GitHubRequestError, IssueReporter, REPOSITORY, ReportError, issue_from_report, marker
 
 
 class HttpBoundaryTest(unittest.TestCase):
@@ -99,12 +99,164 @@ class IssueReportHttpTest(unittest.TestCase):
         return {**self.metadata(), "source": "manual", "title": "Voice playback stopped",
                 "description": "Playback stopped when opening Voice Chat."}
 
+    def context(self, **observed):
+        result = {"schemaVersion": 1, "occurredAtMillis": self.now * 1000, "source": "CHAT_FAILURE", **observed}
+        result["unavailableFields"] = sorted(CONTEXT_FIELDS - result.keys())
+        return result
+
+    def test_readiness_adds_context_capability_without_changing_legacy_service_identity(self):
+        response = self.client.get("/health/ready")
+        self.assertEqual(200, response.status_code)
+        self.assertEqual({"service": "gpt-mobile-issue-reporter", "version": 1},
+                         {key: response.json()[key] for key in ("service", "version")})
+        self.assertEqual([1], response.json()["reportContextVersions"])
+        self.assertEqual("no-store", response.headers["cache-control"])
+        self.assertFalse(self.issued)
+        # Old clients may continue posting their original reports without a
+        # capability negotiation or a synthetic empty context object.
+        self.assertEqual(200, self.submit(self.manual()).status_code)
+
+    def test_versioned_context_keeps_causal_facts_and_explicit_unavailable_fields(self):
+        context = self.context(stage="provider_admission", provider="LLAMA", httpStatus=409, dispatched=False,
+                               retryable=False, resumeAllowed=False, remoteAcceptance="NO",
+                               reasonCode="SELECTION_SCHEMA_INVALID", missingFields=["tool_owner", "required_capability_policy"],
+                               runIdHash="a" * 64, invocationIdHash="b" * 64)
+        report = {**self.metadata(), "source": "debug", "feature": "gateway", "errorCode": "EXECUTION_SELECTION_INVALID", "context": context}
+        response = self.submit(report)
+        self.assertEqual(200, response.status_code)
+        self.assertEqual({"reportId": report["reportId"], "number": 42}, response.json())
+        body = self.issued[0]["body"]
+        for rendered in (
+            "| Capture source | `CHAT_FAILURE` |",
+            "| Failure stage | `provider_admission` |",
+            "| Provider family | `LLAMA` |",
+            "| HTTP status | `409` |",
+            "| Dispatched | `false` |",
+            "| Remote acceptance | `NO` |",
+            "| Reason code | `SELECTION_SCHEMA_INVALID` |",
+            "| Missing selection fields | `required_capability_policy, tool_owner` |",
+            "| Run identity SHA-256 | `" + "a" * 64 + "` |",
+        ):
+            self.assertIn(rendered, body)
+        self.assertIn("Unavailable fields: `activeJobIdHash`, `callIdHash`, `exceptionFingerprint`, `invalidFields`, `jobIdHash`, `jobState`, `operation`, `recoveryAction`, `requiresReconciliation`, `retryAfterMillis`.", body)
+        self.assertIn("absence does not establish success, non-dispatch, or permission to retry", body)
+        self.assertNotIn("| Reported job identity", body)
+        self.assertNotIn(context["runIdHash"].encode(), self.database.read_bytes())
+
+    def test_active_job_context_does_not_invent_a_current_request_job_receipt(self):
+        context = self.context(stage="conversation_admission", provider="LLAMA", httpStatus=409, dispatched=False,
+                               retryable=False, resumeAllowed=False, activeJobIdHash="a" * 64,
+                               jobState="WAITING_FOR_CLIENT_TOOL", recoveryAction="RETURN_CLIENT_TOOL_RESULTS")
+        report = {**self.metadata(), "source": "debug", "feature": "gateway", "errorCode": "CONVERSATION_CONFLICT", "context": context}
+        self.assertEqual(200, self.submit(report).status_code)
+        body = self.issued[0]["body"]
+        self.assertIn("| Failure stage | `conversation_admission` |", body)
+        self.assertIn("| Active job identity SHA-256 | `" + "a" * 64 + "` |", body)
+        self.assertIn("| Reported job state | `WAITING_FOR_CLIENT_TOOL` |", body)
+        self.assertIn("| Recovery action | `RETURN_CLIENT_TOOL_RESULTS` |", body)
+        self.assertNotIn("| Reported job identity", body)
+        self.assertIn("`jobIdHash`", body.split("Unavailable fields:", 1)[1])
+
+    def test_context_never_accepts_private_values_unknown_fields_or_ambiguous_types(self):
+        context = self.context(stage="tool_execution")
+        changes = (
+            {"rawMessage": "private-content"}, {"schemaVersion": True}, {"schemaVersion": 2},
+            {"source": "private-content"}, {"occurredAtMillis": 0}, {"occurredAtMillis": True},
+            {"occurredAtMillis": 10_000_000_000_000}, {"stage": "private-content"},
+            {"provider": "private-model"}, {"operation": "private-tool"}, {"httpStatus": True},
+            {"httpStatus": 99}, {"httpStatus": 600}, {"retryAfterMillis": -1}, {"retryAfterMillis": 86_400_001},
+            {"retryAfterMillis": 1.5}, {"dispatched": "false"}, {"retryable": 1}, {"resumeAllowed": None},
+            {"requiresReconciliation": 0}, {"remoteAcceptance": "ACCEPTED"}, {"jobState": "private-job"},
+            {"recoveryAction": "REPLAY_MUTATION"}, {"reasonCode": "private-content"},
+            {"missingFields": ["private-field"]}, {"invalidFields": ["tool_owner", "tool_owner"]},
+            {"runIdHash": "private-id"}, {"activeJobIdHash": "A" * 64}, {"exceptionFingerprint": "x" * 64},
+            {"unavailableFields": []}, {"unavailableFields": context["unavailableFields"] + ["stage"]},
+            {"unavailableFields": context["unavailableFields"] + context["unavailableFields"][:1]},
+        )
+        for change in changes:
+            with self.subTest(change=change):
+                candidate = {**context, **change}
+                if "unavailableFields" not in change:
+                    candidate["unavailableFields"] = sorted(CONTEXT_FIELDS - candidate.keys())
+                response = self.submit({**self.manual(), "context": candidate})
+                self.assertEqual(422, response.status_code)
+                self.assertEqual({"error": "INVALID_REPORT"}, response.json())
+                self.assertNotIn("private", response.text)
+        self.assertFalse(self.issued)
+
+    def test_existing_voice_recovery_actions_keep_the_recorded_guidance(self):
+        for action, code in (("SPEECH_SERVICE", "VOICE_RECOGNIZER_UNAVAILABLE"),
+                             ("SPEECH_LANGUAGE", "VOICE_RECOGNIZER_LANGUAGE_UNAVAILABLE"),
+                             ("LOCAL_MODEL", "VOICE_MODEL_REQUIRED")):
+            with self.subTest(action=action):
+                report = {**self.metadata(), "source": "debug", "feature": "voice", "errorCode": code,
+                          "context": self.context(source="VOICE_STATE", stage="voice_recognition", operation="voice_recognition",
+                                                  recoveryAction=action, retryAfterMillis=2000)}
+                self.assertEqual(200, self.submit(report).status_code)
+                self.assertIn("| Capture source | `VOICE_STATE` |", self.issued[-1]["body"])
+                self.assertIn(f"| Recovery action | `{action}` |", self.issued[-1]["body"])
+                self.assertIn("| Retry delay (ms) | `2000` |", self.issued[-1]["body"])
+
+    def test_known_custom_and_local_client_families_do_not_require_private_model_names(self):
+        for provider in ("CUSTOM", "LITERT_LM", "FREE", "NVIDIA"):
+            with self.subTest(provider=provider):
+                report = {**self.metadata(), "source": "debug", "feature": "chat", "errorCode": "CHAT_FAILED",
+                          "context": self.context(provider=provider, stage="provider_generation")}
+                self.assertEqual(200, self.submit(report).status_code)
+                self.assertIn(f"| Provider family | `{provider}` |", self.issued[-1]["body"])
+
+    def test_context_retry_reconciles_same_report_after_lost_receipt_without_new_issue(self):
+        report = {**self.manual(), "context": self.context(source="MANUAL_REPORT", stage="voice_playback", operation="voice_playback")}
+        self.publish_error = GitHubRequestError()
+        self.assertEqual("AWAITING_GITHUB_RECEIPT", self.submit(report).json()["error"])
+        self.now += 121
+        self.found = 77
+        restarted = IssueReporter(self.database, self, lambda: self.now)
+        reordered = {**report, "context": {**report["context"], "unavailableFields": list(reversed(report["context"]["unavailableFields"]))}}
+        self.assertEqual(77, restarted.submit(reordered, "another-network"))
+        self.assertEqual({"reportId": report["reportId"], "number": 77}, self.submit(report).json())
+        self.assertEqual(1, len(self.issued))
+        changed = {**report, "context": self.context(source="MANUAL_REPORT", stage="voice_recognition", operation="voice_recognition")}
+        self.assertEqual(409, self.submit(changed).status_code)
+        self.assertEqual(1, len(self.issued))
+
+    def test_legacy_report_body_remains_identical_for_existing_queued_report_digests(self):
+        report = self.manual()
+        report_id, issue = issue_from_report(report)
+        self.assertEqual(report["reportId"], report_id)
+        self.assertEqual({
+            "title": "Voice playback stopped",
+            "body": "### What happened\n\n    Playback stopped when opening Voice Chat."
+                    "\n\n### App and device\n\n- App 0.9.66.7 (build 141, commit `af658d8`)"
+                    "\n- Android 16 (API 36) · ASUS ROG Phone 9\n\n" + marker(report_id),
+        }, issue)
+
+    def test_maximal_context_and_unicode_manual_text_fit_the_unchanged_byte_limit(self):
+        context = self.context(
+            source="MANUAL_REPORT", stage="conversation_admission", provider="OPENROUTER", operation="github_engineering",
+            httpStatus=599, retryAfterMillis=86_400_000, dispatched=True, retryable=False, resumeAllowed=False,
+            requiresReconciliation=True, remoteAcceptance="UNKNOWN", jobState="WAITING_FOR_CLIENT_TOOL",
+            recoveryAction="RECONCILE_ACTIVE_GATEWAY_JOB", reasonCode="SELECTION_CREDENTIAL_REFERENCE_INVALID",
+            missingFields=sorted(CONTEXT_SELECTION_FIELDS), invalidFields=sorted(CONTEXT_SELECTION_FIELDS),
+            runIdHash="a" * 64, invocationIdHash="b" * 64, callIdHash="c" * 64,
+            jobIdHash="d" * 64, activeJobIdHash="e" * 64, exceptionFingerprint="f" * 64,
+        )
+        report = {**self.manual(), "title": "漢" * 120, "description": "漢" * 1200, "context": context,
+                  "version": "v" * 48, "commit": "a" * 40, "android": "a" * 48, "device": "d" * 80,
+                  "build": 2_147_483_647, "sdk": 999,
+                  "events": ["-99999ms E gateway " + max(ERROR_CODES, key=len)] * 16}
+        payload = json.dumps(report, ensure_ascii=False, separators=(",", ":")).encode()
+        self.assertLessEqual(len(payload), 8192)
+        response = self.client.post("/v1/issue-reports", content=payload, headers={"Content-Type": "application/json"})
+        self.assertEqual(200, response.status_code)
+        self.assertIn("Unavailable fields: none declared by this capture.", self.issued[0]["body"])
+
     def test_manual_report_and_retry_return_the_same_issue_after_restart(self):
         report = self.manual()
         report["description"] += "\nBearer placeholder-secret-value\n@someone\n" + marker(str(uuid4()))
         response = self.submit(report)
         self.assertEqual(200, response.status_code)
-        self.assertEqual({"number": 42}, response.json())
+        self.assertEqual({"reportId": report["reportId"], "number": 42}, response.json())
         self.assertEqual("no-store", response.headers["cache-control"])
         restarted = IssueReporter(self.database, self, lambda: self.now)
         self.assertEqual(42, restarted.submit(report, "different-network"))

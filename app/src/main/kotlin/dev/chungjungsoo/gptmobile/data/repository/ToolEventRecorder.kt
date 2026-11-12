@@ -167,7 +167,26 @@ class ToolEventRecorder @Inject constructor(
                 (normalizedResult.executionReceipt?.let { " · executionReceipt=$it · causalIncidentId=${(it["incident_id"] as? JsonPrimitive)?.content.orEmpty()}" }.orEmpty()) +
                 if (normalizedResult.isError) " · diagnosticPayloadRef=toolEvent:$eventId · displayPreviewTruncated=${safeError.orEmpty().length > 240} · reasonPreview=${dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor.redact(safeError.orEmpty()).take(240)}" else "",
             if (normalizedResult.isError) "E" else "I",
-            reportCode = normalizedResult.errorCode.takeUnless { healthEvent }
+            reportCode = normalizedResult.errorCode.takeUnless { healthEvent },
+            reportFields = if (healthEvent) {
+                emptyMap()
+            } else {
+                buildMap<String, Any?> {
+                    putAll(normalizedResult.executionReceipt.orEmpty().filterKeys { it !in setOf("run_id", "runId", "call_id", "callId", "toolCallId", "tool", "tool_name", "operation", "retryable", "requires_reconciliation") })
+                    // These identities belong to the recorded call, never a provider-supplied replacement.
+                    put("run_id", startedEvent?.runId)
+                    put("call_id", normalizedResult.callId)
+                    put("tool", startedEvent?.modelToolName)
+                    put("dispatched", normalizedResult.dispatched)
+                    result.executionReceipt?.get("retryable")?.let { put("retryable", it) }
+                    if (normalizedResult.errorCode in dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.unknownOutcomeCodes) {
+                        put("requires_reconciliation", true)
+                    } else {
+                        result.executionReceipt?.get("requires_reconciliation")?.let { put("requires_reconciliation", it) }
+                    }
+                }
+            },
+            reportSource = "TOOL_RESULT"
         )
         return dao.getToolEventById(eventId)
     }

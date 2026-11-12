@@ -196,6 +196,30 @@ internal suspend fun writeStagedChatDiagnostics(
                     },
                     evidence = false
                 )
+                authorized()
+                sink.checkBudget()
+                val reportCorrelations = try {
+                    dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidents.correlationSnapshot()
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    sink.omit("ISSUE_REPORT_CORRELATION_UNAVAILABLE")
+                    null
+                }
+                sink.emit(
+                    buildJsonObject {
+                        put("kind", "issue_report_correlation_metadata")
+                        put("status", if (reportCorrelations == null) "UNAVAILABLE" else "AVAILABLE")
+                        reportCorrelations?.let { put("retainedReports", it.size) }
+                        put("scope", "Recent app-wide report identities. Only an exact context identifier hash joins a report to this conversation; time proximity does not establish a shared failure.")
+                    },
+                    evidence = false
+                )
+                reportCorrelations.orEmpty().forEach { correlation ->
+                    authorized()
+                    sink.checkBudget()
+                    sink.emit(correlation, evidence = false)
+                }
                 database.capture(room.id, "latest_state", maximumCharacters, {
                     authorized()
                     sink.checkBudget()
@@ -217,6 +241,7 @@ internal suspend fun writeStagedChatDiagnostics(
                         put("recordChunking", "diagnostic_record_chunk records reassemble by recordId/chunkIndex; verify each chunkSha256 and the recordSha256 over concatenated UTF-8 content before parsing JSON.")
                         put("captureParts", "All chunks of a logical record stay in one archive part. Resume advances frozen database table cursors and references earlier archive/section digests; retain previous parts to reconstruct complete captured history.")
                         put("timelineKeys", "Journal eventId/runId/invocationId and database run_id/parentRunId/call_id join source records. Sequence orders each journal stream; stage intervals qualify cross-section comparisons.")
+                        put("issueReportCorrelation", "latest-state.jsonl retains public reportId values independently of app-log recording. Context IDs use SHA256 of UTF-8 gptmobile.issue-context.v1:<kind>:<raw-id>, where kind is run, invocation, call, or job. activeJobIdHash identifies a blocker, not ownership. Context source and unavailableFields distinguish retained evidence from absent facts; MANUAL_REPORT time is report creation, not an inferred incident time.")
                         put("drawTimingScope", "Measured FIRST_VISIBLE_TEXT records observe Compose drawContent completion for the owned run/fence/part, with outputOrigin, processSession and monotonicNanos. Exact-byte provenance may link a model invocation; provider-to-draw timing requires MODEL_TEXT plus matching INVOCATION_STARTED and FIRST_TEXT in the same process. System errors, progress notices and ambiguous output are not provider latency. Draw completion does not confirm display presentation; per-HTTP first_ui_paint_ms remains unmeasured without explicit lineage.")
                         put("sourceDigests", "Record digests describe their original stored representations. Credential redaction can change text; stage file hashes certify the bytes in this export.")
                         put("logSnapshotScope", "Logs are frozen independently per log section and capture session, then retained for interrupted stages. Resume does not replace captured evidence after ring rotation. Start a new capture to collect newer logs.")

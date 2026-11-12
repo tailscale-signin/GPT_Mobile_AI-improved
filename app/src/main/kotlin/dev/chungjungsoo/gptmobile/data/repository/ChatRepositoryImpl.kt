@@ -6095,7 +6095,7 @@ class ChatRepositoryImpl(
                     is ProviderEvent.Failed -> {
                         val recovery = if (runId.startsWith("combined-synthesis:")) dev.chungjungsoo.gptmobile.data.agent.CombinedRecoveryFailure.from(providerEvent) else null
                         recovery?.let { dev.chungjungsoo.gptmobile.data.agent.CombinedWriterObservations.recordFailure(observationKey, it.category) }
-                        emit(ApiState.Error(providerEvent.message, providerEvent.progressDeadline, combinedFailure = recovery, providerLimit = providerEvent.providerLimit?.bindAuthority(dispatchAuthority), errorCode = providerEvent.errorCode, taskOutcome = providerEvent.taskOutcome, failureDetails = providerEvent.failureDetails, invocationId = providerEvent.invocationId))
+                        emit(ApiState.Error(providerEvent.message, providerEvent.progressDeadline, combinedFailure = recovery, providerLimit = providerEvent.providerLimit?.bindAuthority(dispatchAuthority), errorCode = providerEvent.errorCode, taskOutcome = providerEvent.taskOutcome, failureDetails = kotlinx.serialization.json.JsonObject(providerEvent.failureDetails.orEmpty() + mapOf("run_id" to kotlinx.serialization.json.JsonPrimitive(runId), "provider_kind" to kotlinx.serialization.json.JsonPrimitive(platform.compatibleType.name))), invocationId = providerEvent.invocationId))
                     }
                     is ProviderEvent.Notice -> emit(ApiState.Notice(providerEvent.message, providerEvent.persistent, providerEvent.researchDelivery))
                     is ProviderEvent.PhaseChanged -> {

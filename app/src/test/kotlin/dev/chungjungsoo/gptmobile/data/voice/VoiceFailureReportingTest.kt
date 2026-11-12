@@ -57,6 +57,10 @@ class VoiceFailureReportingTest {
         val report = IssueReportIncidents.pending.value.single()
         assertEquals("VOICE_RECOGNIZER_UNAVAILABLE", report.errorCode)
         assertEquals("UnsatisfiedLinkError", report.errorType)
+        assertEquals("VOICE_STATE", report.context?.source)
+        assertEquals("voice_recognition", report.context?.stage)
+        assertEquals("voice_recognition", report.context?.operation)
+        assertEquals("LOCAL_MODEL", report.context?.recoveryAction)
         assertEquals(listOf("dev.chungjungsoo.gptmobile.data.voice.MoonshineVoiceRecognizer.recognizeExclusive:200"), report.frames)
         assertFalse(report.events.any { "VOICE_SESSION_FAILED" in it })
         assertFalse(IssueReport.json.encodeToString(IssueReport.serializer(), report).contains("private native library path"))
@@ -87,6 +91,8 @@ class VoiceFailureReportingTest {
             recoveryAction = VoiceRecoveryAction.SPEECH_SERVICE
         )
         val originalReport = IssueReportIncidents.pending.value.single()
+        assertEquals(15_000L, originalReport.context?.retryAfterMillis)
+        assertEquals("SPEECH_SERVICE", originalReport.context?.recoveryAction)
         repeat(3) {
             session.pause()
             session.resume()
@@ -125,6 +131,7 @@ class VoiceFailureReportingTest {
         playbackError("A stale duplicate failure")
         val report = IssueReportIncidents.pending.value.single()
         assertEquals("VOICE_PLAYBACK_FAILED", report.errorCode)
+        assertEquals("voice_playback", report.context?.stage)
         assertFalse(report.events.any { "VOICE_SESSION_FAILED" in it })
         assertEquals("The complete answer remains available.", session.state.reply)
         assertEquals(VoicePhase.ERROR, session.state.phase)

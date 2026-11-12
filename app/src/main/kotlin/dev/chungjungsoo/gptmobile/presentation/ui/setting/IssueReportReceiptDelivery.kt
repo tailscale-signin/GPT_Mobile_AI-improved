@@ -2,21 +2,21 @@ package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
 import kotlinx.coroutines.CancellationException
 
-/** Return only after an opened draft or explicit dismissal; cancellation leaves the receipt pending. */
-internal suspend fun offerIssueReportFallback(
-    url: String,
-    prompt: suspend (browserUnavailable: Boolean) -> Boolean,
-    openUri: (String) -> Unit
+/** An explicit Retry reuses the approved outbox entry; cancellation leaves its receipt pending. */
+internal suspend fun offerIssueReportRetry(
+    reportId: String,
+    prompt: suspend (retryUnavailable: Boolean) -> Boolean,
+    retry: suspend (String) -> Boolean
 ) {
-    var browserUnavailable = false
-    while (prompt(browserUnavailable)) {
+    var retryUnavailable = false
+    while (prompt(retryUnavailable)) {
         try {
-            openUri(url)
-            return
+            if (retry(reportId)) return
+            retryUnavailable = true
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
-            browserUnavailable = true
+            retryUnavailable = true
         }
     }
 }

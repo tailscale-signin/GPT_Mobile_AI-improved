@@ -148,7 +148,9 @@ internal object CombinedFinalCheck {
                             sourceAssessments[claim.id]?.result == "CONFLICTING_PASSAGES" &&
                             CombinedEvidenceVerifier.assess(claim.id, text, evidence).result == "TEXT_SUPPORTED_WITH_LIMITS"
                     } else {
-                        aligned && Regex("(?i)\\b(?:disputed|claims?|asserted|reported|disagree|contradict|uncertain)\\b").containsMatchIn(text)
+                        aligned &&
+                            CombinedClaimMatcher.relationRolesCompatible(CombinedClaimMatcher.fingerprint(claim.proposition), CombinedClaimMatcher.fingerprint(text)) &&
+                            Regex("(?i)\\b(?:disputed|claims?|asserted|reported|disagree|contradict|uncertain)\\b").containsMatchIn(text)
                     }
                 }.map { it.second }
             } else {

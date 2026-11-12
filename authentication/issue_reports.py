@@ -219,6 +219,43 @@ SECRET = re.compile(
 )
 RETRY_LEASE = 120
 ADMISSION_WINDOW = 600
+CONTEXT_ENUMS = {
+    "source": {"CHAT_FAILURE", "STRUCTURED_EVENT", "TOOL_RESULT", "VOICE_STATE", "EXCEPTION", "PROCESS_EXIT", "CODE_ONLY", "MANUAL_REPORT"},
+    "stage": {"admission", "planning", "repository_admission", "provider_admission", "request_validation", "message_admission",
+              "conversation_admission", "backend_admission", "binding_admission", "execution_admission", "connection_preflight",
+              "dns_resolution", "dns", "connection", "response_stream", "tls", "cancelled", "transport", "provider_generation",
+              "model_invocation", "tool_precheck", "tool_readiness", "tool_admission", "task_budget", "inventory_pagination",
+              "tool_dispatch", "tool_execution", "tool_continuation", "tool_reconciliation", "backend_template", "gateway_recovery",
+              "gateway_dispatch", "review_compatibility", "answer_review", "claim_extraction", "claim_verification", "verification",
+              "final_synthesis", "delivery", "lifecycle", "voice_capture", "voice_recognition", "voice_playback"},
+    "provider": {"OPENAI", "ANTHROPIC", "GOOGLE", "GROQ", "OLLAMA", "OPENROUTER", "LLAMA", "GATEWAY", "LOCAL", "CUSTOM", "LITERT_LM", "FREE", "NVIDIA"},
+    "operation": {"github_context", "github_read", "github_search", "github_pr", "github_issue", "github_ci", "github_commit",
+                  "github_review", "github_engineering", "repository_graph", "mcp", "web_search", "read_url", "voice_capture",
+                  "voice_recognition", "voice_playback"},
+    "remoteAcceptance": {"YES", "NO", "UNKNOWN"},
+    "jobState": {"QUEUED", "RUNNING", "WAITING_FOR_CLIENT_TOOL", "WAITING_FOR_APPROVAL", "PAUSED", "CANCELLING", "CANCELLED", "COMPLETED", "FAILED"},
+    "recoveryAction": {"OPEN_ACTIVE_JOB", "RETURN_CLIENT_TOOL_RESULTS", "WAIT_FOR_ACTIVE_JOB", "QUEUE_INSTRUCTION", "RESOLVE_ACTIVE_JOB",
+                       "RECONCILE_ACTIVE_GATEWAY_JOB", "REFRESH_REPOSITORY_ACCESS", "CHANGE_REPOSITORY", "SELECT_REF", "RECONCILE_OUTCOME",
+                       "REVIEW_AUTHORIZATION", "RETRY_AFTER_BACKOFF", "RETRY_AFTER_CONFIGURATION_CHANGE", "MICROPHONE_PERMISSION",
+                       "RETRY_RECOGNITION", "RETRY_PLAYBACK", "SPEECH_SERVICE", "SPEECH_LANGUAGE", "LOCAL_MODEL"},
+    "reasonCode": {"SELECTION_NOT_OBJECT", "SELECTION_SCHEMA_INVALID", "SELECTION_IDENTITY_INVALID", "SELECTION_CREDENTIAL_REFERENCE_INVALID"},
+}
+CONTEXT_NUMBERS = {"occurredAtMillis": (1, 9_999_999_999_999), "httpStatus": (100, 599), "retryAfterMillis": (0, 86_400_000)}
+CONTEXT_FLAGS = {"dispatched", "retryable", "resumeAllowed", "requiresReconciliation"}
+CONTEXT_HASHES = {"runIdHash", "invocationIdHash", "callIdHash", "jobIdHash", "activeJobIdHash", "exceptionFingerprint"}
+CONTEXT_SELECTION_FIELDS = {"profile_uid", "profile_revision", "provider_connection_id", "provider_connection_revision", "provider_kind",
+                            "configured_endpoint", "requested_model_id", "generation_parameters", "privacy_scope", "tool_owner",
+                            "required_capability_policy", "credential_reference", "credential_account_identity", "approved_alias_mapping"}
+CONTEXT_FIELDS = (set(CONTEXT_ENUMS) | set(CONTEXT_NUMBERS) | CONTEXT_FLAGS | CONTEXT_HASHES | {"missingFields", "invalidFields"}) - {"source", "occurredAtMillis"}
+CONTEXT_LABELS = {
+    "stage": "Failure stage", "provider": "Provider family", "operation": "Operation family", "httpStatus": "HTTP status",
+    "retryAfterMillis": "Retry delay (ms)", "dispatched": "Dispatched", "retryable": "Retryable", "resumeAllowed": "Resume allowed",
+    "requiresReconciliation": "Requires reconciliation", "remoteAcceptance": "Remote acceptance", "jobState": "Reported job state",
+    "recoveryAction": "Recovery action", "reasonCode": "Reason code", "missingFields": "Missing selection fields",
+    "invalidFields": "Invalid selection fields", "runIdHash": "Run identity SHA-256", "invocationIdHash": "Invocation identity SHA-256",
+    "callIdHash": "Call identity SHA-256", "jobIdHash": "Reported job identity SHA-256", "activeJobIdHash": "Active job identity SHA-256",
+    "exceptionFingerprint": "Exception type/frame fingerprint SHA-256",
+}
 
 
 class ReportError(Exception):
@@ -255,9 +292,65 @@ def marker(report_id):
     return f"<!-- gpt-mobile-report:{report_id} -->"
 
 
+def _report_context(value):
+    required = {"schemaVersion", "occurredAtMillis", "source", "unavailableFields"}
+    if not isinstance(value, dict) or not required <= value.keys() or set(value) - required - CONTEXT_FIELDS:
+        raise ReportError(422, "INVALID_REPORT")
+    if type(value["schemaVersion"]) is not int or value["schemaVersion"] != 1:
+        raise ReportError(422, "INVALID_REPORT")
+    for key, choices in CONTEXT_ENUMS.items():
+        if key in value and (not isinstance(value[key], str) or value[key] not in choices):
+            raise ReportError(422, "INVALID_REPORT")
+    for key, (low, high) in CONTEXT_NUMBERS.items():
+        if key in value and (type(value[key]) is not int or not low <= value[key] <= high):
+            raise ReportError(422, "INVALID_REPORT")
+    for key in CONTEXT_FLAGS:
+        if key in value and type(value[key]) is not bool:
+            raise ReportError(422, "INVALID_REPORT")
+    for key in CONTEXT_HASHES:
+        if key in value and (not isinstance(value[key], str) or not re.fullmatch(r"[a-f0-9]{64}", value[key])):
+            raise ReportError(422, "INVALID_REPORT")
+    for key in ("missingFields", "invalidFields"):
+        if key in value:
+            names = _lines(value, key, len(CONTEXT_SELECTION_FIELDS), lambda name: name in CONTEXT_SELECTION_FIELDS)
+            if len(names) != len(set(names)):
+                raise ReportError(422, "INVALID_REPORT")
+    unavailable = _lines(value, "unavailableFields", len(CONTEXT_FIELDS), lambda name: name in CONTEXT_FIELDS)
+    # Omitted observations remain explicit. An absent dispatch fact cannot be
+    # presented as false, and an unknown field cannot carry arbitrary metadata.
+    if len(unavailable) != len(set(unavailable)) or set(unavailable) != CONTEXT_FIELDS - value.keys():
+        raise ReportError(422, "INVALID_REPORT")
+    return value
+
+
+def _context_body(context):
+    occurred = datetime.fromtimestamp(context["occurredAtMillis"] / 1000, timezone.utc).isoformat(timespec="milliseconds")
+    rows = [("Context schema", "1"), ("Client occurrence time", occurred), ("Capture source", context["source"])]
+    for key, label in CONTEXT_LABELS.items():
+        if key not in context:
+            continue
+        value = context[key]
+        if isinstance(value, list):
+            rendered = ", ".join(sorted(value)) if value else "[]"
+        elif type(value) is bool:
+            rendered = "true" if value else "false"
+        else:
+            rendered = str(value)
+        rows.append((label, rendered))
+    body = "\n\n### Diagnostic context\n\n| Field | Recorded value |\n| --- | --- |\n"
+    body += "\n".join(f"| {label} | `{value}` |" for label, value in rows)
+    unavailable = sorted(context["unavailableFields"])
+    if unavailable:
+        body += "\n\nUnavailable fields: " + ", ".join(f"`{name}`" for name in unavailable) + "."
+        body += " These observations were not retained; absence does not establish success, non-dispatch, or permission to retry."
+    else:
+        body += "\n\nUnavailable fields: none declared by this capture."
+    return body
+
+
 def issue_from_report(values):
     allowed = {"reportId", "source", "title", "description", "version", "build", "commit", "android", "sdk", "device",
-               "feature", "errorCode", "errorType", "frames", "events"}
+               "feature", "errorCode", "errorType", "frames", "events", "context"}
     if not isinstance(values, dict) or set(values) - allowed:
         raise ReportError(422, "INVALID_REPORT")
     report_id = _field(values, "reportId", REPORT_ID)
@@ -271,6 +364,7 @@ def issue_from_report(values):
     events = _lines(values, "events", 16, SAFE_EVENT.fullmatch)
     if any(len(event.split()) == 4 and event.split()[3] not in ERROR_CODES for event in events):
         raise ReportError(422, "INVALID_REPORT")
+    context = _report_context(values["context"]) if "context" in values else None
     source = values.get("source")
     if source == "manual" and not ({"feature", "errorCode", "errorType", "frames"} & values.keys()):
         title = " ".join(_text(values, "title", 120).split()).replace("@", "＠")
@@ -290,6 +384,8 @@ def issue_from_report(values):
             body += "\n\n### Stack frames\n\n" + "\n".join("    " + frame for frame in frames)
     else:
         raise ReportError(422, "INVALID_REPORT")
+    if context is not None:
+        body += _context_body(context)
     body += f"\n\n### App and device\n\n- App {version} (build {build}, commit `{commit}`)\n- Android {android} (API {sdk}) · {device}"
     if events:
         body += "\n\n### Recent app events\n\n" + "\n".join("    " + event for event in events)

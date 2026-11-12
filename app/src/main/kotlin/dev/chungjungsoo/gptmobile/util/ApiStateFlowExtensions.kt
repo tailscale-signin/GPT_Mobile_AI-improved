@@ -254,7 +254,7 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
                     if (chunk.errorCode == "QUEUE_JOB_PENDING") {
                         buffer.appendNotice(chunk.message)
                     } else if (chunk.providerLimit?.mayWait != true) {
-                        IssueReportIncidents.chatFailure(chunk.errorCode, chunk.providerLimit != null)
+                        IssueReportIncidents.chatFailure(chunk.errorCode, chunk.providerLimit != null, null, chunk.failureDetails.orEmpty(), chunk.invocationId)
                         buffer.appendFailure(chunk.message, chunk.progressDeadline != null || chunk.recoveryBlock != null || chunk.combinedFailure != null, chunk.errorCode, chunk.failureDetails)
                     }
                     terminalError = chunk.message.ifBlank { "The provider could not complete this response." }

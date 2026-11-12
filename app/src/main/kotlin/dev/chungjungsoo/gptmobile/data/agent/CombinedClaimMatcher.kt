@@ -11,6 +11,9 @@ import java.util.Locale
 internal object CombinedClaimMatcher {
     enum class Match { NONE, POSSIBLE, PARAPHRASE, EXACT }
 
+    data class DirectedRelation(val predicate: String, val actors: List<Set<String>>, val targets: List<Set<String>>)
+    data class RelationSyntax(val literal: String, val relation: DirectedRelation?)
+
     data class Fingerprint(
         val terms: Set<String>,
         val numbers: Set<String>,
@@ -23,7 +26,8 @@ internal object CombinedClaimMatcher {
         val eventActions: Set<String> = emptySet(),
         val eventClauses: List<String> = emptyList(),
         val measurements: List<String> = emptyList(),
-        val assertionBasis: String = "UNSPECIFIED"
+        val assertionBasis: String = "UNSPECIFIED",
+        val relationSyntax: RelationSyntax? = null
     )
 
     private val word = Regex("[\\p{L}\\p{N}]+(?:[’'][\\p{L}\\p{N}]+)?")
@@ -54,6 +58,77 @@ internal object CombinedClaimMatcher {
         "merchant" to "merchant", "trad" to "trade", "approv" to "approve",
         "reconcile" to "reconcile", "reconcil" to "reconcile", "reconciliation" to "reconcile"
     )
+
+    // These asymmetric predicates provide a veto, never a general entailment proof.
+    // Keep voice markers before ordinary fingerprinting removes words such as "by".
+    private val directedPredicates = listOf(
+        "ACQUIRE" to "(?:acquir(?:e[sd]?|ing)|purchas(?:e[sd]?|ing)|buys?|buying|bought)",
+        "FUND" to "(?:fund(?:s|ed|ing)?|financ(?:e[sd]?|ing))",
+        "SUE" to "su(?:e[sd]?|ing)",
+        "DEFEAT" to "defeat(?:s|ed|ing)?",
+        "ATTACK" to "attack(?:s|ed|ing)?",
+        "HIRE" to "hir(?:e[sd]?|ing)",
+        "REPLACE" to "replac(?:e[sd]?|ing)",
+        "OWN" to "own(?:s|ed|ing)?",
+        "CONTROL" to "control(?:s|led|ling)?"
+    )
+    private val directedPredicate = Regex("\\b(?:" + directedPredicates.joinToString("|") { "(${it.second})" } + ")\\b")
+    private val passiveAuxiliary = Regex("\\b(?:is|are|was|were|be|been|being|gets?|got)\\s+(?:(?:not|never|[\\p{L}]+ly)\\s+)*$")
+    private val agentMarker = Regex("\\bby\\b")
+    private val roleClauseBoundary = Regex("[.!?;,:\\n]")
+    private val roleBoundary = Regex("[.!?;,:\\n]|\\b(?:after|before|during|near|when|while|although|because|despite|without)\\b")
+
+    private val coordinatedParticipants = Regex("\\band\\b|&")
+
+    private fun relationSyntax(text: String): RelationSyntax? {
+        val predicates = directedPredicate.findAll(text).take(2).toList()
+        if (predicates.isEmpty()) return null
+        val literal = word.findAll(text).joinToString(" ") { it.value }
+        // Multiple or unresolved predicates are not permission to fall back to a bag of words.
+        val predicate = predicates.singleOrNull() ?: return RelationSyntax(literal, null)
+        val kind = directedPredicates[predicate.groupValues.drop(1).indexOfFirst(String::isNotEmpty)].first
+        val before = text.substring(0, predicate.range.first)
+        val after = text.substring(predicate.range.last + 1)
+        fun terms(part: String): Set<String> = word.findAll(part).map { canonical(it.value) }
+            .filter { it !in stop && it.none(Char::isDigit) }.toSet()
+        fun participant(part: String): String = roleBoundary.find(part)?.let { part.substring(0, it.range.first) } ?: part
+        fun groups(part: String): List<Set<String>> = coordinatedParticipants.split(part).map(::terms).filter { it.isNotEmpty() }
+        val subject = before.substring((roleClauseBoundary.findAll(before).lastOrNull()?.range?.last ?: -1) + 1)
+        val relation = if (passiveAuxiliary.containsMatchIn(before)) {
+            val by = agentMarker.find(after)
+            DirectedRelation(kind, by?.let { groups(participant(after.substring(it.range.last + 1))) }.orEmpty(), groups(subject))
+        } else {
+            DirectedRelation(kind, groups(subject), groups(participant(after)))
+        }
+        return RelationSyntax(literal, relation)
+    }
+
+    /** Ambiguous or reversed participants cannot establish a strong text link. No contradiction is inferred. */
+    fun relationRolesCompatible(source: Fingerprint, answer: Fingerprint): Boolean {
+        val syntax = source.relationSyntax ?: return true
+        if (syntax.literal == answer.relationSyntax?.literal) return true
+        val original = syntax.relation ?: return false
+        val revised = answer.relationSyntax?.relation ?: return false
+        if (original.actors.isEmpty() || original.targets.isEmpty() || revised.actors.isEmpty() || revised.targets.isEmpty() || original.predicate != revised.predicate) return false
+        val actor = original.actors.flatten().toSet()
+        val target = original.targets.flatten().toSet()
+        val revisedActor = revised.actors.flatten().toSet()
+        val revisedTarget = revised.targets.flatten().toSet()
+        fun retainedParticipants(expected: List<Set<String>>, observed: List<Set<String>>): Boolean {
+            if (expected.size > observed.size) return false
+            val counterparts = expected.mapIndexed { index, participant ->
+                // A shared suffix such as "Corporation" cannot represent two different participants.
+                val distinguishing = participant - expected.filterIndexed { other, _ -> other != index }.flatten().toSet()
+                if (distinguishing.isEmpty()) return false
+                observed.indices.singleOrNull { observed[it].intersect(distinguishing).isNotEmpty() } ?: return false
+            }
+            return counterparts.distinct().size == expected.size
+        }
+        if (!retainedParticipants(original.actors, revised.actors) || !retainedParticipants(original.targets, revised.targets)) return false
+        val actorBecameTarget = actor.intersect(revisedTarget) - revisedActor
+        val targetBecameActor = target.intersect(revisedActor) - revisedTarget
+        return actorBecameTarget.isEmpty() || targetBecameActor.isEmpty()
+    }
 
     private fun canonical(token: String): String {
         val plain = token.lowercase(Locale.ROOT).replace('’', '\'')
@@ -108,12 +183,14 @@ internal object CombinedClaimMatcher {
                 studyFinding.containsMatchIn(normalized) -> "STUDY_FINDING"
                 practiceReport.containsMatchIn(normalized) -> "REPORTED_PRACTICE"
                 else -> "UNSPECIFIED"
-            }
+            },
+            relationSyntax = relationSyntax(normalized)
         )
     }
 
     /** Subject-preserving alignment; never compare contradictory numbers or reversed polarity. */
     fun compatible(source: Fingerprint, answer: Fingerprint): Boolean {
+        if (!relationRolesCompatible(source, answer)) return false
         if (CombinedClaimSemantics.lostQualifiers(source.qualifiers, answer.qualifiers).isNotEmpty()) return false
         // Reporting why someone uses an intervention is not a study finding that
         // it achieves that outcome, even when most words are shared.
@@ -161,7 +238,8 @@ internal object CombinedClaimMatcher {
 
     fun match(source: String, answer: String): Match {
         val sourceFingerprint = fingerprint(source)
-        val direct = match(sourceFingerprint, fingerprint(answer))
+        val answerFingerprint = fingerprint(answer)
+        val direct = match(sourceFingerprint, answerFingerprint)
         if (direct >= Match.PARAPHRASE && sourceFingerprint.eventClauses.isEmpty()) return direct
         val answerClauses = CombinedClaimClauses.spans(answer).map { fingerprint(it.comparisonText) }
         val sourceClauses = sourceFingerprint.eventClauses.ifEmpty { listOf(source) }.map(::fingerprint)

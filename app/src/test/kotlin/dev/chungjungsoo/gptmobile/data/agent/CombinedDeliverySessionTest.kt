@@ -17,6 +17,31 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CombinedDeliverySessionTest {
+    @Test fun reversedParticipantsRetainAnUnfinishedDraftInsteadOfPassingFinalCoverage() = runTest {
+        val original = "Northwind acquired Contoso after lengthy regulatory negotiations."
+        for (answer in listOf(
+            "Contoso acquired Northwind after lengthy regulatory negotiations.",
+            "Northwind was acquired by Contoso after lengthy regulatory negotiations."
+        )) {
+            val wrapper = CombinedDeliverySession(
+                session(answer),
+                listOf(CombinedModelResponse("one", "One", content = original)),
+                10000,
+                validateAccess = {},
+                maxRepairRounds = 0,
+                retainUnfinishedDraft = true
+            ) { _, _ -> error("The exhausted repair allowance cannot dispatch another writer") }
+            val events = wrapper.streamRound(emptyList(), emptyList()).toList()
+            assertEquals(answer, events.answer())
+            assertTrue(events.quality().protocolComplete)
+            assertFalse(events.quality().semanticCoverageVerified)
+            assertFalse(events.quality().complete)
+            assertTrue(events.quality().checks.any { it.id.startsWith("SEMANTIC_CONTRIBUTION_UNRESOLVED:") })
+            assertTrue(events.filterIsInstance<ProviderEvent.CombinedAnswer>().none { it.report.finalAssessment })
+            assertEquals("COMBINED_REQUIREMENTS_UNMET", (events.last() as ProviderEvent.Failed).errorCode)
+        }
+    }
+
     @Test fun failedOrUnterminatedRepairCannotPublishAnUncheckedAnswerAsFinal() = runTest {
         val original = "Original. ".repeat(20)
         for (terminal in listOf<ProviderEvent?>(ProviderEvent.Failed("timeout"), null)) {

@@ -16,6 +16,7 @@ concurrency:
 
 env:
   OBX_DISABLE_ANALYTICS: "true"
+  ISSUE_REPORT_ORIGIN: ${{ vars.ISSUE_REPORT_ORIGIN }}
 jobs:
   build:
     name: Build debug APK

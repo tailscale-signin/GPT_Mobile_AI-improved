@@ -12,6 +12,8 @@ permissions:
 concurrency:
   group: acceptance-0950-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
+env:
+  ISSUE_REPORT_ORIGIN: ${{ vars.ISSUE_REPORT_ORIGIN }}
 jobs:
   emulator:
     runs-on: ubuntu-latest

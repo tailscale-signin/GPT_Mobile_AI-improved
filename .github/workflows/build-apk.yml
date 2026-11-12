@@ -23,6 +23,9 @@ concurrency:
   group: build-apk-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+env:
+  ISSUE_REPORT_ORIGIN: ${{ vars.ISSUE_REPORT_ORIGIN }}
+
 jobs:
   build:
     name: Build APK

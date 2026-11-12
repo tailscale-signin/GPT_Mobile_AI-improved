@@ -6,6 +6,9 @@ import androidx.work.WorkManager
 import dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationPhase
 import dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationRepository
 import dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationState
+import dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityObservation
+import dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityStatus
+import dev.chungjungsoo.gptmobile.data.context.ReasoningMode
 import dev.chungjungsoo.gptmobile.data.database.entity.GatewayConversationRecord
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
@@ -202,6 +205,156 @@ class GatewayEngineeringSubmissionTest {
         }
     }
 
+    @Test fun changedSavedBackendBlocksBeforeModelPreparationOrNewBindingAdmission() = runTest {
+        val retained = savedExecutionConversation()
+        val rejected = GatewayExecutionRejected("EXECUTION_CONFIGURATION_CHANGED", 409, retryable = false)
+        coEvery { client.bindingCapabilities(any(), retained.executionSelection!!, retained.executionAdmission!!.bindingId) } throws rejected
+
+        val failure = runCatching { submitSavedExecutionTurn() }.exceptionOrNull()
+
+        assertSame(rejected, failure)
+        coVerify(exactly = 1) {
+            client.bindingCapabilities(originalGateway.engineeringConfig().withGatewayIdentity(GatewayScopeIdentity("gateway", "owner")), retained.executionSelection!!, retained.executionAdmission!!.bindingId)
+        }
+        coVerify(exactly = 0) {
+            modelPreparation.prepareSelected(any(), any(), any(), any())
+            client.prepareBinding(any(), any())
+            client.preflight(any(), any())
+            store.add(any())
+            client.create(any(), any())
+        }
+    }
+
+    @Test fun changedSavedSelectionBlocksBeforeReadinessOrModelPreparation() = runTest {
+        savedExecutionConversation()
+        coEvery { settings.fetchPlatformV2s() } returns listOf(selected.copy(apiUrl = "http://192.168.1.10:8080/v1"), originalGateway)
+
+        val failure = runCatching { submitSavedExecutionTurn() }.exceptionOrNull()
+
+        assertTrue(failure?.message?.contains("selected execution identity") == true)
+        coVerify(exactly = 0) {
+            client.bindingCapabilities(any(), any(), any())
+            modelPreparation.prepareSelected(any(), any(), any(), any())
+            client.prepareBinding(any(), any())
+            store.add(any())
+            client.create(any(), any())
+        }
+    }
+
+    @Test fun sleepingSavedModelIsPreparedOnlyAfterItsOriginalBackendIsVerified() = runTest {
+        preparesRetainedBinding("EXECUTION_MODEL_NOT_LOADED")
+    }
+
+    @Test fun loadingSavedModelReconcilesPreparationAndRetainsItsOriginalBinding() = runTest {
+        preparesRetainedBinding("EXECUTION_MODEL_LOADING")
+    }
+
+    @Test fun readySavedModelStillRetainsItsOriginalBindingWithoutCreatingAnother() = runTest {
+        preparesRetainedBinding(null)
+    }
+
+    @Test fun unverifiedReadinessAndOtherBindingFailuresCannotAuthorizeModelPreparation() = runTest {
+        val retained = savedExecutionConversation()
+        val failures = listOf(
+            GatewayExecutionRejected("EXECUTION_MODEL_NOT_LOADED", 503),
+            GatewayExecutionRejected("EXECUTION_MODEL_LOADING", 503, retryable = false),
+            GatewayExecutionRejected("EXECUTION_MODEL_NOT_LOADED", 503, retryable = true, inferenceAttempted = true),
+            GatewayExecutionRejected("EXECUTION_MODEL_UNAVAILABLE", 503, retryable = true),
+            GatewayAdmissionException(GatewayAdmissionReason.TRANSPORT_INTERRUPTED, null, null, GatewayAdmissionSurface.CAPABILITIES),
+            CancellationException("The submitting observer detached")
+        )
+        for (rejected in failures) {
+            coEvery { client.bindingCapabilities(any(), retained.executionSelection!!, retained.executionAdmission!!.bindingId) } throws rejected
+            assertSame(rejected, runCatching { submitSavedExecutionTurn() }.exceptionOrNull())
+        }
+        coVerify(exactly = failures.size) { client.bindingCapabilities(any(), any(), any()) }
+        coVerify(exactly = 0) {
+            modelPreparation.prepareSelected(any(), any(), any(), any())
+            client.prepareBinding(any(), any())
+            store.add(any())
+            client.create(any(), any())
+        }
+    }
+
+    @Test fun backendChangingDuringPreparationRejectsBeforeSavingOrCreatingTheTurn() = runTest {
+        val retained = savedExecutionConversation()
+        val events = mutableListOf<String>()
+        val rejected = GatewayExecutionRejected("EXECUTION_CONFIGURATION_CHANGED", 409, retryable = false)
+        var reads = 0
+        coEvery { client.bindingCapabilities(any(), retained.executionSelection!!, retained.executionAdmission!!.bindingId) } answers {
+            events += "verify-original"
+            if (++reads == 1) retained.executionAdmission!! else throw rejected
+        }
+        coEvery { modelPreparation.prepareSelected(any(), any(), any(), any()) } answers {
+            events += "prepare-selected"
+            readyPreparation()
+        }
+
+        assertSame(rejected, runCatching { submitSavedExecutionTurn() }.exceptionOrNull())
+        assertEquals(listOf("verify-original", "prepare-selected", "verify-original"), events)
+        coVerify(exactly = 0) {
+            client.prepareBinding(any(), any())
+            client.preflight(any(), any())
+            store.add(any())
+            client.create(any(), any())
+        }
+    }
+
+    private fun savedExecutionConversation(): GatewayEngineeringBinding {
+        val retained = retainedBinding()
+        val snapshot = GatewayConversationSnapshot(gatewayId = "gateway", principalId = "owner", conversationId = "canonical", profileId = selected.uid, model = selected.model, repository = "owner/repo", branch = "work", base = "main", revision = 42, executionBinding = retained.executionAdmission!!.binding)
+        val local = GatewayConversationRecord("key", "gateway", "owner", "canonical", originalGateway.uid, originalGateway.apiUrl, selected.uid, 8, Json.encodeToString(snapshot))
+        coEvery { conversations.boundSnapshot(8, selected.uid, selected.model) } returns (local to snapshot)
+        coEvery { conversations.clientConversationId(8) } returns "local-stable-identity"
+        coEvery { store.bindings(null) } returns emptyList()
+        coEvery { settings.fetchPlatformV2s() } returns listOf(selected, originalGateway)
+        coEvery { client.capabilities(originalGateway.engineeringConfig()) } returns capability
+        return retained
+    }
+
+    private suspend fun submitSavedExecutionTurn(): GatewayEngineeringBinding? =
+        repository().submitBoundTurn(8, selected.uid, selected.model, "Inspect the parser", "new-command", 11, 12, "run", "read")
+
+    private fun readyPreparation(): GatewayModelPreparationState = GatewayModelPreparationState(
+        originalGateway.uid,
+        selected.model,
+        GatewayModelPreparationPhase.READY,
+        "Ready",
+        ReasoningCapabilityObservation(originalGateway.uid, selected.model, ReasoningMode.OFF, ReasoningCapabilityStatus.SUPPORTED, "configuration", "runtime", 1L, null, routeVerified = true, supportVerified = true)
+    )
+
+    private suspend fun preparesRetainedBinding(readinessCode: String?) {
+        val retained = savedExecutionConversation()
+        val events = mutableListOf<String>()
+        var reads = 0
+        coEvery { client.bindingCapabilities(any(), retained.executionSelection!!, retained.executionAdmission!!.bindingId) } answers {
+            events += "verify-original"
+            if (++reads == 1 && readinessCode != null) throw GatewayExecutionRejected(readinessCode, 503, retryable = true)
+            retained.executionAdmission!!
+        }
+        coEvery { modelPreparation.prepareSelected(any(), any(), any(), any()) } answers {
+            events += "prepare-selected"
+            readyPreparation()
+        }
+        val saved = slot<GatewayEngineeringBinding>()
+        val checkpoint = IOException("Stop fixture after durable checkpoint")
+        coEvery { store.add(capture(saved)) } answers {
+            events += "save-command"
+            throw checkpoint
+        }
+
+        assertSame(checkpoint, runCatching { submitSavedExecutionTurn() }.exceptionOrNull())
+        assertEquals(listOf("verify-original", "prepare-selected", "verify-original", "save-command"), events)
+        assertEquals(retained.executionAdmission!!.bindingId, saved.captured.request.executionBindingId)
+        assertEquals(retained.executionAdmission, saved.captured.executionAdmission)
+        assertEquals(retained.executionSelection, saved.captured.executionSelection)
+        coVerify(exactly = 1) { modelPreparation.prepareSelected(originalGateway.copy(model = selected.model), any(), true, any()) }
+        coVerify(exactly = 0) {
+            client.prepareBinding(any(), any())
+            client.create(any(), any())
+        }
+    }
+
     @Test fun repeatedMissingReceiptsAfterDispatchNeverReplayEvenOnExplicitReconnect() = runTest {
         val pending = GatewayEngineeringBinding(originalGateway.uid, originalGateway.apiUrl, GatewayEngineeringRequest("owner/repo", "work", "main", "Original task", selected.model, chatId = 8, requestId = "original-command", profileId = selected.uid), principalId = "owner", gatewayId = "gateway")
         coEvery { store.bindings(null) } returns listOf(pending)
@@ -261,6 +414,10 @@ class GatewayEngineeringSubmissionTest {
             put("tool_owner", selection.toolOwner)
             put("configured_endpoint_identity", selectionDigest(JsonPrimitive(selection.configuredEndpoint)))
             put("generation_parameters", selection.generationParameters)
+            put("gateway_installation_id", "gateway")
+            put("backend_endpoint_identity", "a".repeat(64))
+            put("backend_connection_id", "original-backend")
+            put("runtime_config_revision", "b".repeat(64))
         }
         val admission = GatewayExecutionAdmission(
             bindingJson,

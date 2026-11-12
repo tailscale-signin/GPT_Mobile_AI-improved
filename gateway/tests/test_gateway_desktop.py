@@ -274,6 +274,83 @@ class StatusPublicationTests(unittest.TestCase):
         error.winerror = code
         return error
 
+    def test_permanent_failure_after_transient_status_denial_is_not_retried(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / 'status.json'
+            atomic_json(path, {'state': 'running'})
+            permanent = OSError(28, 'Disk full')
+            with patch('desktop.configuration.sys.platform', 'win32'), \
+                    patch('desktop.configuration.os.replace', side_effect=[self.windows_error(32), permanent]) as replace, \
+                    patch('desktop.configuration.time.sleep') as sleep:
+                with self.assertRaises(OSError) as caught:
+                    atomic_json(path, {'state': 'stopped'}, retry_windows_sharing=True)
+            self.assertIs(permanent, caught.exception)
+            self.assertEqual(2, replace.call_count)
+            sleep.assert_called_once()
+            self.assertEqual({'state': 'running'}, json.loads(path.read_text()))
+            self.assertEqual([path], list(Path(temp).iterdir()))
+
+    def test_fsync_failure_never_attempts_status_publication_or_retry(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / 'status.json'
+            atomic_json(path, {'state': 'running'})
+            error = self.windows_error(5)
+            with patch('desktop.configuration.sys.platform', 'win32'), \
+                    patch('desktop.configuration.os.fsync', side_effect=error), \
+                    patch('desktop.configuration.os.replace') as replace, \
+                    patch('desktop.configuration.time.sleep') as sleep:
+                with self.assertRaises(PermissionError) as caught:
+                    atomic_json(path, {'state': 'stopped'}, retry_windows_sharing=True)
+            self.assertIs(error, caught.exception)
+            replace.assert_not_called()
+            sleep.assert_not_called()
+            self.assertEqual({'state': 'running'}, json.loads(path.read_text()))
+            self.assertEqual([path], list(Path(temp).iterdir()))
+
+    @unittest.skipUnless(os.name == 'nt', 'Requires actual Windows file-sharing semantics')
+    def test_windows_reader_release_allows_atomic_status_publication(self):
+        import ctypes
+        from ctypes import wintypes
+
+        kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+        kernel.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID, wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+        kernel.CreateFileW.restype = wintypes.HANDLE
+        kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel.CloseHandle.restype = wintypes.BOOL
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / 'status.json'
+            atomic_json(path, {'state': 'starting'})
+            # Share read/write, but deliberately withhold FILE_SHARE_DELETE.
+            handle = kernel.CreateFileW(str(path), 0x80000000, 0x1 | 0x2, None, 3, 0x80, None)
+            self.assertNotEqual(ctypes.c_void_p(-1).value, handle)
+            observed_codes = []
+            replace = os.replace
+
+            def publish(source, destination):
+                nonlocal handle
+                try:
+                    return replace(source, destination)
+                except OSError as error:
+                    observed_codes.append(error.winerror)
+                    self.assertEqual({'state': 'starting'}, json.loads(path.read_text()))
+                    # Release only after the real OS refusal, then let the
+                    # production retry run without a thread-scheduling race.
+                    if handle is not None:
+                        self.assertTrue(kernel.CloseHandle(handle))
+                        handle = None
+                    raise
+
+            with patch('desktop.configuration.os.replace', side_effect=publish):
+                try:
+                    atomic_json(path, {'state': 'running'}, retry_windows_sharing=True)
+                finally:
+                    if handle is not None:
+                        self.assertTrue(kernel.CloseHandle(handle))
+            self.assertTrue(observed_codes)
+            self.assertTrue(all(code in (5, 32) for code in observed_codes))
+            self.assertEqual({'state': 'running'}, json.loads(path.read_text()))
+            self.assertEqual([path], list(Path(temp).iterdir()))
+
     def test_transient_windows_status_lock_reuses_the_synced_payload(self):
         for code in (5, 32):
             with self.subTest(winerror=code), tempfile.TemporaryDirectory() as temp:
@@ -433,6 +510,41 @@ class UpdateTransactionTests(unittest.TestCase):
         self.manager.spawn.side_effect=None
         self.manager.boot()
         self.assertEqual('15.0.1',read_pointer(self.root)['failedVersion'])
+
+    def test_healthy_rollback_runtime_survives_transient_windows_status_publication_denial(self):
+        self.manager.status = {'version': '15.0.0', 'state': 'starting'}
+        self.manager.publish = lambda **values: Supervisor.publish(self.manager, **values)
+        self.manager.activate('15.0.1')
+        self.manager.spawn.side_effect = TimeoutError('candidate health check failed')
+        self.assertEqual(RESTART, self.manager.boot())
+        self.assertEqual('rollback', json.loads((self.root / 'status.json').read_text())['state'])
+        self.manager.spawn.reset_mock(side_effect=True)
+        self.manager.control.reset_mock()
+        replace = os.replace
+        status_attempts = []
+
+        def publish(source, destination):
+            if destination == self.root / 'status.json':
+                status_attempts.append(source)
+                if len(status_attempts) == 1:
+                    self.assertEqual('rollback', json.loads(destination.read_text())['state'])
+                    raise StatusPublicationTests.windows_error(5)
+            return replace(source, destination)
+
+        with patch('desktop.configuration.sys.platform', 'win32'), \
+                patch('desktop.configuration.os.replace', side_effect=publish), \
+                patch('desktop.configuration.time.sleep'):
+            self.assertEqual(0, self.manager.boot())
+        self.assertEqual(2, len(status_attempts))
+        self.assertEqual(1, len(set(status_attempts)))
+        self.manager.spawn.assert_called_once_with('15.0.0')
+        self.manager.control.assert_called_once_with('resume')
+        status = json.loads((self.root / 'status.json').read_text())
+        self.assertEqual('running', status['state'])
+        self.assertEqual('15.0.0', status['version'])
+        self.assertEqual(status, self.manager.status)
+        self.assertEqual('15.0.1', read_pointer(self.root)['failedVersion'])
+        self.assertEqual([], list(self.root.glob('*.tmp-*')))
 
     def test_interrupted_trial_returns_to_previous_before_start(self):
         atomic_json(self.root/'current.json',dict(version='15.0.1',previous='15.0.0',pending=True,attempted=True))

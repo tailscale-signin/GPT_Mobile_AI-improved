@@ -52,18 +52,23 @@ class UnifiedV2ReconciliationTest(unittest.TestCase):
         (self.scope / "tasks.json").write_text(json.dumps(self.tasks))
         (self.scope / "acceptance-tests.json").write_text(json.dumps(self.cases))
 
-    def junit(self, state="PASS", method="noFakeAttempt", observed=None, filename="TEST-AcceptanceProbe.xml"):
+    def junit(self, state="PASS", method="noFakeAttempt", observed=None, filename="TEST-AcceptanceProbe.xml",
+              directory=None, owner="dev.example.AcceptanceProbe"):
         result = ("<failure message='failed'/>" if state == "FAIL" else
                   "<skipped/>" if state == "SKIP" else "")
         observed = observed or self.now - timedelta(minutes=1)
-        (self.results / filename).write_text(
+        path = (directory or self.results) / filename
+        path.write_text(
             f"<testsuite tests='2' timestamp='{observed.isoformat()}'>"
-            f"<testcase classname='dev.example.AcceptanceProbe' name='{method}'>{result}</testcase>"
+            f"<testcase classname='{owner}' name='{method}'>{result}</testcase>"
             f"<testcase classname='dev.example.OtherProbe' name='{filename}'/></testsuite>"
         )
+        return path
 
-    def qualification(self):
-        classes, errors = r.junit_observations(self.results.glob("TEST-*.xml"), self.since, self.now)
+    def qualification(self, directories=None):
+        paths = [report for directory in directories or [self.results]
+                 for report in directory.glob("TEST-*.xml")]
+        classes, errors = r.junit_observations(paths, self.since, self.now)
         return {"schema_version": 1, "kind": "APP_AUDIT_SOURCE_HARNESS_OBSERVATIONS",
                 "checkout": {"commit": self.sha}, "report_errors": errors,
                 "execution_environment": {"github_repository": "example/project", "github_run_id": "123",
@@ -92,6 +97,92 @@ class UnifiedV2ReconciliationTest(unittest.TestCase):
         self.assertEqual(64, len(candidate["component_candidate"]["named_tests"][0]
                                  ["junit_evidence"][0]["xml_sha256"]))
         self.assertEqual("NOT_RUN", self.cases[-26]["outcome"])
+
+    def test_combined_directories_match_collector_receipt_without_promoting_ledger(self):
+        self.junit()
+        core = self.root / "core-results"
+        core.mkdir()
+        self.junit(method="coreBehavior", filename="TEST-CoreProbe.xml", directory=core,
+                   owner="dev.example.CoreProbe")
+        qualification = self.qualification([self.results, core])
+        self.assertEqual(2, qualification["junit_receipt"]["report_count"])
+        self.assertEqual(4, qualification["junit_receipt"]["case_count"])
+        ledger = {name: (self.scope / name).read_bytes()
+                  for name in ("tasks.json", "acceptance-tests.json")}
+        for sources in ([self.results, core], [core, self.results]):
+            report = self.run_report(sources, qualification=qualification)
+            for field, value in qualification["junit_receipt"].items():
+                self.assertEqual(value, report["junit_receipt"][field])
+            self.assertEqual(1, report["summary"]["not_run_with_partial_component_proof"])
+            self.assertEqual(0, report["summary"]["new_case_pass_claims"])
+            self.assertEqual(0, report["summary"]["new_task_done_claims"])
+            self.assertTrue(all(not row["promotion_authorized"] for row in report["cases"]))
+        self.assertEqual(ledger, {name: (self.scope / name).read_bytes() for name in ledger})
+
+    def test_missing_stale_duplicate_corrupt_or_changed_second_directory_fails_closed(self):
+        self.junit()
+        core = self.root / "core-results"
+        core.mkdir()
+        second = self.junit(method="coreBehavior", filename="TEST-CoreProbe.xml", directory=core,
+                            owner="dev.example.CoreProbe")
+        qualification = self.qualification([self.results, core])
+        original = second.read_bytes()
+        for defect in ("omitted", "missing-directory", "missing-report", "stale", "duplicate-case", "corrupt", "modified", "repeated-input"):
+            with self.subTest(defect=defect):
+                second.write_bytes(original)
+                sources = [self.results, core]
+                if defect == "omitted":
+                    sources = [self.results]
+                elif defect == "missing-directory":
+                    sources = [self.results, self.root / "missing"]
+                elif defect == "missing-report":
+                    second.unlink()
+                elif defect == "stale":
+                    self.junit(method="coreBehavior", filename=second.name, directory=core,
+                               owner="dev.example.CoreProbe", observed=self.since - timedelta(seconds=1))
+                elif defect == "duplicate-case":
+                    self.junit(filename=second.name, directory=core)
+                elif defect == "corrupt":
+                    second.write_text("<testsuite>")
+                elif defect == "modified":
+                    self.junit(method="changedBehavior", filename=second.name, directory=core,
+                               owner="dev.example.CoreProbe")
+                elif defect == "repeated-input":
+                    sources.append(core)
+                with self.assertRaises(ValueError):
+                    self.run_report(sources, qualification=qualification)
+
+    def test_combined_directory_report_limit_is_global(self):
+        self.junit()
+        core = self.root / "core-results"
+        core.mkdir()
+        self.junit(method="coreBehavior", filename="TEST-CoreProbe.xml", directory=core,
+                   owner="dev.example.CoreProbe")
+        with patch.object(r, "MAX_REPORTS", 1), self.assertRaisesRegex(ValueError, "collection bound"):
+            self.run_report([self.results, core], qualification=self.qualification([self.results, core]))
+
+    def test_cli_repeated_directories_reconcile_the_same_bound_receipt(self):
+        self.junit()
+        core = self.root / "core-results"
+        core.mkdir()
+        self.junit(method="coreBehavior", filename="TEST-CoreProbe.xml", directory=core,
+                   owner="dev.example.CoreProbe")
+        qualification = self.qualification([self.results, core])
+        receipt_path = self.root / "qualification.json"
+        receipt_path.write_text(json.dumps(qualification))
+        target = self.root / "report.json"
+        original_reconcile = r.reconcile
+        with patch.object(r, "validate", return_value=(48, 110)), patch.object(
+                r, "reconcile", side_effect=lambda **kwargs: original_reconcile(self.scope, self.mapping, **kwargs)):
+            self.assertEqual(0, r.main([
+                "--junit-dir", str(self.results), "--junit-dir", str(core),
+                "--qualification", str(receipt_path), "--source-sha", self.sha,
+                "--run-url", self.run, "--output", str(target), "--fail-on-candidate-regression",
+            ]))
+        report = json.loads(target.read_text())
+        self.assertEqual(qualification["junit_receipt"]["content_sha256"], report["junit_receipt"]["content_sha256"])
+        self.assertEqual(2, report["junit_receipt"]["report_count"])
+        self.assertEqual({"NOT_RUN": 110}, report["summary"]["case_outcomes"])
 
     def test_missing_skipped_failed_probes_do_not_claim_evidence(self):
         for state in ("MISSING", "SKIP", "FAIL"):
@@ -125,6 +216,10 @@ class UnifiedV2ReconciliationTest(unittest.TestCase):
         candidate = next(row["component_candidate"] for row in report["cases"]
                          if row["case_id"] == "IX05")
         self.assertEqual("ALL_NAMED_TESTS_PASS", candidate["component_status"])
+        self.assertEqual(report, self.run_report([archive], artifact_sha256=artifact_digest))
+        for sources in ([archive, archive], [self.results, archive]):
+            with self.assertRaisesRegex(ValueError, "one ZIP archive"):
+                self.run_report(sources, artifact_sha256=artifact_digest)
 
     def test_repeated_failing_test_cannot_be_misrepresented_as_pass(self):
         self.junit("PASS")

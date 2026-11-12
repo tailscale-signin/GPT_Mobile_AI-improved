@@ -6,13 +6,13 @@ Repository: `tailscale-signin/GPT_Mobile_AI-improved`. Target: PR #819,
 `e62bded83b3861816c2c6e97116b30c9eb0920f1`.
 
 This follow-up repairs failures reproduced against the current implementation.
-The implementation revision is `2abed28ab3682571e5f0914da73205342b1981c4`; the accompanying task checkpoint records
+The implementation revision is `bfe6d1c2858490a9bdc288b4881864e6f00cf2a7`; the accompanying task checkpoint records
 validation and publication scope. Concurrent updates `3d773506`, `eb2bd73d` and `35385b0c` were integrated
 before publication. Their Gateway setup, Voice Mode, chat-following, dictated-draft
 and streaming/admission repairs are retained. The affected voice/entry/reporting
 suites were recompiled and rerun against the combined source.
 
-The implementation tree `9005517f806771989ae0a8eca812efb0a4e01879` exactly matches the locally
+The implementation tree `d2d7e87ae01acbd08682194be5cc8d9d2dd885c6` exactly matches the locally
 validated tree. The subsequent publication update changes only this record and
 the package source-commit identity; tested production and regression sources are
 unchanged. The checkpoint preserves the local compilation revisions and source hashes.

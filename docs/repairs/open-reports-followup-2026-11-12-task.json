@@ -117,9 +117,9 @@
     "mode": "GUARDED_FAST_FORWARD_ONLY",
     "force": false,
     "expected_remote_head": "9b2f7c6332011bdea602e8bba1f09115607efbff",
-    "local_validation_commit": "dc3b2174da3ff8c1ac9a508c370e76561525b9bf",
-    "validated_tree": "9005517f806771989ae0a8eca812efb0a4e01879",
-    "implementation_commit": "2abed28ab3682571e5f0914da73205342b1981c4",
+    "local_validation_commit": "f0e7f57cfc2c7ba276b12c07f3f3b9466ff30b50",
+    "validated_tree": "d2d7e87ae01acbd08682194be5cc8d9d2dd885c6",
+    "implementation_commit": "bfe6d1c2858490a9bdc288b4881864e6f00cf2a7",
     "tree_verified_identical": true,
     "metadata_followup": "Package source commit and publication record only; tested production and regression source remains unchanged.",
     "integrated_concurrent_heads": [
@@ -129,11 +129,11 @@
       "9b2f7c6332011bdea602e8bba1f09115607efbff"
     ]
   },
-  "implementation_revision": "2abed28ab3682571e5f0914da73205342b1981c4",
+  "implementation_revision": "bfe6d1c2858490a9bdc288b4881864e6f00cf2a7",
   "issue_closure": {
     "closed": [],
     "generic_reports": "Original cause unavailable; independent code regressions do not establish resolution of each historical report.",
     "formal_acceptance": "NOT_COMPLETE; required case-bound, physical-device, live-service and release evidence remains outstanding."
   },
-  "local_implementation_revision": "ab74540b88d75a7c1c83b660dc216dc021461629"
+  "local_implementation_revision": "f0e7f57cfc2c7ba276b12c07f3f3b9466ff30b50"
 }

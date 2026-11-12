@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "68efc54356749ad977b9454ec298b3e29ebc0aeae83bb2f59f66349add0a975b",
+  "source_digest": "67c808ad460f71a492de5bf54bd2cf3fe07310884bcc001b6f6ca8e52359eb2a",
   "file_count": 2469,
-  "indexed_line_count": 392274,
+  "indexed_line_count": 392272,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -64,7 +64,7 @@
       "id": "mcp_plugins",
       "label": "MCP connections and tool catalogues",
       "file_count": 30,
-      "indexed_line_count": 4538
+      "indexed_line_count": 4536
     },
     {
       "id": "marketplace_plugins",
@@ -2628,8 +2628,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/McpClientManager.kt",
       "area_id": "mcp_plugins",
       "kind": "source",
-      "sha256": "e63c773479d71e8626fb19f72f2853c1ec7e373f866cabe56a2554858d70bee6",
-      "indexed_lines": 1157
+      "sha256": "c97c69bc7cba96ce10aedabe187eb708702f7bc106a56321b94bb126e5e91eed",
+      "indexed_lines": 1155
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/McpConfigurationRevision.kt",

@@ -91,9 +91,7 @@ class McpBackoffException(
 
 internal class McpCatalogueTimeoutException(timeout: Long) : IllegalStateException("MCP catalogue discovery exceeded $timeout ms; saved catalogue and connection settings retained. Retry discovery or check server load.")
 
-internal class McpInitializationTimeoutException : IllegalStateException(
-    "MCP_INITIALIZATION_TIMEOUT: MCP initialization timed out. Check the server process and protocol endpoint, then retry."
-)
+internal class McpInitializationTimeoutException : IllegalStateException("MCP_INITIALIZATION_TIMEOUT: MCP initialization timed out. Check the server process and protocol endpoint, then retry.")
 
 class McpEndpointConfigurationException(val httpStatus: Int? = null) :
     IllegalStateException(

@@ -5,6 +5,29 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VoiceSessionTest {
+    @Test fun `system speech starts before sentence completion and preserves full captions`() {
+        start()
+        audio.listeners.last().final("Explain this")
+        val opening = "A short useful answer "
+        session.streamReply("run", opening)
+        assertEquals(listOf(opening), audio.spoken)
+        assertEquals(VoicePhase.SPEAKING, session.state.phase)
+        val final = opening + "with [the guide](https://example.test/private)."
+        session.reply("run", final)
+        assertEquals(final, session.state.reply)
+        audio.done?.invoke()
+        assertEquals(listOf(opening, "with the guide."), audio.spoken)
+    }
+
+    @Test fun `completed system speech cleans links while replay keeps the original answer`() {
+        start()
+        audio.listeners.last().final("Explain this")
+        val text = "See [the guide](https://example.test/private) and https://example.test/other now."
+        session.reply("run", text)
+        assertEquals(text, session.state.reply)
+        assertEquals(listOf("See the guide and link now."), audio.spoken)
+    }
+
     @Test fun `terminal trimming seals the reply and lets audio drain before the next microphone turn`() {
         audio.streamsReplies = true
         start()

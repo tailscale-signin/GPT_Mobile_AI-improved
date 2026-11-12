@@ -368,7 +368,9 @@ class VoiceSession(
         }
         update(state.copy(reply = text))
         streamComplete = complete
-        val chunks = speechBuffer.append(text, complete, earlyStart = audio.streamsReplies)
+        // Android TTS can queue a stable clause too; it need not wait for a full
+        // sentence merely because it does not expose a streaming PCM reply.
+        val chunks = speechBuffer.append(text, complete, earlyStart = true)
         if (chunks == null) {
             stopAudio("response_revised")
             update(state.copy(phase = VoicePhase.THINKING, notice = "The response was revised. The current answer is available in chat."))
@@ -506,10 +508,15 @@ class VoiceSession(
             continueTurn()
             return
         }
+        val spoken = VoiceSpeechText.project(text, final = true)
+        if (spoken.isBlank()) {
+            continueTurn()
+            return
+        }
         stopAudio()
         val ticket = generation
         update(state.copy(phase = VoicePhase.SPEAKING, level = 0f, notice = null))
-        audio.speak(text, complete = {
+        audio.speak(spoken, complete = {
             if (ticket == generation && playbackAllowed()) continueTurn()
         }, error = { message -> if (ticket == generation) fail(message, "VOICE_PLAYBACK_FAILED") })
     }

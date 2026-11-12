@@ -19,6 +19,8 @@ internal object GitHubRequestCompletion {
     private val compoundMutation = Regex("(?i)(?:\\band(?:\\s+then)?|\\bthen|\\balso|\\bafterwards|,)\\s+$POLITE$ACTION\\b")
     private val quotedMaterial = Regex("(?s)```.*?(?:```|\\z)|~~~.*?(?:~~~|\\z)|`[^`\\r\\n]*`|\"(?:\\\\.|[^\"\\\\])*\"|“[^”]*”|‘[^’]*’|(?<![\\p{L}\\p{N}])'[^'\\r\\n]*'")
     private val repositorySubject = Regex("(?i)\\b(?:repo(?:sitory)?|repositories|codebase|branches|branch|pull requests?|ci|workflows?|tests?|build|files?|features?|bugs?|fixes|patch(?:es)?|implementation|commits?)\\b|\\b[A-Za-z0-9_.-]+\\.(?:kt|java|md|py|js|ts|tsx|yml|yaml|json|xml)\\b")
+    private val sessionReviewIntent = Regex("(?i)\\b(?:review|audit|diagnose|investigate|inspect|analy[sz]e|examine|summarize|read)\\b")
+    private val sessionReviewSource = Regex("(?i)\\b(?:sessions?|captures?|diagnostic exports?|(?:app|diagnostic|saved|retained|attached|this|these)\\s+(?:logs?|traces?))\\b")
 
     private fun requestText(task: String): String = GitHubTaskContinuity.request(task)
         .replace(quotedMaterial, " ")
@@ -48,14 +50,14 @@ internal object GitHubRequestCompletion {
                 )
     }
 
-    private fun sessionReview(task: String): Boolean = Regex("(?i)\\b(review|audit|diagnos|investigat|inspect|analy[sz]e|capture|session|log|trace)\\w*\\b").containsMatchIn(task)
+    private fun sessionReview(request: String): Boolean = sessionReviewIntent.containsMatchIn(request) && sessionReviewSource.containsMatchIn(request)
 
     /** A saved-session review may ask for current mutable facts alongside historical findings. */
     fun requiresLiveSessionReviewRefresh(task: String): Boolean {
         val request = requestText(task)
         val asksForCurrent = Regex("(?i)\\b(?:current|latest|live|refresh|right now|today)\\b").containsMatchIn(request)
         val namesMutableGitHubFacts = Regex("(?i)\\b(?:pull requests?|prs?|workflows?|ci|checks?|conclusions?|status|state)\\b").containsMatchIn(request)
-        return informational(task) && sessionReview(task) && asksForCurrent && namesMutableGitHubFacts
+        return informational(task) && sessionReview(request) && asksForCurrent && namesMutableGitHubFacts
     }
 
     fun requirements(task: String): List<String> {
@@ -64,7 +66,7 @@ internal object GitHubRequestCompletion {
             .map { it.removePrefix("- ") }.toList().ifEmpty { listOf("Requested answer") }
         // Reviews have two distinct evidence obligations: findings must cite retained
         // observations, while recommendations must be explicitly marked as inference.
-        return if (informational(task) && sessionReview(task) && requested.none { it.startsWith("Evidence-backed findings", true) }) {
+        return if (informational(task) && sessionReview(requestText(task)) && requested.none { it.startsWith("Evidence-backed findings", true) }) {
             requested + listOf(
                 "Evidence-backed findings link each material observation to its trusted receipt and preserve its observation time",
                 "Recommendations are clearly labeled and distinguish evidence from inference"
@@ -155,7 +157,9 @@ internal object GitHubRequestCompletion {
     }
 
     fun evaluate(task: String, claims: List<JsonObject>, answer: JsonObject, receipts: Map<String, JsonObject>, now: Long = System.currentTimeMillis()): JsonObject {
-        val acceptedClaimStatuses = if (informational(task) && sessionReview(task)) setOf("VERIFIED", "INFERRED", "HISTORICAL") else setOf("VERIFIED", "INFERRED")
+        val informational = informational(task)
+        val sessionReview = informational && sessionReview(requestText(task))
+        val acceptedClaimStatuses = if (sessionReview) setOf("VERIFIED", "INFERRED", "HISTORICAL") else setOf("VERIFIED", "INFERRED")
         val verified = claims.isNotEmpty() && claims.all { (it["status"] as? JsonPrimitive)?.contentOrNull in acceptedClaimStatuses }
         val requirements = requirements(task)
         val coverage = (answer["requirement_claims"] as? JsonObject).orEmpty()
@@ -174,7 +178,7 @@ internal object GitHubRequestCompletion {
                 selected.isNotEmpty() -> selected.mapNotNull(claims::getOrNull)
                 requirement.startsWith("Evidence-backed findings", true) -> claims.filter { it["kind"] in setOf(JsonPrimitive("fact"), JsonPrimitive("excerpt"), JsonPrimitive("inferred"), JsonPrimitive("calculation")) }
                 requirement.startsWith("Recommendations are clearly labeled", true) -> claims.filter { it["kind"] == JsonPrimitive("recommendation") }
-                sessionReview(task) && requirement == requirements.first() -> claims
+                sessionReview && requirement == requirements.first() -> claims
                 requirements.size == 1 -> claims
                 else -> emptyList()
             }
@@ -197,7 +201,7 @@ internal object GitHubRequestCompletion {
             val claimsCovered = selectedClaims.isNotEmpty() && selectedClaims.all { (it["status"] as? JsonPrimitive)?.contentOrNull in acceptedClaimStatuses }
             val recommendationRequirement = requirement.startsWith("Recommendations are clearly labeled", true)
             val recommendationClaimed = selectedClaims.any { it["kind"] == JsonPrimitive("recommendation") && it["status"] == JsonPrimitive("INFERRED") }
-            val covered = claimsCovered && (!informational(task) || linkedReceiptIds.isNotEmpty()) && (!recommendationRequirement || recommendationClaimed)
+            val covered = claimsCovered && (!sessionReview || linkedReceiptIds.isNotEmpty()) && (!recommendationRequirement || recommendationClaimed)
             val assessment = acceptance?.let {
                 GitHubOperationAcceptance.evaluate(requirement, it, receipts, now)?.let { operation ->
                     if (operation.state == GitHubAcceptanceLedger.State.PASS && GitHubRepositoryLifecycle.intent(requirement) != null && GitHubRepositoryAcceptance.requiresAdditionalEvidence(requirement)) {
@@ -210,11 +214,11 @@ internal object GitHubRequestCompletion {
             }
             val implementedAndTested = assessment?.state == GitHubAcceptanceLedger.State.PASS
             val reviewBlocker = comparisonMissing?.takeIf { GitHubReviewComparison.requiresComparison(requirement) }
-            val passed = covered && !unanswered && reviewBlocker == null && (informational(task) || implementedAndTested)
+            val passed = covered && !unanswered && reviewBlocker == null && (informational || implementedAndTested)
             val state = when {
                 passed -> GitHubAcceptanceLedger.State.PASS
                 unanswered -> GitHubAcceptanceLedger.State.BLOCKED
-                informational(task) -> if (receipts.isEmpty()) GitHubAcceptanceLedger.State.NOT_TESTED else GitHubAcceptanceLedger.State.BLOCKED
+                informational -> if (receipts.isEmpty()) GitHubAcceptanceLedger.State.NOT_TESTED else GitHubAcceptanceLedger.State.BLOCKED
                 assessment?.state == GitHubAcceptanceLedger.State.PASS -> GitHubAcceptanceLedger.State.BLOCKED
                 else -> assessment?.state ?: GitHubAcceptanceLedger.State.NOT_TESTED
             }
@@ -223,7 +227,7 @@ internal object GitHubRequestCompletion {
                 put("requirement", requirement)
                 put("receipt_ids", JsonArray(linkedReceiptIds.sorted().map(::JsonPrimitive)))
                 put("missing_evidence_ids", JsonArray(missingReceiptIds.sorted().map(::JsonPrimitive)))
-                if (informational(task) && linkedReceiptIds.isEmpty()) put("missing_evidence", "No trusted successful source receipt is linked to this finding")
+                if (sessionReview && linkedReceiptIds.isEmpty()) put("missing_evidence", "No trusted successful source receipt is linked to this finding")
                 if (recommendationRequirement && !recommendationClaimed) put("missing_evidence", "A clearly labeled recommendation with verified source receipts is required")
                 put(
                     "status",
@@ -241,8 +245,8 @@ internal object GitHubRequestCompletion {
                         "A user decision remains unresolved"
                     } else if (reviewBlocker != null) {
                         reviewBlocker
-                    } else if (informational(task) && passed) {
-                        "Receipt-supported answer; no implementation or test execution inferred"
+                    } else if (informational && passed) {
+                        if (linkedReceiptIds.isEmpty()) "Verified answer coverage" else "Receipt-supported answer coverage"
                     } else if (!covered && implementedAndTested) {
                         "Matching test evidence is present, but answer coverage for this requirement remains unverified"
                     } else {
@@ -262,7 +266,7 @@ internal object GitHubRequestCompletion {
             put("task_outcome", if (complete) "COMPLETED" else "PARTIAL")
             put("requirements", JsonArray(rows))
             put("remaining_requirements", JsonArray(rows.filter { it["status"] != JsonPrimitive("PASSED") }))
-            put("completion_scope", if (informational(task)) "Answer coverage" else "Operation-specific remote state or implementation and revision-bound test evidence, as required by the request")
+            put("completion_scope", if (informational) "Answer coverage" else "Operation-specific remote state or implementation and revision-bound test evidence, as required by the request")
         }
     }
 }

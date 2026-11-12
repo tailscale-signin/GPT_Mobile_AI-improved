@@ -122,12 +122,21 @@ class GitHubWorkflowPresentationTest {
         assertTrue(view.recoveryExplanation.contains("incomplete activity history"))
     }
 
-    @Test fun failedReadCanRetryButActiveRunCannot() {
-        val read = event("one", status = ToolEventStatus.FAILED, error = "SAVED_VIEW_UNAVAILABLE")
+    @Test fun timedOutReadCanRetryAfterRunStops() {
+        val read = event("one", status = ToolEventStatus.FAILED, error = "NETWORK_TIMEOUT")
         val failed = GitHubWorkflowPresentation.snapshot(run(AgentRunStatus.FAILED), listOf(read), true)
         assertTrue(TaskRecoveryAction.RETRY_FAILED_STAGE in failed.recovery)
         val active = GitHubWorkflowPresentation.snapshot(run(AgentRunStatus.WAITING_REMOTE_JOB), listOf(read), true)
         assertTrue(active.recovery.isEmpty())
+    }
+
+    @Test fun savedViewFailuresDoNotOfferGenericRetry() {
+        for (code in listOf("SAVED_VIEW_UNAVAILABLE", "SAVED_VIEW_CURSOR_ALTERED", "SAVED_VIEW_WRONG_OPERATION")) {
+            val read = event("one", status = ToolEventStatus.FAILED, error = code)
+            val snapshot = GitHubWorkflowPresentation.snapshot(run(AgentRunStatus.FAILED), listOf(read), true)
+            assertEquals(code, snapshot.failureCategory)
+            assertTrue(snapshot.recovery.isEmpty())
+        }
     }
 
     @Test fun distinctRunAndCallIdentityExcludeReplayedOrUnrelatedActivity() {

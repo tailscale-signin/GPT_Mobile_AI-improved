@@ -102,7 +102,8 @@
     "Separate CodeQL source generation and production compilation into bounded traced Gradle processes, forcing actual Kotlin and Java compilation without increasing memory limits or bypassing analysis.",
     "Recheck microphone permission inside the deferred default recorder factory before AudioRecord creation, with revocation-during-configuration and fresh-capture permission-regrant regressions; retain strict lint and cleanup behavior.",
     "Refresh the actual microphone permission observation after recorder creation/start security failures, preserving the original exception and proving revoked and still-granted states in approved v5 diagnostics.",
-    "Recover transient Windows status-file replacement sharing errors within a bounded status-only allowance, preserve the last durable and in-memory state on failure, and retain regression coverage for permanent and unrelated errors."
+    "Recover transient Windows status-file replacement sharing errors within a bounded status-only allowance, preserve the last durable and in-memory state on failure, and retain regression coverage for permanent and unrelated errors.",
+    "Resolve a pinned comparison base for manual CI validation while preserving event-supplied PR, push and merge-queue comparisons and rejecting unavailable or invalid references."
   ],
   "limitations": [
     "Android GPU qualification requires compatible-device receipts for actual offload, prefill, decode, repeated requests and cancel/recovery; host tests do not establish those results.",
@@ -2403,6 +2404,9 @@
     "authentication/issue_report_diagnostics.py",
     "docs/repairs/report-diagnostic-followup-2026-11-12-task.json",
     "docs/repairs/report-diagnostic-followup-2026-11-12.md",
-    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/queue/DurablePromptQueueModelPreparationAuthorityTest.kt"
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/queue/DurablePromptQueueModelPreparationAuthorityTest.kt",
+    "scripts/resolve_validation_base.py",
+    "scripts/tests/test_validation_base.py",
+    "docs/repairs/manual-validation-base-2026-11-12-task.json"
   ]
 }

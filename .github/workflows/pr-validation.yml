@@ -14,6 +14,11 @@ on:
   merge_group:
     types: [checks_requested]
   workflow_dispatch:
+    inputs:
+      change_base_sha:
+        description: 'Optional full comparison commit SHA; defaults to the fetched default branch, or the first parent when validating that branch.'
+        type: string
+        required: false
 
 concurrency:
   group: pr-validation-${{ github.event.pull_request.number || github.ref }}
@@ -357,9 +362,13 @@ jobs:
           echo "023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757  $RUNNER_TEMP/actionlint.tgz" | sha256sum --check
           tar -xzf "$RUNNER_TEMP/actionlint.tgz" -C "$RUNNER_TEMP" actionlint
           "$RUNNER_TEMP/actionlint" -shellcheck= -pyflakes=
-      - name: Repository contracts and workflow policy
+      - name: Resolve changed-file comparison
         env:
           CHANGE_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+          MANUAL_CHANGE_BASE: ${{ inputs.change_base_sha }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: python3 scripts/resolve_validation_base.py
+      - name: Repository contracts and workflow policy
         run: |
           python3 scripts/check_ci_policy.py
           python3 scripts/generate_architecture_index.py --check
@@ -406,9 +415,13 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      - name: Check changed Kotlin sources
+      - name: Resolve changed-file comparison
         env:
           CHANGE_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+          MANUAL_CHANGE_BASE: ${{ inputs.change_base_sha }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: python3 scripts/resolve_validation_base.py
+      - name: Check changed Kotlin sources
         run: |
           curl --fail --location --retry 3 https://github.com/ktlint/ktlint/releases/download/1.3.1/ktlint -o "$RUNNER_TEMP/ktlint"
           echo "a9f923be58fbd32670a17f0b729b1df804af882fa57402165741cb26e5440ca1  $RUNNER_TEMP/ktlint" | sha256sum --check

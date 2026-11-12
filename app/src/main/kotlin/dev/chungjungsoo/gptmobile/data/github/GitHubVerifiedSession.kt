@@ -485,7 +485,7 @@ internal class GitHubVerifiedSession(
                     errorCode = "GITHUB_TASK_INCOMPLETE",
                     transportComplete = true,
                     taskOutcome = "PARTIAL",
-                    failureDetails = GitHubTaskLifecycle.acceptanceFailureDetails(delivered)
+                    failureDetails = GitHubTaskLifecycle.acceptanceFailureDetails(delivered, retainedReport = true)
                 )
             )
         }
@@ -968,8 +968,10 @@ internal class GitHubVerifiedSession(
         onPublication(delivered)
         val unresolved = ((delivered["execution_ledger"] as? JsonObject)?.get("unresolved_remote_outcomes") as? kotlinx.serialization.json.JsonPrimitive)?.content?.toIntOrNull()?.let { it > 0 } == true
         val extractionCode = (delivered["failure_code"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.takeUnless { it == "null" }
+        val extractionFailure = (delivered["verification_failure"] as? JsonObject)?.takeIf { it["failed_stage"] == JsonPrimitive("claim_extraction") }
         val waitingApproval = (delivered["execution_ledger"] as? JsonObject)?.get("recovery") == kotlinx.serialization.json.JsonPrimitive("WAITING_FOR_APPROVAL")
         val approvalIsPrimary = waitingApproval && originalFailure == null && !unresolved
+        val extractionOwnsFailure = originalFailure == null && !approvalIsPrimary && !unresolved
         if (partial || delivered["completion_verified"] != kotlinx.serialization.json.JsonPrimitive(true)) {
             lifecycle(dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.VERIFICATION_REJECTED)
             emit(
@@ -984,9 +986,9 @@ internal class GitHubVerifiedSession(
                     } else {
                         failureCode ?: extractionCode ?: (delivered["verification_failure"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: "GITHUB_TASK_INCOMPLETE"
                     },
-                    transportComplete = originalFailure?.transportComplete ?: true,
+                    transportComplete = originalFailure?.transportComplete ?: (!extractionOwnsFailure || extractionFailure?.get("transport_complete") != JsonPrimitive(false)),
                     providerLimit = originalFailure?.providerLimit?.takeUnless { unresolved },
-                    invocationId = originalFailure?.invocationId,
+                    invocationId = if (originalFailure != null) originalFailure.invocationId else (extractionFailure?.get("invocation_id") as? JsonPrimitive)?.takeIf { extractionOwnsFailure && it.isString }?.content,
                     taskOutcome = if (approvalIsPrimary || originalFailure?.taskOutcome == "BLOCKED") "BLOCKED" else "PARTIAL",
                     failureDetails = if (approvalIsPrimary) {
                         buildJsonObject {
@@ -1076,6 +1078,7 @@ internal class GitHubVerifiedSession(
                             )
                             providerFailure?.invocationId?.let { put("invocation_id", it) }
                             providerFailure?.errorCode?.let { put("provider_error_code", it) }
+                            providerFailure?.let { put("transport_complete", it.transportComplete) }
                             val nextBatch = completed.indexOfFirst { it == null }
                             if (nextBatch >= 0) put("batch", nextBatch + 1)
                             providerFailure?.message?.let { put("message", it) }
@@ -1113,6 +1116,17 @@ internal class GitHubVerifiedSession(
             try {
                 return extractBatchOnce(current)
             } catch (failure: ExtractionFailed) {
+                val details = failure.providerFailure?.failureDetails
+                if (failure.providerFailure?.transportComplete == false ||
+                    details?.get("retryable") == JsonPrimitive(false) ||
+                    details?.get("automatic_retry_allowed") == JsonPrimitive(false) ||
+                    details?.get("request_replay_allowed") == JsonPrimitive(false) ||
+                    details?.get("logical_continuation_allowed") == JsonPrimitive(false) ||
+                    details?.get("requires_reconciliation") == JsonPrimitive(true) ||
+                    details?.get("remote_acceptance") == JsonPrimitive("UNKNOWN")
+                ) {
+                    throw failure
+                }
                 if (failure.code !in setOf("GITHUB_EXTRACTION_OUTPUT_LIMIT", "GITHUB_EXTRACTION_INVALID_RESPONSE") || current.maxClaims <= 1) throw failure
                 current = GitHubClaimBatches.withClaimLimit(current, maxOf(1, current.maxClaims / 2))
             }
@@ -1120,27 +1134,30 @@ internal class GitHubVerifiedSession(
     }
 
     private suspend fun extractBatchOnce(request: GitHubClaimBatches.Request): JsonObject {
-        var providerReturned = false
+        var readingProvider = true
         return try {
             val response = StringBuilder()
             var complete = false
             var finishReason: String? = null
+            var outputExceeded = false
+            var unexpectedOperation = false
             openVerifier(request.payload).streamRound(emptyList(), emptyList()).collect { event ->
                 when (event) {
                     is ProviderEvent.TextDelta -> {
-                        if (response.length + event.text.length.toLong() > 32_768) throw ExtractionFailed("GITHUB_EXTRACTION_OUTPUT_LIMIT")
-                        response.append(event.text)
+                        if (response.length + event.text.length.toLong() > 32_768) outputExceeded = true
+                        if (!outputExceeded) response.append(event.text)
                     }
                     is ProviderEvent.Completed -> complete = true
                     is ProviderEvent.Usage -> event.finishReason?.let { finishReason = it }
                     is ProviderEvent.Failed -> throw ExtractionFailed(event.errorCode ?: "GITHUB_EXTRACTION_FAILED", event)
-                    is ProviderEvent.ToolCall, is ProviderEvent.ToolResult -> throw ExtractionFailed("GITHUB_EXTRACTION_INVALID_RESPONSE")
+                    is ProviderEvent.ToolCall, is ProviderEvent.ToolResult -> unexpectedOperation = true
                     else -> Unit
                 }
             }
-            if (finishReason?.lowercase() in setOf("length", "max_tokens", "max_output_tokens", "token_limit")) throw ExtractionFailed("GITHUB_EXTRACTION_OUTPUT_LIMIT")
-            check(complete) { "Claim extraction was interrupted" }
-            providerReturned = true
+            readingProvider = false
+            if (!complete) throw extractionProviderFailure(null)
+            if (outputExceeded || finishReason?.lowercase() in setOf("length", "max_tokens", "max_output_tokens", "token_limit")) throw ExtractionFailed("GITHUB_EXTRACTION_OUTPUT_LIMIT")
+            if (unexpectedOperation) throw ExtractionFailed("GITHUB_EXTRACTION_INVALID_RESPONSE")
             withContext(computationDispatcher) {
                 val answer = Json.parseToJsonElement(response.toString().trim()) as? JsonObject ?: error("Claim extraction was not structured")
                 GitHubClaimBatches.validate(answer, request)
@@ -1156,29 +1173,30 @@ internal class GitHubVerifiedSession(
                     it is dev.chungjungsoo.gptmobile.data.agent.SavedEvidenceAccessDenied
             }
             if (policy != null) throw policy
-            if (!providerReturned) {
-                // Construction/collection failed or ended without a terminal outcome.
-                // Reducing a JSON claim limit cannot repair that unknown invocation.
-                throw ExtractionFailed(
-                    "GITHUB_EXTRACTION_FAILED",
-                    ProviderEvent.Failed(
-                        "Claim extraction stopped before its provider outcome was recorded. Saved receipts and completed claim batches remain available.",
-                        errorCode = "PROVIDER_INVOCATION_FAILED",
-                        transportComplete = false,
-                        failureDetails = buildJsonObject {
-                            put("failed_stage", "claim_extraction")
-                            put("exception_class", failure.javaClass.simpleName.take(64))
-                            put("retryable", false)
-                            put("request_replay_allowed", false)
-                            put("logical_continuation_allowed", false)
-                            put("remote_acceptance", "UNKNOWN")
-                        }
-                    )
-                )
-            }
+            if (readingProvider) throw extractionProviderFailure(failure)
             throw ExtractionFailed("GITHUB_EXTRACTION_INVALID_RESPONSE")
         }
     }
+
+    private fun extractionProviderFailure(failure: Exception?): ExtractionFailed = ExtractionFailed(
+        "GITHUB_EXTRACTION_FAILED",
+        ProviderEvent.Failed(
+            "The claim-extraction provider attempt did not finish. Saved evidence remains available; no automatic replay was authorized.",
+            errorCode = if (failure == null) "INCOMPLETE_PROVIDER_STREAM" else "PROVIDER_INVOCATION_FAILED",
+            transportComplete = false,
+            failureDetails = buildJsonObject {
+                put("failed_stage", "claim_extraction")
+                put("retryable", false)
+                put("request_replay_allowed", false)
+                put("logical_continuation_allowed", false)
+                put("remote_acceptance", "UNKNOWN")
+                failure?.let {
+                    put("exception_class", it.javaClass.simpleName.take(64))
+                    put("cause_types", JsonArray(failureCauses(it).map { cause -> JsonPrimitive(cause.javaClass.name) }.toList()))
+                }
+            }
+        )
+    )
 
     private class ExtractionFailed(val code: String, val providerFailure: ProviderEvent.Failed? = null) : IllegalStateException(code)
 

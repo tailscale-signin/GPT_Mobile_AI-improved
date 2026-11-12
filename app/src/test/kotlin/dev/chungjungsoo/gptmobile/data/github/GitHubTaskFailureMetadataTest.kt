@@ -83,8 +83,8 @@ class GitHubTaskFailureMetadataTest {
             )
         }
         val details = GitHubTaskLifecycle.acceptanceFailureDetails(verdict)
-        assertEquals(JsonPrimitive("claim_extraction"), details["failed_stage"])
-        assertEquals(JsonPrimitive("GITHUB_EXTRACTION_OUTPUT_LIMIT"), details["reason_code"])
+        assertEquals(JsonPrimitive("tool_reconciliation"), details["failed_stage"])
+        assertFalse(details.containsKey("reason_code"))
         assertEquals(JsonPrimitive(2), details["extraction_batch"])
         assertEquals(JsonPrimitive("ACCEPTANCE_EVIDENCE_MISSING"), details["stop_reason"])
         assertEquals(JsonPrimitive("RECONCILE_REMOTE_OUTCOME"), details["recovery_action"])
@@ -143,7 +143,11 @@ class GitHubTaskFailureMetadataTest {
                 }
             )
         }
-        val details = GitHubTaskLifecycle.acceptanceFailureDetails(verdict)
+        val fresh = GitHubTaskLifecycle.acceptanceFailureDetails(verdict)
+        assertEquals(JsonPrimitive(true), fresh["dispatched"])
+        assertEquals(extraction["invocation_id"], fresh["invocation_id"])
+        assertFalse(fresh.containsKey("http_status"))
+        val details = GitHubTaskLifecycle.acceptanceFailureDetails(verdict, retainedReport = true)
         assertEquals(JsonPrimitive("GITHUB_EXTRACTION_INVALID_RESPONSE"), details["reason_code"])
         assertEquals(JsonPrimitive("RESUME_THIS_BATCH_WITH_STRICT_SCHEMA"), details["recovery_action"])
         assertFalse(details.containsKey("dispatched"))

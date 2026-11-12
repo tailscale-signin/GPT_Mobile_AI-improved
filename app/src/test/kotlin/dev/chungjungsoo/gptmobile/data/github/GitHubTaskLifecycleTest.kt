@@ -20,6 +20,44 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubTaskLifecycleTest {
+    @Test fun retainedExtractionReportDoesNotPresentHistoricalAttemptFactsAsFreshDispatch() {
+        val verdict = buildJsonObject {
+            put("failure_code", "GITHUB_EXTRACTION_FAILED")
+            put(
+                "verification_failure",
+                buildJsonObject {
+                    put("code", "GITHUB_EXTRACTION_FAILED")
+                    put("failed_stage", "claim_extraction")
+                    put("invocation_id", "historical-extraction")
+                    put("dispatched", true)
+                    put("remote_acceptance", "UNKNOWN")
+                    put("http_status", 503)
+                    put("batch", 2)
+                }
+            )
+            put("extraction_batches_completed", 1)
+            put("extraction_batches_total", 3)
+        }
+        val retained = GitHubTaskLifecycle.acceptanceFailureDetails(verdict, retainedReport = true)
+        assertEquals(JsonPrimitive("claim_extraction"), retained["failed_stage"])
+        assertEquals(JsonPrimitive("GITHUB_EXTRACTION_FAILED"), retained["failure_code"])
+        assertEquals(JsonPrimitive(2), retained["extraction_batch"])
+        assertEquals(JsonPrimitive(1), retained["extraction_batches_completed"])
+        assertEquals(JsonPrimitive(3), retained["extraction_batches_total"])
+        for (key in listOf("invocation_id", "dispatched", "remote_acceptance", "http_status")) assertFalse(retained.containsKey(key))
+
+        val primary = JsonObject(verdict + ("original_failure" to buildJsonObject { put("failed_stage", "answer_review") }))
+        val primaryDetails = GitHubTaskLifecycle.acceptanceFailureDetails(primary)
+        assertEquals(JsonPrimitive("answer_review"), primaryDetails["failed_stage"])
+        for (key in listOf("invocation_id", "dispatched", "remote_acceptance", "http_status")) assertFalse(primaryDetails.containsKey(key))
+
+        val unresolved = JsonObject(verdict + ("execution_ledger" to buildJsonObject { put("unresolved_remote_outcomes", 1) }))
+        val reconciliation = GitHubTaskLifecycle.acceptanceFailureDetails(unresolved)
+        assertEquals(JsonPrimitive("tool_reconciliation"), reconciliation["failed_stage"])
+        assertEquals(JsonPrimitive("RECONCILE_REMOTE_OUTCOME"), reconciliation["recovery_action"])
+        for (key in listOf("failure_code", "reason_code", "invocation_id", "dispatched", "remote_acceptance", "http_status")) assertFalse(reconciliation.containsKey(key))
+    }
+
     private fun answer(text: String) = object : AgentProviderSession {
         override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flowOf(ProviderEvent.TextDelta(text), ProviderEvent.Completed)
     }

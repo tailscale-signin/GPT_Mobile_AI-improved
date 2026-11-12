@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 from pathlib import Path
+import re
 import sys
 import tempfile
 import unittest
@@ -66,8 +67,7 @@ class UnifiedV2ReconciliationTest(unittest.TestCase):
         return path
 
     def qualification(self, directories=None):
-        paths = [report for directory in directories or [self.results]
-                 for report in directory.glob("TEST-*.xml")]
+        paths = [path for directory in (directories or [self.results]) for path in directory.rglob("TEST-*.xml")]
         classes, errors = r.junit_observations(paths, self.since, self.now)
         return {"schema_version": 1, "kind": "APP_AUDIT_SOURCE_HARNESS_OBSERVATIONS",
                 "checkout": {"commit": self.sha}, "report_errors": errors,
@@ -119,6 +119,7 @@ class UnifiedV2ReconciliationTest(unittest.TestCase):
             self.assertTrue(all(not row["promotion_authorized"] for row in report["cases"]))
         self.assertEqual(ledger, {name: (self.scope / name).read_bytes() for name in ledger})
 
+
     def test_missing_stale_duplicate_corrupt_or_changed_second_directory_fails_closed(self):
         self.junit()
         core = self.root / "core-results"
@@ -152,6 +153,7 @@ class UnifiedV2ReconciliationTest(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     self.run_report(sources, qualification=qualification)
 
+
     def test_combined_directory_report_limit_is_global(self):
         self.junit()
         core = self.root / "core-results"
@@ -160,6 +162,7 @@ class UnifiedV2ReconciliationTest(unittest.TestCase):
                    owner="dev.example.CoreProbe")
         with patch.object(r, "MAX_REPORTS", 1), self.assertRaisesRegex(ValueError, "collection bound"):
             self.run_report([self.results, core], qualification=self.qualification([self.results, core]))
+
 
     def test_cli_repeated_directories_reconcile_the_same_bound_receipt(self):
         self.junit()
@@ -183,6 +186,7 @@ class UnifiedV2ReconciliationTest(unittest.TestCase):
         self.assertEqual(qualification["junit_receipt"]["content_sha256"], report["junit_receipt"]["content_sha256"])
         self.assertEqual(2, report["junit_receipt"]["report_count"])
         self.assertEqual({"NOT_RUN": 110}, report["summary"]["case_outcomes"])
+
 
     def test_missing_skipped_failed_probes_do_not_claim_evidence(self):
         for state in ("MISSING", "SKIP", "FAIL"):
@@ -216,9 +220,10 @@ class UnifiedV2ReconciliationTest(unittest.TestCase):
         candidate = next(row["component_candidate"] for row in report["cases"]
                          if row["case_id"] == "IX05")
         self.assertEqual("ALL_NAMED_TESTS_PASS", candidate["component_status"])
-        self.assertEqual(report, self.run_report([archive], artifact_sha256=artifact_digest))
-        for sources in ([archive, archive], [self.results, archive]):
-            with self.assertRaisesRegex(ValueError, "one ZIP archive"):
+        repeated_option_report = self.run_report([archive], artifact_sha256=artifact_digest)
+        self.assertEqual(report, repeated_option_report)
+        for sources in ([self.results, archive], [archive, archive]):
+            with self.subTest(sources=sources), self.assertRaisesRegex(ValueError, "supplied alone"):
                 self.run_report(sources, artifact_sha256=artifact_digest)
 
     def test_android_and_portable_reports_must_match_the_same_combined_receipt(self):
@@ -243,6 +248,85 @@ class UnifiedV2ReconciliationTest(unittest.TestCase):
         (portable / "TEST-AcceptanceProbe.xml").write_bytes((self.results / "TEST-AcceptanceProbe.xml").read_bytes())
         with self.assertRaisesRegex(ValueError, "duplicate"):
             self.run_report([self.results, portable], qualification=qualification)
+
+    def test_repeated_directory_cli_binds_the_complete_qualification_without_promoting_cases(self):
+        self.junit()
+        portable = self.root / "portable"
+        portable.mkdir()
+        self.junit(directory=portable, filename="TEST-PortableProbe.xml", owner="dev.example.PortableProbe")
+        qualification = self.qualification([self.results, portable])
+        qualified_path = self.root / "qualification.json"
+        qualified_path.write_text(json.dumps(qualification))
+        target = self.root / "report.json"
+        original_reconcile = r.reconcile
+
+        def reconcile_fixture(**parameters):
+            return original_reconcile(self.scope, self.mapping, **parameters)
+
+        with patch.object(r, "validate", return_value=(48, 110)), patch.object(
+                r, "reconcile", side_effect=reconcile_fixture):
+            self.assertEqual(0, r.main([
+                "--junit-dir", str(self.results), "--junit-dir", str(portable),
+                "--qualification", str(qualified_path), "--source-sha", self.sha,
+                "--run-url", self.run, "--output", str(target), "--fail-on-candidate-regression",
+            ]))
+        report = json.loads(target.read_text())
+        self.assertEqual(qualification["junit_receipt"]["content_sha256"], report["junit_receipt"]["content_sha256"])
+        self.assertEqual(2, report["junit_receipt"]["report_count"])
+        self.assertEqual(4, report["junit_receipt"]["case_count"])
+        self.assertEqual({"NOT_RUN": 110}, report["summary"]["case_outcomes"])
+        self.assertEqual(0, report["summary"]["new_case_pass_claims"])
+        self.assertEqual(0, report["summary"]["new_task_done_claims"])
+        self.assertTrue(all(not case["promotion_authorized"] for case in report["cases"]))
+        reverse = self.run_report([portable, self.results], qualification=qualification)
+        self.assertEqual(report, reverse)
+        for partial in (self.results, portable):
+            with self.subTest(partial=partial), self.assertRaisesRegex(ValueError, "digest"):
+                self.run_report(partial, qualification=qualification)
+
+    def test_single_directory_preserves_recursive_report_imports(self):
+        self.junit()
+        portable = self.root / "portable"
+        portable.mkdir()
+        self.junit(directory=portable, filename="TEST-PortableProbe.xml", owner="dev.example.PortableProbe")
+        qualification = self.qualification([self.results, portable])
+        recursive = self.run_report(self.root, qualification=qualification)
+        explicit = self.run_report([self.results, portable], qualification=qualification)
+        self.assertEqual(explicit, recursive)
+        self.assertEqual(2, recursive["junit_receipt"]["report_count"])
+        self.assertEqual(4, recursive["junit_receipt"]["case_count"])
+
+    def test_multiple_roots_preserve_identity_freshness_duplicates_and_global_report_limit(self):
+        self.junit()
+        portable = self.root / "portable"
+        portable.mkdir()
+        self.junit(directory=portable, filename="TEST-PortableProbe.xml", owner="dev.example.PortableProbe")
+        roots = [self.results, portable]
+        qualification = self.qualification(roots)
+        for duplicate_roots in (roots + [self.results], [self.root, self.results]):
+            with self.subTest(roots=duplicate_roots), self.assertRaisesRegex(ValueError, "duplicate"):
+                self.run_report(duplicate_roots, qualification=qualification)
+        for overrides in ({"source_sha": "b" * 40}, {"run_url": self.run[:-1] + "1"}):
+            with self.subTest(overrides=overrides), self.assertRaisesRegex(ValueError, "workflow attempt"):
+                self.run_report(roots, qualification=qualification, **overrides)
+        with patch.object(r, "MAX_REPORTS", 1), self.assertRaisesRegex(ValueError, "report count"):
+            self.run_report(roots, qualification=qualification)
+        self.junit(directory=portable, filename="TEST-PortableProbe.xml", owner="dev.example.PortableProbe",
+                   observed=self.since - timedelta(days=1))
+        with self.assertRaisesRegex(ValueError, "stale"):
+            self.run_report(roots, qualification=qualification)
+        self.junit(directory=portable, filename="TEST-PortableProbe.xml", owner="dev.example.PortableProbe",
+                   method="changedAfterQualification")
+        with self.assertRaisesRegex(ValueError, "digest"):
+            self.run_report(roots, qualification=qualification)
+
+    def test_workflow_qualification_and_reconciliation_use_the_same_explicit_report_roots(self):
+        workflow = (ROOT / ".github/workflows/pr-validation.yml").read_text()
+        collector = workflow.split("name: Collect named audit qualification", 1)[1].split("      - name:", 1)[0]
+        reconciler = workflow.split("name: Reconcile v2 cases", 1)[1].split("      - name:", 1)[0]
+        roots = re.findall(r"--junit-dir\s+(\S+)", collector)
+        self.assertEqual(["app/build/test-results/testDebugUnitTest", "core-domain/build/test-results/jvmTest"], roots)
+        self.assertEqual(roots, re.findall(r"--junit-dir\s+(\S+)", reconciler))
 
     def test_repeated_failing_test_cannot_be_misrepresented_as_pass(self):
         self.junit("PASS")

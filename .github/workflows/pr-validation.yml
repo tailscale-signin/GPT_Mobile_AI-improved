@@ -126,7 +126,12 @@ jobs:
           set -euo pipefail
           junit_args=()
           if compgen -G 'app/build/test-results/testDebugUnitTest/TEST-*.xml' >/dev/null; then
-            junit_args=(--junit-dir app/build/test-results/testDebugUnitTest --junit-dir core-domain/build/test-results/jvmTest --qualification app-audit-source-qualification.json --fail-on-candidate-regression)
+            junit_args=(
+              --junit-dir app/build/test-results/testDebugUnitTest
+              --junit-dir core-domain/build/test-results/jvmTest
+              --qualification app-audit-source-qualification.json
+              --fail-on-candidate-regression
+            )
           fi
           python3 scripts/unified_reliability_v2_reconcile.py \
             "${junit_args[@]}" \

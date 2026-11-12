@@ -210,6 +210,12 @@ internal object IssueReportCodes {
 
     fun select(code: String?, fallback: String): String = known(code) ?: fallback
 
+    /** Reporting aliases only; the original tool receipt remains authoritative for recovery. */
+    fun toolResult(code: String?): String? = when (code) {
+        "UNKNOWN_TOOL", "UNSUPPORTED_TOOL_CONTRACT", "MCP_CONNECTION_UNAVAILABLE" -> "TOOL_UNAVAILABLE"
+        else -> known(code)
+    }
+
     /** Read exact typed fields only; event names, messages and provider payloads are never parsed. */
     fun fromFields(fields: Map<String, Any?>): String? = sequenceOf("errorCode", "error_code", "failureCode", "failure_code")
         .mapNotNull { known(fields[it] as? String) }.firstOrNull()

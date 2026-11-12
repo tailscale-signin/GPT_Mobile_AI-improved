@@ -73,7 +73,8 @@ class GitHubVerifiedSessionTest {
             assertEquals(1, book.snapshot().first.size)
             assertTrue(events.none { it is ProviderEvent.Completed || it is ProviderEvent.ToolCall })
             val diagnostic = requireNotNull(published?.get("verification_failure") as? JsonObject)
-            assertEquals(JsonPrimitive("PROVIDER_INVOCATION_FAILED"), diagnostic["provider_error_code"])
+            val providerCode = if (phase in setOf("empty", "partial")) "INCOMPLETE_PROVIDER_STREAM" else "PROVIDER_INVOCATION_FAILED"
+            assertEquals(JsonPrimitive(providerCode), diagnostic["provider_error_code"])
             assertEquals(JsonPrimitive(false), diagnostic["request_replay_allowed"])
             assertEquals(JsonPrimitive(false), diagnostic["logical_continuation_allowed"])
             assertEquals(JsonPrimitive("UNKNOWN"), diagnostic["remote_acceptance"])
@@ -81,6 +82,172 @@ class GitHubVerifiedSessionTest {
             assertFalse(diagnostic.containsKey("invocation_id"))
             assertFalse(diagnostic.toString().contains("Private exception details"))
         }
+    }
+
+    @Test fun unexpectedExtractionProviderExceptionsNeverBecomeSchemaRepairAttempts() = runBlocking {
+        for (synchronous in listOf(false, true)) {
+            var attempts = 0
+            val error = IllegalStateException("private provider failure with an unknown remote outcome")
+            val gate = GitHubVerifiedSession(
+                answer("Candidate answer"),
+                GitHubEvidenceBook("b", "o/r", "main", emptySet()),
+                "Explain the recorded result",
+                { 8192 },
+                {
+                    attempts++
+                    if (synchronous) throw error
+                    object : AgentProviderSession {
+                        override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow<ProviderEvent> {
+                            emit(ProviderEvent.TextDelta("{\"claims\":["))
+                            throw error
+                        }
+                    }
+                },
+                {},
+                {}
+            )
+            val events = gate.streamRound(emptyList(), emptyList()).toList()
+            val failure = events.last() as ProviderEvent.Failed
+            assertEquals(1, attempts)
+            assertEquals("GITHUB_EXTRACTION_FAILED", failure.errorCode)
+            assertFalse(failure.transportComplete)
+            assertEquals(JsonPrimitive("claim_extraction"), failure.failureDetails?.get("failed_stage"))
+            assertEquals(JsonPrimitive(false), failure.failureDetails?.get("retryable"))
+            assertEquals(JsonPrimitive(false), failure.failureDetails?.get("request_replay_allowed"))
+            assertEquals(JsonPrimitive(false), failure.failureDetails?.get("logical_continuation_allowed"))
+            assertEquals(JsonArray(listOf(JsonPrimitive(IllegalStateException::class.java.name))), failure.failureDetails?.get("cause_types"))
+            assertFalse(requireNotNull(failure.failureDetails).containsKey("dispatched"))
+            assertEquals(null, failure.invocationId)
+            assertFalse(events.any { it is ProviderEvent.Completed })
+        }
+    }
+
+    @Test fun unfinishedExtractionStreamDoesNotAuthorizeAnotherProviderAttempt() = runBlocking {
+        for (mode in listOf("partial", "reported_limit", "oversized", "operation")) {
+            var attempts = 0
+            val gate = GitHubVerifiedSession(
+                answer("Candidate answer"),
+                GitHubEvidenceBook("b", "o/r", "main", emptySet()),
+                "Explain the recorded result",
+                { 8192 },
+                {
+                    attempts++
+                    object : AgentProviderSession {
+                        override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow<ProviderEvent> {
+                            emit(ProviderEvent.TextDelta(if (mode == "oversized") "x".repeat(32_769) else "{\"claims\":[]}"))
+                            if (mode == "reported_limit") emit(ProviderEvent.Usage(finishReason = "length"))
+                            if (mode == "operation") emit(ProviderEvent.ToolCall("unexecuted", "github_write", JsonObject(emptyMap())))
+                        }
+                    }
+                },
+                {},
+                {}
+            )
+            val failure = gate.streamRound(emptyList(), emptyList()).toList().last() as ProviderEvent.Failed
+            assertEquals(1, attempts)
+            assertEquals("GITHUB_EXTRACTION_FAILED", failure.errorCode)
+            assertFalse(failure.transportComplete)
+            assertEquals(JsonPrimitive("INCOMPLETE_PROVIDER_STREAM"), failure.failureDetails?.get("provider_error_code"))
+            assertEquals(JsonPrimitive(false), failure.failureDetails?.get("request_replay_allowed"))
+        }
+    }
+
+    @Test fun completedMalformedExtractionKeepsItsBoundedSchemaRepair() = runBlocking {
+        var attempts = 0
+        val gate = GitHubVerifiedSession(
+            answer("Candidate answer"),
+            GitHubEvidenceBook("b", "o/r", "main", emptySet()),
+            "Explain the recorded result",
+            { 8192 },
+            {
+                attempts++
+                answer("not structured JSON")
+            },
+            {},
+            {}
+        )
+        val failure = gate.streamRound(emptyList(), emptyList()).toList().last() as ProviderEvent.Failed
+        assertEquals(4, attempts)
+        assertEquals("GITHUB_EXTRACTION_INVALID_RESPONSE", failure.errorCode)
+        assertTrue(failure.transportComplete)
+    }
+
+    @Test fun typedExtractionLimitCannotOverrideAnUncertainOrNonReplayableAttempt() = runBlocking {
+        val limits = listOf(
+            "transport" to JsonObject(emptyMap()),
+            "retry" to buildJsonObject { put("retryable", false) },
+            "automatic_retry" to buildJsonObject { put("automatic_retry_allowed", false) },
+            "replay" to buildJsonObject { put("request_replay_allowed", false) },
+            "continuation" to buildJsonObject { put("logical_continuation_allowed", false) },
+            "reconciliation" to buildJsonObject { put("requires_reconciliation", true) },
+            "acceptance" to buildJsonObject { put("remote_acceptance", "UNKNOWN") }
+        )
+        for ((kind, details) in limits) {
+            var attempts = 0
+            val gate = GitHubVerifiedSession(
+                answer("Candidate answer"),
+                GitHubEvidenceBook("b", "o/r", "main", emptySet()),
+                "Explain the recorded result",
+                { 8192 },
+                {
+                    attempts++
+                    object : AgentProviderSession {
+                        override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flowOf(
+                            ProviderEvent.Failed("A limit with retained attempt restrictions", errorCode = "GITHUB_EXTRACTION_OUTPUT_LIMIT", transportComplete = kind != "transport", failureDetails = details)
+                        )
+                    }
+                },
+                {},
+                {}
+            )
+            val failure = gate.streamRound(emptyList(), emptyList()).toList().last() as ProviderEvent.Failed
+            assertEquals(1, attempts)
+            assertEquals("GITHUB_EXTRACTION_OUTPUT_LIMIT", failure.errorCode)
+            for ((key, value) in details) assertEquals(value, failure.failureDetails?.get(key))
+        }
+    }
+
+    @Test fun extractionFailureDeliversOnlyItsOwnProviderAttemptFacts() = runBlocking {
+        var attempts = 0
+        val providerFailure = ProviderEvent.Failed(
+            "private provider detail",
+            errorCode = "PROVIDER_RATE_LIMITED",
+            transportComplete = true,
+            failureDetails = buildJsonObject {
+                put("failed_stage", "provider_generation")
+                put("http_status", 429)
+                put("retry_after_ms", 30156)
+                put("dispatched", true)
+                put("remote_acceptance", "NO")
+                put("retryable", true)
+                put("requires_reconciliation", false)
+            },
+            invocationId = "extraction-attempt-only"
+        )
+        val gate = GitHubVerifiedSession(
+            answer("Candidate answer"),
+            GitHubEvidenceBook("b", "o/r", "main", emptySet()),
+            "Explain the recorded result",
+            { 8192 },
+            {
+                attempts++
+                object : AgentProviderSession {
+                    override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flowOf(providerFailure)
+                }
+            },
+            {},
+            {}
+        )
+        val failure = gate.streamRound(emptyList(), emptyList()).toList().last() as ProviderEvent.Failed
+        assertEquals(1, attempts)
+        assertEquals("PROVIDER_RATE_LIMITED", failure.errorCode)
+        assertEquals("extraction-attempt-only", failure.invocationId)
+        assertEquals(JsonPrimitive("claim_extraction"), failure.failureDetails?.get("failed_stage"))
+        assertEquals(JsonPrimitive(429), failure.failureDetails?.get("http_status"))
+        assertEquals(JsonPrimitive(30156), failure.failureDetails?.get("retry_after_ms"))
+        assertEquals(JsonPrimitive(true), failure.failureDetails?.get("dispatched"))
+        assertEquals(JsonPrimitive("NO"), failure.failureDetails?.get("remote_acceptance"))
+        assertEquals(JsonPrimitive(false), failure.failureDetails?.get("requires_reconciliation"))
     }
 
     @Test fun typedReviewFailuresDeliverReceiptFactsWithoutReopeningExtractionOrPublishingTheCandidate() = runBlocking {

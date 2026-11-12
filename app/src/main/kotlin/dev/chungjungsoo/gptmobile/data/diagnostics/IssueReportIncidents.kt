@@ -166,6 +166,9 @@ internal object IssueReportIncidents {
     fun chatFailure(code: String?, rateLimited: Boolean, error: Throwable?, fields: Map<String, Any?> = emptyMap(), invocationId: String? = null) {
         val localRecovery = IssueReportContext.localRecoveryCode(fields) != null
         val specificCode = IssueReportCodes.known(code)?.takeUnless { it == "CHAT_FAILED" }
+            ?: "GITHUB_TASK_INCOMPLETE".takeIf {
+                code in setOf("GITHUB_EXTRACTION_OUTPUT_LIMIT", "GITHUB_EXTRACTION_INVALID_RESPONSE", "GITHUB_EXTRACTION_TIMEOUT", "GITHUB_EXTRACTION_UNAVAILABLE", "GITHUB_EXTRACTION_FAILED")
+            }
         val observedRateLimit = if (!localRecovery && specificCode == null && !rateLimited) {
             val evidence = IssueReportContext.fromFields("CHAT_FAILURE", fields)
             evidence.provider != null &&

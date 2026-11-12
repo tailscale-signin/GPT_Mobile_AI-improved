@@ -30,6 +30,38 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = Application::class)
 class IssueReportCollectorsTest {
+    @Test fun exactExtractionFailuresKeepTaskOwnershipAndTheirOwnAttemptContext() = runBlocking {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        for ((index, code) in listOf("GITHUB_EXTRACTION_OUTPUT_LIMIT", "GITHUB_EXTRACTION_INVALID_RESPONSE", "GITHUB_EXTRACTION_TIMEOUT", "GITHUB_EXTRACTION_UNAVAILABLE", "GITHUB_EXTRACTION_FAILED", "GITHUB_EXTRACTION_PRIVATE_UNKNOWN").withIndex()) {
+            val invocation = "extraction-only-$index"
+            flowOf(
+                ApiState.Error(
+                    "private extraction detail https://private.example",
+                    errorCode = code,
+                    taskOutcome = "PARTIAL",
+                    failureDetails = buildJsonObject {
+                        put("run_id", "extraction-run-$index")
+                        put("provider_kind", "OPENROUTER")
+                        put("failed_stage", "claim_extraction")
+                        put("retryable", false)
+                        put("request_replay_allowed", false)
+                    },
+                    invocationId = invocation
+                )
+            ).collectApiStateUpdates(onUpdate = { _, _, _ -> })
+            val report = IssueReportIncidents.pending.value.last()
+            assertEquals(if (index < 5) "GITHUB_TASK_INCOMPLETE" else "CHAT_FAILED", report.errorCode)
+            assertEquals("claim_extraction", report.context?.stage)
+            assertEquals("OPENROUTER", report.context?.provider)
+            assertEquals(false, report.context?.retryable)
+            assertEquals(null, report.context?.dispatched)
+            assertEquals(null, report.context?.remoteAcceptance)
+            assertEquals(IssueReportContext.identifierHash("invocation", invocation), report.context?.invocationIdHash)
+            assertFalse(report.approvedPayload().contains("private"))
+            assertFalse(report.approvedPayload().contains(invocation))
+        }
+    }
+
     @Before
     @After
     fun reset() {

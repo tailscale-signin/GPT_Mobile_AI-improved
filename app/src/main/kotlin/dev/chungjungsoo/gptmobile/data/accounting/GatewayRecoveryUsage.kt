@@ -61,6 +61,7 @@ internal data class GatewayRecoveryUsage(
                 coversAttempts && input != null && rows.all { it.first != null },
                 coversAttempts && output != null && rows.all { it.second != null },
                 buildJsonObject {
+                    GatewayRecoveryEvidence.fromRecovery(recovery)?.forEach { (key, value) -> put(key, value) }
                     put("usage_origin", "PROVIDER_REPORTED")
                     put("usage_estimated", false)
                     declared?.let { put("attempts", it) }

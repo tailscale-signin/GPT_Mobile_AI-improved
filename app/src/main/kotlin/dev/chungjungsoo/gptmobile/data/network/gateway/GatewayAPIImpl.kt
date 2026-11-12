@@ -237,7 +237,7 @@ class GatewayAPIImpl @Inject constructor(
                             response.status.isSuccess() -> {
                                 val body = response.boundedMetadata(4 * 1024 * 1024)
                                 val saved = try {
-                                    json.decodeFromString<GatewayJobResult>(body)
+                                    decodeGatewayJobResult(json, body)
                                 } catch (failure: kotlinx.serialization.SerializationException) {
                                     // Legacy 202 endpoints can omit their envelope. Keep only
                                     // transport-level waiting; never invent handoff or completion proof.

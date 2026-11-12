@@ -942,6 +942,13 @@ class OpenAICompatibleAdapter @Inject constructor(
                                     boundReasoning = observedReasoning
                                     boundControl = reasoningControl
                                 }
+                                // A saved-result binding must precede historical observations and failures.
+                                chunk.gatewayMetadata?.let { metadata ->
+                                    if (metadata.jobId != null) {
+                                        capturedGatewayJobId = metadata.jobId
+                                    }
+                                    emit(ProviderEvent.GatewayMetadataCaptured(metadata))
+                                }
                                 chunk.applicationNotice?.let { emit(ProviderEvent.Notice(it, persistent = true)) }
                                 chunk.observedFinishReason?.let { reason ->
                                     lastFinishReason = reason
@@ -950,6 +957,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                                 chunk.retryDurationMs?.let { emit(ProviderEvent.Usage(retryDurationMs = it, retryAttempts = chunk.retryAttempts, writerObservationKey = writerObservationKey)) }
                                 chunk.gatewayTiming?.takeIf { it.observedFields().isNotEmpty() }?.let { emit(ProviderEvent.Usage(gatewayTiming = it, phase = ProviderUsagePhase.INTERIM)) }
                                 chunk.gatewayProvenance?.evidence(platform.model)?.let { emit(ProviderEvent.Usage(gatewayProvenance = it, phase = ProviderUsagePhase.INTERIM)) }
+                                chunk.gatewayRecovery?.let { emit(ProviderEvent.Usage(gatewayRecovery = it, phase = ProviderUsagePhase.INTERIM)) }
                                 chunk.gatewayDeliveryTiming?.let { emit(ProviderEvent.Usage(gatewayDeliveryTiming = it, phase = ProviderUsagePhase.INTERIM)) }
                                 chunk.providerResponseTiming?.takeIf { it != reportedResponseTiming }?.let {
                                     emit(ProviderEvent.Usage(providerResponseTiming = it, phase = ProviderUsagePhase.INTERIM))
@@ -977,13 +985,6 @@ class OpenAICompatibleAdapter @Inject constructor(
                                         emit(ProviderEvent.Usage(decodeTokensPerSecond = it, writerObservationKey = writerObservationKey))
                                     }
                                 }
-                                chunk.gatewayMetadata?.let { metadata ->
-                                    if (metadata.jobId != null) {
-                                        capturedGatewayJobId = metadata.jobId
-                                    }
-                                    emit(ProviderEvent.GatewayMetadataCaptured(metadata))
-                                }
-
                                 chunk.gatewayProgress?.let { progress ->
                                     if (progress.jobId != null) {
                                         capturedGatewayJobId = progress.jobId

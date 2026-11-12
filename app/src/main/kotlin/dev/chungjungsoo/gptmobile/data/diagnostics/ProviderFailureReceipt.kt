@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
@@ -54,7 +55,8 @@ data class ProviderFailureReceipt(
     val invocationId: String? = null,
     val usageInvocationId: String? = null,
     val outputTokenSource: String? = null,
-    val causeStage: String? = null
+    val causeStage: String? = null,
+    val gatewayAttemptEvidence: JsonObject? = null
 ) {
     internal fun valid(): Boolean = provider in setOf("OPENAI", "ANTHROPIC", "GOOGLE", "GROQ", "OPENROUTER", "OLLAMA", "CUSTOM", "LITERT_LM", "LLAMA", "FREE", "NVIDIA") &&
         listOf(profileHash, modelHash).all { it.matches(Regex("[a-f0-9]{64}")) } &&
@@ -62,6 +64,7 @@ data class ProviderFailureReceipt(
         (httpStatus == null || httpStatus in 100..599) &&
         (outputTokens == null || outputTokens >= 0) &&
         (reasoningTokens == null || reasoningTokens >= 0) &&
+        (gatewayAttemptEvidence == null || dev.chungjungsoo.gptmobile.data.accounting.GatewayRecoveryEvidence.fromRecovery(gatewayAttemptEvidence) == gatewayAttemptEvidence) &&
         listOfNotNull(invocationId, usageInvocationId).all { it.matches(Regex("[A-Za-z0-9][A-Za-z0-9_-]{0,127}")) } &&
         (outputTokenSource == null || safeUsageSource(outputTokenSource) != null) &&
         listOfNotNull(serverRequestId, generationId).all { dev.chungjungsoo.gptmobile.data.network.safeProviderRequestIdentity(it) != null } &&
@@ -103,6 +106,8 @@ data class ProviderFailureReceipt(
             val correlatedUsage = usage?.takeIf {
                 if (invocationId != null || it.invocationId != null) invocationId != null && invocationId == it.invocationId else role != "github-delivery"
             } ?: dev.chungjungsoo.gptmobile.data.accounting.GatewayRecoveryUsage.from(failure.failureDetails)?.event(invocationId)
+            val attemptEvidence = dev.chungjungsoo.gptmobile.data.accounting.GatewayRecoveryEvidence.fromDetails(failure.failureDetails)
+                ?: dev.chungjungsoo.gptmobile.data.accounting.GatewayRecoveryEvidence.fromRecovery(correlatedUsage?.gatewayRecovery)
             val stage = when {
                 code == "ENGINEERING_STATE_OR_INPUT_CHANGED" && failedStage in setOf("request_validation", "provider_admission", "binding_admission", "message_admission", "conversation_admission", "execution_admission") -> ProviderFailureStage.ADMISSION
                 code == "ENGINEERING_STATE_OR_INPUT_CHANGED" -> ProviderFailureStage.ENGINEERING_GUARD
@@ -116,7 +121,7 @@ data class ProviderFailureReceipt(
                 role == "github-delivery" -> ProviderFailureStage.DELIVERY
                 else -> ProviderFailureStage.GENERATION
             }
-            val finish = when (correlatedUsage?.finishReason?.lowercase()) {
+            val finish = when (correlatedUsage?.finishReason?.lowercase() ?: dev.chungjungsoo.gptmobile.data.accounting.GatewayRecoveryEvidence.finishReason(attemptEvidence)) {
                 null -> ProviderFinishCategory.UNKNOWN
                 "stop", "end_turn" -> ProviderFinishCategory.STOP
                 "tool_calls", "tool_use" -> ProviderFinishCategory.TOOL_CALLS
@@ -157,7 +162,8 @@ data class ProviderFailureReceipt(
                 invocationId = invocationId,
                 usageInvocationId = correlatedUsage?.invocationId,
                 outputTokenSource = correlatedUsage?.let { safeUsageSource(it.outputSource) ?: "unavailable" },
-                causeStage = classified.phase.takeUnless { it.isBlank() || it == "stage_not_recorded" }
+                causeStage = classified.phase.takeUnless { it.isBlank() || it == "stage_not_recorded" },
+                gatewayAttemptEvidence = attemptEvidence
             )
         }
     }
@@ -174,7 +180,8 @@ internal fun withProviderFailureReceipts(delegate: AgentProviderSession, runId: 
                     usage = event.copy(
                         outputTokens = event.outputTokens ?: prior?.outputTokens,
                         reasoningTokens = event.reasoningTokens ?: prior?.reasoningTokens,
-                        finishReason = event.finishReason ?: prior?.finishReason
+                        finishReason = event.finishReason ?: prior?.finishReason,
+                        gatewayRecovery = event.gatewayRecovery ?: prior?.gatewayRecovery
                     )
                 }
                 if (event is ProviderEvent.Failed) {

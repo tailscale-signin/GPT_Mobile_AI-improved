@@ -40,7 +40,82 @@ def _observed_usage(data):
             if key in {"prompt_tokens", "completion_tokens", "total_tokens"} and _nonnegative_int(value)} if isinstance(usage, dict) else {}
 
 
-def _repair_failure_details(payload, attempts):
+ATTEMPT_ERROR_CODES = frozenset({
+    "backend_deadline_exceeded", "backend_timeout", "backend_stream_interrupted", "backend_http_error",
+    "backend_template_invalid", "upstream_stream_error", "incomplete_stream", "malformed_stream",
+    "malformed_completion", "multiple_choices", "invalid_tool_call", "invalid_tool_arguments",
+    "incomplete_tool_call", "unauthorized_tool_call", "empty_completion", "missing_required_tool_call",
+    "mixed_tool_batch", "completion_repair_budget_unavailable", "completion_repair_usage_unavailable",
+    "completion_repair_budget_exhausted", "context_budget_exceeded", "context_capacity_unverified",
+})
+
+
+def _output_allowance(payload):
+    caps = [payload.get(key) for key in ("max_tokens", "max_completion_tokens")]
+    return min((cap for cap in caps if _nonnegative_int(cap) and cap > 0), default=None)
+
+
+def _completion_observation(receipt, data, *, completed):
+    """Count observed output without retaining text or treating a missing body as empty."""
+    choices = data.get("choices") if isinstance(data, dict) else None
+    choice = choices[0] if isinstance(choices, list) and len(choices) == 1 and isinstance(choices[0], dict) else None
+    message = choice.get("message") if choice is not None else None
+    if not isinstance(message, dict):
+        return
+    finish = choice.get("finish_reason")
+    receipt["finish_reason"] = ({"stop": "STOP", "end_turn": "STOP", "tool_calls": "TOOL_CALLS",
+                                "tool_use": "TOOL_CALLS", "function_call": "TOOL_CALLS", "length": "LENGTH",
+                                "max_tokens": "LENGTH", "output_limit": "LENGTH", "content_filter": "CONTENT_FILTER"}
+                               .get(finish, "OTHER" if finish else "UNKNOWN") if isinstance(finish, str) else "UNKNOWN")
+    def count(text):
+        try:
+            return len(text.encode("utf-8"))
+        except UnicodeEncodeError:
+            return None
+    if message.get("content") is None or isinstance(message.get("content"), str):
+        receipt["visible_output_bytes"] = count(visible_answer_text(message, preserve_whitespace=True))
+    reasoning = [message.get(key) for key in ("reasoning_content", "reasoning")]
+    if all(value is None or isinstance(value, str) for value in reasoning):
+        receipt["reasoning_output_bytes"] = count("".join(value or "" for value in reasoning))
+    if completed:
+        receipt["status"] = "COMPLETED"
+
+
+def _attempt_error(receipts, code):
+    if receipts:
+        receipts[-1]["terminal_error_code"] = code if code in ATTEMPT_ERROR_CODES else None
+
+
+def _attempt_evidence(receipts):
+    # This transport admits no more than two physical requests. These are backend
+    # observations, separate from bytes delivered to the Android application.
+    return {"schema_version": 1, "attempt_receipts": copy.deepcopy(list(receipts))}
+
+
+def _failed_repair_response(response, payload, first, receipts):
+    # Preserve HTTP/rate-limit semantics, never an arbitrary rejected backend
+    # body. A failed second request cannot erase the first request's known work.
+    recovery = _repair_failure_details(payload, [first], receipts)["gateway_recovery"]
+    recovery["completed_attempts"] = recovery.pop("attempts")
+    recovery.update(failed_attempt=len(receipts), failed_attempt_usage_available=False)
+    result = requests.Response()
+    result.status_code = response.status_code
+    result.headers.update(response.headers)
+    for name in ("content-length", "content-encoding", "transfer-encoding"):
+        result.headers.pop(name, None)
+    result.headers["content-type"] = "application/json"
+    result.encoding = "utf-8"
+    result._content = json.dumps({"error": {
+        "message": "The backend rejected the bounded completion repair. Earlier attempt evidence is retained.",
+        "code": str(response.status_code), "type": "gateway_backend_http_error",
+        "failed_stage": "provider_generation", "backend_status": response.status_code,
+        "gateway_recovery": recovery,
+    }}).encode("utf-8")
+    result.headers["content-length"] = str(len(result._content))
+    return result
+
+
+def _repair_failure_details(payload, attempts, receipts=()):
     caps = [payload.get(key) for key in ("max_tokens", "max_completion_tokens")]
     caps = [cap for cap in caps if _nonnegative_int(cap) and cap > 0]
     return {"gateway_recovery": {"attempts": len(attempts), "output_allowance": min(caps) if caps else None,
@@ -48,7 +123,8 @@ def _repair_failure_details(payload, attempts):
                                   "attempt_backend_tokens": [{key: value for key, value in (data.get("timings") or {}).items()
                                                               if key in {"prompt_n", "predicted_n"} and _nonnegative_int(value)}
                                                              if isinstance(data.get("timings"), dict) else {} for data in attempts],
-                                  "usage_origin": "PROVIDER_REPORTED", "usage_estimated": False}}
+                                  "usage_origin": "PROVIDER_REPORTED", "usage_estimated": False,
+                                  **_attempt_evidence(receipts)}}
 
 
 def _repair_output_cap(payload, data):
@@ -97,7 +173,7 @@ def _sum_usage(left, right):
     return result
 
 
-def _combined_completion(first, final, reason):
+def _combined_completion(first, final, reason, receipts=()):
     result = copy.deepcopy(final)
     result.pop("usage", None)
     usage = _sum_usage(first.get("usage"), final.get("usage"))
@@ -117,7 +193,8 @@ def _combined_completion(first, final, reason):
                 timings[phase + "_per_token_ms"] = milliseconds / count
         if timings:
             result["timings"] = timings
-    result["gateway_recovery"] = {"attempts": 2, "reason": reason, "usage_complete": "total_tokens" in usage}
+    result["gateway_recovery"] = {"attempts": 2, "reason": reason, "usage_complete": "total_tokens" in usage,
+                                  **_attempt_evidence(receipts)}
     if isinstance(result.get("gateway_timing"), dict):
         result["gateway_timing"]["backend_attempts"] = [copy.deepcopy(data.get("gateway_timing", {})) for data in (first, final)]
     return result
@@ -172,34 +249,43 @@ def post_chat(
     if request.get("tools"):
         request["parallel_tool_calls"] = False
     first, repair_reason = None, None
+    attempt_receipts = []
     # Only an internal final-answer scope opts in. A round with tool authority
     # or structured output must be validated before any answer is published.
     if request.get('tools') or request.get('tool_choice') not in (None, 'none') or (request.get('response_format') or {}).get('type', 'text') != 'text':
         visible_output = None
     for attempt in range(2):
         data = None
+        attempted_before = len(attempt_receipts)
         try:
             response, data = _post_once(
                 session, url, request, connect_timeout, idle_timeout, deadline_at,
-                cancelled, progress, finish_grace_seconds, headers, visible_output,
+                cancelled, progress, finish_grace_seconds, headers, visible_output, attempt_receipts,
             )
             if response is not None:
-                return response
+                return response if first is None else _failed_repair_response(response, payload, first, attempt_receipts)
             validate_completion_tools(data, request)
         except GatewayContractError as error:
+            if len(attempt_receipts) > attempted_before:
+                _attempt_error(attempt_receipts, error.code)
             if first is not None:
                 # A failed repair must not erase consumption already reported by
                 # the first completion or invent usage for the failed attempt.
                 completed = [first] + ([data] if data is not None else [])
-                recovery = _repair_failure_details(payload, completed)["gateway_recovery"]
+                recovery = _repair_failure_details(payload, completed, attempt_receipts)["gateway_recovery"]
                 recovery["completed_attempts"] = recovery.pop("attempts")
                 recovery.update(failed_attempt=attempt + 1, failed_attempt_usage_available=data is not None)
                 error.details.setdefault("gateway_recovery", recovery)
+            else:
+                error.details.setdefault("gateway_recovery", _repair_failure_details(payload, [data] if data is not None else [], attempt_receipts)["gateway_recovery"])
+            error.details["gateway_recovery"].update(_attempt_evidence(attempt_receipts))
             raise
         issue = _completion_issue(data, request)
         if issue is None:
             if first is not None:
-                data = _combined_completion(first, data, repair_reason)
+                data = _combined_completion(first, data, repair_reason, attempt_receipts)
+            else:
+                data["gateway_recovery"] = {"attempts": 1, **_attempt_evidence(attempt_receipts)}
             data["gateway_timing"]["logical_request_elapsed_ms"] = round((time.monotonic() - logical_started) * 1000, 3)
             result = requests.Response()
             result.status_code = 200
@@ -213,11 +299,14 @@ def post_chat(
                 "missing_required_tool_call": "Backend omitted the required tool call after one bounded repair. No tool was executed.",
                 "mixed_tool_batch": "Backend ignored sequential tool calling; no tool from this batch was executed.",
             }[issue]
-            raise GatewayContractError(message, issue, 502, details=_repair_failure_details(payload, [first, data]))
+            _attempt_error(attempt_receipts, issue)
+            raise GatewayContractError(message, issue, 502, details=_repair_failure_details(payload, [first, data], attempt_receipts))
+        _attempt_error(attempt_receipts, issue)
         try:
             cap = _repair_output_cap(payload, data)
         except GatewayContractError as error:
-            error.details.update(_repair_failure_details(payload, [data]))
+            _attempt_error(attempt_receipts, error.code)
+            error.details.update(_repair_failure_details(payload, [data], attempt_receipts))
             raise
         first, repair_reason = data, issue
         # Preserve the original goal and completed tool evidence. Never inject the
@@ -244,13 +333,13 @@ def post_chat(
             try:
                 prepare_repair(request)
             except GatewayContractError as error:
-                error.details.update(_repair_failure_details(payload, [data]))
+                error.details.update(_repair_failure_details(payload, [data], attempt_receipts))
                 raise
         progress({"phase": "model_recovery", "event": "model_recovery", "status": "running", "stage": "recovering", "message": "Preparing one bounded completion repair", "reason": issue, "attempt": 2, "remaining_output_cap": cap})
     raise AssertionError("Unreachable completion state")
 
 
-def _post_once(session, url, request, connect_timeout, idle_timeout, deadline_at, cancelled, progress, finish_grace_seconds, headers=None, visible_output=None):
+def _post_once(session, url, request, connect_timeout, idle_timeout, deadline_at, cancelled, progress, finish_grace_seconds, headers=None, visible_output=None, attempt_receipts=None):
     if cancelled():
         raise InterruptedError("Model request cancelled before sending.")
     remaining = deadline_at - time.monotonic()
@@ -271,6 +360,7 @@ def _post_once(session, url, request, connect_timeout, idle_timeout, deadline_at
     backend_first_output_ms = None
     backend_first_visible_output_ms = None
     backend_first_reasoning_output_ms = None
+    attempt_receipt = None
 
     def watch():
         while not finished.wait(0.05):
@@ -323,11 +413,23 @@ def _post_once(session, url, request, connect_timeout, idle_timeout, deadline_at
         before_physical_dispatch(url, request)
         dispatch_headers = {**(headers or {}), **diagnostic_trace_headers(), **selected_dispatch_headers()}
         started = time.monotonic()
+        if attempt_receipts is not None:
+            attempt_receipt = {"attempt": len(attempt_receipts) + 1, "output_allowance": _output_allowance(request),
+                               "finish_reason": "UNKNOWN", "visible_output_bytes": None, "reasoning_output_bytes": None,
+                               "terminal_error_code": None, "terminal_status_code": None,
+                               "backend_response_observed": False, "status": "UNKNOWN"}
+            attempt_receipts.append(attempt_receipt)
         response = session.post(url, json=request, stream=True, timeout=(connect, idle), headers=dispatch_headers, allow_redirects=False)
+        if attempt_receipt is not None:
+            attempt_receipt["backend_response_observed"] = True
+            status = response.status_code
+            attempt_receipt["terminal_status_code"] = status if type(status) is int and 100 <= status <= 599 else None
         backend_response_headers_ms = round((time.monotonic() - started) * 1000, 3)
         watcher = threading.Thread(target=watch, daemon=True, name="gateway-backend-deadline")
         watcher.start()
         if response.status_code != 200:
+            if attempt_receipt is not None:
+                attempt_receipt.update(status="FAILED", terminal_error_code="backend_http_error")
             response.content
             if cancelled():
                 raise InterruptedError("Model request cancelled.")
@@ -348,6 +450,8 @@ def _post_once(session, url, request, connect_timeout, idle_timeout, deadline_at
                 data = last_state.result()
         else:
             data = response.json()
+        if attempt_receipt is not None:
+            _completion_observation(attempt_receipt, data, completed=True)
         if stopped.is_set() or cancelled():
             raise InterruptedError("Model request cancelled.")
         if expired.is_set() or time.monotonic() >= deadline_at:
@@ -382,6 +486,10 @@ def _post_once(session, url, request, connect_timeout, idle_timeout, deadline_at
         observe_physical_response(data, response)
         return None, data
     except Exception as exc:
+        if attempt_receipt is not None and last_state is not None:
+            _completion_observation(attempt_receipt, {"choices": [{"message": last_state.message, "finish_reason": last_state.finish}]}, completed=False)
+        if attempt_receipt is not None and isinstance(exc, GatewayContractError) and exc.code in {"backend_template_invalid", "upstream_stream_error"}:
+            attempt_receipt["status"] = "FAILED"
         partial = ({'partial_output_may_have_been_published': True, 'automatic_replay': False, 'retryable': False}
                    if visible_output is not None and last_state is not None and last_state.visible_characters else {})
         if stopped.is_set() or cancelled():

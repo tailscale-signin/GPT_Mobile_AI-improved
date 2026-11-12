@@ -101,6 +101,39 @@ class AppAuditQualificationEvidenceTest(unittest.TestCase):
         self.assertFalse(result["coverage"]["available"])
         self.assertNotIn('"percent"', json.dumps(result["coverage"]))
 
+    def test_repeated_report_directories_collect_fresh_named_harnesses_without_accepting_stale_ones(self):
+        self.now = datetime.now(timezone.utc)
+        self.since = self.now - timedelta(minutes=10)
+        self.fresh = self.now - timedelta(seconds=1)
+        self.write_catalog({"connections": [ALPHA], "portable_domain": [BETA]})
+        app_reports = self.root / "app-reports"
+        domain_reports = self.root / "domain-reports"
+        app_reports.mkdir()
+        domain_reports.mkdir()
+        self.junit(name="app-reports/TEST-Alpha.xml")
+        start = self.root / "started.txt"
+        start.write_text(self.since.isoformat())
+        output = self.root / "qualification.json"
+        coverage = self.coverage()
+        arguments = ["collector", "--junit-dir", str(app_reports), "--junit-dir", str(domain_reports),
+                     "--started-at-file", str(start), "--coverage", str(coverage), "--output", str(output)]
+        for observed, status in ((self.fresh, "PASS"), (self.since - timedelta(seconds=1), "UNVERIFIED")):
+            with self.subTest(observed=observed):
+                self.junit([(PACKAGE + ".BetaTest", "domainAssertion", "PASS")], observed=observed,
+                           name="domain-reports/TEST-Beta.xml")
+                with patch("sys.argv", arguments), patch.object(COLLECTOR, "ROOT", self.root), \
+                        patch.object(COLLECTOR, "checkout_identity", return_value={"commit": "fixture"}), \
+                        patch.object(COLLECTOR.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, "", "fixture runtime")):
+                    self.assertFalse(COLLECTOR.main())
+                result = json.loads(output.read_text())
+                self.assertEqual("PASS", self.harness(result, ALPHA)["status"])
+                self.assertEqual(status, self.harness(result, BETA)["status"])
+                self.assertEqual(status == "PASS", result["coverage"]["available"])
+                self.assertFalse(result["promotes_audit_score"])
+                if status == "PASS":
+                    self.assertEqual(2, result["junit_receipt"]["report_count"])
+                    self.assertEqual(2, result["junit_receipt"]["case_count"])
+
     def test_named_class_is_required_and_an_unobserved_harness_keeps_area_partial(self):
         self.write_catalog({"connections": [ALPHA, BETA]})
         result = self.collect([self.junit()])

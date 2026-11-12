@@ -11,6 +11,7 @@ import kotlinx.serialization.descriptors.PrimitiveKind
 import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonDecoder
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -19,6 +20,23 @@ import kotlinx.serialization.json.doubleOrNull
 
 /** A saved result is evidence, never permission to dispatch its tool calls again. */
 enum class GatewayResultDisposition { COMPLETE, PARTIAL, FAILED, WAITING, UNAVAILABLE }
+
+/** Restore only bounded optional attempt metadata; identity is checked by the saved-job caller. */
+internal fun decodeGatewayJobResult(json: Json, body: String): GatewayJobResult {
+    val envelope = json.parseToJsonElement(body) as? JsonObject ?: throw SerializationException("Expected a saved gateway result object")
+    val saved = json.decodeFromJsonElement(GatewayJobResult.serializer(), envelope)
+    val result = envelope["result"] as? JsonObject
+    return saved.copy(
+        result = saved.result?.let { chunk ->
+            chunk.copy(
+                gatewayRecovery = dev.chungjungsoo.gptmobile.data.accounting.GatewayRecoveryEvidence.fromRecovery(result?.get("gateway_recovery") as? JsonObject),
+                error = chunk.error?.let { error ->
+                    error.copy(failureDetails = result?.let { dev.chungjungsoo.gptmobile.data.network.structuredProviderFailure(it.toString()) })
+                }
+            )
+        }
+    )
+}
 
 private val savedGatewayControlTag = Regex("<(/?)(think|analysis|reasoning|tool_call)(?:\\s[^>]*)?>", RegexOption.IGNORE_CASE)
 
@@ -116,6 +134,7 @@ internal class GatewayTerminalRecovery(private val api: GatewayAPI) {
         val original = verified?.savedFailure()
         return ChatCompletionChunk(
             model = model,
+            gatewayRecovery = verified?.result?.gatewayRecovery,
             gatewayMetadata = requested?.takeIf { bound }?.let {
                 GatewayResponseMetadata(jobId = it, singleflightRole = "saved_result", terminalStatus = verified?.status, resultQuality = verified?.resultQuality, transportVerified = verified != null)
             },

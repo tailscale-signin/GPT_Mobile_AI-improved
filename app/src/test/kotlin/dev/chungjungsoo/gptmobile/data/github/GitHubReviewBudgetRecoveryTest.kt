@@ -24,6 +24,26 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubReviewBudgetRecoveryTest {
+    @Test fun reviewerRetryCheckpointRetainsNoUsageAttemptEvidenceAfterSuccessfulRecovery() = runTest {
+        val details = requireNotNull(dev.chungjungsoo.gptmobile.data.network.structuredProviderFailure("""{"error":{"code":"completion_repair_budget_exhausted","failed_stage":"provider_generation","gateway_recovery":{"schema_version":1,"attempt_receipts":[{"attempt":1,"output_allowance":1536,"finish_reason":"LENGTH","visible_output_bytes":0,"reasoning_output_bytes":11,"terminal_error_code":"completion_repair_budget_exhausted","terminal_status_code":200,"backend_response_observed":true,"status":"COMPLETED","raw":"private reasoning"}]}}}""", 502))
+        val rows = mutableMapOf<String, JsonObject>()
+        val checkpoint = GitHubReviewCheckpoint("task", { rows[it] }, { key, row -> rows[key] = row })
+        var calls = 0
+        val output = GitHubReviewedSession(session(ProviderEvent.TextDelta("The recorded check failed."), ProviderEvent.Completed), GitHubReviewEvidence(), "task", 8192, { prompt, _ ->
+            calls++
+            if (calls == 1) session(exhausted("review-no-usage").copy(failureDetails = details)) else session(ProviderEvent.TextDelta(verdict(prompt)), ProviderEvent.Completed)
+        }, {}, checkpoint = checkpoint, outputLimitForPass = ::outputAllowance).streamRound(emptyList(), emptyList()).toList()
+        assertEquals(2, calls)
+        assertEquals(ProviderEvent.Completed, output.last())
+        val retained = rows.getValue("active").getValue("review_attempt_failures").jsonArray.single().jsonObject
+        assertEquals(JsonPrimitive("review-no-usage"), retained["invocation_id"])
+        val recovery = retained.getValue("gateway_recovery").jsonObject
+        assertEquals(JsonPrimitive(11), recovery.getValue("attempt_receipts").jsonArray.single().jsonObject["reasoning_output_bytes"])
+        assertFalse(recovery.containsKey("attempt_usage"))
+        assertFalse(retained.toString().contains("private reasoning"))
+        assertTrue(checkpoint.load()?.reviewed == true)
+    }
+
     private fun outputAllowance(role: String) = GitHubStageBudget.resolve(32768, null, role).output
 
     private fun session(vararg events: ProviderEvent) = object : AgentProviderSession {

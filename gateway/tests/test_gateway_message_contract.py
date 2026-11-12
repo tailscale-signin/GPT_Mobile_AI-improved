@@ -6,6 +6,7 @@ import sys
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from gateway_v13_runtime import (GatewayContractError, compact_history, completion_chunks,
@@ -266,6 +267,150 @@ class MessageContractTests(unittest.TestCase):
                 self.assertEqual([item['usage'] for item in responses], recovery['attempt_usage'])
                 self.assertFalse(recovery['usage_estimated'])
                 self.assertEqual(attempts, len(session.calls))
+
+    def test_exhausted_completion_preserves_finish_and_utf8_counts_without_private_text(self):
+        data = completion('', used=100)
+        data['choices'][0]['finish_reason'] = 'length'
+        data['choices'][0]['message']['reasoning_content'] = 'fixture 界'
+        session = Session(Response(data))
+        with self.assertRaises(GatewayContractError) as caught:
+            self.run_chat(session, payload())
+        recovery = caught.exception.details['gateway_recovery']
+        self.assertEqual(1, recovery['schema_version'])
+        self.assertEqual([{'attempt': 1, 'output_allowance': 100, 'finish_reason': 'LENGTH',
+                           'visible_output_bytes': 0, 'reasoning_output_bytes': 11,
+                           'terminal_error_code': 'completion_repair_budget_exhausted',
+                           'terminal_status_code': 200, 'backend_response_observed': True,
+                           'status': 'COMPLETED'}], recovery['attempt_receipts'])
+        self.assertNotIn('fixture', json.dumps(recovery))
+        self.assertEqual(1, len(session.calls))
+
+    def test_successful_repair_keeps_both_attempt_caps_and_backend_observations(self):
+        first = completion('', used=30)
+        first['choices'][0]['finish_reason'] = 'length'
+        first['choices'][0]['message']['reasoning_content'] = 'private 界'
+        final = completion('Réponse 😀', used=10)
+        session = Session(Response(first), Response(final))
+        result = self.run_chat(session, payload()).json()
+        receipts = result['gateway_recovery']['attempt_receipts']
+        self.assertEqual([1, 2], [row['attempt'] for row in receipts])
+        self.assertEqual([100, 70], [row['output_allowance'] for row in receipts])
+        self.assertEqual([call['json']['max_tokens'] for call in session.calls], [row['output_allowance'] for row in receipts])
+        self.assertEqual(['LENGTH', 'STOP'], [row['finish_reason'] for row in receipts])
+        self.assertEqual(['empty_completion', None], [row['terminal_error_code'] for row in receipts])
+        self.assertEqual(['COMPLETED', 'COMPLETED'], [row['status'] for row in receipts])
+        self.assertEqual(len('Réponse 😀'.encode()), receipts[1]['visible_output_bytes'])
+        self.assertEqual(len('private 界'.encode()), receipts[0]['reasoning_output_bytes'])
+        self.assertNotIn('private', json.dumps(receipts))
+        self.assertNotIn('Réponse', json.dumps(receipts, ensure_ascii=False))
+        self.assertEqual(40, result['usage']['completion_tokens'])
+
+    def test_missing_usage_does_not_discard_known_completion_evidence_or_invent_tokens(self):
+        data = completion('', used=None)
+        data['choices'][0]['finish_reason'] = 'length'
+        data['choices'][0]['message']['reasoning_content'] = 'fixture 界'
+        with self.assertRaises(GatewayContractError) as caught:
+            self.run_chat(Session(Response(data)), payload())
+        recovery = caught.exception.details['gateway_recovery']
+        self.assertEqual([{}], recovery['attempt_usage'])
+        receipt = recovery['attempt_receipts'][0]
+        self.assertEqual('COMPLETED', receipt['status'])
+        self.assertEqual('LENGTH', receipt['finish_reason'])
+        self.assertEqual(11, receipt['reasoning_output_bytes'])
+        self.assertEqual('completion_repair_usage_unavailable', receipt['terminal_error_code'])
+
+    def test_failed_repair_keeps_unknown_transport_separate_from_completed_first_attempt(self):
+        class RefusedRepair(Session):
+            def post(self, url, **kwargs):
+                if self.calls:
+                    self.calls.append(copy.deepcopy(kwargs))
+                    raise requests.ConnectionError('fixture-private-transport')
+                return super().post(url, **kwargs)
+        session = RefusedRepair(Response(completion('', used=30)))
+        with self.assertRaises(GatewayContractError) as caught:
+            self.run_chat(session, payload())
+        self.assertEqual('backend_stream_interrupted', caught.exception.code)
+        recovery = caught.exception.details['gateway_recovery']
+        first, failed = recovery['attempt_receipts']
+        self.assertEqual('COMPLETED', first['status'])
+        self.assertEqual('empty_completion', first['terminal_error_code'])
+        self.assertEqual({'attempt': 2, 'output_allowance': 70, 'finish_reason': 'UNKNOWN',
+                          'visible_output_bytes': None, 'reasoning_output_bytes': None,
+                          'terminal_error_code': 'backend_stream_interrupted', 'terminal_status_code': None,
+                          'backend_response_observed': False, 'status': 'UNKNOWN'}, failed)
+        self.assertFalse(recovery['failed_attempt_usage_available'])
+        self.assertEqual(1, len(recovery['attempt_usage']))
+        self.assertNotIn('fixture-private', json.dumps(recovery))
+        self.assertEqual(2, len(session.calls))
+
+    def test_interrupted_stream_retains_observed_bytes_without_inventing_completion(self):
+        def interrupted():
+            yield from lines({'choices': [{'delta': {'reasoning_content': 'fixture 界'}}]}, done=False)
+            raise requests.ConnectionError('fixture-private-stream')
+        session = Session(Response(stream=interrupted()))
+        with self.assertRaises(GatewayContractError) as caught:
+            self.run_chat(session, payload())
+        recovery = caught.exception.details['gateway_recovery']
+        receipt = recovery['attempt_receipts'][0]
+        self.assertEqual('UNKNOWN', receipt['status'])
+        self.assertEqual('UNKNOWN', receipt['finish_reason'])
+        self.assertEqual(200, receipt['terminal_status_code'])
+        self.assertTrue(receipt['backend_response_observed'])
+        self.assertEqual(11, receipt['reasoning_output_bytes'])
+        self.assertEqual([], recovery['attempt_usage'])
+        self.assertEqual('backend_stream_interrupted', receipt['terminal_error_code'])
+        self.assertNotIn('fixture', json.dumps(recovery))
+        self.assertEqual(1, len(session.calls))
+
+    def test_http_rejected_repair_keeps_status_retry_headers_and_first_attempt_evidence(self):
+        for status in (429, 500, 503):
+            with self.subTest(status=status):
+                rejected = Response({'error': {'message': 'private fixture rejection body'}})
+                rejected.status_code = status
+                rejected.content = b'private fixture rejection body'
+                rejected.headers.update({'Retry-After': '17', 'Content-Encoding': 'gzip',
+                                         'Transfer-Encoding': 'chunked', 'Content-Length': '999'})
+                first = completion('', used=30)
+                session = Session(Response(first), rejected)
+                response = self.run_chat(session, payload())
+                self.assertEqual(status, response.status_code)
+                self.assertEqual('17', response.headers['Retry-After'])
+                self.assertEqual('application/json', response.headers['content-type'])
+                self.assertNotIn('Content-Encoding', response.headers)
+                self.assertNotIn('Transfer-Encoding', response.headers)
+                self.assertEqual(str(len(response.content)), response.headers['Content-Length'])
+                error = response.json()['error']
+                self.assertEqual(str(status), error['code'])
+                self.assertEqual(status, error['backend_status'])
+                recovery = error['gateway_recovery']
+                self.assertEqual([first['usage']], recovery['attempt_usage'])
+                self.assertFalse(recovery['failed_attempt_usage_available'])
+                initial, failed = recovery['attempt_receipts']
+                self.assertEqual('COMPLETED', initial['status'])
+                self.assertEqual(70, failed['output_allowance'])
+                self.assertEqual('FAILED', failed['status'])
+                self.assertTrue(failed['backend_response_observed'])
+                self.assertEqual(status, failed['terminal_status_code'])
+                self.assertEqual('UNKNOWN', failed['finish_reason'])
+                self.assertIsNone(failed['visible_output_bytes'])
+                self.assertIsNone(failed['reasoning_output_bytes'])
+                self.assertEqual('backend_http_error', failed['terminal_error_code'])
+                self.assertNotIn('private fixture', response.text)
+                self.assertEqual(2, len(session.calls))
+
+    def test_local_repair_rejection_does_not_fabricate_a_second_backend_receipt(self):
+        session = Session(Response(completion('', used=30)))
+        def reject(_):
+            raise GatewayContractError('Repair context rejected locally.', 'context_budget_exceeded', 422,
+                                       details={'dispatch_state': 'not_dispatched'})
+        with self.assertRaises(GatewayContractError) as caught:
+            self.run_chat(session, payload(), prepare_repair=reject)
+        receipts = caught.exception.details['gateway_recovery']['attempt_receipts']
+        self.assertEqual(1, len(session.calls))
+        self.assertEqual([1], [receipt['attempt'] for receipt in receipts])
+        self.assertEqual('empty_completion', receipts[0]['terminal_error_code'])
+        self.assertEqual('COMPLETED', receipts[0]['status'])
+        self.assertEqual('context_budget_exceeded', caught.exception.code)
 
     def test_repair_preserves_an_explicit_reasoning_on_control(self):
         for parameter in ('enable_thinking', 'thinking'):

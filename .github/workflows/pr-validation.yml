@@ -106,13 +106,15 @@ jobs:
           date -u +%Y-%m-%dT%H:%M:%SZ > app-audit-test-started.txt
           # Qualification needs fresh test/session receipts. Reuse compilation,
           # but do not restore the actual test or coverage reports from cache.
-          python3 scripts/build_metrics.py --label unit-tests --output build/reports/profile/unit-metrics.json -- python3 scripts/gradle_retry.py -- :app:testDebugUnitTest --rerun :app:jacocoTestReport --rerun --no-daemon --info 2>&1 | tee test.log || (echo "=== TEST FAILURE LOG ===" && tail -n 100 test.log && exit 1)
+          python3 scripts/build_metrics.py --label unit-tests --output build/reports/profile/unit-metrics.json -- python3 scripts/gradle_retry.py -- :core-domain:jvmTest --rerun :app:testDebugUnitTest --rerun :app:jacocoTestReport --rerun --no-daemon --info 2>&1 | tee test.log || (echo "=== TEST FAILURE LOG ===" && tail -n 100 test.log && exit 1)
           python3 scripts/check_jacoco_coverage.py app/build/reports/jacoco/jacocoTestReport/jacocoTestReport.xml
 
       - name: Collect named audit qualification and measured coverage
         if: always()
         run: >-
           python3 scripts/collect_app_audit_qualification.py
+          --junit-dir app/build/test-results/testDebugUnitTest
+          --junit-dir core-domain/build/test-results/jvmTest
           --started-at-file app-audit-test-started.txt
           --coverage app/build/reports/jacoco/jacocoTestReport/jacocoTestReport.xml
           --output app-audit-source-qualification.json
@@ -157,6 +159,7 @@ jobs:
             app/schemas/dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2/*.json
             app/schemas/dev.chungjungsoo.gptmobile.data.research.feature.ResearchDatabase/*.json
             app/build/test-results/testDebugUnitTest/*.xml
+            core-domain/build/test-results/jvmTest/*.xml
             app/build/reports/unified-runtime-paired.json
             build/reports/unified-reliability-v2/reconciliation.json
             app-audit-test-started.txt

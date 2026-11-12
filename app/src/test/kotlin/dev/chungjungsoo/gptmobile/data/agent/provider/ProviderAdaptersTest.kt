@@ -83,6 +83,50 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 class ProviderAdaptersTest {
+    @Test fun savedJobBindingPrecedesHistoricalAttemptMetadataAndFailure() = runBlocking {
+        val recovery = NetworkClient.json.parseToJsonElement("""{"schema_version":1,"attempt_receipts":[{"attempt":1,"output_allowance":50,"finish_reason":"LENGTH","visible_output_bytes":0,"reasoning_output_bytes":11,"terminal_error_code":"empty_completion","terminal_status_code":200,"backend_response_observed":true,"status":"COMPLETED"}]}""").jsonObject
+        for (failed in listOf(false, true)) {
+            val chunk = ChatCompletionChunk(
+                choices = if (failed) null else listOf(Choice(delta = Delta(content = "Recovered"), finishReason = "stop")),
+                gatewayMetadata = dev.chungjungsoo.gptmobile.data.network.gateway.GatewayResponseMetadata(jobId = "original-job", singleflightRole = "saved_result", transportVerified = true),
+                gatewayRecovery = recovery.takeUnless { failed },
+                error = if (failed) dev.chungjungsoo.gptmobile.data.dto.openai.response.ErrorDetail("Original failed attempt", code = "EMPTY_COMPLETION", retryable = false, failureDetails = JsonObject(mapOf("gateway_recovery" to recovery))) else null
+            )
+            val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(flowOf(chunk))))
+            val events = OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder()).openSession(turns(), platform(ClientType.LLAMA)).streamRound(emptyList(), emptyList()).toList()
+            val binding = events.indexOfFirst { it is ProviderEvent.GatewayMetadataCaptured }
+            val observation = events.indexOfFirst { if (failed) it is ProviderEvent.Failed else it is ProviderEvent.Usage && it.gatewayRecovery != null }
+            assertTrue(binding >= 0)
+            assertTrue(observation > binding)
+            assertTrue(events.filterIsInstance<ProviderEvent.Usage>().all { it.inputTokens == null && it.outputTokens == null })
+        }
+    }
+
+    @Test fun repairedGatewayMetadataTravelsSeparatelyFromFinalAggregateUsage() = runBlocking {
+        val recovery = NetworkClient.json.parseToJsonElement("""{"schema_version":1,"attempt_receipts":[{"attempt":1,"output_allowance":50,"finish_reason":"LENGTH","visible_output_bytes":0,"reasoning_output_bytes":11,"terminal_error_code":"empty_completion","terminal_status_code":200,"backend_response_observed":true,"status":"COMPLETED"},{"attempt":2,"output_allowance":39,"finish_reason":"STOP","visible_output_bytes":9,"reasoning_output_bytes":0,"terminal_error_code":null,"terminal_status_code":200,"backend_response_observed":true,"status":"COMPLETED"}]}""").jsonObject
+        for (measured in listOf(false, true)) {
+            val chunk = ChatCompletionChunk(
+                choices = listOf(Choice(delta = Delta(content = "Recovered"), finishReason = "stop")),
+                gatewayRecovery = recovery,
+                usage = if (measured) dev.chungjungsoo.gptmobile.data.dto.openai.response.ChatCompletionUsage(promptTokens = 12, completionTokens = 18, totalTokens = 30) else null
+            )
+            val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(flowOf(chunk))))
+            val events = OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder()).openSession(turns(), platform(ClientType.LLAMA)).streamRound(emptyList(), emptyList()).toList()
+            val observations = events.filterIsInstance<ProviderEvent.Usage>()
+            val metadata = observations.single { it.gatewayRecovery != null }
+            assertEquals(recovery, metadata.gatewayRecovery)
+            assertEquals(ProviderUsagePhase.INTERIM, metadata.phase)
+            assertNull(metadata.inputTokens)
+            assertNull(metadata.outputTokens)
+            val usage = observations.filter { it.inputTokens != null || it.outputTokens != null }
+            assertEquals(if (measured) 1 else 0, usage.size)
+            if (measured) {
+                assertEquals(12, usage.single().inputTokens)
+                assertEquals(18, usage.single().outputTokens)
+            }
+        }
+    }
+
     @Test fun githubClaimExtractionSendsStrictSchemaAndUsesLowAdvertisedReasoning() = runBlocking {
         OpenRouterCatalogLimits.remember(listOf(OpenRouterModelItem("audit/claim-extraction", supportedParameters = listOf("reasoning"))))
         val schema = """{"type":"json_schema","json_schema":{"name":"github_evidence_claims","strict":true,"schema":{"type":"object","properties":{"claims":{"type":"array","items":{"type":"string"}}},"required":["claims"],"additionalProperties":false}}}"""

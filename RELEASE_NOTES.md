@@ -167,3 +167,7 @@ All scoped qualification limitations are retained below. Host and emulator resul
 - The 008174e2 archive was partial: omitted original payloads cannot be reconstructed. Live private endpoint availability, phone frame pacing and process-death acceptance remain deployment/device gates; host regression success does not establish those results.
 
 - New release provenance requires a successful exact workflow with GitHub CLI >=2.102.0 and an unexpired digest-bound evidence artifact. Host tests do not qualify the current APK, microphone or deployed gateway. Unsupported mutation lifecycles remain explicitly outside the new bounded integration preset.
+
+## Session repair validation follow-up
+
+Backend completion and repair diagnostics retain bounded serialized allowances, finish categories, observed byte counts and terminal status even when token usage is unknown. Saved-job evidence remains separate from new result reads, and repeated repair errors do not erase the current HTTP/SSE failure cause or authorize a whole-request replay. Fresh portable-domain and Android JVM reports are collected together with measured application coverage; these results do not promote historical audit checks or establish physical-device and live-service acceptance.

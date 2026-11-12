@@ -49,7 +49,9 @@ sealed interface ProviderEvent {
         val gatewayDeliveryTiming: dev.chungjungsoo.gptmobile.data.dto.openai.response.GatewayDeliveryTiming? = null,
         val providerResponseTiming: dev.chungjungsoo.gptmobile.data.network.ProviderResponseTiming? = null,
         /** The physical invocation that owns this observation, independent of the delivery wrapper. */
-        val invocationId: String? = null
+        val invocationId: String? = null,
+        /** Bounded backend attempt observations; their presence does not supply token usage. */
+        val gatewayRecovery: JsonObject? = null
     ) : ProviderEvent
 
     /** Effective provider request settings after profile preferences and hard request constraints are resolved. */

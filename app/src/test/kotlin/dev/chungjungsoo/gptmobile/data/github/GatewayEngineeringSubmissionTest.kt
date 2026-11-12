@@ -67,6 +67,7 @@ class GatewayEngineeringSubmissionTest {
         assertTrue(runCatching { repository().submitBoundTurn(8, selected.uid, "original-chat-model", "Plan the next task", "command", 11, 12, "run", "plan") }.isFailure)
         assertEquals(originalGateway.uid, saved.captured.profileUid)
         assertEquals(originalGateway.apiUrl, saved.captured.endpoint)
+        coVerify(exactly = 1) { modelPreparation.prepareSelected(originalGateway.copy(model = "original-chat-model"), any(), true, any()) }
         assertEquals("original-owner/original-repository", saved.captured.request.repository)
         assertEquals("original-work", saved.captured.request.branch)
         assertEquals("default-branch", saved.captured.request.base)
@@ -150,13 +151,34 @@ class GatewayEngineeringSubmissionTest {
         coEvery { conversations.boundSnapshot(8, selected.uid, selected.model) } returns (local to snapshot)
         coEvery { store.bindings(null) } returns emptyList()
         coEvery { settings.fetchPlatformV2s() } returns listOf(selected, originalGateway)
-        coEvery { modelPreparation.prepareSelected(any(), any(), any(), any()) } returns GatewayModelPreparationState(selected.uid, selected.model, GatewayModelPreparationPhase.BLOCKED, "The selected model is unavailable")
+        coEvery { client.capabilities(originalGateway.engineeringConfig()) } returns capability
+        coEvery { modelPreparation.prepareSelected(any(), any(), any(), any()) } returns GatewayModelPreparationState(originalGateway.uid, selected.model, GatewayModelPreparationPhase.BLOCKED, "The selected model is unavailable")
         val failure = runCatching { repository().submitBoundTurn(8, selected.uid, selected.model, "Inspect the parser", "command", 11, 12, "run", "read") }.exceptionOrNull()
         assertTrue(failure?.message?.contains("selected model") == true)
-        coVerify(exactly = 1) { modelPreparation.prepareSelected(match { it.uid == selected.uid && it.model == selected.model }, any(), true, any()) }
+        coVerify(exactly = 1) { modelPreparation.prepareSelected(originalGateway.copy(model = selected.model), any(), true, any()) }
         coVerify(exactly = 0) {
             client.prepareBinding(any(), any())
             client.preflight(any(), any())
+            store.add(any())
+            client.create(any(), any())
+        }
+    }
+
+    @Test fun changedSavedGatewayIdentityBlocksBeforeModelPreparation() = runTest {
+        val snapshot = GatewayConversationSnapshot(gatewayId = "gateway", principalId = "owner", conversationId = "canonical", profileId = selected.uid, model = selected.model, repository = "owner/repo", branch = "work", base = "main", revision = 42)
+        val local = GatewayConversationRecord("key", "gateway", "owner", "canonical", originalGateway.uid, originalGateway.apiUrl, selected.uid, 8, Json.encodeToString(snapshot))
+        coEvery { conversations.boundSnapshot(8, selected.uid, selected.model) } returns (local to snapshot)
+        coEvery { store.bindings(null) } returns emptyList()
+        coEvery { settings.fetchPlatformV2s() } returns listOf(selected, originalGateway)
+        coEvery { client.capabilities(originalGateway.engineeringConfig()) } returns capability
+        coEvery { history.identity(any()) } returns GatewayScopeIdentity("replacement", "owner")
+
+        val failure = runCatching { repository().submitBoundTurn(8, selected.uid, selected.model, "Inspect the parser", "command", 11, 12, "run", "read") }.exceptionOrNull()
+
+        assertTrue(failure?.message?.contains("original gateway or account changed") == true)
+        coVerify(exactly = 0) {
+            modelPreparation.prepareSelected(any(), any(), any(), any())
+            client.prepareBinding(any(), any())
             store.add(any())
             client.create(any(), any())
         }

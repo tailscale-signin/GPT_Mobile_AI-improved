@@ -186,16 +186,6 @@ class GatewayEngineeringRepository @Inject constructor(
         val profile = storedProfile.copy(model = selectedModel ?: storedProfile.model, reasoning = featuresAtAdmission.conversationReasoning[chatId] ?: storedProfile.reasoning)
         require(profile.model.isNotBlank())
         require(GitHubAutonomousEngineeringPolicy.supportsSavedJobs(profile)) { "Autonomous jobs require a local Llama or Ollama engineering profile. Remote profiles cannot start them." }
-        val reasoningMode = ReasoningPolicy.preference(storedProfile.reasoning, featuresAtAdmission.llamaReasoningModes[profile.uid], featuresAtAdmission.conversationReasoning[chatId])
-        val prepared = modelPreparation.prepareSelected(profile, reasoningMode, forceRefresh = true)
-        check(prepared == null || prepared.phase == GatewayModelPreparationPhase.READY && prepared.observation?.permitsRequest == true) {
-            prepared?.message ?: "The exact selected model could not be prepared. Your saved draft was not submitted."
-        }
-        if (!admissionAllowed()) throw GatewayEngineeringRequestRejected(403, "Remote tool permission changed during model preparation. The draft was not submitted.")
-        val afterPreparation = settings.fetchPlatformV2s().singleOrNull { it.uid == profileUid && it.enabled }
-        val currentFeatures = settings.getFeatureSettings()
-        check(afterPreparation != null && ConfiguredDispatchAuthority.profileRevision(afterPreparation) == ConfiguredDispatchAuthority.profileRevision(storedProfile) && currentFeatures.llamaReasoningModes[profile.uid] == featuresAtAdmission.llamaReasoningModes[profile.uid] && currentFeatures.conversationReasoning[chatId] == featuresAtAdmission.conversationReasoning[chatId]) { "The selected model or reasoning setting changed during preparation. Review the retained draft before sending it." }
-        val preferences = settings.getFeatureSettings().githubProfileOverrides[profile.uid] ?: GitHubChatProfileOverride()
         val gateway = if (savedBinding == null) {
             settings.engineeringGateway(profile.uid)
         } else {
@@ -205,6 +195,26 @@ class GatewayEngineeringRepository @Inject constructor(
         val capability = client.capabilities(gateway.engineeringConfig())
         if (runId != null) check(capability.supportsDurableChat) { "This gateway does not support durable chat admission. Update it before sending this saved turn." }
         capability.requireJobReadiness()
+        val principal = requireNotNull(capability.principalId)
+        val frozenConfig = gateway.engineeringConfig()
+        val identity = if (capability.conversationSync) history.identity(frozenConfig) else null
+        check(identity == null || identity.principalId == principal) { "The authenticated gateway account changed before binding admission." }
+        if (savedBinding != null) check(savedBinding.principalId == principal && savedBinding.gatewayId == identity?.gatewayId) { "The original gateway or account changed. The saved conversation was retained." }
+        check(settings.fetchPlatformV2s().singleOrNull { it.uid == gateway.uid && it.enabled }?.engineeringConfig() == frozenConfig) { "The gateway configuration changed before model preparation." }
+        if (!admissionAllowed()) throw GatewayEngineeringRequestRejected(403, "Remote tool permission changed before model preparation. The draft was not submitted.")
+        val reasoningMode = ReasoningPolicy.preference(storedProfile.reasoning, featuresAtAdmission.llamaReasoningModes[profile.uid], featuresAtAdmission.conversationReasoning[chatId])
+        // The inference profile supplies the model; the verified engineering Gateway owns the load.
+        val preparationProfile = gateway.copy(model = profile.model, compatibleType = profile.compatibleType)
+        val prepared = modelPreparation.prepareSelected(preparationProfile, reasoningMode, forceRefresh = true)
+        check(prepared == null || prepared.phase == GatewayModelPreparationPhase.READY && prepared.observation?.permitsRequest == true) {
+            prepared?.message ?: "The exact selected model could not be prepared. Your saved draft was not submitted."
+        }
+        if (!admissionAllowed()) throw GatewayEngineeringRequestRejected(403, "Remote tool permission changed during model preparation. The draft was not submitted.")
+        val afterPreparation = settings.fetchPlatformV2s().singleOrNull { it.uid == profileUid && it.enabled }
+        val currentFeatures = settings.getFeatureSettings()
+        check(afterPreparation != null && ConfiguredDispatchAuthority.profileRevision(afterPreparation) == ConfiguredDispatchAuthority.profileRevision(storedProfile) && currentFeatures.llamaReasoningModes[profile.uid] == featuresAtAdmission.llamaReasoningModes[profile.uid] && currentFeatures.conversationReasoning[chatId] == featuresAtAdmission.conversationReasoning[chatId]) { "The selected model or reasoning setting changed during preparation. Review the retained draft before sending it." }
+        check(savedBinding != null || currentFeatures.githubProfileOverrides[profile.uid]?.engineeringGatewayProfileUid == gateway.uid) { "The engineering gateway changed during model preparation." }
+        val preferences = currentFeatures.githubProfileOverrides[profile.uid] ?: GitHubChatProfileOverride()
         val savedSnapshot = savedBinding?.snapshot?.let { Json { ignoreUnknownKeys = true }.decodeFromString<GatewayConversationSnapshot>(it) }
         val batchMode = if (savedSnapshot != null) savedSnapshot.executionMode ?: "standard" else preferences.executionBatchMode
         check(batchMode in setOf("standard", "smart", "full")) { "Choose a supported Gateway execution mode." }
@@ -216,11 +226,6 @@ class GatewayEngineeringRepository @Inject constructor(
         ) { "This Windows Gateway has not enabled $batchMode batching. Choose Standard or configure the execution mode on the host." }
         check(capability.samplingPolicyProtocol == 1) { "Update the desktop Gateway to support per-stage creativity before starting a new saved job. Existing saved jobs remain resumable." }
         val budgetSelection = options.resolveBudget(capability, preferences.engineeringMode, objective, featuresAtAdmission.tokenBudget.totalRunTokens)
-        val principal = requireNotNull(capability.principalId)
-        val frozenConfig = gateway.engineeringConfig()
-        val identity = if (capability.conversationSync) history.identity(frozenConfig) else null
-        check(identity == null || identity.principalId == principal) { "The authenticated gateway account changed before binding admission." }
-        if (savedBinding != null) check(savedBinding.principalId == principal && savedBinding.gatewayId == identity?.gatewayId) { "The original gateway or account changed. The saved conversation was retained." }
         val connection = profile.providerConnectionUid?.let { settings.getProviderConnection(it) }
         val originalExecution = savedSnapshot?.executionBinding
         val privacyScope = originalExecution?.get("privacy_scope")?.jsonPrimitive?.content ?: "$principal/chat/$chatId/repository/$repository"
@@ -232,7 +237,7 @@ class GatewayEngineeringRepository @Inject constructor(
             ?: error("The selected profile was disabled during admission.")
         check(executionSelection(current.copy(model = profile.model, reasoning = profile.reasoning), current.providerConnectionUid?.let { settings.getProviderConnection(it) }, selection.privacyScope) == selection) { "The selected profile changed during admission. Review it before starting." }
         val currentGateway = if (savedBinding == null) settings.engineeringGateway(profile.uid) else settings.fetchPlatformV2s().singleOrNull { it.uid == gateway.uid && it.enabled }
-        check(currentGateway?.let { it.uid == gateway.uid && it.apiUrl == gateway.apiUrl } == true) { "The engineering gateway changed during admission." }
+        check(currentGateway?.engineeringConfig() == frozenConfig) { "The engineering gateway changed during admission." }
         val remote = savedBinding ?: if (capability.supportsDurableChat) conversations.savedConversation(chatId, gateway.uid, gateway.apiUrl.trimEnd('/'), principal, profile.uid) else null
         val binding = GatewayEngineeringBinding(
             gateway.uid,

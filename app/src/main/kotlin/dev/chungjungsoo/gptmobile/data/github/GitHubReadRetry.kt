@@ -67,11 +67,8 @@ internal object GitHubReadRetry {
                 throw cancelled
             } catch (failure: IOException) {
                 currentCoroutineContext().ensureActive()
-                if (!readOnly || retries >= 2 || failure is HttpFailure && !transientStatus(failure.status) ||
-                    networkFailureKind(failure) in setOf(NetworkFailureKind.TLS, NetworkFailureKind.CANCELLED)
-                ) {
-                    throw failure
-                }
+                if (!readOnly || retries >= 2 || failure is HttpFailure && !transientStatus(failure.status)) throw failure
+                if (networkFailureKind(failure) in setOf(NetworkFailureKind.TLS, NetworkFailureKind.CANCELLED)) throw failure
                 val serverDelay = (failure as? HttpFailure)?.let { retryAfterMillis(it.retryAfter) } ?: 0L
                 // Leave long server cooldowns to the task's durable waiting state; never retry early.
                 if (serverDelay > 30_000L) throw failure

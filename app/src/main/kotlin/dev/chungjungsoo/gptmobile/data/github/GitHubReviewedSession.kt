@@ -171,7 +171,8 @@ internal class GitHubReviewedSession(
     private val compatibility: GitHubReviewCompatibility? = null,
     private val inputLimitForPass: (String) -> Int = { inputTokenLimit },
     private val compatibilityRevision: String = reviewerRevision,
-    private val acceptedExecutionContract: () -> JsonObject? = { null }
+    private val acceptedExecutionContract: () -> JsonObject? = { null },
+    private val outputLimitForPass: (String) -> Int? = { null }
 ) : AgentProviderSession by delegate {
     override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
         exchanges.forEach { exchange -> exchange.results.forEach { result -> exchange.calls.firstOrNull { it.callId == result.callId }?.let { evidence.observe(it, result) } } }
@@ -624,19 +625,25 @@ internal class GitHubReviewedSession(
         var request = prompt
         var outputRetryUsed = false
         repeat(2) { attempt ->
+            val attemptedOutputAllowance = outputLimitForPass(kind)?.takeIf { it > 0 }
             val value = try {
                 collectPass(request, kind, GitHubReviewSchema.MAX_OUTPUT_CHARACTERS)
             } catch (failure: ReviewPassFailure) {
                 if (!failure.completedOutputLimit || outputRetryUsed) throw failure
+                val retryKind = "$kind-output-retry"
+                val retryOutputAllowance = outputLimitForPass(retryKind)?.takeIf { it > 0 }
+                // A preferred role budget is not proof that the selected profile
+                // permits more output. Equal or unknown caps split immediately.
+                if (attemptedOutputAllowance == null || retryOutputAllowance == null || retryOutputAllowance <= attemptedOutputAllowance) throw failure
                 outputRetryUsed = true
-                progress("Retrying this review verdict once with a larger bounded output allowance; all evidence and required IDs are retained")
+                progress("Retrying this review verdict once with output allowance increased from $attemptedOutputAllowance to $retryOutputAllowance tokens; all evidence and required IDs are retained")
                 val compact = JsonObject(
                     (Json.parseToJsonElement(request) as JsonObject) + (
                         "response_budget" to JsonPrimitive("Return the smallest complete verdict. Keep every required reviewed ID, use a short reason and only necessary issues and verified claims. Do not elaborate.")
                         )
                 ).toString()
                 try {
-                    collectPass(compact, "$kind-output-retry", GitHubReviewSchema.MAX_OUTPUT_CHARACTERS)
+                    collectPass(compact, retryKind, GitHubReviewSchema.MAX_OUTPUT_CHARACTERS)
                 } catch (retry: ReviewPassFailure) {
                     // A local split decision must not erase the accepted provider
                     // attempt and its measured usage from the retained cause.

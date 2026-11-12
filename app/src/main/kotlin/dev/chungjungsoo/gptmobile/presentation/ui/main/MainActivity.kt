@@ -37,6 +37,7 @@ import dev.chungjungsoo.gptmobile.presentation.theme.GPTMobileTheme
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.IssueReportHost
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.IssueReportViewModel
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.ToolConnectionsViewModel
+import dev.chungjungsoo.gptmobile.presentation.ui.setting.shouldCompleteIssueReportSetup
 import kotlinx.coroutines.launch
 
 @AndroidEntryPoint
@@ -72,7 +73,7 @@ class MainActivity : dev.chungjungsoo.gptmobile.presentation.ui.main.ProtectedAc
             val isReady by mainViewModel.isReady.collectAsStateWithLifecycle()
             val startupError by mainViewModel.startupError.collectAsStateWithLifecycle()
             LaunchedEffect(currentRoute) {
-                if (currentRoute != Route.TOOL_CONNECTIONS) issueReportViewModel.completeSetup()
+                if (shouldCompleteIssueReportSetup(currentRoute)) issueReportViewModel.completeSetup()
             }
             LaunchedEffect(startupError) {
                 if (startupError != null) {

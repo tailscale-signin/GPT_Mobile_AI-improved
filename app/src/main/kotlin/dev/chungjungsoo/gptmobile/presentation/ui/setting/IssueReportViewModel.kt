@@ -128,10 +128,10 @@ class IssueReportViewModel @Inject constructor(@ApplicationContext private val c
         preferences.edit().putStringSet("announced", announced.value).apply()
     }
 
-    internal fun submitManual(title: String, description: String, includeDiagnostics: Boolean) {
+    internal fun submitManual(title: String, description: String, includeDiagnostics: Boolean, approvedRoute: IssueReportRoute?) {
         if (title.isBlank() || description.isBlank()) return
         val preview = mutableManualPreview.value ?: return
-        enqueue {
+        enqueue(approvedRoute) {
             val events = if (includeDiagnostics) preview.events else emptyList()
             IssueReport.manual(title, description, events).copy(reportId = preview.reportId, context = preview.context)
         }
@@ -141,9 +141,9 @@ class IssueReportViewModel @Inject constructor(@ApplicationContext private val c
         mutableManualPreview.update { it?.copy(events = if (include) IssueReportIncidents.recentEvents() else emptyList()) }
     }
 
-    internal fun submitIncident(report: IssueReport) {
+    internal fun submitIncident(report: IssueReport, approvedRoute: IssueReportRoute?) {
         if (!LocalDiagnosticsPolicy.enabled || IssueReportIncidents.privateSession.value) return
-        enqueue(incidentId = report.reportId) { report }
+        enqueue(approvedRoute, incidentId = report.reportId) { report }
     }
 
     internal fun dismissIncident(report: IssueReport) {
@@ -153,17 +153,17 @@ class IssueReportViewModel @Inject constructor(@ApplicationContext private val c
         }
     }
 
-    internal fun retrySubmission(reportId: String) {
-        viewModelScope.launch { retry(reportId) }
+    internal fun retrySubmission(reportId: String, approvedRoute: IssueReportRoute?) {
+        viewModelScope.launch { retry(reportId, approvedRoute) }
     }
 
-    internal suspend fun retry(reportId: String): Boolean {
+    internal suspend fun retry(reportId: String, approvedRoute: IssueReportRoute?): Boolean {
         if (!mutableSaving.compareAndSet(expect = false, update = true)) return false
         return try {
             mutableError.value = null
             val saved = mutableReports.value.firstOrNull { it.reportId == reportId } ?: return false
-            val destination = if (saved.mayHaveBeenSubmitted) saved.route else mutableRoute.value
-            if (destination == null) return false
+            val destination = approvedRoute ?: return false
+            if (saved.mayHaveBeenSubmitted && saved.route != destination) return false
             IssueReportWorker.retry(context, reportId, destination)
             selectReport(reportId)
             refresh()
@@ -190,9 +190,8 @@ class IssueReportViewModel @Inject constructor(@ApplicationContext private val c
         }
     }
 
-    private fun enqueue(incidentId: String? = null, buildReport: () -> IssueReport) {
+    private fun enqueue(approvedRoute: IssueReportRoute?, incidentId: String? = null, buildReport: () -> IssueReport) {
         if (!mutableSaving.compareAndSet(expect = false, update = true)) return
-        val approvedRoute = mutableRoute.value
         viewModelScope.launch {
             try {
                 mutableError.value = null

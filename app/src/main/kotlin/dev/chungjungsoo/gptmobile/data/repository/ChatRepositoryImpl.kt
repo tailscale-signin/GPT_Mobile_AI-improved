@@ -5739,6 +5739,7 @@ class ChatRepositoryImpl(
                     inputTokenLimit = reviewInputLimit(),
                     currentInputLimit = ::reviewInputLimit,
                     inputLimitForPass = { githubStageBudget(it).input },
+                    outputLimitForPass = { githubStageBudget(it).output },
                     measureInput = ::measureReview,
                     acceptedExecutionContract = { currentGitHubPromptContract },
                     reviewerRevision = dev.chungjungsoo.gptmobile.data.research.researchHash("${dev.chungjungsoo.gptmobile.data.github.GitHubReviewSchema.VERSION}:${platform.uid}:${platform.model}:${platform.apiUrl}:${dispatchAuthority.revision}:${dev.chungjungsoo.gptmobile.data.network.gateway.GatewayClientDiagnostics.profileCapabilityEpoch(platform.uid, platform.apiUrl)}:${reviewOutputTokens()}:$resolvedOutputCap"),

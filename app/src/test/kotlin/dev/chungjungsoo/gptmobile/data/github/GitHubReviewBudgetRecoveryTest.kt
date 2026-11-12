@@ -24,6 +24,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubReviewBudgetRecoveryTest {
+    private fun outputAllowance(role: String) = GitHubStageBudget.resolve(32768, null, role).output
+
     private fun session(vararg events: ProviderEvent) = object : AgentProviderSession {
         override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> {
             assertTrue(tools.isEmpty() && exchanges.isEmpty())
@@ -57,8 +59,9 @@ class GitHubReviewBudgetRecoveryTest {
         val output = GitHubReviewedSession(session(ProviderEvent.TextDelta("The recorded check failed."), ProviderEvent.Completed), GitHubReviewEvidence(), "task", 8192, { prompt, kind ->
             roles += kind
             if (roles.size == 1) session(exhausted("review-1")) else session(ProviderEvent.TextDelta(verdict(prompt)), ProviderEvent.Completed)
-        }, {}, checkpoint = checkpoint).streamRound(emptyList(), emptyList()).toList()
+        }, {}, checkpoint = checkpoint, outputLimitForPass = ::outputAllowance).streamRound(emptyList(), emptyList()).toList()
         assertEquals(listOf("github-review", "github-review-output-retry"), roles)
+        assertEquals(listOf(1536, 4096), roles.map(::outputAllowance))
         assertEquals(listOf("The recorded check failed."), output.filterIsInstance<ProviderEvent.TextDelta>().map { it.text })
         assertEquals(ProviderEvent.Completed, output.last())
         val receipts = rows.getValue("active").getValue("review_attempt_failures").jsonArray
@@ -84,10 +87,69 @@ class GitHubReviewBudgetRecoveryTest {
             } else {
                 session(ProviderEvent.TextDelta(verdict(prompt)), ProviderEvent.Completed)
             }
-        }, {}).streamRound(emptyList(), emptyList()).toList()
+        }, {}, outputLimitForPass = ::outputAllowance).streamRound(emptyList(), emptyList()).toList()
         assertEquals(4, reviews)
         assertEquals(ProviderEvent.Completed, output.last())
         assertEquals(2, evidence.snapshot().size)
+    }
+
+    @Test fun equalOrUnknownOutputAllowanceSplitsImmediatelyWithoutAnotherSameCapAttempt() = runTest {
+        for (cap in listOf<Int?>(1536, null)) {
+            val evidence = GitHubReviewEvidence().also {
+                for (id in listOf("first", "second")) it.observe(ProviderEvent.ToolCall(id, "github_read", JsonObject(emptyMap())), AgentToolResult(id, ToolResultContent.Text("Evidence $id"), false))
+            }
+            val roles = mutableListOf<String>()
+            val acceptedIds = mutableSetOf<String>()
+            val output = GitHubReviewedSession(session(ProviderEvent.TextDelta("The recorded check failed."), ProviderEvent.Completed), evidence, "task", 8192, { prompt, kind ->
+                roles += kind
+                val records = Json.parseToJsonElement(prompt).jsonObject.getValue("records").jsonArray
+                if (records.size > 1) {
+                    session(exhausted("same-cap"))
+                } else {
+                    acceptedIds += records.map { it.jsonObject.getValue("id").toString() }
+                    session(ProviderEvent.TextDelta(verdict(prompt)), ProviderEvent.Completed)
+                }
+            }, {}, outputLimitForPass = { role -> cap?.let { GitHubStageBudget.resolve(32768, it, role).output } }).streamRound(emptyList(), emptyList()).toList()
+            assertEquals(listOf("github-review", "github-review", "github-review"), roles)
+            assertEquals(2, acceptedIds.size)
+            assertEquals(ProviderEvent.Completed, output.last())
+            assertEquals(2, evidence.snapshot().size)
+        }
+    }
+
+    @Test fun largerOutputRetryUsesItsSmallerInputAllowanceBeforeClaimingOrDispatching() = runTest {
+        val initial = GitHubStageBudget.resolve(32768, null, "github-review")
+        val enlarged = GitHubStageBudget.resolve(32768, null, "github-review-output-retry")
+        assertTrue(enlarged.output > initial.output && enlarged.input < initial.input)
+        val evidence = GitHubReviewEvidence().also {
+            for (id in listOf("first", "second")) it.observe(ProviderEvent.ToolCall(id, "github_read", JsonObject(emptyMap())), AgentToolResult(id, ToolResultContent.Text("Evidence $id"), false))
+        }
+        val rows = mutableMapOf<String, JsonObject>()
+        val checkpoint = GitHubReviewCheckpoint("task", { rows[it] }, { key, row -> rows[key] = row })
+        fun measured(prompt: String): Int = if (Json.parseToJsonElement(prompt).jsonObject.getValue("records").jsonArray.size > 1) enlarged.input + 1 else 1000
+        val roles = mutableListOf<String>()
+        val acceptedIds = mutableSetOf<String>()
+        val output = GitHubReviewedSession(
+            session(ProviderEvent.TextDelta("The recorded check failed."), ProviderEvent.Completed), evidence, "task", initial.input, { prompt, kind ->
+                assertTrue("An oversized retry must stop before dispatch", measured(prompt) <= GitHubStageBudget.resolve(32768, null, kind).input)
+                roles += kind
+                val records = Json.parseToJsonElement(prompt).jsonObject.getValue("records").jsonArray
+                if (records.size > 1) {
+                    session(exhausted("initial-limit"))
+                } else {
+                    acceptedIds += records.map { it.jsonObject.getValue("id").toString() }
+                    session(ProviderEvent.TextDelta(verdict(prompt)), ProviderEvent.Completed)
+                }
+            }, {}, measureInput = ::measured, checkpoint = checkpoint,
+            inputLimitForPass = { GitHubStageBudget.resolve(32768, null, it).input }, outputLimitForPass = ::outputAllowance
+        ).streamRound(emptyList(), emptyList()).toList()
+        assertEquals(listOf("github-review", "github-review", "github-review"), roles)
+        assertEquals(2, acceptedIds.size)
+        assertEquals(ProviderEvent.Completed, output.last())
+        assertEquals(JsonPrimitive(3), rows.getValue("active")["review_passes"])
+        val failed = rows.getValue("active").getValue("review_attempt_failures").jsonArray.single().jsonObject
+        assertEquals(JsonPrimitive("initial-limit"), failed["invocation_id"])
+        assertTrue(failed["gateway_recovery"] != null)
     }
 
     @Test fun unknownRemoteOutcomeNeverUsesOutputRecoveryOrPublishesTheCandidate() = runTest {
@@ -96,7 +158,7 @@ class GitHubReviewBudgetRecoveryTest {
         val output = GitHubReviewedSession(session(ProviderEvent.TextDelta("Saved draft"), ProviderEvent.Completed), evidence, "task", 8192, { _, _ ->
             reviews++
             session(exhausted("review-unknown", reconcile = true))
-        }, {}).streamRound(emptyList(), emptyList()).toList()
+        }, {}, outputLimitForPass = ::outputAllowance).streamRound(emptyList(), emptyList()).toList()
         assertEquals(1, reviews)
         assertFalse(output.any { it is ProviderEvent.TextDelta })
         assertEquals("Saved draft", evidence.privateCandidate())

@@ -67,7 +67,9 @@ internal fun IssueReportHost(viewModel: IssueReportViewModel, showPrompts: Boole
     val reports by viewModel.reports.collectAsStateWithLifecycle()
     val submission by viewModel.submission.collectAsStateWithLifecycle()
     val routes by viewModel.routes.collectAsStateWithLifecycle()
-    val route by viewModel.route.collectAsStateWithLifecycle()
+    // Capture the route rendered by this composition. A later StateFlow update
+    // must not turn this frame's Save for later click into a delivery approval.
+    val route = viewModel.route.collectAsStateWithLifecycle().value
     val draft by viewModel.draft.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     val resources by rememberUpdatedState(LocalResources.current)
@@ -100,7 +102,7 @@ internal fun IssueReportHost(viewModel: IssueReportViewModel, showPrompts: Boole
     when {
         manual -> ManualIssueDialog(saving, error, manualPreview, reports, routes, route, draft, viewModel::updateDraft, viewModel::selectRoute, openGitHub, viewModel::closeManual, viewModel::submitManual, viewModel::previewManualDiagnostics, viewModel::selectReport)
         submission != null -> submission?.let { report ->
-            IssueSubmissionDialog(report, saving, error, routes, route, viewModel::selectRoute, openGitHub, viewModel::closeSubmission, { viewModel.retrySubmission(report.reportId) }, { viewModel.removeFailed(report.reportId) }) {
+            IssueSubmissionDialog(report, saving, error, routes, route, viewModel::selectRoute, openGitHub, viewModel::closeSubmission, { approvedRoute -> viewModel.retrySubmission(report.reportId, approvedRoute) }, { viewModel.removeFailed(report.reportId) }) {
                 report.issueNumber?.let { number -> runCatching { uriHandler.openUri("$ISSUE_TRACKER/$number") } }
             }
         }
@@ -119,7 +121,7 @@ internal fun IssueReportHost(viewModel: IssueReportViewModel, showPrompts: Boole
                 },
                 dismissButton = { TextButton(onClick = { viewModel.dismissIncident(report) }, enabled = !saving) { Text(stringResource(R.string.issue_report_no)) } },
                 confirmButton = {
-                    Button(onClick = { viewModel.submitIncident(report) }, enabled = !saving) {
+                    Button(onClick = { viewModel.submitIncident(report, route) }, enabled = !saving) {
                         Text(
                             stringResource(
                                 if (saving) {
@@ -151,7 +153,7 @@ private fun ManualIssueDialog(
     onRoute: (IssueReportRoute) -> Unit,
     onSetup: () -> Unit,
     onDismiss: () -> Unit,
-    onSubmit: (String, String, Boolean) -> Unit,
+    onSubmit: (String, String, Boolean, IssueReportRoute?) -> Unit,
     onDiagnostics: (Boolean) -> Unit,
     onSelectReport: (String) -> Unit
 ) {
@@ -193,7 +195,7 @@ private fun ManualIssueDialog(
         },
         dismissButton = { TextButton(onClick = onDismiss, enabled = !saving) { Text(stringResource(R.string.issue_report_cancel)) } },
         confirmButton = {
-            Button(onClick = { onSubmit(title, description, includeDiagnostics) }, enabled = !saving && title.isNotBlank() && description.isNotBlank()) {
+            Button(onClick = { onSubmit(title, description, includeDiagnostics, route) }, enabled = !saving && title.isNotBlank() && description.isNotBlank()) {
                 Text(
                     stringResource(
                         if (saving) {
@@ -220,7 +222,7 @@ private fun IssueSubmissionDialog(
     onRoute: (IssueReportRoute) -> Unit,
     onSetup: () -> Unit,
     onClose: () -> Unit,
-    onRetry: () -> Unit,
+    onRetry: (IssueReportRoute?) -> Unit,
     onRemove: () -> Unit,
     onView: () -> Unit
 ) {
@@ -276,7 +278,7 @@ private fun IssueSubmissionDialog(
         confirmButton = {
             when {
                 report.state == IssueReportOutbox.State.SENT -> TextButton(onClick = onView) { Text(stringResource(R.string.issue_report_view)) }
-                report.state == IssueReportOutbox.State.FAILED && report.retryable -> Button(onClick = onRetry, enabled = !saving && retryDestinationAvailable) {
+                report.state == IssueReportOutbox.State.FAILED && report.retryable -> Button(onClick = { onRetry(if (report.mayHaveBeenSubmitted) report.route else route) }, enabled = !saving && retryDestinationAvailable) {
                     Text(stringResource(if (report.route?.kind == IssueReportRoute.Kind.GITHUB && report.mayHaveBeenSubmitted) R.string.issue_report_check_confirmation else R.string.retry))
                 }
             }

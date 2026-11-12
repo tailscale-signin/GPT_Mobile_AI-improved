@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.diagnostics
 
 import android.app.Application
 import android.content.Context
+import androidx.lifecycle.viewModelScope
 import androidx.test.core.app.ApplicationProvider
 import androidx.work.ExistingWorkPolicy
 import androidx.work.ListenableWorker
@@ -12,17 +13,31 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.google.common.util.concurrent.ListenableFuture
+import dev.chungjungsoo.gptmobile.presentation.ui.setting.IssueReportViewModel
+import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.slot
 import io.mockk.unmockkObject
+import io.mockk.verify
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.Executor
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.job
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -46,6 +61,8 @@ class IssueReportWorkerTest {
         File(context.noBackupFilesDir, "approved_issue_reports").deleteRecursively()
         File(context.noBackupFilesDir, "issue-report-correlations.json").delete()
         IssueReportIncidents.initialize(context)
+        LocalDiagnosticsPolicy.setEnabled(false)
+        IssueReportIncidents.privacyChanged(false)
     }
 
     @Test fun nativeEnqueuePersistsApprovedPayloadAndCorrelationBeforeSchedulingOnlyItsIdentity() = runBlocking {
@@ -142,6 +159,126 @@ class IssueReportWorkerTest {
             assertFalse(queued.mayHaveBeenSubmitted)
         } finally {
             unmockkObject(WorkManager.Companion)
+        }
+    }
+
+    @Test fun displayedSaveForLaterStaysLocalWhenAnAccountAppearsBeforeTheClick() = runBlocking {
+        withReportModel(emptyList()) { model, available, manager ->
+            model.openManual()
+            val id = requireNotNull(model.manualPreview.value).reportId
+            val displayedRoute = model.route.value
+            assertNull(displayedRoute)
+            val clickDisplayedButton = { model.submitManual("Saved report", "Approved local contents", false, displayedRoute) }
+
+            available.value = listOf(route)
+            model.refreshAvailability()
+            withTimeout(5000) { model.route.first { it == route } }
+            clickDisplayedButton()
+
+            val saved = withTimeout(5000) { model.reports.first { rows -> rows.any { it.reportId == id } } }.single { it.reportId == id }
+            assertEquals(IssueReportOutbox.State.FAILED, saved.state)
+            assertEquals("REPORT_DESTINATION_REQUIRED", saved.failureCode)
+            assertNull(saved.route)
+            assertFalse(saved.mayHaveBeenSubmitted)
+            verify(exactly = 0) { manager.enqueueUniqueWork(any(), any(), any<OneTimeWorkRequest>()) }
+        }
+    }
+
+    @Test fun displayedAccountApprovalCannotFollowAChangedAvailabilityDefault() = runBlocking {
+        withReportModel(listOf(route)) { model, available, manager ->
+            model.openManual()
+            val id = requireNotNull(model.manualPreview.value).reportId
+            val displayedRoute = model.route.value
+            assertEquals(route, displayedRoute)
+            val clickDisplayedButton = { model.submitManual("Account-bound report", "Original approved contents", false, displayedRoute) }
+            val replacement = route.copy(connectionUid = "another-connection", accountId = "43", accountLogin = "another-author")
+
+            available.value = listOf(replacement)
+            model.refreshAvailability()
+            withTimeout(5000) { model.route.first { it == replacement } }
+            clickDisplayedButton()
+
+            val saved = withTimeout(5000) { model.reports.first { rows -> rows.any { it.reportId == id } } }.single { it.reportId == id }
+            assertEquals(IssueReportOutbox.State.QUEUED, saved.state)
+            assertEquals(route, saved.route)
+            assertFalse(saved.mayHaveBeenSubmitted)
+            verify(exactly = 1) { manager.enqueueUniqueWork(any(), any(), any<OneTimeWorkRequest>()) }
+        }
+    }
+
+    @Test fun displayedIncidentSaveForLaterDoesNotApproveANewlyAvailableAccount() = runBlocking {
+        withReportModel(emptyList()) { model, available, manager ->
+            LocalDiagnosticsPolicy.setEnabled(true)
+            val incident = report.copy(feature = "chat", errorCode = "NETWORK_ERROR")
+            val displayedRoute = model.route.value
+            val clickDisplayedButton = { model.submitIncident(incident, displayedRoute) }
+            available.value = listOf(route)
+            model.refreshAvailability()
+            withTimeout(5000) { model.route.first { it == route } }
+
+            clickDisplayedButton()
+
+            val saved = withTimeout(5000) { model.reports.first { rows -> rows.any { it.reportId == incident.reportId } } }.single { it.reportId == incident.reportId }
+            assertEquals("REPORT_DESTINATION_REQUIRED", saved.failureCode)
+            assertNull(saved.route)
+            assertFalse(saved.mayHaveBeenSubmitted)
+            verify(exactly = 0) { manager.enqueueUniqueWork(any(), any(), any<OneTimeWorkRequest>()) }
+        }
+    }
+
+    @Test fun savedReportRetryRequiresTheDisplayedDestinationAndDoesNotAdoptANewDefault() = runBlocking {
+        val outbox = IssueReportOutbox.forContext(context)
+        outbox.approve(report)
+        outbox.failed(report.reportId, IssueReportSubmission.Failure("REPORT_DESTINATION_REQUIRED", true, automaticRetry = false), automaticRetry = false)
+        withReportModel(listOf(route)) { model, available, manager ->
+            model.selectReport(report.reportId)
+            val displayedRoute = model.route.value
+            assertEquals(route, displayedRoute)
+            val replacement = route.copy(connectionUid = "another-connection", accountId = "43", accountLogin = "another-author")
+            available.value = listOf(replacement)
+            model.refreshAvailability()
+            withTimeout(5000) { model.route.first { it == replacement } }
+
+            assertFalse(model.retry(report.reportId, null))
+            assertNull(outbox.load(report.reportId)?.route)
+            verify(exactly = 0) { manager.enqueueUniqueWork(any(), any(), any<OneTimeWorkRequest>()) }
+            assertTrue(model.retry(report.reportId, displayedRoute))
+            assertEquals(route, outbox.load(report.reportId)?.route)
+            assertEquals(report.approvedPayload(), outbox.load(report.reportId)?.payload)
+            verify(exactly = 1) { manager.enqueueUniqueWork(any(), any(), any<OneTimeWorkRequest>()) }
+        }
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private suspend fun withReportModel(
+        initialRoutes: List<IssueReportRoute>,
+        block: suspend (IssueReportViewModel, MutableStateFlow<List<IssueReportRoute>>, WorkManager) -> Unit
+    ) {
+        val available = MutableStateFlow(initialRoutes)
+        val router = mockk<IssueReportRouting>()
+        coEvery { router.options() } coAnswers { available.value }
+        val manager = mockk<WorkManager>()
+        val operation = mockk<Operation>()
+        val initialized = CompletableDeferred<Unit>()
+        every { operation.result } returns ImmediateFuture(Operation.SUCCESS)
+        every { manager.getWorkInfosByTagFlow(any()) } answers {
+            if (firstArg<String>() == IssueReportWorker.TAG) initialized.complete(Unit)
+            flowOf(emptyList())
+        }
+        every { manager.enqueueUniqueWork(any(), ExistingWorkPolicy.KEEP, any<OneTimeWorkRequest>()) } returns operation
+        Dispatchers.setMain(UnconfinedTestDispatcher())
+        mockkObject(WorkManager.Companion)
+        var model: IssueReportViewModel? = null
+        try {
+            every { WorkManager.getInstance(context) } returns manager
+            val active = IssueReportViewModel(context, router)
+            model = active
+            withTimeout(5000) { initialized.await() }
+            block(active, available, manager)
+        } finally {
+            model?.viewModelScope?.coroutineContext?.job?.cancelAndJoin()
+            unmockkObject(WorkManager.Companion)
+            Dispatchers.resetMain()
         }
     }
 

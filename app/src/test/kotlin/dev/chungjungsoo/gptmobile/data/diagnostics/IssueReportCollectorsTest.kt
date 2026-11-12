@@ -16,7 +16,10 @@ import io.mockk.coEvery
 import io.mockk.mockk
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -337,12 +340,25 @@ class IssueReportCollectorsTest {
                 2L
             )
             val report = IssueReportIncidents.pending.value.last()
+            val context = requireNotNull(report.context)
+            val diagnostics = requireNotNull(context.diagnostics)
             assertEquals(publicCode, report.errorCode)
-            assertEquals(recovery, report.context?.recoveryAction)
-            assertEquals(1, report.context?.schemaVersion)
-            assertEquals(false, report.context?.dispatched)
-            assertEquals(IssueReportContext.identifierHash("call", event.callId), report.context?.callIdHash)
-            assertFalse(report.approvedPayload().contains(localCode))
+            assertEquals(recovery, context.recoveryAction)
+            assertEquals(5, context.schemaVersion)
+            assertEquals("TOOL", diagnostics.area)
+            assertEquals("INCIDENT", diagnostics.captureMode)
+            assertEquals(JsonPrimitive(IssueReportContext.identifierHash("call", event.callId)), diagnostics.values["call_id_hash"])
+            assertEquals(JsonPrimitive(IssueReportContext.identifierHash("tool-error-code", localCode)), diagnostics.values["original_error_code_hash"])
+            assertEquals(false, context.dispatched)
+            assertEquals(IssueReportContext.identifierHash("call", event.callId), context.callIdHash)
+            // This existing v4 public reason is allowed only in its typed context field.
+            val publicReason = localCode.takeIf { it == "SAVED_VIEW_WRONG_OPERATION" }
+            assertEquals(publicReason, context.reasonCode)
+            val approved = IssueReport.json.parseToJsonElement(report.approvedPayload()).jsonObject
+            val approvedContext = approved.getValue("context").jsonObject
+            assertEquals(publicReason?.let(::JsonPrimitive), approvedContext["reasonCode"])
+            val outsideReason = JsonObject(approved + ("context" to JsonObject(approvedContext - "reasonCode")))
+            assertFalse(outsideReason.toString().contains(localCode))
             assertFalse(report.approvedPayload().contains("private"))
         }
     }

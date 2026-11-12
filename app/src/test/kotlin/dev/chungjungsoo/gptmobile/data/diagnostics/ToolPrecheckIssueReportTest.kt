@@ -15,6 +15,7 @@ import dev.chungjungsoo.gptmobile.data.repository.ToolEventRecorder
 import io.mockk.coEvery
 import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.After
@@ -49,9 +50,15 @@ class ToolPrecheckIssueReportTest {
             val result = ToolResultEnvelope.error(callId, code, "private repository /private/repo and private arguments")
             val report = record(operation, result)
             val context = requireNotNull(report.context)
+            val diagnostics = requireNotNull(context.diagnostics)
             assertEquals("TOOL_FAILURE", report.errorCode)
             assertEquals(code, context.reasonCode)
-            assertEquals(4, context.schemaVersion)
+            assertEquals(5, context.schemaVersion)
+            assertEquals("TOOL", diagnostics.area)
+            assertEquals("INCIDENT", diagnostics.captureMode)
+            assertEquals(JsonPrimitive(IssueReportContext.identifierHash("call", callId)), diagnostics.values["call_id_hash"])
+            assertEquals(JsonPrimitive(IssueReportContext.identifierHash("tool-error-code", code)), diagnostics.values["original_error_code_hash"])
+            assertEquals(JsonPrimitive(IssueReportContext.identifierHash("tool-reason-code", code)), diagnostics.values["original_reason_code_hash"])
             assertEquals("TOOL_RESULT", context.source)
             assertEquals("tool_precheck", context.stage)
             assertEquals(operation, context.operation)

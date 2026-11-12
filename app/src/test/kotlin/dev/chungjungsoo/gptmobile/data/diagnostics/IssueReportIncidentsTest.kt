@@ -3,6 +3,9 @@ package dev.chungjungsoo.gptmobile.data.diagnostics
 import android.app.Application
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import dev.chungjungsoo.gptmobile.data.network.error.ErrorCategory
+import dev.chungjungsoo.gptmobile.data.network.error.ErrorClassification
+import dev.chungjungsoo.gptmobile.data.network.error.ProviderContractFailure
 import java.io.File
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -88,6 +91,26 @@ class IssueReportIncidentsTest {
             listOf("GATEWAY_ENGINEERING_GITHUB_REQUIRED", "GATEWAY_REMOTE_SURFACE_NOT_ADMITTED"),
             IssueReportIncidents.pending.value.map { it.errorCode }
         )
+    }
+
+    @Test
+    fun classifiedChatFailuresKeepTheirCodesWithoutExceptionText() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        for (message in listOf("BACKEND_TEMPLATE_INVALID: private details", "HTTP 503 private details", "HTTP 401 private details")) {
+            val classification = ErrorClassification.classify(IllegalStateException(message))
+            IssueReportIncidents.chatFailure(classification.errorCode, false)
+        }
+
+        val reports = IssueReportIncidents.pending.value
+        assertEquals(listOf("BACKEND_TEMPLATE_INVALID", "SERVICE_UNAVAILABLE", "AUTHENTICATION_FAILED"), reports.map { it.errorCode })
+        assertFalse(reports.flatMap { it.events }.any { "private details" in it })
+    }
+
+    @Test
+    fun reportAllowlistCoversProviderContractsAndSpecificErrorCategories() {
+        val specificCategories = ErrorCategory.entries.map { it.name }.toSet() - setOf("CLIENT_CANCELLED", "UNKNOWN")
+        val missing = (ProviderContractFailure.codes + specificCategories) - IssueReportCodes.allowed
+        assertEquals(emptySet<String>(), missing)
     }
 
     @Test

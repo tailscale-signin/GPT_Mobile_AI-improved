@@ -1,7 +1,8 @@
 package dev.chungjungsoo.gptmobile.data.github
 
+import dev.chungjungsoo.gptmobile.data.network.NetworkFailureKind
+import dev.chungjungsoo.gptmobile.data.network.networkFailureKind
 import java.io.IOException
-import javax.net.ssl.SSLException
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -45,7 +46,7 @@ internal class GitHubRequestCircuit(
             return
         }
         val transient = failure is IOException &&
-            failure !is SSLException &&
+            networkFailureKind(failure) !in setOf(NetworkFailureKind.TLS, NetworkFailureKind.CANCELLED) &&
             (failure !is GitHubReadRetry.HttpFailure || GitHubReadRetry.transientStatus(failure.status))
         if (!transient) {
             // Only an observed HTTP response proves reachability. Local validation,

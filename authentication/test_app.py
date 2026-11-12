@@ -151,6 +151,7 @@ class IssueReportHttpTest(unittest.TestCase):
         for change in (
             {"errorCode": "PRIVATE_PROVIDER_TOKEN_VALUE"},
             {"events": ["-023ms E voice PRIVATE_PROVIDER_TOKEN_VALUE"]},
+            {"events": ["-023ms E voice PRIVATE_V14_VALUE"]},
             {"errorCode": "VOICE_MICROPHONE_PERMISSION_REQUIRED private message"},
         ):
             with self.subTest(change=change):

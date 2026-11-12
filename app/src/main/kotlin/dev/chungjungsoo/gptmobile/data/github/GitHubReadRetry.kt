@@ -1,9 +1,10 @@
 package dev.chungjungsoo.gptmobile.data.github
 
+import dev.chungjungsoo.gptmobile.data.network.NetworkFailureKind
+import dev.chungjungsoo.gptmobile.data.network.networkFailureKind
 import java.io.IOException
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
-import javax.net.ssl.SSLException
 import kotlin.coroutines.AbstractCoroutineContextElement
 import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.CancellationException
@@ -66,7 +67,8 @@ internal object GitHubReadRetry {
                 throw cancelled
             } catch (failure: IOException) {
                 currentCoroutineContext().ensureActive()
-                if (!readOnly || failure is SSLException || retries >= 2 || failure is HttpFailure && !transientStatus(failure.status)) throw failure
+                if (!readOnly || retries >= 2 || failure is HttpFailure && !transientStatus(failure.status)) throw failure
+                if (networkFailureKind(failure) in setOf(NetworkFailureKind.TLS, NetworkFailureKind.CANCELLED)) throw failure
                 val serverDelay = (failure as? HttpFailure)?.let { retryAfterMillis(it.retryAfter) } ?: 0L
                 // Leave long server cooldowns to the task's durable waiting state; never retry early.
                 if (serverDelay > 30_000L) throw failure

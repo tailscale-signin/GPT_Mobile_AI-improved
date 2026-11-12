@@ -45,11 +45,11 @@ jobs:
       # Bound each phase so a stalled compiler cannot occupy a runner for six hours.
       - name: Build review APK
         timeout-minutes: 30
-        # Native-library packaging needs more heap after a cold Kotlin/KSP compile.
-        # Keep the compiler in-process and one worker within the runner's RAM budget.
+        # Zipflinger's compression pool is separate from Gradle's worker limit.
+        # Match the bounded full-APK packaging settings in PR validation.
         run: >-
           python3 scripts/gradle_retry.py -- :app:assembleDebug --no-daemon --stacktrace --console=plain --max-workers=1
-          '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8'
+          '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -Djava.util.concurrent.ForkJoinPool.common.parallelism=2 -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8'
       - name: Compile device regressions
         timeout-minutes: 25
         run: python3 scripts/gradle_retry.py -- :app:compileDebugAndroidTestKotlin --no-daemon --stacktrace --console=plain

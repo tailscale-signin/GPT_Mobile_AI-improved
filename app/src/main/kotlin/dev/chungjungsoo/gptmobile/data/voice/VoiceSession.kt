@@ -375,6 +375,7 @@ class VoiceSession(
         if (text.isNotBlank()) diagnosticProbe.responseText()
         if (streamId == null) {
             streamId = id
+            audio.bindDiagnostics(diagnosticProbe)
             audio.bindReply(id)
             streamAudio = playbackAllowed() && state.speaker
         }

@@ -865,5 +865,52 @@
     },
     "exact_release_scope": "PASS",
     "generated_inventories": "PASS"
+  },
+  "post_diagnostic_preview_followup": {
+    "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+    "base_branch": "main",
+    "base_sha": "97f10ff7a1f3789fb82d958b2dc6b22c8074dfdf",
+    "working_branch": "fix/session-reliability-reporting-2026-11-12",
+    "published_parent": "398c01322a21657b1cf15cabd5cd050483494f59",
+    "intent": "Rebind the current diagnostic probe when a pending voice reply begins streaming after a settings preview detached backend timing. Preserve preview isolation, old callback rejection and the privacy epoch.",
+    "state": "SOURCE_REVIEW_AND_HOST_VALIDATION_PASSED_ANDROID_PENDING",
+    "pre_fix": {
+      "source": "ae84a62f111d7b919669b14d0e4da4f89ce1cb4c",
+      "tests": 2,
+      "passed": 1,
+      "failed": 1,
+      "failure": "Pending reply, pause, settings preview, resume, first streamed Kokoro playback captures a null diagnostic probe; no-preview control passes.",
+      "speech_or_admission_failure": false,
+      "old_callback_and_privacy_rejection_preserved": true,
+      "test_log_sha256": "03c2b3cdee0e041aa9da31f255c0399ad584c544bc2e6a011358933d89b0c00b"
+    },
+    "historical_issue_scope": "Additional diagnostic fidelity for #879; neither physical response-to-audio latency nor the original unmeasured incident is declared resolved.",
+    "android": "PENDING_FINAL_PUBLISHED_SOURCE",
+    "device_latency": "NOT_MEASURED",
+    "validation": {
+      "voice_host_tests": 58,
+      "selected_classes": [
+        "VoiceSessionTest",
+        "VoicePluginAudioTest",
+        "VoiceDiagnosticTraceTest",
+        "DeferredKokoroOutputTest"
+      ],
+      "new_behavioral_cases": 2,
+      "test_log_sha256": "958d22e7d1c3f890b30e4cf8d2cc263d0e1de27085a3bc0116fab22fece270b4",
+      "source_manifest_sha256": "c5371731a4f35fc61c2c6a11ecdcbb367fbb8404cef7ddc5d0d260dbe437ac65",
+      "source_bindings_verified": 48,
+      "test_jar_sha256": "cae5c21c5d41d7f411fe4113b45532303fd6a5f603fb0f567452c24cbf543c19",
+      "canonical_fast_tests": 484,
+      "canonical_fast_log_sha256": "7b63dec927e58af556fd2319d4978028c612dd06ecb3916e27d1766203a199a2",
+      "kotlin_style": "PASS_KTLINT_1_3_1_THREE_CHANGED_KOTLIN_FILES",
+      "scope": "PASS_UNCHANGED_EXACT_RELEASE_PATHS",
+      "inventory": "2517_FILES_26_AREAS_SOURCE_ASSOCIATION_NOT_EXECUTION",
+      "architecture_index": "PASS_UNCHANGED",
+      "independent_review": "APPROVED_CURRENT_PROBE_BINDING_PREVIEW_ISOLATION_CALLBACK_AND_PRIVACY_GUARDS",
+      "production_sha256": "0e35d10693be5f37048a960840b4df32888afd6e24ed4525d9d949160a8d3a3a",
+      "regression_test_sha256": "9cdf0a793b30cc0c06c9cd9f6726d05570099bb9bcaeee10edc98406cee7bf8a",
+      "host_boundaries": "Actual session/plugin/trace/incident and checked-in test sources; production DeferredKokoroOutput and preview helper extracted verbatim. Explicit Android environment/AtomicFile/model support boundaries are not Android lifecycle or physical audio proof.",
+      "overlapping_counts_summed": false
+    }
   }
 }

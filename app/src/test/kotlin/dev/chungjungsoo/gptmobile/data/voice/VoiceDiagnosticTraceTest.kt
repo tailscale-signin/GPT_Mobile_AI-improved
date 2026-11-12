@@ -181,6 +181,46 @@ class VoiceDiagnosticTraceTest {
         session.close()
     }
 
+    @Test fun sequentialAndroidChunksKeepTheFirstColdReadinessAndStartupTiming() {
+        var time = 10L
+        val trace = VoiceDiagnosticTrace({ time }, { 1000 + time }, { true }, {})
+        val audio = Audio()
+        val session = VoiceSession(audio, { true }, {}, { time }, diagnosticTrace = trace)
+        session.access(true, true, true)
+        session.resume()
+        requireNotNull(audio.listener).final("Please answer briefly")
+        time = 100
+        session.streamReply("run", "These first four words ")
+        val first = requireNotNull(audio.playback)
+        first.warmupStarted()
+        time = 200
+        first.engineReady(warm = false)
+        time = 250
+        first.synthesisStarted()
+        time = 350
+        first.firstAudio(VoiceDiagnosticTrace.FirstAudio.UTTERANCE_START)
+        val initial = trace.incidentFields()
+        val caption = "These first four words continue into a second sentence. "
+        time = 400
+        session.streamReply("run", caption)
+        requireNotNull(audio.complete).invoke()
+        val second = requireNotNull(audio.playback)
+        second.warmupStarted()
+        second.engineReady(warm = true)
+        time = 450
+        second.synthesisStarted()
+        time = 500
+        second.firstAudio(VoiceDiagnosticTrace.FirstAudio.UTTERANCE_START)
+        val observed = trace.incidentFields()
+        assertEquals(false, observed["voice_engine_warm"])
+        for (field in listOf("voice_warmup_ms", "voice_response_to_queue_ms", "voice_queue_to_synthesis_ms", "voice_synthesis_to_first_audio_ms", "voice_response_to_first_audio_ms")) {
+            assertEquals(field, initial[field], observed[field])
+        }
+        assertEquals(listOf("These first four words ", "continue into a second sentence. "), audio.spoken)
+        assertEquals(caption, session.state.reply)
+        session.close()
+    }
+
     private class Audio : VoiceAudio {
         private var probe: VoiceDiagnosticTrace.Probe? = null
         var listener: VoiceAudio.Listener? = null

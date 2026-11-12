@@ -538,6 +538,7 @@ class VoiceSession(
         val ticket = generation
         update(state.copy(phase = VoicePhase.SPEAKING, level = 0f, notice = null))
         diagnosticProbe.queued()
+        audio.bindReply(id)
         audio.speak(spoken, complete = {
             if (ticket == generation && playbackAllowed()) continueTurn()
         }, error = { message -> if (ticket == generation) fail(message, "VOICE_PLAYBACK_FAILED") })

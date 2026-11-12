@@ -103,6 +103,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
 import dev.chungjungsoo.gptmobile.data.voice.AndroidVoiceAudio
+import dev.chungjungsoo.gptmobile.data.voice.KokoroOutput
 import dev.chungjungsoo.gptmobile.data.voice.KokoroVoice
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelState
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelStatus
@@ -566,7 +567,7 @@ private fun VoiceChatSessionScreen(
                         report("Kokoro playback is unavailable on this device.")
                     } else {
                         report(null)
-                        kokoroOutput.speak("Hello. This is your Kokoro voice. I am ready when you are.", selected, {}, { message, _ -> report(message) })
+                        playKokoroPreview(kokoroOutput, selected) { message, _ -> report(message) }
                     }
                 },
                 changeRate = {
@@ -659,6 +660,13 @@ private fun VoiceChatSessionScreen(
             toggleSpokenReplies = { setSpokenReplies(!spokenReplies) }
         )
     }
+}
+
+internal fun playKokoroPreview(output: KokoroOutput, voice: KokoroVoice, error: (String, Boolean) -> Unit) {
+    // Settings previews do not belong to the previous conversation reply.
+    output.bindDiagnostics(null)
+    output.bindReply("")
+    output.speak("Hello. This is your Kokoro voice. I am ready when you are.", voice, {}, error)
 }
 
 private data class VoiceSettingsUiState(

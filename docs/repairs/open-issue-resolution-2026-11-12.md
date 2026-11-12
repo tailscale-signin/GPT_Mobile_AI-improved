@@ -283,3 +283,57 @@ cause rather than repeating a generic failure report.
 ## Post-publication recovery, cooldown and speech review
 
 The follow-up recorded in [the issue verification register](open-issues-verification-2026-11-12.md#post-a08f99e2-recovery-cooldown-and-speech-follow-up) corrects the initial journal guard for compacted provider replay, aligns the visible countdown with the current shared cooldown, and preserves numeric link labels in spoken text. Its source and validation are separate from the a08f99e2 checkpoint above. Known legacy failed chat replies also retain the chat-owned incident and recognized draft without inferring transport facts from their prose.
+
+## Diagnostic ownership review after cc31f5a3
+
+The combined branch also retains `b0148a61` and `cc31f5a3`, including the full
+protected journal boundary, shared cooldown projection, and bounded diagnostics
+for an explicitly reviewed follow-up report. The new capture preserves observed
+provider limits, tool/schema facts, acceptance criteria, and voice timing without
+publishing prompt text, argument values, recognized speech, or audio. Existing
+approved report bytes remain unchanged. Hosted context-5 delivery still requires
+a service that advertises that version; this work does not deploy the service.
+
+Independent review reproduced three attribution defects in the new diagnostics:
+
+- Sequential Android speech chunks could overwrite a cold first engine-ready
+  observation with a later warm flag while retaining the first timestamp. The
+  first readiness time and its warm/cold provenance are now retained together.
+- A direct Kokoro settings preview could inherit the paused conversation reply's
+  timing probe and native log identity. The actual preview path detaches both;
+  whole-response playback binds its supplied identity, and normal reply replay
+  and microphone capture bind their own probes. Replay identities describe
+  playback, not a new provider invocation.
+- When persisted tool arguments were malformed, oversized, or outside the bounded
+  shape traversal, receipt-supplied action/shape hashes could fill absent local
+  facts. The public projection now derives its local identity and shape only from
+  the persisted call. The authoritative execution receipt remains unchanged.
+
+The checked-in regressions fail against the preceding implementations. Focused
+voice/session/forwarding checks pass 114 tests; the actual-recorder check passes
+eight cases, including the checked-in seven-scenario regression and its original
+failing probe. The authentication/reporting suite passes 66 tests. Hosted cc31f5a3
+compilation also identified two worker tests calling the old manual-report API;
+their call sites now supply the displayed preview, draft and approved route while
+preserving every existing destination-consent assertion. Actual Android/Room execution
+and the additional callback/read regressions remain hosted gates for the published
+source, including all 136 named recovery/queue methods required for the three
+demonstrated-cause closure candidates.
+
+Issue #882 arrived during validation, bringing this task's reviewed inventory to
+35 reports. Its LLAMA completion-repair failure occurred at 20:34:00.057 UTC, after
+the available diagnostic prefix ended at 19:38:08.815 UTC. The original output,
+usage, finish and repair-attempt receipts remain unavailable. It stays open with
+the other 29 incidents requiring causal, configuration, acceptance or device
+evidence. Better future capture does not establish that those historical failures
+were repaired. The separate source fixes for #853, #854 and #865 require the
+published-source hosted test receipt before closure; #841 and #852 remain closed
+with their recorded source and execution evidence.
+
+Concurrent pushes cancelled the a08f99e2 and b0148a61 PR validation runs before
+their full unit suites executed. Those cancellations are not regression failures
+and are not passing evidence. The b0148a61 API-36 attempt also encountered a
+launcher/system ANR before application instrumentation began; its preparation
+guard correctly stopped the run. Final workflow identities, artifact digests and
+issue dispositions are recorded on PR #838 and the individual issues so that
+recording the result does not alter the tested source.

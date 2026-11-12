@@ -84,6 +84,118 @@ class ToolEventRecorderTest {
         }
     }
 
+    @Test fun unavailablePersistedArgumentsNeverInheritReceiptDiagnosticHashes() = runBlocking {
+        data class Case(val label: String, val arguments: String, val actionAvailable: Boolean, val shapeAvailable: Boolean)
+
+        val action = "context"
+        val ordinary = buildJsonObject { put("action", action) }
+        var nested = buildJsonObject { put("leaf", true) }
+        repeat(14) {
+            val child = nested
+            nested = buildJsonObject { put("child", child) }
+        }
+        val cases = listOf(
+            Case("ordinary", ordinary.toString(), actionAvailable = true, shapeAvailable = true),
+            Case("malformed", "{", actionAvailable = false, shapeAvailable = false),
+            Case(
+                "oversized",
+                buildJsonObject {
+                    put("action", action)
+                    put("padding", "x".repeat(65_536))
+                }.toString(),
+                actionAvailable = false,
+                shapeAvailable = false
+            ),
+            Case(
+                "depth bound",
+                buildJsonObject {
+                    put("action", action)
+                    put("nested", nested)
+                }.toString(),
+                actionAvailable = true,
+                shapeAvailable = false
+            ),
+            Case(
+                "node bound",
+                buildJsonObject {
+                    put("action", action)
+                    repeat(256) { put("field$it", true) }
+                }.toString(),
+                actionAvailable = true,
+                shapeAvailable = false
+            ),
+            Case("missing action", buildJsonObject { put("query", "private value") }.toString(), actionAvailable = false, shapeAvailable = true),
+            Case("nonstring action", buildJsonObject { put("action", 1) }.toString(), actionAvailable = false, shapeAvailable = true)
+        )
+        val foreignReceipt = buildJsonObject {
+            put("diagnostic_area", "APP")
+            put("diagnostic_capture_mode", "SELECTED_CAPTURE")
+            put("argument_shape_hash", "a".repeat(64))
+            put("tool_action_hash", "b".repeat(64))
+            put("run_id_hash", "c".repeat(64))
+            put("call_id_hash", "d".repeat(64))
+            put("tool_name_hash", "e".repeat(64))
+            put("original_error_code_hash", "f".repeat(64))
+            put("original_reason_code_hash", "0".repeat(64))
+        }
+        val reports = mutableListOf<Map<String, Any?>>()
+        mockkObject(AppLogRecorder)
+        try {
+            every { AppLogRecorder.record("Tool", any(), "E", any(), any(), any(), any()) } answers {
+                reports.add(arg(5))
+                Unit
+            }
+            for ((index, case) in cases.withIndex()) {
+                val event = recorder.startTool("owned-tool-run", index, "owned-tool-call-$index", "github_read", "github_read", ordinary, startedAt = 10)
+                dao.rows[dao.rows.indexOfFirst { it.eventId == event.eventId }] = event.copy(arguments = case.arguments)
+                val saved = requireNotNull(
+                    recorder.finishTool(
+                        event.eventId,
+                        AgentToolResult(
+                            event.callId,
+                            ToolResultContent.Text("private failure detail"),
+                            true,
+                            errorCode = "INVALID_ARGUMENTS",
+                            dispatched = false,
+                            executionReceipt = foreignReceipt
+                        ),
+                        20
+                    )
+                )
+                val storedReceipt = requireNotNull(dev.chungjungsoo.gptmobile.data.agent.ToolResultCheckpoint.execution(saved))
+                foreignReceipt.forEach { (key, value) -> assertEquals("${case.label}: retained $key", value, storedReceipt[key]) }
+
+                val context = IssueReportContext.fromFields("TOOL_RESULT", reports.last(), 1_000_000)
+                val diagnostic = requireNotNull(context.diagnostics)
+                val values = diagnostic.values
+                assertEquals(case.label, "TOOL", diagnostic.area)
+                assertEquals(case.label, "INCIDENT", diagnostic.captureMode)
+                assertEquals(case.label, false, context.dispatched)
+                assertEquals(case.label, "tool_precheck", context.stage)
+                assertEquals(case.label, IssueReportContext.identifierHash("run", event.runId), values["run_id_hash"]?.jsonPrimitive?.content)
+                assertEquals(case.label, IssueReportContext.identifierHash("call", event.callId), values["call_id_hash"]?.jsonPrimitive?.content)
+                assertEquals(case.label, IssueReportContext.identifierHash("tool-name", event.modelToolName), values["tool_name_hash"]?.jsonPrimitive?.content)
+                assertEquals(case.label, IssueReportContext.identifierHash("tool-error-code", "INVALID_ARGUMENTS"), values["original_error_code_hash"]?.jsonPrimitive?.content)
+                assertFalse(case.label, values.containsKey("original_reason_code_hash"))
+                assertEquals(case.label, case.actionAvailable, values.containsKey("tool_action_hash"))
+                if (case.actionAvailable) {
+                    assertEquals(case.label, IssueReportContext.identifierHash("tool-action", action), values["tool_action_hash"]?.jsonPrimitive?.content)
+                }
+                assertEquals(case.label, case.shapeAvailable, values.containsKey("argument_shape_hash"))
+                if (case.shapeAvailable) {
+                    assertEquals(
+                        case.label,
+                        dev.chungjungsoo.gptmobile.data.diagnostics.ToolReportDiagnostics.shapeHash(Json.parseToJsonElement(case.arguments).jsonObject),
+                        values["argument_shape_hash"]?.jsonPrimitive?.content
+                    )
+                }
+            }
+            assertEquals(cases.size, reports.size)
+        } finally {
+            unmockkObject(AppLogRecorder)
+        }
+    }
+
     @Test fun unavailableToolPrechecksKeepPrivateReceiptsAndPublishOnlyTheSupportedCategory() = runBlocking {
         val reports = mutableListOf<Triple<String?, Map<String, Any?>, String?>>()
         mockkObject(AppLogRecorder)

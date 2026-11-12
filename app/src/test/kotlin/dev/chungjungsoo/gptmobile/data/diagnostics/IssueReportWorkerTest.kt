@@ -165,10 +165,13 @@ class IssueReportWorkerTest {
     @Test fun displayedSaveForLaterStaysLocalWhenAnAccountAppearsBeforeTheClick() = runBlocking {
         withReportModel(emptyList()) { model, available, manager ->
             model.openManual()
-            val id = requireNotNull(model.manualPreview.value).reportId
+            val displayedDraft = IssueReportViewModel.ManualDraft(title = "Saved report", description = "Approved local contents")
+            model.updateDraft(displayedDraft)
+            val displayedPreview = requireNotNull(model.manualPreview.value)
+            val id = displayedPreview.reportId
             val displayedRoute = model.route.value
             assertNull(displayedRoute)
-            val clickDisplayedButton = { model.submitManual("Saved report", "Approved local contents", false, displayedRoute) }
+            val clickDisplayedButton = { model.submitManual(displayedPreview, displayedDraft, displayedRoute) }
 
             available.value = listOf(route)
             model.refreshAvailability()
@@ -187,10 +190,13 @@ class IssueReportWorkerTest {
     @Test fun displayedAccountApprovalCannotFollowAChangedAvailabilityDefault() = runBlocking {
         withReportModel(listOf(route)) { model, available, manager ->
             model.openManual()
-            val id = requireNotNull(model.manualPreview.value).reportId
+            val displayedDraft = IssueReportViewModel.ManualDraft(title = "Account-bound report", description = "Original approved contents")
+            model.updateDraft(displayedDraft)
+            val displayedPreview = requireNotNull(model.manualPreview.value)
+            val id = displayedPreview.reportId
             val displayedRoute = model.route.value
             assertEquals(route, displayedRoute)
-            val clickDisplayedButton = { model.submitManual("Account-bound report", "Original approved contents", false, displayedRoute) }
+            val clickDisplayedButton = { model.submitManual(displayedPreview, displayedDraft, displayedRoute) }
             val replacement = route.copy(connectionUid = "another-connection", accountId = "43", accountLogin = "another-author")
 
             available.value = listOf(replacement)

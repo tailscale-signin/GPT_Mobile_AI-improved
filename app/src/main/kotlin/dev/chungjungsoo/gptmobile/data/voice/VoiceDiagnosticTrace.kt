@@ -148,9 +148,10 @@ class VoiceDiagnosticTrace internal constructor(
         }
         fun warmupStarted() = owner.record(this) { owner.moments.putIfAbsent("warmup", owner.now()) }
         fun engineReady(warm: Boolean) = owner.record(this) {
-            owner.moments.putIfAbsent("ready", owner.now())
-            owner.values["voice_engine_warm"] = warm
-            owner.elapsed("voice_warmup_ms", "warmup", "ready")
+            if (owner.moments.putIfAbsent("ready", owner.now()) == null) {
+                owner.values["voice_engine_warm"] = warm
+                owner.elapsed("voice_warmup_ms", "warmup", "ready")
+            }
         }
         fun synthesisStarted() = owner.record(this) {
             owner.moments.putIfAbsent("synthesis", owner.now())

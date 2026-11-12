@@ -172,7 +172,17 @@ class ToolEventRecorder @Inject constructor(
                 emptyMap()
             } else {
                 buildMap<String, Any?> {
-                    putAll(normalizedResult.executionReceipt.orEmpty().filterKeys { it !in setOf("run_id", "runId", "call_id", "callId", "toolCallId", "tool", "tool_name", "operation", "retryable", "requires_reconciliation") })
+                    // Local call diagnostics must remain unavailable when the persisted call cannot supply them.
+                    // The authoritative receipt above is preserved; only this report projection drops its replacements.
+                    putAll(
+                        normalizedResult.executionReceipt.orEmpty().filterKeys {
+                            it !in setOf(
+                                "run_id", "runId", "call_id", "callId", "toolCallId", "tool", "tool_name", "operation", "retryable", "requires_reconciliation",
+                                "diagnostic_area", "diagnostic_capture_mode", "run_id_hash", "call_id_hash", "tool_name_hash", "tool_action_hash",
+                                "argument_shape_hash", "original_error_code_hash", "original_reason_code_hash"
+                            )
+                        }
+                    )
                     if ("reason_code" !in this && "reasonCode" !in this) {
                         ToolPrecheckEvidence.reasonCode(result)?.let { put("reason_code", it) }
                     }

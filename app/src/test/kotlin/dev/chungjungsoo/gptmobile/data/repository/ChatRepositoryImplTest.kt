@@ -1431,6 +1431,7 @@ class ChatRepositoryImplTest {
 
     @Test
     fun `groq token limit reports failure instead of completing with only thinking`() = runBlocking {
+        val runId = "run-groq-output-limit"
         val groqAPI = FakeGroqAPI(
             flowOf(
                 GroqChatCompletionChunk(
@@ -1450,14 +1451,21 @@ class ChatRepositoryImplTest {
             userMessages = listOf(MessageV2(content = "Hi", platformType = null)),
             assistantMessages = emptyList(),
             platform = groqPlatform(reasoning = true, model = "qwen/qwen3.6-27b"),
-            runId = "test-run"
+            runId = runId
         ).toList().filterNot { it is ApiState.AssistStatus || it is ApiState.GatewayProgressChanged || it is ApiState.ProgressCheckpoint || (it is ApiState.Notice && (it.message.startsWith("Context estimate:") || it.message.startsWith("Context: no app-imposed limit."))) }
 
         assertEquals(
             listOf(
                 ApiState.Loading,
                 ApiState.Thinking("Still reasoning"),
-                ApiState.Error("Groq reached the model output limit before producing a final answer.", errorCode = "OUTPUT_LIMIT"),
+                ApiState.Error(
+                    "Groq reached the model output limit before producing a final answer.",
+                    errorCode = "OUTPUT_LIMIT",
+                    failureDetails = buildJsonObject {
+                        put("run_id", runId)
+                        put("provider_kind", "GROQ")
+                    }
+                ),
                 ApiState.Done
             ),
             states
@@ -1562,6 +1570,7 @@ class ChatRepositoryImplTest {
 
     @Test
     fun `google prompt safety block emits error`() = runBlocking {
+        val runId = "run-google-prompt-safety"
         val repository = createRepository(
             googleAPI = FakeGoogleAPI(
                 flowOf(
@@ -1576,13 +1585,19 @@ class ChatRepositoryImplTest {
             userMessages = listOf(MessageV2(content = "Hi", platformType = null)),
             assistantMessages = emptyList(),
             platform = googlePlatform(),
-            runId = "test-run"
+            runId = runId
         ).toList().filterNot { it is ApiState.AssistStatus || it is ApiState.GatewayProgressChanged || it is ApiState.ProgressCheckpoint || (it is ApiState.Notice && (it.message.startsWith("Context estimate:") || it.message.startsWith("Context: no app-imposed limit."))) }
 
         assertEquals(
             listOf(
                 ApiState.Loading,
-                ApiState.Error("Gemini safety settings blocked the prompt: SAFETY"),
+                ApiState.Error(
+                    "Gemini safety settings blocked the prompt: SAFETY",
+                    failureDetails = buildJsonObject {
+                        put("run_id", runId)
+                        put("provider_kind", "GOOGLE")
+                    }
+                ),
                 ApiState.Done
             ),
             states
@@ -1591,6 +1606,7 @@ class ChatRepositoryImplTest {
 
     @Test
     fun `google safety finish reason emits error`() = runBlocking {
+        val runId = "run-google-response-safety"
         val repository = createRepository(
             googleAPI = FakeGoogleAPI(
                 flowOf(
@@ -1605,13 +1621,19 @@ class ChatRepositoryImplTest {
             userMessages = listOf(MessageV2(content = "Hi", platformType = null)),
             assistantMessages = emptyList(),
             platform = googlePlatform(),
-            runId = "test-run"
+            runId = runId
         ).toList().filterNot { it is ApiState.AssistStatus || it is ApiState.GatewayProgressChanged || it is ApiState.ProgressCheckpoint || (it is ApiState.Notice && (it.message.startsWith("Context estimate:") || it.message.startsWith("Context: no app-imposed limit."))) }
 
         assertEquals(
             listOf(
                 ApiState.Loading,
-                ApiState.Error("Gemini safety settings blocked the response."),
+                ApiState.Error(
+                    "Gemini safety settings blocked the response.",
+                    failureDetails = buildJsonObject {
+                        put("run_id", runId)
+                        put("provider_kind", "GOOGLE")
+                    }
+                ),
                 ApiState.Done
             ),
             states
@@ -1784,6 +1806,7 @@ class ChatRepositoryImplTest {
 
     @Test
     fun `complete chat propagates circuit breaker error as classified user message`() = runBlocking {
+        val runId = "run-custom-circuit-breaker"
         val failingOpenAIAPI = object : OpenAIAPI by RecordingOpenAIAPI() {
             override fun streamChatCompletion(
                 request: ChatCompletionRequest,
@@ -1799,7 +1822,7 @@ class ChatRepositoryImplTest {
             userMessages = listOf(MessageV2(content = "Hi", platformType = null)),
             assistantMessages = emptyList(),
             platform = customPlatform(),
-            runId = "test-cb"
+            runId = runId
         ).toList().filterNot { it is ApiState.AssistStatus || it is ApiState.GatewayProgressChanged || it is ApiState.ProgressCheckpoint || (it is ApiState.Notice && (it.message.startsWith("Context estimate:") || it.message.startsWith("Context: no app-imposed limit."))) }
 
         assertEquals(
@@ -1812,6 +1835,8 @@ class ChatRepositoryImplTest {
                         put("failed_stage", kotlinx.serialization.json.JsonPrimitive("provider_admission"))
                         put("dispatched", kotlinx.serialization.json.JsonPrimitive(false))
                         put("retry_after_ms", kotlinx.serialization.json.JsonPrimitive(5000L))
+                        put("run_id", runId)
+                        put("provider_kind", "CUSTOM")
                     }
                 ),
                 ApiState.Done

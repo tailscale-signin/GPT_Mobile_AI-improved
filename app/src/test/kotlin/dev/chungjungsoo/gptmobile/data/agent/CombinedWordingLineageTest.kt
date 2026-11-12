@@ -74,10 +74,25 @@ class CombinedWordingLineageTest {
 
     @Test fun overlapIsPartitionedAndSharedTextNeverClaimsExclusiveOwnership() {
         val first = "The citizens funded public works and naval power through silver mines."
-        val second = "Public works and naval power through silver mines funded the citizens."
-        val spans = combinedWordingSpans(first, listOf(CombinedModelResponse("one", "One", content = first), CombinedModelResponse("two", "Two", content = second)))
+        val second = "Public works and naval power were funded by the citizens through silver mines."
+        val profiles = listOf(CombinedModelResponse("one", "One", content = first), CombinedModelResponse("two", "Two", content = second))
+        val spans = combinedWordingSpans(first, profiles)
         assertTrue(spans.any { it.profileUids == setOf("one", "two") })
+        assertTrue(spans.all { it.profileUids == setOf("one", "two") })
         assertTrue(spans.zipWithNext().all { (a, b) -> a.end <= b.start })
+        assertEquals(spans, combinedWordingSpans(first, profiles.reversed()))
+    }
+
+    @Test fun reversedFundingRolesCannotClaimSharedWordingOwnership() {
+        val first = "The citizens funded public works and naval power through silver mines."
+        val reversed = "Public works and naval power through silver mines funded the citizens."
+        val profiles = listOf(CombinedModelResponse("one", "One", content = first), CombinedModelResponse("two", "Two", content = reversed))
+        for ((answer, owner) in listOf(first to "one", reversed to "two")) {
+            val spans = combinedWordingSpans(answer, profiles)
+            assertEquals(listOf(setOf(owner)), spans.map { it.profileUids })
+            assertEquals(answer.dropLast(1), answer.substring(spans.single().start, spans.single().end))
+            assertEquals(spans, combinedWordingSpans(answer, profiles.reversed()))
+        }
     }
 
     @Test fun changedSourcesAndUnmatchedParaphrasesDoNotKeepOldColours() {

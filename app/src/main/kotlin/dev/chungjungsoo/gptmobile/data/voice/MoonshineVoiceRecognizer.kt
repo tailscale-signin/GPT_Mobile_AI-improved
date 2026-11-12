@@ -64,6 +64,10 @@ internal class MoonshineVoiceRecognizer internal constructor(
     @Volatile private var closed = false
 
     @Volatile private var active: CaptureRun? = null
+    private var diagnosticProbe: VoiceDiagnosticTrace.Probe? = null
+    override fun bindDiagnostics(probe: VoiceDiagnosticTrace.Probe?) {
+        diagnosticProbe = probe
+    }
     override var languageTag: String = Locale.getDefault().toLanguageTag()
         set(value) {
             if (field != value) stop()
@@ -78,7 +82,7 @@ internal class MoonshineVoiceRecognizer internal constructor(
         }
     }
 
-    private class CaptureRun(val listener: VoiceAudio.Listener) {
+    private class CaptureRun(val listener: VoiceAudio.Listener, val diagnostics: VoiceDiagnosticTrace.Probe?) {
         val lease = "local-voice:${UUID.randomUUID()}"
         val startedNanos = System.nanoTime()
         val cancelled = AtomicBoolean()
@@ -113,6 +117,8 @@ internal class MoonshineVoiceRecognizer internal constructor(
 
     override fun listen(listener: VoiceAudio.Listener) {
         if (closed) return
+        val diagnostics = diagnosticProbe
+        diagnostics?.engine(VoiceDiagnosticTrace.Engine.LOCAL)
         if (!LocalVoiceModelStore.supportsLanguage(languageTag)) {
             listener.failure(
                 "The installed local speech model supports English. Choose your region in Voice settings.",
@@ -121,12 +127,14 @@ internal class MoonshineVoiceRecognizer internal constructor(
             )
             return
         }
-        if (!hasPermission()) {
+        val permitted = hasPermission()
+        diagnostics?.permission(permitted)
+        if (!permitted) {
             listener.failure("Microphone permission is needed for voice chat.", "VOICE_MICROPHONE_PERMISSION_REQUIRED", recoveryAction = VoiceRecoveryAction.MICROPHONE_PERMISSION)
             return
         }
         if (active != null) return
-        val run = CaptureRun(listener)
+        val run = CaptureRun(listener, diagnostics)
         if (!VoiceMicrophoneLease.acquire(run.lease)) {
             listener.failure("The previous voice session is releasing the microphone. Try again shortly.", "VOICE_MICROPHONE_BUSY", retryMillis = 500, retryable = true)
             return
@@ -174,6 +182,7 @@ internal class MoonshineVoiceRecognizer internal constructor(
             engineEvent(run, "decoder_create")
             decoder = decoderFactory()
             engineEvent(run, "model_load_start")
+            run.diagnostics?.warmupStarted()
             decoder.start(modelDirectory()) { event ->
                 if (!run.cancelled.get()) {
                     when (event) {
@@ -200,6 +209,7 @@ internal class MoonshineVoiceRecognizer internal constructor(
                 }
             }
             engineEvent(run, "model_load_complete")
+            run.diagnostics?.engineReady(warm = false)
             if (run.cancelled.get()) return
             val recording = Thread({ record(run) }, "LocalVoiceCapture").apply { isDaemon = true }
             run.captureThread = recording
@@ -326,9 +336,13 @@ internal class MoonshineVoiceRecognizer internal constructor(
         while (!run.cancelled.get() && !run.ending.get()) {
             var capture: LocalVoiceCapture? = null
             try {
-                if (!hasPermission()) throw SecurityException("Microphone permission was revoked before capture started.")
+                val permitted = hasPermission()
+                run.diagnostics?.permission(permitted)
+                if (!permitted) throw SecurityException("Microphone permission was revoked before capture started.")
                 run.captureAttempts.incrementAndGet()
+                run.diagnostics?.captureAttempt()
                 capture = captureFactory()
+                capture.bindDiagnostics(run.diagnostics)
                 run.capture = capture
                 captureAudio(run, capture)
                 return
@@ -500,6 +514,7 @@ private class MoonshineDecoder : LocalSpeechDecoder {
 }
 
 internal interface LocalVoiceCapture {
+    fun bindDiagnostics(probe: VoiceDiagnosticTrace.Probe?) = Unit
     fun start()
     fun read(): FloatArray
     fun stop()
@@ -520,6 +535,10 @@ internal class AndroidVoiceCapture(
     }
 ) : LocalVoiceCapture {
     private val lock = Any()
+    private var diagnosticProbe: VoiceDiagnosticTrace.Probe? = null
+    override fun bindDiagnostics(probe: VoiceDiagnosticTrace.Probe?) {
+        diagnosticProbe = probe
+    }
     private var recorder: AudioRecord? = null
 
     @Volatile private var focus: AudioFocusRequest? = null
@@ -534,8 +553,11 @@ internal class AndroidVoiceCapture(
 
     override fun start() = synchronized(lock) {
         if (stopped) return@synchronized
+        diagnosticProbe?.captureReadsAvailable()
         // Model loading can outlive the earlier UI permission check.
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+        val permitted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        diagnosticProbe?.permission(permitted)
+        if (!permitted) {
             throw SecurityException("Microphone permission was revoked before capture started.")
         }
         val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE)
@@ -555,6 +577,13 @@ internal class AndroidVoiceCapture(
         } catch (_: RuntimeException) {
             null
         }
+        diagnosticProbe?.focus(
+            when (focusResult) {
+                AudioManager.AUDIOFOCUS_REQUEST_GRANTED -> VoiceDiagnosticTrace.Focus.GRANTED
+                null -> VoiceDiagnosticTrace.Focus.ERROR
+                else -> VoiceDiagnosticTrace.Focus.DENIED
+            }
+        )
         if (focusResult != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
             focus = null
             runCatching { manager?.abandonAudioFocusRequest(request) }
@@ -589,6 +618,8 @@ internal class AndroidVoiceCapture(
         requireCaptureNotSilenced(record, "capture_read")
         if (stopped) return FloatArray(0)
         val count = record.read(buffer, filled, buffer.size - filled, AudioRecord.READ_NON_BLOCKING)
+        val observedCount = count.coerceIn(0, buffer.size - filled)
+        diagnosticProbe?.read(observedCount, (filled until filled + observedCount).count { buffer[it] != 0.toShort() })
         if (stopped) return FloatArray(0)
         if (count < 0 && !stopped) {
             val code = when (count) {
@@ -614,7 +645,9 @@ internal class AndroidVoiceCapture(
 
     private fun requireCaptureNotSilenced(record: AudioRecord, phase: String) {
         // A missing configuration is unknown, not evidence of permission or silencing.
-        if (record.activeRecordingConfiguration?.isClientSilenced != true || stopped) return
+        val silenced = record.activeRecordingConfiguration?.isClientSilenced
+        if (!stopped && silenced != null) diagnosticProbe?.inputSilenced(silenced)
+        if (silenced != true || stopped) return
         val failure = captureFailure(
             record,
             "MICROPHONE_CAPTURE_SILENCED",

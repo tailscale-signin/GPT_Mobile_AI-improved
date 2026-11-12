@@ -38,8 +38,8 @@ def check_readiness(origin, fetch=None):
     value = json.loads(data)
     versions = value.get("reportContextVersions") if isinstance(value, dict) else None
     supported = {version for version in versions if type(version) is int} if isinstance(versions, list) else set()
-    if not isinstance(value, dict) or value.get("service") != "gpt-mobile-issue-reporter" or not {1, 2, 3, 4} <= supported:
-        raise ValueError("Reporter readiness must identify gpt-mobile-issue-reporter and support reportContextVersions [1, 2, 3, 4]")
+    if not isinstance(value, dict) or value.get("service") != "gpt-mobile-issue-reporter" or not {1, 2, 3, 4, 5} <= supported:
+        raise ValueError("Reporter readiness must identify gpt-mobile-issue-reporter and support reportContextVersions [1, 2, 3, 4, 5]")
 
 
 def main():

@@ -9,6 +9,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReport
 import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidents
+import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportManualCapture
 import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportOutbox
 import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportRoute
 import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportRouting
@@ -58,6 +59,12 @@ class IssueReportViewModel @Inject constructor(@ApplicationContext private val c
     }
 
     init {
+        viewModelScope.launch {
+            combine(LocalDiagnosticsPolicy.state, IssueReportIncidents.privateSession) { debug, isPrivate -> debug && !isPrivate }
+                .collect { available ->
+                    if (!available) previewManualDiagnostics(mutableDraft.value.includeDiagnostics)
+                }
+        }
         viewModelScope.launch(Dispatchers.IO) {
             announced.value = preferences.getStringSet("announced", emptySet()).orEmpty().toSet()
             refresh()
@@ -129,17 +136,52 @@ class IssueReportViewModel @Inject constructor(@ApplicationContext private val c
         preferences.edit().putStringSet("announced", announced.value).apply()
     }
 
-    internal fun submitManual(title: String, description: String, includeDiagnostics: Boolean, approvedRoute: IssueReportRoute?) {
-        if (title.isBlank() || description.isBlank()) return
-        val preview = mutableManualPreview.value ?: return
+    internal fun submitManual(preview: IssueReport, draft: ManualDraft, approvedRoute: IssueReportRoute?) {
+        if (draft.title.isBlank() || draft.description.isBlank() || preview.reportId != mutableManualPreview.value?.reportId) return
+        if (draft.title.length > IssueReport.TITLE_LIMIT || draft.description.length > IssueReportManualCapture.descriptionLimit(draft.relatedIssueNumber)) return
+        if (draft.includeDiagnostics && (draft.diagnosticArea == null || preview.context?.diagnostics?.area != draft.diagnosticArea)) return
+        if (draft.includeDiagnostics && (preview.context?.diagnostics?.values?.isNotEmpty() == true || preview.events.isNotEmpty()) && !IssueReportIncidents.diagnosticCaptureEnabled()) {
+            previewManualDiagnostics(true)
+            mutableError.value = Notice.DiagnosticsChanged
+            return
+        }
         enqueue(approvedRoute) {
-            val events = if (includeDiagnostics) preview.events else emptyList()
-            IssueReport.manual(title, description, events).copy(reportId = preview.reportId, context = preview.context)
+            IssueReportManualCapture.submission(preview, draft.title, draft.description, draft.includeDiagnostics, draft.relatedIssueNumber)
         }
     }
 
     internal fun previewManualDiagnostics(include: Boolean) {
-        mutableManualPreview.update { it?.copy(events = if (include) IssueReportIncidents.recentEvents() else emptyList()) }
+        val area = mutableDraft.value.diagnosticArea
+        val snapshot = if (include && area != null) IssueReportIncidents.diagnosticSnapshot(area) else null
+        val events = if (include && IssueReportIncidents.diagnosticCaptureEnabled()) IssueReportIncidents.recentEvents() else emptyList()
+        mutableManualPreview.update { report -> report?.let { IssueReportManualCapture.preview(it, include, area, snapshot, events) } }
+    }
+
+    internal fun followUpReport(receipt: IssueReportOutbox.Entry) {
+        if (mutableSaving.value) return
+        val number = receipt.issueNumber?.takeIf { it > 0 && receipt.state == IssueReportOutbox.State.SENT } ?: return
+        val original = runCatching { IssueReport.json.decodeFromString(IssueReport.serializer(), receipt.payload) }.getOrNull()
+        val area = original?.context?.diagnostics?.area ?: when {
+            original?.errorCode == "GITHUB_TASK_INCOMPLETE" -> "ACCEPTANCE"
+            original?.feature == "voice" -> "VOICE"
+            original?.feature == "tools" -> "TOOL"
+            original?.feature == "gateway" -> "GATEWAY"
+            original?.feature in setOf("chat", "local") -> "PROVIDER"
+            original?.feature == "app" -> "APP"
+            else -> null
+        }
+        mutableManualPreview.value = IssueReport.manual("", "", emptyList())
+        mutableDraft.value = ManualDraft(
+            title = original?.title?.takeIf(String::isNotBlank) ?: original?.errorCode.orEmpty(),
+            includeDiagnostics = true,
+            diagnosticArea = area,
+            relatedIssueNumber = number
+        )
+        selectedReportId.value = null
+        mutableError.value = null
+        mutableManual.value = true
+        previewManualDiagnostics(true)
+        refreshAvailability()
     }
 
     internal fun submitIncident(report: IssueReport, approvedRoute: IssueReportRoute?) {
@@ -245,6 +287,12 @@ class IssueReportViewModel @Inject constructor(@ApplicationContext private val c
 
     private fun defaultRoute(options: List<IssueReportRoute>): IssueReportRoute? = options.firstOrNull { it.kind == IssueReportRoute.Kind.SERVICE } ?: options.singleOrNull()
 
-    internal enum class Notice { SaveFailed, TooLarge, StorageFull }
-    internal data class ManualDraft(val title: String = "", val description: String = "", val includeDiagnostics: Boolean = false)
+    internal enum class Notice { SaveFailed, TooLarge, StorageFull, DiagnosticsChanged }
+    internal data class ManualDraft(
+        val title: String = "",
+        val description: String = "",
+        val includeDiagnostics: Boolean = false,
+        val diagnosticArea: String? = null,
+        val relatedIssueNumber: Int? = null
+    )
 }

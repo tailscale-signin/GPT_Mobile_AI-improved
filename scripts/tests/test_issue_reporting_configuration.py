@@ -29,11 +29,14 @@ class IssueReportingConfigurationTest(unittest.TestCase):
         observed = []
         def fetch(url):
             observed.append(url)
-            return b'{"service":"gpt-mobile-issue-reporter","reportContextVersions":[1,2,3,4]}'
+            return b'{"service":"gpt-mobile-issue-reporter","reportContextVersions":[1,2,3,4,5]}'
         check_readiness("https://reports.project.org/", fetch)
         self.assertEqual(["https://reports.project.org/health/ready"], observed)
         for value in (
             {"service": "gpt-mobile-issue-reporter", "reportContextVersions": [1, 2, 3]},
+            {"service": "gpt-mobile-issue-reporter", "reportContextVersions": [1, 2, 3, 4]},
+            {"service": "gpt-mobile-issue-reporter", "reportContextVersions": [1, 2, 3, 4, "5"]},
+            {"service": "gpt-mobile-issue-reporter", "reportContextVersions": [1, 2, 3, 4, True]},
             {"service": "gpt-mobile-issue-reporter", "reportContextVersions": [1, 2, 3, "4"]},
             {"service": "gpt-mobile-issue-reporter", "reportContextVersions": [1, 2, 3, True]},
             {"service": "gpt-mobile-issue-reporter", "reportContextVersions": [4]},

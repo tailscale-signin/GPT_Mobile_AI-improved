@@ -106,6 +106,7 @@ internal object GitHubTaskLifecycle {
         if (recovery != null || originalFailure == null) put("recovery_action", recovery ?: JsonPrimitive("RESUME_UNFINISHED_WORK"))
         automaticContinuations?.let { put("automatic_continuations", it) }
         listOf("required_criteria", "verified_criteria", "remaining_criteria").forEach { key -> ledger?.get(key)?.let { put(key, it) } }
+        GitHubAcceptanceReportDiagnostics.fields(verdict, retainedReport).forEach { (key, value) -> put(key, value) }
     }
 
     /** Absence is explicitly unknown; prior tool dispatch does not prove review dispatch. */

@@ -54,6 +54,10 @@ class AndroidVoiceAudio internal constructor(
     @Volatile private var closed = false
 
     @Volatile private var generation = 0L
+    private var diagnosticProbe: VoiceDiagnosticTrace.Probe? = null
+    override fun bindDiagnostics(probe: VoiceDiagnosticTrace.Probe?) {
+        diagnosticProbe = probe
+    }
     private var pendingSpeech: (() -> Unit)? = null
     private var playbackError: ((String) -> Unit)? = null
     private var speechInitializationTimeout: Runnable? = null
@@ -199,6 +203,9 @@ class AndroidVoiceAudio internal constructor(
         check(Looper.myLooper() == Looper.getMainLooper())
         if (closed || recognitionActive) return
         stop()
+        val observations = diagnosticProbe
+        observations?.engine(VoiceDiagnosticTrace.Engine.SYSTEM)
+        observations?.focus(VoiceDiagnosticTrace.Focus.NOT_REQUESTED)
         if (!recognitionGate.acquire(sessionId)) {
             listener.failure("Speech service is busy. Your chat is still available.", "VOICE_MICROPHONE_BUSY", recognitionGate.remainingMillis())
             return
@@ -207,7 +214,9 @@ class AndroidVoiceAudio internal constructor(
             recognitionGate.release(sessionId)
             return
         }
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+        val permitted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        observations?.permission(permitted)
+        if (!permitted) {
             recognitionGate.release(sessionId)
             recognitionFailure("SPEECH_PERMISSION_REQUIRED", "permission_precheck", false, error = SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS)
             listener.failure("Microphone permission is needed for voice chat.", "VOICE_MICROPHONE_PERMISSION_REQUIRED", recoveryAction = VoiceRecoveryAction.MICROPHONE_PERMISSION)
@@ -471,6 +480,7 @@ class AndroidVoiceAudio internal constructor(
                     }
                     failedStage = "service_start"
                     dispatched = true
+                    observations?.captureAttempt()
                     engine.startListening(intent)
                 } catch (failure: Exception) {
                     failedStart(failure)
@@ -503,6 +513,9 @@ class AndroidVoiceAudio internal constructor(
         stop()
         if (closed) return
         val ticket = generation
+        val observations = diagnosticProbe
+        observations?.engine(VoiceDiagnosticTrace.Engine.SYSTEM)
+        val wasWarm = speechReady
         playbackError = error
         val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
             .setAudioAttributes(playbackAttributes())
@@ -512,11 +525,20 @@ class AndroidVoiceAudio internal constructor(
                     error("Audio paused because another app needs the speaker.")
                 }
             }, main).build()
-        if (runCatching { audioManager?.requestAudioFocus(request) }.getOrNull() != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
+        val focusResult = runCatching { audioManager?.requestAudioFocus(request) }.getOrNull()
+        observations?.focus(
+            when (focusResult) {
+                AudioManager.AUDIOFOCUS_REQUEST_GRANTED -> VoiceDiagnosticTrace.Focus.GRANTED
+                null -> VoiceDiagnosticTrace.Focus.ERROR
+                else -> VoiceDiagnosticTrace.Focus.DENIED
+            }
+        )
+        if (focusResult != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
             error("Audio output is unavailable. Your answer is available in captions.")
             return
         }
         focus = request
+        observations?.warmupStarted()
         started("tts", ticket)
         fun fail(message: String, retireEngine: Boolean = false) {
             main.post {
@@ -534,6 +556,7 @@ class AndroidVoiceAudio internal constructor(
         val config = SpeechConfiguration(languageTag, selectedVoice, online, speechRate.coerceIn(.5f, 2f), routeMode != null)
         val play: () -> Unit = play@{
             val engine = tts?.takeIf { speechReady } ?: return@play
+            if (!closed && ticket == generation) observations?.engineReady(wasWarm)
             val engineVersion = speechGeneration
             armWatchdog(15_000) {
                 if (!closed && ticket == generation) {
@@ -599,7 +622,15 @@ class AndroidVoiceAudio internal constructor(
                     val finalId = "$ticket:${chunks.lastIndex}"
                     val utteranceIds = chunks.indices.mapTo(hashSetOf()) { "$ticket:$it" }
                     engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                        override fun onBeginSynthesis(utteranceId: String?, sampleRateInHz: Int, audioFormat: Int, channelCount: Int) {
+                            if (!closed && ticket == generation && engineVersion == speechGeneration && tts === engine && utteranceId in utteranceIds) {
+                                observations?.synthesisStarted()
+                            }
+                        }
                         override fun onStart(utteranceId: String?) {
+                            if (!closed && ticket == generation && engineVersion == speechGeneration && tts === engine && utteranceId in utteranceIds) {
+                                observations?.firstAudio(VoiceDiagnosticTrace.FirstAudio.UTTERANCE_START)
+                            }
                             main.post {
                                 if (!closed && ticket == generation && engineVersion == speechGeneration && tts === engine && utteranceId in utteranceIds) {
                                     event("tts_audio_started · utterance=$utteranceId", ticket)

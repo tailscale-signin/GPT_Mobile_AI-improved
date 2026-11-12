@@ -42,6 +42,48 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ToolEventRecorderTest {
+    @Test fun actualRejectedCallPublishesOwnedContractAndShapeWithoutArgumentValues() = runBlocking {
+        val reports = mutableListOf<Map<String, Any?>>()
+        mockkObject(AppLogRecorder)
+        try {
+            every { AppLogRecorder.record("Tool", any(), "E", any(), any(), any(), any()) } answers {
+                reports.add(arg(5))
+                Unit
+            }
+            val schema = Json.parseToJsonElement("""{"type":"object","properties":{"action":{"type":"string"},"pull_number":{"type":"integer","minimum":1}},"additionalProperties":false}""").jsonObject
+            val arguments = buildJsonObject {
+                put("action", "context")
+                put("pull_number", "private selector value")
+            }
+            val event = recorder.startTool("owned-tool-run", 0, "owned-tool-call", "github_pr", "github_pr__github_api", arguments, startedAt = 10)
+            val rejected = dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator.rejection(event.callId, event.modelToolName, arguments, schema)
+            recorder.finishTool(event.eventId, rejected, 20)
+            val context = IssueReportContext.fromFields("TOOL_RESULT", reports.single(), 1_000_000)
+            val diagnostic = requireNotNull(context.diagnostics)
+            val values = diagnostic.values
+            assertEquals("TOOL", diagnostic.area)
+            assertEquals(kotlinx.serialization.json.JsonPrimitive(1), values["invalid_field_count"])
+            assertEquals(kotlinx.serialization.json.JsonPrimitive(0), values["missing_field_count"])
+            assertEquals(kotlinx.serialization.json.JsonPrimitive(dev.chungjungsoo.gptmobile.data.agent.ToolContractFingerprint.schema(schema)), values["tool_schema_hash"])
+            assertEquals(kotlinx.serialization.json.JsonPrimitive(IssueReportContext.identifierHash("tool-reason-code", "PR_SELECTOR_REQUIRED")), values["original_reason_code_hash"])
+            assertEquals(kotlinx.serialization.json.JsonPrimitive(IssueReportContext.identifierHash("call", event.callId)), values["call_id_hash"])
+            assertEquals(kotlinx.serialization.json.JsonArray(listOf(kotlinx.serialization.json.JsonPrimitive("WRONG_TYPE"))), values["invalid_field_classes"])
+            assertEquals(false, context.dispatched)
+            assertEquals(false, context.retryable)
+            assertFalse(Json.encodeToString(dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportDiagnostics.serializer(), diagnostic).contains("private"))
+            val changedValues = buildJsonObject {
+                put("action", "headers")
+                put("pull_number", "different private value")
+            }
+            assertEquals(
+                dev.chungjungsoo.gptmobile.data.diagnostics.ToolReportDiagnostics.shapeHash(arguments),
+                dev.chungjungsoo.gptmobile.data.diagnostics.ToolReportDiagnostics.shapeHash(changedValues)
+            )
+        } finally {
+            unmockkObject(AppLogRecorder)
+        }
+    }
+
     @Test fun unavailableToolPrechecksKeepPrivateReceiptsAndPublishOnlyTheSupportedCategory() = runBlocking {
         val reports = mutableListOf<Triple<String?, Map<String, Any?>, String?>>()
         mockkObject(AppLogRecorder)

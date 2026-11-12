@@ -6,6 +6,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -41,6 +42,53 @@ class IssueReportGitHubSubmissionTest {
         put("body", body)
         put("url", "https://api.github.com/repos/$repository/issues/742")
         put("user", buildJsonObject { put("id", account) })
+    }
+
+    @Test fun additionalDiagnosticPayloadKeepsExactApprovalThroughNativeCreateAndReadOnlyReconciliation() {
+        val context = IssueReportContext.fromFields(
+            "VOICE_STATE",
+            mapOf("diagnostic_area" to "VOICE", "voice_engine" to "KOKORO", "voice_phase" to "SPEAKING", "voice_first_audio_basis" to "PLAYBACK_HEAD", "voice_response_to_first_audio_ms" to 98),
+            1_000L
+        )
+        val enriched = report.copy(context = context)
+        val payload = enriched.approvedPayload()
+        val rendered = IssueReportGitHubSubmission.render(enriched, payload)
+        val initial = IssueReportOutbox.Entry(report.reportId, payload, storedAtMillis = 1, updatedAtMillis = 1, route = route, deliveryEvidence = IssueReportOutbox.DeliveryEvidence.NOT_DISPATCHED)
+        val methods = mutableListOf<String>()
+        val client = OkHttpClient.Builder().addInterceptor { chain ->
+            val request = chain.request()
+            methods += request.method
+            if (request.method == "POST") {
+                assertEquals(rendered.toString(), Buffer().also { request.body!!.writeTo(it) }.readUtf8())
+                assertTrue(rendered.getValue("body").toString().contains("voice_response_to_first_audio_ms"))
+                throw IOException("Receipt lost after create")
+            }
+            response(request, 200, """{"items":[${receipt(body = rendered.getValue("body"))}]}""")
+        }.build()
+        val submission = IssueReportGitHubSubmission(client)
+        var dispatches = 0
+        assertTrue(submission.send(initial, "private-token") { dispatches++ } is IssueReportSubmission.Failure)
+        val uncertain = initial.copy(deliveryEvidence = IssueReportOutbox.DeliveryEvidence.MAY_HAVE_BEEN_SUBMITTED)
+        assertEquals(IssueReportSubmission.Confirmed(742), submission.send(uncertain, "private-token") { error("Only a read is permitted") })
+        assertEquals(listOf("POST", "GET"), methods)
+        assertEquals(1, dispatches)
+        assertEquals(payload, uncertain.payload)
+    }
+
+    @Test fun explicitApprovalPayloadAndNativeRouteRejectUnknownPrivateDiagnosticFields() {
+        val enriched = report.copy(context = IssueReportContext.fromFields("TOOL_RESULT", mapOf("diagnostic_area" to "TOOL", "tool_schema_hash" to "a".repeat(64)), 1_000L))
+        val raw = IssueReport.json.parseToJsonElement(enriched.approvedPayload()).jsonObject
+        val context = raw.getValue("context").jsonObject
+        val capture = context.getValue("diagnostics").jsonObject
+        val malformed = JsonObject(raw + ("context" to JsonObject(context + ("diagnostics" to JsonObject(capture + ("rawArguments" to JsonPrimitive("private-arguments"))))))).toString()
+        // ignoreUnknownKeys in the historical decoder must not authorize extra public data.
+        assertEquals(enriched, IssueReport.json.decodeFromString(IssueReport.serializer(), malformed))
+        assertThrows(IllegalArgumentException::class.java) { IssueReportOutbox(files.newFolder()).approve(enriched, malformed) }
+        val entry = IssueReportOutbox.Entry(report.reportId, malformed, storedAtMillis = 1, updatedAtMillis = 1, route = route, deliveryEvidence = IssueReportOutbox.DeliveryEvidence.NOT_DISPATCHED)
+        val client = OkHttpClient.Builder().addInterceptor { error("Private input must never reach GitHub") }.build()
+        val failure = IssueReportGitHubSubmission(client).send(entry, "private-token") { error("Invalid payload cannot dispatch") } as IssueReportSubmission.Failure
+        assertEquals("REPORT_PAYLOAD_INVALID", failure.code)
+        assertFalse(failure.retryable)
     }
 
     @Test fun nativeReviewReportsPreserveApprovedVersionTwoAndThreeBytesAcrossRestore() {

@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -39,6 +40,8 @@ class ToolArgumentDiagnosticsTest {
         assertEquals(JsonPrimitive(false), receipt["requires_reconciliation"])
         assertEquals(JsonPrimitive("TOOL_ARGUMENT_SCHEMA_REJECTED"), receipt["reason_code"])
         assertEquals(JsonArray(listOf(JsonPrimitive("query"))), receipt["missing_fields"])
+        assertEquals(JsonPrimitive(1), receipt["missing_field_count"])
+        assertEquals(JsonArray(listOf(JsonPrimitive("MISSING_REQUIRED"))), receipt["invalid_field_classes"])
     }
 
     @Test fun invalidTypeKeepsOnlyItsDeclaredFieldAndCountsUndeclaredNames() {
@@ -52,6 +55,8 @@ class ToolArgumentDiagnosticsTest {
         assertEquals(JsonPrimitive(1), receipt["unknown_field_count"])
         assertFalse(receipt.toString().contains("private"))
         assertFalse(receipt.toString().contains("42"))
+        assertEquals(JsonPrimitive(1), receipt["invalid_field_count"])
+        assertEquals(JsonArray(listOf(JsonPrimitive("UNKNOWN_FIELD"), JsonPrimitive("WRONG_TYPE"))), receipt["invalid_field_classes"])
     }
 
     @Test fun domainConstraintFailuresDoNotInventSchemaFieldFailures() {
@@ -62,6 +67,35 @@ class ToolArgumentDiagnosticsTest {
         assertFalse("invalid_fields" in receipt)
         assertFalse("missing_fields" in receipt)
         assertEquals(JsonPrimitive(1), receipt["validation_error_count"])
+        assertFalse("invalid_field_classes" in receipt)
+    }
+
+    @Test fun successfulAlternativeDoesNotLeakRejectedAlternativeClasses() {
+        val schema = Json.parseToJsonElement("""{"anyOf":[{"type":"object","properties":{"kind":{"const":"text"},"text":{"type":"string"}},"required":["kind","text"]},{"type":"object","properties":{"kind":{"const":"number"},"count":{"type":"integer","minimum":2}},"required":["kind","count"]}]}""") as JsonObject
+        val rejected = ToolArgumentValidator.rejection(
+            "call",
+            "custom_tool",
+            buildJsonObject {
+                put("kind", "number")
+                put("count", 0)
+            },
+            schema
+        )
+        assertEquals(
+            JsonArray(listOf(JsonPrimitive("COMPOSITE_CONSTRAINT"), JsonPrimitive("OUT_OF_RANGE"))),
+            rejected.executionReceipt?.get("invalid_field_classes")
+        )
+        val valid = ToolArgumentValidator.rejection(
+            "call",
+            "custom_tool",
+            buildJsonObject {
+                put("kind", "number")
+                put("count", 3)
+            },
+            schema,
+            listOf("Private external constraint")
+        )
+        assertFalse("invalid_field_classes" in requireNotNull(valid.executionReceipt))
     }
 
     @Test fun missingIssueSelectorReturnsAReadOnlyDiscoveryRecipeAndTypedCause() {

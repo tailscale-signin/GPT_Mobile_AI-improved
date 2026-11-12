@@ -28,6 +28,8 @@ internal class IssueReportGitHubSubmission(
         val report = runCatching { IssueReport.json.decodeFromString(IssueReport.serializer(), entry.payload) }.getOrNull()
             ?: return IssueReportSubmission.Failure("REPORT_PAYLOAD_INVALID", retryable = false)
         if (report.reportId != entry.reportId || entry.payload.encodeToByteArray().size > IssueReport.MAX_PAYLOAD_BYTES) return IssueReportSubmission.Failure("REPORT_PAYLOAD_INVALID", retryable = false)
+        val context = (IssueReport.json.parseToJsonElement(entry.payload) as? JsonObject)?.get("context")
+        if (!IssueReportContext.validDiagnosticsIn(context)) return IssueReportSubmission.Failure("REPORT_PAYLOAD_INVALID", retryable = false)
         val expected = render(report, entry.payload)
         if (entry.mayHaveBeenSubmitted) return reconcile(entry.reportId, route, expected, token)
         val request = request("$API_REPOSITORY/issues", token).post(expected.toString().toRequestBody(JSON_MEDIA_TYPE)).build()

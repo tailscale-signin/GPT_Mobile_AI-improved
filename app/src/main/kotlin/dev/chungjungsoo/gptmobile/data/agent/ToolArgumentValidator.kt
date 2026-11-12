@@ -88,7 +88,7 @@ internal object ToolArgumentValidator {
         )
     }
 
-    /** Local machine-readable cause, separate from the unchanged approved public-report contract. */
+    /** Typed cause and constraint classes; no argument values enter public diagnostic fields. */
     private fun rejectionReceipt(arguments: JsonObject, schema: JsonObject, validationErrors: List<String>, selector: SelectorProblem?): JsonObject {
         val properties = (schema["properties"] as? JsonObject).orEmpty()
         val missing = (schema["required"] as? JsonArray).orEmpty().filterIsInstance<JsonPrimitive>()
@@ -99,6 +99,16 @@ internal object ToolArgumentValidator {
             field.takeIf { validate(value, constraint, "$", 0).isNotEmpty() }
         }.toMutableSet()
         selector?.let { if (it.missing) missing += it.field else invalid += it.field }
+        val classes = linkedSetOf<String>()
+        validate(arguments, schema, "$", 0, classes)
+        selector?.let {
+            val value = arguments[it.field] as? JsonPrimitive
+            classes += when {
+                it.missing -> "MISSING_REQUIRED"
+                value != null && !value.isString && value.content.toBigDecimalOrNull() != null -> "OUT_OF_RANGE"
+                else -> "WRONG_TYPE"
+            }
+        }
         fun fieldNames(fields: Set<String>) = JsonArray(
             fields.filter { it.matches(Regex("[A-Za-z_][A-Za-z0-9_]{0,63}")) }.sorted().take(12).map(::JsonPrimitive)
         )
@@ -109,6 +119,10 @@ internal object ToolArgumentValidator {
             put("requires_reconciliation", false)
             put("reason_code", selector?.reason ?: if (errors(arguments, schema).isEmpty()) "TOOL_ARGUMENT_CONSTRAINT_REJECTED" else "TOOL_ARGUMENT_SCHEMA_REJECTED")
             put("validation_error_count", validationErrors.size)
+            put("tool_schema_hash", ToolContractFingerprint.schema(schema))
+            put("missing_field_count", missing.size)
+            put("invalid_field_count", invalid.size)
+            if (classes.isNotEmpty()) put("invalid_field_classes", JsonArray(classes.sorted().map(::JsonPrimitive)))
             put("validation_field_scope", "TOP_LEVEL_AND_KNOWN_SELECTOR")
             if (missing.isNotEmpty()) put("missing_fields", fieldNames(missing))
             if (invalid.isNotEmpty()) put("invalid_fields", fieldNames(invalid))
@@ -189,9 +203,16 @@ internal object ToolArgumentValidator {
         return score
     }
 
-    private fun validate(value: JsonElement, schema: JsonObject, path: String, depth: Int): List<String> {
-        if (depth > 24) return listOf("$path: schema nesting exceeds validation limit")
+    private fun validate(value: JsonElement, schema: JsonObject, path: String, depth: Int, classes: MutableSet<String>? = null): List<String> {
+        if (depth > 24) {
+            classes?.add("COMPOSITE_CONSTRAINT")
+            return listOf("$path: schema nesting exceeds validation limit")
+        }
         val errors = mutableListOf<String>()
+        fun invalid(message: String, kind: String) {
+            errors += message
+            classes?.add(kind)
+        }
         fun matches(type: String): Boolean = when (type) {
             "object" -> value is JsonObject
             "array" -> value is JsonArray
@@ -207,22 +228,28 @@ internal object ToolArgumentValidator {
             is JsonArray -> type.filterIsInstance<JsonPrimitive>().map { it.content }
             else -> emptyList()
         }
-        if (types.isNotEmpty() && types.none(::matches)) return listOf("$path: expected ${types.joinToString(" or ")}")
+        if (types.isNotEmpty() && types.none(::matches)) {
+            classes?.add("WRONG_TYPE")
+            return listOf("$path: expected ${types.joinToString(" or ")}")
+        }
         (schema["enum"] as? JsonArray)?.let { allowed ->
             if (value !in allowed) {
-                errors += "$path: unsupported value; allowed: ${allowed.take(20).joinToString().take(500)}"
+                invalid("$path: unsupported value; allowed: ${allowed.take(20).joinToString().take(500)}", "INVALID_ENUM")
             }
         }
-        schema["const"]?.let { if (value != it) errors += "$path: must equal the declared constant" }
+        schema["const"]?.let { if (value != it) invalid("$path: must equal the declared constant", "INVALID_ENUM") }
         for (kind in listOf("allOf", "anyOf", "oneOf")) {
             (schema[kind] as? JsonArray)?.filterIsInstance<JsonObject>()?.let { options ->
-                val failures = options.map { validate(value, it, path, depth + 1) }
+                val optionClasses = options.map { linkedSetOf<String>() }
+                val failures = options.mapIndexed { index, option -> validate(value, option, path, depth + 1, optionClasses[index]) }
                 val matching = failures.count { it.isEmpty() }
                 when {
                     kind == "allOf" -> failures.forEachIndexed { index, failure ->
                         failure.take(4).forEach { errors += "$path: allOf[$index]: $it" }
+                        if (failure.isNotEmpty()) classes?.addAll(optionClasses[index])
                     }
                     matching == 0 -> {
+                        classes?.add("COMPOSITE_CONSTRAINT")
                         val scores = options.map { discriminatorScore(value, it) }
                         val bestScore = scores.maxOrNull() ?: 0
                         val nearest = options.indices.filter { scores[it] == bestScore }
@@ -230,40 +257,41 @@ internal object ToolArgumentValidator {
                         if (nearest.isEmpty()) errors += "$path: $kind has no declared alternatives"
                         nearest.forEach { index ->
                             failures[index].take(4).forEach { errors += "$path: $kind[$index]: $it" }
+                            classes?.addAll(optionClasses[index])
                         }
                     }
-                    kind == "oneOf" && matching != 1 -> errors += "$path: oneOf matches $matching branches; supply exactly one allowed argument form"
+                    kind == "oneOf" && matching != 1 -> invalid("$path: oneOf matches $matching branches; supply exactly one allowed argument form", "COMPOSITE_CONSTRAINT")
                 }
             }
         }
         if (value is JsonObject) {
             val properties = schema["properties"] as? JsonObject ?: JsonObject(emptyMap())
-            (schema["required"] as? JsonArray)?.filterIsInstance<JsonPrimitive>()?.forEach { if (it.content !in value) errors += "$path.${it.content}: required field missing" }
+            (schema["required"] as? JsonArray)?.filterIsInstance<JsonPrimitive>()?.forEach { if (it.content !in value) invalid("$path.${it.content}: required field missing", "MISSING_REQUIRED") }
             value.forEach { (key, child) ->
                 val childSchema = properties[key] as? JsonObject ?: schema["additionalProperties"] as? JsonObject
                 if (childSchema != null) {
-                    errors += validate(child, childSchema, "$path.$key", depth + 1)
+                    errors += validate(child, childSchema, "$path.$key", depth + 1, classes)
                 } else if (schema["additionalProperties"] == JsonPrimitive(false) && key !in properties) {
-                    errors += "$path.$key: undeclared field"
+                    invalid("$path.$key: undeclared field", "UNKNOWN_FIELD")
                 }
             }
         }
         if (value is JsonArray) {
-            (schema["minItems"] as? JsonPrimitive)?.intOrNull?.let { if (value.size < it) errors += "$path: too few items" }
-            (schema["maxItems"] as? JsonPrimitive)?.intOrNull?.let { if (value.size > it) errors += "$path: too many items" }
-            (schema["items"] as? JsonObject)?.let { item -> value.forEachIndexed { index, child -> errors += validate(child, item, "$path[$index]", depth + 1) } }
+            (schema["minItems"] as? JsonPrimitive)?.intOrNull?.let { if (value.size < it) invalid("$path: too few items", "OUT_OF_RANGE") }
+            (schema["maxItems"] as? JsonPrimitive)?.intOrNull?.let { if (value.size > it) invalid("$path: too many items", "OUT_OF_RANGE") }
+            (schema["items"] as? JsonObject)?.let { item -> value.forEachIndexed { index, child -> errors += validate(child, item, "$path[$index]", depth + 1, classes) } }
         }
         if (value is JsonPrimitive && value.isString) {
-            (schema["minLength"] as? JsonPrimitive)?.intOrNull?.let { if (value.content.length < it) errors += "$path: too short" }
-            (schema["maxLength"] as? JsonPrimitive)?.intOrNull?.let { if (value.content.length > it) errors += "$path: too long" }
+            (schema["minLength"] as? JsonPrimitive)?.intOrNull?.let { if (value.content.length < it) invalid("$path: too short", if (value.content.isEmpty()) "EMPTY_STRING" else "OUT_OF_RANGE") }
+            (schema["maxLength"] as? JsonPrimitive)?.intOrNull?.let { if (value.content.length > it) invalid("$path: too long", "OUT_OF_RANGE") }
             (schema["pattern"] as? JsonPrimitive)?.contentOrNull?.let { pattern ->
-                if (runCatching { Regex(pattern).containsMatchIn(value.content) }.getOrDefault(false).not()) errors += "$path: pattern mismatch"
+                if (runCatching { Regex(pattern).containsMatchIn(value.content) }.getOrDefault(false).not()) invalid("$path: pattern mismatch", "PATTERN_MISMATCH")
             }
         }
         if (value is JsonPrimitive && !value.isString) {
             value.content.toBigDecimalOrNull()?.let { number ->
-                (schema["minimum"] as? JsonPrimitive)?.content?.toBigDecimalOrNull()?.let { if (number < it) errors += "$path: below minimum" }
-                (schema["maximum"] as? JsonPrimitive)?.content?.toBigDecimalOrNull()?.let { if (number > it) errors += "$path: above maximum" }
+                (schema["minimum"] as? JsonPrimitive)?.content?.toBigDecimalOrNull()?.let { if (number < it) invalid("$path: below minimum", "OUT_OF_RANGE") }
+                (schema["maximum"] as? JsonPrimitive)?.content?.toBigDecimalOrNull()?.let { if (number > it) invalid("$path: above maximum", "OUT_OF_RANGE") }
             }
         }
         return errors

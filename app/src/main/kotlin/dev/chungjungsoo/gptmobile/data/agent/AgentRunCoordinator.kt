@@ -793,6 +793,8 @@ class AgentRunCoordinator @Inject constructor(
                 parkUnavailableResult()
                 _notices.tryEmit(AgentRunNotice(run.chatId, run.runId, "Gateway recovery is unavailable. The original job and its evidence remain saved; no new request was submitted."))
             } finally {
+                dev.chungjungsoo.gptmobile.data.diagnostics.GatewayReportDiagnostics.recovery(run, jobId, remoteStatus)
+                    ?.let(dev.chungjungsoo.gptmobile.data.diagnostics.ReportDiagnosticSnapshots::retain)
                 AppLogRecorder.record("CombinedRetry", "RECOVERY_OUTCOME · initiator=AUTOMATIC_RECOVERY · runId=${run.runId} · profileUid=${run.profileUid} · jobId=$jobId · outcome=$outcome · remoteStatus=$remoteStatus · localStatus=$localStatus · ownershipFence=${run.ownershipFence} · newInferenceDispatched=false")
             }
         }

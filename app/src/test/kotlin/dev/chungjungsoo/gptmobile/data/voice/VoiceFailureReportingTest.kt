@@ -9,6 +9,7 @@ import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidents
 import dev.chungjungsoo.gptmobile.data.diagnostics.LocalDiagnosticsPolicy
 import dev.chungjungsoo.gptmobile.data.diagnostics.ReportFeature
 import dev.chungjungsoo.gptmobile.data.openrouter.PrivacyAdmissionException
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.After
@@ -32,6 +33,74 @@ class VoiceFailureReportingTest {
         IssueReportIncidents.privacyChanged(false)
         IssueReportIncidents.debugPreferenceChanged(false)
         IssueReportIncidents.clearRecent()
+    }
+
+    @Test
+    fun automaticFailureUsesOnlyItsCurrentCaptureGenerationAndNeverExportsRecognizedText() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        val listeners = mutableListOf<VoiceAudio.Listener>()
+        var probe: VoiceDiagnosticTrace.Probe? = null
+        val audio = object : VoiceAudio {
+            override fun bindDiagnostics(value: VoiceDiagnosticTrace.Probe?) {
+                probe = value
+            }
+            override fun listen(listener: VoiceAudio.Listener) {
+                probe?.engine(VoiceDiagnosticTrace.Engine.LOCAL)
+                probe?.captureAttempt()
+                probe?.captureReadsAvailable()
+                listeners += listener
+                listener.ready()
+            }
+            override fun speak(text: String, complete: () -> Unit, error: (String) -> Unit) = Unit
+            override fun stop() = Unit
+            override fun close() = Unit
+        }
+        val trace = VoiceDiagnosticTrace()
+        val session = VoiceSession(audio, { true }, {}, diagnosticTrace = trace)
+        session.access(true, true, true)
+        session.resume()
+        val stale = requireNotNull(probe)
+        stale.read(1600, 1600)
+        session.pause()
+        session.resume()
+        stale.read(1600, 1600)
+        requireNotNull(probe).read(400, 80)
+        listeners.last().partial("private recognized words")
+        val observed = trace.incidentFields()
+        listeners.last().failure("Capture stopped", "VOICE_MICROPHONE_READ_FAILED")
+        val report = IssueReportIncidents.pending.value.single()
+        val diagnostics = requireNotNull(report.context?.diagnostics)
+        assertEquals("INCIDENT", diagnostics.captureMode)
+        assertEquals(JsonPrimitive(400L), diagnostics.values["voice_captured_samples"])
+        assertEquals(JsonPrimitive(80L), diagnostics.values["voice_nonzero_samples"])
+        assertEquals(JsonPrimitive(1L), diagnostics.values["voice_capture_attempts"])
+        assertEquals(JsonPrimitive(observed["voice_generation"] as Long), diagnostics.values["voice_generation"])
+        assertEquals(JsonPrimitive(observed["voice_session_id_hash"] as String), diagnostics.values["voice_session_id_hash"])
+        assertFalse(IssueReport.json.encodeToString(IssueReport.serializer(), report).contains("private recognized words"))
+        assertEquals("private recognized words", session.state.transcript)
+        session.close()
+    }
+
+    @Test
+    fun privateSessionAuthorityRejectsNewAndRetiredVoiceObservations() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        val trace = VoiceDiagnosticTrace()
+        val old = trace.advance(1, reset = true)
+        old.engine(VoiceDiagnosticTrace.Engine.LOCAL)
+        IssueReportIncidents.privacyChanged(true)
+        old.read(1600, 1600)
+        assertTrue(trace.incidentFields().isEmpty())
+        val privateTrace = VoiceDiagnosticTrace()
+        val privateTicket = privateTrace.advance(1, reset = true)
+        privateTicket.engine(VoiceDiagnosticTrace.Engine.SYSTEM)
+        assertEquals(null, VoiceDiagnosticTrace.manualSnapshot())
+        IssueReportIncidents.privacyChanged(false)
+        privateTicket.read(1600, 1600)
+        assertEquals(null, VoiceDiagnosticTrace.manualSnapshot())
+        privateTrace.advance(2, reset = true).engine(VoiceDiagnosticTrace.Engine.SYSTEM)
+        assertTrue(VoiceDiagnosticTrace.manualSnapshot() != null)
+        trace.close()
+        privateTrace.close()
     }
 
     @Test

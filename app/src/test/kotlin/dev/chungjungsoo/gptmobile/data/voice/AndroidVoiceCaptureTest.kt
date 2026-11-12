@@ -31,6 +31,40 @@ import org.robolectric.util.ReflectionHelpers
 @RunWith(RobolectricTestRunner::class)
 @Config(manifest = Config.NONE, sdk = [34])
 class AndroidVoiceCaptureTest {
+    @Test fun diagnosticCountsFollowActualReadsAndDeniedFocusWithoutCapturingAudio() {
+        val fixture = Fixture()
+        val trace = VoiceDiagnosticTrace({ 10 }, { 1000 }, { true }, {})
+        val probe = trace.advance(1, reset = true)
+        probe.engine(VoiceDiagnosticTrace.Engine.LOCAL)
+        probe.captureAttempt()
+        fixture.capture.bindDiagnostics(probe)
+        doAnswer {
+            val buffer = it.getArgument<ShortArray>(0)
+            val offset = it.getArgument<Int>(1)
+            buffer.fill(0, offset, offset + 800)
+            buffer.fill(1, offset, offset + 400)
+            800
+        }.`when`(fixture.record).read(any(ShortArray::class.java), anyInt(), anyInt(), eq(AudioRecord.READ_NON_BLOCKING))
+        try {
+            fixture.capture.start()
+            assertTrue(fixture.capture.read().isEmpty())
+            assertEquals(1600, fixture.capture.read().size)
+            val fields = trace.incidentFields()
+            assertEquals("DENIED", fields["voice_focus_result"])
+            assertEquals(true, fields["voice_permission_granted"])
+            assertEquals(false, fields["voice_input_silenced"])
+            assertEquals(2L, fields["voice_read_calls"])
+            assertEquals(1600L, fields["voice_captured_samples"])
+            assertEquals(800L, fields["voice_nonzero_samples"])
+            trace.advance(2, reset = true).engine(VoiceDiagnosticTrace.Engine.LOCAL)
+            fixture.capture.read()
+            assertFalse("voice_read_calls" in trace.incidentFields())
+        } finally {
+            fixture.capture.close()
+            trace.close()
+        }
+    }
+
     @Test fun deniedOutputFocusDoesNotBlockPermittedRecordingOrPcm() {
         val fixture = Fixture()
         try {

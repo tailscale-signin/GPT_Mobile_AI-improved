@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.AtomicFile
 import java.io.File
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.jsonObject
 
 /** Only an explicitly approved report enters this durable outbox; retries reuse its exact bytes. */
 internal class IssueReportOutbox(private val directory: File, private val now: () -> Long = System::currentTimeMillis) {
@@ -45,6 +46,7 @@ internal class IssueReportOutbox(private val directory: File, private val now: (
 
     fun approve(report: IssueReport, payload: String = report.approvedPayload()): Entry = synchronized(lock) {
         require(payload.encodeToByteArray().size <= IssueReport.MAX_PAYLOAD_BYTES) { "Report exceeds the submission limit" }
+        require(IssueReportContext.validDiagnosticsIn(IssueReport.json.parseToJsonElement(payload).jsonObject["context"])) { "Invalid report diagnostics." }
         require(IssueReport.json.decodeFromString(IssueReport.serializer(), payload) == report) { "Approved report identity changed" }
         val existing = load(report.reportId)
         if (existing != null) {

@@ -19,6 +19,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 from .github_broker import NoRedirect
+from .issue_report_diagnostics import diagnostics_body, validate_diagnostics
 
 
 REPOSITORY = "tailscale-signin/GPT_Mobile_AI-improved"
@@ -321,7 +322,8 @@ CONTEXT_SELECTION_FIELDS = {"profile_uid", "profile_revision", "provider_connect
 CONTEXT_FIELDS = (set(CONTEXT_ENUMS) | set(CONTEXT_NUMBERS) | CONTEXT_FLAGS | CONTEXT_HASHES | {"missingFields", "invalidFields"}) - {"source", "occurredAtMillis"}
 CONTEXT_FIELDS_V2 = CONTEXT_FIELDS | set(CONTEXT_ACCEPTANCE_NUMBERS)
 CONTEXT_FIELDS_V4 = CONTEXT_FIELDS_V2 | set(CONTEXT_RECOVERY_NUMBERS) | CONTEXT_RECOVERY_HASHES | {"originalFailureCode"}
-CONTEXT_VERSION_FIELDS = {1: CONTEXT_FIELDS, 2: CONTEXT_FIELDS_V2, 3: CONTEXT_FIELDS_V2, 4: CONTEXT_FIELDS_V4}
+CONTEXT_FIELDS_V5 = CONTEXT_FIELDS_V4 | {"diagnostics"}
+CONTEXT_VERSION_FIELDS = {1: CONTEXT_FIELDS, 2: CONTEXT_FIELDS_V2, 3: CONTEXT_FIELDS_V2, 4: CONTEXT_FIELDS_V4, 5: CONTEXT_FIELDS_V5}
 CONTEXT_LABELS = {
     "stage": "Failure stage", "provider": "Provider family", "operation": "Operation family", "httpStatus": "HTTP status",
     "retryAfterMillis": "Retry delay (ms)", "dispatched": "Dispatched", "retryable": "Retryable", "resumeAllowed": "Resume allowed",
@@ -384,21 +386,21 @@ def _report_context(value):
         raise ReportError(422, "INVALID_REPORT")
     # A released client used v2 for review extensions. Accept those exact approved
     # payloads as well as v3; clients require readiness for both 2 and 3 before sending them.
-    enums = CONTEXT_ENUMS if version == 1 else CONTEXT_ENUMS_V4 if version == 4 else CONTEXT_ENUMS_V3
+    enums = CONTEXT_ENUMS if version == 1 else CONTEXT_ENUMS_V4 if version in (4, 5) else CONTEXT_ENUMS_V3
     for key, choices in enums.items():
         if key in value and (not isinstance(value[key], str) or value[key] not in choices):
             raise ReportError(422, "INVALID_REPORT")
     if value.get("reasonCode") in CONTEXT_TOOL_PRECHECK_REASONS and not (
-        version == 4 and value.get("source") == "TOOL_RESULT" and value.get("stage") == "tool_precheck" and value.get("dispatched") is False and value.get("requiresReconciliation") is not True
+        version in (4, 5) and value.get("source") == "TOOL_RESULT" and value.get("stage") == "tool_precheck" and value.get("dispatched") is False and value.get("requiresReconciliation") is not True
     ):
         raise ReportError(422, "INVALID_REPORT")
     numbers = CONTEXT_NUMBERS if version == 1 else {**CONTEXT_NUMBERS, **CONTEXT_ACCEPTANCE_NUMBERS}
-    if version == 4:
+    if version in (4, 5):
         numbers = {**numbers, **CONTEXT_RECOVERY_NUMBERS}
     for key, (low, high) in numbers.items():
         if key in value and (type(value[key]) is not int or not low <= value[key] <= high):
             raise ReportError(422, "INVALID_REPORT")
-    if version in (2, 3, 4):
+    if version in (2, 3, 4, 5):
         required_count = value.get("requiredCriteria")
         verified_count = value.get("verifiedCriteria")
         remaining_count = value.get("remainingCriteria")
@@ -411,7 +413,7 @@ def _report_context(value):
     for key in CONTEXT_FLAGS:
         if key in value and type(value[key]) is not bool:
             raise ReportError(422, "INVALID_REPORT")
-    for key in CONTEXT_HASHES | (CONTEXT_RECOVERY_HASHES if version == 4 else set()):
+    for key in CONTEXT_HASHES | (CONTEXT_RECOVERY_HASHES if version in (4, 5) else set()):
         if key in value and (not isinstance(value[key], str) or not re.fullmatch(r"[a-f0-9]{64}", value[key])):
             raise ReportError(422, "INVALID_REPORT")
     for key in ("missingFields", "invalidFields"):
@@ -424,6 +426,11 @@ def _report_context(value):
     # presented as false, and an unknown field cannot carry arbitrary metadata.
     if len(unavailable) != len(set(unavailable)) or set(unavailable) != fields - value.keys():
         raise ReportError(422, "INVALID_REPORT")
+    if version == 5:
+        try:
+            validate_diagnostics(value.get("diagnostics"))
+        except ValueError as error:
+            raise ReportError(422, "INVALID_REPORT") from error
     return value
 
 
@@ -449,6 +456,8 @@ def _context_body(context):
         body += " These observations were not retained; absence does not establish success, non-dispatch, or permission to retry."
     else:
         body += "\n\nUnavailable fields: none declared by this capture."
+    if context["schemaVersion"] == 5:
+        body += diagnostics_body(context["diagnostics"])
     return body
 
 

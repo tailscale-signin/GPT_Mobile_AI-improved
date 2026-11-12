@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.os.Process
 import android.util.AtomicFile
+import dev.chungjungsoo.gptmobile.data.voice.VoiceDiagnosticTrace
 import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -66,6 +67,7 @@ internal object IssueReportIncidents {
     fun initialize(context: Context) {
         this.context = context.applicationContext
         correlations = null
+        clearDiagnosticSnapshots()
     }
 
     private suspend fun correlationIndex(): IssueReportCorrelationIndex = withContext(Dispatchers.IO) {
@@ -98,6 +100,21 @@ internal object IssueReportIncidents {
     fun clearRecent() = synchronized(lock) {
         events.clear()
         lastFailures.clear()
+        clearDiagnosticSnapshots()
+    }
+
+    private fun clearDiagnosticSnapshots() {
+        ReportDiagnosticSnapshots.clear()
+        VoiceDiagnosticTrace.clearAll()
+    }
+
+    /** Explicit manual selection only; automatic failures use their own producer fields. */
+    fun diagnosticCaptureEnabled(): Boolean = LocalDiagnosticsPolicy.enabled && !isPrivate
+
+    fun diagnosticSnapshot(area: String): IssueReportDiagnostics? = synchronized(lock) {
+        if (!LocalDiagnosticsPolicy.enabled || isPrivate || area !in IssueReportDiagnostics.areas) return null
+        if (area == "VOICE") VoiceDiagnosticTrace.manualSnapshot()?.let(ReportDiagnosticSnapshots::retain)
+        ReportDiagnosticSnapshots.latest(area)
     }
 
     fun recentEvents(): List<String> = synchronized(lock) {
@@ -162,9 +179,10 @@ internal object IssueReportIncidents {
                 } else {
                     "EXCEPTION"
                 },
-                fields
+                if (feature == ReportFeature.APP) fields + appDiagnosticFields(code) else fields
             )
             val key = FailureKey(feature, publicCode, evidence.runIdHash, evidence.invocationIdHash, evidence.callIdHash, evidence.jobIdHash, evidence.activeJobIdHash)
+            evidence.diagnostics?.let(ReportDiagnosticSnapshots::retain)
             addEvent('E', feature, publicCode)
             if ((lastFailures[key] ?: Long.MIN_VALUE / 2) + DUPLICATE_MILLIS > now) return
             lastFailures.entries.removeAll { it.value < now - DUPLICATE_MILLIS }
@@ -201,8 +219,16 @@ internal object IssueReportIncidents {
     /** Called by the existing uncaught exception handler before it delegates to Android. */
     fun crash(error: Throwable) {
         if (!LocalDiagnosticsPolicy.enabled || isPrivate) return
-        persist(IssueReport.debug(ReportFeature.APP, "JVM_CRASH", recentEvents(), error))
+        val evidence = IssueReportContext.fromFields("EXCEPTION", appDiagnosticFields("JVM_CRASH"))
+        evidence.diagnostics?.let(ReportDiagnosticSnapshots::retain)
+        persist(IssueReport.debug(ReportFeature.APP, "JVM_CRASH", recentEvents(), error, evidence))
     }
+
+    private fun appDiagnosticFields(code: String): Map<String, Any?> = mapOf(
+        "diagnostic_area" to "APP",
+        "original_error_code_hash" to IssueReportContext.identifierHash("error_code", code),
+        "app_exit_kind" to code.takeIf { it in setOf("JVM_CRASH", "NATIVE_CRASH", "APP_NOT_RESPONDING", "STARTUP_FAILED") }
+    )
 
     /** Called on IO as soon as the persisted Debug Mode value is available. */
     fun debugPreferenceChanged(enabled: Boolean) {
@@ -217,6 +243,7 @@ internal object IssueReportIncidents {
         if (!enabled) {
             synchronized(lock) {
                 mutablePending.value = emptyList()
+                clearDiagnosticSnapshots()
                 if (!AppLogRecorder.enabled.value) clearRecent()
             }
             crashDirectory()?.listFiles()?.forEach { it.delete() }
@@ -288,7 +315,9 @@ internal object IssueReportIncidents {
             ApplicationExitInfo.REASON_ANR -> "APP_NOT_RESPONDING"
             else -> return
         }
-        val report = IssueReport.debug(ReportFeature.APP, code, emptyList(), context = IssueReportContext.fromFields("PROCESS_EXIT", occurredAtMillis = exit.timestamp))
+        val evidence = IssueReportContext.fromFields("PROCESS_EXIT", appDiagnosticFields(code), occurredAtMillis = exit.timestamp)
+        evidence.diagnostics?.let(ReportDiagnosticSnapshots::retain)
+        val report = IssueReport.debug(ReportFeature.APP, code, emptyList(), context = evidence)
         persist(report)
         synchronized(lock) { addPending(report) }
     }

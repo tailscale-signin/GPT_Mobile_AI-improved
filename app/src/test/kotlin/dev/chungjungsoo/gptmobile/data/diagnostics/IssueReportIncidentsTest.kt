@@ -14,6 +14,7 @@ import kotlinx.serialization.json.put
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -426,7 +427,54 @@ class IssueReportIncidentsTest {
         val report = IssueReport.json.decodeFromString(IssueReport.serializer(), raw)
         assertEquals("JVM_CRASH", report.errorCode)
         assertEquals("IllegalStateException", report.errorType)
+        assertEquals("APP", report.context?.diagnostics?.area)
+        assertEquals(JsonPrimitive("JVM_CRASH"), report.context?.diagnostics?.values?.get("app_exit_kind"))
         assertEquals(listOf("dev.chungjungsoo.gptmobile.data.voice.VoiceSession.update:162"), report.frames)
         assertFalse(raw.contains("private exception payload"))
+    }
+
+    @Test
+    fun diagnosticSnapshotUsesOnlyItsIncidentAndContextlessFailureDoesNotBorrowIt() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        IssueReportIncidents.chatFailure(
+            "CHAT_FAILED",
+            false,
+            null,
+            mapOf("diagnostic_area" to "PROVIDER", "run_id" to "owned-run", "model_hash" to "a".repeat(64), "output_tokens" to 27)
+        )
+        val first = IssueReportIncidents.pending.value.single()
+        assertEquals(first.context?.diagnostics, IssueReportIncidents.diagnosticSnapshot("PROVIDER"))
+        assertNull(IssueReportIncidents.diagnosticSnapshot("VOICE"))
+
+        IssueReportIncidents.chatFailure("CHAT_FAILED", false)
+        val second = IssueReportIncidents.pending.value.last()
+        assertNull(second.context?.diagnostics)
+        assertNull(second.context?.runIdHash)
+        assertEquals(first.context?.diagnostics, IssueReportIncidents.diagnosticSnapshot("PROVIDER"))
+        assertFalse(first.approvedPayload().contains("owned-run"))
+    }
+
+    @Test
+    fun privacyAndDebugOptOutClearSnapshotsEvenWhenGeneralLoggingRemainsEnabled() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        IssueReportIncidents.failure(ReportFeature.APP, "STARTUP_FAILED")
+        assertEquals(JsonPrimitive("STARTUP_FAILED"), IssueReportIncidents.diagnosticSnapshot("APP")?.values?.get("app_exit_kind"))
+        IssueReportIncidents.privacyChanged(true)
+        assertNull(IssueReportIncidents.diagnosticSnapshot("APP"))
+        IssueReportIncidents.privacyChanged(false)
+        assertNull(IssueReportIncidents.diagnosticSnapshot("APP"))
+
+        IssueReportIncidents.failure(ReportFeature.APP, "STARTUP_FAILED")
+        assertTrue(IssueReportIncidents.diagnosticSnapshot("APP") != null)
+        val wasEnabled = AppLogRecorder.enabled.value
+        try {
+            AppLogRecorder.setEnabled(true)
+            LocalDiagnosticsPolicy.setEnabled(false)
+            IssueReportIncidents.debugPreferenceChanged(false)
+            LocalDiagnosticsPolicy.setEnabled(true)
+            assertNull(IssueReportIncidents.diagnosticSnapshot("APP"))
+        } finally {
+            AppLogRecorder.setEnabled(wasEnabled)
+        }
     }
 }

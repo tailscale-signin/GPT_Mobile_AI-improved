@@ -1714,7 +1714,7 @@ class ChatRepositoryImpl(
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: dev.chungjungsoo.gptmobile.data.openrouter.PrivacyAdmissionException) {
-            emit(failure.asApiError(runId))
+            emit(failure.asApiError(runId, platform.uid))
             emit(ApiState.Done)
             return@flow
         } catch (failure: IllegalStateException) {
@@ -5067,7 +5067,7 @@ class ChatRepositoryImpl(
                 } else {
                     session
                 }
-            }.withNormalizedAssistantText(latestUser?.content.orEmpty()).let { dev.chungjungsoo.gptmobile.data.diagnostics.withProviderFailureReceipts(it, runId, platform, kind) }
+            }.withNormalizedAssistantText(latestUser?.content.orEmpty()).let { dev.chungjungsoo.gptmobile.data.diagnostics.withProviderFailureReceipts(it, runId, invocationPlatform, kind) }
             val preparedSearch = kotlinx.coroutines.currentCoroutineContext()[AppSearchContext]?.sourceCount?.let { it > 0 } == true
             val observed = object : AgentProviderSession by raw {
                 override val hasPreparedSearchEvidence: Boolean = preparedSearch

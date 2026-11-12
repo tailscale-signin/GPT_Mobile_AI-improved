@@ -39,6 +39,7 @@ internal class IssueReportSubmission(
         val parsed = runCatching { IssueReport.json.parseToJsonElement(payload) as? JsonObject }.getOrNull()
             ?: return Failure("REPORT_PAYLOAD_INVALID", retryable = false)
         if (parsed["reportId"] != JsonPrimitive(reportId)) return Failure("REPORT_PAYLOAD_INVALID", retryable = false)
+        if (!IssueReportContext.validDiagnosticsIn(parsed["context"])) return Failure("REPORT_PAYLOAD_INVALID", retryable = false)
         val context = parsed["context"] as? JsonObject
         if (context != null) {
             val version = (context["schemaVersion"] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull ?: return Failure("INVALID_REPORT", retryable = false)

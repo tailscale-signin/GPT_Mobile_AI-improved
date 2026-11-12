@@ -180,6 +180,7 @@ class ToolEventRecorder @Inject constructor(
                     put("run_id", startedEvent?.runId)
                     put("call_id", normalizedResult.callId)
                     put("tool", startedEvent?.modelToolName)
+                    putAll(dev.chungjungsoo.gptmobile.data.diagnostics.ToolReportDiagnostics.fields(startedEvent, result, ToolPrecheckEvidence.reasonCode(result)))
                     put("dispatched", normalizedResult.dispatched)
                     result.executionReceipt?.get("retryable")?.let { put("retryable", it) }
                     if (normalizedResult.errorCode in dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.unknownOutcomeCodes) {

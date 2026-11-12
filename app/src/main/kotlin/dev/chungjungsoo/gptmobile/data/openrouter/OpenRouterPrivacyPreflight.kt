@@ -30,7 +30,12 @@ class OpenRouterPrivacyPreflight @Inject constructor(private val client: OpenRou
 
     suspend fun check(endpoint: String, credential: String?, model: String, policy: OpenRouterProviderRouting) {
         if (rejections.blocked(rejectionKey(endpoint, credential, model, policy))) {
-            throw PrivacyAdmissionException("POLICY_RESTRICTED: This model was recently rejected under this account and privacy configuration. Choose a compatible model in Settings or retry after five minutes; privacy protections were preserved.")
+            throw PrivacyAdmissionException(
+                "POLICY_RESTRICTED: This model was recently rejected under this account and privacy configuration. Choose a compatible model in Settings or retry after five minutes; privacy protections were preserved.",
+                model,
+                policy,
+                PrivacyAdmissionException.Observation.CACHED_REJECTION
+            )
         }
         if (dynamicModel(model)) return
         val selectedModel = model
@@ -55,7 +60,12 @@ class OpenRouterPrivacyPreflight @Inject constructor(private val client: OpenRou
         val compatible = rows?.let { compatible(it, selectedModel, policy) }
         AppLogRecorder.record("OpenRouter", "PRIVACY_PREFLIGHT · profileModel=$model · zdr=true · result=${compatible?.let { if (it) "AVAILABLE" else "INCOMPATIBLE" } ?: "UNKNOWN"} · policyUnchanged=true")
         if (compatible == false) {
-            throw PrivacyAdmissionException("POLICY_RESTRICTED: No endpoint for $model satisfies the selected zero-data-retention and provider restrictions. Choose a compatible model or provider in Settings; privacy protections were preserved.")
+            throw PrivacyAdmissionException(
+                "POLICY_RESTRICTED: No endpoint for $model satisfies the selected zero-data-retention and provider restrictions. Choose a compatible model or provider in Settings; privacy protections were preserved.",
+                model,
+                policy,
+                PrivacyAdmissionException.Observation.NO_COMPATIBLE_ENDPOINT
+            )
         }
     }
 

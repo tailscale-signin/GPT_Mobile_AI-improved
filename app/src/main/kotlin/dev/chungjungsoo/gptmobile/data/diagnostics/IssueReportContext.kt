@@ -5,9 +5,13 @@ import java.security.MessageDigest
 import java.util.Locale
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.longOrNull
 
@@ -47,14 +51,19 @@ internal data class IssueReportContext(
     val checkpointBindingHash: String? = null,
     val checkpointDigestHash: String? = null,
     val resumeClaimIdHash: String? = null,
-    val ownershipFence: Long? = null
+    val ownershipFence: Long? = null,
+    val diagnostics: IssueReportDiagnostics? = null
 ) {
     fun withException(type: String?, frames: List<String>): IssueReportContext =
         if (type == null) this else copy(exceptionFingerprint = digest("exception", (listOf(type) + frames).joinToString("\n"))).withAvailability()
 
+    fun withDiagnostics(snapshot: IssueReportDiagnostics): IssueReportContext =
+        copy(schemaVersion = 5, diagnostics = requireNotNull(snapshot.validated()) { "Invalid report diagnostics." }).withAvailability()
+
     private fun withAvailability(): IssueReportContext {
         val present = IssueReport.json.encodeToJsonElement(serializer(), this).jsonObject.keys
         val fields = when (schemaVersion) {
+            5 -> optionalFields + acceptanceFields + recoveryFields + "diagnostics"
             4 -> optionalFields + acceptanceFields + recoveryFields
             2, 3 -> optionalFields + acceptanceFields
             else -> optionalFields
@@ -109,6 +118,63 @@ internal data class IssueReportContext(
         /** Some approved v2 reports already contain review extensions. Negotiate them without rewriting their bytes. */
         fun requiredServiceVersions(version: Int, stage: String?, recoveryAction: String?): Set<Int> =
             if (version == 2 && needsReviewContext(stage, recoveryAction)) setOf(2, 3) else setOf(version)
+
+        /** Validate the new extension at approval and again before either route consumes saved bytes. */
+        fun validDiagnosticsIn(value: JsonElement?): Boolean {
+            if (value == null || value == JsonNull) return true
+            val context = value as? JsonObject ?: return false
+            val version = (context["schemaVersion"] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull
+            if (version != 5) return "diagnostics" !in context
+            val fields = (optionalFields + acceptanceFields + recoveryFields + "diagnostics").toSet()
+            val required = setOf("schemaVersion", "occurredAtMillis", "source", "unavailableFields", "diagnostics")
+            if (!context.keys.containsAll(required) || (context.keys - fields - required).isNotEmpty()) return false
+            fun text(key: String) = (context[key] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
+            fun number(key: String) = (context[key] as? JsonPrimitive)?.takeUnless { it.isString }?.longOrNull
+            val enums = mapOf(
+                "source" to sources,
+                "stage" to stages + acceptanceStages + reviewStages,
+                "provider" to providers,
+                "operation" to operations,
+                "remoteAcceptance" to setOf("YES", "NO", "UNKNOWN"),
+                "jobState" to jobStates,
+                "recoveryAction" to recoveryActions + acceptanceRecoveryActions + reviewRecoveryActions + lifecycleRecoveryActions,
+                "reasonCode" to reasonCodes + acceptanceReasonCodes + recoveryReasonCodes + toolPrecheckReasonCodes,
+                "originalFailureCode" to IssueReportCodes.allowed
+            )
+            if (enums.any { (key, choices) -> key in context && text(key) !in choices }) return false
+            if (text("reasonCode") in toolPrecheckReasonCodes &&
+                (text("source") != "TOOL_RESULT" || text("stage") != "tool_precheck" || context["dispatched"] != JsonPrimitive(false) || context["requiresReconciliation"] == JsonPrimitive(true))
+            ) {
+                return false
+            }
+            val numbers = mapOf(
+                "occurredAtMillis" to 1L..9_999_999_999_999L,
+                "httpStatus" to 100L..599L,
+                "originalHttpStatus" to 100L..599L,
+                "retryAfterMillis" to 0L..86_400_000L,
+                "requiredCriteria" to 0L..100_000L,
+                "verifiedCriteria" to 0L..100_000L,
+                "remainingCriteria" to 0L..100_000L,
+                "ownershipFence" to 0L..Long.MAX_VALUE
+            )
+            if (numbers.any { (key, range) -> key in context && number(key)?.let { it in range } != true }) return false
+            val requiredCount = number("requiredCriteria")
+            val verified = number("verifiedCriteria")
+            val remaining = number("remainingCriteria")
+            if (requiredCount != null && (verified != null && verified > requiredCount || remaining != null && remaining > requiredCount || verified != null && remaining != null && verified + remaining != requiredCount)) return false
+            if (listOf("dispatched", "retryable", "resumeAllowed", "requiresReconciliation").any { it in context && context[it] !in setOf(JsonPrimitive(true), JsonPrimitive(false)) }) return false
+            val hashes = listOf("runIdHash", "invocationIdHash", "callIdHash", "jobIdHash", "activeJobIdHash", "exceptionFingerprint", "checkpointBindingHash", "checkpointDigestHash", "resumeClaimIdHash")
+            if (hashes.any { it in context && text(it)?.matches(Regex("[a-f0-9]{64}")) != true }) return false
+            for (key in listOf("missingFields", "invalidFields")) {
+                if (key !in context) continue
+                val items = context[key] as? JsonArray ?: return false
+                val names = items.map { (it as? JsonPrimitive)?.takeIf { item -> item.isString }?.contentOrNull ?: return false }
+                if (names.any { it !in selectionFields } || names.distinct().size != names.size) return false
+            }
+            val unavailable = context["unavailableFields"] as? JsonArray ?: return false
+            val names = unavailable.map { (it as? JsonPrimitive)?.takeIf { item -> item.isString }?.contentOrNull ?: return false }
+            return names.distinct().size == names.size && names.toSet() == fields - context.keys && IssueReportDiagnostics.fromJson(context["diagnostics"]) != null
+        }
 
         /** A historical provider interruption cannot reclassify this local refusal as a fresh 429. */
         fun localRecoveryCode(fields: Map<String, Any?>): String? {
@@ -202,8 +268,15 @@ internal data class IssueReportContext(
                 requiredCriteria != null ||
                 verifiedCriteria != null ||
                 remainingCriteria != null
+            val runIdHash = identifierHash("run", text("run_id", "runId"))
+            val invocationIdHash = identifierHash("invocation", text("invocation_id", "invocationId"))
+            val callIdHash = identifierHash("call", text("call_id", "callId", "toolCallId"))
+            val jobIdHash = identifierHash("job", text("job_id", "jobId", "gatewayJobId"))
+            val diagnosticIdentities = mapOf("run_id_hash" to runIdHash, "invocation_id_hash" to invocationIdHash, "call_id_hash" to callIdHash, "job_id_hash" to jobIdHash).filterValues { it != null }
+            val diagnostics = IssueReportDiagnostics.fromFields(source, fields + diagnosticIdentities, occurredAtMillis)
             return IssueReportContext(
                 schemaVersion = when {
+                    diagnostics != null -> 5
                     localRecovery != null || reasonCode in recoveryReasonCodes || reasonCode in toolPrecheckReasonCodes || recoveryAction in lifecycleRecoveryActions -> 4
                     needsReviewContext(stage, recoveryAction) -> 3
                     acceptanceContext -> 2
@@ -231,17 +304,18 @@ internal data class IssueReportContext(
                 remainingCriteria = remainingCriteria,
                 missingFields = names("missing_fields"),
                 invalidFields = names("invalid_fields"),
-                runIdHash = identifierHash("run", text("run_id", "runId")),
-                invocationIdHash = identifierHash("invocation", text("invocation_id", "invocationId")),
-                callIdHash = identifierHash("call", text("call_id", "callId", "toolCallId")),
-                jobIdHash = identifierHash("job", text("job_id", "jobId", "gatewayJobId")),
+                runIdHash = runIdHash,
+                invocationIdHash = invocationIdHash,
+                callIdHash = callIdHash,
+                jobIdHash = jobIdHash,
                 activeJobIdHash = identifierHash("job", text("active_job_id", "activeJobId")),
                 originalFailureCode = originalCode,
                 originalHttpStatus = originalStatus,
                 checkpointBindingHash = recoveryHash("checkpoint_binding", "checkpoint-binding", Regex("[a-f0-9]{64}")),
                 checkpointDigestHash = recoveryHash("checkpoint_digest", "checkpoint-digest", Regex("[a-f0-9]{64}")),
                 resumeClaimIdHash = recoveryHash("resume_claim_id", "resume-claim", Regex("[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}")),
-                ownershipFence = number("ownership_fence")?.takeIf { localRecovery != null && it >= 0 }
+                ownershipFence = number("ownership_fence")?.takeIf { localRecovery != null && it >= 0 },
+                diagnostics = diagnostics
             ).withAvailability()
         }
 

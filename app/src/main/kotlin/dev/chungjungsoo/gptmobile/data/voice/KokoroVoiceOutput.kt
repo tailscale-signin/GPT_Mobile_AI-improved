@@ -48,6 +48,7 @@ internal class DeferredKokoroOutput(private val factory: () -> KokoroOutput?) : 
     private var closed = false
     private var threads = 2
     private var replyId: String? = null
+    private var diagnosticProbe: VoiceDiagnosticTrace.Probe? = null
     private var delegate: KokoroOutput? = null
 
     private fun existing(): KokoroOutput? = synchronized(lock) { delegate }
@@ -59,6 +60,7 @@ internal class DeferredKokoroOutput(private val factory: () -> KokoroOutput?) : 
             delegate = factory()?.also { output ->
                 output.configureThreads(threads)
                 replyId?.let(output::bindReply)
+                output.bindDiagnostics(diagnosticProbe)
             }
         }
         delegate
@@ -105,6 +107,14 @@ internal class DeferredKokoroOutput(private val factory: () -> KokoroOutput?) : 
         }
     }
 
+    override fun bindDiagnostics(probe: VoiceDiagnosticTrace.Probe?) {
+        synchronized(lock) {
+            if (closed) return
+            diagnosticProbe = probe
+            delegate?.bindDiagnostics(probe)
+        }
+    }
+
     override fun close() {
         val current = synchronized(lock) {
             if (closed) return
@@ -140,6 +150,11 @@ internal class KokoroVoiceOutput(
 
     private var threadCount = 2
     private var replyId: String? = null
+    private var diagnosticProbe: VoiceDiagnosticTrace.Probe? = null
+
+    override fun bindDiagnostics(probe: VoiceDiagnosticTrace.Probe?) {
+        diagnosticProbe = probe
+    }
 
     override fun bindReply(id: String) {
         replyId = id.takeIf { it.matches(Regex("[A-Za-z0-9:_-]{1,128}")) }
@@ -164,7 +179,8 @@ internal class KokoroVoiceOutput(
         val focus: AudioFocusRequest,
         val watchdog: Runnable,
         val complete: () -> Unit,
-        val error: (String, Boolean) -> Unit
+        val error: (String, Boolean) -> Unit,
+        val diagnostics: VoiceDiagnosticTrace.Probe?
     ) {
         val id = UUID.randomUUID().toString()
         val startedAt = SystemClock.elapsedRealtime()
@@ -269,9 +285,18 @@ internal class KokoroVoiceOutput(
                 }
             }
         }
-        playback = Playback(replyId, voice, ModelKey(voice.lexicon, threadCount), focus, watchdog, complete, error)
+        playback = Playback(replyId, voice, ModelKey(voice.lexicon, threadCount), focus, watchdog, complete, error, diagnosticProbe)
         active = playback
-        val focusGranted = runCatching { audioManager?.requestAudioFocus(focus) }.getOrNull() == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+        playback.diagnostics?.engine(VoiceDiagnosticTrace.Engine.KOKORO)
+        val focusResult = runCatching { audioManager?.requestAudioFocus(focus) }.getOrNull()
+        playback.diagnostics?.focus(
+            when (focusResult) {
+                AudioManager.AUDIOFOCUS_REQUEST_GRANTED -> VoiceDiagnosticTrace.Focus.GRANTED
+                null -> VoiceDiagnosticTrace.Focus.ERROR
+                else -> VoiceDiagnosticTrace.Focus.DENIED
+            }
+        )
+        val focusGranted = focusResult == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
         if (!focusGranted) {
             main.post { fail(playback, "audio_focus_denied", "Audio output is unavailable. Your answer remains in chat.", canFallback = false) }
         } else {
@@ -305,8 +330,11 @@ internal class KokoroVoiceOutput(
         if (active !== playback) return
         val queueWait = SystemClock.elapsedRealtime() - playback.startedAt
         try {
+            val wasWarm = loaded?.key == playback.key
+            playback.diagnostics?.warmupStarted()
             val model = loadModel(playback.key)
             if (active !== playback) return
+            playback.diagnostics?.engineReady(wasWarm)
             playback.lastProgress = SystemClock.elapsedRealtime()
             timing("model_ready", playback, "warm=${model.readyAt <= playback.startedAt} · queueWaitMs=$queueWait")
             val sampleRate = model.engine.sampleRate().also { check(it in 8_000..48_000) }
@@ -338,6 +366,7 @@ internal class KokoroVoiceOutput(
 
                     // sherpa-onnx JNI resolves the boxed Function1 callback signature by name.
                     // A callable reference preserves invoke(FloatArray): Integer on every target ABI.
+                    playback.diagnostics?.synthesisStarted()
                     val generated = model.engine.generateWithCallback(
                         part,
                         playback.voice.speakerId,
@@ -503,6 +532,7 @@ internal class KokoroVoiceOutput(
         val frames = Integer.toUnsignedLong(track.playbackHeadPosition)
         if (frames > 0 && !playback.firstFrame) {
             playback.firstFrame = true
+            playback.diagnostics?.firstAudio(VoiceDiagnosticTrace.FirstAudio.PLAYBACK_HEAD)
             timing("first_audio", playback)
         }
         return frames

@@ -20,6 +20,7 @@ internal interface KokoroOutput {
     fun stop()
     fun stop(reason: String) = stop()
     fun bindReply(id: String) = Unit
+    fun bindDiagnostics(probe: VoiceDiagnosticTrace.Probe?) = Unit
     fun close()
 }
 
@@ -137,6 +138,12 @@ internal class VoicePluginAudio(
 
     override fun bindReply(id: String) {
         kokoro?.bindReply(id)
+    }
+
+    override fun bindDiagnostics(probe: VoiceDiagnosticTrace.Probe?) {
+        system.bindDiagnostics(probe)
+        local.bindDiagnostics(probe)
+        kokoro?.bindDiagnostics(probe)
     }
 
     override fun stop() = stop("audio_stop")

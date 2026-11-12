@@ -5,6 +5,7 @@ import dev.chungjungsoo.gptmobile.BuildConfig
 import java.util.UUID
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
 
 @Serializable
 internal data class IssueReport(
@@ -27,6 +28,7 @@ internal data class IssueReport(
 ) {
     /** Validate the exact approved bytes before durable delivery; retries keep these bytes and this ID. */
     fun approvedPayload(): String = json.encodeToString(serializer(), this).also {
+        require(IssueReportContext.validDiagnosticsIn(json.parseToJsonElement(it).jsonObject["context"])) { "Invalid report diagnostics." }
         require(it.encodeToByteArray().size <= MAX_PAYLOAD_BYTES) { "The report exceeds the supported size. Shorten the description before sending." }
     }
 

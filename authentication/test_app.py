@@ -16,7 +16,8 @@ from fastapi.testclient import TestClient
 from authentication.app import create_app
 from authentication.github_broker import Config, challenge_for
 from authentication.issue_report_app import create_app as create_report_app
-from authentication.issue_reports import CONTEXT_ACCEPTANCE_REASONS, CONTEXT_ACCEPTANCE_RECOVERY, CONTEXT_FIELDS, CONTEXT_FIELDS_V2, CONTEXT_FIELDS_V4, CONTEXT_RECOVERY_ACTIONS, CONTEXT_RECOVERY_REASONS, CONTEXT_SELECTION_FIELDS, CONTEXT_TOOL_PRECHECK_REASONS, ERROR_CODES, GitHubIssuePublisher, GitHubRequestError, IssueReporter, REPOSITORY, ReportError, issue_from_report, marker
+from authentication.issue_report_diagnostics import CORE_FIELDS, MAX_DIAGNOSTIC_BYTES, validate_diagnostics
+from authentication.issue_reports import CONTEXT_ACCEPTANCE_REASONS, CONTEXT_ACCEPTANCE_RECOVERY, CONTEXT_FIELDS, CONTEXT_FIELDS_V2, CONTEXT_FIELDS_V4, CONTEXT_FIELDS_V5, CONTEXT_RECOVERY_ACTIONS, CONTEXT_RECOVERY_REASONS, CONTEXT_SELECTION_FIELDS, CONTEXT_TOOL_PRECHECK_REASONS, ERROR_CODES, GitHubIssuePublisher, GitHubRequestError, IssueReporter, REPOSITORY, ReportError, issue_from_report, marker
 
 
 class HttpBoundaryTest(unittest.TestCase):
@@ -102,9 +103,127 @@ class IssueReportHttpTest(unittest.TestCase):
 
     def context(self, **observed):
         result = {"schemaVersion": 1, "occurredAtMillis": self.now * 1000, "source": "CHAT_FAILURE", **observed}
-        fields = CONTEXT_FIELDS_V4 if result["schemaVersion"] == 4 else CONTEXT_FIELDS_V2 if result["schemaVersion"] in (2, 3) else CONTEXT_FIELDS
+        fields = CONTEXT_FIELDS_V5 if result["schemaVersion"] == 5 else CONTEXT_FIELDS_V4 if result["schemaVersion"] == 4 else CONTEXT_FIELDS_V2 if result["schemaVersion"] in (2, 3) else CONTEXT_FIELDS
         result["unavailableFields"] = sorted(fields - result.keys())
         return result
+
+    def diagnostics(self, area, values=None, mode="INCIDENT"):
+        values = values or {}
+        return {"schemaVersion": 1, "area": area, "capturedAtMillis": self.now * 1000 - 1200, "captureMode": mode,
+                "values": values, "unavailableFields": sorted(CORE_FIELDS[area] - values.keys())}
+
+    def test_additional_diagnostics_reach_github_with_typed_provider_tool_acceptance_and_voice_facts(self):
+        cases = {
+            "PROVIDER": {"profile_hash": "a" * 64, "model_hash": "b" * 64, "configured_output_limit": 4096, "effective_output_limit": 2048,
+                         "output_tokens": 2048, "reasoning_tokens": 1900, "visible_output_bytes": 0, "finish_reason": "LENGTH", "transport_complete": True,
+                         "backend_attempts": 2, "backend_terminal_status": 503, "backend_terminal_code_hash": "c" * 64, "output_byte_scope": "LAST_BACKEND_ATTEMPT",
+                         "privacy_observation": "NO_COMPATIBLE_ENDPOINT", "privacy_zdr_required": True, "privacy_provider_allowlist_count": 2},
+            "TOOL": {"tool_name_hash": "a" * 64, "tool_action_hash": "b" * 64, "tool_schema_hash": "c" * 64, "original_error_code_hash": "d" * 64,
+                     "missing_field_count": 1, "invalid_field_count": 0, "invalid_field_classes": ["MISSING_REQUIRED"]},
+            "ACCEPTANCE": {"unmet_criterion_id_hashes": ["a" * 64, "b" * 64], "unmet_criterion_categories": ["DEVICE_EXECUTION", "CI_VERIFICATION"],
+                           "unmet_criterion_states": ["NOT_TESTED", "BLOCKED"], "unmet_criterion_blockers": ["DEVICE_EXECUTION_NOT_OBSERVED", "CHECK_SUBSCRIPTION_REQUIRED"],
+                           "effective_call_limit": 12, "used_calls": 10, "remaining_calls": 2, "checkpoint_hash": "c" * 64,
+                           "unmet_criterion_count": 2, "unmet_criterion_omitted_count": 0, "acceptance_evidence_scope": "CURRENT_VERDICT"},
+            "VOICE": {"voice_engine": "SYSTEM", "voice_phase": "SPEAKING", "voice_response_to_queue_ms": 21, "voice_synthesis_to_first_audio_ms": 80,
+                      "voice_response_to_first_audio_ms": 101, "voice_first_audio_basis": "UTTERANCE_START", "voice_session_id_hash": "d" * 64,
+                      "voice_permission_granted": True, "voice_focus_result": "GRANTED"},
+        }
+        for area, values in cases.items():
+            with self.subTest(area=area):
+                capture = self.diagnostics(area, values)
+                context = self.context(schemaVersion=5, diagnostics=capture)
+                report = {**self.metadata(), "source": "debug", "feature": "chat", "errorCode": "CHAT_FAILED", "context": context}
+                response = self.submit(report)
+                self.assertEqual(200, response.status_code)
+                self.assertEqual({"reportId": report["reportId"], "number": 42}, response.json())
+                body = self.issued[-1]["body"]
+                self.assertIn("Additional diagnostic observation", body)
+                for key, value in values.items():
+                    rendered = ", ".join(value) if isinstance(value, list) else str(value).lower() if type(value) is bool else str(value)
+                    self.assertIn(f"| {key} | `{rendered}` |", body)
+                self.assertEqual(capture, context["diagnostics"])
+                self.assertEqual(200, self.submit(report).status_code)
+        self.assertEqual(len(cases), len(self.issued))
+
+    def test_selected_observation_and_absent_capture_do_not_claim_a_failure_timestamp(self):
+        for mode, values in (("SELECTED_CAPTURE", {"voice_engine": "SYSTEM", "voice_phase": "SPEAKING"}), ("NO_CAPTURE", {})):
+            capture = self.diagnostics("VOICE", values, mode)
+            report = {**self.manual(), "context": self.context(schemaVersion=5, source="MANUAL_REPORT", diagnostics=capture)}
+            self.assertEqual(200, self.submit(report).status_code)
+            body = self.issued[-1]["body"]
+            self.assertIn(f"| Observation time (epoch ms) | `{capture['capturedAtMillis']}` |", body)
+            self.assertIn("timestamp does not establish the time" if values else "No measurements are inferred", body)
+            self.assertNotIn("| voice_read_calls |", body)
+            self.assertIn("`voice_capture_attempts`", body)
+
+    def test_nested_diagnostic_private_fields_wrong_types_and_wrong_area_never_publish(self):
+        malformed = [
+            ("prompt", "private-prompt"), ("requested_model_id", "private-model"), ("endpoint", "https://private.example"),
+            ("voice_capture_attempts", "2"), ("voice_capture_attempts", True), ("voice_capture_attempts", -1), ("voice_capture_attempts", 16_000_001),
+            ("voice_response_to_first_audio_ms", 86_400_001), ("voice_muted", "false"), ("voice_session_id_hash", "private-session"),
+            ("voice_generation", 2**63), ("voice_first_audio_basis", "private-callback"), ("tool_name_hash", "a" * 64),
+        ]
+        for key, value in malformed:
+            with self.subTest(key=key, value=value):
+                capture = self.diagnostics("VOICE", {key: value})
+                report = {**self.manual(), "context": self.context(schemaVersion=5, diagnostics=capture)}
+                response = self.submit(report)
+                self.assertEqual(422, response.status_code)
+                self.assertEqual({"error": "INVALID_REPORT"}, response.json())
+        for updates in ({"privateModel": "private-model"}, {"schemaVersion": True}, {"capturedAtMillis": "1000"}, {"captureMode": "private-mode"}, {"unavailableFields": []}):
+            capture = {**self.diagnostics("VOICE"), **updates}
+            response = self.submit({**self.manual(), "context": self.context(schemaVersion=5, diagnostics=capture)})
+            self.assertEqual(422, response.status_code)
+        self.assertFalse(self.issued)
+
+    def test_diagnostics_require_v5_consistent_capture_and_aligned_bounded_criterion_columns(self):
+        good = self.diagnostics("ACCEPTANCE", {"unmet_criterion_id_hashes": ["a" * 64], "unmet_criterion_categories": ["DEVICE_EXECUTION"]})
+        for updates in (
+            {"unmet_criterion_categories": ["DEVICE_EXECUTION", "CI_VERIFICATION"]},
+            {"unmet_criterion_categories": ["private-criterion"]},
+            {"unmet_criterion_id_hashes": ["a" * 64] * 9},
+            {"unmet_criterion_id_hashes": []},
+        ):
+            capture = self.diagnostics("ACCEPTANCE", {**good["values"], **updates})
+            self.assertEqual(422, self.submit({**self.manual(), "context": self.context(schemaVersion=5, diagnostics=capture)}).status_code)
+        for context in (
+            self.context(schemaVersion=4, diagnostics=good), self.context(schemaVersion=5),
+            self.context(schemaVersion=5, diagnostics={**good, "captureMode": "NO_CAPTURE"}),
+            self.context(schemaVersion=5, diagnostics={**good, "omittedFields": ["unmet_criterion_id_hashes"]}),
+            self.context(schemaVersion=5, diagnostics={**good, "omittedFields": ["private-field"]}),
+        ):
+            self.assertEqual(422, self.submit({**self.manual(), "context": context}).status_code)
+        self.assertFalse(self.issued)
+
+    def test_largest_criterion_capture_and_report_remain_within_both_size_limits(self):
+        values = {"unmet_criterion_id_hashes": ["a" * 64] * 8, "unmet_criterion_reason_hashes": ["b" * 64] * 8,
+                  "unmet_criterion_categories": ["BUILD_REVISION_BINDING"] * 8, "unmet_criterion_states": ["NOT_TESTED"] * 8,
+                  "unmet_criterion_blockers": ["WORKFLOW_RUN_OR_JOB_REQUIRED"] * 8,
+                  **{key: "c" * 64 for key in ("run_id_hash", "invocation_id_hash", "call_id_hash", "job_id_hash", "profile_hash", "model_hash", "checkpoint_hash")},
+                  **{key: 16_000_000 for key in ("effective_call_limit", "used_calls", "remaining_calls", "verification_reserve", "pending_continuations", "unresolved_outcomes", "unmet_criterion_count", "unmet_criterion_omitted_count")},
+                  "acceptance_evidence_scope": "CURRENT_VERDICT"}
+        capture = self.diagnostics("ACCEPTANCE", values)
+        self.assertLessEqual(len(json.dumps(capture, separators=(",", ":")).encode()), MAX_DIAGNOSTIC_BYTES)
+        self.assertEqual(capture, validate_diagnostics(capture))
+        report = {**self.manual(), "context": self.context(schemaVersion=5, diagnostics=capture)}
+        self.assertLess(len(json.dumps(report).encode()), 8192)
+        self.assertEqual(200, self.submit(report).status_code)
+        self.assertEqual(1, len(self.issued))
+
+    def test_lost_receipt_v5_reconciles_original_diagnostic_content_without_second_create(self):
+        report = {**self.manual(), "context": self.context(schemaVersion=5, diagnostics=self.diagnostics("VOICE", {"voice_engine": "KOKORO", "voice_first_audio_basis": "PLAYBACK_HEAD", "voice_response_to_first_audio_ms": 98}, "SELECTED_CAPTURE"))}
+        self.publish_error = GitHubRequestError()
+        first = self.submit(report)
+        self.assertEqual(503, first.status_code)
+        original_body = self.issued[0]["body"]
+        self.now += 121
+        self.found = 42
+        reordered_capture = {**report["context"]["diagnostics"], "values": dict(reversed(list(report["context"]["diagnostics"]["values"].items()))), "unavailableFields": list(reversed(report["context"]["diagnostics"]["unavailableFields"]))}
+        response = self.submit({**report, "context": {**report["context"], "diagnostics": reordered_capture}})
+        self.assertEqual(200, response.status_code)
+        self.assertEqual({"reportId": report["reportId"], "number": 42}, response.json())
+        self.assertEqual(1, len(self.issued))
+        self.assertEqual(original_body, self.issued[0]["body"])
 
     def test_typed_capture_privacy_and_reader_failures_keep_specific_context(self):
         for feature, code, stage, extra in (
@@ -127,7 +246,7 @@ class IssueReportHttpTest(unittest.TestCase):
         self.assertEqual(200, response.status_code)
         self.assertEqual({"service": "gpt-mobile-issue-reporter", "version": 1},
                          {key: response.json()[key] for key in ("service", "version")})
-        self.assertEqual([1, 2, 3, 4], response.json()["reportContextVersions"])
+        self.assertEqual([1, 2, 3, 4, 5], response.json()["reportContextVersions"])
         self.assertEqual("no-store", response.headers["cache-control"])
         self.assertFalse(self.issued)
         # Old clients may continue posting their original reports without a

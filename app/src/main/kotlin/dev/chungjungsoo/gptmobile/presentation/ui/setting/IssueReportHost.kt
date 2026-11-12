@@ -14,6 +14,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -47,9 +49,13 @@ import dev.chungjungsoo.gptmobile.BuildConfig
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReport
 import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext
+import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportDiagnostics
+import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportManualCapture
 import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportOutbox
 import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportRoute
 import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportSubmission
+import java.text.DateFormat
+import java.util.Date
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.map
@@ -102,7 +108,7 @@ internal fun IssueReportHost(viewModel: IssueReportViewModel, showPrompts: Boole
     when {
         manual -> ManualIssueDialog(saving, error, manualPreview, reports, routes, route, draft, viewModel::updateDraft, viewModel::selectRoute, openGitHub, viewModel::closeManual, viewModel::submitManual, viewModel::previewManualDiagnostics, viewModel::selectReport)
         submission != null -> submission?.let { report ->
-            IssueSubmissionDialog(report, saving, error, routes, route, viewModel::selectRoute, openGitHub, viewModel::closeSubmission, { approvedRoute -> viewModel.retrySubmission(report.reportId, approvedRoute) }, { viewModel.removeFailed(report.reportId) }) {
+            IssueSubmissionDialog(report, saving, error, routes, route, viewModel::selectRoute, openGitHub, viewModel::closeSubmission, { approvedRoute -> viewModel.retrySubmission(report.reportId, approvedRoute) }, { viewModel.removeFailed(report.reportId) }, { viewModel.followUpReport(report) }) {
                 report.issueNumber?.let { number -> runCatching { uriHandler.openUri("$ISSUE_TRACKER/$number") } }
             }
         }
@@ -153,21 +159,36 @@ private fun ManualIssueDialog(
     onRoute: (IssueReportRoute) -> Unit,
     onSetup: () -> Unit,
     onDismiss: () -> Unit,
-    onSubmit: (String, String, Boolean, IssueReportRoute?) -> Unit,
+    onSubmit: (IssueReport, IssueReportViewModel.ManualDraft, IssueReportRoute?) -> Unit,
     onDiagnostics: (Boolean) -> Unit,
     onSelectReport: (String) -> Unit
 ) {
     val title = draft.title
     val description = draft.description
     val includeDiagnostics = draft.includeDiagnostics
+    val descriptionLimit = IssueReportManualCapture.descriptionLimit(draft.relatedIssueNumber)
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.issue_report_title)) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 ReportDestination(routes, route, saving, onRoute, onSetup)
-                OutlinedTextField(title, { onDraft(draft.copy(title = it.take(IssueReport.TITLE_LIMIT))) }, Modifier.fillMaxWidth(), label = { Text(stringResource(R.string.issue_report_short_title)) }, singleLine = true, enabled = !saving)
-                OutlinedTextField(description, { onDraft(draft.copy(description = it.take(IssueReport.DESCRIPTION_LIMIT))) }, Modifier.fillMaxWidth(), label = { Text(stringResource(R.string.issue_report_description)) }, minLines = 2, maxLines = 5, enabled = !saving)
+                draft.relatedIssueNumber?.let { Text(stringResource(R.string.issue_report_follow_up_to, it), style = MaterialTheme.typography.bodySmall) }
+                OutlinedTextField(
+                    title,
+                    { onDraft(draft.copy(title = it)) },
+                    Modifier.fillMaxWidth(),
+                    label = { Text(stringResource(R.string.issue_report_short_title)) },
+                    supportingText = { Text(stringResource(R.string.issue_report_character_count, title.length, IssueReport.TITLE_LIMIT)) },
+                    isError = title.length > IssueReport.TITLE_LIMIT,
+                    singleLine = true,
+                    enabled = !saving
+                )
+                OutlinedTextField(
+                    description, { onDraft(draft.copy(description = it)) }, Modifier.fillMaxWidth(), label = { Text(stringResource(R.string.issue_report_description)) },
+                    supportingText = { Text(stringResource(R.string.issue_report_character_count, description.length, descriptionLimit)) },
+                    isError = description.length > descriptionLimit, minLines = 2, maxLines = 5, enabled = !saving
+                )
                 Row(
                     Modifier.fillMaxWidth().toggleable(includeDiagnostics, enabled = !saving, role = Role.Checkbox) {
                         onDraft(draft.copy(includeDiagnostics = it))
@@ -178,6 +199,21 @@ private fun ManualIssueDialog(
                 ) {
                     Checkbox(checked = includeDiagnostics, onCheckedChange = null, enabled = !saving)
                     Text(stringResource(R.string.issue_report_include_diagnostics))
+                }
+                if (includeDiagnostics) {
+                    DiagnosticAreaSelector(draft.diagnosticArea, saving) { area ->
+                        onDraft(draft.copy(diagnosticArea = area))
+                        onDiagnostics(true)
+                    }
+                    preview?.context?.diagnostics?.let { capture ->
+                        if (capture.captureMode == "NO_CAPTURE" || capture.values.isEmpty()) {
+                            Text(stringResource(R.string.issue_report_capture_unavailable), style = MaterialTheme.typography.bodySmall)
+                        } else {
+                            Text(stringResource(R.string.issue_report_capture_time, DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.MEDIUM).format(Date(capture.capturedAtMillis))), style = MaterialTheme.typography.bodySmall)
+                            if (capture.unavailableFields.isNotEmpty() || capture.omittedFields.isNotEmpty()) Text(stringResource(R.string.issue_report_capture_partial), style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                    TextButton(onClick = { onDiagnostics(true) }, enabled = !saving && draft.diagnosticArea != null) { Text(stringResource(R.string.issue_report_refresh_capture)) }
                 }
                 Text(stringResource(R.string.issue_report_public), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                 preview?.let { ReportPreview(it) }
@@ -195,7 +231,8 @@ private fun ManualIssueDialog(
         },
         dismissButton = { TextButton(onClick = onDismiss, enabled = !saving) { Text(stringResource(R.string.issue_report_cancel)) } },
         confirmButton = {
-            Button(onClick = { onSubmit(title, description, includeDiagnostics, route) }, enabled = !saving && title.isNotBlank() && description.isNotBlank()) {
+            val diagnosticsReady = !includeDiagnostics || draft.diagnosticArea != null && preview?.context?.diagnostics?.area == draft.diagnosticArea
+            Button(onClick = { preview?.let { onSubmit(it, draft, route) } }, enabled = !saving && preview != null && title.isNotBlank() && title.length <= IssueReport.TITLE_LIMIT && description.isNotBlank() && description.length <= descriptionLimit && diagnosticsReady) {
                 Text(
                     stringResource(
                         if (saving) {
@@ -213,6 +250,34 @@ private fun ManualIssueDialog(
 }
 
 @Composable
+private fun DiagnosticAreaSelector(selected: String?, saving: Boolean, onSelect: (String) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    Text(stringResource(R.string.issue_report_problem_area), style = MaterialTheme.typography.titleSmall)
+    Box {
+        TextButton(onClick = { expanded = true }, enabled = !saving) {
+            Text(selected?.let { stringResource(diagnosticAreaLabel(it)) } ?: stringResource(R.string.issue_report_choose_area))
+        }
+        DropdownMenu(expanded = expanded && !saving, onDismissRequest = { expanded = false }) {
+            IssueReportDiagnostics.areas.forEach { area ->
+                DropdownMenuItem(text = { Text(stringResource(diagnosticAreaLabel(area))) }, onClick = {
+                    expanded = false
+                    onSelect(area)
+                })
+            }
+        }
+    }
+}
+
+private fun diagnosticAreaLabel(area: String): Int = when (area) {
+    "PROVIDER" -> R.string.issue_report_area_provider
+    "TOOL" -> R.string.issue_report_area_tool
+    "ACCEPTANCE" -> R.string.issue_report_area_acceptance
+    "VOICE" -> R.string.issue_report_area_voice
+    "GATEWAY" -> R.string.issue_report_area_gateway
+    else -> R.string.issue_report_area_app
+}
+
+@Composable
 private fun IssueSubmissionDialog(
     report: IssueReportOutbox.Entry,
     saving: Boolean,
@@ -224,6 +289,7 @@ private fun IssueSubmissionDialog(
     onClose: () -> Unit,
     onRetry: (IssueReportRoute?) -> Unit,
     onRemove: () -> Unit,
+    onFollowUp: () -> Unit,
     onView: () -> Unit
 ) {
     val approved = remember(report.payload) { runCatching { IssueReport.json.decodeFromString(IssueReport.serializer(), report.payload) }.getOrNull() }
@@ -267,6 +333,7 @@ private fun IssueSubmissionDialog(
                     if (report.failureCode in setOf("REPORT_GITHUB_SIGN_IN_REQUIRED", "REPORT_GITHUB_ACCOUNT_CHANGED", "REPORT_GITHUB_PERMISSION_REQUIRED")) TextButton(onClick = onSetup, enabled = !saving) { Text(stringResource(R.string.issue_report_connect_github)) }
                 }
                 approved?.let { ReportPreview(it) }
+                if (report.state == IssueReportOutbox.State.SENT && report.issueNumber != null) TextButton(onClick = onFollowUp, enabled = !saving) { Text(stringResource(R.string.issue_report_follow_up)) }
                 SubmissionError(error)
                 if (report.state == IssueReportOutbox.State.FAILED) {
                     Text(stringResource(if (report.mayHaveBeenSubmitted) R.string.issue_report_remove_explanation else R.string.issue_report_not_sent), style = MaterialTheme.typography.bodySmall)
@@ -379,6 +446,7 @@ private fun SubmissionError(error: IssueReportViewModel.Notice?) {
         IssueReportViewModel.Notice.SaveFailed -> R.string.issue_report_save_failed
         IssueReportViewModel.Notice.TooLarge -> R.string.issue_report_too_large
         IssueReportViewModel.Notice.StorageFull -> R.string.issue_report_storage_full
+        IssueReportViewModel.Notice.DiagnosticsChanged -> R.string.issue_report_diagnostics_changed
         else -> return
     }
     Text(stringResource(message), color = MaterialTheme.colorScheme.error)

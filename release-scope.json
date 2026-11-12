@@ -96,7 +96,8 @@
     "Negotiate bounded context-v4 recovery, extraction and tool-precheck causes while preserving approved context-v1/v2/v3 bytes; stop unknown extraction outcomes without schema-repair replay and align combined-module JUnit reconciliation with its collector.",
     "Spoken replies project safe readable text while preserving captions and begin bounded system/local speech chunks without waiting for a complete sentence; no physical latency claim.",
     "Repair exact provider journal/research recovery, bounded claim extraction and precheck evidence, queued selected-model preparation, readable low-buffer speech, required integration stop reasons, and complete bounded JVM report reconciliation; record incident-specific evidence and closure limits.",
-    "Preserve the full protected tool-journal boundary across compacted provider replay, project extended shared cooldown deadlines without changing saved ownership, and retain numeric speech link labels and legacy chat-owned voice incidents."
+    "Preserve the full protected tool-journal boundary across compacted provider replay, project extended shared cooldown deadlines without changing saved ownership, and retain numeric speech link labels and legacy chat-owned voice incidents.",
+    "Add bounded incident-owned provider, tool, acceptance, voice, gateway and app diagnostics, explicit manual capture preview/refresh, immutable linked follow-up reports and strict context-v5 app/service validation while preserving approved legacy payloads and uncertain-delivery reconciliation."
   ],
   "limitations": [
     "Android GPU qualification requires compatible-device receipts for actual offload, prefill, decode, repeated requests and cancel/recovery; host tests do not establish those results.",
@@ -152,7 +153,7 @@
     "Hosted issue-report delivery requires a real project-owned HTTPS reporter advertising the supported context schema and ISSUE_REPORT_ORIGIN in the APK; enabled native GitHub delivery requires a verified account and explicit approval of the report and route. Host regressions do not qualify live delivery, and no live service, repository variable or credential was changed by the November 12 session repair.",
     "The November 12 session repair requires installed-APK reporting reconciliation, exact-model generation, affected MCP listener/protocol/credential repair, owned integration fixtures and physical-device voice/lifecycle/frame/memory acceptance. Source and host checks do not establish those external results.",
     "The later 141-check audit and diagnostic capture were supplied as analyses, not original files; their capture-specific rows and measurements were not independently revalidated. The audit's 67 untested checks remain untested until matching execution evidence is retained.",
-    "The supplemental repairs require exact-head Android regression results and an updated hosted reporter advertising context schema 4. Physical frame/allocation measurements, ASUS microphone behavior and the user's private gateway/model remain unqualified by host fixtures. Older context-free reports remain open where their underlying cause is unavailable; successful source repair does not reconstruct missing historical evidence."
+    "The supplemental repairs require exact-head Android regression results and an updated hosted reporter advertising context schema 5. Physical frame/allocation measurements, ASUS microphone behavior and the user's private gateway/model remain unqualified by host fixtures. Reports without a proven historical cause may be closed under the requested diagnostic-follow-up policy after specific capture is implemented and tested; this does not establish that the original failure was reproduced or fixed."
   ],
   "requiredWorkflows": [
     "Build Android APK",
@@ -2378,6 +2379,24 @@
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProviderWaitSchedule.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProviderWaitDeadlineTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProviderWaitScheduleRowsTest.kt",
-    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProviderWaitScheduleTest.kt"
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProviderWaitScheduleTest.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/GatewayReportDiagnostics.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportDiagnostics.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportManualCapture.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReport.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ReportDiagnosticSnapshots.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolReportDiagnostics.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceReportDiagnostics.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceDiagnosticTrace.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/GatewayReportDiagnosticsTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportDiagnosticsTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportManualCaptureTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReportTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ReportDiagnosticSnapshotsTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceReportDiagnosticsTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceDiagnosticTraceTest.kt",
+    "authentication/issue_report_diagnostics.py",
+    "docs/repairs/report-diagnostic-followup-2026-11-12-task.json",
+    "docs/repairs/report-diagnostic-followup-2026-11-12.md"
   ]
 }

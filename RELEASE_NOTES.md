@@ -46,7 +46,7 @@ The [open issue verification register](docs/repairs/open-issues-verification-202
 - Anthropic failures retain actual HTTP status and typed current-attempt evidence through stream assembly and delivery; unknown outcomes prohibit credential rotation and replay. Voice-mode reply failures retain run correlation and structured context without inventing a microphone or playback cause.
 - Spoken replies retain readable link labels while omitting raw destinations, citation syntax and code payloads. The full original answer remains in captions. Both system and local output can begin at a stable first clause or four complete words; device latency still requires measurement.
 
-The supplemental repairs require exact-head Android regression results and an updated hosted reporter advertising context schema 4. Physical frame/allocation measurements, ASUS microphone behavior and the user's private gateway/model remain unqualified by host fixtures. Older context-free reports remain open where their underlying cause is unavailable; successful source repair does not reconstruct missing historical evidence.
+The supplemental repairs require exact-head Android regression results and an updated hosted reporter advertising context schema 5. Physical frame/allocation measurements, ASUS microphone behavior and the user's private gateway/model remain unqualified by host fixtures. Reports without a proven historical cause may be closed under the requested diagnostic-follow-up policy after specific capture is implemented and tested; this does not establish that the original failure was reproduced or fixed.
 
 ## PR #816 candidate addendum: Gateway 16 and engineering completion
 

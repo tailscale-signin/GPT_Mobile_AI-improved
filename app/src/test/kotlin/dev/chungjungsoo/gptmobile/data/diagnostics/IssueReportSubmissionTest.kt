@@ -1,6 +1,9 @@
 package dev.chungjungsoo.gptmobile.data.diagnostics
 
 import java.io.IOException
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonObject
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
@@ -19,6 +22,57 @@ class IssueReportSubmissionTest {
     private fun response(request: Request, code: Int, body: String, retryAfter: String? = null) = Response.Builder().request(request).protocol(Protocol.HTTP_1_1).code(code).message("Fixture")
         .apply { retryAfter?.let { header("Retry-After", it) } }.body(body.toResponseBody("application/json".toMediaType())).build()
     private fun body(request: Request) = Buffer().also { request.body?.writeTo(it) }.readUtf8()
+
+    @Test fun additionalDiagnosticsRequireFiveAndArePostedWithoutChangingAnyApprovedByte() {
+        val context = IssueReportContext.fromFields("CHAT_FAILURE", mapOf("diagnostic_area" to "PROVIDER", "model_hash" to "a".repeat(64), "output_tokens" to 4096, "finish_reason" to "LENGTH"), 1_000L)
+        val enriched = report.copy(context = context)
+        val payload = enriched.approvedPayload()
+        var versions = "[1,2,3,4]"
+        val posted = mutableListOf<String>()
+        var dispatched = 0
+        val client = OkHttpClient.Builder().addInterceptor { chain ->
+            val request = chain.request()
+            if (request.method == "GET") {
+                response(request, 200, """{"service":"gpt-mobile-issue-reporter","reportContextVersions":$versions}""")
+            } else {
+                posted += body(request)
+                response(request, 200, """{"reportId":"${report.reportId}","number":742}""")
+            }
+        }.build()
+        val submission = IssueReportSubmission(origin, client)
+        for (unsupported in listOf("[1,2,3,4]", "[1,2,3,4,\"5\"]", "[1,2,3,4,true]")) {
+            versions = unsupported
+            val failure = submission.send(report.reportId, payload) { dispatched++ } as IssueReportSubmission.Failure
+            assertEquals("REPORT_SERVICE_UPDATE_REQUIRED", failure.code)
+            assertTrue(failure.retryable)
+            assertFalse(failure.automaticRetry)
+            assertEquals(payload, enriched.approvedPayload())
+            assertTrue(posted.isEmpty())
+            assertEquals(0, dispatched)
+        }
+        versions = "[1,2,3,4,5]"
+        assertEquals(IssueReportSubmission.Confirmed(742), submission.send(report.reportId, payload) { dispatched++ })
+        assertEquals(listOf(payload), posted)
+        assertEquals(1, dispatched)
+    }
+
+    @Test fun privateFieldsInjectedIntoSavedDiagnosticJsonAreRejectedBeforeAnyNetworkCall() {
+        val enriched = report.copy(context = IssueReportContext.fromFields("VOICE_STATE", mapOf("diagnostic_area" to "VOICE", "voice_engine" to "SYSTEM"), 1_000L))
+        val raw = IssueReport.json.parseToJsonElement(enriched.approvedPayload()).jsonObject
+        val context = raw.getValue("context").jsonObject
+        val diagnostics = context.getValue("diagnostics").jsonObject
+        val client = OkHttpClient.Builder().addInterceptor { error("Invalid data must never leave the device") }.build()
+        val invalid = listOf(
+            JsonObject(diagnostics + ("transcript" to JsonPrimitive("private-transcript"))),
+            JsonObject(diagnostics + ("values" to JsonObject(diagnostics.getValue("values").jsonObject + ("voice_read_calls" to JsonPrimitive("12")))))
+        )
+        for (capture in invalid) {
+            val payload = JsonObject(raw + ("context" to JsonObject(context + ("diagnostics" to capture)))).toString()
+            val failure = IssueReportSubmission(origin, client).send(report.reportId, payload) { error("Invalid approval cannot dispatch") } as IssueReportSubmission.Failure
+            assertEquals("REPORT_PAYLOAD_INVALID", failure.code)
+            assertFalse(failure.retryable)
+        }
+    }
 
     @Test fun lostReceiptRetriesTheExactApprovedPayloadAndAcceptsBoundConfirmation() {
         val requests = mutableListOf<String>()

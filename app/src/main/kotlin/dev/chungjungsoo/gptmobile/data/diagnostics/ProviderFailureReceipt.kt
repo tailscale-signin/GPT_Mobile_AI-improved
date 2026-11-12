@@ -4,8 +4,11 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentProviderSession
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
+import dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayResponseMetadata
 import dev.chungjungsoo.gptmobile.data.research.researchHash
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flow
@@ -175,19 +178,56 @@ data class ProviderFailureReceipt(
 internal fun withProviderFailureReceipts(delegate: AgentProviderSession, runId: String, profile: PlatformV2, role: String): AgentProviderSession =
     object : AgentProviderSession by delegate {
         override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
+            val owner = currentCoroutineContext()[RequestDispatchContext]?.takeIf { it.diagnosticRunId == runId }
+            val invocationId = owner?.diagnosticInvocationId
+            var configured: ProviderEvent.RequestConfigured? = null
             var usage: ProviderEvent.Usage? = null
+            var metadata: GatewayResponseMetadata? = null
+            var visibleBytes = 0L
+            var reasoningBytes = 0L
             delegate.streamRound(tools, exchanges).collect { event ->
+                when (event) {
+                    is ProviderEvent.RequestConfigured -> configured = event
+                    is ProviderEvent.GatewayMetadataCaptured -> metadata = event.metadata
+                    is ProviderEvent.TextDelta -> visibleBytes = (visibleBytes + event.text.toByteArray(Charsets.UTF_8).size).coerceAtMost(16_000_001L)
+                    is ProviderEvent.ThinkingDelta -> reasoningBytes = (reasoningBytes + event.text.toByteArray(Charsets.UTF_8).size).coerceAtMost(16_000_001L)
+                    else -> Unit
+                }
                 if (event is ProviderEvent.Usage) {
-                    val prior = usage?.takeIf { it.invocationId == event.invocationId }
+                    val observedId = event.invocationId ?: invocationId
+                    val prior = usage?.takeIf { it.invocationId == observedId }
                     usage = event.copy(
+                        invocationId = observedId,
+                        inputTokens = event.inputTokens ?: prior?.inputTokens,
                         outputTokens = event.outputTokens ?: prior?.outputTokens,
+                        inputSource = if (event.inputTokens == null && prior?.inputTokens != null) prior.inputSource else event.inputSource,
+                        outputSource = if (event.outputTokens == null && prior?.outputTokens != null) prior.outputSource else event.outputSource,
                         reasoningTokens = event.reasoningTokens ?: prior?.reasoningTokens,
                         finishReason = event.finishReason ?: prior?.finishReason,
                         gatewayRecovery = event.gatewayRecovery ?: prior?.gatewayRecovery
                     )
                 }
                 if (event is ProviderEvent.Failed) {
-                    RunDiagnostics.journal?.record(runId, RunDiagnosticKind.FAILURE_RECEIPT, invocationId = event.invocationId, successful = false, providerFailure = ProviderFailureReceipt.from(profile, role, event, usage))
+                    val ownedFailure = event.copy(invocationId = event.invocationId ?: invocationId)
+                    val receipt = ProviderFailureReceipt.from(profile, role, ownedFailure, usage)
+                    RunDiagnostics.journal?.record(runId, RunDiagnosticKind.FAILURE_RECEIPT, invocationId = receipt.invocationId, successful = false, providerFailure = receipt)
+                    // Delivery can wrap review, extraction, approval or a retained verdict. It
+                    // cannot replace the original producer's profile or borrow its last usage.
+                    if (role != "github-delivery" && receipt.failureDomain == FailureDomain.PROVIDER && (invocationId == null || receipt.invocationId == invocationId) && event.failureDetails?.get("diagnostic_area") == null) {
+                        val ownsStream = invocationId != null && receipt.invocationId == invocationId
+                        val fields = ProviderFailureReport.fields(
+                            runId,
+                            ownedFailure,
+                            receipt,
+                            configured = configured.takeIf { ownsStream },
+                            usage = usage,
+                            visibleBytes = visibleBytes.takeIf { ownsStream },
+                            reasoningBytes = reasoningBytes.takeIf { ownsStream },
+                            metadata = metadata.takeIf { ownsStream }
+                        )
+                        emit(event.copy(failureDetails = JsonObject(event.failureDetails.orEmpty() + fields)))
+                        return@collect
+                    }
                 }
                 emit(event)
             }

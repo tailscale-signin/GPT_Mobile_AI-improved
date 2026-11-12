@@ -6,6 +6,7 @@ import dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunDraft
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode
+import dev.chungjungsoo.gptmobile.data.database.entity.GatewayEngineeringBindingRecord
 import dev.chungjungsoo.gptmobile.data.database.entity.GatewayJobRecord
 import dev.chungjungsoo.gptmobile.data.database.entity.GatewaySubmissionRecord
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
@@ -13,8 +14,12 @@ import dev.chungjungsoo.gptmobile.data.database.entity.PersistAgentTurnRequest
 import dev.chungjungsoo.gptmobile.data.database.entity.PersistAgentTurnResult
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.github.GatewayCommandReceipt
+import dev.chungjungsoo.gptmobile.data.github.GatewayCommandRejected
+import dev.chungjungsoo.gptmobile.data.github.GatewayCommandRejection
 import dev.chungjungsoo.gptmobile.data.github.GatewayConversationRepository
+import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringBinding
 import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringClient
+import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringRequest
 import dev.chungjungsoo.gptmobile.data.github.GatewayJobClient
 import dev.chungjungsoo.gptmobile.data.github.GatewayJobRepository
 import dev.chungjungsoo.gptmobile.data.github.GatewayJobRoute
@@ -133,6 +138,8 @@ class GatewayQueueStoreTest {
         model = profile.model
     )
 
+    private fun rejection(command: String) = GatewayCommandRejection(1, "installation", "principal", command, "generation", "rejected", "EXECUTION_MODEL_LOADING", 409, "provider_admission", "not_dispatched", false)
+
     @Test fun twoChatsCompetingForTheQueueAtomicallyTransferOnlyOnePromptIntoARun() = runBlocking {
         val first = prepare("First prompt")
         val second = prepare("Second prompt")
@@ -183,6 +190,165 @@ class GatewayQueueStoreTest {
         coVerify(exactly = 1) { client.observeCommand(config, saved.commandId) }
         coVerify(exactly = 0) { client.command(any(), any()) }
         coVerify(exactly = 0) { gateway.getJobResult(any(), any()) }
+    }
+
+    @Test fun durableRejectedCommandReleasesTheQueueWithoutRequestingANonexistentJob() = runBlocking {
+        val (result, lease) = claim()
+        val saved = reservation(lease)
+        val outcome = rejection(saved.commandId)
+        database.gatewayJobDao().saveSubmission(saved.copy(state = "REJECTED:409", receipt = Json.encodeToString(outcome)))
+        database.agentRunDao().upsert(result.runs.single().copy(status = "BLOCKED", completedAt = 2, terminalError = "GATEWAY_COMMAND_REJECTED: EXECUTION_MODEL_LOADING; provider_admission; not_dispatched"))
+        coEvery { client.observeCommand(config, saved.commandId) } throws GatewayCommandRejected(outcome)
+        assertTrue(store.remoteSettled(lease))
+        assertFalse(store.needsDelivery(lease))
+        assertTrue(store.deliveryReady(lease))
+        assertTrue(store.release(lease, "VERIFIED_REMOTE_TERMINAL", pendingDelivery = store.needsDelivery(lease)))
+        assertTrue(database.gatewayJobDao().queuedDispatches().isEmpty())
+        assertTrue(database.gatewayJobDao().queuedDeliveries().isEmpty())
+        assertEquals("REJECTED:409", database.gatewayJobDao().submission(saved.commandId)?.state)
+        coVerify(exactly = 0) { client.observeCommand(any(), any()) }
+        coVerify(exactly = 0) { client.command(any(), any()) }
+        coVerify(exactly = 0) { gateway.getJobResult(any(), any()) }
+    }
+
+    @Test fun liveRejectionRetainsItsProofBeforeEndingTheLeaseAndRemovingTheDeliveryRequirement() = runBlocking {
+        val (result, lease) = claim()
+        val saved = reservation(lease)
+        val outcome = rejection(saved.commandId)
+        database.agentRunDao().upsert(result.runs.single().copy(status = "INTERRUPTED", completedAt = 2, terminalError = "GATEWAY_OUTCOME_UNKNOWN: response lost"))
+        assertTrue(store.needsDelivery(lease))
+        coEvery { client.observeCommand(config, saved.commandId) } throws GatewayCommandRejected(outcome)
+        assertTrue(store.remoteSettled(lease))
+        val retained = requireNotNull(database.gatewayJobDao().submission(saved.commandId))
+        assertEquals("REJECTED:409", retained.state)
+        assertEquals(outcome, Json.decodeFromString<GatewayCommandRejection>(requireNotNull(retained.receipt)))
+        assertFalse(store.needsDelivery(lease))
+        assertTrue(store.release(lease, "VERIFIED_REMOTE_TERMINAL", pendingDelivery = store.needsDelivery(lease)))
+        assertTrue(store.active.first().isEmpty())
+        coVerify(exactly = 1) { client.observeCommand(config, saved.commandId) }
+        coVerify(exactly = 0) { client.command(any(), any()) }
+        coVerify(exactly = 0) { gateway.getJobResult(any(), any()) }
+    }
+
+    @Test fun rejectionLabelsWithoutExactAccountCommandKindAndNoDispatchProofKeepTheLease() = runBlocking {
+        val (_, lease) = claim()
+        val saved = reservation(lease)
+        val valid = rejection(saved.commandId)
+        val invalid = listOf(
+            valid.copy(gatewayId = "another-installation"),
+            valid.copy(principalId = "another-principal"),
+            valid.copy(commandId = "another-command"),
+            valid.copy(jobKind = "engineering"),
+            valid.copy(schemaVersion = 2),
+            valid.copy(httpStatus = 503),
+            valid.copy(inferenceAttempted = true),
+            valid.copy(dispatchState = "unknown")
+        ).map { Json.encodeToString(it) } + listOf(null, "legacy HTTP rejection")
+        coEvery { client.observeCommand(config, saved.commandId) } returns null
+        for (payload in invalid) {
+            database.gatewayJobDao().saveSubmission(saved.copy(state = "REJECTED:409", receipt = payload))
+            assertFalse(store.remoteSettled(lease))
+            assertTrue(store.needsDelivery(lease))
+            assertFalse(store.deliveryReady(lease))
+            assertFalse(store.cancelUnsubmitted(lease.chatId))
+            assertEquals(lease, database.gatewayJobDao().queuedDispatches().single())
+        }
+        coVerify(exactly = 0) { gateway.getJobResult(any(), any()) }
+    }
+
+    @Test fun rejectionProofCannotReplaceTheFrozenQueueDestinationOrAnAcceptedCommand() = runBlocking {
+        val (_, lease) = claim()
+        val saved = reservation(lease)
+        val outcome = rejection(saved.commandId)
+        val rejected = saved.copy(state = "REJECTED:409", receipt = Json.encodeToString(outcome))
+        val changed = listOf(
+            rejected.copy(endpoint = "http://192.168.1.99:8090"),
+            rejected.copy(connectionProfileUid = "another-profile"),
+            rejected.copy(executionProfileUid = "another-profile"),
+            rejected.copy(payload = Json.encodeToString(GatewayOrdinaryReservation("ordinary", "another-model", "installation", "principal")))
+        )
+        for (record in changed) {
+            database.gatewayJobDao().saveSubmission(record)
+            assertTrue(runCatching { store.remoteSettled(lease) }.isFailure)
+            assertEquals(lease, database.gatewayJobDao().queuedDispatches().single())
+        }
+        database.gatewayJobDao().saveSubmission(saved)
+        coEvery { client.observeCommand(config, saved.commandId) } throws GatewayCommandRejected(outcome.copy(principalId = "another-principal"))
+        assertTrue(runCatching { store.remoteSettled(lease) }.isFailure)
+        assertEquals(saved, database.gatewayJobDao().submission(saved.commandId))
+        val accepted = saved.copy(state = "ACCEPTED", receipt = Json.encodeToString(receipt(saved.commandId)))
+        coEvery { client.observeCommand(config, saved.commandId) } coAnswers {
+            database.gatewayJobDao().saveSubmission(accepted)
+            throw GatewayCommandRejected(outcome)
+        }
+        assertFalse(store.remoteSettled(lease))
+        assertEquals(accepted, database.gatewayJobDao().submission(saved.commandId))
+        assertTrue(store.needsDelivery(lease))
+        assertEquals(lease, database.gatewayJobDao().queuedDispatches().single())
+        coVerify(exactly = 0) { gateway.getJobResult(any(), any()) }
+    }
+
+    @Test fun anExternalOrdinaryRejectionEndsOnlyItsOriginalUnknownAdmission() = runBlocking {
+        val (result, lease) = claim()
+        val saved = reservation(lease)
+        database.agentRunDao().upsert(result.runs.single().copy(status = "INTERRUPTED", completedAt = 2))
+        coEvery { client.observeCommand(config, saved.commandId) } throws GatewayCommandRejected(rejection(saved.commandId))
+        assertNull(store.externalWorkBlocker())
+        assertEquals("REJECTED:409", database.gatewayJobDao().submission(saved.commandId)?.state)
+        coVerify(exactly = 1) { client.observeCommand(config, saved.commandId) }
+        coVerify(exactly = 0) { client.command(any(), any()) }
+        coVerify(exactly = 0) { gateway.getJobResult(any(), any()) }
+    }
+
+    @Test fun anExternalEngineeringRejectionMustMatchTheFrozenBindingBeforeTheFenceEnds() = runBlocking {
+        val (result, lease) = claim()
+        val saved = reservation(lease, state = "OUTCOME_UNKNOWN")
+        database.agentRunDao().upsert(result.runs.single().copy(status = "INTERRUPTED", completedAt = 2))
+        val request = GatewayEngineeringRequest("owner/repo", "work", "main", "Original task", profile.model, chatId = lease.chatId, requestId = saved.commandId, profileId = profile.uid)
+        val binding = GatewayEngineeringBinding(profile.uid, profile.apiUrl, request, principalId = "principal", gatewayId = "installation")
+        database.gatewayJobDao().saveBinding(GatewayEngineeringBindingRecord(saved.commandId, lease.chatId, null, Json.encodeToString(binding), 1))
+        database.gatewayJobDao().saveSubmission(saved.copy(payload = Json.encodeToString(request)))
+        val outcome = rejection(saved.commandId).copy(jobKind = "engineering")
+        for (wrong in listOf(outcome.copy(principalId = "another-principal"), outcome.copy(jobKind = "generation"))) {
+            coEvery { client.observeCommand(config, saved.commandId) } throws GatewayCommandRejected(wrong)
+            assertTrue(runCatching { store.externalWorkBlocker() }.isFailure)
+            assertEquals("OUTCOME_UNKNOWN", database.gatewayJobDao().submission(saved.commandId)?.state)
+        }
+        coEvery { client.observeCommand(config, saved.commandId) } throws GatewayCommandRejected(outcome)
+        assertNull(store.externalWorkBlocker())
+        assertEquals("REJECTED:409", database.gatewayJobDao().submission(saved.commandId)?.state)
+        coVerify(exactly = 0) { engineering.get(any(), any(), any()) }
+        coVerify(exactly = 0) { gateway.getJobResult(any(), any()) }
+    }
+
+    @Test fun aLaterRejectedCommandCannotEraseAnEarlierUnknownOutcomeOrAcceptedReply() = runBlocking {
+        val (_, lease) = claim()
+        val earlier = reservation(lease, command = "earlier-command")
+        val later = reservation(lease, command = "later-command")
+        database.gatewayJobDao().saveSubmission(later.copy(state = "REJECTED:409", receipt = Json.encodeToString(rejection(later.commandId))))
+        coEvery { client.observeCommand(config, earlier.commandId) } returns null
+        assertFalse(store.remoteSettled(lease))
+        assertTrue(store.needsDelivery(lease))
+        assertEquals(lease, database.gatewayJobDao().queuedDispatches().single())
+        database.gatewayJobDao().saveSubmission(earlier.copy(state = "SETTLED", receipt = Json.encodeToString(receipt(earlier.commandId))))
+        assertTrue(store.remoteSettled(lease))
+        assertTrue(store.needsDelivery(lease))
+        assertTrue(store.release(lease, "VERIFIED_REMOTE_TERMINAL", pendingDelivery = store.needsDelivery(lease)))
+        assertEquals("LOCAL_QUEUE_DELIVERY_PENDING", store.active.first().single().state)
+        assertFalse(store.deliveryReady(store.active.first().single()))
+    }
+
+    @Test fun rejectionProofCannotCertifyAnOlderJobWithoutItsAcceptedCommand() = runBlocking {
+        val (result, lease) = claim()
+        val saved = reservation(lease)
+        database.gatewayJobDao().saveSubmission(saved.copy(state = "REJECTED:409", receipt = Json.encodeToString(rejection(saved.commandId))))
+        database.agentRunDao().upsert(result.runs.single().copy(status = "INTERRUPTED", gatewayJobId = "older-unknown-job", gatewayBaseUrl = profile.apiUrl, completedAt = 2))
+        assertFalse(store.remoteSettled(lease))
+        assertFalse(store.deliveryReady(lease))
+        assertFalse(store.cancelUnsubmitted(lease.chatId))
+        assertEquals(lease, database.gatewayJobDao().queuedDispatches().single())
+        coVerify(exactly = 0) { client.command(any(), any()) }
+        coVerify(exactly = 0) { client.observeCommand(any(), any()) }
     }
 
     @Test fun terminalProofDoesNotDependOnTranscriptDeliveryAndAReleasedLeaseStaysReleased() = runBlocking {
@@ -343,6 +509,19 @@ class GatewayQueueStoreTest {
         assertEquals(uncertain, database.gatewayJobDao().queuedDispatches().single())
     }
 
+    @Test fun explicitCancelRecognizesAnExactRetainedRejectionWithoutDispatchingAgain() = runBlocking {
+        val (result, lease) = claim()
+        val saved = reservation(lease)
+        database.agentRunDao().upsert(result.runs.single().copy(status = "INTERRUPTED", completedAt = 2))
+        database.gatewayJobDao().saveSubmission(saved.copy(state = "REJECTED:409", receipt = Json.encodeToString(rejection(saved.commandId))))
+        assertTrue(store.cancelUnsubmitted(lease.chatId))
+        assertTrue(store.active.first().isEmpty())
+        assertEquals("CANCELED", database.agentRunDao().getById(requireNotNull(lease.runId))?.status)
+        assertEquals("REJECTED:409", database.gatewayJobDao().submission(saved.commandId)?.state)
+        coVerify(exactly = 0) { client.command(any(), any()) }
+        coVerify(exactly = 0) { client.observeCommand(any(), any()) }
+    }
+
     @Test fun explicitBackupReviewRequiresRemoteEvidenceAndPreservesTheSavedReplyDeliveryGate() = runBlocking {
         for (state in listOf("LOCAL_QUEUE_ACTIVE", "LOCAL_QUEUE_DELIVERY_PENDING")) {
             val (result, lease) = claim()
@@ -376,6 +555,105 @@ class GatewayQueueStoreTest {
             assertTrue(store.finishDelivery(delivering))
             assertTrue(store.active.first().isEmpty())
         }
+    }
+
+    @Test fun restoredRejectionsRequireFreshProofAndReleaseWithoutInventingSavedReplyDelivery() = runBlocking {
+        for (state in listOf("LOCAL_QUEUE_ACTIVE", "LOCAL_QUEUE_DELIVERY_PENDING")) {
+            val (result, lease) = claim()
+            database.agentRunDao().upsert(result.runs.single().copy(status = "INTERRUPTED", completedAt = 2, terminalError = "BACKUP_RESTORED"))
+            val restored = lease.copy(state = state, receipt = "BACKUP_RESTORED")
+            database.gatewayJobDao().saveSubmission(restored)
+            val saved = reservation(restored, command = "rejected-$state")
+            val outcome = rejection(saved.commandId)
+            database.gatewayJobDao().saveSubmission(saved.copy(state = "REJECTED:409", receipt = Json.encodeToString(outcome)))
+            assertFalse(store.deliveryReady(restored))
+            assertFalse(store.cancelUnsubmitted(restored.chatId))
+            coEvery { client.command(config, saved.commandId) } returns null
+            assertFalse(store.reviewRestored(restored))
+            coEvery { client.command(config, saved.commandId) } throws IOException("Original gateway unavailable")
+            assertTrue(runCatching { store.reviewRestored(restored) }.isFailure)
+            coEvery { client.command(config, saved.commandId) } throws GatewayCommandRejected(outcome.copy(principalId = "another-principal"))
+            assertTrue(runCatching { store.reviewRestored(restored) }.isFailure)
+            assertEquals(restored, database.gatewayJobDao().submission(restored.commandId))
+            coEvery { client.command(config, saved.commandId) } throws GatewayCommandRejected(outcome)
+            assertTrue(store.reviewRestored(restored))
+            assertTrue(store.active.first().isEmpty())
+            assertNull(database.agentRunDao().getById(requireNotNull(lease.runId))?.gatewayJobId)
+            assertEquals("REJECTED:409", database.gatewayJobDao().submission(saved.commandId)?.state)
+            coVerify(exactly = 4) { client.command(config, saved.commandId) }
+        }
+        coVerify(exactly = 0) { client.observeCommand(any(), any()) }
+        coVerify(exactly = 0) { gateway.getJobResult(any(), any()) }
+    }
+
+    @Test fun aRestoredLaterRejectionCannotHideAnEarlierAcceptedSavedReply() = runBlocking {
+        val (result, lease) = claim()
+        val run = result.runs.single()
+        database.agentRunDao().upsert(run.copy(status = "INTERRUPTED", gatewayJobId = "saved-job", gatewayBaseUrl = profile.apiUrl, completedAt = 2, terminalError = "BACKUP_RESTORED"))
+        val restored = lease.copy(receipt = "BACKUP_RESTORED")
+        database.gatewayJobDao().saveSubmission(restored)
+        val accepted = reservation(restored, command = "earlier-accepted", state = "SETTLED")
+        database.gatewayJobDao().saveSubmission(accepted.copy(receipt = Json.encodeToString(receipt(accepted.commandId))))
+        val rejected = reservation(restored, command = "later-rejected")
+        val outcome = rejection(rejected.commandId)
+        database.gatewayJobDao().saveSubmission(rejected.copy(state = "REJECTED:409", receipt = Json.encodeToString(outcome)))
+        coEvery { client.command(config, rejected.commandId) } throws GatewayCommandRejected(outcome)
+        coEvery { client.command(config, accepted.commandId) } returns receipt(accepted.commandId)
+        coEvery { gateway.getJobResult("saved-job", config) } returns GatewayJobResult("saved-job", "completed", job = GatewaySavedJob(profile.model, "saved-job"))
+        assertTrue(store.reviewRestored(restored))
+        val delivering = store.active.first().single()
+        assertEquals("LOCAL_QUEUE_DELIVERY_PENDING", delivering.state)
+        assertEquals("RESTORED_REMOTE_TERMINAL_VERIFIED", delivering.receipt)
+        assertEquals("saved-job", database.agentRunDao().getById(run.runId)?.gatewayJobId)
+        assertTrue(store.needsDelivery(delivering))
+        assertFalse(store.deliveryReady(delivering))
+        coVerify(exactly = 1) { client.command(config, accepted.commandId) }
+        coVerify(exactly = 1) { client.command(config, rejected.commandId) }
+        coVerify(exactly = 0) { client.observeCommand(any(), any()) }
+    }
+
+    @Test fun aRestoredLocalUnsentMarkerAloneCannotReplaceRemoteReview() = runBlocking {
+        val (result, lease) = claim()
+        database.agentRunDao().upsert(result.runs.single().copy(status = "INTERRUPTED", completedAt = 2, terminalError = "BACKUP_RESTORED"))
+        val restored = lease.copy(receipt = "BACKUP_RESTORED")
+        database.gatewayJobDao().saveSubmission(restored)
+        val reserved = reservation(restored, state = "RESERVED_ORDINARY")
+        coEvery { client.command(config, reserved.commandId) } returns null
+        assertFalse(store.reviewRestored(restored))
+        assertEquals(1, database.gatewayJobDao().markOrdinaryNotDispatched(reserved.commandId, requireNotNull(lease.runId)))
+        assertFalse(store.reviewRestored(restored))
+        assertEquals(restored, database.gatewayJobDao().queuedDispatches().single())
+        coVerify(exactly = 2) { client.command(config, reserved.commandId) }
+    }
+
+    @Test fun aRestoredRejectionCannotCertifyAnotherCommandsStaleUnsentMarker() = runBlocking {
+        for (state in listOf("RESERVED_ORDINARY", "REJECTED_NOT_DISPATCHED")) {
+            val (result, lease) = claim()
+            database.agentRunDao().upsert(result.runs.single().copy(status = "INTERRUPTED", completedAt = 2, terminalError = "BACKUP_RESTORED"))
+            val restored = lease.copy(receipt = "BACKUP_RESTORED")
+            database.gatewayJobDao().saveSubmission(restored)
+            val rejected = reservation(restored, command = "earlier-rejected-$state")
+            val outcome = rejection(rejected.commandId)
+            database.gatewayJobDao().saveSubmission(rejected.copy(state = "REJECTED:409", receipt = Json.encodeToString(outcome)))
+            val unsent = reservation(restored, command = "later-unsent-$state", state = state)
+            coEvery { client.command(config, rejected.commandId) } throws GatewayCommandRejected(outcome)
+            coEvery { client.command(config, unsent.commandId) } returns null
+            assertFalse(store.remoteSettled(restored))
+            assertFalse(store.reviewRestored(restored))
+            assertEquals(state, database.gatewayJobDao().submission(unsent.commandId)?.state)
+            assertEquals(restored, database.gatewayJobDao().queuedDispatches().single())
+            coEvery { client.command(config, unsent.commandId) } returns receipt(unsent.commandId)
+            coEvery { gateway.getJobResult("saved-job", config) } returns GatewayJobResult("saved-job", "running", job = GatewaySavedJob(profile.model, "saved-job"))
+            assertFalse(store.reviewRestored(restored))
+            assertEquals(state, database.gatewayJobDao().submission(unsent.commandId)?.state)
+            assertEquals(restored, database.gatewayJobDao().queuedDispatches().single())
+            coEvery { client.command(config, unsent.commandId) } throws GatewayCommandRejected(rejection(unsent.commandId))
+            assertTrue(store.reviewRestored(restored))
+            assertEquals("REJECTED:409", database.gatewayJobDao().submission(unsent.commandId)?.state)
+            assertTrue(store.active.first().isEmpty())
+            coVerify(exactly = 3) { client.command(config, unsent.commandId) }
+        }
+        coVerify(exactly = 0) { client.observeCommand(any(), any()) }
     }
 
     @Test fun terminalExecutionAllowsAnotherChatWhileTheSameChatWaitsForItsSavedReply() = runBlocking {

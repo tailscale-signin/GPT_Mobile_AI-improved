@@ -35,29 +35,47 @@
     "canonical_fast": {
       "status": "PASSED",
       "host_tests": 462,
-      "literal_android_regex_patterns": 1547,
+      "literal_android_regex_patterns": 1548,
       "resource_xml_files": 34
     },
     "voice_host": {
       "status": "PASSED",
       "tests": 78,
-      "scope": "Current production voice/diagnostic code; Kotlin/JUnit/Robolectric with controlled recognizer/capture boundaries and cached unrelated app dependencies. No JNI or physical-device qualification."
+      "scope": "Current production voice/diagnostic code; Kotlin/JUnit/Robolectric with controlled recognizer/capture boundaries and cached unrelated app dependencies. No JNI or physical-device qualification.",
+      "validated_before_concurrent_gateway_remediation": true
     },
     "issue_reporting_host": {
       "status": "PASSED",
       "tests": 12,
-      "scope": "Current production recorder, incidents, public-code projection and Unicode fallback; real Robolectric dependencies."
+      "scope": "Current production recorder, incidents, public-code projection and Unicode fallback; real Robolectric dependencies.",
+      "revalidated_after_concurrent_gateway_remediation": true
     },
     "authentication_service": {
       "status": "PASSED",
       "tests": 35
     },
-    "gateway_model_preparation": {
-      "status": "PASSED",
-      "tests": 44,
-      "scope": "Existing Python model-preparation behavioral suite; no physical model load."
-    },
     "gateway_host": {
+      "status": "PASSED",
+      "tests": 110,
+      "classes": {
+        "GatewayJobClientTest": 12,
+        "GatewayConversationRepositoryTest": 33,
+        "GatewayEngineeringSubmissionTest": 11,
+        "GatewayQueueStoreTest": 30,
+        "GatewayCommandReconciliationTest": 2,
+        "GatewayEngineeringClientTest": 22
+      },
+      "scope": "45 current production files and six current test files, including both queue implementations and new rejection/reconciliation helpers. All 51 source hashes match the integrated revision. Real cached app/platform dependencies; unchanged sameGatewayEndpoint facade provenance retained. No stubbed gateway implementation.",
+      "source_manifest_sha256": "63bb4fadc7710a2c4e65a30cd2727574b5a91f9dad75cd4faed9e215e89192d0",
+      "baseline_regression": "97 tests exposed the queue rejection defect and three newly added marker/scheduling failures. The concurrent 52f545c revision repairs marker/scheduling behavior; 13 new queue regressions verify safe settlement."
+    },
+    "formatting": {
+      "status": "PASSED",
+      "ktlint": "1.3.1",
+      "kotlin_files": 25,
+      "whitespace": "PASSED"
+    },
+    "prior_gateway_host": {
       "status": "PASSED",
       "tests": 67,
       "classes": {
@@ -69,25 +87,52 @@
       "scope": "Current gateway production and test sources compiled with real cached app/platform dependencies; 38 production and 4 test source hashes remained unchanged through execution. The unchanged sameGatewayEndpoint top-level facade is reused with declaration and class provenance recorded. No stubbed gateway behavior.",
       "source_manifest_sha256": "9b4429448f71b8a29e94dc92c57ffa130853b89bb47eb3f17f2488ae34cf07a4"
     },
-    "formatting": {
+    "prior_gateway_model_preparation": {
+      "status": "PASSED",
+      "tests": 44,
+      "scope": "Existing Python model-preparation behavioral suite; no physical model load."
+    },
+    "model_preparation_host": {
+      "status": "PASSED",
+      "tests": 23,
+      "production_sources": 19,
+      "scope": "Current repository, durable operation store, selection controller and preparation API tests; source hashes remained unchanged after integration. Host transport boundaries only, no live model load."
+    },
+    "queue_formatting": {
       "status": "PASSED",
       "ktlint": "1.3.1",
-      "kotlin_files": 25,
+      "kotlin_files": 3,
       "whitespace": "PASSED"
     }
   },
   "publication": {
     "mode": "GUARDED_FAST_FORWARD_ONLY",
     "force": false,
-    "merge_condition": "All applicable current-head checks and effective GitHub rules must pass."
+    "merge_condition": "All applicable current-head checks and effective GitHub rules must pass.",
+    "expected_remote_head": "52f545c13dd49a25dee6153008bfaaef0a977109"
   },
-  "source_revision": "2ce72bee1ceee6a6c057795c28f507761d5f2b48",
+  "source_revision": "56386cb853d096f2fb31aa9f80d3cee5fd744b60",
   "changes": [
     "Moonshine silence uses the existing bounded retry policy; fatal recognition, memory and cleanup failures dominate silence and preserve repair actions.",
     "Voice incidents preserve a single fixed failure code and safe original exception evidence across both local Moonshine and Android fallback recognition.",
     "Passive missing Gateway command receipts use isolated exponential backoff; explicit reconnect and restored-work review still read live and never replay an unknown command.",
     "Gateway route diagnostics distinguish command, message, conversation, capability and catalog reads.",
     "Approved public reports retain application-owned failure codes and safe frames without raw messages, endpoint identifiers or private-session content.",
-    "Unicode-heavy fallback reports retain app version, commit, report identity and error metadata inside the encoded URL budget."
-  ]
+    "Unicode-heavy fallback reports retain app version, commit, report identity and error metadata inside the encoded URL budget.",
+    "Verified no-dispatch rejection proofs settle queue leases without waiting for nonexistent output; malformed or unrelated receipts, accepted races, unrepresented older jobs and uncertain restored commands remain fenced. Explicit restore checks each command live and preserves earlier accepted output delivery."
+  ],
+  "source_revision_kind": "LOCAL_VALIDATION_REVISION",
+  "integrated_remote_head": "52f545c13dd49a25dee6153008bfaaef0a977109",
+  "prior_repair_commit": "aa51231a492ae4fde208d1ca2d17e64790f3bf53",
+  "integration_review": {
+    "status": "NO_REMAINING_SCOPED_BLOCKERS",
+    "focus": [
+      "typed rejection authority",
+      "restored mixed-command evidence",
+      "earlier accepted reply delivery",
+      "legacy remote job identity",
+      "safe diagnostics and frame classification"
+    ],
+    "physical_qualification": "NOT_CLAIMED"
+  }
 }

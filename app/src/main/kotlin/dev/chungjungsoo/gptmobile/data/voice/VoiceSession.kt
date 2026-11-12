@@ -454,8 +454,7 @@ class VoiceSession(
         update(state.copy(muted = !state.muted))
         if (state.phase == VoicePhase.SPEAKING || state.phase == VoicePhase.THINKING || state.phase == VoicePhase.REVIEWING) return
         if (state.muted) {
-            stopAudio()
-            update(state.copy(phase = VoicePhase.PAUSED, level = 0f))
+            pause()
         } else {
             resume()
         }

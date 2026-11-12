@@ -141,7 +141,8 @@ internal class GitHubDispatchAccounting(
             }
         } else {
             readResponses++
-            if (request.readRetry != null && request.readAttempt != null && request.requestDigest != null) {
+            val qualifiedResponse = status in 200..299 || status == 304 || expectedAbsence && status == 404
+            if (qualifiedResponse && request.readRetry != null && request.readAttempt != null && request.requestDigest != null) {
                 observedRetryTargets.getOrPut(request.readRetry) { mutableMapOf() }
                     .getOrPut(request.readAttempt) { mutableSetOf() }.add(request.requestDigest)
             }

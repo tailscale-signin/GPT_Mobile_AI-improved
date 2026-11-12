@@ -122,6 +122,25 @@ class GitHubReadRetryObservationTest {
         assertEquals(JsonPrimitive(3), result.executionReceipt?.get("unobserved_read_requests"))
     }
 
+    @Test fun onlyQualifiedResponsesCanReplaceAnUnansweredAttempt() = runTest {
+        for ((status, expectedAbsence, verified) in listOf(Triple(403, false, false), Triple(404, false, false), Triple(404, true, true), Triple(304, false, true))) {
+            val accounting = GitHubDispatchAccounting(forceLiveReads = true, record = {})
+            var attempts = 0
+            withContext(accounting) {
+                GitHubReadRetry.run {
+                    val id = GitHubDispatchAccounting.started(false, "/same")
+                    if (++attempts == 1) throw IOException("connection reset")
+                    GitHubDispatchAccounting.responded(false, status, id, null, expectedAbsence)
+                }
+            }
+            val result = accounting.finish(success(), false)
+            assertEquals("HTTP $status, expectedAbsence=$expectedAbsence", verified, !result.isError)
+            assertEquals(JsonPrimitive(if (verified) 1 else 0), result.executionReceipt?.get("recovered_read_requests"))
+            assertEquals(JsonPrimitive(if (verified) 0 else 1), result.executionReceipt?.get("unobserved_read_requests"))
+            assertEquals(JsonPrimitive(1), result.executionReceipt?.get("read_response_observations"))
+        }
+    }
+
     @Test fun cancellationAfterResponseDoesNotCertifyTheUnfinishedRetry() = runTest {
         val accounting = GitHubDispatchAccounting(forceLiveReads = true, record = {})
         var attempts = 0

@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "6b21855d5d05736a85683e5d58efce7c192e161451c8a6024aa8c268803044c0",
+  "source_digest": "50debba9536da11da34a06918e438b9f821851b13aa248b1e60f83e97ae38511",
   "file_count": 2443,
-  "indexed_line_count": 386540,
+  "indexed_line_count": 386581,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -166,7 +166,7 @@
       "id": "gateway_software",
       "label": "Companion gateway software",
       "file_count": 113,
-      "indexed_line_count": 62569
+      "indexed_line_count": 62610
     },
     {
       "id": "authentication_service",
@@ -16523,8 +16523,8 @@
       "path": "gateway/gateway_v14.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "6a80ad8cdfaff19001a157c08c1a91be7846e424224fa0cfa0d993fd68675d8b",
-      "indexed_lines": 489
+      "sha256": "34fa74c2318cfc6d1a2502104a74f1f3391af7e24f659ff4e4ae2b4a4fb3fcfd",
+      "indexed_lines": 499
     },
     {
       "path": "gateway/install_gateway_v12.ps1",
@@ -16607,8 +16607,8 @@
       "path": "gateway/v14/browser.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "ab46b807439cac21f766a03e0f7a60d72155f5ba433618f2866d35b3aea725b1",
-      "indexed_lines": 48
+      "sha256": "efa7894ca665735d81e14870c8aea446e110b2bb5121503da905a46e25714635",
+      "indexed_lines": 76
     },
     {
       "path": "gateway/v14/catalog.py",
@@ -16901,8 +16901,8 @@
       "path": "gateway/v14/identity.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "59518e5dac723a8a9a90acd6fad24e8d5d9602c1bd7f10941bb8226596e0ddef",
-      "indexed_lines": 178
+      "sha256": "dcf17e43e7244c67f00f4cd817b800c4df5000ca0ec9f3876bca02ae6606226a",
+      "indexed_lines": 181
     },
     {
       "path": "gateway/v14/inference_budget.py",

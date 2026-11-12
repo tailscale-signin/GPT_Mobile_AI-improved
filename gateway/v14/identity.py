@@ -9,6 +9,7 @@ from dataclasses import dataclass
 
 from fastapi.responses import JSONResponse
 from gateway_security import current_device, device_store
+from v14.browser import LANDING_PATHS
 
 
 @dataclass(frozen=True)
@@ -122,7 +123,8 @@ class Admission:
         principal = await self.resolver.resolve(scope, headers)
         if principal is None:
             return await deny("transport_identity_required", 401)
-        path = scope.get("path", "").removeprefix("/v1")
+        request_path = scope.get("path", "")
+        path = request_path.removeprefix("/v1")
         if path.startswith("/gateway/admin/") or path.startswith("/gateway/mcp/restart/") or path == "/gateway/tools/refresh":
             if not principal.local_admin:
                 return await deny("local_admin_required")
@@ -139,7 +141,8 @@ class Admission:
             public_reads = {"/models", "/gateway/capabilities", "/gateway/ready", "/gateway/live", "/gateway/v13", "/gateway/v14", "/gateway/v15", "/gateway/v16", "/gateway/connections", "/gateway/tools", "/gateway/session", "/gateway/dashboard"}
             job_path = path == "/gateway/jobs" or path.startswith("/gateway/jobs/")
             if scope["method"] in {"GET", "HEAD"}:
-                if path not in public_reads and not job_path and not engineering_path and not diagnostics_path and not conversation_path and not catalog_path:
+                landing_page = self.config.mode == "open_network" and request_path in LANDING_PATHS
+                if not landing_page and path not in public_reads and not job_path and not engineering_path and not diagnostics_path and not conversation_path and not catalog_path:
                     return await deny("remote_surface_not_admitted")
             elif not engineering_path and not (conversation_path and path.endswith('/messages') and scope['method'] == 'POST') and not diagnostics_write and path != "/chat/completions" and not (job_path and path.endswith("/cancel") and scope["method"] == "POST"):
                 return await deny("local_admin_required")

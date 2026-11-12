@@ -93,6 +93,34 @@ class SavedWorkAdmissionTests(unittest.TestCase):
             self.assertEqual(403, client.post('/gateway/tools/refresh').status_code)
             self.assertEqual(401, client.get('/gateway/admin/dashboard').status_code)
 
+    def test_network_browser_base_urls_serve_a_local_page_without_proxying(self):
+        with self.client() as client, patch.object(self.runtime, 'proxy_to_llama') as proxy:
+            for path in ('/', '/v1', '/v1/'):
+                with self.subTest(path=path):
+                    response = client.get(path, headers={'Accept': 'text/html'})
+                    self.assertEqual(200, response.status_code)
+                    self.assertIn('text/html', response.headers['content-type'])
+                    self.assertIn('GPT Mobile Gateway', response.text)
+                    self.assertIn('href="/gateway/live"', response.text)
+                    self.assertIn("default-src 'none'", response.headers['content-security-policy'])
+                    self.assertEqual('no-store', response.headers['cache-control'])
+                    head = client.head(path)
+                    self.assertEqual(200, head.status_code)
+                    self.assertEqual(b'', head.content)
+                    self.assertEqual(403, client.post(path).status_code)
+            self.assertTrue(client.get('/gateway/live').json()['live'])
+            self.assertEqual('invalid_host', client.get('/', headers={'Host': 'unconfigured.example'}).headers['x-gateway-admission-error'])
+            self.assertEqual('invalid_origin', client.get('/', headers={'Origin': 'http://unconfigured.example'}).headers['x-gateway-admission-error'])
+            for path in ('/v1/v1', '/sw.js', '/gateway/browser-bootstrap.js', '/gateway/docs'):
+                self.assertEqual('remote_surface_not_admitted', client.get(path).headers['x-gateway-admission-error'])
+            proxy.assert_not_called()
+
+    def test_legacy_proxy_still_rejects_the_browser_page(self):
+        with self.client('trusted_proxy') as client:
+            self.assertEqual('transport_identity_required', client.get('/').headers['x-gateway-admission-error'])
+            headers = {'Tailscale-User-Login': 'reader@example.test'}
+            self.assertEqual('remote_surface_not_admitted', client.get('/', headers=headers).headers['x-gateway-admission-error'])
+
 
 if __name__ == '__main__':
     unittest.main()

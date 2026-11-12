@@ -48,7 +48,7 @@ from v14.tools import install_exact_routing
 from v14.github import install_github_fast_path
 from v14.batch import install_batch
 from v14.catalog import install_catalog_cache
-from v14.browser import BOOTSTRAP_PATH, install_browser_proxy
+from v14.browser import BOOTSTRAP_PATH, LANDING_PATHS, gateway_landing, install_browser_proxy
 from v14.service import ServiceState, LoadGuard
 from v14.activity import ActivityTracker, ActivityMiddleware, desktop_snapshot, client_snapshot
 from v14.mcp import install_mcp_resilience
@@ -408,6 +408,16 @@ async def local_doctor(model: str = ''):
     if len(model) > 512:
         return JSONResponse({'error': {'code': 'invalid_model_identifier'}}, status_code=400)
     return await asyncio.to_thread(doctor, model)
+
+
+async def browser_entry(request: Request):
+    if config.mode == "open_network":
+        return gateway_landing()
+    return await runtime.proxy_to_llama(request, request.scope["route"].path[1:])
+
+
+for landing_path in LANDING_PATHS:
+    app.add_api_route(landing_path, browser_entry, methods=["GET", "HEAD"], include_in_schema=False)
 
 
 # New routes precede the retained catch-all UI proxy. Authentication is replaced

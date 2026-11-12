@@ -267,6 +267,123 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(1,session.get.call_count)
 
 
+class StatusPublicationTests(unittest.TestCase):
+    @staticmethod
+    def windows_error(code):
+        error = PermissionError(13, 'File replacement denied')
+        error.winerror = code
+        return error
+
+    def test_transient_windows_status_lock_reuses_the_synced_payload(self):
+        for code in (5, 32):
+            with self.subTest(winerror=code), tempfile.TemporaryDirectory() as temp:
+                path = Path(temp) / 'status.json'
+                old, new = {'state': 'rollback'}, {'state': 'running', 'version': VERSION}
+                atomic_json(path, old)
+                original = path.read_bytes()
+                replacement = json.dumps(new, indent=2).encode()
+                replace = os.replace
+                sources = []
+
+                def locked_replace(source, destination):
+                    self.assertEqual(path, destination)
+                    self.assertEqual(original, path.read_bytes())
+                    self.assertEqual(replacement, source.read_bytes())
+                    sources.append(source)
+                    if len(sources) <= 2:
+                        raise self.windows_error(code)
+                    replace(source, destination)
+
+                with patch('desktop.configuration.sys.platform', 'win32'), \
+                        patch('desktop.configuration.os.replace', side_effect=locked_replace) as replacement_call, \
+                        patch('desktop.configuration.os.fsync', wraps=os.fsync) as sync, \
+                        patch('desktop.configuration.time.sleep') as sleep:
+                    atomic_json(path, new, retry_windows_sharing=True)
+                self.assertEqual(3, replacement_call.call_count)
+                self.assertEqual(1, len(set(sources)))
+                sync.assert_called_once()
+                self.assertEqual([.01, .02], [call.args[0] for call in sleep.call_args_list])
+                self.assertEqual(new, json.loads(path.read_text()))
+                self.assertEqual([path], list(Path(temp).iterdir()))
+
+    def test_persistent_windows_status_lock_is_bounded_and_preserves_last_file(self):
+        for code in (5, 32):
+            with self.subTest(winerror=code), tempfile.TemporaryDirectory() as temp:
+                path = Path(temp) / 'status.json'
+                atomic_json(path, {'state': 'rollback'})
+                original = path.read_bytes()
+                error = self.windows_error(code)
+                with patch('desktop.configuration.sys.platform', 'win32'), \
+                        patch('desktop.configuration.os.replace', side_effect=error) as replace, \
+                        patch('desktop.configuration.time.sleep') as sleep:
+                    with self.assertRaises(PermissionError) as raised:
+                        atomic_json(path, {'state': 'running'}, retry_windows_sharing=True)
+                self.assertIs(error, raised.exception)
+                self.assertEqual(6, replace.call_count)
+                self.assertEqual([.01, .02, .04, .08, .16], [call.args[0] for call in sleep.call_args_list])
+                self.assertEqual(original, path.read_bytes())
+                self.assertEqual([path], list(Path(temp).iterdir()))
+
+    def test_other_errors_platforms_and_non_status_writes_do_not_retry(self):
+        cases = [
+            ('win32', True, OSError(28, 'Disk full')),
+            ('win32', True, PermissionError(13, 'No Windows error code')),
+            ('win32', True, self.windows_error(19)),
+            ('win32', False, self.windows_error(5)),
+            ('linux', True, self.windows_error(5)),
+        ]
+        for platform, enabled, error in cases:
+            with self.subTest(platform=platform, enabled=enabled, error=repr(error)), tempfile.TemporaryDirectory() as temp:
+                path = Path(temp) / ('status.json' if enabled else 'settings.json')
+                atomic_json(path, {'previous': True})
+                original = path.read_bytes()
+                with patch('desktop.configuration.sys.platform', platform), \
+                        patch('desktop.configuration.os.replace', side_effect=error) as replace, \
+                        patch('desktop.configuration.time.sleep') as sleep:
+                    with self.assertRaises(OSError) as raised:
+                        atomic_json(path, {'previous': False}, retry_windows_sharing=enabled)
+                self.assertIs(error, raised.exception)
+                replace.assert_called_once()
+                sleep.assert_not_called()
+                self.assertEqual(original, path.read_bytes())
+                self.assertEqual([path], list(Path(temp).iterdir()))
+
+    def test_supervisor_publishes_state_only_after_the_atomic_replace(self):
+        with tempfile.TemporaryDirectory() as temp:
+            manager = Supervisor.__new__(Supervisor)
+            manager.root = Path(temp)
+            manager.status = {'state': 'rollback', 'version': VERSION, 'updatedAt': 1}
+            previous = dict(manager.status)
+            path = manager.root / 'status.json'
+            atomic_json(path, previous)
+            error = self.windows_error(5)
+            with patch('desktop.configuration.sys.platform', 'win32'), \
+                    patch('desktop.configuration.os.replace', side_effect=error), \
+                    patch('desktop.configuration.time.sleep'):
+                with self.assertRaises(PermissionError):
+                    manager.publish(state='running')
+            self.assertEqual(previous, manager.status)
+            self.assertEqual(previous, json.loads(path.read_text()))
+            replace = os.replace
+            attempts = []
+
+            def transient_replace(source, destination):
+                self.assertEqual(previous, manager.status)
+                attempts.append(source)
+                if len(attempts) == 1:
+                    raise error
+                replace(source, destination)
+
+            with patch('desktop.configuration.sys.platform', 'win32'), \
+                    patch('desktop.configuration.os.replace', side_effect=transient_replace), \
+                    patch('desktop.configuration.time.sleep'):
+                manager.publish(state='running')
+            self.assertEqual(2, len(attempts))
+            self.assertEqual('running', manager.status['state'])
+            self.assertEqual(manager.status, json.loads(path.read_text()))
+            self.assertEqual([path], list(manager.root.iterdir()))
+
+
 class UpdateTransactionTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory();self.root=Path(self.temp.name)

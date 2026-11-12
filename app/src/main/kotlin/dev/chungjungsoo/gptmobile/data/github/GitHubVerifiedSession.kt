@@ -1000,9 +1000,10 @@ internal class GitHubVerifiedSession(
             val priorIndex = if (samePlan) index else savedRequirementIds.indexOfFirst { it == request.requirementIds }
             val prior = savedBatches.getOrNull(priorIndex) as? JsonObject ?: return@forEachIndexed
             val validated = runCatching { GitHubClaimBatches.validate(prior, request) }.getOrNull() ?: return@forEachIndexed
-            val stillValid = samePlan || withContext(computationDispatcher) {
-                GitHubEvidencePolicy.canReuseExtractionBatch(validated, receipts, now(), epoch, task)
-            }
+            val stillValid = samePlan ||
+                withContext(computationDispatcher) {
+                    GitHubEvidencePolicy.canReuseExtractionBatch(validated, receipts, now(), epoch, task)
+                }
             if (stillValid) completed[index] = validated
         }
         fun completedCount() = completed.count { it != null }
@@ -1020,12 +1021,15 @@ internal class GitHubVerifiedSession(
                             providerFailure?.failureDetails?.forEach { (key, value) -> put(key, value) }
                             put("code", code)
                             put("failed_stage", "claim_extraction")
-                            put("recovery_action", when (code) {
-                                "GITHUB_EXTRACTION_OUTPUT_LIMIT" -> "RESUME_THIS_BATCH_WITH_A_SMALLER_CLAIM_LIMIT"
-                                "GITHUB_EXTRACTION_INVALID_RESPONSE" -> "RESUME_THIS_BATCH_WITH_STRICT_SCHEMA"
-                                "GITHUB_EXTRACTION_TIMEOUT" -> "RESUME_UNFINISHED_EXTRACTION_BATCHES"
-                                else -> "INSPECT_THE_RECORDED_PROVIDER_FAILURE"
-                            })
+                            put(
+                                "recovery_action",
+                                when (code) {
+                                    "GITHUB_EXTRACTION_OUTPUT_LIMIT" -> "RESUME_THIS_BATCH_WITH_A_SMALLER_CLAIM_LIMIT"
+                                    "GITHUB_EXTRACTION_INVALID_RESPONSE" -> "RESUME_THIS_BATCH_WITH_STRICT_SCHEMA"
+                                    "GITHUB_EXTRACTION_TIMEOUT" -> "RESUME_UNFINISHED_EXTRACTION_BATCHES"
+                                    else -> "INSPECT_THE_RECORDED_PROVIDER_FAILURE"
+                                }
+                            )
                             providerFailure?.invocationId?.let { put("invocation_id", it) }
                             providerFailure?.errorCode?.let { put("provider_error_code", it) }
                             val nextBatch = completed.indexOfFirst { it == null }

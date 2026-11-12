@@ -80,7 +80,7 @@ internal data class AgentRunTerminalDiagnostics(
                     waitingForApproval -> "WAITING_FOR_APPROVAL"
                     rejectedApproval -> "REJECTED"
                     else -> acceptance?.verification
-                },
+                }
             )
         }
 

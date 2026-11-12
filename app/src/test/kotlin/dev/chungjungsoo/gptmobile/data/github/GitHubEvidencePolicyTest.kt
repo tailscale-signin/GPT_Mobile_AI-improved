@@ -67,18 +67,24 @@ class GitHubEvidencePolicyTest {
             put("repository", "owner/repo")
             put("success", true)
             put("trusted", true)
-            put("arguments", buildJsonObject {
-                put("branch", "codex-self-test/fixture")
-                put("expected_head_sha", head)
-            })
-            put("result", buildJsonObject {
-                put("status", "AWAITING_APPROVAL")
-                put("committed", false)
-                put("engineering_task_id", "engineering-task")
-                put("branch", "codex-self-test/fixture")
-                put("expected_head_sha", head)
-                put("patch_digest", patchDigest)
-            })
+            put(
+                "arguments",
+                buildJsonObject {
+                    put("branch", "codex-self-test/fixture")
+                    put("expected_head_sha", head)
+                }
+            )
+            put(
+                "result",
+                buildJsonObject {
+                    put("status", "AWAITING_APPROVAL")
+                    put("committed", false)
+                    put("engineering_task_id", "engineering-task")
+                    put("branch", "codex-self-test/fixture")
+                    put("expected_head_sha", head)
+                    put("patch_digest", patchDigest)
+                }
+            )
         }
         val rejection = buildJsonObject {
             put("tool", "github_context")
@@ -89,21 +95,27 @@ class GitHubEvidencePolicyTest {
             put("trusted", true)
             put("evidence_origin", "LOCAL_DURABLE_APPROVAL_EVENT")
             put("local_resolution_event", "approval_card_rejected")
-            put("arguments", buildJsonObject {
-                put("action", "recovery")
-                put("engineering_task_id", "engineering-task")
-                put("branch", "codex-self-test/fixture")
-            })
-            put("result", buildJsonObject {
-                put("engineering_task_id", "engineering-task")
-                put("branch", "codex-self-test/fixture")
-                put("expected_head_sha", head)
-                put("patch_digest", patchDigest)
-                put("approval_state", "CANCELLED_BEFORE_PUBLICATION")
-                put("cancellation_confirmed", true)
-                put("remote_mutation_performed", false)
-                put("keep_fixture", false)
-            })
+            put(
+                "arguments",
+                buildJsonObject {
+                    put("action", "recovery")
+                    put("engineering_task_id", "engineering-task")
+                    put("branch", "codex-self-test/fixture")
+                }
+            )
+            put(
+                "result",
+                buildJsonObject {
+                    put("engineering_task_id", "engineering-task")
+                    put("branch", "codex-self-test/fixture")
+                    put("expected_head_sha", head)
+                    put("patch_digest", patchDigest)
+                    put("approval_state", "CANCELLED_BEFORE_PUBLICATION")
+                    put("cancellation_confirmed", true)
+                    put("remote_mutation_performed", false)
+                    put("keep_fixture", false)
+                }
+            )
         }
         val (text, report) = GitHubEvidencePolicy.partial(mapOf("proposal" to proposal, "rejection" to rejection), 10_000, 0, "Review fixture change")
         assertTrue(text.contains("Change rejected"))

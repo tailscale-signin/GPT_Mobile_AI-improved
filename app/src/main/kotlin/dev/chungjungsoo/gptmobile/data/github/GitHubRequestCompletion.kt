@@ -69,7 +69,9 @@ internal object GitHubRequestCompletion {
                 "Evidence-backed findings link each material observation to its trusted receipt and preserve its observation time",
                 "Recommendations are clearly labeled and distinguish evidence from inference"
             )
-        } else requested
+        } else {
+            requested
+        }
     }
     fun id(requirement: String): String = GitHubEvidenceBook.digest(requirement).take(24)
 

@@ -38,7 +38,11 @@ class GitHubRequestCompletionTest {
         val findingId = GitHubRequestCompletion.id(requirements.single { it.startsWith("Evidence-backed findings") })
         val recommendationId = GitHubRequestCompletion.id(requirements.single { it.startsWith("Recommendations are clearly labeled") })
         val claims = listOf(
-            buildJsonObject { put("kind", "fact"); put("status", "VERIFIED"); put("receipt_id", "live-read") },
+            buildJsonObject {
+                put("kind", "fact")
+                put("status", "VERIFIED")
+                put("receipt_id", "live-read")
+            },
             buildJsonObject {
                 put("kind", "recommendation")
                 put("status", "INFERRED")
@@ -46,11 +50,14 @@ class GitHubRequestCompletionTest {
             }
         )
         val answer = buildJsonObject {
-            put("requirement_claims", buildJsonObject {
-                put(taskId, JsonArray(listOf(JsonPrimitive(0), JsonPrimitive(1))))
-                put(findingId, JsonArray(listOf(JsonPrimitive(0))))
-                put(recommendationId, JsonArray(listOf(JsonPrimitive(1))))
-            })
+            put(
+                "requirement_claims",
+                buildJsonObject {
+                    put(taskId, JsonArray(listOf(JsonPrimitive(0), JsonPrimitive(1))))
+                    put(findingId, JsonArray(listOf(JsonPrimitive(0))))
+                    put(recommendationId, JsonArray(listOf(JsonPrimitive(1))))
+                }
+            )
         }
         val result = GitHubRequestCompletion.evaluate(task, claims, answer, mapOf("live-read" to receipt("status", JsonObject(emptyMap()))))
         assertTrue(result["completion_verified"] == JsonPrimitive(true))

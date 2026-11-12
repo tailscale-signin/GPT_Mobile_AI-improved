@@ -12,14 +12,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 
 /**
@@ -87,15 +86,17 @@ class DiagnosticDatabaseSource @Inject constructor(
             ?: Regex("\\b(?:GITHUB_[A-Z0-9_]+|WAITING_FOR_APPROVAL|PARTIAL_EVIDENCE)\\b").find(run?.third.orEmpty())?.value
         val testedSha = listOf("tested_sha", "head_sha", "expected_head_sha", "source_head_sha")
             .firstNotNullOfOrNull { key -> readFrom(report, acceptance, key = key)?.takeIf { it.matches(Regex("(?i)[a-f0-9]{40}")) } }
-        val receiptIds = (failed?.let { criterion ->
-            listOf("receipt_ids", "missing_evidence_ids", "evidence_receipt_ids", "receipt_id").flatMap { key ->
-                when (val value = criterion[key]) {
-                    is JsonArray -> value.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
-                    is JsonPrimitive -> listOfNotNull(value.contentOrNull)
-                    else -> emptyList()
+        val receiptIds = (
+            failed?.let { criterion ->
+                listOf("receipt_ids", "missing_evidence_ids", "evidence_receipt_ids", "receipt_id").flatMap { key ->
+                    when (val value = criterion[key]) {
+                        is JsonArray -> value.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+                        is JsonPrimitive -> listOfNotNull(value.contentOrNull)
+                        else -> emptyList()
+                    }
                 }
-            }
-        } ?: emptyList()).distinct().take(12)
+            } ?: emptyList()
+            ).distinct().take(12)
         val taskState = readFrom(report, acceptance, key = "task_state")
         val approvalState = readFrom(report, acceptance, key = "approval_state")
         val taskOutcome = readFrom(report, acceptance, key = "task_outcome")

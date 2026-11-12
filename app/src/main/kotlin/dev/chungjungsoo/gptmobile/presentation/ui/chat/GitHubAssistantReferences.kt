@@ -54,8 +54,10 @@ internal fun GitHubAssistantReferenceContext.withReceiptReferences(receipts: Lis
         return visit(element, 0)
     }
     fun repositoryBase(arguments: JsonObject, result: JsonObject): String {
-        val fullName = (fieldValues(arguments, setOf("full_name", "repository_full_name", "repository")) +
-            fieldValues(result, setOf("full_name", "repository_full_name", "repository")))
+        val fullName = (
+            fieldValues(arguments, setOf("full_name", "repository_full_name", "repository")) +
+                fieldValues(result, setOf("full_name", "repository_full_name", "repository"))
+            )
             .firstOrNull { it.matches(Regex("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")) }
         val owner = (fieldValues(arguments, setOf("owner", "repository_owner")) + fieldValues(result, setOf("owner", "repository_owner"))).firstOrNull()
         val name = (fieldValues(arguments, setOf("repo", "repository_name")) + fieldValues(result, setOf("repo", "repository_name"))).firstOrNull()
@@ -63,23 +65,37 @@ internal fun GitHubAssistantReferenceContext.withReceiptReferences(receipts: Lis
         val urlFromReceipt = fieldValues(result, setOf("html_url")).firstNotNullOfOrNull { raw ->
             val uri = runCatching { java.net.URI(raw) }.getOrNull() ?: return@firstNotNullOfOrNull null
             val segments = uri.path.orEmpty().trim('/').split('/')
-            if (uri.scheme == "https" && uri.host.equals(origins.host, ignoreCase = true) && uri.userInfo == null && uri.query == null && uri.fragment == null &&
-                segments.size >= 4 && segments[2] in setOf("pull", "pulls", "commit", "tree", "blob")) {
+            if (uri.scheme == "https" &&
+                uri.host.equals(origins.host, ignoreCase = true) &&
+                uri.userInfo == null &&
+                uri.query == null &&
+                uri.fragment == null &&
+                segments.size >= 4 &&
+                segments[2] in setOf("pull", "pulls", "commit", "tree", "blob")
+            ) {
                 "${uri.scheme}://${uri.rawAuthority}/${segments.take(2).joinToString("/") { encodeRepositoryPath(it) }}"
-            } else null
+            } else {
+                null
+            }
         }
         return urlFromReceipt ?: path?.let { "${origins.scheme}://${origins.rawAuthority}/${it.joinToString("/") { part -> encodeRepositoryPath(part) }}" } ?: selected
     }
     fun add(key: String, url: String?) {
-        if (key !in links) links[key] = url else if (links[key] != url) links[key] = null
+        if (key !in links) {
+            links[key] = url
+        } else if (links[key] != url) {
+            links[key] = null
+        }
     }
     for (receipt in receipts.asSequence().takeLast(128)) {
         if (receipt.arguments.length > 8_192 || receipt.result.orEmpty().length > 32_768) continue
         val args = runCatching { Json.parseToJsonElement(receipt.arguments) as? JsonObject }.getOrNull() ?: continue
         val result = runCatching { Json.parseToJsonElement(receipt.result.orEmpty()) as? JsonObject }.getOrNull() ?: JsonObject(emptyMap())
         val repositoryBase = repositoryBase(args, result)
-        val branchValues = (fieldValues(args, setOf("branch", "ref", "head", "base", "source_ref")) +
-            fieldValues(result, setOf("branch", "ref", "head_ref", "base_ref", "source_ref")))
+        val branchValues = (
+            fieldValues(args, setOf("branch", "ref", "head", "base", "source_ref")) +
+                fieldValues(result, setOf("branch", "ref", "head_ref", "base_ref", "source_ref"))
+            )
             .map { it.removePrefix("refs/heads/") }
             .filter { it.matches(Regex("[A-Za-z0-9][A-Za-z0-9._/-]{0,199}")) }
         branchValues.forEach { branch -> add("branch:$branch", repositoryBase) }
@@ -93,7 +109,9 @@ internal fun GitHubAssistantReferenceContext.withReceiptReferences(receipts: Lis
         val prNumber = if (isPr) {
             (fieldValues(args, setOf("pull_number", "pr_number")) + fieldValues(result, setOf("number", "pull_number", "pr_number")))
                 .firstOrNull { it.matches(Regex("[1-9][0-9]{0,8}")) }
-        } else null
+        } else {
+            null
+        }
         prNumber?.let { add("pr:$it", repositoryBase) }
     }
     return copy(receiptUrlsByReference = links)
@@ -127,7 +145,9 @@ internal fun linkifyGitHubAssistantReferences(markdown: String, context: GitHubA
     }
     fun repositoryUrl(type: String, value: String): String? = if ("$type:$value" in context.receiptUrlsByReference) {
         context.receiptUrlsByReference["$type:$value"]
-    } else fallbackRepositoryUrl
+    } else {
+        fallbackRepositoryUrl
+    }
     fun link(label: String, url: String) = "[$label]($url)"
     fun makePlainLinks(input: String): String {
         var result = input

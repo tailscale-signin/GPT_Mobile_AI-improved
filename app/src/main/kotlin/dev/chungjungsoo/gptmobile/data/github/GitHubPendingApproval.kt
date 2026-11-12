@@ -62,7 +62,9 @@ internal object GitHubPendingApproval {
             receipt["verification_eligible"] == JsonPrimitive(false) ||
             receipt["success"] != JsonPrimitive(true) ||
             receipt["local_resolution_event"] != JsonPrimitive("approval_card_rejected")
-        ) return false
+        ) {
+            return false
+        }
         val result = root(receipt) ?: return false
         return result.text("approval_state") == "CANCELLED_BEFORE_PUBLICATION" &&
             result["cancellation_confirmed"] == JsonPrimitive(true) &&

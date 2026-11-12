@@ -156,7 +156,16 @@ internal object GitHubExecutionLedger {
                             put("proposal_receipt", proposal["receipt_id"] ?: kotlinx.serialization.json.JsonNull)
                             put("resolution_receipt", resolution["receipt_id"] ?: kotlinx.serialization.json.JsonNull)
                             put("state", if (rejected) "REJECTED" else result?.text("approval_state").orEmpty())
-                            put("decision_outcome", if (rejected) "REJECTED" else if (result?.text("approval_state") == "PUBLISHED") "COMPLETED" else "CANCELLED")
+                            put(
+                                "decision_outcome",
+                                if (rejected) {
+                                    "REJECTED"
+                                } else if (result?.text("approval_state") == "PUBLISHED") {
+                                    "COMPLETED"
+                                } else {
+                                    "CANCELLED"
+                                }
+                            )
                             result?.text("engineering_task_id")?.takeIf(String::isNotBlank)?.let { put("task_id", it) }
                             result?.text("branch")?.takeIf(String::isNotBlank)?.let { put("branch", it) }
                             result?.text("expected_head_sha")?.takeIf(String::isNotBlank)?.let { put("expected_head_sha", it) }
@@ -232,16 +241,21 @@ internal object GitHubExecutionLedger {
                 put("user_input_required", false)
                 put("retryable_without_new_input", false)
                 put("fixture_lifecycle", if (keepFixture) "INTENTIONALLY_RETAINED_BY_USER" else "RECONCILE_CLEANUP_AND_VERIFY_ABSENCE")
-                put("rejected_approvals", JsonArray(rejectedApprovals.map { (_, resolution) ->
-                    buildJsonObject {
-                        val result = resolution.result()
-                        put("task_id", result?.get("engineering_task_id") ?: kotlinx.serialization.json.JsonNull)
-                        put("branch", result?.get("branch") ?: kotlinx.serialization.json.JsonNull)
-                        put("expected_head_sha", result?.get("expected_head_sha") ?: kotlinx.serialization.json.JsonNull)
-                        put("patch_digest", result?.get("patch_digest") ?: kotlinx.serialization.json.JsonNull)
-                        put("keep_fixture", result?.get("keep_fixture") ?: JsonPrimitive(false))
-                    }
-                }))
+                put(
+                    "rejected_approvals",
+                    JsonArray(
+                        rejectedApprovals.map { (_, resolution) ->
+                            buildJsonObject {
+                                val result = resolution.result()
+                                put("task_id", result?.get("engineering_task_id") ?: kotlinx.serialization.json.JsonNull)
+                                put("branch", result?.get("branch") ?: kotlinx.serialization.json.JsonNull)
+                                put("expected_head_sha", result?.get("expected_head_sha") ?: kotlinx.serialization.json.JsonNull)
+                                put("patch_digest", result?.get("patch_digest") ?: kotlinx.serialization.json.JsonNull)
+                                put("keep_fixture", result?.get("keep_fixture") ?: JsonPrimitive(false))
+                            }
+                        }
+                    )
+                )
             }
         } else if (failureIsPrimary) {
             buildJsonObject {
@@ -348,9 +362,7 @@ internal object GitHubExecutionLedger {
     }
 
     /** Cancellation alone is ambiguous; only the exact durable Reject event produces REJECTED. */
-    private fun isRejectedApprovalReceipt(receipt: JsonObject?): Boolean {
-        return receipt?.let(GitHubPendingApproval::isRejectedResolution) == true
-    }
+    private fun isRejectedApprovalReceipt(receipt: JsonObject?): Boolean = receipt?.let(GitHubPendingApproval::isRejectedResolution) == true
 
     private fun JsonObject.result(): JsonObject? = (get("result") as? JsonObject)?.let {
         // A GraphQL mutation's data is part of its response, beside the protected

@@ -563,8 +563,13 @@ class GitHubVerifiedSessionTest {
         var clock = 1_000L
         val stored = mutableMapOf<String, JsonObject>()
         val book = GitHubEvidenceBook(
-            "b", "o/r", "main", setOf("github_pr", "github_ci"), now = { clock },
-            load = { stored[it] }, save = { key, value -> stored[key] = value }
+            "b",
+            "o/r",
+            "main",
+            setOf("github_pr", "github_ci"),
+            now = { clock },
+            load = { stored[it] },
+            save = { key, value -> stored[key] = value }
         )
         fun read(callId: String, tool: String, action: String, result: String) {
             val call = ProviderEvent.ToolCall(callId, tool, Json.parseToJsonElement("""{"action":"$action","pull_number":42,"verify_live":true}""").jsonObject)
@@ -591,13 +596,21 @@ class GitHubVerifiedSessionTest {
             put("value", value)
         }
         val completedBatch = buildJsonObject {
-            put("claims", JsonArray(listOf(fact(oldPrId, "/data/number", JsonPrimitive(42))))
+            put("claims", JsonArray(listOf(fact(oldPrId, "/data/number", JsonPrimitive(42)))))
             put("requirement_claims", JsonObject(emptyMap()))
             put("acceptance", JsonObject(emptyMap()))
             put("questions", JsonArray(emptyList()))
         }
         val staleBatch = buildJsonObject {
-            put("claims", JsonArray(listOf(fact(oldPrId, "/data/title", JsonPrimitive("Old title")), fact(oldCiId, "/data/workflow_runs/0/conclusion", JsonPrimitive("failure"))))
+            put(
+                "claims",
+                JsonArray(
+                    listOf(
+                        fact(oldPrId, "/data/title", JsonPrimitive("Old title")),
+                        fact(oldCiId, "/data/workflow_runs/0/conclusion", JsonPrimitive("failure"))
+                    )
+                )
+            )
             put("requirement_claims", JsonObject(emptyMap()))
             put("acceptance", JsonObject(emptyMap()))
             put("questions", JsonArray(emptyList()))

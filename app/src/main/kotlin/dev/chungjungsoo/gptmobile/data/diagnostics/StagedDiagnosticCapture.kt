@@ -325,11 +325,13 @@ object StagedDiagnosticCapture {
                 val retryStarted = System.nanoTime()
                 val retried = captureStage(session, stage, options, available.coerceAtLeast(0), archivePart, previousArchive)
                 stageElapsed[stage.id] = (stageElapsed[stage.id] ?: 0) + (System.nanoTime() - retryStarted).coerceAtLeast(0)
-                receipts[index] = JsonObject(retried + buildJsonObject {
-                    put("heapPressureRetry", true)
-                    put("priorOmissionReason", "JAVA_HEAP_PRESSURE")
-                    put("retryHeadroomBytes", options.memorySampler().javaHeadroomBytes)
-                })
+                receipts[index] = JsonObject(
+                    retried + buildJsonObject {
+                        put("heapPressureRetry", true)
+                        put("priorOmissionReason", "JAVA_HEAP_PRESSURE")
+                        put("retryHeadroomBytes", options.memorySampler().javaHeadroomBytes)
+                    }
+                )
             }
         }
         val collectionElapsed = (System.nanoTime() - collectionStarted).coerceAtLeast(0)

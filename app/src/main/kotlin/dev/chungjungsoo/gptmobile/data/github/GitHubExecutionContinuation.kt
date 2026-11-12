@@ -40,11 +40,14 @@ internal object GitHubExecutionContinuation {
                     }.distinct().take(128).map(::JsonPrimitive)
                 )
             )
-            put("targeted_recovery", if (readOnlyRefresh) {
-                "Read-only refresh: resume only listed evidence gaps. Preserve passed claims and completed reads; refresh only stale PR/CI observations required to be current. Do not mutate, create, commit, publish, merge, or delete."
-            } else {
-                "Resume only listed acceptance criteria and missing evidence identifiers. Preserve passed claims and completed reads; refresh only observations explicitly stale or required to be current."
-            })
+            put(
+                "targeted_recovery",
+                if (readOnlyRefresh) {
+                    "Read-only refresh: resume only listed evidence gaps. Preserve passed claims and completed reads; refresh only stale PR/CI observations required to be current. Do not mutate, create, commit, publish, merge, or delete."
+                } else {
+                    "Resume only listed acceptance criteria and missing evidence identifiers. Preserve passed claims and completed reads; refresh only observations explicitly stale or required to be current."
+                }
+            )
             put("remaining_requirement_count", remaining.size)
             val resumeLedger = buildJsonObject {
                 put(
@@ -121,7 +124,8 @@ internal object GitHubExecutionContinuation {
         // Keep one tool call unspent for exact-revision final verification.
         if (report["completion_verified"] == JsonPrimitive(true) || remainingCalls?.let { it <= 1 } == true || remainingMillis == 0L) return false
         val resumable = ledger["recovery"] == JsonPrimitive("RESUME_UNFINISHED_WORK") ||
-            allowVerificationResume && ledger["recovery"] == JsonPrimitive("RESUME_VERIFICATION")
+            allowVerificationResume &&
+            ledger["recovery"] == JsonPrimitive("RESUME_VERIFICATION")
         if (!resumable || ledger["user_input_required"] == JsonPrimitive(true)) return false
         if (report["task_outcome"] in setOf(JsonPrimitive("BLOCKED"), JsonPrimitive("CONFIGURATION_INVALIDATED"))) return false
         val failureCode = (report["failure_code"] as? JsonPrimitive)?.content.orEmpty()

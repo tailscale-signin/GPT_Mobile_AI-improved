@@ -20,7 +20,17 @@ class GitHubClaimBatchesTest {
         assertEquals(4, reduced.maxClaims)
         assertEquals(JsonPrimitive(4), Json.parseToJsonElement(reduced.payload).jsonObject["claim_limit"])
         val invalid = buildJsonObject {
-            put("claims", JsonArray((1..5).map { buildJsonObject { put("kind", "not_measured"); put("subject", "measurement $it") } }))
+            put(
+                "claims",
+                JsonArray(
+                    (1..5).map {
+                        buildJsonObject {
+                            put("kind", "not_measured")
+                            put("subject", "measurement $it")
+                        }
+                    }
+                )
+            )
             put("requirement_claims", buildJsonObject { })
             put("acceptance", buildJsonObject { })
             put("questions", JsonArray(emptyList()))

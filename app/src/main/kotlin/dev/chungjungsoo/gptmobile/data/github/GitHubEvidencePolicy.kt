@@ -189,7 +189,10 @@ internal object GitHubEvidencePolicy {
                     val numbers = Regex("(?<![A-Za-z])\\d+(?:\\.\\d+)?").findAll(interpretation).map { it.value }.toSet()
                     val validSourceStatuses = if (historicalReview(task)) setOf("VERIFIED", "HISTORICAL") else setOf("VERIFIED")
                     if (refs.isEmpty() || refs.size > 8 || results.any { it.string("status") !in validSourceStatuses } || numbers.isNotEmpty()) {
-                        checked += buildJsonObject { put("kind", claim.string("kind")); put("status", "NOT_MEASURED") }
+                        checked += buildJsonObject {
+                            put("kind", claim.string("kind"))
+                            put("status", "NOT_MEASURED")
+                        }
                         "- **Unverified interpretation:** supporting evidence is missing or stale; no conclusion was established."
                     } else {
                         checked += buildJsonObject {
@@ -202,7 +205,10 @@ internal object GitHubEvidencePolicy {
                     }
                 }
                 "not_measured" -> {
-                    checked += buildJsonObject { put("kind", "not_measured"); put("status", "NOT_MEASURED") }
+                    checked += buildJsonObject {
+                        put("kind", "not_measured")
+                        put("status", "NOT_MEASURED")
+                    }
                     "- **Not available / Not measured:** ${safe(claim.string("subject").take(160))}"
                 }
                 else -> error("Unsupported claim kind")
@@ -309,10 +315,12 @@ internal object GitHubEvidencePolicy {
         }
         val action = recoveryAction(failureCode, receipts)
         val ending = when {
-            waitingForApproval -> "**Waiting for approval.** Resolve the existing approval card for its exact task, branch, expected head and staged patch. Generic Continue and Retry are paused." +
-                if (fixturePending) " Fixture intentionally retained pending approval." else ""
-            rejectedApprovals.isNotEmpty() -> "**Change rejected.** The durable approval event confirms no mutation was published. " +
-                if (keepRejectedFixture) "Fixture intentionally retained by the user's Keep fixture choice." else "The fixture is queued for cleanup reconciliation and branch absence verification."
+            waitingForApproval ->
+                "**Waiting for approval.** Resolve the existing approval card for its exact task, branch, expected head and staged patch. Generic Continue and Retry are paused." +
+                    if (fixturePending) " Fixture intentionally retained pending approval." else ""
+            rejectedApprovals.isNotEmpty() ->
+                "**Change rejected.** The durable approval event confirms no mutation was published. " +
+                    if (keepRejectedFixture) "Fixture intentionally retained by the user's Keep fixture choice." else "The fixture is queued for cleanup reconciliation and branch absence verification."
             else -> "**Task incomplete.** These observations and retained evidence do not establish unverified changes, tests or merges.\n\n**Next action:** ${recoveryText(action)}"
         }
         val text = established + observations + operations + missingComparison + "\n\n" + ending
@@ -323,32 +331,42 @@ internal object GitHubEvidencePolicy {
                 "fallback" to JsonPrimitive("receipt_only"),
                 "resume_required" to JsonPrimitive(!rejectedApprovals.isNotEmpty()),
                 "failure_code" to (failureCode?.let(::JsonPrimitive) ?: JsonNull),
-                "task_state" to JsonPrimitive(when {
-                    waitingForApproval -> "WAITING_FOR_APPROVAL"
-                    rejectedApprovals.isNotEmpty() -> "REJECTED"
-                    else -> "PARTIAL"
-                }),
-                "stop_code" to JsonPrimitive(when {
-                    waitingForApproval -> "WAITING_FOR_APPROVAL"
-                    rejectedApprovals.isNotEmpty() -> "APPROVAL_REJECTED"
-                    else -> failureCode ?: "GITHUB_EVIDENCE_INCOMPLETE"
-                }),
-                "approval_state" to JsonPrimitive(when {
-                    waitingForApproval -> "WAITING_FOR_APPROVAL"
-                    rejectedApprovals.isNotEmpty() -> "REJECTED"
-                    else -> "NOT_PENDING"
-                }),
-                "task_outcome" to JsonPrimitive(when {
-                    waitingForApproval -> "WAITING_FOR_APPROVAL"
-                    rejectedApprovals.isNotEmpty() -> "REJECTED"
-                    else -> "PARTIAL"
-                }),
-                "recovery_action" to JsonPrimitive(when {
-                    waitingForApproval -> "REVIEW_EXISTING_APPROVAL_CARD"
-                    rejectedApprovals.isNotEmpty() && keepRejectedFixture -> "KEEP_FIXTURE"
-                    rejectedApprovals.isNotEmpty() -> "RECONCILE_FIXTURE_AFTER_APPROVAL_REJECTION"
-                    else -> action
-                }),
+                "task_state" to JsonPrimitive(
+                    when {
+                        waitingForApproval -> "WAITING_FOR_APPROVAL"
+                        rejectedApprovals.isNotEmpty() -> "REJECTED"
+                        else -> "PARTIAL"
+                    }
+                ),
+                "stop_code" to JsonPrimitive(
+                    when {
+                        waitingForApproval -> "WAITING_FOR_APPROVAL"
+                        rejectedApprovals.isNotEmpty() -> "APPROVAL_REJECTED"
+                        else -> failureCode ?: "GITHUB_EVIDENCE_INCOMPLETE"
+                    }
+                ),
+                "approval_state" to JsonPrimitive(
+                    when {
+                        waitingForApproval -> "WAITING_FOR_APPROVAL"
+                        rejectedApprovals.isNotEmpty() -> "REJECTED"
+                        else -> "NOT_PENDING"
+                    }
+                ),
+                "task_outcome" to JsonPrimitive(
+                    when {
+                        waitingForApproval -> "WAITING_FOR_APPROVAL"
+                        rejectedApprovals.isNotEmpty() -> "REJECTED"
+                        else -> "PARTIAL"
+                    }
+                ),
+                "recovery_action" to JsonPrimitive(
+                    when {
+                        waitingForApproval -> "REVIEW_EXISTING_APPROVAL_CARD"
+                        rejectedApprovals.isNotEmpty() && keepRejectedFixture -> "KEEP_FIXTURE"
+                        rejectedApprovals.isNotEmpty() -> "RECONCILE_FIXTURE_AFTER_APPROVAL_REJECTION"
+                        else -> action
+                    }
+                ),
                 "retryable_without_new_input" to JsonPrimitive(!waitingForApproval && rejectedApprovals.isEmpty())
             )
         )

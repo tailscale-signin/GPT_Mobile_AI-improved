@@ -169,28 +169,37 @@ class GitHubRunAcceptanceTest {
     }
 
     @Test fun explicitRejectionSurvivesCaptureAsASeparateNonSuccessfulOutcome() {
-        val rejected = JsonObject(report() + mapOf(
-            "task_outcome" to JsonPrimitive("REJECTED"),
-            "task_state" to JsonPrimitive("REJECTED"),
-            "stop_code" to JsonPrimitive("APPROVAL_REJECTED"),
-            "approval_state" to JsonPrimitive("REJECTED"),
-            "execution_ledger" to buildJsonObject {
-                put("requested_task", "REJECTED")
-                put("unresolved_remote_outcomes", 0)
-                put("receipt_count", 2)
-                put("pending_approvals", JsonArray(emptyList()))
-                put("resolved_approvals", JsonArray(listOf(buildJsonObject {
-                    put("task_id", "task-123")
-                    put("branch", "codex-self-test/fixture")
-                    put("expected_head_sha", "a".repeat(40))
-                    put("patch_digest", "b".repeat(64))
-                    put("state", "REJECTED")
-                    put("decision_outcome", "REJECTED")
-                    put("local_resolution_event", "approval_card_rejected")
-                    put("remote_state_verified", false)
-                })))
-            }
-        ))
+        val rejected = JsonObject(
+            report() + mapOf(
+                "task_outcome" to JsonPrimitive("REJECTED"),
+                "task_state" to JsonPrimitive("REJECTED"),
+                "stop_code" to JsonPrimitive("APPROVAL_REJECTED"),
+                "approval_state" to JsonPrimitive("REJECTED"),
+                "execution_ledger" to buildJsonObject {
+                    put("requested_task", "REJECTED")
+                    put("unresolved_remote_outcomes", 0)
+                    put("receipt_count", 2)
+                    put("pending_approvals", JsonArray(emptyList()))
+                    put(
+                        "resolved_approvals",
+                        JsonArray(
+                            listOf(
+                                buildJsonObject {
+                                    put("task_id", "task-123")
+                                    put("branch", "codex-self-test/fixture")
+                                    put("expected_head_sha", "a".repeat(40))
+                                    put("patch_digest", "b".repeat(64))
+                                    put("state", "REJECTED")
+                                    put("decision_outcome", "REJECTED")
+                                    put("local_resolution_event", "approval_card_rejected")
+                                    put("remote_state_verified", false)
+                                }
+                            )
+                        )
+                    )
+                }
+            )
+        )
         val acceptance = assess(rejected)
         assertEquals("REJECTED", acceptance.verification)
         assertEquals("REJECTED", acceptance.taskState)

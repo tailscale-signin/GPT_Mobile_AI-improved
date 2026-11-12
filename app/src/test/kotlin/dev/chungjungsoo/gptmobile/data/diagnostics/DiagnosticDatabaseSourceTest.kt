@@ -232,14 +232,24 @@ class DiagnosticDatabaseSourceTest {
                 put("failed_stage", "claim_extraction")
                 put("recovery_action", "RESUME_SAVED_BATCH_WITH_SMALLER_CLAIM_LIMIT")
                 put("tested_sha", "a".repeat(40))
-                put("acceptance_ledger", buildJsonObject {
-                    put("requirements", JsonArray(listOf(buildJsonObject {
-                        put("id", "verify-current-ci")
-                        put("requirement", "Refresh the PR check for the pinned head SHA")
-                        put("acceptance_state", "BLOCKED")
-                        put("missing_evidence_ids", JsonArray(listOf(kotlinx.serialization.json.JsonPrimitive("receipt-ci-7"))))
-                    })))
-                })
+                put(
+                    "acceptance_ledger",
+                    buildJsonObject {
+                        put(
+                            "requirements",
+                            JsonArray(
+                                listOf(
+                                    buildJsonObject {
+                                        put("id", "verify-current-ci")
+                                        put("requirement", "Refresh the PR check for the pinned head SHA")
+                                        put("acceptance_state", "BLOCKED")
+                                        put("missing_evidence_ids", JsonArray(listOf(kotlinx.serialization.json.JsonPrimitive("receipt-ci-7"))))
+                                    }
+                                )
+                            )
+                        )
+                    }
+                )
             },
             appendOnly = true
         )

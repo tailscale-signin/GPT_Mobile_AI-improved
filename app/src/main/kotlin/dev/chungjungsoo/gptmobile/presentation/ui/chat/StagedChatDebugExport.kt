@@ -175,7 +175,10 @@ internal suspend fun writeStagedChatDiagnostics(
                         BuildConfig.VERSION_NAME,
                         BuildConfig.VERSION_CODE,
                         BuildConfig.APP_COMMIT,
-                        { authorized(); sink.checkBudget() },
+                        {
+                            authorized()
+                            sink.checkBudget()
+                        },
                         { sink.omit(it) }
                     ),
                     evidence = false

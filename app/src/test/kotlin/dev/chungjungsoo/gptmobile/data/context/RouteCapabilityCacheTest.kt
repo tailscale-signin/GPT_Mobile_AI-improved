@@ -9,6 +9,16 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class RouteCapabilityCacheTest {
+    @Test fun boundedCacheAndLargeTtlKeepAValidLifetimeWithoutOverflow() = runTest {
+        var now = Long.MAX_VALUE - 100
+        val cache = RouteCapabilityCache<String>({ now }, positiveTtl = 1_000, maxEntries = 1)
+        assertEquals("a", cache.getOrLoad("a") { "a" })
+        now += 50
+        assertEquals("a", cache.getOrLoad("a") { error("Overflow shortened the retained value's lifetime") })
+        assertEquals("b", cache.getOrLoad("b") { "b" })
+        assertEquals("refreshed-a", cache.getOrLoad("a") { "refreshed-a" })
+    }
+
     @Test fun anAuditThatRequiresItsOwnFreshReceiptCannotBorrowAnOverlappingRefresh() = runTest {
         val cache = RouteCapabilityCache<String>({ testScheduler.currentTime })
         val gate = CompletableDeferred<Unit>()

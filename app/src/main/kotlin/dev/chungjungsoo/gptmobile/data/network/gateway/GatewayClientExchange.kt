@@ -16,14 +16,14 @@ internal suspend fun <T> gatewayClientExchange(
     val observedReadAttempt = read?.ordinal
     val diagnosticHeaders = GatewayClientDiagnostics.requestHeaders(config, route = route, method = method, metadataReadId = read?.readId, metadataReadAttempt = read?.ordinal, knownGateway = knownGateway)
     val headers = if (observedReadAttempt == null) diagnosticHeaders else diagnosticHeaders.filterKeys { !it.equals("X-Gateway-Retry-Attempt", true) } + ("X-Gateway-Retry-Attempt" to observedReadAttempt.toString())
-    if (!safeRead && method == "POST") GatewayJobReadCoordinator.continuing(config)
+    if (!safeRead && method == "POST") GatewayJobPollCoordinator.continuing(config)
     return try {
         block(headers).also { if (it != null) GatewayClientDiagnostics.metadataReadCompleted(config, headers) }
     } catch (failure: Throwable) {
         GatewayClientDiagnostics.failed(config, headers, failure, route = route, safeRead = safeRead)
         throw failure
     } finally {
-        if (!safeRead && method == "POST") GatewayJobReadCoordinator.continuing(config)
+        if (!safeRead && method == "POST") GatewayJobPollCoordinator.continuing(config)
         GatewayClientDiagnostics.finished(headers)
     }
 }

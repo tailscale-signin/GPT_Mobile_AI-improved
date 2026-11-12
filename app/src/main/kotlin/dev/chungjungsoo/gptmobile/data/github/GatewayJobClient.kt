@@ -7,9 +7,10 @@ import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import dev.chungjungsoo.gptmobile.data.network.boundedMetadata
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayClientDiagnostics
-import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayJobReadCoordinator
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayJobPollCoordinator
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewaySurfacePolicy
 import dev.chungjungsoo.gptmobile.data.network.gateway.gatewayClientExchange
+import dev.chungjungsoo.gptmobile.data.network.gateway.gatewayJobObservationIdentity
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.timeout
 import io.ktor.client.request.bearerAuth
@@ -37,8 +38,7 @@ import kotlinx.serialization.json.intOrNull
 class GatewayJobClient internal constructor(
     private val http: HttpClient,
     private val evictIdleConnections: suspend () -> Unit = {},
-    private val now: () -> Long = { System.nanoTime() / 1_000_000 },
-    private val jobReads: GatewayJobReadCoordinator = GatewayJobReadCoordinator.shared
+    private val now: () -> Long = { System.nanoTime() / 1_000_000 }
 ) {
     @Inject constructor(network: NetworkClient) : this(network.gatewayReadClient(), network::evictIdleConnections)
     private val json = Json { ignoreUnknownKeys = true }
@@ -191,8 +191,8 @@ class GatewayJobClient internal constructor(
 
     private suspend fun lookupCommand(config: ProviderRequestConfig, commandId: String, forceRefresh: Boolean): GatewayCommandReceipt? {
         pathId(commandId)
-        val key = gatewayIdentityKey(GatewayJobReadCoordinator.scope(config), commandId)
-        return commandObservations.getOrLoad(key, forceRefresh = forceRefresh, isCurrent = { it?.runtime == GatewayClientDiagnostics.runtimeEpoch(config) }) {
+        val key = gatewayIdentityKey(gatewayJobObservationIdentity(config), commandId)
+        return commandObservations.getOrLoad(key, forceRefresh = forceRefresh, isCurrent = { it?.runtime == GatewaySurfacePolicy.identity(config) }) {
             val receipt = readCommand(config, commandId)
             val misses = synchronized(commandMisses) {
                 if (receipt == null) {
@@ -203,14 +203,10 @@ class GatewayJobClient internal constructor(
                     0
                 }
             }
-            val interval = if (receipt == null) {
-                (5_000L shl (misses - 1).coerceIn(0, 4)).coerceAtMost(60_000L)
-            } else {
-                // Accepted command identity is immutable. Passive loops must not
-                // reread it before their job-result polling deadline either.
-                maxOf(60_000L, jobReads.remaining(config, receipt.jobId))
-            }
-            CommandObservation(receipt, interval, GatewayClientDiagnostics.runtimeEpoch(config))
+            // Cache only the immutable accepted binding. Active job/queue state
+            // remains in result reads, and explicit reconciliation stays fresh.
+            val interval = if (receipt == null) (5_000L shl (misses - 1).coerceIn(0, 4)).coerceAtMost(60_000L) else maxOf(30_000L, GatewayJobPollCoordinator.remaining(config, receipt.jobId))
+            CommandObservation(receipt, interval, GatewaySurfacePolicy.identity(config))
         }?.receipt
     }
 

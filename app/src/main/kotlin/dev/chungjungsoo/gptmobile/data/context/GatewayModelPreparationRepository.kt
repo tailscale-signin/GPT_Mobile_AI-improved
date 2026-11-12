@@ -70,6 +70,16 @@ class GatewayModelPreparationRepository internal constructor(
         mode: ReasoningMode,
         forceRefresh: Boolean = false,
         onState: (GatewayModelPreparationState?) -> Unit = {}
+    ): GatewayModelPreparationState? = prepareSelectedWhile(profile, mode, forceRefresh, {}, onState = onState)
+
+    /** A durable Send can lose ownership while metadata or a load request is suspended. */
+    internal suspend fun prepareSelectedWhile(
+        profile: PlatformV2,
+        mode: ReasoningMode,
+        forceRefresh: Boolean,
+        validateSelection: suspend () -> Unit,
+        allowLoad: Boolean = true,
+        onState: (GatewayModelPreparationState?) -> Unit = {}
     ): GatewayModelPreparationState? {
         if (!profile.enabled || profile.compatibleType != ClientType.LLAMA || profile.model.isBlank()) return null.also(onState)
         val identity = ConfiguredDispatchAuthority.profileRevision(profile)
@@ -89,6 +99,7 @@ class GatewayModelPreparationRepository internal constructor(
             }
         try {
             return entry.mutex.withLock {
+                validateSelection()
                 entry.state?.takeIf { !forceRefresh && !it.busy && it.observation?.requested == mode && now() - entry.checkedAt in 0 until 20_000L }?.let { return@withLock it.also(onState) }
                 publish(GatewayModelPreparationPhase.CHECKING, "Checking the selected model on the gateway…")
                 var observation: ReasoningCapabilityObservation? = null
@@ -115,11 +126,14 @@ class GatewayModelPreparationRepository internal constructor(
                             onState(null)
                         }
                         repeat(2) preparation@{ preparationPass ->
+                            validateSelection()
                             observation = check(profile, mode)
+                            validateSelection()
                             if (observation?.routeVerified == true) {
                                 resolved()
                                 return@withTimeoutOrNull publishReady(profile, observation!!, ::publish)
                             }
+                            if (!allowLoad) return@withTimeoutOrNull publish(GatewayModelPreparationPhase.BLOCKED, observation?.detailMessage ?: "This exact model is not ready yet. The saved message and existing load identity are kept.", observation)
                             if (observation?.safeReasonCode !in setOf("SELECTED_MODEL_NOT_LOADED", "SELECTED_MODEL_LOADING") && !entry.unresolved) {
                                 return@withTimeoutOrNull publish(GatewayModelPreparationPhase.BLOCKED, observation?.detailMessage ?: "The gateway could not verify this exact model. Check the profile and connection, then recheck.", observation)
                             }
@@ -135,6 +149,7 @@ class GatewayModelPreparationRepository internal constructor(
                                 persist()
                                 entry.unresolved = true
                                 currentCoroutineContext().ensureActive()
+                                validateSelection()
                                 val receipt = try {
                                     load(profile, requireNotNull(entry.operationId))
                                 } catch (cancelled: CancellationException) {
@@ -152,6 +167,7 @@ class GatewayModelPreparationRepository internal constructor(
                                     null
                                 }
                                 if (receipt != null) persist(receipt.state)
+                                validateSelection()
                                 if (receipt?.loadAccepted == false) resolved()
                                 if (receipt?.modelState == "LOADED") {
                                     resolved()
@@ -179,7 +195,9 @@ class GatewayModelPreparationRepository internal constructor(
                             publish(GatewayModelPreparationPhase.LOADING, "Waiting for ${profile.model} to finish loading on the gateway…", observation)
                             repeat(maxPolls) {
                                 pause()
+                                validateSelection()
                                 observation = check(profile, mode)
+                                validateSelection()
                                 if (observation?.routeVerified == true) {
                                     resolved()
                                     return@withTimeoutOrNull publishReady(profile, observation!!, ::publish)

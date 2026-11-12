@@ -36,9 +36,9 @@ import kotlinx.serialization.json.intOrNull
 
 class GatewayAPIImpl internal constructor(
     private val networkClient: NetworkClient,
-    private val jobReads: GatewayJobReadCoordinator
+    private val jobPolls: GatewayJobPollCoordinator
 ) : GatewayAPI {
-    @Inject constructor(networkClient: NetworkClient) : this(networkClient, GatewayJobReadCoordinator.shared)
+    @Inject constructor(networkClient: NetworkClient) : this(networkClient, GatewayJobPollCoordinator.forNetwork(networkClient))
     private data class CapabilityAttempt(val runtimeIdentity: String, val value: GatewayCapabilities? = null, val failure: GatewayCapabilityDiscoveryException? = null)
     private val capabilities = dev.chungjungsoo.gptmobile.data.context.RouteCapabilityCache<CapabilityAttempt>(
         { System.nanoTime() / 1_000_000 },
@@ -208,6 +208,7 @@ class GatewayAPIImpl internal constructor(
                     if (sequence != null && sequence < 0) throw GatewayEventReplayException("Gateway returned an invalid replay cursor.")
                     if (sequence != null && sequence <= lastSequence && progress.generationChanged != true) continue
                     if (sequence != null) lastSequence = if (progress.generationChanged == true) sequence else maxOf(lastSequence, sequence)
+                    jobPolls.observeProgress(gatewayJobObservationIdentity(config), jobId, progress)
                     emit(progress)
                 }
             }
@@ -219,17 +220,20 @@ class GatewayAPIImpl internal constructor(
         config: ProviderRequestConfig
     ): GatewayJobResult? {
         require(jobId.matches(Regex("[A-Za-z0-9_-]{1,128}"))) { "Invalid Gateway job identifier." }
-        return jobReads.result(config, jobId) {
-            var retryAfter: String? = null
-            val value = readJobResult(jobId, config) { retryAfter = it }
-            GatewayJobReadObservation(value, retryAfter)
+        return jobPolls.read(gatewayJobObservationIdentity(config), jobId, { gatewayJobObservationEpoch(config) }) { received ->
+            readJobResult(jobId, config, received)
         }
     }
 
-    private suspend fun readJobResult(jobId: String, config: ProviderRequestConfig, onRetryAfter: (String?) -> Unit): GatewayJobResult? {
+    private suspend fun readJobResult(
+        jobId: String,
+        config: ProviderRequestConfig,
+        received: (GatewayJobPollResponse) -> Unit
+    ): GatewayJobResult? {
         val endpoint = config.buildEndpoint("gateway/jobs/$jobId/result")
         return try {
             LocalEndpointConnectionPolicy.probe(endpoint, networkClient::evictIdleConnections) {
+                jobPolls.awaitReadPermission(gatewayJobObservationIdentity(config), jobId)
                 gatewayClientExchange(config, "job", safeRead = true) { requestHeaders ->
                     networkClient.gatewayReadClient().prepareGet(endpoint) {
                         config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
@@ -242,36 +246,41 @@ class GatewayAPIImpl internal constructor(
                             socketTimeoutMillis = RECOVERY_REQUEST_TIMEOUT_MS
                         }
                     }.execute { response ->
-                        GatewayClientDiagnostics.observe(config, response.status.value, response.call.request.headers["traceparent"]) { response.headers[it] }
-                        onRetryAfter(response.headers[HttpHeaders.RetryAfter])
-                        when {
-                            response.status.isSuccess() -> {
-                                val body = response.boundedMetadata(4 * 1024 * 1024)
-                                val saved = try {
-                                    decodeGatewayJobResult(json, body)
-                                } catch (failure: kotlinx.serialization.SerializationException) {
-                                    // Legacy 202 endpoints can omit their envelope. Keep only
-                                    // transport-level waiting; never invent handoff or completion proof.
-                                    if (response.status == HttpStatusCode.Accepted) return@execute GatewayJobResult(jobId = jobId, status = "RUNNING")
-                                    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Gateway", "SAVED_RESULT_READ_OUTCOME · jobId=$jobId · outcome=INVALID_RESPONSE · http=${response.status.value}", "W")
-                                    return@execute null
+                        var bodyCharacters = 0
+                        try {
+                            GatewayClientDiagnostics.observe(config, response.status.value, response.call.request.headers["traceparent"]) { response.headers[it] }
+                            when {
+                                response.status.isSuccess() -> {
+                                    val body = response.boundedMetadata(4 * 1024 * 1024)
+                                    bodyCharacters = body.length
+                                    val saved = try {
+                                        decodeGatewayJobResult(json, body)
+                                    } catch (failure: kotlinx.serialization.SerializationException) {
+                                        // Legacy 202 endpoints can omit their envelope. Keep only
+                                        // transport-level waiting; never invent handoff or completion proof.
+                                        if (response.status == HttpStatusCode.Accepted) return@execute GatewayJobResult(jobId = jobId, status = "RUNNING")
+                                        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Gateway", "SAVED_RESULT_READ_OUTCOME · jobId=$jobId · outcome=INVALID_RESPONSE · http=${response.status.value}", "W")
+                                        return@execute null
+                                    }
+                                    if (saved.jobId != jobId || saved.job?.jobId?.let { it != jobId } == true) {
+                                        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Gateway", "SAVED_RESULT_READ_OUTCOME · jobId=$jobId · outcome=JOB_IDENTITY_MISMATCH · http=${response.status.value}", "W")
+                                        return@execute null
+                                    }
+                                    if (response.status == HttpStatusCode.Accepted && saved.status.lowercase() !in setOf("running", "resuming", "waiting_for_client_tool")) {
+                                        GatewayJobResult(jobId = jobId, status = "RUNNING")
+                                    } else {
+                                        // A waiting result can contain the original assistant call.
+                                        // It is retained evidence and cannot authorize tool execution.
+                                        saved
+                                    }
                                 }
-                                if (saved.jobId != jobId || saved.job?.jobId?.let { it != jobId } == true) {
-                                    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Gateway", "SAVED_RESULT_READ_OUTCOME · jobId=$jobId · outcome=JOB_IDENTITY_MISMATCH · http=${response.status.value}", "W")
-                                    return@execute null
-                                }
-                                if (response.status == HttpStatusCode.Accepted && saved.status.lowercase() !in setOf("running", "resuming", "waiting_for_client_tool")) {
-                                    GatewayJobResult(jobId = jobId, status = "RUNNING")
-                                } else {
-                                    // A waiting result can contain the original assistant call.
-                                    // It is retained evidence and cannot authorize tool execution.
-                                    saved
+                                else -> {
+                                    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Gateway", "SAVED_RESULT_READ_OUTCOME · jobId=$jobId · outcome=HTTP_REJECTED · http=${response.status.value}", "W")
+                                    null
                                 }
                             }
-                            else -> {
-                                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Gateway", "SAVED_RESULT_READ_OUTCOME · jobId=$jobId · outcome=HTTP_REJECTED · http=${response.status.value}", "W")
-                                null
-                            }
+                        } finally {
+                            received(GatewayJobPollResponse(response.status.value, response.headers[HttpHeaders.RetryAfter], bodyCharacters))
                         }
                     }
                 }
@@ -290,7 +299,7 @@ class GatewayAPIImpl internal constructor(
     ): GatewayCancelResult? {
         require(jobId.matches(Regex("[A-Za-z0-9_-]{1,128}"))) { "Invalid Gateway job identifier." }
         val endpoint = config.buildEndpoint("gateway/jobs/$jobId/cancel")
-        jobReads.changed(config, jobId)
+        jobPolls.invalidate(gatewayJobObservationIdentity(config), jobId)
         return try {
             val responseBody = gatewayClientExchange(config, "job", safeRead = false, method = "POST") { requestHeaders ->
                 networkClient().preparePost(endpoint) {
@@ -313,7 +322,7 @@ class GatewayAPIImpl internal constructor(
         } catch (_: Exception) {
             null
         } finally {
-            jobReads.changed(config, jobId)
+            jobPolls.invalidate(gatewayJobObservationIdentity(config), jobId)
         }
     }
 

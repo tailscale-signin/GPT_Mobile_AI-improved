@@ -168,13 +168,43 @@ class GatewayJobClientTest {
             assertEquals("job", client.observeCommand(config, "saved")?.jobId)
             assertEquals(2, calls)
             accepted = false
-            // An accepted mapping is immutable; only passive freshness expires.
-            now = 60_000
-            assertEquals(null, client.observeCommand(config, "saved"))
+            assertEquals("job", client.observeCommand(config, "saved")?.jobId)
+            assertEquals(2, calls)
+            assertEquals(null, client.command(config, "saved"))
             assertEquals(3, calls)
-            now = 65_000
+            now = 5_000
             assertEquals(null, client.observeCommand(config, "saved"))
             assertEquals(4, calls)
+        }
+    }
+
+    @Test fun concurrentPassiveObserversReuseAcceptedBindingsWithABoundedLifetime() = runBlocking {
+        var now = 0L
+        var calls = 0
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        HttpClient(
+            MockEngine {
+                calls++
+                entered.complete(Unit)
+                release.await()
+                respond("""{"schema_version":1,"gateway_id":"gateway","principal_id":"owner","command_id":"saved","conversation_id":"conversation","job_kind":"generation","job_id":"job"}""")
+            }
+        ) { install(HttpTimeout) }.use { http ->
+            val client = GatewayJobClient(http, now = { now })
+            val chat = async { client.observeCommand(config, "saved") }
+            entered.await()
+            val jobs = async { client.observeCommand(config, "saved") }
+            val monitor = async { client.observeCommand(config, "saved") }
+            release.complete(Unit)
+            assertEquals(listOf("job", "job", "job"), listOf(chat.await(), jobs.await(), monitor.await()).map { it?.jobId })
+            assertEquals(1, calls)
+            now = 29_999L
+            assertEquals("job", client.observeCommand(config, "saved")?.jobId)
+            assertEquals(1, calls)
+            now = 30_000L
+            assertEquals("job", client.observeCommand(config, "saved")?.jobId)
+            assertEquals(2, calls)
         }
     }
 

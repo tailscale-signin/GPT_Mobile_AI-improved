@@ -1,303 +1,130 @@
 package dev.chungjungsoo.gptmobile.data.network.gateway
 
-import dev.chungjungsoo.gptmobile.data.github.GatewayJobClient
-import dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth
 import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
-import io.ktor.client.engine.mock.MockEngineConfig
 import io.ktor.client.engine.mock.respond
-import io.ktor.client.plugins.HttpTimeout
-import io.ktor.client.request.post
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
+import io.ktor.utils.io.ByteChannel
+import io.ktor.utils.io.ByteReadChannel
+import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
-import java.time.Instant
-import java.time.ZoneOffset
-import java.time.format.DateTimeFormatter
+import java.io.EOFException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
-import kotlinx.coroutines.test.TestScope
-import kotlinx.coroutines.test.UnconfinedTestDispatcher
-import kotlinx.coroutines.test.advanceTimeBy
-import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class GatewayJobPollingTest {
-    @Test fun concurrentAndSequentialObserversShareOneCommandAndResultUntilServerDeadline() = runTest {
-        Fixture(this, "shared").use { fixture ->
-            val first = fixture.api()
-            val second = fixture.api()
-            val commands = fixture.commands()
-            val gate = CompletableDeferred<Unit>()
-            fixture.resultGate = gate
-            assertEquals("job", commands.observeCommand(fixture.config, "command")?.jobId)
-            val a = async { first.getJobResult("job", fixture.config) }
-            val b = async { second.getJobResult("job", fixture.config) }
-            runCurrent()
-            assertEquals(1, fixture.results)
-            gate.complete(Unit)
-            assertEquals("RUNNING", a.await()?.status)
-            assertEquals("RUNNING", b.await()?.status)
-
-            repeat(19) {
-                advanceTimeBy(100)
-                assertEquals("job", commands.observeCommand(fixture.config, "command")?.jobId)
-                assertEquals("RUNNING", second.getJobResult("job", fixture.config)?.status)
-            }
-            assertEquals(1, fixture.results)
-            assertEquals(1, fixture.commandReads)
-            advanceTimeBy(100)
-            fixture.resultStatus = "completed"
-            assertEquals("completed", first.getJobResult("job", fixture.config)?.status)
-            assertEquals("completed", second.getJobResult("job", fixture.config)?.status)
-            assertEquals(2, fixture.results)
-            assertEquals(listOf(0L, 2_000L), fixture.resultTimes)
-            // Explicit reconciliation is fresh even while passive identity is retained.
-            commands.command(fixture.config, "command")
-            assertEquals(2, fixture.commandReads)
-        }
-    }
-
-    @Test fun retryAfterHttpDateAppliesAcrossResultReadersAndCommandObservations() = runTest {
-        Fixture(this, "date").use { fixture ->
-            fixture.retryAfter = DateTimeFormatter.RFC_1123_DATE_TIME.format(Instant.ofEpochMilli(fixture.wallTime + 12_000).atZone(ZoneOffset.UTC))
-            val api = fixture.api()
-            val commands = fixture.commands()
-            api.getJobResult("job", fixture.config)
-            commands.observeCommand(fixture.config, "command")
-            // Once received, an HTTP-date becomes a monotonic deadline.
-            fixture.wallOffset = 86_400_000L
-            advanceTimeBy(11_999)
-            api.getJobResult("job", fixture.config)
-            commands.observeCommand(fixture.config, "command")
-            assertEquals(1, fixture.results)
-            assertEquals(1, fixture.commandReads)
-            advanceTimeBy(1)
-            api.getJobResult("job", fixture.config)
-            assertEquals(2, fixture.results)
-        }
-    }
-
-    @Test fun cachedObservationNeverCrossesCredentialsRoutePrincipalProfileRevisionOrJob() = runTest {
-        Fixture(this, "scopes").use { fixture ->
-            val api = fixture.api()
-            val configs = listOf(
-                fixture.config,
-                fixture.config.copy(token = "another-fixture-token"),
-                fixture.config.copy(apiUrl = "https://another-poll-scope.example/v1"),
-                fixture.config.copy(extraHeaders = mapOf("X-Gateway-Principal-ID" to "another-owner")),
-                fixture.config.copy(extraHeaders = mapOf("X-Gateway-Installation-ID" to "another-installation")),
-                fixture.config.copy(profileRevision = "changed-settings")
-            )
-            configs.forEachIndexed { index, config ->
-                api.getJobResult("job", config)
-                api.getJobResult("job", config)
-                assertEquals(index + 1, fixture.results)
-            }
-            api.getJobResult("another-job", fixture.config)
-            assertEquals(configs.size + 1, fixture.results)
-        }
-    }
-
-    @Test fun gatewayRestartAndNetworkRecoveryDiscardOldObservationsImmediately() = runTest {
-        Fixture(this, "epochs").use { fixture ->
-            val api = fixture.api()
-            val commands = fixture.commands()
-            api.getJobResult("job", fixture.config)
-            commands.observeCommand(fixture.config, "command")
-            GatewayClientDiagnostics.observeInstance(fixture.config, "b".repeat(32))
-            fixture.instance = "b".repeat(32)
-            api.getJobResult("job", fixture.config)
-            commands.observeCommand(fixture.config, "command")
-            assertEquals(2, fixture.results)
-            assertEquals(2, fixture.commandReads)
-            LocalServiceHealth.networkChanged()
-            api.getJobResult("job", fixture.config)
-            commands.observeCommand(fixture.config, "command")
-            assertEquals(3, fixture.results)
-            assertEquals(3, fixture.commandReads)
-        }
-    }
-
-    @Test fun cancellingAnObserverDoesNotCancelAnotherOrLeaveAnAutonomousPoller() = runTest {
-        Fixture(this, "cancellation").use { fixture ->
-            val api = fixture.api()
-            val gate = CompletableDeferred<Unit>()
-            fixture.resultGate = gate
-            val owner = async { api.getJobResult("job", fixture.config) }
-            runCurrent()
-            val observer = async { api.getJobResult("job", fixture.config) }
-            runCurrent()
-            observer.cancel()
-            assertFalse(owner.isCancelled)
-            gate.complete(Unit)
-            assertNotNull(owner.await())
-            assertEquals(1, fixture.results)
-            advanceTimeBy(60_000)
-            runCurrent()
-            assertEquals(1, fixture.results)
-        }
-    }
-
-    @Test fun evictingLargeResultObservationsDoesNotBypassTheirPollingDeadline() = runTest {
-        Fixture(this, "eviction").use { fixture ->
-            fixture.retryAfter = "5"
-            val api = fixture.api()
-            repeat(5) { api.getJobResult("job-$it", fixture.config) }
-            val evicted = async { api.getJobResult("job-0", fixture.config) }
-            runCurrent()
-            assertEquals(5, fixture.results)
-            assertFalse(evicted.isCompleted)
-            advanceTimeBy(4_999)
-            assertEquals(5, fixture.results)
-            advanceTimeBy(1)
-            assertNotNull(evicted.await())
-            assertEquals(6, fixture.results)
-            assertEquals(5_000L, fixture.resultTimes.last())
-        }
-    }
-
-    @Test fun cancellationWritesAreNeverCachedAndInvalidatePendingObservations() = runTest {
-        Fixture(this, "writes").use { fixture ->
-            val api = fixture.api()
-            assertEquals("RUNNING", api.getJobResult("job", fixture.config)?.status)
-            fixture.resultStatus = "cancelled"
-            assertNotNull(api.cancelJob("job", fixture.config))
-            assertEquals("cancelled", api.getJobResult("job", fixture.config)?.status)
-            assertEquals(2, fixture.results)
-            assertNotNull(api.cancelJob("job", fixture.config))
-            assertEquals(2, fixture.writes)
-        }
-    }
-
-    @Test fun anInvalidatedInflightReadCannotSatisfyAnotherObserverAfterItCompletes() = runTest {
-        Fixture(this, "inflight-write").use { fixture ->
-            val api = fixture.api()
-            val gate = CompletableDeferred<Unit>()
-            fixture.resultGate = gate
-            val beforeWrite = async { api.getJobResult("job", fixture.config) }
-            runCurrent()
-            fixture.resultStatus = "cancelled"
-            api.cancelJob("job", fixture.config)
-            val afterWrite = async { api.getJobResult("job", fixture.config) }
-            runCurrent()
-            assertEquals(1, fixture.results)
-            gate.complete(Unit)
-            assertEquals("RUNNING", beforeWrite.await()?.status)
-            assertEquals("cancelled", afterWrite.await()?.status)
-            assertEquals(2, fixture.results)
-        }
-    }
-
-    @Test fun evictingMutationVersionsCannotReviveAnInvalidatedObservation() = runTest {
-        Fixture(this, "version-eviction").use { fixture ->
-            fixture.retryAfter = "3600"
-            val api = fixture.api()
-            assertEquals("RUNNING", api.getJobResult("job", fixture.config)?.status)
-            fixture.reads.changed(fixture.config, "job")
-            repeat(128) { fixture.reads.changed(fixture.config, "another-job-$it") }
-            fixture.resultStatus = "completed"
-            assertEquals("completed", api.getJobResult("job", fixture.config)?.status)
-            assertEquals(2, fixture.results)
-            assertEquals(listOf(0L, 0L), fixture.resultTimes)
-        }
-    }
-
-    @Test fun continuationExchangesInvalidateSharedReadsWithoutCachingWrites() = runTest {
-        Fixture(this, "continuation").use { fixture ->
-            val api = fixture.sharedApi()
-            assertEquals("RUNNING", api.getJobResult("job", fixture.config)?.status)
-            fixture.resultStatus = "completed"
-            fixture.continueJob()
-            assertEquals("completed", api.getJobResult("job", fixture.config)?.status)
-            fixture.continueJob()
-            assertEquals(2, fixture.writes)
-            assertEquals(2, fixture.results)
-        }
-    }
-
-    private class Fixture(val scope: TestScope, name: String) : AutoCloseable {
-        val config = ProviderRequestConfig("https://poll-$name.example/v1", "fixture-token", profileUid = "selected-profile")
-        val wallTime = 1_794_512_000_000L
-        var wallOffset = 0L
-        val reads = GatewayJobReadCoordinator({ scope.testScheduler.currentTime }, { wallTime + scope.testScheduler.currentTime + wallOffset })
-        var resultGate: CompletableDeferred<Unit>? = null
-        var retryAfter = "2"
-        var resultStatus = "RUNNING"
-        var instance = "a".repeat(32)
-        var results = 0
-        var commandReads = 0
-        var writes = 0
-        val resultTimes = mutableListOf<Long>()
-        private val http = HttpClient(
-            MockEngine(
-                MockEngineConfig().apply {
-                    dispatcher = UnconfinedTestDispatcher(scope.testScheduler)
-                    addHandler { request ->
-                        val path = request.url.encodedPath
-                        when {
-                            path.endsWith("/result") -> {
-                                assertEquals(HttpMethod.Get, request.method)
-                                results++
-                                resultTimes += scope.testScheduler.currentTime
-                                val status = resultStatus
-                                resultGate?.await()
-                                val id = path.substringBeforeLast('/').substringAfterLast('/')
-                                respond(
-                                    """{"job_id":"$id","status":"$status","job":{"job_id":"$id","model":"selected-model"}}""",
-                                    if (status == "RUNNING") HttpStatusCode.Accepted else HttpStatusCode.OK,
-                                    headersOf(HttpHeaders.RetryAfter to listOf(retryAfter), "X-Gateway-Instance-ID" to listOf(instance))
-                                )
-                            }
-                            path.contains("/commands/") -> {
-                                assertEquals(HttpMethod.Get, request.method)
-                                commandReads++
-                                respond(
-                                    """{"schema_version":1,"gateway_id":"gateway","principal_id":"owner","command_id":"command","conversation_id":"conversation","job_kind":"generation","job_id":"job"}""",
-                                    headers = headersOf("X-Gateway-Instance-ID", instance)
-                                )
-                            }
-                            path.endsWith("/cancel") -> {
-                                assertEquals(HttpMethod.Post, request.method)
-                                writes++
-                                respond("""{"job_id":"job","canceled":true,"status":"cancelled"}""")
-                            }
-                            path.endsWith("/chat/completions") -> {
-                                assertEquals(HttpMethod.Post, request.method)
-                                writes++
-                                respond("{}")
-                            }
-                            else -> error("Unexpected HTTP request: ${request.method} $path")
-                        }
-                    }
+    @Test fun chatJobsAndMonitorShareOneResponseDeadlineThenStopAtTerminal() = runBlocking {
+        var elapsed = 0L
+        var reads = 0
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val coordinator = GatewayJobPollCoordinator({ elapsed }, { elapsed })
+        val config = ProviderRequestConfig("https://gateway-polling.example/v1", "selected-account")
+        HttpClient(
+            MockEngine { request ->
+                reads++
+                assertEquals(HttpMethod.Get, request.method)
+                assertEquals("Bearer selected-account", request.headers[HttpHeaders.Authorization])
+                assertEquals("/v1/gateway/jobs/saved/result", request.url.encodedPath)
+                if (reads == 1) {
+                    entered.complete(Unit)
+                    release.await()
+                    respond("""{"job_id":"saved","status":"running","terminal":false}""", HttpStatusCode.Accepted, headersOf(HttpHeaders.RetryAfter, "2"))
+                } else {
+                    respond("""{"job_id":"saved","status":"completed","content":"Saved answer","result_quality":"complete","terminal":true,"continuation_allowed":false}""", HttpStatusCode.OK)
                 }
-            )
-        ) { install(HttpTimeout) }
-        private val network = mockk<NetworkClient>().also {
-            every { it() } returns http
-            every { it.gatewayReadClient() } returns http
+            }
+        ).use { http ->
+            val network = mockk<NetworkClient>()
+            every { network.gatewayReadClient() } returns http
+            val chat = GatewayAPIImpl(network, coordinator)
+            val jobs = GatewayAPIImpl(network, coordinator)
+            val monitor = GatewayAPIImpl(network, coordinator)
+            val chatRead = async { chat.getJobResult("saved", config.copy(profileUid = "chat")) }
+            entered.await()
+            val jobsRead = async { jobs.getJobResult("saved", config.copy(profileUid = "jobs")) }
+            val monitorRead = async { monitor.getJobResult("saved", config.copy(requestRole = "background-monitor")) }
+            elapsed = 700L
+            release.complete(Unit)
+            assertEquals(listOf("running", "running", "running"), listOf(chatRead.await(), jobsRead.await(), monitorRead.await()).map { it?.status })
+            assertEquals(1, reads)
+            elapsed = 2_699L
+            for (api in listOf(chat, jobs, monitor)) assertEquals("running", api.getJobResult("saved", config)?.status)
+            assertEquals(1, reads)
+            elapsed = 2_700L
+            val terminalReads = listOf(chat, jobs, monitor).map { api -> async { api.getJobResult("saved", config) } }
+            assertEquals(listOf("completed", "completed", "completed"), terminalReads.map { it.await()?.status })
+            assertEquals(2, reads)
+            elapsed = 100_000L
+            for (api in listOf(chat, jobs, monitor)) assertEquals("Saved answer", api.getJobResult("saved", config)?.content)
+            assertEquals(2, reads)
         }
+    }
 
-        fun api() = GatewayAPIImpl(network, reads)
-        fun sharedApi() = GatewayAPIImpl(network)
-        fun commands() = GatewayJobClient(http, now = { scope.testScheduler.currentTime }, jobReads = reads)
-        suspend fun continueJob() {
-            val config = config.copy(extraHeaders = mapOf("X-Gateway-Job-ID" to "job"))
-            gatewayClientExchange(config, "chat", safeRead = false, method = "POST") {
-                http.post(config.buildEndpoint("chat/completions"))
+    @Test fun independentlyConstructedApisUseTheSameNetworkOwner() = runBlocking {
+        var reads = 0
+        HttpClient(
+            MockEngine {
+                reads++
+                respond("""{"job_id":"saved","status":"running"}""", HttpStatusCode.Accepted, headersOf(HttpHeaders.RetryAfter, "30"))
+            }
+        ).use { http ->
+            val network = mockk<NetworkClient>()
+            every { network.gatewayReadClient() } returns http
+            val config = ProviderRequestConfig("https://shared-network-polling.example/v1", "selected-account")
+            assertEquals("running", GatewayAPIImpl(network).getJobResult("saved", config)?.status)
+            assertEquals("running", GatewayAPIImpl(network).getJobResult("saved", config)?.status)
+            assertEquals(1, reads)
+        }
+    }
+
+    @Test fun reconnectAfterAResponseBodyFailureAlsoHonorsTheReceivedRetryAfter() = runTest {
+        val reading = CompletableDeferred<Unit>()
+        val stream = ByteChannel(autoFlush = true)
+        val responseBody = object : ByteReadChannel by stream {
+            override suspend fun awaitContent(min: Int): Boolean {
+                reading.complete(Unit)
+                return stream.awaitContent(min)
             }
         }
-        override fun close() = http.close()
+        var requests = 0
+        var failedResponseAt = 0L
+        val coordinator = GatewayJobPollCoordinator({ testScheduler.currentTime }, { 0L })
+        HttpClient(
+            MockEngine {
+                requests++
+                if (requests == 1) {
+                    respond(responseBody, HttpStatusCode.Accepted, headersOf(HttpHeaders.RetryAfter, "2"))
+                } else {
+                    assertTrue("The internal reconnect cannot bypass Retry-After.", testScheduler.currentTime >= failedResponseAt + 2_000L)
+                    respond("""{"job_id":"saved","status":"completed","content":"Recovered answer","result_quality":"complete","terminal":true}""", HttpStatusCode.OK)
+                }
+            }
+        ).use { http ->
+            val network = mockk<NetworkClient>()
+            every { network.gatewayReadClient() } returns http
+            coEvery { network.evictIdleConnections() } returns Unit
+            val read = async {
+                GatewayAPIImpl(network, coordinator).getJobResult("saved", ProviderRequestConfig("https://body-reconnect.example/v1", "account"))
+            }
+            reading.await()
+            failedResponseAt = testScheduler.currentTime
+            stream.cancel(EOFException("Response body ended early"))
+            assertEquals("Recovered answer", read.await()?.content)
+            assertEquals(2, requests)
+        }
     }
 }

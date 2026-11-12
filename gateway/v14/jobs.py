@@ -109,15 +109,17 @@ def install_terminal_guard(runtime):
         # A failed commit must leave the transition available for a later
         # disconnect to retry. Keep the lock through commit/rollback so a
         # reconnect or completion cannot be replaced by the old snapshot.
+        # Late observer detaches must not rewrite committed terminal results.
         with runtime.job_registry_lock:
             job = runtime.job_registry.get(job_id)
-            snapshot = dict(job) if job is not None else None
+            if job is None or job.get('status') in TERMINAL:
+                return
+            snapshot = dict(job)
             try:
                 return disconnect(job_id)
             except Exception:
-                if job is not None and snapshot is not None:
-                    job.clear()
-                    job.update(snapshot)
+                job.clear()
+                job.update(snapshot)
                 raise
     runtime.finish_gateway_job = guarded_finish
     runtime.update_gateway_job = guarded_update

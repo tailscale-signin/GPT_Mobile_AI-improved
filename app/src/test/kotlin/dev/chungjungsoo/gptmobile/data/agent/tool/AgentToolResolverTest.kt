@@ -1389,8 +1389,14 @@ class AgentToolResolverTest {
             val plainTools = uninstrumented.resolve(profile.uid, userMessage = message)
             val plainCatalog = requireNotNull(plainTools.firstNotNullOfOrNull { it.progressiveCatalog })
             assertEquals("Telemetry must preserve the exact compact contracts", plainCatalog.selected(plainTools.map { it.tool.definition }), schemas)
+            val estimatedTokens = schemas.sumOf { dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog.schemaTokens(it) }
+            if (task == "check repo status") {
+                assertTrue(estimatedTokens <= dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog.MAX_SCHEMA_TOKEN_ALLOWANCE)
+            } else {
+                assertTrue(estimatedTokens < 2000)
+            }
             val allNative = tools.filter { it.nativeGitHub && it.tool.definition.modelVisible }.map { it.tool.definition }
-            assertTrue(schemas.sumOf { dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog.schemaTokens(it) } < allNative.sumOf { dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog.schemaTokens(it) })
+            assertTrue(estimatedTokens < allNative.sumOf { dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog.schemaTokens(it) })
         }
         settings.features = settings.features.withToolPluginEnabled(ToolPluginId.GITHUB, false)
         assertFalse(resolver.resolve(profile.uid).any { it.nativeGitHub })
@@ -1409,6 +1415,7 @@ class AgentToolResolverTest {
         val definitions = statusTools.map { it.tool.definition }
         assertTrue(catalog.scopedGitHubStatus)
         assertEquals(setOf("github_context__native", "github_pr__native", dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog.NAME), catalog.selected(definitions).map { it.name }.toSet())
+        assertTrue(catalog.selected(definitions).sumOf { dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog.schemaTokens(it) } <= dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog.MAX_SCHEMA_TOKEN_ALLOWANCE)
         val authorizedNames = statusTools.filter { it.nativeGitHub && it.tool.definition.modelVisible }.map { it.modelToolName }.toSet()
         assertEquals(GitHubOperationTool.names.map { "${it}__native" }.toSet(), authorizedNames)
 

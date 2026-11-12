@@ -97,6 +97,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
@@ -284,7 +285,7 @@ class ChatRepositoryImplTest {
 
     @Test fun knownPrivacyRejectionStopsBeforePreparationOrRetrieval() = runBlocking {
         val privacy = mockk<dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterPrivacyPreflight>()
-        coEvery { privacy.check(any(), any(), any(), any()) } throws IllegalStateException("POLICY_RESTRICTED: choose a compatible model")
+        coEvery { privacy.check(any(), any(), any(), any()) } throws dev.chungjungsoo.gptmobile.data.openrouter.PrivacyAdmissionException("POLICY_RESTRICTED: choose a compatible model")
         val resolver = mockk<AgentToolResolver>()
         val settings = mockk<SettingRepository>()
         val memory = mockk<FactVaultRepository>()
@@ -302,7 +303,17 @@ class ChatRepositoryImplTest {
             customPlatform().copy(compatibleType = ClientType.OPENROUTER, apiUrl = "https://openrouter.ai/api/v1", model = "vendor/model", token = "test-key"),
             "privacy-preflight-run"
         ).toList()
-        assertTrue(states.filterIsInstance<ApiState.Error>().single().message.startsWith("POLICY_RESTRICTED"))
+        val failure = states.filterIsInstance<ApiState.Error>().single()
+        assertTrue(failure.message.startsWith("POLICY_RESTRICTED"))
+        assertEquals("PRIVACY_CONFIGURATION", failure.errorCode)
+        assertNull(failure.invocationId)
+        val details = requireNotNull(failure.failureDetails)
+        assertEquals(JsonPrimitive("provider_admission"), details["failed_stage"])
+        assertEquals(JsonPrimitive("OPENROUTER"), details["provider"])
+        assertEquals(JsonPrimitive(false), details["dispatched"])
+        assertEquals(JsonPrimitive("NO"), details["remote_acceptance"])
+        assertEquals(JsonPrimitive(false), details["retryable"])
+        assertEquals(JsonPrimitive("privacy-preflight-run"), details["run_id"])
         assertEquals(ApiState.Done, states.last())
         assertEquals(0, api.streamChatCompletionCalls)
         io.mockk.coVerify(exactly = 1) { privacy.check(any(), "test-key", "vendor/model", any()) }

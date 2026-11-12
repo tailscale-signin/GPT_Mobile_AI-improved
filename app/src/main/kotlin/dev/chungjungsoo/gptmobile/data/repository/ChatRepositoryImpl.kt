@@ -1712,6 +1712,10 @@ class ChatRepositoryImpl(
             preflightAnswerPrivacy(platform)
         } catch (cancelled: CancellationException) {
             throw cancelled
+        } catch (failure: dev.chungjungsoo.gptmobile.data.openrouter.PrivacyAdmissionException) {
+            emit(failure.asApiError(runId))
+            emit(ApiState.Done)
+            return@flow
         } catch (failure: IllegalStateException) {
             emit(ApiState.Error(failure.message ?: "POLICY_RESTRICTED: Choose a compatible model in Settings."))
             emit(ApiState.Done)
@@ -1725,8 +1729,10 @@ class ChatRepositoryImpl(
         emitAll(preparedCompleteChat(userMessages, completeHistory, githubProfile, runId, githubTools, fence, boundStage))
     }.withSystemOutputLineage(runId).flowOn(Dispatchers.Default)
 
-    private suspend fun preflightAnswerPrivacy(platform: PlatformV2) {
-        if (platform.compatibleType != ClientType.OPENROUTER || privacyPreflight == null) return
+    override suspend fun preflightAnswerPrivacy(platform: PlatformV2) = withContext(Dispatchers.Default) {
+        // UI entry points share this preflight with generation. Metadata parsing
+        // and policy evaluation must not return to Main after the client's IO.
+        if (platform.compatibleType != ClientType.OPENROUTER || privacyPreflight == null) return@withContext
         val settings = platform.providerConnectionUid?.let { openRouterSettingsRepository?.loadSettings(it) }
             ?: dev.chungjungsoo.gptmobile.domain.model.OpenRouterSettings(apiKey = "")
         val (_, override) = dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterPolicy.decodeProfile(platform.openRouterRouting)
@@ -1736,7 +1742,9 @@ class ChatRepositoryImpl(
         for (key in keys) {
             try {
                 privacyPreflight.check(platform.apiUrl.orEmpty(), key, platform.model, policy)
-                return
+                return@withContext
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (failure: IllegalStateException) {
                 if (!failure.message.orEmpty().startsWith("POLICY_RESTRICTED")) throw failure
                 lastFailure = failure

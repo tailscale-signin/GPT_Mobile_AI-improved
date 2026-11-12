@@ -198,6 +198,7 @@ class InvocationLedgerTest {
             .streamRound(emptyList(), emptyList()).toList()
 
         val invocation = saved.single()
+        assertTrue(invocation.id.isNotBlank())
         val expectedEvents = providerEvents.map { event ->
             if (event is ProviderEvent.Usage) event.copy(invocationId = invocation.id) else event
         }

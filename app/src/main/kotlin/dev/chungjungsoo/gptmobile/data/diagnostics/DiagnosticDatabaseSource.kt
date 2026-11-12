@@ -133,6 +133,37 @@ class DiagnosticDatabaseSource @Inject constructor(
                     evidence.add(0, DiagnosticFailureEvidence(stored.first, "REVIEW_CHECKPOINT", review))
                 }
             }
+            // Admission can end a run before a workspace checkpoint or invocation
+            // exists. Its exact owned assistant still retains the typed failure.
+            // Do not borrow a newer revision or another run's timeline by recency.
+            if (run.second != "COMPLETED" && verification?.get("completion_verified") != JsonPrimitive(true)) {
+                beforeRead()
+                val message = database.openHelper.readableDatabase.query(
+                    SimpleSQLiteQuery(
+                        "SELECT m.message_id, CASE WHEN length(CAST(m.timeline AS BLOB)) <= 262144 THEN m.timeline ELSE NULL END " +
+                            "FROM messages_v2 m JOIN agent_runs r ON r.assistant_message_id = m.message_id " +
+                            "WHERE r.run_id = ? AND r.chat_id = ? AND m.chat_id = r.chat_id " +
+                            "AND m.current_run_id = r.run_id AND m.ownership_fence = r.ownership_fence LIMIT 1",
+                        arrayOf<Any?>(run.first, chatId)
+                    )
+                ).use { cursor ->
+                    if (!cursor.moveToFirst()) null else cursor.getLong(0) to cursor.getString(1)
+                }
+                if (message != null) {
+                    val reasons = mutableListOf<String>()
+                    val timeline = message.second?.let { DiagnosticValueProjector(256 * 1024, reasons::add).text(it) }
+                    if (timeline == null) reasons += "MESSAGE_TIMELINE_BYTE_LIMIT"
+                    timeline?.let { diagnosticMessageFailureEvidence(message.first, it) }?.let(evidence::add)
+                    reasons.distinct().forEach { reason ->
+                        limitations += buildJsonObject {
+                            put("record_id", "messages_v2:${message.first}:profileFailure")
+                            put("source", "MESSAGE_PROFILE_FAILURE")
+                            put("reason", reason)
+                            put("scope", "COMPACT_SUMMARY_PROJECTION; full records are captured independently")
+                        }
+                    }
+                }
+            }
         }
         diagnosticFailureSummary(run?.first, run?.second, run?.third, appVersion, appBuild, appCommit, evidence, limitations)
     }

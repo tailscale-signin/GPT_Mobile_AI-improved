@@ -14,6 +14,41 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MoonshineVoiceRecognizerTest {
+    @Test fun deniedAudioFocusKeepsItsCauseAndDefersRetryUntilTheSessionBackoff() {
+        val failure = LocalVoiceCaptureException(
+            "Another audio session holds focus",
+            "MICROPHONE_FOCUS_DENIED",
+            "audio_focus",
+            retryable = true,
+            audioFocusResult = 0
+        )
+        val capture = FakeCapture(startFailure = failure)
+        val calls = AtomicInteger()
+        val decoder = FakeDecoder()
+        val fixture = Fixture(decoder, capture = capture, captureFactory = {
+            assertEquals("Audio focus must not be retried without a backoff", 1, calls.incrementAndGet())
+            capture
+        })
+        try {
+            fixture.audio.listen(fixture.listener)
+            assertTrue(decoder.closed.await(3, TimeUnit.SECONDS))
+            fixture.worker.shutdown()
+            assertTrue(fixture.worker.awaitTermination(3, TimeUnit.SECONDS))
+            fixture.drain()
+            assertEquals(1, calls.get())
+            assertEquals(listOf("VOICE_MICROPHONE_FOCUS_DENIED"), fixture.codes)
+            assertSame(failure, fixture.causes.single())
+            assertEquals(listOf(1_000L), fixture.retryDelays)
+            assertEquals(1, fixture.retryableErrors.size)
+            assertTrue(fixture.finals.isEmpty())
+            assertEquals(1, capture.closeCount.get())
+            assertEquals(0, failure.diagnosticFields()["audioFocusResult"])
+            assertEquals(null, failure.diagnosticFields()["audioReadResult"])
+        } finally {
+            fixture.close()
+        }
+    }
+
     @Test fun aRecorderLostBeforePcmIsRecreatedOnceAndOldDeadlinesCannotEndItsReplacement() {
         val first = FakeCapture(readFailure = LocalVoiceCaptureException("Recorder unavailable", "MICROPHONE_DEAD_OBJECT", "capture_read", retryable = true))
         val replacement = FakeCapture()
@@ -433,6 +468,7 @@ class MoonshineVoiceRecognizerTest {
         val finals = mutableListOf<String>()
         val errors = mutableListOf<String>()
         val retryableErrors = mutableListOf<String>()
+        val retryDelays = mutableListOf<Long>()
         val repairs = mutableListOf<VoiceRecoveryAction>()
         val codes = mutableListOf<String>()
         val causes = mutableListOf<Throwable?>()
@@ -476,6 +512,7 @@ class MoonshineVoiceRecognizerTest {
             }
             override fun retryableFailure(message: String, retryMillis: Long) {
                 retryableErrors += message
+                retryDelays += retryMillis
             }
             override fun failure(message: String, code: String, retryMillis: Long, retryable: Boolean, recoveryAction: VoiceRecoveryAction?, cause: Throwable?) {
                 codes += code

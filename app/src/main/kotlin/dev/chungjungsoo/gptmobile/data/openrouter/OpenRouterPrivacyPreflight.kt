@@ -29,8 +29,8 @@ class OpenRouterPrivacyPreflight @Inject constructor(private val client: OpenRou
     }
 
     suspend fun check(endpoint: String, credential: String?, model: String, policy: OpenRouterProviderRouting) {
-        check(!rejections.blocked(rejectionKey(endpoint, credential, model, policy))) {
-            "POLICY_RESTRICTED: This model was recently rejected under this account and privacy configuration. Choose a compatible model in Settings or retry after five minutes; privacy protections were preserved."
+        if (rejections.blocked(rejectionKey(endpoint, credential, model, policy))) {
+            throw PrivacyAdmissionException("POLICY_RESTRICTED: This model was recently rejected under this account and privacy configuration. Choose a compatible model in Settings or retry after five minutes; privacy protections were preserved.")
         }
         if (dynamicModel(model)) return
         val selectedModel = model
@@ -54,7 +54,9 @@ class OpenRouterPrivacyPreflight @Inject constructor(private val client: OpenRou
         }
         val compatible = rows?.let { compatible(it, selectedModel, policy) }
         AppLogRecorder.record("OpenRouter", "PRIVACY_PREFLIGHT · profileModel=$model · zdr=true · result=${compatible?.let { if (it) "AVAILABLE" else "INCOMPATIBLE" } ?: "UNKNOWN"} · policyUnchanged=true")
-        check(compatible != false) { "POLICY_RESTRICTED: No endpoint for $model satisfies the selected zero-data-retention and provider restrictions. Choose a compatible model or provider in Settings; privacy protections were preserved." }
+        if (compatible == false) {
+            throw PrivacyAdmissionException("POLICY_RESTRICTED: No endpoint for $model satisfies the selected zero-data-retention and provider restrictions. Choose a compatible model or provider in Settings; privacy protections were preserved.")
+        }
     }
 
     companion object {

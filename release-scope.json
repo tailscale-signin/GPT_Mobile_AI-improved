@@ -85,7 +85,8 @@
     "Reject demonstrated Combined claim participant reversals before exact/paraphrase coverage and disputed declarations, preserving valid active/passive and independent-clause matching while leaving ambiguous relations unresolved.",
     "Repair the November 12 session reporting path with explicit hosted or verified-account native GitHub approval, durable original-ID/body/account binding, read-only reconciliation after uncertain creation, truthful local-versus-remote status and distributable APK capability guards.",
     "Repair bounded GitHub review budgeting and saved-candidate recovery, scoped workflow pagination and status catalogs, current-task authority, owned integration preparation, voice recorder attempt ownership and queued speech completion without promoting unexecuted acceptance.",
-    "Retain exact invocation-owned failed-attempt usage, capacity and review provenance, selected-model readiness binding, typed MCP failure and probe-admission evidence, honest audit coverage and off-main export preparation; keep observed revisions separate from tested SHAs."
+    "Retain exact invocation-owned failed-attempt usage, capacity and review provenance, selected-model readiness binding, typed MCP failure and probe-admission evidence, honest audit coverage and off-main export preparation; keep observed revisions separate from tested SHAs.",
+    "Repair retained GitHub checks across repository normalization, voice/privacy admission and reporting, reader HTTP receipts, exact-run diagnostic failure provenance, lazy report dependencies, and durable disconnect rollback; preserve explicit device and deployment blockers."
   ],
   "limitations": [
     "Android GPU qualification requires compatible-device receipts for actual offload, prefill, decode, repeated requests and cancel/recovery; host tests do not establish those results.",
@@ -2290,6 +2291,11 @@
     "gateway/tests/test_gateway_engineering_rejection.py",
     "gateway/v14/engineering_rejection.py",
     "scripts/check_issue_reporting_configuration.py",
-    "scripts/tests/test_issue_reporting_configuration.py"
+    "scripts/tests/test_issue_reporting_configuration.py",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/permissions/ToolTrustStoreTest.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/openrouter/PrivacyAdmissionException.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubStatusEvidenceRecoveryTest.kt",
+    "docs/repairs/session-reliability-followup-2026-11-12-task.json",
+    "docs/repairs/session-reliability-followup-2026-11-12.md"
   ]
 }

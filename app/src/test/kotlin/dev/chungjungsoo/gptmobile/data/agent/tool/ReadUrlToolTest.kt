@@ -35,6 +35,27 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ReadUrlToolTest {
+    @Test fun sourceHttpRejectionsRetainStatusWithoutPublishingBodyOrUrl() = runBlocking {
+        for ((status, code) in listOf(402 to "SOURCE_PAYMENT_REQUIRED", 404 to "SOURCE_UNAVAILABLE", 503 to "SOURCE_SERVER_ERROR")) {
+            val page = server { exchange -> exchange.respond(status, "text/plain", "private upstream response body") }
+            val result = tool(allowTestLoopback = true).execute("http-$status", args(page.url("fixture.test", "/private-resource")))
+            assertTrue(result.isError)
+            assertTrue(result.dispatched)
+            assertEquals(code, result.errorCode)
+            val receipt = requireNotNull(result.executionReceipt)
+            assertEquals(JsonPrimitive(status), receipt["httpStatus"])
+            assertEquals(JsonPrimitive("RETRIEVAL"), receipt["phase"])
+            assertEquals(JsonPrimitive(true), receipt["requestSent"])
+            assertEquals(JsonPrimitive("FAILED"), receipt["state"])
+            assertEquals(JsonPrimitive(status == 503), receipt["retryable"])
+            assertFalse(result.text().contains("private upstream"))
+            assertFalse(receipt.toString().contains("private-resource"))
+            assertFalse(result.retainedContent.toString().contains("private upstream"))
+            assertFalse(result.retainedContent.toString().contains("private-resource"))
+            if (status == 402) assertTrue(result.retainedContent.toString().contains("payment_required"))
+        }
+    }
+
     @Test fun `research limits retain budget classification and actual dispatch evidence`() = runBlocking {
         var requests = 0
         val page = server { exchange ->

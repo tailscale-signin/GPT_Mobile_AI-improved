@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.work.WorkManager
+import dagger.Lazy
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReport
@@ -26,7 +27,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @HiltViewModel
-class IssueReportViewModel @Inject constructor(@ApplicationContext private val context: Context, private val routing: IssueReportRouting) : ViewModel() {
+class IssueReportViewModel @Inject constructor(@ApplicationContext private val context: Context, private val routing: Lazy<IssueReportRouting>) : ViewModel() {
     private val mutableSaving = MutableStateFlow(false)
     private val mutableManual = MutableStateFlow(false)
     private val mutableManualPreview = MutableStateFlow<IssueReport?>(null)
@@ -224,7 +225,7 @@ class IssueReportViewModel @Inject constructor(@ApplicationContext private val c
 
     private suspend fun refreshRoutes() {
         try {
-            val available = routing.options()
+            val available = routing.get().options()
             mutableRoutes.value = available
             val current = mutableRoute.value
             val saved = mutableReports.value.firstOrNull { it.reportId == selectedReportId.value }

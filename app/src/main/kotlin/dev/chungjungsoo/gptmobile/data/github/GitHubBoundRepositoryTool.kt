@@ -5,8 +5,11 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentToolExecutionOwner
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.OwnedAgentTool
 import dev.chungjungsoo.gptmobile.data.agent.PreparableAgentTool
+import dev.chungjungsoo.gptmobile.data.agent.ToolReceiptObserver
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -41,7 +44,7 @@ internal class GitHubBoundRepositoryTool(
 
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult = try {
         val bounded = boundArguments(arguments)
-        retainBinding(delegate.execute(callId, bounded), arguments, bounded)
+        observeBoundCall(callId, arguments, bounded) { retainBinding(delegate.execute(callId, bounded), arguments, bounded) }
     } catch (rejected: Rejected) {
         rejected.result(callId)
     }
@@ -54,7 +57,22 @@ internal class GitHubBoundRepositoryTool(
         }
         val prepared = (delegate as? PreparableAgentTool)?.prepareExecution(callId, bounded)
             ?: { delegate.execute(callId, bounded) }
-        return { retainBinding(prepared(), arguments, bounded) }
+        return { observeBoundCall(callId, arguments, bounded) { retainBinding(prepared(), arguments, bounded) } }
+    }
+
+    /** Bind the raw receipt back to the authorized call before replay retention bounds it. */
+    private suspend fun observeBoundCall(callId: String, original: JsonObject, bounded: JsonObject, execute: suspend () -> AgentToolResult): AgentToolResult {
+        val observer = currentCoroutineContext()[ToolReceiptObserver]
+        if (observer == null || original == bounded) return execute()
+        return withContext(
+            ToolReceiptObserver { call, result ->
+                if (call.callId == callId && call.name == definition.name && call.arguments == bounded) {
+                    observer.observe(call.copy(arguments = original), retainBinding(result, original, bounded))
+                } else {
+                    observer.observe(call, result)
+                }
+            }
+        ) { execute() }
     }
 
     /** Verification must see the exact normalized target supplied to the executor. */

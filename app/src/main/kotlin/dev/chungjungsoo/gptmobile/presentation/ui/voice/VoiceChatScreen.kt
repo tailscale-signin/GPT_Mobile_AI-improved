@@ -121,7 +121,10 @@ import dev.chungjungsoo.gptmobile.presentation.ui.home.NewChatRevealPanel
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.sin
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 
 @Composable
 internal fun VoiceChatButton(onClick: (Offset) -> Unit) {
@@ -226,7 +229,9 @@ private fun VoiceChatSessionScreen(
     val profiles by model.platformsInApp.collectAsStateWithLifecycle()
     val activeProfiles by model.activePlatformUids.collectAsStateWithLifecycle()
     val selectedProfile = activeProfiles.singleOrNull()?.let { uid -> profiles.singleOrNull { it.uid == uid && it.enabled } }
-    val voiceReady = loaded && roomReady && selectedProfile != null
+    var profilePreflightReady by remember(model, selectedProfile) { mutableStateOf(false) }
+    var profilePreflightError by remember(model, selectedProfile) { mutableStateOf<String?>(null) }
+    val voiceReady = loaded && roomReady && selectedProfile != null && profilePreflightReady
     val approvals by model.pendingToolApprovals.collectAsStateWithLifecycle(emptyList())
     val inputs by model.pendingMcpInput.collectAsStateWithLifecycle()
     val consent by model.pendingFreeToolConsent.collectAsStateWithLifecycle()
@@ -282,6 +287,28 @@ private fun VoiceChatSessionScreen(
     var spokenReplies by rememberSaveable { mutableStateOf(true) }
     var rate by rememberSaveable { androidx.compose.runtime.mutableFloatStateOf(1f) }
     var preferencesInitialized by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(model, loaded, roomReady, selectedProfile, lifecycleState, settingsOpen) {
+        profilePreflightReady = false
+        profilePreflightError = null
+        val profile = selectedProfile ?: return@LaunchedEffect
+        if (!loaded || !roomReady || settingsOpen || lifecycleState != Lifecycle.State.RESUMED) return@LaunchedEffect
+        try {
+            // This checks the same retained account/policy used at dispatch. A
+            // changed selection cancels the old check before it can open capture.
+            model.preflightVoiceProfile(profile)
+            currentCoroutineContext().ensureActive()
+            profilePreflightReady = true
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: IllegalStateException) {
+            currentCoroutineContext().ensureActive()
+            profilePreflightError = failure.message?.removePrefix("POLICY_RESTRICTED:")?.trim()
+                ?: "This AI profile needs attention. Choose another profile or review its settings in chat."
+        } catch (_: Exception) {
+            currentCoroutineContext().ensureActive()
+            profilePreflightError = "Could not check this AI profile. Open chat to review its connection, or choose another profile."
+        }
+    }
     LaunchedEffect(savedPreferences) {
         val saved = savedPreferences ?: return@LaunchedEffect
         if (!preferencesApplied) {
@@ -443,7 +470,9 @@ private fun VoiceChatSessionScreen(
         val (run, reply) = accepted.reply(messages.assistantMessages.flatten(), runs) ?: return@LaunchedEffect
         val text = dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(reply.content)
         if (run.status in AgentRunStatus.terminal) {
-            session.reply(run.runId, text, run.status != AgentRunStatus.COMPLETED)
+            val failure = reply.timeline.lastOrNull { it.profileFailure != null }?.profileFailure
+                ?: run.terminalError?.let { dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.classify(it) }
+            session.reply(run.runId, text, run.status != AgentRunStatus.COMPLETED, failure)
         } else {
             session.streamReply(run.runId, text)
         }
@@ -452,6 +481,7 @@ private fun VoiceChatSessionScreen(
     val profileName = profiles.firstOrNull { it.uid in activeProfiles }?.let { it.name.ifBlank { it.model } } ?: "Your AI profile"
     val status = when {
         !enabled -> "Voice chat is turned off"
+        profilePreflightError != null -> "AI profile needs attention"
         !voiceReady || !preferencesApplied -> "Getting ready"
         waitingApproval -> "Your attention is needed"
         state.phase == VoicePhase.REVIEWING -> "Review your message"
@@ -559,6 +589,7 @@ private fun VoiceChatSessionScreen(
             recognitionReady = recognitionReady,
             enabled = enabled,
             voiceReady = voiceReady,
+            profileError = profilePreflightError,
             preferencesApplied = preferencesApplied,
             waitingApproval = waitingApproval,
             draft = draft
@@ -766,6 +797,7 @@ private data class VoiceConversationUiState(
     val recognitionReady: Boolean,
     val enabled: Boolean,
     val voiceReady: Boolean,
+    val profileError: String?,
     val preferencesApplied: Boolean,
     val waitingApproval: Boolean,
     val draft: String
@@ -839,6 +871,11 @@ private fun VoiceConversationStatus(
             Text(it, modifier = Modifier.semantics { if (state.remaining == 0) liveRegion = LiveRegionMode.Polite }, style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onSurface, textAlign = TextAlign.Center)
         }
         Text(voiceListeningHint(state.session), Modifier.padding(top = 10.dp), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+        state.profileError?.let { reason ->
+            Text(reason, Modifier.padding(top = 16.dp).widthIn(max = 360.dp), color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center)
+            TextButton(onClick = actions.openSettings) { Text("Choose another AI profile") }
+            TextButton(onClick = actions.openChat) { Text("Review profile in chat") }
+        }
         if (!state.recognitionReady) {
             Spacer(Modifier.height(16.dp))
             LocalVoiceSetupCard(state.localModel, actions.installLocalModel, actions.cancelLocalModelInstall, {})

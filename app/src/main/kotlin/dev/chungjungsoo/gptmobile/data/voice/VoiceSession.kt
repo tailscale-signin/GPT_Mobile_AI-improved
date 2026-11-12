@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.voice
 
+import dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord
 import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidents
 import dev.chungjungsoo.gptmobile.data.diagnostics.ReportFeature
 
@@ -181,7 +182,11 @@ class VoiceSession(
         reply("replay:$generation", state.reply)
     }
     private fun update(next: VoiceState, errorCode: String = "VOICE_SESSION_FAILED", error: Throwable? = null, reportFailure: Boolean = true, failureFields: Map<String, Any?> = emptyMap()) {
-        if (reportFailure && next.phase == VoicePhase.ERROR && state.phase != VoicePhase.ERROR) {
+        // Silence is a normal listening outcome. Preserve its cooldown and retry
+        // guidance without prompting for a bug report after every quiet turn.
+        // A lost partial transcript or a real underlying exception still reports.
+        val expectedSilence = errorCode == "VOICE_NO_SPEECH" && error == null && next.transcript.isBlank()
+        if (reportFailure && !expectedSilence && next.phase == VoicePhase.ERROR && state.phase != VoicePhase.ERROR) {
             IssueReportIncidents.failure(ReportFeature.VOICE, errorCode, error, voiceFailureFields() + failureFields, "VOICE_STATE")
         }
         state = next.copy(awaitingReply = waiting, hasDraft = draftPending)
@@ -265,7 +270,19 @@ class VoiceSession(
         ) {
             if (!valid()) return
             val retry = retryable && recoveryAction == null && autoContinue && !state.muted && ++recognitionFailures <= 3
-            fail(message, code, cause, mapOf("failed_stage" to "voice_recognition", "operation" to "voice_recognition", "retry_after_ms" to retryMillis, "retryable" to retryable, "recovery_action" to recoveryAction?.name))
+            val captureFailure = cause as? LocalVoiceCaptureException
+            fail(
+                message,
+                if (code == "VOICE_SESSION_FAILED" && captureFailure != null) "VOICE_${captureFailure.code}" else code,
+                cause,
+                mapOf(
+                    "failed_stage" to (captureFailure?.phase ?: "voice_recognition"),
+                    "operation" to if (captureFailure != null) "voice_capture" else "voice_recognition",
+                    "retry_after_ms" to retryMillis,
+                    "retryable" to retryable,
+                    "recovery_action" to recoveryAction?.name
+                )
+            )
             // Partial speech is user input, not a disposable failed attempt.
             automaticRetry = retry && !draftPending
             update(state.copy(retryAtMillis = now() + if (retryable) maxOf(500, retryMillis) else retryMillis, recoveryAction = recoveryAction))
@@ -430,7 +447,7 @@ class VoiceSession(
         update(state.copy(phase = VoicePhase.PAUSED))
         resume()
     }
-    fun reply(id: String, text: String, failed: Boolean = false) {
+    fun reply(id: String, text: String, failed: Boolean = false, failure: ProfileFailureRecord? = null) {
         if (!waiting || id == lastReply || state.phase == VoicePhase.CLOSED) return
         if (streamId == id && !failed && text.isNotBlank()) {
             lastReply = id
@@ -446,6 +463,18 @@ class VoiceSession(
         lastReply = id
         if (failed || text.isBlank()) {
             if (text.isNotBlank()) update(state.copy(reply = text))
+            if (failed && failure?.category == "PRIVACY_CONFIGURATION") {
+                // The owning chat run already retains/reports the typed rejection.
+                // Keep recognized words for explicit review without inventing a
+                // second microphone/session incident or automatically resending.
+                draftPending = state.transcript.isNotBlank()
+                fail(
+                    "This AI profile does not satisfy the selected privacy settings. Your words are kept. Choose a compatible profile in Voice settings or review it in chat.",
+                    code = "PRIVACY_CONFIGURATION",
+                    reportFailure = false
+                )
+                return
+            }
             fail("This turn did not finish. Open chat to review it or try again.")
             return
         }
@@ -499,14 +528,14 @@ class VoiceSession(
         recognitionFailures = 0
         update(state.copy(retryAtMillis = 0, notice = null, recoveryAction = null))
     }
-    fun fail(message: String, code: String = "VOICE_SESSION_FAILED", cause: Throwable? = null, failureFields: Map<String, Any?> = emptyMap()) {
+    fun fail(message: String, code: String = "VOICE_SESSION_FAILED", cause: Throwable? = null, failureFields: Map<String, Any?> = emptyMap(), reportFailure: Boolean = true) {
         if (state.phase == VoicePhase.CLOSED) return
         if (state.phase in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING) && state.transcript.isNotBlank()) draftPending = true
         engaged = false
         automaticRetry = false
         stopAudio()
         waiting = false
-        update(state.copy(phase = VoicePhase.ERROR, level = 0f, notice = message, recoveryAction = null), code, cause, failureFields = failureFields)
+        update(state.copy(phase = VoicePhase.ERROR, level = 0f, notice = message, recoveryAction = null), code, cause, reportFailure = reportFailure, failureFields = failureFields)
     }
     fun close() {
         if (state.phase == VoicePhase.CLOSED) return

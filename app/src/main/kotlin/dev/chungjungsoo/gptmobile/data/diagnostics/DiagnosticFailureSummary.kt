@@ -5,12 +5,38 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
 
 /** Small same-run projections; a large acceptance checklist is not needed to explain a failure. */
 internal data class DiagnosticFailureEvidence(val recordId: String, val source: String, val payload: JsonObject)
+
+/** Only the structured failure of the run-owned assistant message is eligible. */
+internal fun diagnosticMessageFailureEvidence(messageId: Long, timeline: JsonElement): DiagnosticFailureEvidence? {
+    val failure = (timeline as? JsonArray).orEmpty().asReversed().firstNotNullOfOrNull { item ->
+        val notice = item as? JsonObject ?: return@firstNotNullOfOrNull null
+        (notice["profileFailure"] as? JsonObject)?.takeIf {
+            notice["type"] == JsonPrimitive("NOTICE") && notice["modelAuthored"] != JsonPrimitive(true)
+        }
+    } ?: return null
+    fun text(key: String, pattern: Regex): String? = (failure[key] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull?.takeIf { pattern.matches(it) }
+    val category = text("category", Regex("[A-Z][A-Z0-9_]{2,95}")) ?: return null
+    val payload = buildJsonObject {
+        put("failure_code", category)
+        text("phase", Regex("[a-z][a-z0-9_]{1,63}"))?.let { put("failed_stage", it) }
+        text("invocationId", Regex("[A-Za-z0-9][A-Za-z0-9_-]{0,127}"))?.let { put("invocation_id", it) }
+        for ((stored, projected) in listOf("dispatched" to "dispatched", "retryAllowed" to "retryable", "requestReplayAllowed" to "request_replay_allowed")) {
+            (failure[stored] as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull?.let { put(projected, it) }
+        }
+        text("remoteAcceptance", Regex("YES|NO|UNKNOWN"))?.let { put("remote_acceptance", it) }
+        text("dispatchState", Regex("NOT_DISPATCHED|PRECHECK_REJECTED|DISPATCHED|FAILED|COMPLETED|UNKNOWN"))?.let { put("dispatch_state", it) }
+        val recovery = (failure["recoveryActions"] as? JsonArray)?.singleOrNull() as? JsonPrimitive
+        recovery?.takeIf { it.isString && it.content.matches(Regex("[A-Z][A-Z0-9_]{2,95}")) }?.let { put("recovery_action", it) }
+    }
+    return DiagnosticFailureEvidence("messages_v2:$messageId:profileFailure", "MESSAGE_PROFILE_FAILURE", payload)
+}
 
 internal fun unresolvedGitHubReviewFailure(payload: JsonObject): Boolean =
     payload["state"] in setOf(JsonPrimitive("BLOCKED"), JsonPrimitive("PENDING")) &&
@@ -31,7 +57,13 @@ internal fun diagnosticFailureSummary(
 ): JsonObject {
     val verification = evidence.firstOrNull { it.source == "VERIFICATION_CURRENT" } ?: evidence.firstOrNull { it.source == "VERIFICATION_EVENT" }
     val reviewResolved = runStatus == "COMPLETED" || verification?.payload?.get("completion_verified") == JsonPrimitive(true)
-    val retained = evidence.filter { it.source != "REVIEW_CHECKPOINT" || !reviewResolved && unresolvedGitHubReviewFailure(it.payload) }
+    val retained = evidence.filter {
+        when (it.source) {
+            "REVIEW_CHECKPOINT" -> !reviewResolved && unresolvedGitHubReviewFailure(it.payload)
+            "MESSAGE_PROFILE_FAILURE" -> !reviewResolved
+            else -> true
+        }
+    }
         .sortedBy { if (it.source == "REVIEW_CHECKPOINT") 0 else 1 }
     // Review failure owns its causal invocation. Missing reviewer evidence cannot
     // be filled with the ID/stage/recovery of a successful earlier generation.
@@ -132,6 +164,12 @@ internal fun diagnosticFailureSummary(
         put("failed_stage", record("failed_stage", failedStage))
         put("failure_code", record("failure_code", failure))
         put("recovery_action", record("recovery_action", recovery))
+        for (key in listOf("dispatched", "retryable", "request_replay_allowed", "remote_acceptance", "dispatch_state")) {
+            causal.firstOrNull { it.payload[key] != null && it.payload[key] != JsonNull }?.let { item ->
+                put(key, item.payload.getValue(key))
+                sources[key] = JsonPrimitive(item.source)
+            }
+        }
         put("tested_sha", record("tested_sha", testedSha))
         put("tested_sha_status", if (testedSha == null) "NOT_RETAINED" else "EXACT_SHA_RETAINED")
         put("observed_head_sha", record("observed_head_sha", observedSha))

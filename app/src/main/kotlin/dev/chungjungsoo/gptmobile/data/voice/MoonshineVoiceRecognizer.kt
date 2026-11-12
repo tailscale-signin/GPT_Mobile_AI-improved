@@ -263,6 +263,13 @@ internal class MoonshineVoiceRecognizer internal constructor(
     private fun deliverFailure(run: CaptureRun) {
         val failure = requireNotNull(run.failure.get())
         val failureCode = failure.code
+        val captureFailure = failure.cause as? LocalVoiceCaptureException
+        // A focus handoff can settle after playback stops. Retry at the session's
+        // bounded backoff, never by immediately recreating the same denied request.
+        val focusRetry = failureCode == "MICROPHONE_FOCUS_DENIED" &&
+            captureFailure?.retryable == true &&
+            captureFailure.capturedSamples == 0L &&
+            run.capturedChunks.get() == 0
         val repair = when (failureCode) {
             "MICROPHONE_PERMISSION_CHANGED" -> VoiceRecoveryAction.MICROPHONE_PERMISSION
             "NATIVE_RUNTIME_LINKAGE", "NATIVE_MEMORY_PRESSURE" -> VoiceRecoveryAction.LOCAL_MODEL
@@ -279,8 +286,14 @@ internal class MoonshineVoiceRecognizer internal constructor(
         run.listener.failure(
             failure.message,
             code,
-            retryMillis = if (failureCode == "NO_SPEECH") 500 else 0,
-            retryable = failureCode == "NO_SPEECH",
+            retryMillis = if (focusRetry) {
+                1_000
+            } else if (failureCode == "NO_SPEECH") {
+                500
+            } else {
+                0
+            },
+            retryable = focusRetry || failureCode == "NO_SPEECH",
             recoveryAction = repair,
             cause = failure.cause
         )
@@ -521,7 +534,16 @@ private class AndroidVoiceCapture(private val context: Context) : LocalVoiceCapt
                 }
             }
             .build()
-        if (manager?.requestAudioFocus(request) != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) throw LocalVoiceCaptureException("Microphone audio is busy. Finish the other audio session and try again.", "MICROPHONE_FOCUS_DENIED", "audio_focus")
+        val focusResult = manager?.requestAudioFocus(request)
+        if (focusResult != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
+            throw LocalVoiceCaptureException(
+                "Microphone audio is busy. Finish the other audio session and try again.",
+                "MICROPHONE_FOCUS_DENIED",
+                "audio_focus",
+                retryable = focusResult == AudioManager.AUDIOFOCUS_REQUEST_FAILED,
+                audioFocusResult = focusResult
+            )
+        }
         focus = request
         val minimum = AudioRecord.getMinBufferSize(16_000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
         if (minimum <= 0) throw LocalVoiceCaptureException("This microphone route does not support local speech. Select another audio route.", "MICROPHONE_FORMAT_UNSUPPORTED", "capture_configuration", platformCode = minimum)

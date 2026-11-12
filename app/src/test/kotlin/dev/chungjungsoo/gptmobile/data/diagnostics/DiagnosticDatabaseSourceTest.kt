@@ -216,6 +216,65 @@ class DiagnosticDatabaseSourceTest {
         }
     }
 
+    @Test fun compactFailureSummaryRecoversOwnedAdmissionFailureWithoutWorkspaceOrInvocation() = runBlocking {
+        val runId = "owned-admission"
+        val chat = createRun(runId, "private unstructured failure")
+        val timeline = """[{"type":"NOTICE","modelAuthored":false,"profileFailure":{"category":"ENGINEERING_STATE_OR_INPUT_CHANGED","phase":"engineering_guard","retryAllowed":false,"requestReplayAllowed":false}}]"""
+        database.openHelper.writableDatabase.execSQL(
+            "UPDATE messages_v2 SET timeline = ?, current_run_id = ? WHERE message_id = (SELECT assistant_message_id FROM agent_runs WHERE run_id = ?)",
+            arrayOf<Any>(timeline, runId, runId)
+        )
+        val summary = source.latestFailureSummary(chat, "test", 141, "build", {}, {})
+        assertEquals(JsonPrimitive("ENGINEERING_STATE_OR_INPUT_CHANGED"), summary["failure_code"])
+        assertEquals(JsonPrimitive("engineering_guard"), summary["failed_stage"])
+        assertEquals(JsonPrimitive(false), summary["request_replay_allowed"])
+        assertEquals(JsonPrimitive("MESSAGE_PROFILE_FAILURE"), summary.getValue("field_sources").jsonObject["failure_code"])
+        assertEquals(JsonNull, summary["tested_sha"])
+        assertEquals(JsonNull, summary["invocation_id"])
+        assertFalse(summary.containsKey("dispatched"))
+        assertFalse(summary.toString().contains("private unstructured"))
+    }
+
+    @Test fun compactFailureSummaryDoesNotBorrowMessageFromAnotherRunOrOwnershipFence() = runBlocking {
+        val runId = "owned-fence"
+        val chat = createRun(runId, null)
+        val timeline = """[{"type":"NOTICE","profileFailure":{"category":"REQUEST_REJECTED","phase":"provider_admission"}}]"""
+        for ((messageRun, fence) in listOf("another-run" to 0L, runId to 1L)) {
+            database.openHelper.writableDatabase.execSQL(
+                "UPDATE messages_v2 SET timeline = ?, current_run_id = ?, ownership_fence = ? WHERE message_id = (SELECT assistant_message_id FROM agent_runs WHERE run_id = ?)",
+                arrayOf<Any>(timeline, messageRun, fence, runId)
+            )
+            val summary = source.latestFailureSummary(chat, "test", 141, "build", {}, {})
+            assertEquals(JsonNull, summary["failure_code"])
+            assertTrue(summary.getValue("source_record_ids").jsonArray.isEmpty())
+        }
+    }
+
+    @Test fun compactFailureSummaryBoundsOwnedTimelineWithoutClaimingFullCaptureOmission() = runBlocking {
+        val runId = "oversized-message"
+        val chat = createRun(runId, null)
+        val timeline = JsonArray(
+            listOf(
+                buildJsonObject {
+                    put("type", "NOTICE")
+                    put("text", "漢".repeat(100_000))
+                    put("profileFailure", buildJsonObject { put("category", "REQUEST_REJECTED") })
+                }
+            )
+        ).toString()
+        database.openHelper.writableDatabase.execSQL(
+            "UPDATE messages_v2 SET timeline = ?, current_run_id = ? WHERE message_id = (SELECT assistant_message_id FROM agent_runs WHERE run_id = ?)",
+            arrayOf<Any>(timeline, runId, runId)
+        )
+        val omissions = mutableListOf<String>()
+        val summary = source.latestFailureSummary(chat, "test", 141, "build", {}, omissions::add)
+        assertEquals(JsonNull, summary["failure_code"])
+        assertEquals(JsonPrimitive("MESSAGE_TIMELINE_BYTE_LIMIT"), summary.getValue("projection_limitations").jsonArray.single().jsonObject["reason"])
+        assertTrue(omissions.isEmpty())
+        assertTrue(summary.toString().length < 4096)
+        assertFalse(summary.toString().contains("漢"))
+    }
+
     @Test fun compactFailureSummaryLeadsWithBoundedCausalEvidenceAndExactBuildBinding() = runBlocking {
         val chat = database.chatRoomDao().addChatRoom(ChatRoomV2(title = "Failure summary")).toInt()
         val user = database.agentPersistenceDao().insertMessage(MessageV2(chatId = chat, content = "request", platformType = null)).toInt()

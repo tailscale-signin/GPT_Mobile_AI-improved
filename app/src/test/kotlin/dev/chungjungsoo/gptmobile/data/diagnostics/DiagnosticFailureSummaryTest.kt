@@ -1,5 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.diagnostics
 
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -13,6 +15,67 @@ import org.junit.Assert.assertFalse
 import org.junit.Test
 
 class DiagnosticFailureSummaryTest {
+    @Test fun ownedMessageFailureRetainsTypedGuardWithoutInventingDispatchOrTestEvidence() {
+        val evidence = requireNotNull(diagnosticMessageFailureEvidence(14, Json.parseToJsonElement("""[{"type":"NOTICE","modelAuthored":false,"text":"private explanation","profileFailure":{"category":"ENGINEERING_STATE_OR_INPUT_CHANGED","phase":"engineering_guard","retryAllowed":false,"requestReplayAllowed":false}}]""")))
+        val result = summary("private terminal explanation", listOf(evidence))
+        assertEquals(JsonPrimitive("ENGINEERING_STATE_OR_INPUT_CHANGED"), result["failure_code"])
+        assertEquals(JsonPrimitive("engineering_guard"), result["failed_stage"])
+        assertEquals(JsonPrimitive(false), result["retryable"])
+        assertEquals(JsonPrimitive(false), result["request_replay_allowed"])
+        assertEquals(JsonPrimitive("MESSAGE_PROFILE_FAILURE"), result.getValue("field_sources").jsonObject["failure_code"])
+        assertEquals(listOf(JsonPrimitive("messages_v2:14:profileFailure")), result.getValue("source_record_ids").jsonArray.toList())
+        assertEquals(JsonNull, result["tested_sha"])
+        assertEquals(JsonNull, result["invocation_id"])
+        assertFalse(result.containsKey("dispatched"))
+        assertFalse(result.toString().contains("private"))
+    }
+
+    @Test fun latestTypedMessagePreflightPreservesExplicitDispatchAndSingleRecovery() {
+        val evidence = requireNotNull(diagnosticMessageFailureEvidence(4, Json.parseToJsonElement("""[{"type":"NOTICE","profileFailure":{"category":"REQUEST_REJECTED"}},{"type":"NOTICE","profileFailure":{"category":"GATEWAY_TRANSPORT_INTERRUPTED","phase":"connection_preflight","dispatched":false,"remoteAcceptance":"NO","retryAllowed":false,"requestReplayAllowed":false,"dispatchState":"PRECHECK_REJECTED","invocationId":"attempt-2","recoveryActions":["RETRY_AFTER_CONFIGURATION_CHANGE"]}}]""")))
+        val result = summary(null, listOf(evidence))
+        assertEquals(JsonPrimitive("GATEWAY_TRANSPORT_INTERRUPTED"), result["failure_code"])
+        assertEquals(JsonPrimitive("connection_preflight"), result["failed_stage"])
+        assertEquals(JsonPrimitive(false), result["dispatched"])
+        assertEquals(JsonPrimitive("NO"), result["remote_acceptance"])
+        assertEquals(JsonPrimitive("PRECHECK_REJECTED"), result["dispatch_state"])
+        assertEquals(JsonPrimitive("attempt-2"), result["invocation_id"])
+        assertEquals(JsonPrimitive("RETRY_AFTER_CONFIGURATION_CHANGE"), result["recovery_action"])
+        assertEquals(JsonPrimitive("MESSAGE_PROFILE_FAILURE"), result.getValue("field_sources").jsonObject["dispatched"])
+    }
+
+    @Test fun messageProjectionRejectsAuthoredOrMalformedEvidenceAndDoesNotChooseBetweenRecoveryActions() {
+        assertEquals(null, diagnosticMessageFailureEvidence(1, Json.parseToJsonElement("""[{"type":"NOTICE","modelAuthored":true,"profileFailure":{"category":"REQUEST_REJECTED"}}]""")))
+        assertEquals(null, diagnosticMessageFailureEvidence(1, Json.parseToJsonElement("""[{"type":"NOTICE","profileFailure":{"category":"private arbitrary text"}}]""")))
+        val evidence = requireNotNull(diagnosticMessageFailureEvidence(1, Json.parseToJsonElement("""[{"type":"NOTICE","profileFailure":{"category":"REQUEST_REJECTED","phase":"Private stage!","dispatched":"false","retryAllowed":"true","requestReplayAllowed":"false","remoteAcceptance":"private","invocationId":"https://private.invalid","recoveryActions":["SELECT_REF","CHANGE_REPOSITORY"]}}]""")))
+        val result = summary(null, listOf(evidence))
+        assertEquals(JsonPrimitive("REQUEST_REJECTED"), result["failure_code"])
+        assertEquals(JsonNull, result["failed_stage"])
+        assertEquals(JsonNull, result["invocation_id"])
+        assertEquals(JsonNull, result["recovery_action"])
+        assertFalse(result.containsKey("dispatched"))
+        assertFalse(result.containsKey("retryable"))
+        assertFalse(result.containsKey("request_replay_allowed"))
+        assertFalse(result.containsKey("remote_acceptance"))
+        assertFalse(result.toString().contains("private"))
+    }
+
+    @Test fun activeReviewKeepsCausalPrecedenceAndCompletedRunsExcludeMessageFailures() {
+        val message = requireNotNull(diagnosticMessageFailureEvidence(14, Json.parseToJsonElement("""[{"type":"NOTICE","profileFailure":{"category":"REQUEST_REJECTED","phase":"provider_admission","invocationId":"message-attempt","dispatched":false,"recoveryActions":["SELECT_REF"]}}]""")))
+        val active = summary(null, listOf(message, reviewFailure()))
+        assertEquals(JsonPrimitive("COMPLETION_REPAIR_BUDGET_EXHAUSTED"), active["failure_code"])
+        assertEquals(JsonNull, active["invocation_id"])
+        assertEquals(JsonNull, active["failed_stage"])
+        assertEquals(JsonNull, active["recovery_action"])
+        assertFalse(active.containsKey("dispatched"))
+        val completed = diagnosticFailureSummary("run", "COMPLETED", null, "test", 141, "build", listOf(message))
+        assertEquals(JsonNull, completed["failure_code"])
+        assertEquals(JsonArray(emptyList()), completed["source_record_ids"])
+        val verified = summary(null, listOf(message, DiagnosticFailureEvidence("current", "VERIFICATION_CURRENT", buildJsonObject { put("completion_verified", true) })))
+        assertEquals(JsonPrimitive("VERIFIED"), verified["latest_verdict"])
+        assertEquals(JsonNull, verified["failure_code"])
+        assertEquals(listOf(JsonPrimitive("current")), verified.getValue("source_record_ids").jsonArray.toList())
+    }
+
     @Test fun typedToolResultFailureProvidesRecoveryWithoutInventingDispatchOrRevisionEvidence() {
         val summary = summary("CLIENT_TOOL_RESULTS_REQUIRED", emptyList())
         assertEquals("CLIENT_TOOL_RESULTS_REQUIRED", summary.getValue("failure_code").jsonPrimitive.content)

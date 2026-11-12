@@ -3,12 +3,16 @@ package dev.chungjungsoo.gptmobile.data.voice
 import android.app.Application
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord
 import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReport
 import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidents
 import dev.chungjungsoo.gptmobile.data.diagnostics.LocalDiagnosticsPolicy
+import dev.chungjungsoo.gptmobile.data.diagnostics.ReportFeature
+import dev.chungjungsoo.gptmobile.data.openrouter.PrivacyAdmissionException
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -26,6 +30,141 @@ class VoiceFailureReportingTest {
         IssueReportIncidents.privacyChanged(false)
         IssueReportIncidents.debugPreferenceChanged(false)
         IssueReportIncidents.clearRecent()
+    }
+
+    @Test
+    fun quietTurnsKeepBoundedRetryGuidanceWithoutCreatingBugReports() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        for (emptyFinal in listOf(false, true)) {
+            var time = 1_000L
+            val listeners = mutableListOf<VoiceAudio.Listener>()
+            val audio = object : VoiceAudio {
+                override fun listen(listener: VoiceAudio.Listener) {
+                    listeners += listener
+                }
+                override fun speak(text: String, complete: () -> Unit, error: (String) -> Unit) = Unit
+                override fun stop() = Unit
+                override fun close() = Unit
+            }
+            val session = VoiceSession(audio, { error("Silence must not submit a message") }, {}, { time }).apply { autoContinue = true }
+            session.access(true, true, true)
+            session.resume()
+            repeat(4) {
+                if (emptyFinal) {
+                    listeners.last().final("")
+                } else {
+                    listeners.last().failure("No speech detected. Tap to try again.", "VOICE_NO_SPEECH", retryMillis = 500, retryable = true)
+                }
+                time += 500
+                session.tick()
+            }
+            assertEquals(4, listeners.size)
+            assertEquals(VoicePhase.ERROR, session.state.phase)
+            assertTrue(session.state.notice.orEmpty().contains("speech"))
+            assertFalse(session.state.hasDraft)
+            assertTrue(IssueReportIncidents.pending.value.isEmpty())
+            assertFalse(IssueReportIncidents.recentEvents().any { "VOICE_NO_SPEECH" in it })
+            session.close()
+        }
+    }
+
+    @Test
+    fun silenceWithCapturedWordsKeepsTheDraftAndReportsTheMissingFinalResult() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        lateinit var listener: VoiceAudio.Listener
+        val audio = object : VoiceAudio {
+            override fun listen(value: VoiceAudio.Listener) {
+                listener = value
+            }
+            override fun speak(text: String, complete: () -> Unit, error: (String) -> Unit) = Unit
+            override fun stop() = Unit
+            override fun close() = Unit
+        }
+        val session = VoiceSession(audio, { false }, {}).apply { autoContinue = true }
+        session.access(true, true, true)
+        session.resume()
+        listener.partial("Words that must stay available")
+        listener.failure("No final transcript", "VOICE_NO_SPEECH", retryMillis = 500, retryable = true)
+        assertEquals("VOICE_NO_SPEECH", IssueReportIncidents.pending.value.single().errorCode)
+        assertTrue(session.state.hasDraft)
+        session.resume()
+        assertEquals(VoicePhase.REVIEWING, session.state.phase)
+        assertEquals("Words that must stay available", session.state.transcript)
+        session.close()
+    }
+
+    @Test
+    fun microphoneFocusFailureRetainsCaptureStageAndSpecificCodeInTheReport() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        lateinit var capture: VoiceAudio.Listener
+        val audio = object : VoiceAudio {
+            override fun listen(listener: VoiceAudio.Listener) {
+                capture = listener
+            }
+            override fun speak(text: String, complete: () -> Unit, error: (String) -> Unit) = Unit
+            override fun stop() = Unit
+            override fun close() = Unit
+        }
+        val session = VoiceSession(audio, { false }, {})
+        session.access(true, true, true)
+        session.resume()
+        val failure = LocalVoiceCaptureException("Private OS reason", "MICROPHONE_FOCUS_DENIED", "audio_focus", retryable = true, audioFocusResult = 0)
+        capture.failure("Audio is busy", "VOICE_SESSION_FAILED", retryMillis = 1_000, retryable = true, cause = failure)
+        val report = IssueReportIncidents.pending.value.single()
+        assertEquals("VOICE_MICROPHONE_FOCUS_DENIED", report.errorCode)
+        assertEquals("audio_focus", report.context?.stage)
+        assertEquals("voice_capture", report.context?.operation)
+        assertEquals(true, report.context?.retryable)
+        assertEquals(1_000L, report.context?.retryAfterMillis)
+        assertEquals("LocalVoiceCaptureException", report.errorType)
+        assertFalse(IssueReport.json.encodeToString(IssueReport.serializer(), report).contains("Private OS reason"))
+        session.close()
+    }
+
+    @Test
+    fun privacyRejectionAfterCaptureKeepsTheDraftWithoutDuplicatingTheChatIncident() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        lateinit var capture: VoiceAudio.Listener
+        var submissions = 0
+        val audio = object : VoiceAudio {
+            override fun listen(listener: VoiceAudio.Listener) {
+                capture = listener
+            }
+            override fun speak(text: String, complete: () -> Unit, error: (String) -> Unit) = Unit
+            override fun stop() = Unit
+            override fun close() = Unit
+        }
+        val session = VoiceSession(audio, {
+            submissions++
+            true
+        }, {}, awaitsAdmission = true).apply { autoContinue = true }
+        session.access(true, true, true)
+        session.resume()
+        capture.final("Keep my recognized request")
+        session.admission(VoiceAdmissionStage.ACCEPTED)
+        val rejected = PrivacyAdmissionException("POLICY_RESTRICTED: This model cannot satisfy the account policy.").asApiError("voice-run")
+        IssueReportIncidents.failure(
+            ReportFeature.CHAT,
+            requireNotNull(rejected.errorCode),
+            error = null,
+            fields = rejected.failureDetails.orEmpty(),
+            source = "CHAT_FAILURE"
+        )
+        val original = IssueReportIncidents.pending.value.single()
+        val failure = ProfileFailureRecord.fromProvider(rejected.message, rejected.errorCode, rejected.failureDetails)
+        session.reply("voice-run", "", failed = true, failure = failure)
+        assertEquals(original, IssueReportIncidents.pending.value.single())
+        assertEquals("PRIVACY_CONFIGURATION", original.errorCode)
+        assertFalse(IssueReportIncidents.recentEvents().any { "VOICE_SESSION_FAILED" in it })
+        assertEquals(VoicePhase.ERROR, session.state.phase)
+        assertTrue(session.state.hasDraft)
+        assertFalse(session.state.awaitingReply)
+        assertTrue(session.state.notice.orEmpty().contains("privacy settings"))
+        session.resume()
+        assertEquals(VoicePhase.REVIEWING, session.state.phase)
+        assertEquals("Keep my recognized request", session.state.transcript)
+        assertEquals(1, submissions)
+        session.close()
     }
 
     @Test

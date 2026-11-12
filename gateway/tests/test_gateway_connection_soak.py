@@ -1,5 +1,6 @@
 """Bounded offline/reload qualification of the production singleflight and journal paths."""
 import asyncio
+import json
 import sqlite3
 import threading
 import time
@@ -8,12 +9,65 @@ from contextlib import closing
 from unittest.mock import patch
 
 import test_gateway_v14_jobs as journal_tests
+from v14.jobs import DurableCommitError
 
 
 class BoundedConnectionSoakTests(unittest.TestCase):
     setUpClass = classmethod(journal_tests.JournalTests.setUpClass.__func__)
     setUp = journal_tests.JournalTests.setUp
     client = journal_tests.JournalTests.client
+
+    def test_resume_allows_next_disconnect_transition_to_be_persisted(self):
+        job_id = 'resumed-detach'
+        soft, hard = threading.Event(), threading.Event()
+        self.runtime.register_gateway_job(job_id, 'local', 'interactive', soft, hard)
+        self.runtime.mark_gateway_job_disconnected(job_id)
+        with closing(sqlite3.connect(self.db)) as db:
+            saved = json.loads(db.execute('SELECT public_json FROM gateway_jobs WHERE job_id=?', (job_id,)).fetchone()[0])
+        self.assertTrue(saved['disconnected'])
+        self.runtime.register_gateway_job(job_id, 'local', 'interactive', soft, hard)
+        self.assertFalse(self.runtime.job_registry[job_id]['disconnected'])
+        with patch.object(self.runtime, 'durable_persist_job', wraps=self.runtime.durable_persist_job) as persist:
+            self.runtime.mark_gateway_job_disconnected(job_id)
+            persist.assert_called_once_with(job_id)
+        with closing(sqlite3.connect(self.db)) as db:
+            saved = json.loads(db.execute('SELECT public_json FROM gateway_jobs WHERE job_id=?', (job_id,)).fetchone()[0])
+        self.assertTrue(saved['disconnected'])
+        self.assertTrue(self.runtime.gateway_continue_disconnected(job_id))
+        self.assertFalse(soft.is_set())
+
+    def test_failed_disconnect_commit_restores_state_and_can_be_retried(self):
+        job_id = 'detach-commit-failure'
+        self.runtime.register_gateway_job(job_id, 'local', 'interactive', threading.Event(), threading.Event())
+        original = dict(self.runtime.job_registry[job_id])
+        with patch.object(self.runtime, '_durable_connect', side_effect=OSError('injected journal failure')):
+            with self.assertRaises(DurableCommitError):
+                self.runtime.mark_gateway_job_disconnected(job_id)
+        self.assertEqual(original, self.runtime.job_registry[job_id])
+        with closing(sqlite3.connect(self.db)) as db:
+            saved = json.loads(db.execute('SELECT public_json FROM gateway_jobs WHERE job_id=?', (job_id,)).fetchone()[0])
+        self.assertFalse(saved['disconnected'])
+        self.runtime.mark_gateway_job_disconnected(job_id)
+        with closing(sqlite3.connect(self.db)) as db:
+            saved = json.loads(db.execute('SELECT public_json FROM gateway_jobs WHERE job_id=?', (job_id,)).fetchone()[0])
+        self.assertTrue(saved['disconnected'])
+        self.assertEqual(self.runtime.job_registry[job_id]['updated_at'], saved['updated_at'])
+
+    def test_late_disconnect_leaves_terminal_result_and_retention_timestamp_unchanged(self):
+        job_id = 'late-detach'
+        result = {'choices': [{'message': {'role': 'assistant', 'content': 'Saved reply'}}]}
+        self.runtime.register_gateway_job(job_id, 'local', 'interactive', threading.Event(), threading.Event())
+        self.runtime.finish_gateway_job(job_id, 200, result)
+        original = dict(self.runtime.job_registry[job_id])
+        with closing(sqlite3.connect(self.db)) as db:
+            saved = db.execute('SELECT public_json,result_json FROM gateway_jobs WHERE job_id=?', (job_id,)).fetchone()
+        with patch.object(self.runtime, 'durable_persist_job', wraps=self.runtime.durable_persist_job) as persist:
+            self.runtime.mark_gateway_job_disconnected(job_id)
+            self.runtime.mark_gateway_job_disconnected('missing-job')
+            persist.assert_not_called()
+        self.assertEqual(original, self.runtime.job_registry[job_id])
+        with closing(sqlite3.connect(self.db)) as db:
+            self.assertEqual(saved, db.execute('SELECT public_json,result_json FROM gateway_jobs WHERE job_id=?', (job_id,)).fetchone())
 
     def test_bounded_disconnect_and_journal_reload_soak_keeps_exactly_one_result_per_job(self):
         executions, expected = [], {}
@@ -84,7 +138,11 @@ class BoundedConnectionSoakTests(unittest.TestCase):
 
         with self.client() as client, patch.object(self.runtime, 'process_chat_payload') as model:
             for round_index in range(6):
+                writes_before = self.runtime.durable_job_metrics['writes']
                 asyncio.run(disconnected_batch(round_index))
+                # One admission, one detach transition and one completion for
+                # each job. Every repeated detach still exercises orphan grace.
+                self.assertEqual(24, self.runtime.durable_job_metrics['writes'] - writes_before)
                 # Exercise production SQLite restoration; process death is separately
                 # covered by test_process_crash_preserves_completion_and_marks_active_job_failed.
                 self.runtime.job_registry.clear()

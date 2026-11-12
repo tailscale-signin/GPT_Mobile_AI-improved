@@ -596,6 +596,11 @@ internal object GitHubEvidencePolicy {
                 put("value", marker)
             }
             if (verify(claim, receipts, now, epoch).string("status") != "VERIFIED") continue
+            if ((marker as? JsonPrimitive)?.longOrNull != checks.size.toLong() ||
+                checks.any { it !is JsonObject || it["status"] !is JsonPrimitive || "conclusion" !in it }
+            ) {
+                continue
+            }
             val counts = checks.mapNotNull { it as? JsonObject }.groupingBy {
                 if (it.string("status") != "completed") "running" else it.string("conclusion").ifBlank { "unknown" }
             }.eachCount()

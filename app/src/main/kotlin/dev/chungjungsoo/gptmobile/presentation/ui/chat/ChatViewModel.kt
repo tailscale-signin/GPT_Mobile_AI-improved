@@ -1298,6 +1298,9 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    /** Check the selected account and privacy policy before activating microphone capture. */
+    suspend fun preflightVoiceProfile(profile: PlatformV2) = chatRepository.preflightAnswerPrivacy(profile)
+
     /** Preserve an unsent recognized draft through the existing durable conversation draft path. */
     fun checkpointVoiceDraft(text: String) {
         if (!_isLoaded.value) return

@@ -6,6 +6,18 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProfileFailureRecordTest {
+    @Test fun typedPrivacyRejectionKeepsItsSetupRecoveryEvenWithoutMessageText() {
+        val api = dev.chungjungsoo.gptmobile.data.openrouter.PrivacyAdmissionException("private account policy").asApiError("run-privacy")
+        val failure = ProfileFailureRecord.fromProvider("", api.errorCode, api.failureDetails)
+        assertEquals("PRIVACY_CONFIGURATION", failure.category)
+        assertEquals("provider_admission", failure.phase)
+        assertEquals(false, failure.dispatched)
+        assertEquals(RemoteRequestAcceptance.NO, failure.remoteAcceptance)
+        assertFalse(failure.retryAllowed)
+        assertEquals(null, failure.invocationId)
+        assertEquals(listOf("RETRY_AFTER_CONFIGURATION_CHANGE"), failure.recoveryActions)
+    }
+
     @Test fun unavailableSavedViewRequiresSourceProofWithoutEnablingGenericRetry() {
         val details = kotlinx.serialization.json.Json.parseToJsonElement("""{"retryable":true,"source_read_recovery":{"available":true}}""") as kotlinx.serialization.json.JsonObject
         val failure = ProfileFailureRecord.fromProvider("The saved view expired", "SAVED_VIEW_UNAVAILABLE", details)

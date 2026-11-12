@@ -68,7 +68,7 @@ internal object GitHubResultProjection {
             // every run. These are display metadata, not eighteen independent
             // pieces of evidence. Keep the immutable producer identity for
             // distinguishing checks with the same name.
-            setOf("id", "name", "status", "conclusion", "started_at", "completed_at").forEach { key -> value[key]?.let { put(key, it) } }
+            setOf("id", "name", "head_sha", "status", "conclusion", "started_at", "completed_at").forEach { key -> value[key]?.let { put(key, it) } }
             (value["html_url"] ?: value["details_url"])?.let { put("html_url", it) }
             (value["app"] as? JsonObject)?.get("id")?.let { put("app", buildJsonObject { put("id", it) }) }
             if (value["required_verified"] == JsonPrimitive(true)) {

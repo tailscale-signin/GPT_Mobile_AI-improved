@@ -271,7 +271,7 @@ class IssueReportWorkerTest {
         var model: IssueReportViewModel? = null
         try {
             every { WorkManager.getInstance(context) } returns manager
-            val active = IssueReportViewModel(context, router)
+            val active = IssueReportViewModel(context, dagger.Lazy { router })
             model = active
             withTimeout(5000) { initialized.await() }
             block(active, available, manager)

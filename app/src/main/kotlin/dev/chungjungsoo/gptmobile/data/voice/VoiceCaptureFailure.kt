@@ -13,12 +13,14 @@ internal class LocalVoiceCaptureException(
     val retryable: Boolean = false,
     cause: Throwable? = null,
     /** Includes partial microphone buffers that have not yet become a decoder chunk. */
-    val capturedSamples: Long = 0
+    val capturedSamples: Long = 0,
+    val audioFocusResult: Int? = null
 ) : IOException(message, cause) {
     fun diagnosticFields(): Map<String, Any?> = mapOf(
         "captureErrorCode" to code,
         "failedStage" to phase,
         "audioReadResult" to platformCode,
+        "audioFocusResult" to audioFocusResult,
         "recorderState" to recorderState,
         "recordingState" to recordingState,
         "capturedSamples" to capturedSamples,
@@ -29,4 +31,4 @@ internal class LocalVoiceCaptureException(
 
 /** Never restart after accepting audio: replay could silently discard part of a spoken turn. */
 internal fun mayRecreateVoiceCapture(failure: LocalVoiceCaptureException, attempts: Int, capturedChunks: Int): Boolean =
-    failure.retryable && attempts == 1 && capturedChunks == 0 && failure.capturedSamples == 0L
+    failure.retryable && failure.phase != "audio_focus" && attempts == 1 && capturedChunks == 0 && failure.capturedSamples == 0L

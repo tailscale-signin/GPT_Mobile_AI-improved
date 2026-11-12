@@ -1,0 +1,56 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "97f10ff7a1f3789fb82d958b2dc6b22c8074dfdf",
+  "working_branch": "fix/session-reliability-reporting-2026-11-12",
+  "starting_head": "82dfad5cfa79d7225f45723f8107f40788d9e731",
+  "integrated_concurrent_head": "3b34cb36",
+  "task_store": "engineering_agent_checkpoints",
+  "task_store_key": "session-reliability-followup-2026-11-12",
+  "checkpoint_storage": "repository_file",
+  "state": "RECONSTRUCTED_VALIDATION_PENDING",
+  "intent": "Repair actionable diagnostic failures and all open issues839\u2013847; close only verified source defects on the requested branch.",
+  "evidence": {
+    "diagnostics_session": "2984dfe7-f497-4ef6-b235-783847100fd8",
+    "app_commit": "d739321b2ac1eb9eb29675ad3c9b59b2d635a1c2",
+    "verified_section_hashes": 20,
+    "archive_complete": true,
+    "open_issues": [
+      839,
+      840,
+      841,
+      842,
+      843,
+      844,
+      845,
+      846,
+      847
+    ]
+  },
+  "recovery": {
+    "lost_local_commit": "658b559d9d4bb2cbbef983bbc10dc699bddbb01b",
+    "reason": "Executor replacement discarded scratch checkout and final Android validation before remote publication. Reconstruct retained patches, then revalidate.",
+    "prior_observed_results": {
+      "host": 472,
+      "authentication": 48,
+      "gateway_python": 900,
+      "browser": 7,
+      "kotlin_style_files": 40,
+      "android": "Production compile passed before last dispatcher/inventory updates; final regression execution interrupted."
+    }
+  },
+  "publication": {
+    "mode": "GUARDED_FAST_FORWARD_ONLY",
+    "force": false,
+    "pull_request": 838
+  },
+  "validation": {
+    "host": "RECOVERY_RUN_BLOCKED_MISSING_PYYAML; dependency installed, final merged rerun pending",
+    "authentication": "RECOVERED_TREE_PASSED_48",
+    "gateway": "RECOVERED_TREE_PASSED_900_PLUS_7_BROWSER; merged gateway focused validation pending",
+    "kotlin_style": "RECOVERED_TREE_PASSED_40_FILES_KTLINT_1_3_1",
+    "android": "HOSTED_VALIDATION_PENDING_AFTER_EXECUTOR_REPLACEMENT",
+    "device": "NOT_RUN"
+  }
+}

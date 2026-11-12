@@ -32,13 +32,16 @@ internal object GitHubStatusRequest {
             }
             if (attempts.isNotEmpty()) {
                 val retryable = attempts.last()["error_code"] in setOf("NETWORK_ERROR", "HTTP_502", "HTTP_503", "HTTP_504", "TOOL_TIMEOUT").map(::JsonPrimitive)
-                if (attempts.any { it["success"] == JsonPrimitive(true) } || attempts.size >= 2 || !retryable) continue
+                val successful = attempts.filter { it["success"] == JsonPrimitive(true) }
+                val truncatedSource = successful.isNotEmpty() && successful.all { (it["result"] as? JsonObject)?.get("observationTruncated") == JsonPrimitive(true) }
+                if (successful.isNotEmpty() && !truncatedSource || attempts.size >= 2 || !retryable && !truncatedSource) continue
             }
             return ProviderEvent.ToolCall(
                 "status-$action-${receipts.size}" + if (attempts.isEmpty()) "" else "-recovery",
                 tool.name,
                 buildJsonObject {
                     put("action", action)
+                    if (attempts.isNotEmpty() && (tool.inputSchema["properties"] as? JsonObject)?.containsKey("response_detail") == true) put("response_detail", "compact")
                     if (action == "checks" || action == "commits") context?.get("commit_sha")?.let { put("commit_sha", it) }
                     if (action == "commits") put("per_page", 5)
                     if (action == "list") {

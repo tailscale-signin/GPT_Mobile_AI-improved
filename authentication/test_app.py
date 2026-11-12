@@ -104,6 +104,22 @@ class IssueReportHttpTest(unittest.TestCase):
         result["unavailableFields"] = sorted(CONTEXT_FIELDS - result.keys())
         return result
 
+    def test_typed_capture_privacy_and_reader_failures_keep_specific_context(self):
+        for feature, code, stage, extra in (
+            ("voice", "VOICE_MICROPHONE_FOCUS_DENIED", "audio_focus", {"operation": "voice_capture", "dispatched": False}),
+            ("chat", "PRIVACY_CONFIGURATION", "provider_admission", {"provider": "OPENROUTER", "dispatched": False, "remoteAcceptance": "NO", "recoveryAction": "RETRY_AFTER_CONFIGURATION_CHANGE"}),
+            ("tools", "SOURCE_PAYMENT_REQUIRED", "retrieval", {"operation": "read_url", "httpStatus": 402, "dispatched": True}),
+        ):
+            with self.subTest(code=code):
+                report = {**self.metadata(), "source": "debug", "feature": feature, "errorCode": code,
+                          "context": self.context(stage=stage, **extra)}
+                self.assertEqual(200, self.submit(report).status_code)
+                body = self.issued[-1]["body"]
+                self.assertIn(code, body)
+                self.assertIn(stage, body)
+                if feature == "tools":
+                    self.assertIn("402", body)
+
     def test_readiness_adds_context_capability_without_changing_legacy_service_identity(self):
         response = self.client.get("/health/ready")
         self.assertEqual(200, response.status_code)

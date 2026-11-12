@@ -55,13 +55,13 @@
     }
   ],
   "validation": {
-    "host": "PASSED_473_TESTS_AND_FAST_GATE_AFTER_FINAL_RECEIPT_AND_QUALIFICATION_CHANGES",
+    "host": "PASSED_473_TESTS_AND_FAST_GATE_AFTER_CONTEXT_V3_COMPATIBILITY_REPAIR",
     "focused_behavior": "BACKEND_50_FOCUSED_AND_9_INCREMENTAL_PASSED_ANDROID_SOURCE_REVIEW_COMPLETE_HOSTED_EXECUTION_PENDING",
     "android": "PRODUCTION_AND_TEST_COMPILATION_PASSED_AT_DDBEA3_BASELINE_FINAL_RECEIPT_FOLLOWUP_PENDING",
     "gateway": "PASSED_908_SKIPPED_2_OF_910_BROWSER_PASSED_7_FOR_BACKEND_ATTEMPT_RECEIPTS",
     "device": "NOT_RUN_NO_DEVICE",
     "live_services": "NOT_RUN_NO_USER_ENDPOINT_CREDENTIAL_ACCESS",
-    "authentication": "PASSED_52_TESTS_AFTER_CONCURRENT_CONTEXT_V2_INTEGRATION",
+    "authentication": "PASSED_56_TESTS_AFTER_CONTEXT_V3_COMPATIBILITY_REPAIR",
     "kotlin_style": "PASSED_ALL_185_CHANGED_KOTLIN_FILES_WITH_PINNED_1_3_1",
     "test_runtime": "Prior verified startup ByteBuddy agent and publisher-verified Robolectric SDKs eliminated local runtime failures. Workspace subsequently became unavailable; restored checkout awaits exact combined-head CI.",
     "jvm_initial": {
@@ -126,14 +126,28 @@
       "physical_device_verified": false
     },
     "combined_source": {
-      "code_commit": "53e3139889f57467c8e3ca1aa78e7a32183a26c6",
+      "code_commit": "6ba181bd98a33446f208ee1b5370c17d407cdec2",
       "gateway_code_commit": "9155a1a23918578baf11261a6152d35d36559598",
       "host_tests_passed": 473,
-      "authentication_tests_passed": 52,
+      "authentication_tests_passed": 56,
       "kotlin_files_checked": 185,
       "gateway_manifest_files_rechecked": 218,
       "gateway_content_mismatches": 0,
-      "android_execution": "PENDING_EXACT_COMBINED_HEAD_HOSTED_RUN"
+      "android_execution": "PENDING_EXACT_COMBINED_HEAD_HOSTED_RUN",
+      "preserved_backend_accounting_commit": "53e3139889f57467c8e3ca1aa78e7a32183a26c6",
+      "context_v3": {
+        "configuration_tests_passed": 7,
+        "legacy_publisher_commit": "7aaa9731a2b14e77c65d831ca82d437f92eb4fd6",
+        "original_v2_digest": "ff07f986847ec76f52f5d0e6035d32c4d871bf5ee016d49f3df8ea6241d54a12",
+        "extended_v2_digest": "9c7c90f465bf47dea86a11fc091cbe22c2a6c8c41402b5b7adf7419fffe47852",
+        "independent_source_review": "PASSED",
+        "android_execution": "PENDING_EXACT_HEAD_CI"
+      },
+      "logs_sha256": {
+        "host": "1d6475283fb78be6b74d2a6a83ac56158949f6684c92819f30336110e7cd3a3a",
+        "authentication": "9f19ddaf3b4f1069996f000437591c7305323a8def9f2577df9016680d8ad987",
+        "configuration": "820df82ef69f8eb24d268324c7896b481ab7a419ac3ec794780a2cd92d35ddba"
+      }
     }
   },
   "external_qualification": [
@@ -146,9 +160,9 @@
   "publication": {
     "mode": "GUARDED_FAST_FORWARD_ONLY",
     "force": false,
-    "state": "COMBINED_SOURCE_COMMITTED_METADATA_READY_FOR_GUARDED_PUBLICATION",
-    "code_commit": "53e3139889f57467c8e3ca1aa78e7a32183a26c6",
-    "last_verified_remote_head_before_publication": "831d3499cb82b928d640022992fda12e9048e8ca",
+    "state": "CONTEXT_V3_SOURCE_COMMITTED_METADATA_READY_FOR_GUARDED_PUBLICATION",
+    "code_commit": "6ba181bd98a33446f208ee1b5370c17d407cdec2",
+    "last_verified_remote_head_before_publication": "7aaa9731a2b14e77c65d831ca82d437f92eb4fd6",
     "branch": "fix/session-reliability-reporting-2026-11-12",
     "pull_request": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/838",
     "preserved_independent_updates": [
@@ -157,7 +171,8 @@
       "1b7d1c68936a335dc921815469894bb0a42aea00",
       "ddbea3a98d8ab5c38fbfec6d6b2a5be789382e2e",
       "c880d5c9b9c8224f8aefd2e9ac4adfb0bac65e39",
-      "831d3499cb82b928d640022992fda12e9048e8ca"
+      "831d3499cb82b928d640022992fda12e9048e8ca",
+      "7aaa9731a2b14e77c65d831ca82d437f92eb4fd6"
     ],
     "gateway_code_commit": "9155a1a23918578baf11261a6152d35d36559598"
   },

@@ -167,14 +167,35 @@ def validate_tool_message_pairs(messages):
     return completed
 
 
+_CONTROL_NAMES = ("think", "analysis", "reasoning", "tool_call")
+_CONTROL_NAME_PATTERN = "|".join(_CONTROL_NAMES)
+_CONTROL_TAG = re.compile(rf"<(/?)({_CONTROL_NAME_PATTERN})(?:\s[^<>]*)?>", re.IGNORECASE)
+_CONTROL_PREFIXES = tuple(f"<{closing}{name}>" for name in _CONTROL_NAMES for closing in ("", "/"))
+_UNFINISHED_CONTROL_TAG = re.compile(rf"</?(?:{_CONTROL_NAME_PATTERN})\s[^<>]*")
+
+
 def visible_answer_text(value, *, preserve_whitespace=False):
     """Remove private markup; trim for presence checks unless delivering exact layout."""
     content = value.get("content") if isinstance(value, dict) else value
     if not isinstance(content, str):
         return ""
-    text = re.sub(r"<(think|analysis|reasoning)(?:\s[^>]*)?>.*?(?:</\1>|$)", "", content, flags=re.I | re.S)
-    text = re.sub(r"<tool_call>.*?(?:</tool_call>|$)", "", text, flags=re.I | re.S)
-    text = re.sub(r"</(?:think|analysis|reasoning)>", "", text, flags=re.I)
+    visible = []
+    hidden = []
+    cursor = 0
+    for tag in _CONTROL_TAG.finditer(content):
+        if not hidden:
+            visible.append(content[cursor:tag.start()])
+        name = tag[2].lower()
+        if not tag[1]:
+            hidden.append(name)
+        elif hidden and hidden[-1] == name:
+            hidden.pop()
+        cursor = tag.end()
+    # A mismatched closing tag cannot end an inner control block or expose the
+    # rest of an unfinished outer block.
+    if not hidden:
+        visible.append(content[cursor:])
+    text = "".join(visible)
     return text if preserve_whitespace else text.strip()
 
 
@@ -184,9 +205,7 @@ def visible_stream_text(value, *, preserve_whitespace=False):
     last = text.rfind("<")
     if last >= 0:
         suffix = text[last:].lower()
-        controls = ('think', 'analysis', 'reasoning', 'tool_call')
-        if (any(tag.startswith(suffix) for name in controls for tag in ('<' + name + '>', '</' + name + '>'))
-                or re.fullmatch(r'<(?:think|analysis|reasoning)(?:\s[^>]*)?', suffix)):
+        if any(tag.startswith(suffix) for tag in _CONTROL_PREFIXES) or _UNFINISHED_CONTROL_TAG.fullmatch(suffix):
             text = text[:last]
     return text if preserve_whitespace else text.strip()
 
@@ -513,7 +532,7 @@ def consume_sse(lines, on_progress=lambda state: None, cancelled=lambda: False):
     return state.result()
 
 
-def completion_chunks(data, chunk_chars=2048, *, emitted_content=''):
+def completion_chunks(data, chunk_chars=2048, *, emitted_content=None):
     """Deliver every output character, with usage once and one terminal marker."""
     if isinstance(chunk_chars, bool) or not isinstance(chunk_chars, int) or chunk_chars <= 0:
         raise ValueError("chunk_chars must be a positive integer")
@@ -533,7 +552,7 @@ def completion_chunks(data, chunk_chars=2048, *, emitted_content=''):
         yield "data: [DONE]\n\n"
         return
 
-    if emitted_content:
+    if emitted_content is not None:
         visible = visible_answer_text(message, preserve_whitespace=True)
         if message.get('tool_calls') or not visible.startswith(emitted_content):
             yield encode({'error': {'code': 'streamed_answer_changed', 'retryable': False,

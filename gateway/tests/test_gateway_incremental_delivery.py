@@ -45,6 +45,22 @@ class TextDeliveryTests(unittest.TestCase):
         self.assertEqual(1, sum('usage' in value for value in objects(packets)))
         self.assertEqual(1, packets.count(b'data: [DONE]\n\n'))
 
+    def test_nested_controls_never_publish_the_outer_block_tail(self):
+        delivery = TextDelivery()
+        raw = ''
+        for part in ('Answer <thi', 'nk>outer <think>inner</think> still private',
+                     '<tool_call id="private">tool</tool_call> outer tail'):
+            raw += part
+            delivery.offer(raw)
+            self.assertEqual('Answer ', delivery.snapshot())
+        raw += '</think>\nVisible tail.'
+        delivery.offer(raw)
+        self.assertEqual('Answer \nVisible tail.', delivery.snapshot())
+        result = {'choices': [{'message': {'content': raw}, 'finish_reason': 'stop'}]}
+        for prefix in ('', 'Answer '):
+            packets = [packet.encode() for packet in completion_chunks(result, emitted_content=prefix)]
+            self.assertEqual('Answer \nVisible tail.', prefix + content(packets))
+
     def test_bounded_prefix_keeps_all_remaining_characters_for_final_delivery(self):
         delivery = TextDelivery(maximum=5)
         delivery.offer('A long answer')

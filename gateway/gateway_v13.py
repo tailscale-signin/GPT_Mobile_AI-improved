@@ -17824,7 +17824,7 @@ def _process_chat_payload_core(
 # SSE CONVERSION FOR LLAMA.CPP WEB UI
 # ============================================================
 
-def completion_to_sse(data, *, emitted_content=''):
+def completion_to_sse(data, *, emitted_content=None):
     yield from completion_chunks(data, emitted_content=emitted_content)
 
 
@@ -19376,8 +19376,11 @@ async def stream_chat_with_keepalive(
         # A published answer has one OpenAI stream identity. The stored backend
         # result retains its original identity and complete content.
         result = dict(result, id=keepalive_id, created=created, model=result.get('model') or model)
+    # The worker can finish before the subscriber emits its first delta.
+    # Use the same projection if the worker produced a visible answer prefix.
+    delivered_prefix = emitted_content if delivery is not None and delivery.snapshot() else None
     for chunk in completion_to_sse(
-        result, emitted_content=emitted_content,
+        result, emitted_content=delivered_prefix,
     ):
         yield chunk
 

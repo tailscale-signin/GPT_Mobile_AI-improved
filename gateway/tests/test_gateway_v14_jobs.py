@@ -176,7 +176,9 @@ class JournalTests(unittest.TestCase):
                           (unclosed, '', 'stop', 'empty'),
                           (answer + unclosed, answer, 'stop', 'complete')))
         cases.extend((('<THINK mode="private">private</THINK>' + answer, answer, 'length', 'partial'),
-                      ('<think>private</think>', '', 'length', 'empty')))
+                      ('<think>private</think>', '', 'length', 'empty'),
+                      ('<think><think>inner</think>outer</think>' + answer, answer, 'stop', 'complete'),
+                      (answer + '<think><analysis>inner</think>private tail', answer, 'stop', 'complete')))
         expected = {}
         for index, (raw, visible, finish, quality) in enumerate(cases):
             job_id = 'saved-visible-' + str(index)

@@ -11,6 +11,29 @@ class GitHubSelfTestReadsTest {
     private fun json(text: String) = Json.parseToJsonElement(text) as JsonObject
     private fun tool(name: String, action: String) = AgentToolDefinition(name, action, json("""{"type":"object","properties":{"action":{"const":"$action"}}}"""))
 
+    @Test fun dependencyInventoriesPrecedeOptionalMetadataAndDefinitionPages() {
+        val tools = listOf(tool("github_context", "resolve"), tool("github_issue", "list"), tool("github_release__tags", "tags"), tool("github_release__list", "list"), tool("github_ci", "definitions"))
+        val sha = "a".repeat(40)
+        val status = json("""{"trusted":true,"success":true,"tool":"github_context","arguments":{"action":"status"},"result":{"commit_sha":"$sha"}}""")
+        val available = GitHubSelfTestReads.available(tools, listOf(status))
+        assertEquals(listOf("github_issue", "github_release__tags", "github_release__list"), available.take(3).map { it.name })
+        assertEquals("github_ci", available.last().name)
+        assertEquals(listOf(true, true, true, false, false), available.map(GitHubSelfTestReads::isDependency))
+    }
+
+    @Test fun firstLiveRequiredReadBypassesCacheOnlyWhenItsExactSchemaSupportsIt() {
+        val sha = "a".repeat(40)
+        val status = json("""{"trusted":true,"success":true,"tool":"github_context","arguments":{"action":"status"},"result":{"commit_sha":"$sha"}}""")
+        val live = AgentToolDefinition("github_ci", "Definitions", json("""{"properties":{"action":{"const":"definitions"},"verify_live":{"type":"boolean"}}}"""))
+        val first = requireNotNull(GitHubSelfTestReads.next(listOf(live), listOf(status)))
+        assertEquals(JsonPrimitive(true), first.arguments["verify_live"])
+        assertEquals(JsonPrimitive(sha), first.arguments["commit_sha"])
+        val legacy = GitHubSelfTestReads.next(listOf(tool("github_ci", "definitions")), listOf(status))
+        assertEquals(null, legacy?.arguments?.get("verify_live"))
+        val source = AgentToolDefinition("github_search", "Search", json("""{"properties":{"action":{"const":"search"},"verify_live":{"type":"boolean"}}}"""))
+        assertEquals(null, GitHubSelfTestReads.next(listOf(source), listOf(status))?.arguments?.get("verify_live"))
+    }
+
     @Test fun historicalGreenRunCannotSupplyCurrentRevisionAcceptance() {
         val sha = "a".repeat(40)
         val status = json("""{"trusted":true,"success":true,"tool":"github_context","arguments":{"action":"status"},"result":{"commit_sha":"$sha"}}""")

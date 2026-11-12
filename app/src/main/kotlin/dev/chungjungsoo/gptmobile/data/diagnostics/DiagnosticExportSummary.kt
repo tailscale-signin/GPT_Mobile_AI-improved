@@ -20,6 +20,7 @@ internal class DiagnosticExportSummary(private val maximumIdentities: Int = 16_3
     private var unidentifiedFailedModelRecords = 0L
     private var identitiesLimited = false
     private val incidents = hashSetOf<String>()
+    private val recoveredIncidents = hashSetOf<String>()
     private val failedRuns = hashSetOf<String>()
     private val failedInvocations = hashSetOf<String>()
     private val unsentInvocations = hashSetOf<String>()
@@ -37,6 +38,7 @@ internal class DiagnosticExportSummary(private val maximumIdentities: Int = 16_3
                 if (row.diagnosticText("kind") == "event") eventRecords++ else continuationRecords++
                 if (row.diagnosticText("captureSource") in setOf("current.log", "previous.log", "critical.log", "critical-previous.log")) representedSourceRecords++
                 if ((row["duplicate"] as? JsonPrimitive)?.booleanOrNull == true) return
+                if (row.diagnosticText("incidentOutcome") == "RECOVERED_METADATA_READ") add(recoveredIncidents, row.diagnosticText("incidentId"))
                 if ((row["observedFailure"] as? JsonPrimitive)?.booleanOrNull == true) failureRecords++
                 if ((row["countAsIssue"] as? JsonPrimitive)?.booleanOrNull == true) add(incidents, row.diagnosticText("incidentId"))
                 val fields = row["fields"] as? JsonObject ?: return
@@ -85,6 +87,9 @@ internal class DiagnosticExportSummary(private val maximumIdentities: Int = 16_3
         put("duplicateOccurrences", duplicateOccurrences)
         put("observedFailureRecords", failureRecords)
         put("correlatedIncidents", incidents.size)
+        val recovered = incidents.count { it in recoveredIncidents }
+        put("recoveredIncidents", recovered)
+        put("unresolvedIncidents", incidents.size - recovered)
         put("failedRunAttempts", failedRuns.size)
         put("failedModelAttempts", failedInvocations.size)
         put("notDispatchedModelAttempts", unsentInvocations.size)
@@ -96,6 +101,6 @@ internal class DiagnosticExportSummary(private val maximumIdentities: Int = 16_3
         put("representedSourceOccurrences", representedSourceRecords)
         put("sourceCountsReconcile", representedSourceRecords == retainedSourceOccurrences)
         put("independentDefectCount", null as Int?)
-        put("countingNotes", "A failed run can contain failed model invocations and several failure records. Physical retries may share an invocation ID. These counts overlap and are not a count of independent bugs.")
+        put("countingNotes", "A failed run can contain failed model invocations and several failure records. Physical retries may share an invocation ID. Recovered metadata reads retain their observed failure records and correlated incident, but are excluded from unresolved incidents. These counts overlap and are not a count of independent bugs.")
     }.toString()
 }

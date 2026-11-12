@@ -82,6 +82,7 @@ class ConversationHTTPTests(unittest.TestCase):
             self.assertEqual(200, second.status_code, second.text)
             self.assertEqual(conversation_id, second.headers['x-gateway-conversation-id'])
             self.assertEqual(2, model.call_count)
+
             items = client.get('/gateway/conversations').json()['items']
             self.assertEqual([conversation_id], [item['conversation_id'] for item in items])
             self.assertEqual('selected-profile', items[0]['profile_id'])
@@ -105,6 +106,27 @@ class ConversationHTTPTests(unittest.TestCase):
             conflict = client.post('/v1/chat/completions', json=dict(payload, messages=[{'role': 'user', 'content': 'Changed same command'}]))
             self.assertEqual(409, conflict.status_code)
             self.assertEqual(2, model.call_count)
+
+    def test_visible_primary_and_synthesis_retention_is_independent_of_tool_isolation(self):
+        for role in ('primary', 'synthesis', 'follow_up_synthesis'):
+            with self.subTest(role=role), self.client() as client:
+                body = self.payload(command='isolated-' + role, conversation='isolated-chat-' + role)
+                headers = {'X-Gateway-Request-Role': role, 'X-Gateway-Delegated-Worker': 'true',
+                           'X-Gateway-Allow-Local-Tools': 'false'}
+                with patch.object(self.runtime, 'process_chat_payload', side_effect=self.completion) as model:
+                    response = client.post('/v1/chat/completions', json=body, headers=headers)
+                self.assertEqual(200, response.status_code, response.text)
+                self.assertEqual('true', response.headers['x-gateway-detach-safe'])
+                conversation_id = response.headers['x-gateway-conversation-id']
+                messages = client.get('/gateway/conversations/' + conversation_id + '/messages').json()['messages']
+                self.assertEqual(['Inspect the repository', 'SQLite reply'], [message['content'] for message in messages])
+                policy = model.call_args.args[0]['_gateway_performance']
+                self.assertTrue(policy['delegated_worker'])
+                self.assertFalse(policy['allow_gateway_local_tools'])
+                with closing(sqlite3.connect(self.db)) as db:
+                    admission = db.execute('SELECT dispatch_state FROM gateway_generation_admissions WHERE job_id=?',
+                                           (response.headers['x-gateway-job-id'],)).fetchone()
+                self.assertEqual(('finished',), admission)
 
     def test_temporary_chat_writes_no_conversation_prompt_result_or_events(self):
         payload = self.payload(persistent=False, text='Temporary private text')

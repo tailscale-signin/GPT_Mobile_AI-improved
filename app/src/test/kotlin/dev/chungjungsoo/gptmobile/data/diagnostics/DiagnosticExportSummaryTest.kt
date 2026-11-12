@@ -10,6 +10,30 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DiagnosticExportSummaryTest {
+    @Test fun recoveredMetadataIncidentKeepsObservedCountsAndReconciliationWithoutRemainingUnresolved() {
+        val rows = listOf(
+            "2026-11-12T12:00:00Z D/Network: incident_id=read-a · HTTP call failed: unexpected end of stream",
+            "2026-11-12T12:00:01Z I/Gateway: CLIENT_EXCHANGE · incident_id=read-a · transport=TIMEOUT",
+            "2026-11-12T12:00:02Z I/Gateway: CLIENT_EXCHANGE · incident_id=read-b · transport=TIMEOUT",
+            "2026-11-12T12:00:03Z I/Gateway: METADATA_READ_OUTCOME · incident_id=read-a · outcome=COMPLETED",
+            "2026-11-12T12:00:04Z I/Gateway: METADATA_READ_OUTCOME · incident_id=read-b · outcome=ATTEMPT_FAILED"
+        )
+        val tracker = DiagnosticIncidentTracker()
+        rows.forEachIndexed { index, line -> tracker.index(line, "row-$index", null) }
+        tracker.finishIndex()
+        val summary = DiagnosticExportSummary()
+        rows.forEachIndexed { index, line ->
+            val association = tracker.accept(line, "row-$index", null)
+            summary.accept(structuredDiagnosticLine(line, "current.log", captureIdentity = "row-$index", incidentId = association.id, incidentRoot = association.first, incidentOutcome = association.outcome))
+        }
+        val counts = Json.parseToJsonElement(summary.line(5)).jsonObject
+        assertEquals(JsonPrimitive(3), counts["observedFailureRecords"])
+        assertEquals(JsonPrimitive(2), counts["correlatedIncidents"])
+        assertEquals(JsonPrimitive(1), counts["recoveredIncidents"])
+        assertEquals(JsonPrimitive(1), counts["unresolvedIncidents"])
+        assertEquals(JsonPrimitive(true), counts["sourceCountsReconcile"])
+    }
+
     @Test fun failedTypedAdmissionCountsItsExplicitNotDispatchedEvidenceForEachInvocation() {
         val summary = DiagnosticExportSummary()
         repeat(4) { index ->

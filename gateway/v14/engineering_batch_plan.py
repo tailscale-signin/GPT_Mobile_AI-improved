@@ -51,7 +51,7 @@ def transition(job, following, output):
         return
     if following == phase:
         waiting = job.get('provider_wait')
-        next_state = ('waiting_model' if waiting.get('source') == 'MODEL_READINESS' else 'waiting_rate_limit') if waiting else 'running'
+        next_state = ('waiting_model' if waiting.get('source') in {'MODEL_READINESS', 'BACKEND_READINESS'} else 'waiting_rate_limit') if waiting else 'running'
         if current['state'] != next_state:
             current['state'] = next_state
             plan['revision'] += 1

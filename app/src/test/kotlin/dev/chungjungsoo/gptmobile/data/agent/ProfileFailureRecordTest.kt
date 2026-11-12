@@ -6,6 +6,28 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProfileFailureRecordTest {
+    @Test fun laterVerificationCodesAreMatchedAgainstTheActualFailureBeforeChoosingAStopReason() {
+        for (code in listOf("GITHUB_EXTRACTION_OUTPUT_LIMIT", "GITHUB_EXTRACTION_INVALID_RESPONSE", "GITHUB_TOOL_BUDGET_EXHAUSTED", "VERIFICATION_RESERVE_REACHED", "SAVED_VIEW_CURSOR_ALTERED", "DEPENDENCY_DEFERRED")) {
+            assertEquals(code, ProfileFailureRecord.classify("$code: retained verification work").category)
+        }
+    }
+
+    @Test fun explicitDispatchAndPositiveAcceptanceSurviveFailureClassification() {
+        for (facts in listOf("\"dispatch_state\":\"DISPATCHED\"", "\"remote_acceptance\":\"YES\"")) {
+            val details = kotlinx.serialization.json.Json.parseToJsonElement("""{"invocation_id":"request-1",$facts}""") as kotlinx.serialization.json.JsonObject
+            val failure = ProfileFailureRecord.fromProvider("Bounded output ended", "COMPLETION_REPAIR_BUDGET_EXHAUSTED", details)
+            assertEquals(true, failure.dispatched)
+            assertEquals("request-1", failure.invocationId)
+            assertEquals("provider_generation", failure.phase)
+            assertEquals("FAILED", AgentRunTerminalDiagnostics.from("FAILED", failure).executionState)
+            assertFalse(failure.retryAllowed)
+        }
+        val explicitPrecheck = kotlinx.serialization.json.Json.parseToJsonElement("""{"dispatch_state":"NOT_DISPATCHED","remote_acceptance":"YES"}""") as kotlinx.serialization.json.JsonObject
+        val rejected = ProfileFailureRecord.fromProvider("Admission stopped", "REQUEST_REJECTED", explicitPrecheck)
+        assertEquals(false, rejected.dispatched)
+        assertEquals(RemoteRequestAcceptance.NO, rejected.remoteAcceptance)
+    }
+
     @Test fun engineeringPreflightRetainsItsReasonAndRequiresChangedPrerequisites() {
         val failure = ProfileFailureRecord.fromProvider("Configure the approved test mapping", "ACCEPTANCE_PRODUCER_REQUIRED")
         assertEquals("ACCEPTANCE_PRODUCER_REQUIRED", failure.category)

@@ -45,6 +45,45 @@ def backend(get):
 
 
 class BackendDiagnosticTests(unittest.TestCase):
+    def test_failed_capability_cache_preserves_retryability_and_failure_identity(self):
+        cases = [
+            ('EXECUTION_MODEL_LOADING', True, 'selected_model', 'model_loading'),
+            ('EXECUTION_MODEL_NOT_LOADED', True, 'selected_model', 'model_not_loaded'),
+            ('EXECUTION_BACKEND_UNAVAILABLE', True, 'backend_models', 'connection_refused'),
+            ('EXECUTION_METADATA_DENIED', False, 'backend_properties', 'denied'),
+        ]
+        for code, retryable, dependency, category in cases:
+            with self.subTest(code=code):
+                runtime = backend(Mock())
+                capabilities = InferenceCapabilities(runtime)
+                error = ExecutionBindingError(code, 'Safe failure message', 503)
+                error.retryable = retryable
+                error.observation = {'failureCategory': category, 'dependency': dependency,
+                                     'retryable': retryable, 'reasonCode': 'BACKEND_TEST_FAILURE'}
+                with patch.object(capabilities, '_probe', side_effect=error) as probe:
+                    for force in (True, False):
+                        with self.assertRaises(ExecutionBindingError) as observed:
+                            capabilities.inspect(configured_route(runtime, 'LLAMA'), 'selected', force=force)
+                        self.assertEqual(code, observed.exception.code)
+                        self.assertEqual(retryable, observed.exception.retryable)
+                        self.assertEqual(dependency, observed.exception.observation['dependency'])
+                    self.assertEqual(1, probe.call_count)
+
+    def test_typed_binding_payload_omits_raw_private_observations(self):
+        error = ExecutionBindingError('EXECUTION_BACKEND_UNAVAILABLE', 'The configured backend is unavailable.', 503)
+        error.retryable = True
+        error.observation = {'reasonCode': 'BACKEND_READ_TIMEOUT', 'dependency': 'backend_models',
+                             'upstreamStatus': 503, 'observationAgeMs': 12,
+                             'upstreamCode': 'private credential with spaces',
+                             'raw': {'token': 'private-secret'}, 'upstreamMessage': 'private response body'}
+        payload = error.error_payload(stage='provider_admission')
+        self.assertEqual('BACKEND_READ_TIMEOUT', payload['reasonCode'])
+        self.assertEqual('not_dispatched', payload['dispatch_state'])
+        self.assertTrue(payload['retryable'])
+        self.assertFalse(payload['routeSubstituted'])
+        self.assertEqual(503, payload['upstreamStatus'])
+        self.assertNotIn('private', json.dumps(payload))
+
     def test_model_route_normalizes_api_suffix_closes_response_and_retains_exact_ids(self):
         response = Response(body={'data': [{'id': 'selected'}, {'id': 'other', 'created': 123, 'owned_by': 'local'}]})
         get = Mock(return_value=response)

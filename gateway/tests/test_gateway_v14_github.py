@@ -11,6 +11,7 @@ from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from v14.github import ImmutableGitHubReads, install_github_fast_path, native_github_request
 from v14.results import bound_result, ToolViewCapacity
+from v14.text_delivery import final_answer
 
 
 class GitHubGatewayTests(unittest.TestCase):
@@ -42,6 +43,7 @@ class GitHubGatewayTests(unittest.TestCase):
             'post_llama_model_round': lambda *args, **kwargs: (modes.append(kwargs['job_mode']) or response, 1),
             'observe_llama_prompt_cache': lambda *args: None,
             'validate_completion_tools': lambda *args: None,
+            'final_answer': final_answer,
         }
         exec(compile(ast.Module(body=[node], type_ignores=[]), str(path), 'exec'), env)
         run = env['v12_delegate_model_round']

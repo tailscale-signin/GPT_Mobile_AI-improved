@@ -63,7 +63,8 @@ data class ProfileFailureRecord(
             "This saved review requires an updated request or new evidence. Send an updated prompt; the saved draft and tool results are retained."
         }
 
-        private val phases = setOf("admission", "planning", "repository_admission", "provider_admission", "request_validation", "message_admission", "backend_admission", "connection_preflight", "dns_resolution", "dns", "connection", "response_stream", "tls", "cancelled", "transport", "provider_generation", "model_invocation", "tool_precheck", "tool_readiness", "tool_admission", "task_budget", "inventory_pagination", "tool_dispatch", "tool_execution", "tool_continuation", "tool_reconciliation", "backend_template", "gateway_recovery", "gateway_dispatch", "review_compatibility", "answer_review", "claim_extraction", "claim_verification", "verification", "final_synthesis", "delivery", "lifecycle")
+        private val phases = setOf("admission", "planning", "repository_admission", "provider_admission", "request_validation", "message_admission", "backend_admission", "binding_admission", "execution_admission", "connection_preflight", "dns_resolution", "dns", "connection", "response_stream", "tls", "cancelled", "transport", "provider_generation", "model_invocation", "tool_precheck", "tool_readiness", "tool_admission", "task_budget", "inventory_pagination", "tool_dispatch", "tool_execution", "tool_continuation", "tool_reconciliation", "backend_template", "gateway_recovery", "gateway_dispatch", "review_compatibility", "answer_review", "claim_extraction", "claim_verification", "verification", "final_synthesis", "delivery", "lifecycle")
+        private val executionCode = Regex("EXECUTION_[A-Z0-9_]{1,72}")
         private val repositoryAdmissionCodes = setOf("GITHUB_REPOSITORY_UNAVAILABLE", "GITHUB_REF_UNAVAILABLE")
         private val githubSchemaAdmissionCodes = setOf("GITHUB_TOOL_CONTEXT_BUDGET", "GITHUB_TOOL_CONTRACT_UNSUPPORTED")
         private val readinessCodes = setOf("REQUIRED_TOOL_ACQUISITION_PENDING", "REQUIRED_TOOL_ACQUISITION_TIMED_OUT", "REQUIRED_TOOL_ACQUISITION_FAILED", "REQUIRED_TOOL_CAPABILITY_UNAVAILABLE", "REQUIRED_TOOL_AMBIGUOUS_CONFIGURATION", "REQUIRED_TOOL_AUTHORIZATION_REQUIRED")
@@ -79,9 +80,9 @@ data class ProfileFailureRecord(
             }
             val rejectedStatus = (details?.get("http_status") as? JsonPrimitive)?.contentOrNull in setOf("409", "422")
             val code = errorCode?.uppercase(java.util.Locale.ROOT)?.takeIf {
-                it == "WAITING_FOR_APPROVAL" || it in continuationCodes || it in typedCodes || it in repositoryAdmissionCodes || it in githubSchemaAdmissionCodes || it in gatewayAdmissionCodes || it in engineeringPreflightCodes || it in readinessCodes || it in dev.chungjungsoo.gptmobile.data.github.GitHubFailurePolicy.codes || it in dev.chungjungsoo.gptmobile.data.network.error.ProviderContractFailure.codes
+                it == "WAITING_FOR_APPROVAL" || executionCode.matches(it) || it in continuationCodes || it in typedCodes || it in repositoryAdmissionCodes || it in githubSchemaAdmissionCodes || it in gatewayAdmissionCodes || it in engineeringPreflightCodes || it in readinessCodes || it in dev.chungjungsoo.gptmobile.data.github.GitHubFailurePolicy.codes || it in dev.chungjungsoo.gptmobile.data.network.error.ProviderContractFailure.codes
             } ?: "REQUEST_REJECTED".takeIf { rejectedStatus }
-            val observed = classify(listOfNotNull(code, message).joinToString(": "))
+            val observed = classify(listOfNotNull(if (code == "EXECUTION_OPERATION_UNKNOWN_OUTCOME") GatewayOutcomeRecovery.ERROR_CODE else code, message).joinToString(": "))
             val serverRequestId = dev.chungjungsoo.gptmobile.data.network.safeProviderRequestIdentity((details?.get("server_request_id") as? JsonPrimitive)?.contentOrNull)
             val generationCompleted = (details?.get("generation_completed") as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull
             val causeTypes = (details?.get("cause_types") as? JsonArray).orEmpty().take(16).mapNotNull { (it as? JsonPrimitive)?.contentOrNull?.takeIf { value -> value.length <= 160 && value.matches(Regex("[A-Za-z0-9_.$]+")) } }
@@ -101,7 +102,7 @@ data class ProfileFailureRecord(
                     causeTypes = causeTypes
                 )
             }
-            val authoritative = code?.let { classify(it) }
+            val authoritative = code?.let { if (executionCode.matches(it)) ProfileFailureRecord(it, retryAllowed = false, phase = "provider_admission") else classify(it) }
             val legacy = if (authoritative != null) {
                 // The current typed failure outranks incidental codes in provider
                 // prose. Preserve any additional retry restriction and timing facts.
@@ -120,6 +121,8 @@ data class ProfileFailureRecord(
             val dispatchState = (details?.get("dispatch_state") as? JsonPrimitive)?.contentOrNull?.lowercase(java.util.Locale.ROOT)
             val dispatched = (dispatchFact as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull
                 ?: false.takeIf { dispatchState in setOf("not_dispatched", "precheck_rejected") }
+                ?: true.takeIf { dispatchState == "dispatched" }
+                ?: true.takeIf { details?.get("remote_acceptance") in setOf(JsonPrimitive("YES"), JsonPrimitive("ACCEPTED")) }
                 ?: legacy.dispatched
             val localCircuitRejection = legacy.category == "CIRCUIT_BREAKER_OPEN" && stage == "provider_admission" && dispatched == false
             val authorityPrecheck = legacy.category == "POLICY_STALE" && stage in setOf("provider_admission", "tool_precheck") && dispatched == false
@@ -145,7 +148,7 @@ data class ProfileFailureRecord(
                 generationCompleted = generationCompleted,
                 requestReplayAllowed = (details?.get("request_replay_allowed") as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull,
                 causeTypes = causeTypes,
-                dispatchState = dispatchState?.uppercase(java.util.Locale.ROOT)?.takeIf { it in setOf("NOT_DISPATCHED", "PRECHECK_REJECTED", "FAILED", "COMPLETED", "UNKNOWN") },
+                dispatchState = dispatchState?.uppercase(java.util.Locale.ROOT)?.takeIf { it in setOf("NOT_DISPATCHED", "PRECHECK_REJECTED", "DISPATCHED", "FAILED", "COMPLETED", "UNKNOWN") },
                 recoveryActions = (details?.get("recovery_actions") as? JsonArray).orEmpty().mapNotNull { item ->
                     (item as? JsonPrimitive)?.contentOrNull?.takeIf { it in setOf("REFRESH_REPOSITORY_ACCESS", "CHANGE_REPOSITORY", "SELECT_REF") }
                 }.distinct()

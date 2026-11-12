@@ -20,7 +20,8 @@ data class GatewayDeliveryTiming(
     @SerialName("forwarded_events") val forwardedEvents: Int? = null
 ) {
     fun evidence(): JsonObject? {
-        if (measurementScope != "gateway_asgi_stream" || deliveryMode != "completion_buffered") return null
+        if (measurementScope != "gateway_asgi_stream") return null
+        val mode = deliveryMode?.takeIf { it in setOf("completion_buffered", "incremental_final_answer") } ?: return null
         val fields = mapOf(
             "first_event_submit_ms" to firstEventSubmitMs,
             "first_event_send_completed_ms" to firstEventSendCompletedMs,
@@ -31,7 +32,7 @@ data class GatewayDeliveryTiming(
         if (fields.values.any { it != null && (!it.isFinite() || it !in 0.0..86_400_000.0) }) return null
         return buildJsonObject {
             put("measurement_scope", "gateway_asgi_stream")
-            put("delivery_mode", "completion_buffered")
+            put("delivery_mode", mode)
             fields.forEach { (key, value) -> value?.let { put(key, it) } }
             forwardedEvents?.takeIf { it >= 0 }?.let { put("forwarded_events", it) }
             // Awaited ASGI send is observable; socket/proxy flush is not exposed by this interface.

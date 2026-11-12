@@ -30,10 +30,20 @@ class CombinedOperationTracePrivacyTest {
         AppLogRecorder.setEnabled(false)
     }
 
-    private fun slowToken(runId: String) = requireNotNull(CombinedOperationTrace.begin("text_measure", CombinedOperationOwner(runId = runId)))
+    private fun slowToken(runId: String) = requireNotNull(CombinedOperationTrace.begin("text_measure", CombinedOperationOwner(messageId = 7, runId = runId, revisionId = "selected:0", uiContext = UiOperationContext("Assistant", itemCount = 3))))
         .copy(startedNanos = System.nanoTime() - 200_000_000L)
 
     private fun observedRuns() = CombinedOperationTrace.frameWindow(Long.MIN_VALUE, Long.MAX_VALUE).samples.mapNotNull { it.runId }
+
+    @Test fun shortUiWorkRetainsItsStructuralOwnerBelowTheVerboseTimingThreshold() {
+        val owner = CombinedOperationOwner(messageId = 42, runId = "run-1", revisionId = "selected:0", blockId = "2", uiContext = UiOperationContext("Assistant", itemCount = 3))
+        val token = requireNotNull(CombinedOperationTrace.begin("ui_Chat_Assistant_measure", owner))
+            .copy(startedNanos = System.nanoTime() - 8_000_000L)
+        CombinedOperationTrace.end(token)
+        val snapshot = CombinedOperationTrace.frameWindow(Long.MIN_VALUE, Long.MAX_VALUE)
+        assertEquals(owner, snapshot.samples.single().owner)
+        assertEquals(1, snapshot.contextReport().contexts.size)
+    }
 
     @Test fun frameCoverageRetainsWorkBelowTheVerboseTimingThreshold() {
         val token = requireNotNull(CombinedOperationTrace.begin("tool_grant_revoke", CombinedOperationOwner(runId = "short-work")))
@@ -60,12 +70,14 @@ class CombinedOperationTracePrivacyTest {
         assertEquals(listOf("earlier-public"), observedRuns())
         AppLogRecorder.setPrivateSession(privateOwner, true)
         assertTrue(observedRuns().isEmpty())
+        assertTrue(CombinedOperationTrace.frameWindow(Long.MIN_VALUE, Long.MAX_VALUE).contextReport().contexts.isEmpty())
         val privateToken = CombinedOperationTrace.begin("text_measure", CombinedOperationOwner(runId = "private-run"))
         assertTrue(privateToken?.diagnosticCaptureEpoch == null)
         AppLogRecorder.setPrivateSession(privateOwner, false)
         CombinedOperationTrace.end(inFlight)
         CombinedOperationTrace.end(privateToken?.copy(startedNanos = System.nanoTime() - 200_000_000L))
         assertTrue(observedRuns().isEmpty())
+        assertTrue(CombinedOperationTrace.frameWindow(Long.MIN_VALUE, Long.MAX_VALUE).contextReport().contexts.isEmpty())
         CombinedOperationTrace.end(slowToken("fresh-public"))
         assertEquals(listOf("fresh-public"), observedRuns())
     }
@@ -78,6 +90,7 @@ class CombinedOperationTracePrivacyTest {
         AppLogRecorder.setEnabled(true)
         CombinedOperationTrace.end(inFlight)
         assertTrue(observedRuns().isEmpty())
+        assertTrue(CombinedOperationTrace.frameWindow(Long.MIN_VALUE, Long.MAX_VALUE).contextReport().contexts.isEmpty())
     }
 
     @Test fun clearingLogsCannotRestoreOperationHistoryFromAnInFlightToken() = runBlocking {
@@ -91,6 +104,7 @@ class CombinedOperationTracePrivacyTest {
         assertFalse(AppLogRecorder.operationCaptureCurrent(epoch))
         CombinedOperationTrace.end(inFlight)
         assertTrue(observedRuns().isEmpty())
+        assertTrue(CombinedOperationTrace.frameWindow(Long.MIN_VALUE, Long.MAX_VALUE).contextReport().contexts.isEmpty())
         CombinedOperationTrace.end(slowToken("fresh-public"))
         assertEquals(listOf("fresh-public"), observedRuns())
     }

@@ -100,6 +100,10 @@ class GatewayControlNegotiationTest {
         val cases = listOf(
             saved to true,
             saved.copy(requestRole = "synthesis") to true,
+            saved.copy(extraHeaders = mapOf("X-Gateway-Request-Role" to "primary", "X-Gateway-Delegated-Worker" to "true")) to true,
+            saved.copy(maximizeReasoning = true, extraHeaders = mapOf("X-Gateway-Request-Role" to "github-primary", "X-Gateway-Delegated-Worker" to "true")) to true,
+            saved.copy(extraHeaders = mapOf("X-Gateway-Request-Role" to "github-primary", "X-Gateway-Delegated-Worker" to "true")) to false,
+            saved.copy(requestRole = "synthesis", extraHeaders = mapOf("X-Gateway-Request-Role" to "synthesis", "X-Gateway-Delegated-Worker" to "true")) to true,
             saved.copy(queuePersistent = false) to false,
             saved.copy(gatewayConversationKey = null) to false,
             saved.copy(requestRole = "github-review") to false,

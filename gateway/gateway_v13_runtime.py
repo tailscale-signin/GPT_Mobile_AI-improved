@@ -167,25 +167,28 @@ def validate_tool_message_pairs(messages):
     return completed
 
 
-def visible_answer_text(value):
-    """Reasoning-only, whitespace and tool markup are not a user-visible answer."""
+def visible_answer_text(value, *, preserve_whitespace=False):
+    """Remove private markup; trim for presence checks unless delivering exact layout."""
     content = value.get("content") if isinstance(value, dict) else value
     if not isinstance(content, str):
         return ""
     text = re.sub(r"<(think|analysis|reasoning)(?:\s[^>]*)?>.*?(?:</\1>|$)", "", content, flags=re.I | re.S)
     text = re.sub(r"<tool_call>.*?(?:</tool_call>|$)", "", text, flags=re.I | re.S)
-    return re.sub(r"</(?:think|analysis|reasoning)>", "", text, flags=re.I).strip()
+    text = re.sub(r"</(?:think|analysis|reasoning)>", "", text, flags=re.I)
+    return text if preserve_whitespace else text.strip()
 
 
-def visible_stream_text(value):
+def visible_stream_text(value, *, preserve_whitespace=False):
     """A fragmented opening control tag is not the first visible answer token."""
-    text = visible_answer_text(value)
+    text = visible_answer_text(value, preserve_whitespace=preserve_whitespace)
     last = text.rfind("<")
     if last >= 0:
         suffix = text[last:].lower()
-        if any(tag.startswith(suffix) for tag in ("<think>", "<analysis>", "<reasoning>", "<tool_call>")):
+        controls = ('think', 'analysis', 'reasoning', 'tool_call')
+        if (any(tag.startswith(suffix) for name in controls for tag in ('<' + name + '>', '</' + name + '>'))
+                or re.fullmatch(r'<(?:think|analysis|reasoning)(?:\s[^>]*)?', suffix)):
             text = text[:last]
-    return text.strip()
+    return text if preserve_whitespace else text.strip()
 
 
 def partition_owned_tool_calls(calls, routes):
@@ -510,7 +513,7 @@ def consume_sse(lines, on_progress=lambda state: None, cancelled=lambda: False):
     return state.result()
 
 
-def completion_chunks(data, chunk_chars=2048):
+def completion_chunks(data, chunk_chars=2048, *, emitted_content=''):
     """Deliver every output character, with usage once and one terminal marker."""
     if isinstance(chunk_chars, bool) or not isinstance(chunk_chars, int) or chunk_chars <= 0:
         raise ValueError("chunk_chars must be a positive integer")
@@ -529,6 +532,16 @@ def completion_chunks(data, chunk_chars=2048):
         yield encode({"error": {"message": "Backend completed without a visible answer or executable tool call.", "code": "empty_completion"}})
         yield "data: [DONE]\n\n"
         return
+
+    if emitted_content:
+        visible = visible_answer_text(message, preserve_whitespace=True)
+        if message.get('tool_calls') or not visible.startswith(emitted_content):
+            yield encode({'error': {'code': 'streamed_answer_changed', 'retryable': False,
+                                   'partial_output_published': True,
+                                   'message': 'The final result does not match the published answer prefix. Inspect the saved result.'}})
+            yield 'data: [DONE]\n\n'
+            return
+        message = dict(message, content=visible[len(emitted_content):])
 
     def event(delta, finish=None):
         return {**base, "choices": [{"index": 0, "delta": delta, "finish_reason": finish}]}

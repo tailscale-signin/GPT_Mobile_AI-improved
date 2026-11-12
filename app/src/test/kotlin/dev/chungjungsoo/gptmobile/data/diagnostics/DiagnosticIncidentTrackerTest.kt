@@ -6,6 +6,24 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DiagnosticIncidentTrackerTest {
+    @Test fun incompleteMetadataAttemptsAndSuccessfulHeadersNeverResolveTheBodyFailure() {
+        val tracker = DiagnosticIncidentTracker()
+        val failure = tracker.accept("2026-11-12T12:00:00Z D/Network: incident_id=read-a · operation_id=read-a · HTTP call failed: unexpected end of stream", "raw", null)
+        val exchange = tracker.accept("2026-11-12T12:00:01Z I/Gateway: CLIENT_EXCHANGE · incident_id=read-a · transport=TIMEOUT", "exchange", null)
+        assertEquals(failure.id, exchange.id)
+        val headers = tracker.accept("2026-11-12T12:00:02Z I/Gateway: CLIENT_EXCHANGE · incident_id=read-a · httpStatus=200 · transport=SUCCESS", "headers", null)
+        assertEquals(null, headers.outcome)
+        for (outcome in listOf("ATTEMPT_FAILED", "CANCELLED", "FAILED")) {
+            val terminal = tracker.accept("2026-11-12T12:00:03Z I/Gateway: METADATA_READ_OUTCOME · incident_id=read-a · outcome=$outcome", outcome, null)
+            assertEquals(failure.id, terminal.id)
+            assertEquals(null, terminal.outcome)
+        }
+        val other = tracker.accept("2026-11-12T12:00:04Z I/Gateway: METADATA_READ_OUTCOME · incident_id=read-b · outcome=COMPLETED", "other", null)
+        assertEquals("RECOVERED_METADATA_READ", other.outcome)
+        val original = tracker.accept("2026-11-12T12:00:05Z I/Gateway: CLIENT_EXCHANGE · incident_id=read-a · transport=TIMEOUT", "still-failed", null)
+        assertEquals(null, original.outcome)
+    }
+
     @Test fun gatewayRetryAttemptsAndFinalMetadataOutcomeHaveOneIncidentWithoutErasingTheObservedFailure() {
         val id = "a".repeat(32)
         val rows = listOf(

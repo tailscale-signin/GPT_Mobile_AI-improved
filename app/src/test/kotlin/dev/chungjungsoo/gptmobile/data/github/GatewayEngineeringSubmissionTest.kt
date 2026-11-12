@@ -140,6 +140,13 @@ class GatewayEngineeringSubmissionTest {
         rejectedAdmission("OUTCOME_UNKNOWN", "OUTCOME_UNKNOWN", expectedUnknown = true)
     }
 
+    @Test fun bindingReadinessRejectionCannotEraseAnEarlierUncertainDispatch() = runTest {
+        for (state in listOf("DISPATCHING", "OUTCOME_UNKNOWN")) {
+            rejectedAdmission(state, state, expectedUnknown = true, bindingRejected = true)
+            io.mockk.clearMocks(client, history, answers = false)
+        }
+    }
+
     @Test fun originalSelectionChangingAfterPreflightRejectsBeforeAnyCommandPost() = runTest {
         rejectedAdmission("PENDING", "REJECTED:403", expectedUnknown = false, selectionChanged = true)
     }
@@ -160,7 +167,7 @@ class GatewayEngineeringSubmissionTest {
         coVerify(exactly = 0) { client.create(any(), any()) }
     }
 
-    private suspend fun rejectedAdmission(initial: String, expectedState: String, expectedUnknown: Boolean, selectionChanged: Boolean = false) {
+    private suspend fun rejectedAdmission(initial: String, expectedState: String, expectedUnknown: Boolean, selectionChanged: Boolean = false, bindingRejected: Boolean = false) {
         val selection = executionSelection(selected, null, "saved-privacy-scope")
         val bindingJson = buildJsonObject {
             put("binding_id", "bind_" + "a".repeat(32))
@@ -193,15 +200,22 @@ class GatewayEngineeringSubmissionTest {
         coEvery { client.capabilities(any()) } returns capability
         coEvery { history.command(any(), "command") } returns null
         coEvery { client.bindingCapabilities(any(), selection, admission.bindingId) } returns admission
+        if (bindingRejected) coEvery { client.bindingCapabilities(any(), selection, admission.bindingId) } throws GatewayExecutionRejected("EXECUTION_MODEL_LOADING", 409, "provider_admission", retryable = true, inferenceAttempted = false)
         coEvery { client.create(any(), binding.request) } throws GatewayEngineeringRequestRejected(409, "Conversation revision changed")
         if (selectionChanged) coEvery { conversations.requireSavedSelection(binding) } throws IllegalStateException("The original provider connection changed")
         val repository = repository()
         val failure = runCatching { repository.reconnect("command") }.exceptionOrNull()
         assertTrue(failure is GatewayEngineeringRequestRejected)
         assertEquals(expectedUnknown, (failure as GatewayEngineeringRequestRejected).commandOutcomeUnknown)
+        if (bindingRejected) {
+            assertTrue(failure is GatewayExecutionRejected)
+            assertEquals("EXECUTION_MODEL_LOADING", (failure as GatewayExecutionRejected).code)
+            assertEquals(true, failure.retryable)
+            assertTrue(failure.withCommandOutcomeUnknown(false).commandOutcomeUnknown)
+        }
         assertEquals(expectedState, admissionState)
         repository.observe("command")
-        coVerify(exactly = if (selectionChanged) 0 else 1) { client.create(any(), any()) }
-        coVerify(exactly = if (expectedUnknown) 2 else 1) { history.command(any(), "command") }
+        coVerify(exactly = if (selectionChanged || bindingRejected) 0 else 1) { client.create(any(), any()) }
+        coVerify(exactly = if (expectedUnknown || bindingRejected) 2 else 1) { history.command(any(), "command") }
     }
 }

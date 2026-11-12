@@ -42,7 +42,10 @@ import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogEntry
 import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
-import dev.chungjungsoo.gptmobile.data.diagnostics.GroupedAppLog
+import dev.chungjungsoo.gptmobile.data.diagnostics.CombinedOperationOwner
+import dev.chungjungsoo.gptmobile.data.diagnostics.IncrementalAppLogGroups
+import dev.chungjungsoo.gptmobile.data.diagnostics.UiOperationContext
+import dev.chungjungsoo.gptmobile.presentation.common.diagnosticFrameTiming
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collect
@@ -78,19 +81,31 @@ internal fun AppLogPanel(entriesOverride: List<AppLogEntry>? = null) {
         onDispose { leaveScreen() }
     }
     LaunchedEffect(Unit) {
-        var groupedEntries: List<dev.chungjungsoo.gptmobile.data.diagnostics.AppLogEntry>? = null
-        var grouped = emptyList<GroupedAppLog>()
+        val grouping = IncrementalAppLogGroups()
+        val projector = AppLogProjector()
         // Keep the newest pending snapshot while one is being grouped, rather
         // than restarting expensive parsing on every logging update.
         snapshotFlow { LogViewRequest(frozen ?: entries, errorsOnly, selectedTag, query, pageIndex) }.conflate().collect { request ->
             projection = withContext(Dispatchers.Default) {
-                if (groupedEntries !== request.entries) {
-                    grouped = dev.chungjungsoo.gptmobile.data.diagnostics.groupAppLogs(request.entries)
-                    groupedEntries = request.entries
-                }
-                projectAppLogs(request.entries, grouped, request.errorsOnly, request.selectedTag, request.query, request.pageIndex)
+                val grouped = grouping.update(request.entries)
+                projector.project(request.entries, grouped, request.errorsOnly, request.selectedTag, request.query, request.pageIndex)
             }
         }
+    }
+    val logRowsTiming = remember(projection.rows.size, projection.matchingRows, projection.totalEvents, projection.pageIndex, frozen != null) {
+        Modifier.diagnosticFrameTiming(
+            CombinedOperationOwner(
+                screen = "DebugLogs",
+                uiContext = UiOperationContext(
+                    component = "LogRows",
+                    itemCount = projection.rows.size,
+                    retainedItemCount = projection.matchingRows,
+                    eventCount = projection.totalEvents,
+                    pageIndex = projection.pageIndex,
+                    frozen = frozen != null
+                )
+            )
+        )
     }
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)) {
@@ -170,7 +185,7 @@ internal fun AppLogPanel(entriesOverride: List<AppLogEntry>? = null) {
                 AppLogRecorder.clear()
             }) { Text("Clear logs") }
         }
-        Text("${projection.visibleEvents} events · ${projection.visibleIssues} issue groups · ${projection.rows.size} of ${projection.matchingRows} matching rows · page ${projection.pageIndex + 1} · newest first", style = MaterialTheme.typography.labelMedium)
+        Text("${projection.visibleEvents} events · ${projection.visibleIssues} unresolved issue groups · ${projection.rows.size} of ${projection.matchingRows} matching rows · page ${projection.pageIndex + 1} · newest first", style = MaterialTheme.typography.labelMedium)
         Row {
             TextButton(onClick = { pageIndex = (projection.pageIndex - 1).coerceAtLeast(0) }, enabled = projection.pageIndex > 0) { Text("Newer rows") }
             TextButton(onClick = {
@@ -180,7 +195,7 @@ internal fun AppLogPanel(entriesOverride: List<AppLogEntry>? = null) {
         }
         Text("Records with the same incident or operation identity share one issue group. Similar messages may share a display row; expand it for every event. Missing causal identities remain separate.", style = MaterialTheme.typography.labelSmall)
         if (projection.rows.isEmpty()) Text(if (enabled) "Waiting for matching app events…" else "Enable tracking to record a test session.")
-        LazyColumn(Modifier.fillMaxWidth().heightIn(max = 560.dp).testTag("app_log_rows"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        LazyColumn(Modifier.then(logRowsTiming).fillMaxWidth().heightIn(max = 560.dp).testTag("app_log_rows"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(projection.rows, key = { it.key }) { row ->
                 val group = row.group
                 var expanded by remember(row.key) { mutableStateOf(false) }

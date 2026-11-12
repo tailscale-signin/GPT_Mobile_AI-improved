@@ -69,6 +69,47 @@ class GatewayConversationRequestTest {
     }
 
     @Test
+    fun isolatedVisibleTurnsKeepTheirDurableCommandWithoutEnablingServerTools() = runTest {
+        for ((role, callerRole) in listOf("primary" to "primary", "primary" to "github-primary", "synthesis" to "synthesis")) {
+            val reserved = mutableListOf<String>()
+            val dispatched = mutableListOf<String>()
+            val selected = config.copy(
+                requestRole = role,
+                maximizeReasoning = callerRole == "github-primary",
+                requireGatewayConversation = true,
+                extraHeaders = mapOf(
+                    "X-Gateway-Request-Role" to callerRole,
+                    "X-Gateway-Delegated-Worker" to "true",
+                    "X-Gateway-Allow-Local-Tools" to "false"
+                ),
+                onGatewayCommandPrepared = { reserved += it },
+                onGatewayCommandDispatching = { dispatched += it }
+            )
+            val frozen = gatewayConversationRequest(payload, selected)
+            frozen.beforeDispatch(selected)
+            frozen.armDispatch(selected)
+            assertEquals(JsonPrimitive(true), metadata(selected)["store_conversation"])
+            assertEquals(listOf(frozen.commandId), reserved)
+            assertEquals(reserved, dispatched)
+            assertEquals("false", selected.extraHeaders["X-Gateway-Allow-Local-Tools"])
+            assertEquals(frozen.commandId, gatewayConversationRequest(payload, selected).commandId)
+            for (privateTurn in listOf(
+                selected.copy(queuePersistent = false),
+                selected.copy(requestRole = "reviewer"),
+                selected.copy(extraHeaders = selected.extraHeaders - "X-Gateway-Request-Role"),
+                selected.copy(extraHeaders = selected.extraHeaders + ("X-Gateway-Request-Role" to "reviewer")),
+                selected.copy(extraHeaders = selected.extraHeaders + ("X-Gateway-Request-Role" to "github-review"))
+            )) {
+                assertTrue(runCatching { gatewayConversationRequest(payload, privateTurn) }.isFailure)
+            }
+            if (callerRole == "github-primary") {
+                assertTrue(runCatching { gatewayConversationRequest(payload, selected.copy(maximizeReasoning = false)) }.isFailure)
+                assertTrue(runCatching { gatewayConversationRequest(payload, selected.copy(requestRole = "synthesis")) }.isFailure)
+            }
+        }
+    }
+
+    @Test
     fun cancellationAfterReservationRecordsTheExactUnsentCommandBeforePropagatingCancellation() = runTest {
         val reservations = mutableListOf<String>()
         val unsent = mutableListOf<String>()

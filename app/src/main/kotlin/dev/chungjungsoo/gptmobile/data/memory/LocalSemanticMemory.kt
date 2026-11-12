@@ -302,29 +302,19 @@ class LocalSemanticMemory @Inject constructor(@ApplicationContext private val co
         try {
             val idleAge = android.os.SystemClock.elapsedRealtime() - lastUsed
             if (idleAge >= idleMillis) {
+                val releaseReason = MemoryTrimPolicy.releaseReason(memoryPressure, trimSignal, idleMillis)
                 if (embedder != null) {
                     dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
                         "Memory",
-                        "EMBEDDING_RELEASE_POLICY · reason=${if (memoryPressure) {
-                            "memory_pressure"
-                        } else if (idleMillis <= 0) {
-                            "explicit_release"
-                        } else {
-                            "idle_timeout"
-                        }} · trimSignal=${trimSignal ?: "unreported"} · idleAgeMs=$idleAge · requiredIdleMs=$idleMillis · processCountersAreEngineFootprint=false"
+                        "EMBEDDING_RELEASE_POLICY · reason=$releaseReason · trimSignal=${trimSignal ?: "unreported"} · idleAgeMs=$idleAge · requiredIdleMs=$idleMillis · processCountersAreEngineFootprint=false"
                     )
                 }
-                // A forced release is not necessarily a low-memory signal. Only actual
-                // pressure should defer reacquisition; explicit reopen and idle tests must
-                // remain recoverable without a fabricated 30-second memory-pressure stall.
+                // Preserve the existing trim cooldown without claiming every background
+                // release proves low memory. Explicit reopen and idle release remain immediate.
                 if (memoryPressure) {
                     retryAfter = maxOf(retryAfter, android.os.SystemClock.elapsedRealtime() + MemoryTrimPolicy.REACQUIRE_COOLDOWN_MS)
-                    _status.value = _status.value.copy(available = false, detail = "Semantic recall paused for memory recovery; exact and topic recall remain active")
-                }
-                val releaseReason = when {
-                    memoryPressure -> "memory_pressure"
-                    idleMillis <= 0 -> "explicit_release"
-                    else -> "idle_timeout"
+                    val detail = if (releaseReason == "background_trim") "Semantic recall paused after background cleanup; exact and topic recall remain active" else "Semantic recall paused for memory recovery; exact and topic recall remain active"
+                    _status.value = _status.value.copy(available = false, detail = detail)
                 }
                 closeEmbedder(releaseReason)
                 if (memoryPressure || idleMillis <= 0) {

@@ -124,7 +124,7 @@ def install_routes(app, conversations, engineering, service, ownership):
                 return JSONResponse({'error': {'code': 'not_found'}}, status_code=404)
             return value
         except ExecutionBindingError as error:
-            return JSONResponse({'error': {'code': error.code, 'message': str(error), 'retryable': False},
+            return JSONResponse({'error': error.error_payload(),
                                  **({'preflight': error.result} if hasattr(error, 'result') else {})}, status_code=error.status)
         except QueueFull:
             return JSONResponse({'error': {'code': 'queue_full', 'retryable': True}}, status_code=429)

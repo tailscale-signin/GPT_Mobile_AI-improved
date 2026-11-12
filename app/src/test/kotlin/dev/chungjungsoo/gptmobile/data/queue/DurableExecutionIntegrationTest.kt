@@ -187,6 +187,37 @@ class DurableExecutionIntegrationTest {
         assertFalse(owner.restoreGatewayAnswer("r", "job-1", "Repeated", 4))
     }
 
+    @Test fun recoveredAnswerPublishesOnceClearsStaleFailureControlsAndReleasesTheQueue() = runBlocking {
+        database.pendingPromptDao().enqueue(prompt())
+        val owner = database.agentPersistenceDao()
+        val result = owner.persistAgentTurn(request())
+        val oldFailure = dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(
+            dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE,
+            runError = "GATEWAY_OUTCOME_UNKNOWN: disconnected"
+        )
+        val tool = dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.TOOL, toolSequence = 7)
+        val progress = dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE, content = "Waiting", progressCheckpoint = true)
+        owner.updateMessage(result.assistantMessages.single().copy(content = "Saved", timeline = listOf(tool, oldFailure, progress)))
+        database.agentRunDao().bindGatewayJob("r", "job-1", "http://192.168.1.2")
+        database.agentRunDao().updateStatus("r", "INTERRUPTED", 1, 2, oldFailure.runError)
+        assertTrue(owner.restoreGatewayAnswer("r", "job-1", "Saved answer", 3))
+        val restored = requireNotNull(owner.recoveryMessage(result.assistantMessages.single().id))
+        assertTrue(restored.timeline.contains(tool))
+        assertFalse(restored.timeline.any { it.runError != null || it.profileFailure != null || it.progressCheckpoint })
+        assertTrue(restored.revisions.single().timeline.contains(oldFailure))
+        assertEquals("gateway_saved_result", restored.timeline.last().generation?.finishReason)
+        val provenance = restored.timeline.single { it.type == dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.TEXT }.responseSource
+        assertEquals(true, provenance?.gatewayVerified)
+        assertEquals("model", provenance?.modelId)
+        val key = "1:${result.userMessage.id}:p"
+        val publication = requireNotNull(owner.publication(key))
+        assertEquals("FINAL", publication.deliveryKind)
+        assertTrue(owner.queuedTurnReady(1))
+        assertFalse(owner.restoreGatewayAnswer("r", "job-1", "Saved answer", 4))
+        assertEquals(publication, owner.publication(key))
+        assertEquals(1, requireNotNull(owner.recoveryMessage(restored.id)).revisions.size)
+    }
+
     @Test fun parkedGatewayResultRemainsReadableButCancellationAndTerminalStateFenceAdoption() = runBlocking {
         database.pendingPromptDao().enqueue(prompt())
         val owner = database.agentPersistenceDao()

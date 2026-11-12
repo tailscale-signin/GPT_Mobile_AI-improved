@@ -14,7 +14,7 @@ private val eventIdPattern = Regex("(?:^|: | · )eventId=([a-zA-Z0-9_.:-]+)")
 private val recordPattern = Regex("^(\\S+) ([VDIWEF])/([^:]+): (.*)$")
 private val fieldPattern = Regex("(?:^| · |(?<=\\s))([A-Za-z][A-Za-z0-9_]*)=")
 private val boundedTokenFields = setOf(
-    "eventId", "parentEventId", "incidentId", "causalIncidentId", "runId", "parentRunId", "invocationId", "callId", "toolCallId",
+    "eventId", "parentEventId", "incidentId", "incident_id", "operation_id", "retry_attempt", "causalIncidentId", "runId", "parentRunId", "invocationId", "callId", "toolCallId",
     "monoNs", "bootMs", "processId", "processName", "processSessionId", "truncatedAtSource", "reasonTruncated", "dispatched", "retryable",
     "tool", "action"
 )
@@ -80,7 +80,7 @@ internal fun structuredDiagnosticLine(
             when {
                 match == null || duplicate || !incidentRoot && classification.actionable -> "SYMPTOM"
                 classification.actionable -> "OBSERVED_FAILURE"
-                classification.category in setOf("compatibility_probe", "model_compatibility", "connectivity_progress", "platform_job_hint", "deferred_work", "recovery") -> "EXPECTED_LIFECYCLE"
+                classification.category in setOf("compatibility_probe", "model_compatibility", "connectivity_progress", "platform_job_hint", "input_lifecycle", "memory_trim_lifecycle", "deferred_work", "recovery") -> "EXPECTED_LIFECYCLE"
                 else -> "INFORMATIONAL"
             }
         )

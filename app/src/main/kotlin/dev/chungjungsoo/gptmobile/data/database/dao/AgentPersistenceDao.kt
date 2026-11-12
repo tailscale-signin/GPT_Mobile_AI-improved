@@ -708,13 +708,45 @@ interface AgentPersistenceDao :
         if (run.gatewayJobId != jobId || !dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.canReadSavedResult(run) || run.terminalError == "BACKUP_RESTORED") return false
         val message = recoveryMessage(run.assistantMessageId) ?: return false
         if (message.currentRunId != runId || message.chatId != run.chatId || message.ownershipFence != run.ownershipFence) return false
+        val supersededStatus = message.timeline.any {
+            it.runError != null ||
+                it.profileFailure != null ||
+                it.progressCheckpoint ||
+                it.progressDeadline != null ||
+                it.recoveryBlock != null ||
+                it.recovery != null ||
+                it.combinedFailure?.remoteJobStatus == "PENDING"
+        }
+        val source = dev.chungjungsoo.gptmobile.data.database.entity.ResponseSource(
+            transport = dev.chungjungsoo.gptmobile.data.database.entity.ResponseTransport.GATEWAY,
+            profileUid = run.profileUid,
+            modelId = run.modelSnapshot,
+            gatewayVerified = true
+        )
         val restored = message.copy(
             content = content,
-            revisions = if (message.content.isNotBlank() && !content.startsWith(message.content)) listOfNotNull(message.snapshotLatestAssistantRevision(completedAt)) + message.revisions else message.revisions,
+            createdAt = completedAt,
+            revisions = if (supersededStatus || message.content.isNotBlank() && !content.startsWith(message.content)) listOfNotNull(message.snapshotLatestAssistantRevision(completedAt)) + message.revisions else message.revisions,
             activeRevisionIndex = ACTIVE_REVISION_LATEST,
-            timeline = message.timeline.filter { it.type != dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.TEXT } +
-                dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.TEXT, content = content) +
-                listOfNotNull(terminalError?.let { dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE, runError = it) })
+            // Old failure and resume controls belong to the retained revision,
+            // not the newly published answer. Confirmed tool history survives.
+            timeline = message.timeline.filterNot {
+                it.type == dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.TEXT ||
+                    it.runError != null ||
+                    it.profileFailure != null ||
+                    it.progressCheckpoint ||
+                    it.progressDeadline != null ||
+                    it.recoveryBlock != null ||
+                    it.recovery != null ||
+                    it.combinedFailure?.remoteJobStatus == "PENDING"
+            } +
+                dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.TEXT, content = content, responseSource = source) +
+                dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(
+                    dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE,
+                    content = "The saved Gateway answer was recovered without starting a new request.",
+                    generation = dev.chungjungsoo.gptmobile.data.database.entity.GenerationReceipt(finishReason = "gateway_saved_result", responseSource = source),
+                    runError = terminalError
+                )
         )
         updateMessage(restored)
         publishReply(run, restored, terminalStatus, completedAt)

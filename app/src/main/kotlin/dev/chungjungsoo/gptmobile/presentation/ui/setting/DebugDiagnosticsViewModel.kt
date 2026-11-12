@@ -21,6 +21,7 @@ data class DebugAnalyticsState(
     val memoryQueued: Int = 0,
     val memoryRunning: Int = 0,
     val memoryWaiting: Int = 0,
+    val memoryWaitingForBattery: Int = 0,
     val memoryCompleted: Int = 0,
     val recentToolEvents: List<ToolEvent> = emptyList(),
     val completedRuns: Int = 0,
@@ -90,10 +91,14 @@ class DebugDiagnosticsViewModel @Inject constructor(
         )
     }.combine(ledger.diagnostics) { state, invocations -> state.copy(invocations = invocations) }
         .combine(settings.observePlatformV2s()) { state, profiles -> state.copy(profileNames = profiles.associate { it.uid to it.name }) }
-        .combine(androidx.work.WorkManager.getInstance(context).getWorkInfosByTagFlow("memory-enrichment")) { state, work ->
+        .combine(
+            androidx.work.WorkManager.getInstance(context).getWorkInfosByTagFlow("memory-enrichment")
+                .combine(dev.chungjungsoo.gptmobile.data.memory.observeEnrichmentBatteryNotLow(context)) { work, batteryNotLow -> work to batteryNotLow }
+        ) { state, (work, batteryNotLow) ->
             state.copy(
                 memoryQueued = work.count { it.state == androidx.work.WorkInfo.State.ENQUEUED },
                 memoryRunning = work.count { it.state == androidx.work.WorkInfo.State.RUNNING },
+                memoryWaitingForBattery = work.count { it.state == androidx.work.WorkInfo.State.ENQUEUED && it.constraints.requiresBatteryNotLow() && batteryNotLow == false },
                 memoryCompleted = work.count { it.state == androidx.work.WorkInfo.State.SUCCEEDED && it.outputData.getString("reason") == "ENRICHED" }
             )
         }

@@ -1,13 +1,43 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
 import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogEntry
+import dev.chungjungsoo.gptmobile.data.diagnostics.IncrementalAppLogGroups
 import dev.chungjungsoo.gptmobile.data.diagnostics.groupAppLogs
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AppLogProjectionTest {
+    @Test fun liveProjectionReusesUnchangedPreviewsAndUpdatesARecoveredIncident() {
+        val grouping = IncrementalAppLogGroups()
+        val projector = AppLogProjector()
+        val failure = AppLogEntry(1000, "D", "Network", "Unexpected end of stream · incident_id=read-1")
+        val other = AppLogEntry(1100, "I", "Model", "Started")
+        val before = listOf(failure, other)
+        val first = projector.project(before, grouping.update(before), false, "All tags", "")
+        val recovery = AppLogEntry(1200, "I", "Gateway", "METADATA_READ_OUTCOME · incident_id=read-1 · outcome=COMPLETED")
+        val after = before + recovery
+        val next = projector.project(after, grouping.update(after), false, "All tags", "")
+        assertSame(first.rows.first { it.group.entry == other }, next.rows.first { it.group.entry == other })
+        assertEquals(0, next.visibleIssues)
+        assertTrue(next.rows.first().preview.contains("Recovered; original events retained."))
+        assertEquals(after.toSet(), next.rows.flatMap { it.group.rawDetails }.toSet())
+    }
+
+    @Test fun recoveredRowRemainsSearchableButNoLongerCountsAsUnresolved() {
+        val failure = AppLogEntry(1000, "D", "Network", "Unexpected end of stream · incident_id=read-1")
+        val recovery = AppLogEntry(1100, "I", "Gateway", "METADATA_READ_OUTCOME · incident_id=read-1 · outcome=COMPLETED")
+        val entries = listOf(failure, recovery)
+        val projection = projectAppLogs(entries, groupAppLogs(entries), true, "Network", "stream")
+        assertEquals(2, projection.visibleEvents)
+        assertEquals(0, projection.visibleIssues)
+        assertEquals("info", projection.rows.single().severity)
+        assertTrue(projection.rows.single().preview.contains("Recovered; original events retained."))
+        assertEquals(entries, projection.rows.single().group.rawDetails)
+    }
+
     @Test fun causalRowRetainsIdentityWhenItsRepresentativeBecomesAFailure() {
         val start = AppLogEntry(1000, "I", "Runtime", "LOAD_START · nativeOperationId=op-1")
         val failure = AppLogEntry(1100, "E", "Runtime", "LOAD_FAILED · nativeOperationId=op-1")

@@ -59,6 +59,7 @@ class InferenceCapabilities:
                         'model_unavailable': 'EXECUTION_MODEL_UNAVAILABLE'}.get(details['failureCategory'], 'EXECUTION_BACKEND_UNAVAILABLE')
                 message = details.get('upstreamMessage') or 'Required metadata is unavailable on the configured backend; no other route was tried.'
                 rejected = ExecutionBindingError(code, message, response.status_code if response.status_code in {401, 403} else 503)
+                rejected.retryable = details['retryable']
                 rejected.observation = details
                 raise rejected
             response.raise_for_status()
@@ -80,11 +81,13 @@ class InferenceCapabilities:
                 details['upstreamStatus'] = response.status_code
             if isinstance(error, ExecutionBindingError):
                 error.observation = details
+                error.retryable = error.retryable or details.get('retryable') is True
                 raise
             code = ('EXECUTION_CAPABILITY_UNSUPPORTED' if details['failureCategory'] == 'unsupported' else
                     'EXECUTION_CAPABILITY_INVALID' if details['failureCategory'] == 'invalid_response' else
                     'EXECUTION_BACKEND_UNAVAILABLE')
             wrapped = ExecutionBindingError(code, 'Required metadata is unavailable on the configured backend; no other route was tried.', 503)
+            wrapped.retryable = details.get('retryable') is True
             wrapped.observation = details
             raise wrapped from error
         finally:
@@ -117,7 +120,8 @@ class InferenceCapabilities:
                     code = error.code if isinstance(error, ExecutionBindingError) else ('EXECUTION_BACKEND_UNAVAILABLE'
                         if isinstance(error, (requests.RequestException, TimeoutError)) else 'EXECUTION_CAPABILITY_INVALID')
                     status = error.status if isinstance(error, ExecutionBindingError) else 503
-                    rejected = (code, str(error) if isinstance(error, ExecutionBindingError) else 'The configured backend returned invalid model metadata.', status, details)
+                    retryable = error.retryable if isinstance(error, ExecutionBindingError) else details.get('retryable') is True
+                    rejected = (code, str(error) if isinstance(error, ExecutionBindingError) else 'The configured backend returned invalid model metadata.', status, details, retryable)
                     if details['failureCategory'] in {'connection_refused', 'connect_timeout', 'read_timeout', 'dns', 'tls', 'connection_closed', 'connection'}:
                         record_backend_result(self.runtime, False)
                 entry = self.clock(), result, rejected, transport
@@ -138,8 +142,9 @@ class InferenceCapabilities:
     def _cached(self, entry):
         age = max(0, int((self.clock() - entry[0]) * 1000))
         if entry[2] is not None:
-            code, message, status, details = entry[2]
+            code, message, status, details, retryable = entry[2]
             error = ExecutionBindingError(code, message, status)
+            error.retryable = retryable
             error.observation = dict(details, observationAgeMs=age)
             raise error
         result = copy.deepcopy(entry[1])

@@ -312,7 +312,13 @@ class GatewayEngineeringRepository @Inject constructor(
                 val accepted = requireNotNull(binding.executionAdmission)
                 accepted.verify(selection)
                 check(binding.request.executionBindingId == accepted.bindingId)
-                client.bindingCapabilities(config, selection, accepted.bindingId)
+                try {
+                    client.bindingCapabilities(config, selection, accepted.bindingId)
+                } catch (rejected: GatewayEngineeringRequestRejected) {
+                    // A fresh readiness rejection cannot prove that a previously
+                    // dispatched command was rejected. Preserve its receipt fence.
+                    throw rejected.withCommandOutcomeUnknown(store.admissionState(requestId) != "PENDING")
+                }
                 val current = settings.fetchPlatformV2s().singleOrNull { it.uid == binding.request.profileId && it.enabled }
                 val features = settings.getFeatureSettings()
                 if (!admissionAllowed() || current == null || current.disableAllTools || current.disableRemoteTools || features.githubProfileOverrides[current.uid]?.githubTools != true) {
@@ -338,8 +344,8 @@ class GatewayEngineeringRepository @Inject constructor(
                     if (!admissionAllowed()) throw GatewayEngineeringRequestRejected(403, "Remote tool permission changed before dispatch. The saved command was not sent.")
                     client.create(verifiedConfig, binding.request)
                 } catch (rejected: GatewayEngineeringRequestRejected) {
-                    store.markAdmission(requestId, if (attemptedBefore) "OUTCOME_UNKNOWN" else "REJECTED:${rejected.httpStatus}")
-                    throw GatewayEngineeringRequestRejected(rejected.httpStatus, rejected.message.orEmpty(), commandOutcomeUnknown = attemptedBefore)
+                    store.markAdmission(requestId, if (attemptedBefore || rejected.commandOutcomeUnknown) "OUTCOME_UNKNOWN" else "REJECTED:${rejected.httpStatus}")
+                    throw rejected.withCommandOutcomeUnknown(attemptedBefore)
                 } catch (failure: Exception) {
                     store.markAdmission(requestId, "OUTCOME_UNKNOWN")
                     throw failure

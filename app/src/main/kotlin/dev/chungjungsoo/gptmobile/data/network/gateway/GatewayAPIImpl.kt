@@ -210,9 +210,13 @@ class GatewayAPIImpl @Inject constructor(
                                     // Legacy 202 endpoints can omit their envelope. Keep only
                                     // transport-level waiting; never invent handoff or completion proof.
                                     if (response.status == HttpStatusCode.Accepted) return@execute GatewayJobResult(jobId = jobId, status = "RUNNING")
-                                    throw failure
+                                    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Gateway", "SAVED_RESULT_READ_OUTCOME · jobId=$jobId · outcome=INVALID_RESPONSE · http=${response.status.value}", "W")
+                                    return@execute null
                                 }
-                                if (saved.jobId != jobId || saved.job?.jobId?.let { it != jobId } == true) return@execute null
+                                if (saved.jobId != jobId || saved.job?.jobId?.let { it != jobId } == true) {
+                                    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Gateway", "SAVED_RESULT_READ_OUTCOME · jobId=$jobId · outcome=JOB_IDENTITY_MISMATCH · http=${response.status.value}", "W")
+                                    return@execute null
+                                }
                                 if (response.status == HttpStatusCode.Accepted && saved.status.lowercase() !in setOf("running", "resuming", "waiting_for_client_tool")) {
                                     GatewayJobResult(jobId = jobId, status = "RUNNING")
                                 } else {
@@ -221,14 +225,18 @@ class GatewayAPIImpl @Inject constructor(
                                     saved
                                 }
                             }
-                            else -> null
+                            else -> {
+                                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Gateway", "SAVED_RESULT_READ_OUTCOME · jobId=$jobId · outcome=HTTP_REJECTED · http=${response.status.value}", "W")
+                                null
+                            }
                         }
                     }
                 }
             }
         } catch (cancellation: CancellationException) {
             throw cancellation
-        } catch (_: Exception) {
+        } catch (failure: Exception) {
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Gateway", "SAVED_RESULT_READ_OUTCOME · jobId=$jobId · outcome=READ_FAILED · reason=${failure.javaClass.simpleName}", "W")
             null
         }
     }

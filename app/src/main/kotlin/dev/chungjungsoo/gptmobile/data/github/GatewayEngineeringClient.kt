@@ -32,6 +32,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
@@ -87,6 +88,22 @@ class GatewayEngineeringClient internal constructor(
                         if (bindingRead && (response.status.value in setOf(401, 403) || executionRejection == null)) {
                             throw gatewayAdmissionFailure(response.status.value, GatewayAdmissionSurface.CAPABILITIES, response.headers["X-Gateway-Admission-Error"], payload)
                         }
+                        // Preserve the selected-execution receipt before the generic
+                        // 4xx admission branch. In particular, a binding 409 is not
+                        // evidence that the conversation revision changed.
+                        if (executionRejection != null) {
+                            val stage = listOf("failed_stage", "stage").firstNotNullOfOrNull { name ->
+                                (detail?.get(name) as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
+                                    ?.takeIf { it.matches(Regex("[A-Za-z][A-Za-z0-9_]{0,63}")) }
+                            } ?: "provider_admission"
+                            throw GatewayExecutionRejected(
+                                executionRejection,
+                                response.status.value,
+                                failedStage = stage,
+                                retryable = (detail?.get("retryable") as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull,
+                                inferenceAttempted = (detail?.get("inference_attempted") as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull
+                            )
+                        }
                         if (path == "graph" && code == "graph_connection_required" && response.status.value in setOf(412, 503)) {
                             val readiness = runCatching { error?.get("readiness")?.let { json.decodeFromJsonElement(GatewayEngineeringReadiness.serializer(), it) } }.getOrNull()
                             val missing = GatewayGraphPrerequisite.missing(GatewayEngineeringCapabilities("engineering-gateway", 1, readiness = readiness))
@@ -107,9 +124,6 @@ class GatewayEngineeringClient internal constructor(
                                 else -> "The gateway rejected this command (HTTP ${response.status.value}). Review it before sending another command."
                             }
                             throw GatewayEngineeringRequestRejected(response.status.value, message)
-                        }
-                        if (executionRejection != null) {
-                            throw GatewayExecutionRejected(executionRejection, response.status.value)
                         }
                     }
                     check(response.status.isSuccess()) {
@@ -328,10 +342,25 @@ class GatewayEngineeringClient internal constructor(
 
 internal class UnsupportedEngineeringGateway : GatewayGraphUnavailableException("This inference endpoint does not expose engineering jobs. Select an engineering gateway endpoint; ordinary chat remains available.", listOf(GatewayGraphPrerequisite.ENGINEERING_SURFACE_UNSUPPORTED))
 
-class GatewayExecutionRejected(val code: String, val httpStatus: Int) :
-    IllegalStateException(
-        "The selected execution profile could not be verified ($code). Saved work is retained; review the selected profile and gateway status."
-    )
+class GatewayExecutionRejected(
+    val code: String,
+    httpStatus: Int,
+    val failedStage: String = "provider_admission",
+    val retryable: Boolean? = null,
+    val inferenceAttempted: Boolean? = null,
+    commandOutcomeUnknown: Boolean = false
+) : GatewayEngineeringRequestRejected(
+    httpStatus,
+    "The selected execution profile could not be verified ($code; $failedStage). Saved work is retained; " +
+        if (retryable == true) "recheck the selected model when it is ready." else "review the selected profile and gateway status.",
+    commandOutcomeUnknown || code == "EXECUTION_OPERATION_UNKNOWN_OUTCOME"
+) {
+    override fun withCommandOutcomeUnknown(unknown: Boolean): GatewayExecutionRejected =
+        GatewayExecutionRejected(code, httpStatus, failedStage, retryable, inferenceAttempted, commandOutcomeUnknown || unknown)
+}
 
 /** A response rejected this POST; prior uncertain attempts still require command reconciliation. */
-class GatewayEngineeringRequestRejected(val httpStatus: Int, message: String, val commandOutcomeUnknown: Boolean = false) : IllegalStateException(message)
+open class GatewayEngineeringRequestRejected(val httpStatus: Int, message: String, val commandOutcomeUnknown: Boolean = false) : IllegalStateException(message) {
+    open fun withCommandOutcomeUnknown(unknown: Boolean): GatewayEngineeringRequestRejected =
+        GatewayEngineeringRequestRejected(httpStatus, message.orEmpty(), commandOutcomeUnknown || unknown)
+}

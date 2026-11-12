@@ -96,6 +96,10 @@ internal object FrameTimingRecorder {
                 val operations = CombinedOperationTrace.frameWindow(observedWindowStartNanos, operationWindowEndedNanos)
                 operationWindowStartedNanos = operationWindowEndedNanos
                 AppLogRecorder.recordCaptured(diagnosticCaptureEpoch, "Rendering", "FRAME_OPERATION_COVERAGE · coverageId=$coverageId · coverage=SAMPLED_INSTRUMENTED_OPERATIONS · minimumDurationNs=${CombinedOperationTrace.FRAME_SAMPLE_THRESHOLD_NANOS} · causalAttribution=false · truncated=${operations.truncated} · observed=${operations.samples.joinToString { "${it.operation}:${it.traceId}" }} · observedRuns=${operations.samples.mapNotNull { it.runId }.distinct().joinToString()} · windowStartMonoNs=$observedWindowStartNanos · windowEndMonoNs=$operationWindowEndedNanos")
+                val operationContexts = operations.contextReport()
+                if (operationContexts.contexts.isNotEmpty() || operationContexts.truncated) {
+                    AppLogRecorder.recordCaptured(diagnosticCaptureEpoch, "Rendering", "FRAME_OPERATION_CONTEXTS · coverageId=$coverageId · causalAttribution=false · contextTruncated=${operationContexts.truncated} · maximumContexts=${FrameOperationCoverage.MAX_REPORTED_CONTEXTS} · maximumContextCharacters=${FrameOperationCoverage.MAX_CONTEXT_CHARACTERS} · windowStartMonoNs=$observedWindowStartNanos · windowEndMonoNs=$operationWindowEndedNanos · contexts=${operationContexts.contexts}")
+                }
                 val memory = AndroidDiagnosticExportMemory.sample()
                 val gcCount = previousMemory?.gcCount?.let { before -> memory.gcCount?.minus(before)?.takeIf { it >= 0 } }
                 val gcDurationMs = previousMemory?.gcTimeMillis?.let { before -> memory.gcTimeMillis?.minus(before)?.takeIf { it >= 0 } }

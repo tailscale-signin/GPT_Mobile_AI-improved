@@ -591,7 +591,7 @@ object AppLogRecorder {
                     val evidence = androidProcessExitEvidence(exit.reason)
                     val native = if (exit.reason == android.app.ApplicationExitInfo.REASON_CRASH_NATIVE) {
                         val traceEvidence = try {
-                            nativeCrashTraceEvidence(exit.traceInputStream)
+                            nativeCrashTraceEvidence(exit.traceInputStream, expectedProcessId = exit.pid)
                         } catch (_: Exception) {
                             NativeCrashTraceEvidence("unavailable", "trace_access_failed")
                         }

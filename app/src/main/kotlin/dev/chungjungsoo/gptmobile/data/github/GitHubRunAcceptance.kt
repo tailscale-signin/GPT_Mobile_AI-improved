@@ -236,6 +236,11 @@ internal object GitHubRunAcceptance {
                     put("criteria_sha256", digest)
                     put("scope", "REQUEST_ACCEPTANCE")
                     put("diagnostics_complete", assessment.diagnosticsComplete)
+                    put("required", assessment.requiredCriteria)
+                    put("verified", assessment.verifiedCriteria)
+                    put("counts_scope", if (rows.size == total) "ALL_RETAINED_CRITERIA" else "INCLUDED_CRITERIA_ONLY")
+                    put("requirement_counts", GitHubAcceptanceLedger.counts(rows.filter { it.text("kind") == "REQUIREMENT" }))
+                    put("capability_counts", GitHubAcceptanceLedger.counts(rows.filter { it.text("kind") == "CAPABILITY" }))
                     assessment.taskState?.let { put("task_state", it) }
                     assessment.stopCode?.let { put("stop_code", it) }
                     assessment.approvalState?.let { put("approval_state", it) }

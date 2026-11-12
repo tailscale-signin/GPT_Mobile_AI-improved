@@ -122,8 +122,16 @@ internal object GitHubSelfTestReads {
             pr?.get("number")?.let { id -> listOf("headers", "context", "comments", "reviews", "threads").forEach { recipe("github_pr", it, "pull_number" to id) } }
             issue?.get("number")?.let { id -> listOf("headers", "context", "comments", "history").forEach { recipe("github_issue", it, "issue_number" to id) } }
         }
-        for ((name, args) in recipes) {
-            val tool = tools.firstOrNull { it.modelVisible && it.name.substringBefore("__") == name } ?: continue
+        for ((name, recipe) in recipes) {
+            val tool = tools.firstOrNull { it.modelVisible && it.name.substringBefore("__") == name && ToolArgumentValidator.errors(recipe, it.inputSchema).isEmpty() } ?: continue
+            // A live-required capability should make its first admissible read
+            // live. Re-reading every cached inventory page wastes the fixture
+            // and verification budget without increasing capability coverage.
+            val args = if (GitHubTestChecklist.requiresLiveTransport(name, recipe.text("action")) && (tool.inputSchema["properties"] as? JsonObject)?.containsKey("verify_live") == true) {
+                JsonObject(recipe + ("verify_live" to JsonPrimitive(true)))
+            } else {
+                recipe
+            }
             val prior = observations.filter { it.text("tool") == tool.name && (it["arguments"] as? JsonObject)?.text("action") == args.text("action") }
             if (prior.isNotEmpty()) {
                 if (prior.any { it["success"] == JsonPrimitive(true) || it["arguments"] == args || GitHubActionIdentity.matches(tool.name, args, it) }) continue
@@ -139,7 +147,18 @@ internal object GitHubSelfTestReads {
             if (ToolArgumentValidator.errors(args, tool.inputSchema).isNotEmpty()) continue
             ready += ProviderEvent.ToolCall("checklist-" + GitHubEvidenceBook.digest("${tool.name}:$args").take(24), tool.name, args)
         }
-        return ready
+        return ready.sortedBy(::priority)
+    }
+
+    fun isDependency(call: ProviderEvent.ToolCall): Boolean = priority(call) <= 1
+
+    private fun priority(call: ProviderEvent.ToolCall): Int = when {
+        call.callId.startsWith("policy-read-") -> 0
+        call.name.substringBefore("__") == "github_issue" && call.arguments.text("action") == "list" -> 1
+        call.name.substringBefore("__") == "github_release" && call.arguments.text("action") in setOf("tags", "list") -> 1
+        call.name.substringBefore("__") == "github_ci" && call.arguments.text("action") == "jobs" -> 1
+        call.name.substringBefore("__") == "github_ci" && call.arguments.text("action") == "definitions" -> 3
+        else -> 2
     }
 
     private fun JsonObject.text(key: String) = (get(key) as? JsonPrimitive)?.contentOrNull.orEmpty()

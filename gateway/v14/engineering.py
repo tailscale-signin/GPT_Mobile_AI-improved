@@ -910,12 +910,18 @@ class EngineeringService:
                 isinstance(error, ExecutionBindingError) and
                 error.code in {'EXECUTION_MODEL_NOT_LOADED', 'EXECUTION_MODEL_LOADING'}
             )
+            backend_readiness_wait = (
+                isinstance(error, ExecutionBindingError) and error.retryable and
+                error.code in {'EXECUTION_BACKEND_UNAVAILABLE', 'EXECUTION_METADATA_DEADLINE'} and
+                not getattr(error, 'dispatched', False)
+            )
+            readiness_wait = model_readiness_wait or backend_readiness_wait
             host_interrupted = isinstance(error, InterruptedError) and (self.stop.is_set() or getattr(self.store.runtime, 'gateway_draining', False))
-            recovery_delay = None if rate_limited or model_readiness_wait else retry_delay(error, 0)
+            recovery_delay = None if rate_limited or readiness_wait else retry_delay(error, 0)
             transient = recovery_delay is not None
             if not host_interrupted:
                 job['connection_retries'] = job.get('connection_retries', 0) + 1 if transient else 0
-            if not transient and not rate_limited and not model_readiness_wait and not host_interrupted:
+            if not transient and not rate_limited and not readiness_wait and not host_interrupted:
                 job['stalls'] += 1
             # Mutations stay uncertain; no automatic replay after a lost response.
             if accepted_scope(job['request']) != 'implement' and job['state'] not in {'PLAN', 'READ'}:
@@ -969,24 +975,31 @@ class EngineeringService:
                     job['message'] = ('Automatic recovery is disabled by the accepted batch policy. Confirmed work is saved for review.'
                                       if available else 'The provider wait reached the job budget. Confirmed work is saved for review.')
                     job['data']['blocked_reason'] = dict(output)
-            elif model_readiness_wait:
+            elif readiness_wait:
                 attempts = previous_wait.get('attempts', 0) + 1
                 now = self.store.now()
-                # Model loading and host-controlled model preparation are not job
-                # cancellation conditions. Keep the exact selected binding and
-                # retry the same non-mutating stage without substituting a model.
+                # Transient metadata outages and host-controlled model preparation
+                # keep the exact selected binding. Only this non-mutating stage
+                # resumes; the mutation reconciliation branches above take priority.
                 wait = min(300, 5 * 2 ** min(6, max(0, attempts - 1)))
                 retry_at = now + wait
                 available = retry_at < job['deadline'] - job['request'].get('execution_budget', {}).get('final_seconds', 30)
-                output.update(error_code=error.code, retryable=available,
-                              retry_at=retry_at, retry_source='MODEL_READINESS', attempts=attempts)
-                if available:
-                    job['provider_wait'] = {'retry_at': retry_at, 'source': 'MODEL_READINESS', 'attempts': attempts}
-                    job['message'] = 'Waiting for the exact selected model. The saved step will resume automatically after host preparation completes.'
+                resume_limit = (job['request'].get('batch_preferences') or {}).get('resume_after_transient_limits', True)
+                can_resume = available and (job['request'].get('execution_mode') != 'full' or resume_limit)
+                source = 'MODEL_READINESS' if model_readiness_wait else 'BACKEND_READINESS'
+                output.update(error_code=error.code, retryable=can_resume,
+                              retry_at=retry_at, retry_source=source, attempts=attempts)
+                if can_resume:
+                    job['provider_wait'] = {'retry_at': retry_at, 'source': source, 'attempts': attempts,
+                                            'reason_code': error.code}
+                    job['message'] = ('Waiting for the exact selected model. The saved step will resume automatically after host preparation completes.'
+                                      if model_readiness_wait else
+                                      'Waiting for the selected backend to recover. The saved step will resume with the same model and binding.')
                     delay = wait
                 else:
                     phase = 'NEEDS_INPUT'
-                    job['message'] = 'The selected model remained unavailable through the accepted job deadline. Confirmed work is saved for review.'
+                    job['message'] = ('Automatic recovery is disabled by the accepted batch policy. Confirmed work is saved for review.' if available else
+                                      'The selected backend or model remained unavailable through the accepted job deadline. Confirmed work is saved for review.')
                     job['data']['blocked_reason'] = dict(output)
             elif isinstance(error, ExecutionBindingError):
                 phase = 'NEEDS_INPUT'

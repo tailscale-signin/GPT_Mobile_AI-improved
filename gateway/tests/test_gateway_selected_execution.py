@@ -35,6 +35,18 @@ def selected(endpoint, model='A'):
 
 
 class SelectedExecutionTests(unittest.TestCase):
+    def test_identical_binding_preparation_is_idempotent_under_concurrent_retries(self):
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            results = list(pool.map(lambda _: self.service.prepare_binding('owner', selected(self.endpoint)), range(6)))
+        self.assertTrue(all(item['binding_reused'] for item in results))
+        self.assertEqual({self.binding['binding_id']}, {item['binding']['binding_id'] for item in results})
+        self.assertEqual(1, self.store.tx(lambda db: db.execute('SELECT COUNT(*) FROM engineering_bindings').fetchone()[0]))
+        self.assertEqual([], self.calls)
+        self.service.bindings.revoke('owner', self.binding['binding_id'])
+        with self.assertRaises(ExecutionBindingError) as error:
+            self.service.prepare_binding('owner', selected(self.endpoint))
+        self.assertEqual('EXECUTION_BINDING_REVOKED', error.exception.code)
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.debug_stores = []

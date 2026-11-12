@@ -102,6 +102,43 @@ class InvocationLedgerTest {
         coVerify(atLeast = 1) { dao.save(match { it.usageEvidenceJson?.contains("request_settings") == true }) }
     }
 
+    @Test fun terminalAccountingRetainsSupportedIncrementalDeliveryAndRejectsUnknownModes() = runTest {
+        for (mode in listOf("completion_buffered", "incremental_final_answer", "unknown_mode")) {
+            val saved = mutableListOf<ModelInvocation>()
+            val dao = mockk<InvocationDao>(relaxed = true)
+            every { dao.recent() } returns flowOf(emptyList())
+            coEvery { dao.save(any()) } answers { saved += firstArg<ModelInvocation>() }
+            val database = mockk<ChatDatabaseV2>()
+            every { database.invocationDao() } returns dao
+            val ledger = InvocationLedger(database)
+            val session = object : AgentProviderSession {
+                override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flowOf(
+                    ProviderEvent.TextDelta("Retained answer"),
+                    ProviderEvent.Usage(
+                        gatewayDeliveryTiming = dev.chungjungsoo.gptmobile.data.dto.openai.response.GatewayDeliveryTiming("gateway_asgi_stream", mode, 1.0, 2.0, 20.0, 21.0, 22.0, 3),
+                        gatewayTiming = dev.chungjungsoo.gptmobile.data.dto.openai.response.GatewayGenerationTiming("physical_backend_request", 10.0, 20.0, 10.0, 30.0, 2.0, 5.0, mode)
+                    ),
+                    ProviderEvent.Completed
+                )
+            }
+            ledger.wrap(session, "run", "turn", "CUSTOM", "selected-model", "primary", 100, 500, 1000)
+                .streamRound(emptyList(), emptyList()).toList()
+            val terminal = saved.last { it.status == "COMPLETED" }
+            val evidence = kotlinx.serialization.json.Json.parseToJsonElement(requireNotNull(terminal.usageEvidenceJson)).jsonObject
+            val timing = evidence.getValue("gateway_timing").jsonObject
+            if (mode == "unknown_mode") {
+                assertEquals(null, evidence["gateway_delivery"])
+                assertEquals(null, timing["delivery_mode"])
+            } else {
+                val delivery = evidence.getValue("gateway_delivery").jsonObject
+                assertEquals(mode, delivery.getValue("delivery_mode").jsonPrimitive.content)
+                assertEquals(mode, timing.getValue("delivery_mode").jsonPrimitive.content)
+                assertEquals(kotlinx.serialization.json.JsonNull, delivery["socket_flush_confirmed"])
+            }
+            assertEquals(kotlinx.serialization.json.JsonNull, timing["first_user_visible_text_ms"])
+        }
+    }
+
     @Test fun terminalDeliveryAlreadyExposesFinalLiveStatusAndSeparatelyMeasuredUsage() = runTest {
         for (failed in listOf(false, true)) {
             val dao = mockk<InvocationDao>(relaxed = true)

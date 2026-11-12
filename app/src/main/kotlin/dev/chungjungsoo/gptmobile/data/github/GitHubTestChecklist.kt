@@ -313,6 +313,7 @@ internal object GitHubTestChecklist {
             if (receipt["success"] != JsonPrimitive(true) || GitHubEvidenceOrigin.of(receipt) == "LIVE" || retiredRead(receipt)) return@firstNotNullOfOrNull null
             val args = receipt["arguments"] as? JsonObject ?: return@firstNotNullOfOrNull null
             if (!requiresLiveTransport(Capability(receipt.text("tool").substringBefore("__"), args.text("action"), ""))) return@firstNotNullOfOrNull null
+            if (definitionTransportVerified(receipt, args, observations)) return@firstNotNullOfOrNull null
             if ("view_cursor" in args || args["verify_live"] == JsonPrimitive(true) || !dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary.isReplayableRead(receipt.text("tool"), args)) return@firstNotNullOfOrNull null
             val refreshed = JsonObject(args + ("verify_live" to JsonPrimitive(true)))
             if (observations.any { it.text("tool") == receipt.text("tool") && (it["arguments"] == refreshed || GitHubActionIdentity.matches(receipt.text("tool"), refreshed, it)) }) return@firstNotNullOfOrNull null
@@ -349,6 +350,7 @@ internal object GitHubTestChecklist {
             }
             val arguments = buildJsonObject {
                 put("action", capability.action)
+                if (requiresLiveTransport(capability) && (tool.inputSchema["properties"] as? JsonObject)?.containsKey("verify_live") == true) put("verify_live", true)
                 if (capability.action in setOf("branches", "workflows", "list", "commits", "runs")) put("per_page", if (capability.action == "workflows" || GitHubChecklistScope.exhaustive(task)) 100 else 30)
                 if ((capability.action in setOf("checks", "commits") || capability.action == "runs" && !GitHubChecklistScope.exhaustive(task)) && head != null) put("commit_sha", head)
                 if (capability.action == "list") put("state", "all")
@@ -357,16 +359,45 @@ internal object GitHubTestChecklist {
             return call(tool.name, arguments)
         }
         if (!acquisitionAllowed) return null
-        GitHubSelfTestReads.next(tools, observations)?.let { return it }
+        val read = GitHubSelfTestReads.next(tools, observations)
+        // Acquire resource IDs before optional source/metadata samples. Once
+        // dependencies are observed, finish an admissible fixture while its
+        // cleanup allowance still fits instead of spending it on more samples.
+        if (read != null && GitHubSelfTestReads.isDependency(read)) return read
         // A fixture is bounded and must leave capacity for its verification and
         // cleanup; optional inventory sampling runs only after this decision.
         val fixtureAllowed = (remaining == null || remaining >= GitHubSelfTestFixtures.minimumCalls(tools) + GitHubChecklistBudget.VERIFICATION_RESERVE) &&
             fixturePreflight?.get("state") == JsonPrimitive("READY")
         GitHubSelfTestFixtures.next(task, tools, receipts, allowCreate = fixtureAllowed)?.let { return it }
+        if (read != null) return read
         return continuation(task, tools, receipts, localOnly = false)
     }
 
     private fun call(tool: String, args: JsonObject) = ProviderEvent.ToolCall("checklist-" + GitHubEvidenceBook.digest("$tool:$args").take(24), tool, args)
+
+    /** Immutable definition pages share one transport capability. Qualifying it
+     * once does not require replaying every cached page of the same pinned tree.
+     * Mutable inventories and fixture existence reads retain their exact checks.
+     */
+    private fun definitionTransportVerified(receipt: JsonObject, args: JsonObject, observations: List<JsonObject>): Boolean {
+        if (receipt.text("tool").substringBefore("__") != "github_ci" ||
+            args.text("action") != "definitions" ||
+            !args.text("commit_sha").matches(Regex("[a-fA-F0-9]{40}")) ||
+            receipt.text("binding").isBlank() ||
+            receipt.text("repository").isBlank()
+        ) {
+            return false
+        }
+        return observations.any { live ->
+            live["tool"] == receipt["tool"] &&
+                live["binding"] == receipt["binding"] &&
+                live["repository"] == receipt["repository"] &&
+                live[GitHubPolicyReadRecovery.AUTHORITY] == receipt[GitHubPolicyReadRecovery.AUTHORITY] &&
+                live["success"] == JsonPrimitive(true) &&
+                GitHubEvidenceOrigin.of(live) == "LIVE" &&
+                (live["arguments"] as? JsonObject)?.let { it.text("action") == "definitions" && it["commit_sha"] == args["commit_sha"] } == true
+        }
+    }
 
     private fun catalog(tools: List<AgentToolDefinition>): List<Capability> {
         if (tools.isEmpty()) return capabilities
@@ -378,10 +409,12 @@ internal object GitHubTestChecklist {
         }.distinctBy { it.tool to it.action }
     }
 
-    private fun requiresLiveTransport(capability: Capability): Boolean = when (capability.tool) {
-        "github_context" -> capability.action !in setOf("status", "resolve", "index", "efficiency", "capabilities", "recovery")
+    private fun requiresLiveTransport(capability: Capability): Boolean = requiresLiveTransport(capability.tool, capability.action)
+
+    internal fun requiresLiveTransport(tool: String, action: String): Boolean = when (tool.substringBefore("__")) {
+        "github_context" -> action !in setOf("status", "resolve", "index", "efficiency", "capabilities", "recovery")
         "github_search", "github_read", "github_stage_patch", "repository_graph" -> false
-        else -> capability.tool.startsWith("github_")
+        else -> tool.startsWith("github_")
     }
 
     private fun readOnly(capability: Capability): Boolean = dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary.isReplayableRead(capability.tool, buildJsonObject { if (capability.action.isNotBlank()) put("action", capability.action) })
@@ -548,6 +581,16 @@ internal object GitHubTestChecklist {
                         put("publication_dispatch_attribution", "UNAVAILABLE_UNLESS_SEPARATELY_RECORDED")
                     }
                     put("live_verified", successes.any { GitHubEvidenceOrigin.of(it) == "LIVE" })
+                    put(
+                        "acceptance_basis",
+                        when {
+                            status !in setOf("PASSED", "RECOVERED") -> "UNVERIFIED"
+                            successes.any { GitHubEvidenceOrigin.of(it) == "LIVE" } -> "LIVE_RESPONSE"
+                            successes.any { GitHubEvidenceOrigin.of(it) in setOf("CACHED", "LOCAL") } -> "RETAINED_RESPONSE"
+                            successes.any { GitHubEvidenceOrigin.of(it) == "MOCKED" } -> "MOCK_RESPONSE"
+                            else -> "RESPONSE_ONLY"
+                        }
+                    )
                     put("response_validated", eligible.any { it["success"] == JsonPrimitive(true) })
                     put("waiting_for_approval", waitingApproval)
                     put("requires_live_transport", liveRequired)

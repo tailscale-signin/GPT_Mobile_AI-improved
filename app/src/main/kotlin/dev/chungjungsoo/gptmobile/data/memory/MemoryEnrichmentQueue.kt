@@ -18,6 +18,7 @@ import javax.inject.Singleton
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
@@ -50,28 +51,37 @@ class MemoryEnrichmentQueue @Inject constructor(
                 dev.chungjungsoo.gptmobile.data.localruntime.InferenceAdmission.availability,
                 dev.chungjungsoo.gptmobile.data.readiness.ReadinessWorkloadSignals.active,
                 observeCooldownExpiry(context)
-            ) { state, infos, _, _, _ -> state to infos }.collect { (state, infos) ->
-                if (dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.enabled.value) {
-                    infos.forEach { info ->
-                        val outcome = info.outputData.getString("outcome") ?: info.progress.getString("outcome") ?: "PENDING"
-                        val completed = info.outputData.getBoolean("enrichmentComplete", false)
-                        val key = "${info.state}:$outcome:${info.runAttemptCount}:$completed"
-                        if (observedStates.put(info.id.toString(), key) != key) {
-                            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Memory", "ENRICHMENT_LIFECYCLE · work=${info.id} · workerState=${info.state} · outcome=$outcome · attempt=${info.runAttemptCount} · deferred=${outcome.startsWith("WAITING_")} · enrichmentComplete=$completed · wakeTrigger=${info.outputData.getString("wakeTrigger") ?: "NOT_RECORDED"}")
+            ) { state, infos, _, _, _ -> state to infos }
+                .combine(observeEnrichmentBatteryNotLow(context)) { (state, infos), battery -> Triple(state, infos, battery) }
+                .collect { (state, infos, batteryNotLow) ->
+                    if (dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.enabled.value) {
+                        infos.forEach { info ->
+                            val scheduling = memoryEnrichmentScheduling(
+                                workerState = info.state.name,
+                                requiresBatteryNotLow = info.constraints.requiresBatteryNotLow(),
+                                batteryNotLow = batteryNotLow,
+                                reportedOutcome = info.outputData.getString("outcome") ?: info.progress.getString("outcome"),
+                                reportedWakeTrigger = info.outputData.getString("wakeTrigger") ?: info.progress.getString("wakeTrigger"),
+                                attempt = info.runAttemptCount
+                            )
+                            val completed = info.outputData.getBoolean("enrichmentComplete", false)
+                            val key = "${info.state}:$scheduling:${info.runAttemptCount}:$completed"
+                            if (observedStates.put(info.id.toString(), key) != key) {
+                                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Memory", "ENRICHMENT_LIFECYCLE · work=${info.id} · workerState=${info.state} · outcome=${scheduling.outcome} · attempt=${info.runAttemptCount} · deferred=${scheduling.deferred} · enrichmentComplete=$completed · wakeTrigger=${scheduling.wakeTrigger} · constraintEvidence=${scheduling.constraintEvidence} · batteryNotLow=${batteryNotLow ?: "unknown"}")
+                            }
+                        }
+                        observedStates.keys.retainAll(infos.map { it.id.toString() }.toSet())
+                    }
+                    if (state.engineSpec != null && !runtime.isBusy && !runtime.hasOpenConversation() && !dev.chungjungsoo.gptmobile.data.localruntime.InferenceAdmission.isExclusiveBusy && dev.chungjungsoo.gptmobile.data.readiness.ReadinessWorkloadSignals.active.value == 0) {
+                        try {
+                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { resumeWaiting() }
+                        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) {
+                            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Memory", "ENRICHMENT_RESUME_DEFERRED · persistedWorkRetained=true", "W")
                         }
                     }
-                    observedStates.keys.retainAll(infos.map { it.id.toString() }.toSet())
                 }
-                if (state.engineSpec != null && !runtime.isBusy && !runtime.hasOpenConversation() && !dev.chungjungsoo.gptmobile.data.localruntime.InferenceAdmission.isExclusiveBusy && dev.chungjungsoo.gptmobile.data.readiness.ReadinessWorkloadSignals.active.value == 0) {
-                    try {
-                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { resumeWaiting() }
-                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                        throw cancelled
-                    } catch (_: Exception) {
-                        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Memory", "ENRICHMENT_RESUME_DEFERRED · persistedWorkRetained=true", "W")
-                    }
-                }
-            }
         }
     }
 

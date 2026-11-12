@@ -424,6 +424,100 @@ class DurableEngineeringTests(unittest.TestCase):
         self.assertNotIn(job['id'], self.store.due())
         self.assertEqual('CANCELLED', self.store.get(job['id'])['state'])
 
+    def test_retryable_selected_backend_outage_retains_deadline_binding_and_due_stage(self):
+        job = self.store.create('owner', self.request)
+        original_probe = self.service.capabilities._probe
+        attempts = []
+        def unavailable(*args, **kwargs):
+            attempts.append(1)
+            error = ExecutionBindingError('EXECUTION_BACKEND_UNAVAILABLE', 'Selected backend temporarily unavailable.', 503)
+            error.retryable = True
+            error.observation = {'failureCategory': 'connection_refused', 'reasonCode': 'BACKEND_CONNECTION_REFUSED',
+                                 'dependency': 'backend_models', 'retryable': True}
+            raise error
+        self.service.capabilities._probe = unavailable
+        self.service.capabilities.cache.clear()
+        self.service.tick(job['id'])
+        waiting = self.store.get(job['id'])
+        self.assertEqual('PLAN', waiting['state'])
+        self.assertEqual('BACKEND_READINESS', waiting['provider_wait']['source'])
+        self.assertEqual('EXECUTION_BACKEND_UNAVAILABLE', waiting['provider_wait']['reason_code'])
+        self.assertEqual(job['deadline'], waiting['deadline'])
+        self.assertEqual(job['request']['execution_binding_id'], waiting['request']['execution_binding_id'])
+        self.assertEqual(0, waiting['stalls'])
+        self.assertEqual([], self.backend.calls)
+        self.service.tick(job['id'])
+        self.assertEqual(1, len(attempts))
+        # A host restart retains the pending time and cannot dispatch early.
+        reopened = EngineeringStore(self.runtime, lambda: self.time)
+        reopened.recover()
+        self.assertEqual(waiting['provider_wait'], reopened.get(job['id'])['provider_wait'])
+        self.assertNotIn(job['id'], reopened.due())
+        self.time = waiting['provider_wait']['retry_at'] + .1
+        self.service.capabilities._probe = original_probe
+        self.service.capabilities.cache.clear()
+        self.service.tick(job['id'])
+        resumed = self.store.get(job['id'])
+        self.assertEqual('READ', resumed['state'])
+        self.assertNotIn('provider_wait', resumed)
+        self.assertEqual(['PLAN'], self.backend.calls)
+        self.assertEqual(job['request']['execution_binding_id'], resumed['request']['execution_binding_id'])
+
+    def test_selected_backend_wait_obeys_deadline_cancel_and_full_batch_policy(self):
+        original_step = self.backend.step
+        def unavailable(*args):
+            error = ExecutionBindingError('EXECUTION_BACKEND_UNAVAILABLE', 'Selected backend unavailable.', 503)
+            error.retryable = True
+            raise error
+        self.backend.step = unavailable
+        job = self.store.create('owner', self.request)
+        self.service.tick(job['id'])
+        waiting = self.store.get(job['id'])
+        self.store.control(job['id'], 'owner', 'cancel', waiting['revision'])
+        self.time = waiting['provider_wait']['retry_at'] + 1
+        self.assertNotIn(job['id'], self.store.due())
+        self.assertEqual('CANCELLED', self.store.get(job['id'])['state'])
+        deadline_job = self.store.create('owner', dict(self.request, request_id='backend-deadline'))
+        self.time = deadline_job['deadline'] - deadline_job['request']['execution_budget']['final_seconds'] - 1
+        self.service.tick(deadline_job['id'])
+        blocked = self.store.get(deadline_job['id'])
+        self.assertEqual('NEEDS_INPUT', blocked['state'])
+        self.assertFalse(blocked['data']['blocked_reason']['retryable'])
+        self.assertNotIn('provider_wait', blocked)
+        self.enable_full_batch()
+        self.request['batch_preferences'] = {'resume_after_transient_limits': False}
+        full_job = self.store.create('owner', dict(self.request, request_id='backend-no-autoresume'))
+        self.service.tick(full_job['id'])
+        self.assertEqual('NEEDS_INPUT', self.store.get(full_job['id'])['state'])
+        self.assertNotIn('provider_wait', self.store.get(full_job['id']))
+        self.backend.step = original_step
+
+    def test_typed_backend_recovery_never_replays_unknown_writes_or_denied_metadata(self):
+        for code, retryable in [('EXECUTION_BACKEND_UNAVAILABLE', False), ('EXECUTION_METADATA_DENIED', False),
+                                ('EXECUTION_MODEL_MISMATCH', True)]:
+            with self.subTest(code=code):
+                error = ExecutionBindingError(code, 'Selected route cannot be used.', 403)
+                error.retryable = retryable
+                self.backend.step = lambda *args: (_ for _ in ()).throw(error)
+                job = self.store.create('owner', dict(self.request, request_id=code))
+                self.service.tick(job['id'])
+                self.assertEqual('NEEDS_INPUT', self.store.get(job['id'])['state'])
+                self.assertNotIn('provider_wait', self.store.get(job['id']))
+        self.backend.step = Backend.step.__get__(self.backend, Backend)
+        mutation = self.store.create('owner', dict(self.request, request_id='unknown-mutation'))
+        for _ in range(4):
+            self.service.tick(mutation['id'])
+        self.assertEqual('COMMIT', self.store.get(mutation['id'])['state'])
+        error = ExecutionBindingError('EXECUTION_BACKEND_UNAVAILABLE', 'Lost mutation outcome.', 503)
+        error.retryable = True
+        error.dispatched = True
+        self.backend.step = lambda *args: (_ for _ in ()).throw(error)
+        self.service.tick(mutation['id'])
+        self.assertEqual('NEEDS_INPUT', self.store.get(mutation['id'])['state'])
+        self.assertIn('reconcile:COMMIT', self.backend.calls)
+        self.assertNotIn('COMMIT', self.backend.calls)
+        self.assertNotIn('provider_wait', self.store.get(mutation['id']))
+
     def test_host_shutdown_preserves_a_nonmutating_stage(self):
         job = self.store.create('owner', self.request)
         original_step = self.backend.step

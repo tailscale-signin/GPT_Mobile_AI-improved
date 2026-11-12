@@ -1496,7 +1496,8 @@ class AgentRunner(
                 val gatewayOutcomeUnknown = GatewayOutcomeRecovery.requiresReconciliation(error.message.orEmpty(), classified.errorCode)
                 val localCircuitRejection = (error as? dev.chungjungsoo.gptmobile.data.network.error.CircuitBreakerOpenException)
                     ?.takeUnless { gatewayOutcomeUnknown }
-                failureDetails = localCircuitRejection?.failureDetails(providerPayloadObserved) ?: kotlinx.serialization.json.buildJsonObject {
+                val typedRejection = AgentFailureEvidence.exception(error, providerPayloadObserved)
+                failureDetails = typedRejection?.failureDetails ?: localCircuitRejection?.failureDetails(providerPayloadObserved) ?: kotlinx.serialization.json.buildJsonObject {
                     put(
                         "failed_stage",
                         when {
@@ -1511,8 +1512,10 @@ class AgentRunner(
                 failure = if (toolDefinitionsRejected) {
                     error.message ?: "Tools are unavailable for this model."
                 } else {
-                    failureCode = if (gatewayOutcomeUnknown) GatewayOutcomeRecovery.ERROR_CODE else ToolFailureMetadata.authorityCode(error) ?: ToolFailureMetadata.classify(error)
-                    classified.userMessage
+                    failureCode = if (gatewayOutcomeUnknown) GatewayOutcomeRecovery.ERROR_CODE else typedRejection?.errorCode ?: ToolFailureMetadata.authorityCode(error) ?: ToolFailureMetadata.classify(error)
+                    taskOutcome = typedRejection?.taskOutcome
+                    failureTransportComplete = typedRejection?.transportComplete ?: false
+                    typedRejection?.message ?: classified.userMessage
                 }
             }
         }.transformWhile { event ->

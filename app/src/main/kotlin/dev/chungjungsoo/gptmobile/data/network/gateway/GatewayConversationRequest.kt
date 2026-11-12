@@ -68,11 +68,16 @@ internal fun gatewayConversationRequest(serialized: String, config: ProviderRequ
 internal fun gatewayStoresVisibleTurn(config: ProviderRequestConfig): Boolean {
     val callerRole = config.extraHeaders.entries.firstOrNull { it.key.equals("X-Gateway-Request-Role", true) }?.value
     val delegated = config.extraHeaders.entries.any { it.key.equals("X-Gateway-Delegated-Worker", true) && it.value.equals("true", true) }
+    val engineeringPrimary = config.requestRole == "primary" && config.maximizeReasoning && callerRole == "github-primary"
     return config.queuePersistent &&
         !config.gatewayConversationKey.isNullOrBlank() &&
         config.requestRole in setOf("primary", "synthesis") &&
-        (callerRole == null || callerRole == config.requestRole) &&
-        !delegated &&
+        // The legacy delegated flag also isolates client-owned tools on visible
+        // primary/synthesis rounds. An explicit matching role preserves that
+        // isolation without discarding the queued turn's durable command.
+        // ProviderAdapters uses this explicit alias for the same visible
+        // primary turn when GitHub reasoning is enabled.
+        (callerRole == config.requestRole || engineeringPrimary || callerRole == null && !delegated) &&
         config.profileUid?.matches(Regex("[A-Za-z0-9_-]{1,160}")) == true
 }
 

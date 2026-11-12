@@ -6,6 +6,32 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DiagnosticIncidentClassificationTest {
+    @Test fun knownDetachedKeyboardQueriesAreLifecycleEvidenceWhileInputFailuresRemainActionable() {
+        for (method in listOf("getTextBeforeCursor", "getTextAfterCursor", "getSelectedText", "requestCursorUpdates")) {
+            val message = "W/RemoteInputConnectionImpl(42): $method on inactive InputConnection"
+            val result = classifyDiagnostic("W", "Android", message)
+            assertEquals("input_lifecycle", result.category)
+            assertFalse(result.actionable)
+            assertEquals("fatal", classifyDiagnostic("F", "Android", message).category)
+        }
+        assertTrue(classifyDiagnostic("E", "Input", "Lost text on inactive InputConnection").actionable)
+        assertTrue(classifyDiagnostic("E", "Android", "E/RemoteInputConnectionImpl(42): getTextBeforeCursor on inactive InputConnection").actionable)
+        assertTrue(classifyDiagnostic("W", "Android", "W/RemoteInputConnectionImpl(42): commitText on inactive InputConnection").actionable)
+    }
+
+    @Test fun backgroundTrimDoesNotInventOutOfMemoryAndCriticalSignalsRemainActionable() {
+        for (level in listOf(20, 40)) {
+            val result = classifyDiagnostic("I", "Memory", "ANDROID_MEMORY_TRIM · level=$level · nativeHeapAllocatedBytes=10000")
+            assertEquals("memory_trim_lifecycle", result.category)
+            assertFalse(result.actionable)
+        }
+        for (level in listOf(5, 10, 15, 60, 80)) {
+            assertTrue(classifyDiagnostic("W", "Memory", "ANDROID_MEMORY_TRIM · level=$level").actionable)
+        }
+        assertTrue(classifyDiagnostic("E", "Memory", "ANDROID_LOW_MEMORY").actionable)
+        assertEquals("fatal", classifyDiagnostic("F", "Memory", "ANDROID_MEMORY_TRIM · level=40").category)
+    }
+
     @Test fun acknowledgedDeferredMemoryAndLegacyNegotiationAreNotCompletedWorkOrFailures() {
         val deferred = classifyDiagnostic("I", "Memory", "ENRICHMENT_LIFECYCLE · workerState=SUCCEEDED · outcome=WAITING_FOR_MODEL · deferred=true · enrichmentComplete=false")
         assertEquals("deferred_work", deferred.category)

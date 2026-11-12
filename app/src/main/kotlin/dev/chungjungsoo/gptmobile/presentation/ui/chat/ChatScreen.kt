@@ -146,6 +146,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.effectiveThoughts
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveTimeline
 import dev.chungjungsoo.gptmobile.data.database.entity.hasHistoricalRevisionSelected
 import dev.chungjungsoo.gptmobile.data.diagnostics.CombinedOperationOwner
+import dev.chungjungsoo.gptmobile.data.diagnostics.UiOperationContext
 import dev.chungjungsoo.gptmobile.data.model.delegationFor
 import dev.chungjungsoo.gptmobile.data.model.excludesMemory
 import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
@@ -228,6 +229,7 @@ private fun ChatScreenContent(
     val providerWaitDeadlines by chatViewModel.providerWaitDeadlines.collectAsStateWithLifecycle()
     val featureSettings by chatViewModel.featureSettings.collectAsStateWithLifecycle()
     val chatToolConfig by chatViewModel.chatToolConfig.collectAsStateWithLifecycle()
+    val sendPreparation by chatViewModel.sendPreparation.collectAsStateWithLifecycle()
     val githubContextForLinks = chatToolConfig.github
     var githubLinkOrigin by remember(githubContextForLinks) { mutableStateOf<String?>(null) }
     LaunchedEffect(githubContextForLinks) {
@@ -359,6 +361,15 @@ private fun ChatScreenContent(
     val hiddenTurnCount = firstVisibleTurn
     val visibleTurnCount = groupedMessages.userMessages.size - firstVisibleTurn
     val historyHeaderCount = (if (hiddenTurnCount > 0) 1 else 0) + (if (hasOlderHistory) 1 else 0)
+    // Existing expanded/retained turn counts, not a claim about viewport visibility.
+    val transcriptTiming = remember(visibleTurnCount, groupedMessages.userMessages.size) {
+        Modifier.diagnosticFrameTiming(
+            CombinedOperationOwner(
+                screen = "Chat",
+                uiContext = UiOperationContext("Transcript", itemCount = visibleTurnCount, retainedItemCount = groupedMessages.userMessages.size)
+            )
+        )
+    }
     val listState = rememberChatListState(
         messageCount = visibleTurnCount + historyHeaderCount,
         hasTargetMessage = hasTargetMessage
@@ -865,6 +876,7 @@ private fun ChatScreenContent(
         ) {
             LazyColumn(
                 modifier = Modifier
+                    .then(transcriptTiming)
                     .fillMaxSize()
                     .nestedScroll(promptConnection)
                     .pointerInput(promptAnchor) {
@@ -1230,6 +1242,7 @@ private fun ChatScreenContent(
                         }.orEmpty(),
                         chatEnabled = canUseChat,
                         sendButtonEnabled = selectedAttachments.none { it.status != ChatAttachmentDraft.Status.Ready },
+                        isPreparingSend = sendPreparation.isNotEmpty(),
                         isRunning = !isIdle,
                         queuedPromptCount = queuedPromptCount,
                         selectedAttachments = selectedAttachments,
@@ -1743,6 +1756,21 @@ internal fun ChatMessagePair(
             } ?: false
             )
     val selectedPlatformUid = selectedProfile?.uid ?: selectedAssistantMessage?.platformType ?: enabledPlatformsInChat.getOrElse(displayPlatformIndex) { "" }
+    val assistantManifest = selectedAssistantMessage?.effectiveCombinedManifest()
+    val assistantMessageId = selectedAssistantMessage?.id
+    val assistantRevisionIndex = selectedAssistantMessage?.activeRevisionIndex
+    val assistantTiming = remember(assistantMessageId, selectedRunId, assistantManifest?.revisionId, assistantRevisionIndex, selectedPlatformUid, assistantTimeline.size, assistantManifest?.blockCount) {
+        Modifier.diagnosticFrameTiming(
+            CombinedOperationOwner(
+                screen = "Chat",
+                messageId = assistantMessageId,
+                runId = selectedRunId,
+                revisionId = assistantManifest?.revisionId ?: assistantRevisionIndex?.let { "selected:$it" },
+                profileUid = selectedPlatformUid.takeIf(String::isNotBlank),
+                uiContext = UiOperationContext("Assistant", itemCount = assistantTimeline.size, blockCount = assistantManifest?.blockCount)
+            )
+        )
+    }
     val isCurrentPlatformLoading = when {
         isCombinedConversation -> combinedStatus == CombinedResponseStatus.GENERATING
         isSourceResponse -> selectedProfile.status == CombinedResponseStatus.GENERATING
@@ -1808,6 +1836,7 @@ internal fun ChatMessagePair(
 
         Column(
             modifier = Modifier
+                .then(assistantTiming)
                 .fillMaxWidth()
                 .padding(start = 8.dp, end = 8.dp, top = if (LocalChatProgressInHeader.current) 0.dp else 12.dp, bottom = 12.dp)
         ) {
@@ -2448,6 +2477,7 @@ fun ChatInputBox(
     placeholder: String? = null,
     attachmentsEnabled: Boolean = true,
     workflows: List<dev.chungjungsoo.gptmobile.data.github.GitHubQuickWorkflow> = emptyList(),
+    isPreparingSend: Boolean = false,
     onSendButtonClick: () -> Unit = {}
 ) {
     val localStyle = LocalTextStyle.current
@@ -2505,7 +2535,7 @@ fun ChatInputBox(
     val haptic = dev.chungjungsoo.gptmobile.presentation.common.rememberAppHaptic()
     var composerNotice by remember { mutableStateOf("") }
     val sendAction = {
-        if (chatEnabled && sendButtonEnabled && (inputState.text.isNotEmpty() || selectedAttachments.isNotEmpty())) {
+        if (chatEnabled && sendButtonEnabled && !isPreparingSend && (inputState.text.isNotEmpty() || selectedAttachments.isNotEmpty())) {
             haptic(dev.chungjungsoo.gptmobile.presentation.common.AppHaptic.CONFIRMATION)
             composerNotice = "Sending message"
             releaseComposerInput()
@@ -2557,7 +2587,8 @@ fun ChatInputBox(
         ) {
             Column {
                 ChatMemoryStatus()
-                if (composerNotice.isNotEmpty()) Text(composerNotice, style = MaterialTheme.typography.labelSmall, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+                val submissionNotice = if (isPreparingSend) stringResource(R.string.preparing_message) else composerNotice
+                if (submissionNotice.isNotEmpty()) Text(submissionNotice, style = MaterialTheme.typography.labelSmall, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
                 if (selectedAttachments.isNotEmpty()) {
                     FileThumbnailRow(
                         selectedAttachments = selectedAttachments,
@@ -2629,21 +2660,29 @@ fun ChatInputBox(
                                     }
                                 }
                                 if (!hasQuestionText && selectedAttachments.isEmpty() && workflows.isNotEmpty()) {
-                                    GitHubWorkflowButton(workflows, enabled = chatEnabled && sendButtonEnabled) { workflow ->
+                                    GitHubWorkflowButton(workflows, enabled = chatEnabled && sendButtonEnabled && !isPreparingSend) { workflow ->
                                         inputState.edit { replace(0, length, workflow.prompt) }
                                         sendAction()
                                     }
                                 } else {
                                     FilledIconButton(
                                         colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary),
-                                        enabled = chatEnabled && sendButtonEnabled && (hasQuestionText || selectedAttachments.isNotEmpty()),
+                                        enabled = chatEnabled && sendButtonEnabled && !isPreparingSend && (hasQuestionText || selectedAttachments.isNotEmpty()),
                                         onClick = sendAction,
                                         modifier = Modifier.testTag("chat_send")
                                     ) {
-                                        Icon(
-                                            imageVector = Icons.Rounded.ArrowUpward,
-                                            contentDescription = stringResource(if (isRunning) R.string.send_follow_up else R.string.send)
-                                        )
+                                        if (isPreparingSend) {
+                                            val preparingDescription = stringResource(R.string.preparing_message)
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(24.dp).semantics { contentDescription = preparingDescription },
+                                                strokeWidth = 2.dp
+                                            )
+                                        } else {
+                                            Icon(
+                                                imageVector = Icons.Rounded.ArrowUpward,
+                                                contentDescription = stringResource(if (isRunning) R.string.send_follow_up else R.string.send)
+                                            )
+                                        }
                                     }
                                 }
                             }

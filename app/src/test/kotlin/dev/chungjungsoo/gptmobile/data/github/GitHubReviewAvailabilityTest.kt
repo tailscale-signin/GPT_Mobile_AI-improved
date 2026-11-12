@@ -76,6 +76,7 @@ class GitHubReviewAvailabilityTest {
         val interrupted = ProviderEvent.Failed(
             "Connection was interrupted",
             errorCode = "CONNECTION_ABORTED",
+            invocationId = "invocation-17",
             failureDetails = buildJsonObject {
                 put("failed_stage", "response_stream")
                 put("remote_acceptance", "YES")
@@ -89,6 +90,7 @@ class GitHubReviewAvailabilityTest {
             .streamRound(emptyList(), emptyList()).toList()
         val failure = result.filterIsInstance<ProviderEvent.Failed>().single()
         assertEquals("CONNECTION_ABORTED", failure.errorCode)
+        assertEquals("invocation-17", failure.invocationId)
         assertFalse(failure.transportComplete)
         assertEquals(JsonPrimitive("req-17"), failure.failureDetails?.get("server_request_id"))
         assertEquals(JsonPrimitive("response_stream"), rows.getValue("active")["failed_stage"])
@@ -118,5 +120,70 @@ class GitHubReviewAvailabilityTest {
         )
         assertEquals(GitHubReviewCompatibility.Result.UnsupportedFormat, cache.check("selected") { error("Negative cache must reuse the observed malformed contract") })
         assertEquals(3, probes)
+    }
+
+    @Test fun completedOutputLimitedPreflightGetsOneCompactSameProfileProbeBeforeWork() = runTest {
+        var probes = 0
+        var work = 0
+        val delegate = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> {
+                work++
+                return flowOf(ProviderEvent.ToolCall("read", "github_read", JsonObject(emptyMap())), ProviderEvent.Completed)
+            }
+        }
+        val notices = mutableListOf<String>()
+        val result = GitHubReviewedSession(delegate, GitHubReviewEvidence(), "Inspect the repository", 8192, { prompt, kind ->
+            assertEquals("github-review-preflight", kind)
+            assertEquals(0, work)
+            probes++
+            if (probes == 1) {
+                assertEquals(GitHubReviewCompatibility.PROMPT, prompt)
+                session(ProviderEvent.TextDelta("{\"schema_version\":"), ProviderEvent.Usage(outputTokens = 2048, finishReason = "length"), ProviderEvent.Completed)
+            } else {
+                assertEquals(GitHubReviewCompatibility.BOUNDED_RETRY_PROMPT, prompt)
+                session(ProviderEvent.TextDelta(verdict(listOf(GitHubReviewCompatibility.EVIDENCE_ID))), ProviderEvent.Completed)
+            }
+        }, { notices += it }, compatibility = GitHubReviewCompatibility(), reviewerRevision = "same-selected-profile").streamRound(emptyList(), emptyList()).toList()
+        assertEquals(2, probes)
+        assertEquals(1, work)
+        assertTrue(notices.any { "once" in it })
+        assertTrue(result.any { it is ProviderEvent.ToolCall })
+        assertFalse(result.any { it is ProviderEvent.Failed })
+    }
+
+    @Test fun exhaustedCompactProbeStaysBlockedAfterTwoCallsWithoutFalseCompatibility() = runTest {
+        var probes = 0
+        val compatibility = GitHubReviewCompatibility()
+        val delegate = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = error("Repository work must remain blocked")
+        }
+        val result = GitHubReviewedSession(delegate, GitHubReviewEvidence(), "Inspect the repository", 8192, { _, _ ->
+            probes++
+            session(ProviderEvent.Failed("Bounded answer repair ended", errorCode = "COMPLETION_REPAIR_BUDGET_EXHAUSTED", invocationId = "probe-$probes"))
+        }, {}, compatibility = compatibility, reviewerRevision = "selected").streamRound(emptyList(), emptyList()).toList()
+        assertEquals(2, probes)
+        val failure = result.filterIsInstance<ProviderEvent.Failed>().single()
+        assertEquals("COMPLETION_REPAIR_BUDGET_EXHAUSTED", failure.errorCode)
+        assertEquals("probe-2", failure.invocationId)
+        assertEquals(JsonPrimitive(false), failure.failureDetails?.get("repository_operations_started"))
+        var rechecked = false
+        assertEquals(
+            GitHubReviewCompatibility.Result.Supported,
+            compatibility.check("selected") {
+                rechecked = true
+                GitHubReviewCompatibility.Result.Supported
+            }
+        )
+        assertTrue(rechecked)
+    }
+
+    @Test fun truncatedButInterruptedProbeCannotTriggerCompactFallback() = runTest {
+        var probes = 0
+        val result = GitHubReviewedSession(session(ProviderEvent.Completed), GitHubReviewEvidence(), "Inspect the repository", 8192, { _, _ ->
+            probes++
+            session(ProviderEvent.Usage(outputTokens = 2048, finishReason = "length"), ProviderEvent.Failed("Connection interrupted", errorCode = "CONNECTION_ABORTED"))
+        }, {}, compatibility = GitHubReviewCompatibility()).streamRound(emptyList(), emptyList()).toList()
+        assertEquals(1, probes)
+        assertEquals("CONNECTION_ABORTED", result.filterIsInstance<ProviderEvent.Failed>().single().errorCode)
     }
 }

@@ -2558,6 +2558,12 @@ class ChatRepositoryImpl(
             emit(ApiState.Error(readiness.message.orEmpty(), errorCode = readiness.errorCode, taskOutcome = "BLOCKED", failureDetails = readiness.failureDetails))
             return@catch
         }
+        val bindingFailure = generateSequence(error) { it.cause?.takeUnless { cause -> cause === it } }.take(16)
+            .firstNotNullOfOrNull { dev.chungjungsoo.gptmobile.data.agent.AgentFailureEvidence.exception(it, partialOutput = rebuildFence.hasAttempted) }
+        if (bindingFailure != null) {
+            emit(ApiState.Error(bindingFailure.message, errorCode = bindingFailure.errorCode, taskOutcome = bindingFailure.taskOutcome, failureDetails = bindingFailure.failureDetails))
+            return@catch
+        }
         val detail = generateSequence(error) { it.cause?.takeUnless { cause -> cause === it } }.take(16)
             .filterIsInstance<Exception>().firstNotNullOfOrNull { dev.chungjungsoo.gptmobile.data.network.providerExceptionDetails(it, partialOutput = rebuildFence.hasAttempted) }
         if (detail != null) {
@@ -6895,8 +6901,9 @@ class ChatRepositoryImpl(
         // reservation and original remote job until an explicit check or cancellation.
         if (status == AgentRunStatus.WAITING_REMOTE_JOB) return committed
         if (committed) {
-            val failure = message.timeline.asReversed().firstNotNullOfOrNull { it.profileFailure }
+            val observedFailure = message.timeline.asReversed().firstNotNullOfOrNull { it.profileFailure }
                 ?: terminalError?.let { dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.classify(it) }
+            val failure = dev.chungjungsoo.gptmobile.data.agent.AgentFailureEvidence.reconcile(observedFailure, runId, observedFailure?.invocationId?.let { invocationLedger?.dao?.byId(it) })
             val terminal = dev.chungjungsoo.gptmobile.data.agent.AgentRunTerminalDiagnostics.from(status, failure, acceptance)
             AppLogRecorder.recordEvent(
                 "Agent",

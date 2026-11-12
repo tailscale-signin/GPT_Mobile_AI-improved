@@ -370,7 +370,17 @@ class ChatViewModel @Inject constructor(
 
     private val _chatToolConfig = MutableStateFlow(ChatMcpToolConfig())
     val chatToolConfig = _chatToolConfig.asStateFlow()
-    private var gatewayAdmissionChecking = false
+    enum class SendPreparation { MODEL_CHECK, GATEWAY_CHECK, QUEUE_SAVE }
+
+    private val _sendPreparation = MutableStateFlow<Set<SendPreparation>>(emptySet())
+    val sendPreparation = _sendPreparation.asStateFlow()
+    private var gatewayAdmissionChecking: Boolean
+        get() = SendPreparation.GATEWAY_CHECK in _sendPreparation.value
+        set(value) = updateSendPreparation(SendPreparation.GATEWAY_CHECK, value)
+
+    private fun updateSendPreparation(stage: SendPreparation, active: Boolean) {
+        _sendPreparation.update { if (active) it + stage else it - stage }
+    }
     private val _gatewayWriteBlocker = MutableStateFlow<String?>(null)
     val gatewayWriteBlocker = _gatewayWriteBlocker.asStateFlow()
     private val _gatewayQueueState = MutableStateFlow<dev.chungjungsoo.gptmobile.data.queue.GatewayQueuedChatState?>(null)
@@ -575,7 +585,9 @@ class ChatViewModel @Inject constructor(
         val merging = progress.values.filter { it.prompt.chatId == _chatRoom.value.id && it.phase == dev.chungjungsoo.gptmobile.data.queue.FollowUpPhase.MERGING }.map { it.prompt }
         (prompts + merging).distinctBy { it.id }.sortedBy { it.position }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
-    private var queueSubmissionPending = false
+    private var queueSubmissionPending: Boolean
+        get() = SendPreparation.QUEUE_SAVE in _sendPreparation.value
+        set(value) = updateSendPreparation(SendPreparation.QUEUE_SAVE, value)
     private val _queuedPromptCount = MutableStateFlow(0)
     val queuedPromptCount = _queuedPromptCount.asStateFlow()
     private val _disabledPlatformUids = MutableStateFlow<Set<String>>(emptySet())
@@ -599,7 +611,9 @@ class ChatViewModel @Inject constructor(
 
     private val _reasoningAdmissionNotice = MutableStateFlow<dev.chungjungsoo.gptmobile.presentation.ui.setting.ReasoningAdmissionNotice?>(null)
     val reasoningAdmissionNotice = _reasoningAdmissionNotice.asStateFlow()
-    private var reasoningSendChecking = false
+    private var reasoningSendChecking: Boolean
+        get() = SendPreparation.MODEL_CHECK in _sendPreparation.value
+        set(value) = updateSendPreparation(SendPreparation.MODEL_CHECK, value)
     private var reasoningSendCheckJob: kotlinx.coroutines.Job? = null
     private var reasoningSendGeneration = 0L
 
@@ -766,6 +780,9 @@ class ChatViewModel @Inject constructor(
     }
 
     fun askQuestion() {
+        // The first tap owns its frozen draft and resumes after admission.
+        // Keyboard/accessibility taps can arrive before Compose disables Send.
+        if (_sendPreparation.value.isNotEmpty()) return
         val attempt = dev.chungjungsoo.gptmobile.data.diagnostics.SendAttemptTrace()
         val questionText = question.text.toString()
         val hasReadyAttachments = _selectedAttachments.value.any { it.status == ChatAttachmentDraft.Status.Ready }
@@ -943,6 +960,10 @@ class ChatViewModel @Inject constructor(
             }
             val chatId = _chatRoom.value.id
             val composerAtCheck = question.text.toString()
+            val conversationModeAtCheck = _chatRoom.value.conversationMode
+            val temporaryAtCheck = _chatRoom.value.isTemporary
+            val profilesAtCheck = _platformsInApp.value
+            val modesAtCheck = featureSettings.value.llamaReasoningModes
             val attachmentsAtCheck = _selectedAttachments.value
             val activeProfilesAtCheck = _activePlatformUids.value
             val modelsAtCheck = _chatPlatformModels.value
@@ -957,7 +978,12 @@ class ChatViewModel @Inject constructor(
                     } else if (gatewayTurn && agentRunCoordinator.hasUnconfirmedGatewayAdmission(chatId, requireNotNull(gatewayProfile).uid)) {
                         _attachmentNotice.value = "Confirming the previous gateway submission. Your new draft is kept until its saved conversation is known."
                         attempt.finish("GATEWAY_ADMISSION_UNCONFIRMED")
-                    } else if (_chatRoom.value.id == chatId &&
+                    } else if (!leavingConversation &&
+                        _chatRoom.value.id == chatId &&
+                        _chatRoom.value.conversationMode == conversationModeAtCheck &&
+                        _chatRoom.value.isTemporary == temporaryAtCheck &&
+                        _platformsInApp.value == profilesAtCheck &&
+                        featureSettings.value.llamaReasoningModes == modesAtCheck &&
                         question.text.toString() == composerAtCheck &&
                         _selectedAttachments.value == attachmentsAtCheck &&
                         nextMessageProfileUid.value == oneMessageUid &&
@@ -967,9 +993,11 @@ class ChatViewModel @Inject constructor(
                     ) {
                         submitOrQueueQuestion(questionText, attachments, attempt, gatewayAdmissionChecked = true, reasoningAdmissionChecked = reasoningAdmissionChecked)
                     } else {
+                        _attachmentNotice.value = "The draft or connection changed during the check. Your current draft is kept; press Send when ready."
                         attempt.finish("COMPOSER_CHANGED_DURING_GATEWAY_CHECK")
                     }
                 } catch (cancelled: CancellationException) {
+                    attempt.finish("GATEWAY_ADMISSION_CHECK_CANCELLED")
                     throw cancelled
                 } catch (_: Exception) {
                     _attachmentNotice.value = "The previous gateway submission could not be checked. Your draft is kept; reconnect and try again."

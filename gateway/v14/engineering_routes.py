@@ -62,15 +62,14 @@ def install_engineering_routes(app, service):
             raise ValueError('Expected a JSON object')
         return value
 
-    async def execute(action):
+    async def execute(action, *, stage=None):
         try:
             return await action()
         except EngineeringPreflightError as error:
             return JSONResponse({'error': {'code': error.code, 'message': str(error), 'retryable': False},
                                  'preflight': error.result}, status_code=error.status)
         except ExecutionBindingError as error:
-            return JSONResponse({'error': {'code': error.code, 'message': str(error),
-                                           'retryable': error.retryable, 'routeSubstituted': False}}, status_code=error.status)
+            return JSONResponse({'error': error.error_payload(stage=stage)}, status_code=error.status)
         except RepositoryLifecycleError as error:
             return JSONResponse({'error': {'code': error.code, 'message': str(error), 'retryable': False}}, status_code=error.status)
         except QueueFull:
@@ -150,7 +149,7 @@ def install_engineering_routes(app, service):
                 raise ExecutionBindingError('EXECUTION_SELECTION_INVALID', 'A selected profile snapshot is required.', 400)
             return await asyncio.to_thread(service.prepare_binding, owner, payload['selection'],
                                            gateway_endpoint=str(request.base_url).rstrip('/'))
-        return await execute(run)
+        return await execute(run, stage='provider_admission')
 
     @app.get('/gateway/engineering/bindings/{binding_id}/capabilities')
     @app.get('/v1/gateway/engineering/bindings/{binding_id}/capabilities')

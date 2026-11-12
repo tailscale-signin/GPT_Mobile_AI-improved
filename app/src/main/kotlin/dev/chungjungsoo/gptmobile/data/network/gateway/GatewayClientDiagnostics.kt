@@ -182,7 +182,12 @@ internal object GatewayClientDiagnostics {
     fun failed(config: ProviderRequestConfig, requestHeaders: Map<String, String>, failure: Throwable, route: String = "other", safeRead: Boolean = false) {
         val fields = failureFields(config, requestHeaders, failure, route, safeRead) ?: return
         GatewayDiagnosticBridge.event(config, fields)
-        AppLogRecorder.record("Gateway", "CLIENT_EXCHANGE · route=${routeIdentity(config)} · transport=${fields.diagnosticText("error_code")} · requestDigest=${fields.diagnosticText("request_id")} · incident_id=${fields.diagnosticText("incident_id") ?: "unobserved"} · retry_attempt=${(fields["bounded_attributes"] as? JsonObject)?.get("retry_attempt") ?: "unobserved"} · responseHeadersReceived=${(fields["bounded_attributes"] as? JsonObject)?.get("response_headers_received")}")
+        AppLogRecorder.record("Gateway", "CLIENT_EXCHANGE · route=${routeIdentity(config)} · transport=${fields.diagnosticText("error_code")} · requestDigest=${fields.diagnosticText("request_id")} · incident_id=${fields.diagnosticText("incident_id") ?: "unobserved"} · operation_id=${fields.diagnosticText("operation_id") ?: "unobserved"} · retry_attempt=${(fields["bounded_attributes"] as? JsonObject)?.get("retry_attempt") ?: "unobserved"} · responseHeadersReceived=${(fields["bounded_attributes"] as? JsonObject)?.get("response_headers_received")}")
+        if (fields.diagnosticText("incident_id") != null) {
+            // A later successful read with this same identity can reconcile the
+            // failed attempt. Headers alone never count as a completed body.
+            AppLogRecorder.record("Gateway", "METADATA_READ_OUTCOME · incident_id=${fields.diagnosticText("incident_id")} · operation_id=${fields.diagnosticText("operation_id")} · outcome=${if (fields.diagnosticText("error_code") == "CANCELLED") "CANCELLED" else "ATTEMPT_FAILED"} · error_code=${fields.diagnosticText("error_code")} · retry_attempt=${(fields["bounded_attributes"] as? JsonObject)?.get("retry_attempt")} · selectedModelReadiness=not_inferred")
+        }
     }
 
     internal fun failureFields(config: ProviderRequestConfig, requestHeaders: Map<String, String>, failure: Throwable, route: String = "other", safeRead: Boolean = false): JsonObject? {

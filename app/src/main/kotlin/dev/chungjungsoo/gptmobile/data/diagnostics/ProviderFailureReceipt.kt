@@ -156,7 +156,7 @@ data class ProviderFailureReceipt(
                     code == "WAITING_FOR_APPROVAL" || failedStage == "approval" -> FailureDomain.APPROVAL
                     code == "GITHUB_TASK_INCOMPLETE" || failedStage == "acceptance_verification" -> FailureDomain.APPLICATION_VERIFICATION
                     code in setOf("TOOL_OUTCOME_UNKNOWN", "INVALID_ARGUMENTS", "TOOL_PROTOCOL_INVALID_FRAME", "TOOL_UNAVAILABLE", "GITHUB_OPERATION_BLOCKED") -> FailureDomain.TOOL_EXECUTION
-                    invocationId != null || status != null || code in dev.chungjungsoo.gptmobile.data.context.RequestCapacityException.CODES || code in setOf("TRANSPORT_ERROR", "OUTPUT_LIMIT", "INCOMPLETE_PROVIDER_STREAM") -> FailureDomain.PROVIDER
+                    invocationId != null || status != null || code in dev.chungjungsoo.gptmobile.data.context.RequestCapacityException.CODES || code in setOf("TRANSPORT_ERROR", "OUTPUT_LIMIT", "INCOMPLETE_PROVIDER_STREAM", "PROVIDER_INVOCATION_FAILED") -> FailureDomain.PROVIDER
                     else -> FailureDomain.UNKNOWN
                 },
                 invocationId = invocationId,

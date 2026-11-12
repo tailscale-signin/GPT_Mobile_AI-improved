@@ -724,6 +724,19 @@ class AgentRunner(
         val recoverableConnection = GitHubTaskRecovery.isConnectionUnavailable(typedFailure) && continuationDelay != null
         var exposedDefinitions = definitions
         var finalize = false
+        if (round.failureDetails?.get("logical_continuation_allowed") == JsonPrimitive(false)) {
+            // Saved-report publication does not start another model round. Keep
+            // its receipt and acceptance delivery even when continuation is forbidden.
+            if (limits.githubTask && round.calls.isEmpty()) {
+                session.retainedFailureResponse(typedFailure).collect { event ->
+                    if (event is ProviderEvent.Completed) checkpoint?.finish()
+                    emit(AgentRunEvent.Provider(event))
+                }
+            } else {
+                emit(AgentRunEvent.Provider(typedFailure))
+            }
+            return null
+        }
         if (round.providerLimit != null || round.taskOutcome in setOf("BLOCKED", "CONFIGURATION_INVALIDATED", "WAITING_FOR_APPROVAL") || round.errorCode == "WAITING_FOR_APPROVAL" || round.taskOutcome == "PARTIAL" && !recoverableConnection) {
             emit(AgentRunEvent.Provider(ProviderEvent.Failed(roundFailure, round.progressDeadline, round.errorCode, round.failureTransportComplete, round.providerLimit, round.taskOutcome, round.failureDetails, round.invocationId)))
             return null
@@ -1552,6 +1565,14 @@ class AgentRunner(
                 val localCircuitRejection = (error as? dev.chungjungsoo.gptmobile.data.network.error.CircuitBreakerOpenException)
                     ?.takeUnless { gatewayOutcomeUnknown }
                 val typedRejection = AgentFailureEvidence.exception(error, providerPayloadObserved)
+                val classifiedCode = ToolFailureMetadata.classify(error)
+                // This boundary invokes the model, not an AgentTool. An unknown
+                // exception cannot establish a tool failure or authorize replay.
+                val fallbackCode = if (classifiedCode == "TOOL_FAILURE") {
+                    if (invocationStarted) "PROVIDER_INVOCATION_FAILED" else "APP_ERROR"
+                } else {
+                    classifiedCode
+                }
                 failureDetails = typedRejection?.failureDetails ?: localCircuitRejection?.failureDetails(providerPayloadObserved) ?: kotlinx.serialization.json.buildJsonObject {
                     put(
                         "failed_stage",
@@ -1563,11 +1584,23 @@ class AgentRunner(
                         }
                     )
                     if (!invocationStarted) put("dispatched", false)
+                    if (classifiedCode == "TOOL_FAILURE") {
+                        put("retryable", false)
+                        put("request_replay_allowed", false)
+                        put("logical_continuation_allowed", false)
+                        put(
+                            "cause_types",
+                            kotlinx.serialization.json.JsonArray(
+                                generateSequence(error) { cause -> cause.cause?.takeUnless { it === cause } }
+                                    .take(16).map { JsonPrimitive(it.javaClass.name) }.toList()
+                            )
+                        )
+                    }
                 }
                 failure = if (toolDefinitionsRejected) {
                     error.message ?: "Tools are unavailable for this model."
                 } else {
-                    failureCode = if (gatewayOutcomeUnknown) GatewayOutcomeRecovery.ERROR_CODE else typedRejection?.errorCode ?: ToolFailureMetadata.authorityCode(error) ?: ToolFailureMetadata.classify(error)
+                    failureCode = if (gatewayOutcomeUnknown) GatewayOutcomeRecovery.ERROR_CODE else typedRejection?.errorCode ?: ToolFailureMetadata.authorityCode(error) ?: fallbackCode
                     taskOutcome = typedRejection?.taskOutcome
                     failureTransportComplete = typedRejection?.transportComplete ?: false
                     typedRejection?.message ?: classified.userMessage

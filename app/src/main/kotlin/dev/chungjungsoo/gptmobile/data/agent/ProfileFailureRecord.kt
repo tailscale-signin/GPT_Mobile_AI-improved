@@ -83,7 +83,7 @@ data class ProfileFailureRecord(
             }
             val rejectedStatus = (details?.get("http_status") as? JsonPrimitive)?.contentOrNull in setOf("409", "422")
             val code = errorCode?.uppercase(java.util.Locale.ROOT)?.takeIf {
-                it == "WAITING_FOR_APPROVAL" || executionCode.matches(it) || it in continuationCodes || it in typedCodes || it in repositoryAdmissionCodes || it in githubSchemaAdmissionCodes || it in capacityCodes || it in gatewayAdmissionCodes || it in engineeringPreflightCodes || it in readinessCodes || it in dev.chungjungsoo.gptmobile.data.github.GitHubFailurePolicy.codes || it in dev.chungjungsoo.gptmobile.data.network.error.ProviderContractFailure.codes
+                it in setOf("WAITING_FOR_APPROVAL", "PROVIDER_INVOCATION_FAILED") || executionCode.matches(it) || it in continuationCodes || it in typedCodes || it in repositoryAdmissionCodes || it in githubSchemaAdmissionCodes || it in capacityCodes || it in gatewayAdmissionCodes || it in engineeringPreflightCodes || it in readinessCodes || it in dev.chungjungsoo.gptmobile.data.github.GitHubFailurePolicy.codes || it in dev.chungjungsoo.gptmobile.data.network.error.ProviderContractFailure.codes
             } ?: "REQUEST_REJECTED".takeIf { rejectedStatus }
             val observed = classify(listOfNotNull(if (code == "EXECUTION_OPERATION_UNKNOWN_OUTCOME") GatewayOutcomeRecovery.ERROR_CODE else code, message).joinToString(": "))
             val serverRequestId = dev.chungjungsoo.gptmobile.data.network.safeProviderRequestIdentity((details?.get("server_request_id") as? JsonPrimitive)?.contentOrNull)
@@ -109,8 +109,18 @@ data class ProfileFailureRecord(
                     recoveryActions = recoveryActions
                 )
             }
-            val authoritative = code?.let { if (executionCode.matches(it)) ProfileFailureRecord(it, retryAllowed = false, phase = "provider_admission") else classify(it) }
-            val legacy = if (authoritative != null) {
+            val authoritative = code?.let {
+                when {
+                    it == "PROVIDER_INVOCATION_FAILED" -> ProfileFailureRecord(it, retryAllowed = false, phase = "model_invocation")
+                    executionCode.matches(it) -> ProfileFailureRecord(it, retryAllowed = false, phase = "provider_admission")
+                    else -> classify(it)
+                }
+            }
+            val legacy = if (code == "PROVIDER_INVOCATION_FAILED") {
+                // An unknown model exception contributes no dispatch or cooldown
+                // facts from its message. Structured observations are applied below.
+                requireNotNull(authoritative)
+            } else if (authoritative != null) {
                 // The current typed failure outranks incidental codes in provider
                 // prose. Preserve any additional retry restriction and timing facts.
                 observed.copy(
@@ -153,7 +163,8 @@ data class ProfileFailureRecord(
                 invocationId = invocationId,
                 serverRequestId = serverRequestId,
                 generationCompleted = generationCompleted,
-                requestReplayAllowed = (details?.get("request_replay_allowed") as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull,
+                requestReplayAllowed = false.takeIf { code == "PROVIDER_INVOCATION_FAILED" }
+                    ?: (details?.get("request_replay_allowed") as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull,
                 causeTypes = causeTypes,
                 dispatchState = dispatchState?.uppercase(java.util.Locale.ROOT)?.takeIf { it in setOf("NOT_DISPATCHED", "PRECHECK_REJECTED", "DISPATCHED", "FAILED", "COMPLETED", "UNKNOWN") },
                 recoveryActions = recoveryActions

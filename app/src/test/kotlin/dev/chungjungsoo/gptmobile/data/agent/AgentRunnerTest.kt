@@ -974,6 +974,44 @@ class AgentRunnerTest {
         )
     }
 
+    @Test fun `unknown model boundary exception cannot become a tool incident or authorize replay`() = runBlocking {
+        for (synchronous in listOf(true, false)) {
+            val providerCalls = AtomicInteger()
+            val toolExecutions = AtomicInteger()
+            val cause = IllegalStateException("private response body", IllegalArgumentException("private input"))
+            val provider = session { _, _ ->
+                providerCalls.incrementAndGet()
+                if (synchronous) throw cause
+                flow { throw cause }
+            }
+            val availableTool = tool { callId, _ ->
+                toolExecutions.incrementAndGet()
+                AgentToolResult(callId, ToolResultContent.Text("saved result"), false)
+            }
+
+            val failure = AgentRunner().run(provider, listOf(availableTool)).toList()
+                .filterIsInstance<AgentRunEvent.Provider>().map { it.event }.filterIsInstance<ProviderEvent.Failed>().single()
+
+            assertEquals(1, providerCalls.get())
+            assertEquals(0, toolExecutions.get())
+            assertEquals("PROVIDER_INVOCATION_FAILED", failure.errorCode)
+            assertEquals(JsonPrimitive("model_invocation"), failure.failureDetails?.get("failed_stage"))
+            assertEquals(JsonPrimitive(false), failure.failureDetails?.get("retryable"))
+            assertEquals(JsonPrimitive(false), failure.failureDetails?.get("request_replay_allowed"))
+            assertEquals(JsonPrimitive(false), failure.failureDetails?.get("logical_continuation_allowed"))
+            assertFalse(failure.failureDetails.orEmpty().containsKey("dispatched"))
+            assertFalse(failure.failureDetails.toString().contains("private"))
+            val retained = ProfileFailureRecord.fromProvider(failure.message, failure.errorCode, failure.failureDetails)
+            assertEquals("PROVIDER_INVOCATION_FAILED", retained.category)
+            assertEquals(listOf("java.lang.IllegalStateException", "java.lang.IllegalArgumentException"), retained.causeTypes)
+            assertFalse(retained.retryAllowed)
+            assertEquals(RemoteRequestAcceptance.UNKNOWN, retained.remoteAcceptance)
+            // Older hosted reporters already accept this public category and stage.
+            assertEquals("CHAT_FAILED", dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportCodes.select(failure.errorCode, "CHAT_FAILED"))
+            assertEquals("TOOL_FAILURE", ToolFailureMetadata.classify(cause))
+        }
+    }
+
     @Test fun `gateway uncertainty cannot become a no dispatch circuit rejection`() = runBlocking {
         for (code in listOf("GATEWAY_OUTCOME_UNKNOWN", "REMOTE_OUTCOME_UNKNOWN")) {
             val providerCalls = AtomicInteger()

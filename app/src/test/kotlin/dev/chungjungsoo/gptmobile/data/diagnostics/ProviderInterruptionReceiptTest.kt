@@ -14,6 +14,28 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProviderInterruptionReceiptTest {
+    @Test fun unclassifiedModelInvocationRetainsTheBoundaryWithoutInventingDispatchOrToolFailure() {
+        val failure = ProviderEvent.Failed(
+            "Private exception details",
+            errorCode = "PROVIDER_INVOCATION_FAILED",
+            failureDetails = buildJsonObject {
+                put("failed_stage", "model_invocation")
+                put("request_replay_allowed", false)
+                put("cause_types", JsonArray(listOf(JsonPrimitive("java.lang.IllegalStateException"))))
+            }
+        )
+        val receipt = ProviderFailureReceipt.from(PlatformV2(uid = "profile", name = "Selected", model = "chosen-model"), "primary", failure)
+        assertTrue(receipt.valid())
+        assertEquals(FailureDomain.PROVIDER, receipt.failureDomain)
+        assertEquals("PROVIDER_INVOCATION_FAILED", receipt.errorCode)
+        assertEquals("model_invocation", receipt.causeStage)
+        assertEquals(null, receipt.dispatched)
+        assertEquals(RemoteRequestAcceptance.UNKNOWN, receipt.remoteAcceptance)
+        assertEquals(false, receipt.requestReplayAllowed)
+        assertEquals(listOf("java.lang.IllegalStateException"), receipt.causeTypes)
+        assertFalse(receipt.toString().contains("Private exception details"))
+    }
+
     @Test fun approvalAndApplicationVerificationDoNotBlameSelectedProvider() {
         val profile = PlatformV2(uid = "selected", name = "Selected", model = "private-model")
         val blocked = ProviderFailureReceipt.from(profile, "github-delivery", ProviderEvent.Failed("Approval required", errorCode = "WAITING_FOR_APPROVAL"))

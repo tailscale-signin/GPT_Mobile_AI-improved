@@ -7,6 +7,7 @@ import dev.chungjungsoo.gptmobile.data.network.error.ErrorCategory
 import dev.chungjungsoo.gptmobile.data.network.error.ErrorClassification
 import dev.chungjungsoo.gptmobile.data.network.error.ProviderContractFailure
 import java.io.File
+import kotlinx.serialization.json.JsonPrimitive
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -104,6 +105,84 @@ class IssueReportIncidentsTest {
         val reports = IssueReportIncidents.pending.value
         assertEquals(listOf("BACKEND_TEMPLATE_INVALID", "SERVICE_UNAVAILABLE", "AUTHENTICATION_FAILED"), reports.map { it.errorCode })
         assertFalse(reports.flatMap { it.events }.any { "private details" in it })
+    }
+
+    @Test
+    fun rejectedProviderRateLimitKeepsItsCauseWithoutAResumableWait() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        IssueReportIncidents.chatFailure(
+            "429",
+            false,
+            null,
+            mapOf(
+                "failed_stage" to JsonPrimitive("model_invocation"),
+                "provider" to JsonPrimitive("OPENROUTER"),
+                "http_status" to JsonPrimitive(429),
+                "retry_after_ms" to JsonPrimitive(30156L),
+                "dispatched" to JsonPrimitive(true),
+                "retryable" to JsonPrimitive(true),
+                "remote_acceptance" to JsonPrimitive("NO"),
+                "message" to "private provider response"
+            )
+        )
+
+        val report = IssueReportIncidents.pending.value.single()
+        assertEquals("PROVIDER_RATE_LIMITED", report.errorCode)
+        assertEquals("model_invocation", report.context?.stage)
+        assertEquals("OPENROUTER", report.context?.provider)
+        assertEquals(429, report.context?.httpStatus)
+        assertEquals(30156L, report.context?.retryAfterMillis)
+        assertEquals(true, report.context?.dispatched)
+        assertEquals(true, report.context?.retryable)
+        assertEquals("NO", report.context?.remoteAcceptance)
+        assertEquals(null, report.context?.resumeAllowed)
+        assertFalse(report.approvedPayload().contains("private provider response"))
+    }
+
+    @Test
+    fun providerRateLimitFallbackDoesNotReplaceSpecificFailuresOrUnknownOutcomes() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        val fields = mapOf<String, Any?>(
+            "failed_stage" to "model_invocation",
+            "provider" to "OPENROUTER",
+            "http_status" to 429,
+            "remote_acceptance" to "NO"
+        )
+        IssueReportIncidents.chatFailure("COMPLETION_REPAIR_BUDGET_EXHAUSTED", false, null, fields)
+        IssueReportIncidents.chatFailure("RECONCILIATION_REQUIRED", false, null, fields)
+        IssueReportIncidents.chatFailure("429", false, null, fields + mapOf("requires_reconciliation" to true, "run_id" to "reconciliation-run"))
+        IssueReportIncidents.chatFailure("429", false, null, fields + mapOf("remote_acceptance" to "UNKNOWN", "run_id" to "unknown-run"))
+
+        assertEquals(
+            listOf("COMPLETION_REPAIR_BUDGET_EXHAUSTED", "RECONCILIATION_REQUIRED", "CHAT_FAILED", "CHAT_FAILED"),
+            IssueReportIncidents.pending.value.map { it.errorCode }
+        )
+    }
+
+    @Test
+    fun rateLimitFallbackRequiresTypedProviderRejectionEvidence() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        val fields = mapOf<String, Any?>(
+            "failed_stage" to "model_invocation",
+            "provider" to "OPENROUTER",
+            "http_status" to 429,
+            "remote_acceptance" to "NO"
+        )
+        val unrelated = listOf(
+            fields + ("failed_stage" to "tool_execution"),
+            fields - "provider",
+            fields + ("http_status" to "429"),
+            fields - "remote_acceptance",
+            mapOf("message" to "HTTP 429 private provider response")
+        )
+        unrelated.forEachIndexed { index, evidence ->
+            IssueReportIncidents.chatFailure(null, false, null, evidence + ("run_id" to "unrelated-$index"))
+        }
+
+        val reports = IssueReportIncidents.pending.value
+        assertEquals(unrelated.size, reports.size)
+        assertTrue(reports.all { it.errorCode == "CHAT_FAILED" })
+        assertTrue(reports.none { it.approvedPayload().contains("private provider response") })
     }
 
     @Test

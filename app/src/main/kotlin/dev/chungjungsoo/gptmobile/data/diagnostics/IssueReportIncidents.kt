@@ -162,7 +162,20 @@ internal object IssueReportIncidents {
     fun chatFailure(code: String?, rateLimited: Boolean) = chatFailure(code, rateLimited, null)
 
     fun chatFailure(code: String?, rateLimited: Boolean, error: Throwable?, fields: Map<String, Any?> = emptyMap(), invocationId: String? = null) {
-        val publicCode = IssueReportCodes.select(code, if (rateLimited) "PROVIDER_RATE_LIMITED" else "CHAT_FAILED")
+        val specificCode = IssueReportCodes.known(code)?.takeUnless { it == "CHAT_FAILED" }
+        val observedRateLimit = if (specificCode == null && !rateLimited) {
+            val evidence = IssueReportContext.fromFields("CHAT_FAILURE", fields)
+            evidence.provider != null &&
+                evidence.stage in setOf("model_invocation", "provider_generation") &&
+                evidence.httpStatus == 429 &&
+                evidence.remoteAcceptance == "NO" &&
+                evidence.requiresReconciliation != true
+        } else {
+            false
+        }
+        // A rejected provider attempt may lack a resumable checkpoint. Retain its
+        // observed cause without treating the report as authorization to retry.
+        val publicCode = specificCode ?: if (rateLimited || observedRateLimit) "PROVIDER_RATE_LIMITED" else "CHAT_FAILED"
         failure(ReportFeature.CHAT, publicCode, error, fields + listOfNotNull(invocationId?.let { "invocation_id" to it }).toMap(), "CHAT_FAILURE")
     }
 

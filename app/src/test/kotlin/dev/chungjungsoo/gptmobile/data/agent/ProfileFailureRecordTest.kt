@@ -6,6 +6,30 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProfileFailureRecordTest {
+    @Test fun unknownModelInvocationFailureRetainsItsDomainWithoutGrantingRetryFromProse() {
+        val details = kotlinx.serialization.json.Json.parseToJsonElement("""{"failed_stage":"model_invocation","retryable":true,"request_replay_allowed":true}""") as kotlinx.serialization.json.JsonObject
+        val failure = ProfileFailureRecord.fromProvider("An old HTTP 503 may have been retried. No request was dispatched; retryAfterMs=2000", "PROVIDER_INVOCATION_FAILED", details)
+        val restored = kotlinx.serialization.json.Json.decodeFromString<ProfileFailureRecord>(kotlinx.serialization.json.Json.encodeToString(ProfileFailureRecord.serializer(), failure))
+        assertEquals("PROVIDER_INVOCATION_FAILED", restored.category)
+        assertEquals("model_invocation", restored.phase)
+        assertFalse(restored.retryAllowed)
+        assertEquals(null, restored.dispatched)
+        assertEquals(null, restored.retryAfterMillis)
+        assertEquals(false, restored.requestReplayAllowed)
+        assertEquals(RemoteRequestAcceptance.UNKNOWN, restored.remoteAcceptance)
+
+        val typedDispatch = kotlinx.serialization.json.Json.parseToJsonElement("""{"failed_stage":"model_invocation","dispatched":true,"remote_acceptance":"YES"}""") as kotlinx.serialization.json.JsonObject
+        val dispatched = ProfileFailureRecord.fromProvider("No request was dispatched", "PROVIDER_INVOCATION_FAILED", typedDispatch)
+        assertEquals(true, dispatched.dispatched)
+        assertEquals(RemoteRequestAcceptance.YES, dispatched.remoteAcceptance)
+        assertFalse(dispatched.retryAllowed)
+
+        val uncertain = ProfileFailureRecord.fromProvider("RECONCILIATION_REQUIRED: a previous operation has no receipt", "PROVIDER_INVOCATION_FAILED", details)
+        assertEquals("TOOL_OUTCOME_UNKNOWN", uncertain.category)
+        assertFalse(uncertain.retryAllowed)
+        assertEquals(false, uncertain.requestReplayAllowed)
+    }
+
     @Test fun githubVerificationAndReviewPhasesAndActionsSurviveSerializationWithoutRetryAuthorization() {
         for ((stage, action) in listOf("acceptance_verification" to "RESUME_UNFINISHED_WORK", "review_comparison" to "SELECT_REVIEW_BASELINE", "review_comparison" to "RESTORE_REVIEW_COMPARISON_EVIDENCE", "approval" to null)) {
             val details = kotlinx.serialization.json.buildJsonObject {

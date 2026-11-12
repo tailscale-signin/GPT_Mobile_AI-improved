@@ -78,7 +78,8 @@ internal class IntelligentToolBatch(private val window: AdaptiveBatchWindow, pri
         nodes: List<ToolBatchNode>,
         dispatch: suspend (ProviderEvent.ToolCall) -> AgentToolResult,
         completed: suspend (ProviderEvent.ToolCall, AgentToolResult) -> Unit,
-        progress: suspend (ToolBatchProgress) -> Unit
+        progress: suspend (ToolBatchProgress) -> Unit,
+        restored: Map<String, AgentToolResult> = emptyMap()
     ): List<AgentToolResult> = coroutineScope {
         val batchScope = this
         require(nodes.size <= 1024 && nodes.map { it.call.callId }.distinct().size == nodes.size)
@@ -93,8 +94,8 @@ internal class IntelligentToolBatch(private val window: AdaptiveBatchWindow, pri
             checked += ready.map { it.call.callId }
         }
         data class Completion(val node: ToolBatchNode, val result: AgentToolResult, val elapsed: Long)
-        val receipts = linkedMapOf<String, AgentToolResult>()
-        val pending = nodes.toMutableList()
+        val receipts = restored.filterKeys { it in ids }.toMutableMap()
+        val pending = nodes.filterNot { it.call.callId in receipts }.toMutableList()
         val active = hashSetOf<String>()
         val channel = Channel<Completion>(window.maximum)
         val started = now()

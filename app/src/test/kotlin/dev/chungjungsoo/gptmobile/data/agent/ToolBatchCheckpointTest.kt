@@ -17,6 +17,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -308,6 +309,59 @@ class ToolBatchCheckpointTest {
             assertEquals(calls, ToolBatchCheckpoint(file, "same-task").recoverySnapshot().completedExchanges.single().calls)
         } finally {
             file.delete()
+        }
+    }
+
+    @Test fun partialBatchRestoresAnsweredDecisionAndDefersActionsUntilTheProviderReplans() = runBlocking {
+        for (githubTask in listOf(false, true)) {
+            val file = File.createTempFile("partial-decision", ".json").apply { delete() }
+            try {
+                val question = ProviderEvent.ToolCall("decision", "question_fixture", JsonObject(emptyMap()))
+                val action = ProviderEvent.ToolCall("action", "action_fixture", JsonObject(emptyMap()))
+                val calls = listOf(question, action)
+                val journal = ToolBatchCheckpoint(file, "same-task")
+                journal.enqueue(calls)
+                val answer = AgentToolResult(question.callId, ToolResultContent.Text("Saved answer"), false)
+                journal.complete(question, answer)
+                val tools = calls.map { call ->
+                    object : AgentTool {
+                        override val definition = AgentToolDefinition(
+                            call.name,
+                            "Fixture",
+                            JsonObject(emptyMap()),
+                            capabilities = if (call == question) setOf(AgentToolCapability.USER_DECISION) else emptySet()
+                        )
+
+                        override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult =
+                            error("Recovered batch must not dispatch $callId")
+                    }
+                }
+                var providerRounds = 0
+                val provider = object : AgentProviderSession {
+                    override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                        providerRounds++
+                        val batch = exchanges.single()
+                        assertEquals(calls, batch.calls)
+                        assertEquals(answer.content, batch.results.first().content)
+                        assertTrue(batch.results.first().sharedResult)
+                        assertEquals(action.callId, batch.results.last().callId)
+                        assertFalse(batch.results.last().dispatched)
+                        emit(ProviderEvent.TextDelta("The saved decision is available."))
+                        emit(ProviderEvent.Completed)
+                    }
+                }
+
+                val events = AgentRunner(
+                    AgentRunLimits(githubTask = githubTask),
+                    ToolBatchCheckpoint(file, "same-task")
+                ).run(provider, tools).toList()
+
+                assertEquals(1, providerRounds)
+                assertTrue(events.none { it is AgentRunEvent.ToolStarted })
+                assertEquals(calls, ToolBatchCheckpoint(file, "same-task").recoverySnapshot().completedExchanges.single().calls)
+            } finally {
+                file.delete()
+            }
         }
     }
 

@@ -144,6 +144,7 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedWordingLineageTest.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedAnswerMapping.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedDeliverySession.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/IntelligentToolBatch.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/McpToolMapper.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCommitReconciliation.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/GroqAPIImpl.kt",

@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "c09c5857409024124895d9d2eab1808c05008b678ac61b8e5b3694c7acc8a413",
+  "source_digest": "dc93f838f94889e725ec2c112061f9ba30d8f74d482d513e0aafc8191416e6c4",
   "file_count": 2474,
-  "indexed_line_count": 393213,
+  "indexed_line_count": 393247,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -52,7 +52,7 @@
       "id": "agent_execution",
       "label": "Agent execution and recovery",
       "file_count": 212,
-      "indexed_line_count": 35692
+      "indexed_line_count": 35726
     },
     {
       "id": "agent_tools",
@@ -808,8 +808,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "4e7ad78a9c791d802a6650535802dfc0300a0d4590194ca94890a8747d6eab28",
-      "indexed_lines": 2016
+      "sha256": "53e7c0e27972dd71a6ea01d58848f3d14e74124a3234f8fd9bad1f160be6dd28",
+      "indexed_lines": 2044
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AnswerSegmentChain.kt",
@@ -1627,8 +1627,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/IntelligentToolBatch.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "99c17aed19d1f60c104b5c406373ca9f8fb30dee1b99299cc11763adb2d3b3d1",
-      "indexed_lines": 164
+      "sha256": "009c6ee2ed8db11a9aa7d342f5e904b55c495366b062ad27d480e6a7becf89c6",
+      "indexed_lines": 165
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/LiveToolContext.kt",
@@ -1886,8 +1886,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolBatchPlan.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "182911b14f9c2fc032886f5c210669fc2d8cb188394115a27254cd5cf484dca4",
-      "indexed_lines": 91
+      "sha256": "4619481dbcb25e06cdffd9fc005feab2878df2673fe83e5ad4fc78169890faca",
+      "indexed_lines": 96
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolBudgetPolicy.kt",

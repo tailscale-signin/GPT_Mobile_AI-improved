@@ -6,6 +6,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
 
 /** Task state is persisted alongside its receipts, independently of a provider's terminal frame. */
@@ -55,6 +56,34 @@ internal object GitHubTaskLifecycle {
             put("recovery", "Revalidate the selected profile, connection and grants, then resume from retained receipts. Reconcile uncertain writes before any mutation.")
         }
     )
+
+    /** Use this exact delivered verdict for fresh and retained reports; never borrow another run. */
+    fun acceptanceFailureDetails(verdict: JsonObject, automaticContinuations: Int? = null): JsonObject = buildJsonObject {
+        val originalFailure = verdict["original_failure"] as? JsonObject
+        val extractionCode = (verdict["failure_code"] as? JsonPrimitive)?.contentOrNull
+        val extractionFailure = (verdict["verification_failure"] as? JsonObject)?.takeIf { it["failed_stage"] == JsonPrimitive("claim_extraction") }
+        if (originalFailure == null) {
+            put("failed_stage", if (extractionFailure != null || extractionCode?.startsWith("GITHUB_EXTRACTION_") == true) "claim_extraction" else "acceptance_verification")
+        } else {
+            // A saved primary cause remains primary. Historical attempt flags do
+            // not describe this retained report's current local delivery.
+            listOf("failed_stage", "review_stage")
+                .forEach { key -> originalFailure[key]?.let { put(key, it) } }
+        }
+        extractionFailure?.get("batch")?.let { put("extraction_batch", it) }
+        listOf("extraction_batches_completed", "extraction_batches_total").forEach { key -> verdict[key]?.let { put(key, it) } }
+        val stop = verdict["stop_reason"] as? JsonObject
+        put("stop_reason", originalFailure?.get("stop_reason") ?: stop?.get("code") ?: originalFailure?.get("code") ?: JsonPrimitive("UNVERIFIED_ACCEPTANCE_CRITERIA"))
+        stop?.let { put("acceptance_stop", it) }
+        val domain = originalFailure?.get("failure_domain") ?: verdict["failure_domain"]
+        if (domain != null || originalFailure == null) put("failure_domain", domain ?: JsonPrimitive("APPLICATION_VERIFICATION"))
+        val ledger = verdict["execution_ledger"] as? JsonObject
+        val unresolved = (ledger?.get("unresolved_remote_outcomes") as? JsonPrimitive)?.intOrNull?.let { it > 0 } == true
+        val recovery = if (unresolved) JsonPrimitive("RECONCILE_REMOTE_OUTCOME") else originalFailure?.get("recovery_action") ?: stop?.get("recovery_action") ?: ledger?.get("recovery")
+        if (recovery != null || originalFailure == null) put("recovery_action", recovery ?: JsonPrimitive("RESUME_UNFINISHED_WORK"))
+        automaticContinuations?.let { put("automatic_continuations", it) }
+        listOf("required_criteria", "verified_criteria", "remaining_criteria").forEach { key -> ledger?.get(key)?.let { put(key, it) } }
+    }
 
     /** Absence is explicitly unknown; prior tool dispatch does not prove review dispatch. */
     fun failureMetadata(failure: ProviderEvent.Failed): JsonObject {

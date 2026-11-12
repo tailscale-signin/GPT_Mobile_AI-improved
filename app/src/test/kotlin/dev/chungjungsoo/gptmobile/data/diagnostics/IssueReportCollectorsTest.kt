@@ -128,6 +128,46 @@ class IssueReportCollectorsTest {
         assertFalse(report.approvedPayload().contains("private"))
     }
 
+    @Test fun incompleteTaskPublicationRetainsClosedAcceptanceFactsWithoutPrivateCriteria() = runBlocking {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        flowOf(
+            ApiState.Error(
+                "private task and criterion text",
+                errorCode = "GITHUB_TASK_INCOMPLETE",
+                taskOutcome = "PARTIAL",
+                failureDetails = buildJsonObject {
+                    put("run_id", "exact-incomplete-run")
+                    put("provider_kind", "OPENROUTER")
+                    put("failed_stage", "acceptance_verification")
+                    put("stop_reason", "UNVERIFIED_ACCEPTANCE_CRITERIA")
+                    put("recovery_action", "RESUME_UNFINISHED_WORK")
+                    put("required_criteria", 5)
+                    put("verified_criteria", 4)
+                    put("remaining_criteria", 1)
+                    put("acceptance_stop", buildJsonObject { put("detail", "private source and missing criterion") })
+                }
+            )
+        ).collectApiStateUpdates(onUpdate = { _, _, _ -> })
+        val report = IssueReportIncidents.pending.value.single()
+        val context = requireNotNull(report.context)
+        assertEquals("GITHUB_TASK_INCOMPLETE", report.errorCode)
+        assertEquals(2, context.schemaVersion)
+        assertEquals("CHAT_FAILURE", context.source)
+        assertEquals("OPENROUTER", context.provider)
+        assertEquals("acceptance_verification", context.stage)
+        assertEquals("UNVERIFIED_ACCEPTANCE_CRITERIA", context.reasonCode)
+        assertEquals("RESUME_UNFINISHED_WORK", context.recoveryAction)
+        assertEquals(5, context.requiredCriteria)
+        assertEquals(4, context.verifiedCriteria)
+        assertEquals(1, context.remainingCriteria)
+        assertEquals(null, context.dispatched)
+        assertEquals(null, context.retryable)
+        assertEquals(null, context.invocationIdHash)
+        assertEquals(IssueReportContext.identifierHash("run", "exact-incomplete-run"), context.runIdHash)
+        assertFalse(report.approvedPayload().contains("private"))
+        assertFalse(report.approvedPayload().contains("exact-incomplete-run"))
+    }
+
     @Test fun persistedToolCompletionUsesLocalCallOwnershipAndTypedReceiptFacts() = runBlocking {
         LocalDiagnosticsPolicy.setEnabled(true)
         val event = ToolEvent("event", "actual-run", 1, "actual-call", null, null, "github_read", "github_read__github_api", "{}", null, null, ToolEventStatus.RUNNING, startedAt = 1L)

@@ -330,6 +330,25 @@ class GitHubTaskTrustTest {
             put("task_outcome", "PARTIAL")
             put("completion_verified", false)
             put("verification_failure", "GITHUB_TASK_INCOMPLETE")
+            put(
+                "requirements",
+                JsonArray(
+                    listOf(
+                        buildJsonObject {
+                            put("id", "missing")
+                            put("requirement", "Missing current check evidence")
+                            put("status", "BLOCKED")
+                        }
+                    )
+                )
+            )
+            put(
+                "stop_reason",
+                buildJsonObject {
+                    put("code", "ACCEPTANCE_EVIDENCE_MISSING")
+                    put("recovery_action", "RESUME_UNVERIFIED_REQUIREMENTS")
+                }
+            )
         }
         val book = GitHubEvidenceBook("expired", "o/r", "feature", setOf(read.name), load = { saved[it] }, save = { key, value -> saved[key] = value }, latestVerdict = { verdict })
         val (receipts, epoch) = book.snapshot()
@@ -352,6 +371,18 @@ class GitHubTaskTrustTest {
             assertTrue(if (current.startsWith("show")) text.contains("The saved report contains the verified source observations.") else text.contains("The previous response ended with **GITHUB_TASK_INCOMPLETE**"))
             assertFalse(text.contains("Time limit reached"))
             assertTrue(providerEvents.none { it is ProviderEvent.ToolCall })
+            if (current.startsWith("show")) {
+                val failure = providerEvents.filterIsInstance<ProviderEvent.Failed>().single()
+                assertEquals("GITHUB_TASK_INCOMPLETE", failure.errorCode)
+                assertEquals(JsonPrimitive("acceptance_verification"), failure.failureDetails?.get("failed_stage"))
+                assertEquals(JsonPrimitive("ACCEPTANCE_EVIDENCE_MISSING"), failure.failureDetails?.get("stop_reason"))
+                assertEquals(JsonPrimitive("RESUME_UNVERIFIED_REQUIREMENTS"), failure.failureDetails?.get("recovery_action"))
+                assertEquals(JsonPrimitive(1), failure.failureDetails?.get("required_criteria"))
+                assertEquals(JsonPrimitive(0), failure.failureDetails?.get("verified_criteria"))
+                assertEquals(JsonPrimitive(1), failure.failureDetails?.get("remaining_criteria"))
+                assertFalse(requireNotNull(failure.failureDetails).containsKey("dispatched"))
+                assertTrue(providerEvents.none { it is ProviderEvent.Completed })
+            }
         }
     }
 

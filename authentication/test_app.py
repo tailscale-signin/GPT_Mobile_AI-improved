@@ -1,4 +1,5 @@
 import base64
+import hashlib
 import json
 import re
 import tempfile
@@ -15,7 +16,7 @@ from fastapi.testclient import TestClient
 from authentication.app import create_app
 from authentication.github_broker import Config, challenge_for
 from authentication.issue_report_app import create_app as create_report_app
-from authentication.issue_reports import CONTEXT_FIELDS, CONTEXT_SELECTION_FIELDS, ERROR_CODES, GitHubIssuePublisher, GitHubRequestError, IssueReporter, REPOSITORY, ReportError, issue_from_report, marker
+from authentication.issue_reports import CONTEXT_ACCEPTANCE_REASONS, CONTEXT_ACCEPTANCE_RECOVERY, CONTEXT_FIELDS, CONTEXT_FIELDS_V2, CONTEXT_SELECTION_FIELDS, ERROR_CODES, GitHubIssuePublisher, GitHubRequestError, IssueReporter, REPOSITORY, ReportError, issue_from_report, marker
 
 
 class HttpBoundaryTest(unittest.TestCase):
@@ -101,7 +102,8 @@ class IssueReportHttpTest(unittest.TestCase):
 
     def context(self, **observed):
         result = {"schemaVersion": 1, "occurredAtMillis": self.now * 1000, "source": "CHAT_FAILURE", **observed}
-        result["unavailableFields"] = sorted(CONTEXT_FIELDS - result.keys())
+        fields = CONTEXT_FIELDS_V2 if result["schemaVersion"] == 2 else CONTEXT_FIELDS
+        result["unavailableFields"] = sorted(fields - result.keys())
         return result
 
     def test_typed_capture_privacy_and_reader_failures_keep_specific_context(self):
@@ -125,7 +127,7 @@ class IssueReportHttpTest(unittest.TestCase):
         self.assertEqual(200, response.status_code)
         self.assertEqual({"service": "gpt-mobile-issue-reporter", "version": 1},
                          {key: response.json()[key] for key in ("service", "version")})
-        self.assertEqual([1], response.json()["reportContextVersions"])
+        self.assertEqual([1, 2], response.json()["reportContextVersions"])
         self.assertEqual("no-store", response.headers["cache-control"])
         self.assertFalse(self.issued)
         # Old clients may continue posting their original reports without a
@@ -173,10 +175,89 @@ class IssueReportHttpTest(unittest.TestCase):
         self.assertNotIn("| Reported job identity", body)
         self.assertIn("`jobIdHash`", body.split("Unavailable fields:", 1)[1])
 
+    def test_acceptance_context_preserves_observed_counts_and_keeps_missing_counts_unknown(self):
+        context = self.context(schemaVersion=2, stage="acceptance_verification", provider="OPENROUTER",
+                               reasonCode="UNVERIFIED_ACCEPTANCE_CRITERIA", recoveryAction="RESUME_UNFINISHED_WORK",
+                               requiredCriteria=5, verifiedCriteria=4, remainingCriteria=1, runIdHash="a" * 64)
+        report = {**self.metadata(), "source": "debug", "feature": "chat", "errorCode": "GITHUB_TASK_INCOMPLETE",
+                  "context": context}
+        self.assertEqual(200, self.submit(report).status_code)
+        body = self.issued[-1]["body"]
+        for rendered in (
+            "| Context schema | `2` |", "| Failure stage | `acceptance_verification` |",
+            "| Required acceptance criteria | `5` |", "| Verified acceptance criteria | `4` |",
+            "| Remaining acceptance criteria | `1` |", "| Reason code | `UNVERIFIED_ACCEPTANCE_CRITERIA` |",
+            "| Recovery action | `RESUME_UNFINISHED_WORK` |",
+        ):
+            self.assertIn(rendered, body)
+        self.assertNotIn("| Dispatched |", body)
+        for counts in ({}, {"requiredCriteria": 0, "verifiedCriteria": 0, "remainingCriteria": 0}):
+            with self.subTest(counts=counts):
+                missing_or_zero = self.context(schemaVersion=2, stage="acceptance_verification", **counts)
+                self.assertEqual(200, self.submit({**report, "reportId": str(uuid4()), "context": missing_or_zero}).status_code)
+                body = self.issued[-1]["body"]
+                if counts:
+                    self.assertIn("| Verified acceptance criteria | `0` |", body)
+                else:
+                    self.assertNotIn("| Verified acceptance criteria |", body)
+                    self.assertIn("`verifiedCriteria`", body.split("Unavailable fields:", 1)[1])
+
+    def test_acceptance_context_rejects_unbounded_or_inconsistent_counts_and_wrong_schema(self):
+        invalid_counts = [{field: value} for field in ("requiredCriteria", "verifiedCriteria", "remainingCriteria")
+                          for value in (-1, 100_001, True, 1.5, "5", None)]
+        invalid_counts += [
+            {"requiredCriteria": 5, "verifiedCriteria": 6}, {"requiredCriteria": 5, "remainingCriteria": 6},
+            {"requiredCriteria": 5, "verifiedCriteria": 4, "remainingCriteria": 2},
+            {"requiredCriteria": 5, "verifiedCriteria": 4, "remainingCriteria": 0},
+            {"reasonCode": "private-criterion"}, {"recoveryAction": "EXECUTE_PRIVATE_TOOL"},
+            {"criterionText": "private-criterion"},
+        ]
+        for observed in invalid_counts:
+            with self.subTest(observed=observed):
+                report = {**self.manual(), "context": self.context(schemaVersion=2, **observed)}
+                response = self.submit(report)
+                self.assertEqual(422, response.status_code)
+                self.assertEqual({"error": "INVALID_REPORT"}, response.json())
+        for observed in ({"requiredCriteria": 1}, {"stage": "acceptance_verification"},
+                         {"reasonCode": "UNVERIFIED_ACCEPTANCE_CRITERIA"}, {"recoveryAction": "RESUME_UNFINISHED_WORK"}):
+            with self.subTest(legacy=observed):
+                self.assertEqual(422, self.submit({**self.manual(), "context": self.context(**observed)}).status_code)
+        context = self.context(schemaVersion=2, stage="acceptance_verification")
+        context["unavailableFields"] = sorted(CONTEXT_FIELDS - context.keys())
+        self.assertEqual(422, self.submit({**self.manual(), "context": context}).status_code)
+        self.assertFalse(self.issued)
+
+    def test_acceptance_reasons_and_recovery_actions_accept_only_the_closed_versioned_contract(self):
+        for field, values in (("reasonCode", CONTEXT_ACCEPTANCE_REASONS), ("recoveryAction", CONTEXT_ACCEPTANCE_RECOVERY)):
+            for value in sorted(values):
+                with self.subTest(field=field, value=value):
+                    _, issue = issue_from_report({**self.manual(), "context": self.context(schemaVersion=2, **{field: value})})
+                    self.assertIn(f"`{value}`", issue["body"])
+        for counts in ({"requiredCriteria": 100_000, "verifiedCriteria": 100_000, "remainingCriteria": 0},
+                       {"verifiedCriteria": 1}, {"remainingCriteria": 100_000}):
+            with self.subTest(counts=counts):
+                issue_from_report({**self.manual(), "context": self.context(schemaVersion=2, **counts)})
+
+    def test_original_context_v1_digest_still_reconciles_a_pending_report_without_reposting(self):
+        report = {**self.metadata(), "reportId": "00000000-0000-4000-8000-000000000001", "source": "debug",
+                  "feature": "chat", "errorCode": "PRIVACY_CONFIGURATION",
+                  "context": self.context(stage="provider_admission", provider="OPENROUTER", dispatched=False, remoteAcceptance="NO")}
+        _, issue = issue_from_report(report)
+        # Captured from the context-v1 publisher before context-v2 support was added.
+        original_digest = "833d28740249e1092aa11cc2ee3e4c9e7b442dbfa338c74b5b70f1851c64c031"
+        self.assertEqual(original_digest, hashlib.sha256(json.dumps(issue, sort_keys=True).encode()).hexdigest())
+        with self.reporter._db() as db:
+            db.execute("INSERT INTO reports VALUES (?, ?, 'dispatching', ?, 0, NULL)",
+                       (report["reportId"], original_digest, self.now - 121))
+        self.found = 77
+        self.assertEqual({"reportId": report["reportId"], "number": 77}, self.submit(report).json())
+        self.assertFalse(self.issued)
+        self.assertNotIn("verifiedCriteria", issue["body"])
+
     def test_context_never_accepts_private_values_unknown_fields_or_ambiguous_types(self):
         context = self.context(stage="tool_execution")
         changes = (
-            {"rawMessage": "private-content"}, {"schemaVersion": True}, {"schemaVersion": 2},
+            {"rawMessage": "private-content"}, {"schemaVersion": True}, {"schemaVersion": 3},
             {"source": "private-content"}, {"occurredAtMillis": 0}, {"occurredAtMillis": True},
             {"occurredAtMillis": 10_000_000_000_000}, {"stage": "private-content"},
             {"provider": "private-model"}, {"operation": "private-tool"}, {"httpStatus": True},

@@ -30,6 +30,9 @@ internal data class IssueReportContext(
     val jobState: String? = null,
     val recoveryAction: String? = null,
     val reasonCode: String? = null,
+    val requiredCriteria: Int? = null,
+    val verifiedCriteria: Int? = null,
+    val remainingCriteria: Int? = null,
     val missingFields: List<String>? = null,
     val invalidFields: List<String>? = null,
     val runIdHash: String? = null,
@@ -44,7 +47,8 @@ internal data class IssueReportContext(
 
     private fun withAvailability(): IssueReportContext {
         val present = IssueReport.json.encodeToJsonElement(serializer(), this).jsonObject.keys
-        return copy(unavailableFields = optionalFields.filterNot { it in present })
+        val fields = if (schemaVersion == 2) optionalFields + acceptanceFields else optionalFields
+        return copy(unavailableFields = fields.filterNot { it in present })
     }
 
     companion object {
@@ -55,6 +59,22 @@ internal data class IssueReportContext(
         val jobStates = setOf("QUEUED", "RUNNING", "WAITING_FOR_CLIENT_TOOL", "WAITING_FOR_APPROVAL", "PAUSED", "CANCELLING", "CANCELLED", "COMPLETED", "FAILED")
         val recoveryActions = setOf("OPEN_ACTIVE_JOB", "RETURN_CLIENT_TOOL_RESULTS", "WAIT_FOR_ACTIVE_JOB", "QUEUE_INSTRUCTION", "RESOLVE_ACTIVE_JOB", "RECONCILE_ACTIVE_GATEWAY_JOB", "REFRESH_REPOSITORY_ACCESS", "CHANGE_REPOSITORY", "SELECT_REF", "RECONCILE_OUTCOME", "REVIEW_AUTHORIZATION", "RETRY_AFTER_BACKOFF", "RETRY_AFTER_CONFIGURATION_CHANGE", "MICROPHONE_PERMISSION", "RETRY_RECOGNITION", "RETRY_PLAYBACK", "SPEECH_SERVICE", "SPEECH_LANGUAGE", "LOCAL_MODEL")
         val reasonCodes = setOf("SELECTION_NOT_OBJECT", "SELECTION_SCHEMA_INVALID", "SELECTION_IDENTITY_INVALID", "SELECTION_CREDENTIAL_REFERENCE_INVALID")
+        private val acceptanceReasonCodes = setOf(
+            "UNVERIFIED_ACCEPTANCE_CRITERIA", "ACCEPTED_TASK_DEADLINE_REACHED", "ACCEPTANCE_EVIDENCE_MISSING",
+            "TOOL_BUDGET_EXHAUSTED", "VERIFICATION_RESERVE_REACHED", "FIXTURE_CLEANUP_UNVERIFIED",
+            "AUTHORIZED_CATALOG_INCOMPLETE", "RECORDED_OPERATION_BLOCKERS", "BOUNDED_INVENTORY_SAMPLE_REACHED",
+            "INVENTORY_CONTINUATION_BLOCKED", "CAPABILITY_PREREQUISITES_MISSING", "PRIMARY_EVIDENCE_INCOMPLETE",
+            "SAVED_VIEW_PERSISTENCE_UNAVAILABLE", "RECONCILE_REMOTE_OUTCOME", "RECORDED_EXECUTION_FAILURE",
+            "WAITING_FOR_APPROVAL", "APPROVAL_REJECTED", "GITHUB_EVIDENCE_INCOMPLETE"
+        )
+        private val acceptanceRecoveryActions = setOf(
+            "RESUME_UNFINISHED_WORK", "RESUME_VERIFICATION", "RECONCILE_REMOTE_OUTCOME", "RESUME_UNVERIFIED_REQUIREMENTS",
+            "RECONCILE_CATALOG_CONTRACTS", "RESUME_ISSUED_CATALOG_CONTINUATION", "RECONCILE_CATALOG_SNAPSHOT",
+            "RESOLVE_BOUND_APPROVAL", "RECHECK_OWNED_FIXTURE_PREFLIGHT", "RECONCILE_OWNED_FIXTURE",
+            "REVIEW_REMAINING_SCOPE_AND_BUDGET", "RESOLVE_CAPABILITY_PREREQUISITE", "NEW_TASK_REQUIRED",
+            "RESTORE_AUTHORIZED_CONFIGURATION", "INSPECT_EXECUTION_FAILURE"
+        )
+        private val acceptanceFields = listOf("requiredCriteria", "verifiedCriteria", "remainingCriteria")
         val selectionFields = setOf("profile_uid", "profile_revision", "provider_connection_id", "provider_connection_revision", "provider_kind", "configured_endpoint", "requested_model_id", "generation_parameters", "privacy_scope", "tool_owner", "required_capability_policy", "credential_reference", "credential_account_identity", "approved_alias_mapping")
         val optionalFields = listOf("stage", "provider", "operation", "httpStatus", "retryAfterMillis", "dispatched", "retryable", "resumeAllowed", "requiresReconciliation", "remoteAcceptance", "jobState", "recoveryAction", "reasonCode", "missingFields", "invalidFields", "runIdHash", "invocationIdHash", "callIdHash", "jobIdHash", "activeJobIdHash", "exceptionFingerprint")
 
@@ -98,12 +118,34 @@ internal data class IssueReportContext(
                 dispatchState == "DISPATCHED" -> true
                 else -> null
             }
+            val stage = text("failed_stage", "failedStage", "failurePhase", "phase", "stage")?.lowercase(Locale.ROOT)
+                ?.takeIf { it in stages || it == "acceptance_verification" }
+            val recoveryAction = text("recovery_action", "next_action", "recoveryAction", "nextAction")?.uppercase(Locale.ROOT)
+                ?.takeIf { it in recoveryActions || it in acceptanceRecoveryActions }
+            val reasonCode = text("reasonCode", "reason_code", "stop_reason")?.uppercase(Locale.ROOT)
+                ?.takeIf { it in reasonCodes || it in acceptanceReasonCodes }
+            fun criterionCount(key: String): Int? = number(key)?.takeIf { it in 0..100_000 }?.toInt()
+            val required = criterionCount("required_criteria")
+            val verified = criterionCount("verified_criteria")
+            val remaining = criterionCount("remaining_criteria")
+            val consistent = (required == null || verified == null || verified <= required) &&
+                (required == null || remaining == null || remaining <= required) &&
+                (required == null || verified == null || remaining == null || verified + remaining == required)
+            val requiredCriteria = required.takeIf { consistent }
+            val verifiedCriteria = verified.takeIf { consistent }
+            val remainingCriteria = remaining.takeIf { consistent }
+            val acceptanceContext = stage == "acceptance_verification" ||
+                reasonCode in acceptanceReasonCodes ||
+                recoveryAction in acceptanceRecoveryActions ||
+                requiredCriteria != null ||
+                verifiedCriteria != null ||
+                remainingCriteria != null
             return IssueReportContext(
-                schemaVersion = 1,
+                schemaVersion = if (acceptanceContext) 2 else 1,
                 occurredAtMillis = occurredAtMillis,
                 source = source,
                 unavailableFields = emptyList(),
-                stage = text("failed_stage", "failedStage", "failurePhase", "phase", "stage")?.lowercase(Locale.ROOT)?.takeIf { it in stages },
+                stage = stage,
                 provider = text("provider_kind", "provider", "apiType")?.uppercase(Locale.ROOT)?.takeIf { it in providers },
                 operation = text("operation", "tool", "tool_name")?.substringBefore("__")?.lowercase(Locale.ROOT)?.takeIf { it in operations },
                 httpStatus = number("http_status", "httpStatus", "statusCode")?.takeIf { it in 100..599 }?.toInt(),
@@ -115,8 +157,11 @@ internal data class IssueReportContext(
                 requiresReconciliation = if (flag("command_outcome_unknown") == true || dispatchState == "UNKNOWN_OUTCOME") true else flag("requires_reconciliation", "requiresReconciliation"),
                 remoteAcceptance = text("remote_acceptance", "remoteAcceptance")?.uppercase(Locale.ROOT)?.takeIf { it in setOf("YES", "NO", "UNKNOWN") },
                 jobState = text("active_job_state", "job_state", "jobState")?.uppercase(Locale.ROOT)?.takeIf { it in jobStates },
-                recoveryAction = text("recovery_action", "next_action", "recoveryAction", "nextAction")?.uppercase(Locale.ROOT)?.takeIf { it in recoveryActions },
-                reasonCode = text("reasonCode", "reason_code")?.uppercase(Locale.ROOT)?.takeIf { it in reasonCodes },
+                recoveryAction = recoveryAction,
+                reasonCode = reasonCode,
+                requiredCriteria = requiredCriteria,
+                verifiedCriteria = verifiedCriteria,
+                remainingCriteria = remainingCriteria,
                 missingFields = names("missing_fields"),
                 invalidFields = names("invalid_fields"),
                 runIdHash = identifierHash("run", text("run_id", "runId")),

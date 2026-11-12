@@ -25,14 +25,22 @@ class IssueReportingConfigurationTest(unittest.TestCase):
     def test_service_can_be_the_only_route(self):
         self.assertEqual({"nativeGitHub": False, "reportingService": True}, validate("https://reports.project.org", "false"))
 
-    def test_readiness_is_bound_to_service_and_integer_context_version(self):
+    def test_readiness_supports_current_acceptance_and_retained_legacy_context_versions(self):
         observed = []
         def fetch(url):
             observed.append(url)
-            return b'{"service":"gpt-mobile-issue-reporter","reportContextVersions":[1]}'
+            return b'{"service":"gpt-mobile-issue-reporter","reportContextVersions":[1,2]}'
         check_readiness("https://reports.project.org/", fetch)
         self.assertEqual(["https://reports.project.org/health/ready"], observed)
-        for value in ({"service": "other", "reportContextVersions": [1]}, {"service": "gpt-mobile-issue-reporter", "reportContextVersions": [True]}, {"service": "gpt-mobile-issue-reporter", "reportContextVersions": ["1"]}, {"service": "gpt-mobile-issue-reporter"}):
+        for value in (
+            {"service": "other", "reportContextVersions": [1, 2]},
+            {"service": "gpt-mobile-issue-reporter", "reportContextVersions": [True, 2]},
+            {"service": "gpt-mobile-issue-reporter", "reportContextVersions": ["1", "2"]},
+            {"service": "gpt-mobile-issue-reporter", "reportContextVersions": [1]},
+            {"service": "gpt-mobile-issue-reporter", "reportContextVersions": [2]},
+            {"service": "gpt-mobile-issue-reporter", "reportContextVersions": [1, "2"]},
+            {"service": "gpt-mobile-issue-reporter"},
+        ):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 check_readiness("https://reports.project.org", lambda _: json.dumps(value).encode())
 

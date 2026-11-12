@@ -117,6 +117,44 @@ class IssueReportContextTest {
         assertEquals(raw, restored.approvedPayload())
     }
 
+    @Test fun existingContextVersionKeepsItsApprovedBytesAndAvailabilityAfterRestore() {
+        // Frozen schema-v1 field order and availability, before acceptance fields existed.
+        val approved = """{"reportId":"11111111-1111-4111-8111-111111111111","source":"debug","version":"0.9.66.7","build":141,"commit":"d739321","android":"16","sdk":36,"device":"Device","feature":"chat","errorCode":"CHAT_FAILED","context":{"schemaVersion":1,"occurredAtMillis":1700000000000,"source":"CHAT_FAILURE","unavailableFields":["stage","provider","operation","retryAfterMillis","dispatched","retryable","resumeAllowed","requiresReconciliation","remoteAcceptance","jobState","recoveryAction","reasonCode","missingFields","invalidFields","runIdHash","invocationIdHash","callIdHash","jobIdHash","activeJobIdHash","exceptionFingerprint"],"httpStatus":503}}"""
+        val restored = IssueReport.json.decodeFromString(IssueReport.serializer(), approved)
+        val context = requireNotNull(restored.context)
+        assertEquals(1, context.schemaVersion)
+        assertFalse(context.unavailableFields.any { it.endsWith("Criteria") })
+        assertEquals(approved, restored.approvedPayload())
+        assertEquals(context.unavailableFields.filterNot { it == "exceptionFingerprint" }, context.withException("IllegalStateException", emptyList()).unavailableFields)
+    }
+
+    @Test fun acceptanceCountsRemainUnknownWhenAbsentInvalidOrInconsistent() {
+        val stage = mapOf("failed_stage" to "acceptance_verification")
+        for (counts in listOf(
+            emptyMap(),
+            mapOf("required_criteria" to "5", "verified_criteria" to true, "remaining_criteria" to -1),
+            mapOf("required_criteria" to 100_001, "verified_criteria" to 1.5, "remaining_criteria" to Long.MAX_VALUE),
+            mapOf("required_criteria" to 5, "verified_criteria" to 6),
+            mapOf("required_criteria" to 5, "remaining_criteria" to 6),
+            mapOf("required_criteria" to 5, "verified_criteria" to 4, "remaining_criteria" to 2)
+        )) {
+            val context = IssueReportContext.fromFields("CHAT_FAILURE", stage + counts)
+            assertEquals(2, context.schemaVersion)
+            assertNull(context.requiredCriteria)
+            assertNull(context.verifiedCriteria)
+            assertNull(context.remainingCriteria)
+            assertTrue(context.unavailableFields.containsAll(listOf("requiredCriteria", "verifiedCriteria", "remainingCriteria")))
+        }
+        val zero = IssueReportContext.fromFields("CHAT_FAILURE", stage + mapOf("verified_criteria" to 0))
+        assertEquals(0, zero.verifiedCriteria)
+        assertNull(zero.requiredCriteria)
+        assertNull(zero.remainingCriteria)
+        assertFalse("verifiedCriteria" in zero.unavailableFields)
+        val unknownReason = IssueReportContext.fromFields("CHAT_FAILURE", stage + mapOf("stop_reason" to "private prompt", "recovery_action" to "private instruction"))
+        assertNull(unknownReason.reasonCode)
+        assertNull(unknownReason.recoveryAction)
+    }
+
     @Test fun maximalUnicodeDescriptionEventsFramesAndContextFitTheBrokerByteLimit() {
         val code = IssueReportCodes.allowed.maxBy { it.length }
         val events = List(IssueReport.EVENT_LIMIT) { "-60000ms E gateway $code" }
@@ -139,11 +177,12 @@ class IssueReportContextTest {
             errorType = "E".repeat(64),
             frames = List(8) { "dev.chungjungsoo.gptmobile.${"a".repeat(140)}$it:999999" }
         )
-        for (report in listOf(metadata, debug)) {
+        val acceptance = fullContext().copy(schemaVersion = 2, stage = "acceptance_verification", reasonCode = "UNVERIFIED_ACCEPTANCE_CRITERIA", requiredCriteria = 100_000, verifiedCriteria = 0, remainingCriteria = 100_000)
+        for (report in listOf(metadata, debug, metadata.copy(context = acceptance), debug.copy(context = acceptance))) {
             val bytes = report.approvedPayload().encodeToByteArray()
             assertTrue("Projected report must fit the unchanged broker byte limit: ${bytes.size}", bytes.size <= IssueReport.MAX_PAYLOAD_BYTES)
             assertEquals(16, report.events.size)
-            assertEquals(fullContext(), report.context)
+            assertEquals(if (report.context?.schemaVersion == 2) acceptance else fullContext(), report.context)
         }
         assertEquals(IssueReport.DESCRIPTION_LIMIT, metadata.description!!.length)
     }

@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.github
 
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -52,5 +53,74 @@ class GitHubTaskFailureMetadataTest {
         assertEquals(JsonPrimitive(false), metadata["failed_stage_dispatched"])
         assertEquals(missing, metadata["missing_requirements"])
         assertEquals(GitHubTaskLifecycle.State.PARTIAL, GitHubTaskLifecycle.progress(failure, 1))
+    }
+
+    @Test fun acceptanceDetailsKeepExtractionAndUncertainOutcomePrecedenceWithoutInventingDispatch() {
+        val verdict = buildJsonObject {
+            put("failure_code", "GITHUB_EXTRACTION_OUTPUT_LIMIT")
+            put(
+                "verification_failure",
+                buildJsonObject {
+                    put("failed_stage", "claim_extraction")
+                    put("batch", 2)
+                }
+            )
+            put(
+                "stop_reason",
+                buildJsonObject {
+                    put("code", "ACCEPTANCE_EVIDENCE_MISSING")
+                    put("recovery_action", "RESUME_UNFINISHED_WORK")
+                }
+            )
+            put(
+                "execution_ledger",
+                buildJsonObject {
+                    put("required_criteria", 5)
+                    put("verified_criteria", 4)
+                    put("remaining_criteria", 1)
+                    put("unresolved_remote_outcomes", 1)
+                }
+            )
+        }
+        val details = GitHubTaskLifecycle.acceptanceFailureDetails(verdict)
+        assertEquals(JsonPrimitive("claim_extraction"), details["failed_stage"])
+        assertEquals(JsonPrimitive(2), details["extraction_batch"])
+        assertEquals(JsonPrimitive("ACCEPTANCE_EVIDENCE_MISSING"), details["stop_reason"])
+        assertEquals(JsonPrimitive("RECONCILE_REMOTE_OUTCOME"), details["recovery_action"])
+        assertEquals(JsonPrimitive(5), details["required_criteria"])
+        assertEquals(JsonPrimitive(4), details["verified_criteria"])
+        assertEquals(JsonPrimitive(1), details["remaining_criteria"])
+        assertFalse(details.containsKey("dispatched"))
+        assertFalse(details.containsKey("automatic_continuations"))
+        val unknown = GitHubTaskLifecycle.acceptanceFailureDetails(JsonObject(emptyMap()))
+        assertFalse(unknown.containsKey("required_criteria"))
+        assertFalse(unknown.containsKey("verified_criteria"))
+        assertFalse(unknown.containsKey("remaining_criteria"))
+    }
+
+    @Test fun retainedPrimaryFailureKeepsItsStageAndCannotAcquireMissingDispatchFacts() {
+        val review = buildJsonObject {
+            put(
+                "original_failure",
+                buildJsonObject {
+                    put("code", "GITHUB_REVIEW_UNAVAILABLE")
+                    put("failed_stage", "answer_review")
+                    put("dispatched", true)
+                    put("retryable", false)
+                    put("remote_acceptance", "YES")
+                }
+            )
+            put("execution_ledger", buildJsonObject { put("recovery", "RESUME_VERIFICATION") })
+        }
+        val details = GitHubTaskLifecycle.acceptanceFailureDetails(review)
+        assertEquals(JsonPrimitive("answer_review"), details["failed_stage"])
+        assertFalse(details.containsKey("dispatched"))
+        assertFalse(details.containsKey("retryable"))
+        assertFalse(details.containsKey("remote_acceptance"))
+        assertEquals(JsonPrimitive("RESUME_VERIFICATION"), details["recovery_action"])
+        val unrecorded = GitHubTaskLifecycle.acceptanceFailureDetails(buildJsonObject { put("original_failure", buildJsonObject { put("code", "NETWORK_TIMEOUT") }) })
+        assertFalse(unrecorded.containsKey("failed_stage"))
+        assertFalse(unrecorded.containsKey("dispatched"))
+        assertFalse(unrecorded.containsKey("failure_domain"))
     }
 }

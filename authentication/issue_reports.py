@@ -259,13 +259,37 @@ CONTEXT_ENUMS = {
                        "RETRY_RECOGNITION", "RETRY_PLAYBACK", "SPEECH_SERVICE", "SPEECH_LANGUAGE", "LOCAL_MODEL"},
     "reasonCode": {"SELECTION_NOT_OBJECT", "SELECTION_SCHEMA_INVALID", "SELECTION_IDENTITY_INVALID", "SELECTION_CREDENTIAL_REFERENCE_INVALID"},
 }
+CONTEXT_ACCEPTANCE_REASONS = {
+    "UNVERIFIED_ACCEPTANCE_CRITERIA", "ACCEPTED_TASK_DEADLINE_REACHED", "ACCEPTANCE_EVIDENCE_MISSING",
+    "TOOL_BUDGET_EXHAUSTED", "VERIFICATION_RESERVE_REACHED", "FIXTURE_CLEANUP_UNVERIFIED",
+    "AUTHORIZED_CATALOG_INCOMPLETE", "RECORDED_OPERATION_BLOCKERS", "BOUNDED_INVENTORY_SAMPLE_REACHED",
+    "INVENTORY_CONTINUATION_BLOCKED", "CAPABILITY_PREREQUISITES_MISSING", "PRIMARY_EVIDENCE_INCOMPLETE",
+    "SAVED_VIEW_PERSISTENCE_UNAVAILABLE", "RECONCILE_REMOTE_OUTCOME", "RECORDED_EXECUTION_FAILURE",
+    "WAITING_FOR_APPROVAL", "APPROVAL_REJECTED", "GITHUB_EVIDENCE_INCOMPLETE",
+}
+CONTEXT_ACCEPTANCE_RECOVERY = {
+    "RESUME_UNFINISHED_WORK", "RESUME_VERIFICATION", "RECONCILE_REMOTE_OUTCOME", "RESUME_UNVERIFIED_REQUIREMENTS",
+    "RECONCILE_CATALOG_CONTRACTS", "RESUME_ISSUED_CATALOG_CONTINUATION", "RECONCILE_CATALOG_SNAPSHOT",
+    "RESOLVE_BOUND_APPROVAL", "RECHECK_OWNED_FIXTURE_PREFLIGHT", "RECONCILE_OWNED_FIXTURE",
+    "REVIEW_REMAINING_SCOPE_AND_BUDGET", "RESOLVE_CAPABILITY_PREREQUISITE", "NEW_TASK_REQUIRED",
+    "RESTORE_AUTHORIZED_CONFIGURATION", "INSPECT_EXECUTION_FAILURE",
+}
+CONTEXT_ENUMS_V2 = {
+    **CONTEXT_ENUMS,
+    "stage": CONTEXT_ENUMS["stage"] | {"acceptance_verification"},
+    "reasonCode": CONTEXT_ENUMS["reasonCode"] | CONTEXT_ACCEPTANCE_REASONS,
+    "recoveryAction": CONTEXT_ENUMS["recoveryAction"] | CONTEXT_ACCEPTANCE_RECOVERY,
+}
 CONTEXT_NUMBERS = {"occurredAtMillis": (1, 9_999_999_999_999), "httpStatus": (100, 599), "retryAfterMillis": (0, 86_400_000)}
+CONTEXT_ACCEPTANCE_NUMBERS = {"requiredCriteria": (0, 100_000), "verifiedCriteria": (0, 100_000), "remainingCriteria": (0, 100_000)}
 CONTEXT_FLAGS = {"dispatched", "retryable", "resumeAllowed", "requiresReconciliation"}
 CONTEXT_HASHES = {"runIdHash", "invocationIdHash", "callIdHash", "jobIdHash", "activeJobIdHash", "exceptionFingerprint"}
 CONTEXT_SELECTION_FIELDS = {"profile_uid", "profile_revision", "provider_connection_id", "provider_connection_revision", "provider_kind",
                             "configured_endpoint", "requested_model_id", "generation_parameters", "privacy_scope", "tool_owner",
                             "required_capability_policy", "credential_reference", "credential_account_identity", "approved_alias_mapping"}
 CONTEXT_FIELDS = (set(CONTEXT_ENUMS) | set(CONTEXT_NUMBERS) | CONTEXT_FLAGS | CONTEXT_HASHES | {"missingFields", "invalidFields"}) - {"source", "occurredAtMillis"}
+CONTEXT_FIELDS_V2 = CONTEXT_FIELDS | set(CONTEXT_ACCEPTANCE_NUMBERS)
+CONTEXT_VERSION_FIELDS = {1: CONTEXT_FIELDS, 2: CONTEXT_FIELDS_V2}
 CONTEXT_LABELS = {
     "stage": "Failure stage", "provider": "Provider family", "operation": "Operation family", "httpStatus": "HTTP status",
     "retryAfterMillis": "Retry delay (ms)", "dispatched": "Dispatched", "retryable": "Retryable", "resumeAllowed": "Resume allowed",
@@ -274,6 +298,8 @@ CONTEXT_LABELS = {
     "invalidFields": "Invalid selection fields", "runIdHash": "Run identity SHA-256", "invocationIdHash": "Invocation identity SHA-256",
     "callIdHash": "Call identity SHA-256", "jobIdHash": "Reported job identity SHA-256", "activeJobIdHash": "Active job identity SHA-256",
     "exceptionFingerprint": "Exception type/frame fingerprint SHA-256",
+    "requiredCriteria": "Required acceptance criteria", "verifiedCriteria": "Verified acceptance criteria",
+    "remainingCriteria": "Remaining acceptance criteria",
 }
 
 
@@ -313,15 +339,31 @@ def marker(report_id):
 
 def _report_context(value):
     required = {"schemaVersion", "occurredAtMillis", "source", "unavailableFields"}
-    if not isinstance(value, dict) or not required <= value.keys() or set(value) - required - CONTEXT_FIELDS:
+    if not isinstance(value, dict) or not required <= value.keys():
         raise ReportError(422, "INVALID_REPORT")
-    if type(value["schemaVersion"]) is not int or value["schemaVersion"] != 1:
+    version = value["schemaVersion"]
+    if type(version) is not int or version not in CONTEXT_VERSION_FIELDS:
         raise ReportError(422, "INVALID_REPORT")
-    for key, choices in CONTEXT_ENUMS.items():
+    fields = CONTEXT_VERSION_FIELDS[version]
+    if set(value) - required - fields:
+        raise ReportError(422, "INVALID_REPORT")
+    enums = CONTEXT_ENUMS if version == 1 else CONTEXT_ENUMS_V2
+    for key, choices in enums.items():
         if key in value and (not isinstance(value[key], str) or value[key] not in choices):
             raise ReportError(422, "INVALID_REPORT")
-    for key, (low, high) in CONTEXT_NUMBERS.items():
+    numbers = CONTEXT_NUMBERS if version == 1 else {**CONTEXT_NUMBERS, **CONTEXT_ACCEPTANCE_NUMBERS}
+    for key, (low, high) in numbers.items():
         if key in value and (type(value[key]) is not int or not low <= value[key] <= high):
+            raise ReportError(422, "INVALID_REPORT")
+    if version == 2:
+        required_count = value.get("requiredCriteria")
+        verified_count = value.get("verifiedCriteria")
+        remaining_count = value.get("remainingCriteria")
+        if required_count is not None and (
+            verified_count is not None and verified_count > required_count
+            or remaining_count is not None and remaining_count > required_count
+            or verified_count is not None and remaining_count is not None and verified_count + remaining_count != required_count
+        ):
             raise ReportError(422, "INVALID_REPORT")
     for key in CONTEXT_FLAGS:
         if key in value and type(value[key]) is not bool:
@@ -334,17 +376,17 @@ def _report_context(value):
             names = _lines(value, key, len(CONTEXT_SELECTION_FIELDS), lambda name: name in CONTEXT_SELECTION_FIELDS)
             if len(names) != len(set(names)):
                 raise ReportError(422, "INVALID_REPORT")
-    unavailable = _lines(value, "unavailableFields", len(CONTEXT_FIELDS), lambda name: name in CONTEXT_FIELDS)
+    unavailable = _lines(value, "unavailableFields", len(fields), lambda name: name in fields)
     # Omitted observations remain explicit. An absent dispatch fact cannot be
     # presented as false, and an unknown field cannot carry arbitrary metadata.
-    if len(unavailable) != len(set(unavailable)) or set(unavailable) != CONTEXT_FIELDS - value.keys():
+    if len(unavailable) != len(set(unavailable)) or set(unavailable) != fields - value.keys():
         raise ReportError(422, "INVALID_REPORT")
     return value
 
 
 def _context_body(context):
     occurred = datetime.fromtimestamp(context["occurredAtMillis"] / 1000, timezone.utc).isoformat(timespec="milliseconds")
-    rows = [("Context schema", "1"), ("Client occurrence time", occurred), ("Capture source", context["source"])]
+    rows = [("Context schema", str(context["schemaVersion"])), ("Client occurrence time", occurred), ("Capture source", context["source"])]
     for key, label in CONTEXT_LABELS.items():
         if key not in context:
             continue

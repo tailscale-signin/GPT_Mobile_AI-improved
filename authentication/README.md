@@ -149,14 +149,16 @@ looks for the original issue.
 ### Report context and rollout compatibility
 
 The ready response preserves `service: "gpt-mobile-issue-reporter"` and
-`version: 1`, and advertises `reportContextVersions: [1]`. Clients with a
-context-bearing report check this capability before the first submission. An
-older service without that field has not declared support: the app retains the
-approved report and displays a native service-update requirement. It must not
-silently strip context or change a previously submitted payload. Deploy the
-updated reporter before enabling context-bearing submissions in a release.
+`version: 1`, and advertises `reportContextVersions: [1, 2]`. Clients with a
+context-bearing report check support for that report's schema before the first
+submission. An older service without the required version has not declared
+support: the app retains the approved report and displays a native
+service-update requirement. It must not silently strip context or change a
+previously submitted payload. Deploy the updated reporter before shipping a
+hosted reporting route; the distribution readiness check requires both versions
+so current reports and retained legacy reports remain supported.
 
-The optional top-level `context` object has `schemaVersion: 1`, a bounded client
+The optional top-level `context` object has a schema version, a bounded client
 occurrence timestamp, a fixed capture-source enum, and `unavailableFields`.
 Optional observations use only fixed stage/provider/operation/recovery enums,
 typed HTTP status and relative retry delay, dispatch/retry/reconciliation
@@ -168,11 +170,18 @@ messages, URLs, tool arguments, model names and original run/job/call IDs are
 not accepted in this context. The existing approved manual description remains
 a separate, bounded, redacted user-authored field.
 
+Schema 1 remains unchanged. Schema 2 adds fixed GitHub acceptance stop/recovery
+codes and the optional integer fields `requiredCriteria`, `verifiedCriteria`
+and `remainingCriteria` (0 through 100,000). Supplied counts must be consistent;
+missing counts stay unknown and are never replaced with zero. The app selects
+schema 2 only when it has this newer acceptance metadata. Each version has its
+own exact `unavailableFields` contract. Neither schema accepts criterion text.
+
 The rendered issue shows captured causal facts and unavailable observations
 separately. A missing field does not establish success, non-dispatch or safe
 retry. The full JSON request still has an 8 KiB maximum. Legacy reports without
-`context` retain their original rendering so previously queued report digests
-remain valid.
+`context`, and existing schema-1 reports, retain their original rendering so
+previously queued report digests remain valid.
 
 Successful submissions return `{"reportId":"<original UUID>","number":42}`.
 Context-bearing submissions require that matching report ID before the app

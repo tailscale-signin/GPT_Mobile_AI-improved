@@ -98,6 +98,45 @@ class IssueReportSubmissionTest {
         assertEquals(listOf(approved, approved), posted)
     }
 
+    @Test fun acceptanceContextWaitsForVersionTwoWithoutDispatchingOrChangingApprovedEvidence() {
+        val context = IssueReportContext.fromFields(
+            "CHAT_FAILURE",
+            mapOf(
+                "failed_stage" to "acceptance_verification",
+                "stop_reason" to "UNVERIFIED_ACCEPTANCE_CRITERIA",
+                "required_criteria" to 5,
+                "verified_criteria" to 4,
+                "remaining_criteria" to 1
+            ),
+            occurredAtMillis = 1_000L
+        )
+        assertEquals(2, context.schemaVersion)
+        val approved = report.copy(context = context).approvedPayload()
+        val posted = mutableListOf<String>()
+        var dispatchMarkers = 0
+        var readiness = """{"service":"gpt-mobile-issue-reporter","version":1,"reportContextVersions":[1]}"""
+        val client = OkHttpClient.Builder().addInterceptor { chain ->
+            val request = chain.request()
+            if (request.method == "GET") {
+                response(request, 200, readiness)
+            } else {
+                posted += body(request)
+                response(request, 200, """{"reportId":"${report.reportId}","number":742}""")
+            }
+        }.build()
+        val submission = IssueReportSubmission(origin, client)
+        val stopped = submission.send(report.reportId, approved) { dispatchMarkers++ } as IssueReportSubmission.Failure
+        assertEquals("REPORT_SERVICE_UPDATE_REQUIRED", stopped.code)
+        assertTrue(stopped.retryable)
+        assertFalse(stopped.automaticRetry)
+        assertEquals(0, dispatchMarkers)
+        assertTrue(posted.isEmpty())
+        readiness = """{"service":"gpt-mobile-issue-reporter","version":1,"reportContextVersions":[1,2]}"""
+        assertEquals(IssueReportSubmission.Confirmed(742), submission.send(report.reportId, approved) { dispatchMarkers++ })
+        assertEquals(1, dispatchMarkers)
+        assertEquals(listOf(approved), posted)
+    }
+
     @Test fun transientAndPermanentRejectionsHaveBoundedSafeMetadataAndRetryDeadlines() {
         val client = OkHttpClient.Builder().addInterceptor { response(it.request(), 429, """{"error":"RATE_LIMITED","private":"must not be surfaced"}""", "120") }.build()
         val failure = IssueReportSubmission(origin, client) { 10_000L }.send(report.reportId, report.approvedPayload()) as IssueReportSubmission.Failure

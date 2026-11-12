@@ -37,8 +37,9 @@ def check_readiness(origin, fetch=None):
         raise ValueError("Reporter readiness exceeded the app's response bound")
     value = json.loads(data)
     versions = value.get("reportContextVersions") if isinstance(value, dict) else None
-    if not isinstance(value, dict) or value.get("service") != "gpt-mobile-issue-reporter" or not isinstance(versions, list) or not any(type(version) is int and version == 1 for version in versions):
-        raise ValueError("Reporter readiness must identify gpt-mobile-issue-reporter and support reportContextVersions [1]")
+    supported = {version for version in versions if type(version) is int} if isinstance(versions, list) else set()
+    if not isinstance(value, dict) or value.get("service") != "gpt-mobile-issue-reporter" or not {1, 2} <= supported:
+        raise ValueError("Reporter readiness must identify gpt-mobile-issue-reporter and support reportContextVersions [1, 2]")
 
 
 def main():

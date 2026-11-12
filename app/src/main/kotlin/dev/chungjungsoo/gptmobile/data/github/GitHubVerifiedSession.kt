@@ -476,7 +476,15 @@ internal class GitHubVerifiedSession(
         if (delivered["completion_verified"] == kotlinx.serialization.json.JsonPrimitive(true)) {
             emit(ProviderEvent.Completed)
         } else {
-            emit(ProviderEvent.Failed("The saved report was delivered. Its unfinished task requirements remain recorded; no tool operation was repeated.", errorCode = "GITHUB_TASK_INCOMPLETE", transportComplete = true, taskOutcome = "PARTIAL"))
+            emit(
+                ProviderEvent.Failed(
+                    "The saved report was delivered. Its unfinished task requirements remain recorded; no tool operation was repeated.",
+                    errorCode = "GITHUB_TASK_INCOMPLETE",
+                    transportComplete = true,
+                    taskOutcome = "PARTIAL",
+                    failureDetails = GitHubTaskLifecycle.acceptanceFailureDetails(delivered)
+                )
+            )
         }
     }
 
@@ -978,21 +986,7 @@ internal class GitHubVerifiedSession(
                             put("pending_approvals", delivered["pending_approvals"] ?: (delivered["execution_ledger"] as? JsonObject)?.get("pending_approvals") ?: JsonArray(emptyList()))
                         }
                     } else {
-                        originalFailure?.failureDetails ?: buildJsonObject {
-                            val extractionFailure = (delivered["verification_failure"] as? JsonObject)?.takeIf { it["failed_stage"] == JsonPrimitive("claim_extraction") }
-                            put("failed_stage", if (extractionFailure != null || extractionCode?.startsWith("GITHUB_EXTRACTION_") == true) "claim_extraction" else "acceptance_verification")
-                            extractionFailure?.get("batch")?.let { put("extraction_batch", it) }
-                            listOf("extraction_batches_completed", "extraction_batches_total").forEach { key -> delivered[key]?.let { put(key, it) } }
-                            val stop = delivered["stop_reason"] as? JsonObject
-                            put("stop_reason", stop?.get("code") ?: kotlinx.serialization.json.JsonPrimitive("UNVERIFIED_ACCEPTANCE_CRITERIA"))
-                            stop?.let { put("acceptance_stop", it) }
-                            put("failure_domain", "APPLICATION_VERIFICATION")
-                            put("recovery_action", if (unresolved) kotlinx.serialization.json.JsonPrimitive("RECONCILE_REMOTE_OUTCOME") else stop?.get("recovery_action") ?: kotlinx.serialization.json.JsonPrimitive("RESUME_UNFINISHED_WORK"))
-                            put("automatic_continuations", progressCorrections)
-                            (delivered["execution_ledger"] as? JsonObject)?.let { ledger ->
-                                listOf("required_criteria", "verified_criteria", "remaining_criteria").forEach { key -> ledger[key]?.let { put(key, it) } }
-                            }
-                        }
+                        originalFailure?.failureDetails ?: GitHubTaskLifecycle.acceptanceFailureDetails(delivered, progressCorrections)
                     }
                 )
             )

@@ -1,0 +1,66 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "97f10ff7a1f3789fb82d958b2dc6b22c8074dfdf",
+  "working_branch": "fix/session-reliability-reporting-2026-11-12",
+  "starting_head": "ddbea3a98d8ab5c38fbfec6d6b2a5be789382e2e",
+  "task_store": "engineering_agent_checkpoints",
+  "task_store_key": "open-issues-verification-2026-11-12",
+  "checkpoint_storage": "repository_file",
+  "state": "SOURCE_VALIDATED_PENDING_HOSTED_ANDROID",
+  "intent": "Review all ten open bug reports, implement remaining reproducible source defects, validate the published changes and close only issues with matching resolution evidence.",
+  "open_issues_at_start": [
+    839,
+    840,
+    841,
+    842,
+    843,
+    844,
+    845,
+    846,
+    847,
+    848
+  ],
+  "publication": {
+    "mode": "GUARDED_FAST_FORWARD_ONLY",
+    "force": false,
+    "pull_request": 838
+  },
+  "validation": {
+    "published_source_head": "ddbea3a98d8ab5c38fbfec6d6b2a5be789382e2e",
+    "run_id": 43281518258,
+    "unit_job_id": 131404145679,
+    "production_compilation": "PASSED",
+    "test_compilation": "PASSED",
+    "full_unit_and_coverage_step": "PASSED",
+    "unit_job_overall": "IN_PROGRESS_APK_PACKAGING",
+    "new_completion_context_regressions": "SERVICE_AND_READINESS_PASSED; ANDROID_HOSTED_RUN_PENDING",
+    "constrained_heap_steps": "PASSED",
+    "test_result_publication": "PASSED",
+    "context_service_and_readiness": "PASSED_38_TESTS",
+    "new_source_host_gate": "PASSED_472_TESTS",
+    "new_source_authentication": "PASSED_52_TESTS",
+    "new_source_kotlin_style": "PASSED_PINNED_KTLINT_1_3_1",
+    "new_source_device": "NOT_RUN_NO_AFFECTED_DEVICE"
+  },
+  "remaining_evidence": {
+    "841": "Affected ASUS device focus acquisition and actual captured PCM after the published repair remain unobserved.",
+    "848": "Original incomplete task report omits failed criterion and stop reason. Repair its completion-context projection, but do not assume the underlying task cause matches older status incidents."
+  },
+  "closed_issues": [
+    839,
+    840,
+    842,
+    843,
+    844,
+    845,
+    846,
+    847
+  ],
+  "remaining_open_issues": [
+    841,
+    848
+  ],
+  "repair_register": "docs/repairs/open-issues-verification-2026-11-12.md"
+}

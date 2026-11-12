@@ -17,6 +17,7 @@ def install_terminal_guard(runtime):
     update = runtime.update_gateway_job
     register = runtime.register_gateway_job
     cancel = runtime.cancel_gateway_job
+    disconnect = runtime.mark_gateway_job_disconnected
     def guarded_register(job_id, *args, **kwargs):
         with runtime.job_registry_lock:
             previous = runtime.job_registry.get(job_id)
@@ -104,9 +105,24 @@ def install_terminal_guard(runtime):
                     job.clear()
                     job.update(snapshot)
                 raise
+    def guarded_disconnect(job_id):
+        # A failed commit must leave the transition available for a later
+        # disconnect to retry. Keep the lock through commit/rollback so a
+        # reconnect or completion cannot be replaced by the old snapshot.
+        with runtime.job_registry_lock:
+            job = runtime.job_registry.get(job_id)
+            snapshot = dict(job) if job is not None else None
+            try:
+                return disconnect(job_id)
+            except Exception:
+                if job is not None and snapshot is not None:
+                    job.clear()
+                    job.update(snapshot)
+                raise
     runtime.finish_gateway_job = guarded_finish
     runtime.update_gateway_job = guarded_update
     runtime.register_gateway_job = guarded_register
+    runtime.mark_gateway_job_disconnected = guarded_disconnect
 
     def guarded_cancel(job_id):
         runtime.ensure_gateway_job_loaded(job_id)

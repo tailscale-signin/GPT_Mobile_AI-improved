@@ -138,6 +138,56 @@ class JournalTests(unittest.TestCase):
         self.assertEqual(first_updated_at, self.runtime.job_registry[job_id]['updated_at'])
         self.assertTrue(self.runtime.gateway_continue_disconnected(job_id))
 
+    def test_failed_disconnect_commit_remains_retryable_and_recovers_journal_health(self):
+        job_id = 'durable-disconnect-commit-retry'
+        soft, hard = threading.Event(), threading.Event()
+        with self.client():
+            self.runtime.register_gateway_job(job_id, 'local', 'interactive', soft, hard)
+            self.store.claim(job_id, 'local:single-user')
+            before = dict(self.runtime.job_registry[job_id])
+            with patch.object(self.runtime, '_durable_connect', side_effect=sqlite3.OperationalError('disk unavailable')):
+                with self.assertRaises(DurableCommitError):
+                    self.runtime.mark_gateway_job_disconnected(job_id)
+            self.assertEqual(before, self.runtime.job_registry[job_id])
+            self.assertFalse(self.runtime.durable_write_healthy)
+            self.assertFalse(self.gateway.service.snapshot()['queueAvailable'])
+            with closing(sqlite3.connect(self.db)) as db:
+                saved = json.loads(db.execute('SELECT public_json FROM gateway_jobs WHERE job_id=?', (job_id,)).fetchone()[0])
+            self.assertFalse(saved['disconnected'])
+
+            # A failed commit must not consume the false-to-true transition.
+            # A later disconnect retries the write; successful duplicates do not.
+            with patch.object(self.runtime, 'durable_persist_job', wraps=self.runtime.durable_persist_job) as persist:
+                self.runtime.mark_gateway_job_disconnected(job_id)
+                self.runtime.mark_gateway_job_disconnected(job_id)
+            persist.assert_called_once_with(job_id)
+            self.assertTrue(self.runtime.durable_write_healthy)
+            self.assertTrue(self.gateway.service.snapshot()['queueAvailable'])
+            self.assertTrue(self.runtime.gateway_continue_disconnected(job_id))
+            with closing(sqlite3.connect(self.db)) as db:
+                saved = json.loads(db.execute('SELECT public_json FROM gateway_jobs WHERE job_id=?', (job_id,)).fetchone()[0])
+            self.assertTrue(saved['disconnected'])
+            self.assertEqual(before['generation'], self.runtime.job_registry[job_id]['generation'])
+
+    def test_reconnect_allows_the_next_disconnect_transition_to_commit_once(self):
+        job_id = 'durable-disconnect-reconnect'
+        soft, hard = threading.Event(), threading.Event()
+        self.runtime.register_gateway_job(job_id, 'local', 'interactive', soft, hard)
+        self.store.claim(job_id, 'local:single-user')
+        self.runtime.mark_gateway_job_disconnected(job_id)
+        self.runtime.register_gateway_job(job_id, 'local', 'interactive', soft, hard)
+        self.assertFalse(self.runtime.job_registry[job_id]['disconnected'])
+        with closing(sqlite3.connect(self.db)) as db:
+            saved = json.loads(db.execute('SELECT public_json FROM gateway_jobs WHERE job_id=?', (job_id,)).fetchone()[0])
+        self.assertFalse(saved['disconnected'])
+        with patch.object(self.runtime, 'durable_persist_job', wraps=self.runtime.durable_persist_job) as persist:
+            self.runtime.mark_gateway_job_disconnected(job_id)
+            self.runtime.mark_gateway_job_disconnected(job_id)
+        persist.assert_called_once_with(job_id)
+        with closing(sqlite3.connect(self.db)) as db:
+            saved = json.loads(db.execute('SELECT public_json FROM gateway_jobs WHERE job_id=?', (job_id,)).fetchone()[0])
+        self.assertTrue(saved['disconnected'])
+
     def test_retained_interrupted_job_is_terminal_even_without_result_after_restart(self):
         job_id = 'interrupted-without-result'
         self.runtime.register_gateway_job(job_id, 'local', 'interactive', threading.Event(), threading.Event())

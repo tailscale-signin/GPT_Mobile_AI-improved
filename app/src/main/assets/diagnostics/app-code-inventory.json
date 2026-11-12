@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "6e8901de575b444070c38ffdfe123a9f889d14c26a351f793ec42736a0f23489",
+  "source_digest": "3603eec414ded9cdeab72a80ec93f394f030c8cf3ebba6adfd190dd1314e2bfd",
   "file_count": 2492,
-  "indexed_line_count": 396211,
+  "indexed_line_count": 396232,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -58,7 +58,7 @@
       "id": "agent_tools",
       "label": "Built-in tool routing and execution",
       "file_count": 99,
-      "indexed_line_count": 21832
+      "indexed_line_count": 21837
     },
     {
       "id": "mcp_plugins",
@@ -166,7 +166,7 @@
       "id": "gateway_software",
       "label": "Companion gateway software",
       "file_count": 118,
-      "indexed_line_count": 64135
+      "indexed_line_count": 64151
     },
     {
       "id": "authentication_service",
@@ -2201,8 +2201,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/AgentToolResolver.kt",
       "area_id": "agent_tools",
       "kind": "source",
-      "sha256": "fefb85f88af9e3846c87debc8277bebf04e9ce7f64330e148ab71694290687ff",
-      "indexed_lines": 2029
+      "sha256": "67473cb67f46db8753fd9778476e6f0a7760aef5984dd764998ee5eae3022187",
+      "indexed_lines": 2034
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/AirbnbMcpResultTool.kt",
@@ -17272,8 +17272,8 @@
       "path": "gateway/v14/jobs.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "95e343f1eea89018ce73349edc15991f01e2062c67aecab54a8a3a31d2b71db1",
-      "indexed_lines": 374
+      "sha256": "274ca9a403c0d1524fdee6d0128b430f643a4b5906d67b1c825e662044f6ee5d",
+      "indexed_lines": 390
     },
     {
       "path": "gateway/v14/journal.py",

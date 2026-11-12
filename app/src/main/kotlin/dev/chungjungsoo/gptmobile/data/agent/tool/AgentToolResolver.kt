@@ -1539,6 +1539,9 @@ class AgentToolResolver @Inject constructor(
     private fun scopedGitHubMessage(message: MessageV2?, context: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext?): MessageV2? {
         if (message == null || context == null) return message
         if (dev.chungjungsoo.gptmobile.data.agent.CurrentRequestContract.from(message.content).conversational) return message
+        // The workspace prompt includes general engineering tool names. It must not
+        // turn the current user's bounded status request into a source/write task.
+        if (dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.matches(message.content)) return message
         return message.copy(content = context.promptContext(message.content) + "\n\n" + message.content)
     }
 
@@ -1562,7 +1565,9 @@ class AgentToolResolver @Inject constructor(
         // These are schemas, never permissions: execution still validates grants,
         // approval, repository scope, expected SHAs and GitHub endpoint access.
         val capabilities = GitHubOperationTool.taskTools(selectedTask)
-        val selected = if (capabilities.isEmpty()) {
+        // Capability prefixes preserve long engineering tasks, but would hide a
+        // short status intent from the catalogue's request-start matcher.
+        val selected = if (capabilities.isEmpty() || dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.matches(selectedTask)) {
             selectedTask.take(4096)
         } else {
             (capabilities.joinToString(" ") + "\n" + selectedTask).take(4096)

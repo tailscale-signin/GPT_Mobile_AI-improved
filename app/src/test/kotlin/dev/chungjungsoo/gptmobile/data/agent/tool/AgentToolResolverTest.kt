@@ -1371,18 +1371,78 @@ class AgentToolResolverTest {
     @Test fun telemetryEnabledStillPublishesCompactGithubOperationsAndHonorsRevocation() = runBlocking {
         val profile = PlatformV2(uid = "profile", name = "Writer")
         val settings = ResolverFakeSettingRepository(listOf(profile))
+        val uninstrumented = resolver(settings = settings)
         val resolver = resolver(settings = settings, statistics = mockk(relaxed = true))
-        for (task in listOf("check repo status", "show git branches", "inspect commits")) {
-            val tools = resolver.resolve(profile.uid, userMessage = dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(content = task, platformType = null))
+        val expected = mapOf(
+            "check repo status" to setOf("github_context", "github_pr"),
+            "show git branches" to setOf("github_context", "github_search", "github_read"),
+            "inspect commits" to setOf("github_context", "github_search", "github_read")
+        )
+        for ((task, operations) in expected) {
+            val message = dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(content = task, platformType = null)
+            val tools = resolver.resolve(profile.uid, userMessage = message)
             assertTrue(tools.any { it.realToolName == "github_context" })
             val catalog = requireNotNull(tools.firstNotNullOfOrNull { it.progressiveCatalog })
             val schemas = catalog.selected(tools.map { it.tool.definition })
-            assertTrue(schemas.any { it.name == "github_context" })
+            assertEquals(task, operations + dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog.NAME, schemas.map { it.name }.toSet())
             assertFalse(schemas.any { it.name == "github" })
-            assertTrue(schemas.sumOf { dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog.schemaTokens(it) } < 2000)
+            val plainTools = uninstrumented.resolve(profile.uid, userMessage = message)
+            val plainCatalog = requireNotNull(plainTools.firstNotNullOfOrNull { it.progressiveCatalog })
+            assertEquals("Telemetry must preserve the exact compact contracts", plainCatalog.selected(plainTools.map { it.tool.definition }), schemas)
+            val allNative = tools.filter { it.nativeGitHub && it.tool.definition.modelVisible }.map { it.tool.definition }
+            assertTrue(schemas.sumOf { dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog.schemaTokens(it) } < allNative.sumOf { dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog.schemaTokens(it) })
         }
         settings.features = settings.features.withToolPluginEnabled(ToolPluginId.GITHUB, false)
         assertFalse(resolver.resolve(profile.uid).any { it.nativeGitHub })
+    }
+
+    @Test fun workspaceStatusKeepsTheCurrentIntentThroughTelemetryAndRetainsAuthorizedDiscovery() = runBlocking {
+        val profile = PlatformV2(uid = "profile", name = "Writer")
+        val settings = ResolverFakeSettingRepository(listOf(profile))
+        val saved = connection("native", ToolConnectionType.GITHUB, endpointUrl = "https://api.github.com", authType = ToolConnectionAuthType.NONE)
+        val dao = ResolverFakeToolConnectionDao().also { it.upsertConnection(saved) }
+        val workspace = dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext(saved.connectionUid, "owner", "repo", "main", "a".repeat(40), profile.uid)
+        val selection = requireNotNull(dev.chungjungsoo.gptmobile.data.github.GitHubChatPolicy.tools(ChatMcpToolConfig(github = workspace), settings.features, profile.uid))
+        val resolver = resolver(dao = dao, settings = settings, statistics = mockk(relaxed = true))
+        val statusTools = resolver.resolve(profile.uid, selection, dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(content = "check repo status", platformType = null))
+        val catalog = requireNotNull(statusTools.firstNotNullOfOrNull { it.progressiveCatalog })
+        val definitions = statusTools.map { it.tool.definition }
+        assertTrue(catalog.scopedGitHubStatus)
+        assertEquals(setOf("github_context__native", "github_pr__native", dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog.NAME), catalog.selected(definitions).map { it.name }.toSet())
+        val authorizedNames = statusTools.filter { it.nativeGitHub && it.tool.definition.modelVisible }.map { it.modelToolName }.toSet()
+        assertEquals(GitHubOperationTool.names.map { "${it}__native" }.toSet(), authorizedNames)
+
+        val inventory = mutableSetOf<String>()
+        var arguments = kotlinx.serialization.json.JsonObject(emptyMap())
+        var pages = 0
+        while (true) {
+            check(++pages <= 32) { "Authorized inventory did not complete" }
+            val result = catalog.execute("inventory-$pages", arguments)
+            assertFalse(result.isError)
+            assertFalse(result.dispatched)
+            val payload = (result.content as ToolResultContent.Json).value.jsonObject
+            inventory += (payload["authorized_inventory"] as JsonArray).map { it.jsonObject.getValue("name").jsonPrimitive.content }
+            val continuation = payload["continuation_call"] as? kotlinx.serialization.json.JsonObject ?: break
+            arguments = continuation.getValue("arguments").jsonObject
+        }
+        assertEquals(authorizedNames, inventory.filter { GitHubOperationTool.operationName(it) != null }.toSet())
+        assertFalse("github__native" in inventory)
+        assertFalse(catalog.execute("discover-write", buildJsonObject { put("names", JsonArray(listOf(JsonPrimitive("github_write__native")))) }).isError)
+        assertTrue(catalog.selected(definitions).any { it.name == "github_write__native" })
+
+        // Other current requests retain the full engineering catalogue. The status
+        // optimization must not hide source, integration, or mutation capabilities.
+        for (task in listOf("Inspect the repository source code", "[github-workflow-preset:test_integration]\nTest GitHub integration", "Check repository status and delete the old branch")) {
+            val tools = resolver.resolve(profile.uid, selection, dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(content = task, platformType = null))
+            val engineering = requireNotNull(tools.firstNotNullOfOrNull { it.progressiveCatalog })
+            assertFalse(task, engineering.scopedGitHubStatus)
+            assertEquals(task, authorizedNames, engineering.selected(tools.map { it.tool.definition }).map { it.name }.filter { GitHubOperationTool.operationName(it) != null }.toSet())
+        }
+        val retained = statusTools.single { it.modelToolName == "github_context__native" }
+        assertTrue(requireNotNull(retained.canReuseResult).invoke())
+        settings.features = settings.features.copy(githubProfileOverrides = mapOf(profile.uid to dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride(githubTools = false)))
+        assertFalse(requireNotNull(retained.canReuseResult).invoke())
+        assertFalse(resolver.resolve(profile.uid, selection).any { it.nativeGitHub })
     }
 
     @Test fun cachedAuthorizedOAuthCatalogIsResolvedBeforeCredentialRefreshAndRevocationStillWins() = runBlocking {

@@ -13,6 +13,54 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubAcceptanceDiagnosticsTest {
+    @Test fun exportedSummarySeparatesTaskCriteriaRequiredCapabilitiesAndExcludedRows() {
+        val capabilities = JsonArray(
+            listOf(
+                Json.parseToJsonElement("""{"id":"github_context:index","required":true,"status":"PASSED","acceptance_basis":"RETAINED_RESPONSE"}"""),
+                Json.parseToJsonElement("""{"id":"github_ci:jobs","required":true,"status":"BLOCKED"}"""),
+                Json.parseToJsonElement("""{"id":"github_context:repositories","required":false,"status":"OUT_OF_SCOPE"}""")
+            )
+        )
+        val report = GitHubAcceptanceLedger.attach(
+            buildJsonObject {
+                put("requirements", JsonArray(listOf(requirement("overall", "Test all GitHub tools", "NOT_TESTED"))))
+                put("capabilities", capabilities)
+            }
+        )
+        val captured = GitHubRunAcceptance.capture(report, "run", 2, 1, 2)
+        val acceptance = requireNotNull(GitHubRunAcceptance.assess(captured, "run", 2, 1, 2, "partial"))
+        val lines = GitHubRunAcceptance.diagnosticLines(acceptance).map { Json.parseToJsonElement(it).jsonObject }
+        val summary = lines.first()
+        assertEquals(JsonPrimitive(1), summary["required"])
+        assertEquals(JsonPrimitive(0), summary["verified"])
+        assertEquals(JsonPrimitive(4), summary["total"])
+        assertEquals(JsonPrimitive("ALL_RETAINED_CRITERIA"), summary["counts_scope"])
+        assertEquals(JsonPrimitive(1), summary.getValue("requirement_counts").jsonObject["required"])
+        assertEquals(JsonPrimitive(2), summary.getValue("capability_counts").jsonObject["required"])
+        assertEquals(JsonPrimitive(1), summary.getValue("capability_counts").jsonObject["required_passed"])
+        assertEquals(JsonPrimitive(1), summary.getValue("capability_counts").jsonObject["excluded"])
+        val cached = lines.drop(1).map { it.getValue("criterion").jsonObject }.single { it["operation"] == JsonPrimitive("github_context:index") }
+        assertEquals(JsonPrimitive("PASS"), cached["state"])
+        assertEquals(JsonPrimitive("RETAINED_RESPONSE"), cached["proof_scope"])
+    }
+
+    @Test fun historicalFailedLiveResponseDoesNotBecomeTheProofForACachedPass() {
+        fun receipt(id: String, origin: String, success: Boolean) = buildJsonObject {
+            put("receipt_id", id)
+            put("trusted", true)
+            put("success", success)
+            put("evidence_origin", origin)
+            put("tool", "github_context")
+        }
+        val capability = Json.parseToJsonElement("""{"id":"github_context:index","status":"PASSED","receipt_ids":["failed","cached"]}""")
+        val ledger = GitHubAcceptanceLedger.snapshot(capabilities = JsonArray(listOf(capability)))
+        val projection = GitHubAcceptanceDiagnostics.snapshot(ledger, mapOf("a" to receipt("failed", "LIVE", false), "b" to receipt("cached", "CACHED", true)))
+        val row = (projection["criteria"] as JsonArray).single().jsonObject
+        assertEquals(JsonPrimitive("RETAINED_RESPONSE"), row["proof_scope"])
+        assertEquals(JsonPrimitive(1), row.getValue("evidence_class_counts").jsonObject["LIVE_ACCOUNT"])
+        assertTrue(GitHubAcceptanceDiagnostics.valid(projection))
+    }
+
     @Test fun lifecycleDiagnosticsRetainSafeOperationNamesForFacadeAndNativeAliases() {
         val ids = listOf("github_repository__private_account:create", "github_repository:fork", "github_repository:import", "github_repository:clone", "github_repository:status", "github__private_account:create_repository", "github_repository:repository_lifecycle_status")
         val ledger = buildJsonObject {

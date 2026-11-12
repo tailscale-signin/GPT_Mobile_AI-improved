@@ -183,6 +183,9 @@ class RuntimeTests(unittest.TestCase):
         self.assertFalse(cap['features']['mcpFacade'])
         self.assertEqual(cap['contracts']['toolArguments'], ['gptmobile.tool-arguments.v1'])
         self.assertTrue(cap['features']['validatedToolArguments'])
+        self.assertTrue(cap['features']['model_preparation_v1'])
+        self.assertEqual('/gateway/models/prepare', cap['endpoints']['model_prepare'])
+        self.assertEqual(['gptmobile.gateway.model-preparation.v1'], cap['contracts']['modelPreparation'])
         self.assertEqual(self.client.post('/mcp',json={}).status_code,404)
         self.assertFalse(self.gateway.runtime.AUTO_MEMORY_STORE)
 
@@ -210,6 +213,16 @@ class RuntimeTests(unittest.TestCase):
         with patch.object(self.gateway.runtime,'chat_completions',side_effect=completion):
             response=self.client.post('/v1/chat/completions',json={'model':'local','messages':[{'role':'user','content':'hi'}],'max_tokens':20000})
         self.assertEqual(response.status_code,200)
+
+    def test_explicit_model_preparation_routes_reach_the_admitted_service(self):
+        from v14.model_preparation import preparation_receipt
+        receipt = dict(preparation_receipt('selected'), operationId='selection', state='WAITING_FOR_MODEL', modelState='LOADING')
+        with patch.object(self.gateway.model_preparation, 'prepare', return_value=receipt) as prepare:
+            for path in ('/gateway/models/prepare', '/v1/gateway/models/prepare'):
+                response = self.client.post(path, json={'model': 'selected', 'operationId': 'selection'})
+                self.assertEqual(202, response.status_code, response.text)
+                self.assertEqual(receipt, response.json())
+                self.assertEqual(('local:single-user', 'selected', 'selection'), prepare.call_args.args[:3])
 
     def test_late_failure_and_cancel_cannot_overwrite_completion(self):
         r=self.gateway.runtime

@@ -45,6 +45,7 @@ def observations(runtime, service, backend, journal):
         'mcpDiscovery': component(tools.get('toolsState', 'NOT_MEASURED'), configured=bool(tools.get('toolConnectionCount')),
                                  ready=tools.get('schemaReady'), evidence='catalog_observation', schemaCount=tools.get('toolCount'),
                                  executionVerified=tools.get('executionVerified'), dispatchAvailable=tools.get('toolsReady'),
+                                 connections=catalogue.connection_observations() if catalogue and hasattr(catalogue, 'connection_observations') else [],
                                  executionCoverage='Observed operations only; discovering schemas is not execution'),
         'workerCapacity': component('DRAINING' if service['draining'] else 'AVAILABLE' if available else 'WAITING_CAPACITY',
                                      configured=True, ready=not service['draining'] and available > 0,

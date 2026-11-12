@@ -73,6 +73,7 @@ data class AgentRunRequest(
     val stage: AgentStageRequest? = null,
     val researchParticipantUids: List<String> = emptyList(),
     val providerWaitAuthority: dev.chungjungsoo.gptmobile.data.context.CapturedProviderAuthority? = null,
+    val providerGitHubCheckpoint: dev.chungjungsoo.gptmobile.data.network.GitHubProviderCheckpoint? = null,
     /** A live master-tool change can revoke an unsubmitted host command. */
     val gatewayAdmissionAllowed: (() -> Boolean)? = null
 )
@@ -221,6 +222,7 @@ class AgentRunCoordinator @Inject constructor(
     internal suspend fun resumeProviderWaits(actions: List<ProviderWaitResume>) = withChatGate(actions.map { it.request.chatId }) {
         val requests = actions.mapNotNull { action ->
             val request = action.request
+            if (jobs.containsKey(request.runId) || deferredStarts.containsKey(request.runId)) return@mapNotNull null
             if (stopExcludedContributor(request)) return@mapNotNull null
             val root = request.chatToolConfig?.combined?.rootBudgetId
             if (root != null && chatRepository.isCombinedTurnCancelled(root)) {
@@ -233,16 +235,17 @@ class AgentRunCoordinator @Inject constructor(
                 authority.validate(settingRepository)
                 when (action.saved.mode) {
                     ProviderWaitMode.INITIAL -> request
+                    ProviderWaitMode.GITHUB_STEP -> providerWaits?.resumeGitHubStep(action)
                     ProviderWaitMode.TEXT_CONTINUATION -> providerWaits?.resumeTextContinuation(action)
                     ProviderWaitMode.RESEARCH_STAGE -> providerWaits?.resumeResearch(action)
                     ProviderWaitMode.COMBINED_APPEND -> synthesisPlanner?.prepareAppendResume(request.chatId, request.runId, decision)
                 }?.copy(providerWaitAuthority = authority).also { resumed ->
-                    if (resumed == null) chatRepository.finishActiveAgentRun(request.runId, AgentRunStatus.INTERRUPTED, currentEpochSeconds(), "PROVIDER_WAIT_REVIEW_REQUIRED")
+                    if (resumed == null) providerWaits?.blockIfCurrent(action, "PROVIDER_WAIT_REVIEW_REQUIRED")
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (changed: Exception) {
-                chatRepository.finishActiveAgentRun(request.runId, AgentRunStatus.INTERRUPTED, currentEpochSeconds(), "PROVIDER_WAIT_REVIEW_REQUIRED")
+                providerWaits?.blockIfCurrent(action, "PROVIDER_WAIT_REVIEW_REQUIRED")
                 _notices.tryEmit(AgentRunNotice(request.chatId, request.runId, "Saved work needs review before it can resume. Its evidence and answer are retained.", true))
                 null
             }
@@ -288,7 +291,8 @@ class AgentRunCoordinator @Inject constructor(
             val cancellation = dev.chungjungsoo.gptmobile.data.delegation.DelegationCancellationContext("${request.chatId}:$rootMessage", request.runId)
             val waitAuthority = request.providerWaitAuthority?.requestGuard(settingRepository)
             val savedAuthority = gatewayQueue?.guard(request, waitAuthority) ?: waitAuthority ?: kotlin.coroutines.EmptyCoroutineContext
-            val job = scope.launch(context = cancellation + savedAuthority, start = CoroutineStart.LAZY) {
+            val checkpointContext = request.providerGitHubCheckpoint?.let(::GitHubProviderResumeContext) ?: kotlin.coroutines.EmptyCoroutineContext
+            val job = scope.launch(context = cancellation + savedAuthority + checkpointContext, start = CoroutineStart.LAZY) {
                 execute(request)
             }
             if (jobs.putIfAbsent(request.runId, job) == null) {
@@ -615,11 +619,12 @@ class AgentRunCoordinator @Inject constructor(
             val profile = profiles[run.profileUid] ?: continue
             if (!profile.enabled || !sameGatewayEndpoint(profile.apiUrl, baseUrl)) continue
 
-            AppLogRecorder.record("CombinedRetry", "RECOVERY_INSPECTION · initiator=AUTOMATIC_RECOVERY · runId=${run.runId} · profileUid=${run.profileUid} · action=INSPECT_SAVED_JOB")
+            var localStatus = run.status
             suspend fun parkUnavailableResult() {
                 if (run.status == AgentRunStatus.BLOCKED || !gatewayRecoveryExpired(run, nowSeconds)) return
                 val reason = "${GatewayOutcomeRecovery.PARKED_RESULT_PREFIX}. The saved job could not be reconciled. Its identifier and evidence remain saved; recovery will check that job again when connectivity returns."
                 if (chatRepository.finishInterruptedAgentRun(run.runId, AgentRunStatus.BLOCKED, nowSeconds, reason)) {
+                    localStatus = AgentRunStatus.BLOCKED
                     gatewayRecoveryFailures.remove(run.runId)
                     _notices.tryEmit(AgentRunNotice(run.chatId, run.runId, reason, persistent = true))
                 }
@@ -629,6 +634,10 @@ class AgentRunCoordinator @Inject constructor(
             val interval = if (run.status == AgentRunStatus.BLOCKED) GATEWAY_PARKED_RECOVERY_MIN_INTERVAL_MS else GATEWAY_RECOVERY_MIN_INTERVAL_MS
             if (lastAttempt != null && nowMillis - lastAttempt < interval) continue
             gatewayRecoveryAttemptAtMs[run.runId] = nowMillis
+            AppLogRecorder.record("CombinedRetry", "RECOVERY_INSPECTION · initiator=AUTOMATIC_RECOVERY · runId=${run.runId} · profileUid=${run.profileUid} · jobId=$jobId · action=INSPECT_SAVED_JOB")
+            var outcome = "READ_UNAVAILABLE"
+            var remoteStatus = "unobserved"
+            var resultCommitted = false
 
             try {
                 val token = dev.chungjungsoo.gptmobile.data.network.ApiCredentialRotator
@@ -642,16 +651,23 @@ class AgentRunCoordinator @Inject constructor(
                     continue
                 }
                 if (result.jobId != jobId) {
+                    outcome = "JOB_IDENTITY_MISMATCH"
                     parkUnavailableResult()
                     continue
                 }
+                remoteStatus = result.status.lowercase().takeIf { it in setOf("queued", "pending", "running", "resuming", "waiting_for_client_tool", "completed", "failed", "interrupted", "cancelled", "canceled") } ?: "unknown"
                 val disposition = result.recoveryDisposition
-                if (disposition == GatewayResultDisposition.WAITING) continue
+                if (disposition == GatewayResultDisposition.WAITING) {
+                    outcome = if (remoteStatus == "waiting_for_client_tool") "WAITING_FOR_CLIENT_TOOL" else "WAITING_FOR_SAVED_RESULT"
+                    continue
+                }
                 if (!result.matchesRequestedModel(run.modelSnapshot)) {
+                    outcome = "MODEL_IDENTITY_UNVERIFIED"
                     parkUnavailableResult()
                     continue
                 }
                 if (disposition == GatewayResultDisposition.UNAVAILABLE) {
+                    outcome = "RESULT_CONTRACT_UNVERIFIED"
                     parkUnavailableResult()
                     continue
                 }
@@ -675,18 +691,24 @@ class AgentRunCoordinator @Inject constructor(
                     else -> "${uncertainty}GATEWAY_SAVED_RESULT_FAILED: GATEWAY_JOB_${result.status.uppercase()}"
                 }
                 if (content == null) {
-                    chatRepository.finishInterruptedAgentRun(
+                    val finished = chatRepository.finishInterruptedAgentRun(
                         run.runId,
                         AgentRunStatus.FAILED,
                         nowSeconds,
                         error
                     )
+                    outcome = if (finished) "TERMINAL_FAILURE_RECONCILED" else "OWNERSHIP_FENCED"
+                    resultCommitted = finished
+                    if (finished) localStatus = AgentRunStatus.FAILED
                     gatewayRecoveryAttemptAtMs.remove(run.runId)
                     gatewayRecoveryFailures.remove(run.runId)
                     continue
                 }
                 val completedAt = result.completedAt ?: nowSeconds
                 if (chatRepository.restoreGatewayAnswer(run.runId, jobId, content, completedAt, status, error)) {
+                    resultCommitted = true
+                    localStatus = status
+                    outcome = if (status == AgentRunStatus.COMPLETED) "ANSWER_PUBLISHED" else "PARTIAL_EVIDENCE_PUBLISHED"
                     gatewayRecoveryAttemptAtMs.remove(run.runId)
                     gatewayRecoveryFailures.remove(run.runId)
                     if (status == AgentRunStatus.COMPLETED) {
@@ -694,18 +716,30 @@ class AgentRunCoordinator @Inject constructor(
                     } else {
                         _notices.tryEmit(AgentRunNotice(run.chatId, run.runId, requireNotNull(error), persistent = true))
                     }
+                } else {
+                    outcome = "OWNERSHIP_FENCED"
                 }
             } catch (cancellation: CancellationException) {
+                if (!resultCommitted) outcome = "INSPECTION_CANCELLED"
                 throw cancellation
             } catch (error: Exception) {
+                if (resultCommitted) {
+                    // The database already published the result. A notification
+                    // failure cannot relabel that transaction as a failed read.
+                    outcome = "ANSWER_PUBLISHED_NOTIFICATION_PENDING"
+                    continue
+                }
+                outcome = "READ_FAILED"
                 val failures = gatewayRecoveryFailures.merge(run.runId, 1, Int::plus) ?: 1
                 AppLogRecorder.record(
                     "Gateway",
-                    "Recovery failed · run=${run.runId} · job=$jobId · failures=$failures · ${error.javaClass.simpleName}: ${error.message.orEmpty().take(180)}",
+                    "Recovery failed · run=${run.runId} · job=$jobId · failures=$failures · reason=${error.javaClass.simpleName}",
                     "W"
                 )
                 parkUnavailableResult()
                 _notices.tryEmit(AgentRunNotice(run.chatId, run.runId, "Gateway recovery is unavailable. The original job and its evidence remain saved; no new request was submitted."))
+            } finally {
+                AppLogRecorder.record("CombinedRetry", "RECOVERY_OUTCOME · initiator=AUTOMATIC_RECOVERY · runId=${run.runId} · profileUid=${run.profileUid} · jobId=$jobId · outcome=$outcome · remoteStatus=$remoteStatus · localStatus=$localStatus · ownershipFence=${run.ownershipFence} · newInferenceDispatched=false")
             }
         }
     }
@@ -865,7 +899,7 @@ class AgentRunCoordinator @Inject constructor(
         }
         var checkpoints = newCheckpoints()
         suspend fun pauseForProvider(decision: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision, stage: dev.chungjungsoo.gptmobile.data.research.ResearchDeferredStage? = null): Boolean {
-            if (!decision.knownNotAccepted) return false
+            if (!decision.mayWait) return false
             val savedStage = stage ?: researchLifecycle?.let { lifecycle ->
                 dev.chungjungsoo.gptmobile.data.research.ResearchDeferredStage(lifecycle.rootWorkId, "PRIMARY", dev.chungjungsoo.gptmobile.data.research.researchHash(request.userMessages.lastOrNull()?.content.orEmpty()), decision)
             }
@@ -873,9 +907,13 @@ class AgentRunCoordinator @Inject constructor(
                 checkpoints.drain()
                 chatRepository.updateAgentMessage(assistantMessage)
                 val waiting = providerWaits?.deferRunning(request, decision, savedStage) == true
+                AppLogRecorder.record(
+                    "ProviderRetry",
+                    "JOB_WAIT · runId=${request.runId} · provider=${decision.provider} · scope=${decision.scope} · retryAtMs=${decision.retryAt} · source=${decision.retrySource ?: "PROVIDER_POLICY"} · count=${decision.consecutiveRejections} · githubCheckpoint=${decision.gitHubCheckpoint != null} · persisted=$waiting"
+                )
                 if (waiting) {
                     researchLifecycle?.terminal(dev.chungjungsoo.gptmobile.data.research.ResearchAttemptState.WAITING_PROVIDER_LIMIT, "PROVIDER_LIMIT:${decision.retryAt}")
-                    _notices.tryEmit(AgentRunNotice(request.chatId, request.runId, "Work saved. Waiting for the provider limit to reset at ${java.time.Instant.ofEpochMilli(decision.retryAt)}.", true))
+                    _notices.tryEmit(AgentRunNotice(request.chatId, request.runId, "Work saved. The provider step will resume automatically when it is eligible.", true))
                 }
                 waiting
             }
@@ -1078,7 +1116,9 @@ class AgentRunCoordinator @Inject constructor(
                 val limit = (outcome as? ApiStateFlowOutcome.Failed)?.providerLimit
                 if (limit != null && pauseForProvider(limit)) return@coroutineScope
                 val terminal = outcome.toTerminalUpdate().let { update ->
-                    if (update.status == AgentRunStatus.FAILED && assistantMessage.timeline.lastOrNull { it.profileFailure != null }?.profileFailure?.isUnsentSetup == true) {
+                    if (limit?.mayWait == true) {
+                        AgentRunTerminalUpdate(AgentRunStatus.BLOCKED, "PROVIDER_WAIT_REVIEW_REQUIRED: Saved work needs review before it can resume.")
+                    } else if (update.status == AgentRunStatus.FAILED && assistantMessage.timeline.lastOrNull { it.profileFailure != null }?.profileFailure?.isUnsentSetup == true) {
                         update.copy(status = AgentRunStatus.BLOCKED)
                     } else {
                         update
@@ -1118,12 +1158,17 @@ class AgentRunCoordinator @Inject constructor(
             withContext(NonCancellable) {
                 checkpoints.cancelAndJoin()
                 val completedAt = currentEpochSeconds()
-                val isInterrupted = interruptingRunIds.remove(request.runId)
+                val platformInterrupted = interruptingRunIds.remove(request.runId)
+                val excluded = excludedRunIds.remove(request.runId)
+                val origin = currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.delegation.DelegationCancellationContext]?.record?.origin
                 val cancellationReason = when {
-                    isInterrupted -> AgentRunTerminalError.SERVICE_STOPPED
-                    excludedRunIds.remove(request.runId) -> "EXCLUDED_FROM_COMBINED_TURN"
-                    else -> null
+                    platformInterrupted -> AgentRunTerminalError.SERVICE_STOPPED
+                    excluded -> "EXCLUDED_FROM_COMBINED_TURN"
+                    origin == dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin.USER_WHOLE_RUN -> "USER_CANCELLED"
+                    origin == dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin.CHAT_DELETED -> "CHAT_DELETED"
+                    else -> origin?.name ?: "EXECUTION_INTERRUPTED"
                 }
+                val isInterrupted = !excluded && cancellationReason !in setOf("USER_CANCELLED", "CHAT_DELETED")
                 runCatching {
                     traceReducedOutput(assistantMessage)
                     val cancelledMessage = assistantMessage.copy(createdAt = completedAt).resetActiveRevision().withCombinedOutcome(if (isInterrupted) AgentRunStatus.INTERRUPTED else AgentRunStatus.CANCELED)
@@ -1134,7 +1179,7 @@ class AgentRunCoordinator @Inject constructor(
                         completedAt,
                         cancellationReason
                     )
-                    if (committed) settleResearchOutcome(request, researchLifecycle, cancelledMessage, if (isInterrupted) AgentRunStatus.INTERRUPTED else AgentRunStatus.CANCELED, cancellationReason ?: "USER_CANCELLED")
+                    if (committed) settleResearchOutcome(request, researchLifecycle, cancelledMessage, if (isInterrupted) AgentRunStatus.INTERRUPTED else AgentRunStatus.CANCELED, cancellationReason)
                 }.onFailure { failure -> finishUnavailablePolicy(failure, if (isInterrupted) AgentRunStatus.INTERRUPTED else AgentRunStatus.CANCELED) }
             }
             throw error
@@ -1300,7 +1345,10 @@ internal fun terminalAgentMessage(message: MessageV2, error: String?, completedA
 internal fun coordinatorFailureRecord(message: MessageV2, error: Throwable, gatewayPreflightKnownUnsent: Boolean): ProfileFailureRecord? {
     val priorFailures = message.timeline.mapNotNull { it.profileFailure ?: it.runError?.let { error -> ProfileFailureRecord.classify(error) } }
     priorFailures.lastOrNull { it.category in setOf(GatewayOutcomeRecovery.ERROR_CODE, "TOOL_OUTCOME_UNKNOWN") }?.let { return it.copy(retryAllowed = false) }
-    val detail = (error as? Exception)?.let { dev.chungjungsoo.gptmobile.data.network.providerExceptionDetails(it, message.content.isNotBlank() || message.thoughts.isNotBlank()) } ?: return null
+    val partial = message.content.isNotBlank() || message.thoughts.isNotBlank()
+    val bindingFailure = AgentFailureEvidence.exception(error, partial)
+    val detail = (error as? Exception)?.let { dev.chungjungsoo.gptmobile.data.network.providerExceptionDetails(it, partial) }
+    if (bindingFailure == null && detail == null) return null
     val pristine = message.content.isBlank() &&
         message.thoughts.isBlank() &&
         message.timeline.all {
@@ -1310,13 +1358,13 @@ internal fun coordinatorFailureRecord(message: MessageV2, error: Throwable, gate
                 it.recovery == null
         }
     val details = kotlinx.serialization.json.JsonObject(
-        detail.failureDetails.orEmpty() + if (gatewayPreflightKnownUnsent && pristine) {
+        (bindingFailure?.failureDetails ?: detail?.failureDetails).orEmpty() + if (gatewayPreflightKnownUnsent && pristine && (error as? dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringRequestRejected)?.commandOutcomeUnknown != true) {
             mapOf("dispatched" to JsonPrimitive(false), "dispatch_state" to JsonPrimitive("PRECHECK_REJECTED"))
         } else {
             emptyMap()
         }
     )
-    val failure = ProfileFailureRecord.fromProvider(detail.message.orEmpty(), detail.code, details)
+    val failure = ProfileFailureRecord.fromProvider(bindingFailure?.message ?: detail?.message.orEmpty(), bindingFailure?.errorCode ?: detail?.code, details)
     val priorDispatch = priorFailures.lastOrNull { it.dispatched == true }
     return if (priorDispatch == null) failure else failure.copy(dispatched = true, remoteAcceptance = priorDispatch.remoteAcceptance)
 }
@@ -1327,6 +1375,7 @@ internal fun ApiStateFlowOutcome.toTerminalUpdate(): AgentRunTerminalUpdate = wh
     is ApiStateFlowOutcome.Failed -> AgentRunTerminalUpdate(
         when {
             errorCode == "QUEUE_JOB_PENDING" -> AgentRunStatus.WAITING_REMOTE_JOB
+            errorCode == "WAITING_FOR_APPROVAL" || taskOutcome == "WAITING_FOR_APPROVAL" -> AgentRunStatus.WAITING_FOR_APPROVAL
             taskOutcome == "BLOCKED" || errorCode in setOf("GITHUB_REVIEW_BLOCKED", "REVIEW_INPUT_REQUIRED") -> AgentRunStatus.BLOCKED
             errorCode in setOf("GITHUB_EVIDENCE_REQUIRED", "GITHUB_EVIDENCE_RETENTION_INCOMPLETE") -> AgentRunStatus.EVIDENCE_MISSING
             taskOutcome == "PARTIAL" -> AgentRunStatus.PARTIAL

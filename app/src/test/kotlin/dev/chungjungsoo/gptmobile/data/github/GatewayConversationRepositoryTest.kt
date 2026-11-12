@@ -312,6 +312,9 @@ class GatewayConversationRepositoryTest {
         assertEquals("RESERVED_ORDINARY", db.gatewayJobDao().submission(command)?.state)
         repository.ordinaryDispatching(command, run.runId)
         db.agentPersistenceDao().updateRunStatus(run.runId, "INTERRUPTED", 1, 2, "Process stopped")
+        coEvery { client.observeCommand(config, command) } returns null
+        repository.reconcileOrdinaryAdmissions(turn.chatRoom.id)
+        assertNull(db.agentRunDao().getById(run.runId)?.gatewayJobId)
         coEvery { client.command(config, command) } returns GatewayCommandReceipt(gatewayId = "gateway", principalId = "owner", commandId = command, conversationId = "conversation", jobKind = "generation", jobId = "saved-job", profileId = "profile", model = "model")
         val reopened = repository.openConversation("profile", "gateway", "owner", "conversation")
         assertEquals(turn.chatRoom.id, reopened.chatId)
@@ -320,7 +323,76 @@ class GatewayConversationRepositoryTest {
         assertEquals("", db.gatewayJobDao().localMessage(run.assistantMessageId)?.content)
         assertEquals(2, messageCount(turn.chatRoom.id))
         assertEquals("ACCEPTED", db.gatewayJobDao().submission(command)?.state)
+        coVerify(exactly = 1) { client.observeCommand(config, command) }
+        coVerify(exactly = 1) { client.command(config, command) }
         coVerify(exactly = 0) { commands.instruction(any(), any(), any()) }
+    }
+
+    @Test fun repeatedAbsentReceiptPersistsBackoffAcrossRepositoryRestartAndLaterRecoversOriginalJob() = runBlocking {
+        val turn = turn()
+        val run = turn.runs.single()
+        val command = "missing-receipt"
+        repository.reserveOrdinaryTurn(turn.chatRoom.id, "profile", route.endpoint, command, turn.userMessage.id, run.assistantMessageId, run.runId, "model")
+        db.agentPersistenceDao().updateRunStatus(run.runId, "RUNNING", 1, null, null)
+        repository.ordinaryDispatching(command, run.runId)
+        db.agentPersistenceDao().updateRunStatus(run.runId, "INTERRUPTED", 1, 2, "GATEWAY_OUTCOME_UNKNOWN: response lost")
+        coEvery { client.observeCommand(config, command) } returns null
+        repeat(20) {
+            GatewayConversationRepository(db, settings, client, jobs, commands).reconcileOrdinaryAdmissions(turn.chatRoom.id)
+        }
+        coVerify(exactly = 1) { client.observeCommand(config, command) }
+        val pending = requireNotNull(db.gatewayJobDao().submission(command))
+        assertEquals("DISPATCHING_ORDINARY", pending.state)
+        assertEquals("INTERRUPTED", db.agentRunDao().getById(run.runId)?.status)
+        assertTrue(pending.receipt?.contains("gateway_command_lookup_v1") == true)
+        // Advance only the durable lookup checkpoint, then discover a late acceptance.
+        db.gatewayJobDao().saveSubmission(GatewayCommandReconciliation.deferred(pending, System.currentTimeMillis() - 600_000))
+        coEvery { client.observeCommand(config, command) } returns GatewayCommandReceipt(gatewayId = "gateway", principalId = "owner", commandId = command, conversationId = "original-conversation", jobKind = "generation", jobId = "original-job", profileId = "profile", model = "model")
+        repository.reconcileOrdinaryAdmissions(turn.chatRoom.id)
+        assertEquals("ACCEPTED", db.gatewayJobDao().submission(command)?.state)
+        assertEquals("original-job", db.agentRunDao().getById(run.runId)?.gatewayJobId)
+        coVerify(exactly = 2) { client.observeCommand(config, command) }
+        coVerify(exactly = 0) { commands.instruction(any(), any(), any()) }
+    }
+
+    @Test fun durableRejectionSettlesOnlyOriginalActiveOwnerAndDoesNotOverwriteExplicitStop() = runBlocking {
+        for (status in listOf("WAITING_REMOTE_JOB", "INTERRUPTED", "CANCELED")) {
+            val turn = turn()
+            val run = turn.runs.single()
+            val command = "rejected-$status"
+            repository.reserveOrdinaryTurn(turn.chatRoom.id, "profile", route.endpoint, command, turn.userMessage.id, run.assistantMessageId, run.runId, "model")
+            db.agentPersistenceDao().updateRunStatus(run.runId, status, 1, 2, if (status == "CANCELED") "Stopped by user" else "GATEWAY_OUTCOME_UNKNOWN: response lost")
+            val rejection = GatewayCommandRejection(1, "gateway", "owner", command, "generation", "rejected", "EXECUTION_MODEL_LOADING", 409, "provider_admission", "not_dispatched", false)
+            coEvery { client.observeCommand(config, command) } throws GatewayCommandRejected(rejection)
+            repository.reconcileOrdinaryAdmissions(turn.chatRoom.id)
+            repository.reconcileOrdinaryAdmissions(turn.chatRoom.id)
+            val retained = requireNotNull(db.agentRunDao().getById(run.runId))
+            assertEquals("REJECTED:409", db.gatewayJobDao().submission(command)?.state)
+            assertNull(retained.gatewayJobId)
+            if (status == "CANCELED") {
+                assertEquals("CANCELED", retained.status)
+                assertEquals("Stopped by user", retained.terminalError)
+            } else {
+                assertEquals("BLOCKED", retained.status)
+                assertTrue(retained.terminalError?.contains("EXECUTION_MODEL_LOADING; provider_admission; not_dispatched") == true)
+                val failure = requireNotNull(db.gatewayJobDao().localMessage(run.assistantMessageId)?.timeline?.last()?.profileFailure)
+                assertEquals(false, failure.dispatched)
+                assertEquals(false, failure.requestReplayAllowed)
+            }
+            coVerify(exactly = 1) { client.observeCommand(config, command) }
+        }
+        coVerify(exactly = 0) { commands.instruction(any(), any(), any()) }
+    }
+
+    @Test fun anotherAccountsNegativeReceiptCannotReleaseTheOriginalCommandFence() = runBlocking {
+        val turn = turn()
+        val run = turn.runs.single()
+        repository.reserveOrdinaryTurn(turn.chatRoom.id, "profile", route.endpoint, "original", turn.userMessage.id, run.assistantMessageId, run.runId, "model")
+        val rejection = GatewayCommandRejection(1, "gateway", "other-owner", "original", "generation", "rejected", "queue_full", 429, "provider_admission", "not_dispatched", false)
+        coEvery { client.observeCommand(config, "original") } throws GatewayCommandRejected(rejection)
+        assertTrue(runCatching { repository.reconcileOrdinaryAdmissions(turn.chatRoom.id) }.isFailure)
+        assertEquals("RESERVED_ORDINARY", db.gatewayJobDao().submission("original")?.state)
+        assertNull(db.gatewayJobDao().submission("original")?.receipt)
     }
 
     @Test fun authenticatedAcceptedReceiptRepairsFailedAndParkedNoHeaderRunsForExistingReadOnlyRecovery() = runBlocking {
@@ -336,7 +408,7 @@ class GatewayConversationRepositoryTest {
             val command = "failed-command-$index"
             repository.reserveOrdinaryTurn(turn.chatRoom.id, "profile", route.endpoint, command, turn.userMessage.id, run.assistantMessageId, run.runId, "model")
             db.agentPersistenceDao().updateRunStatus(run.runId, case.first, 1, 2, case.second)
-            coEvery { client.command(config, command) } returns GatewayCommandReceipt(gatewayId = "gateway", principalId = "owner", commandId = command, conversationId = "conversation-$index", jobKind = "generation", jobId = "saved-job-$index", profileId = "profile", model = "model")
+            coEvery { client.observeCommand(config, command) } returns GatewayCommandReceipt(gatewayId = "gateway", principalId = "owner", commandId = command, conversationId = "conversation-$index", jobKind = "generation", jobId = "saved-job-$index", profileId = "profile", model = "model")
             repository.reconcileOrdinaryAdmissions(turn.chatRoom.id)
             val recovered = requireNotNull(db.agentRunDao().getById(run.runId))
             assertEquals(case.third, recovered.status)
@@ -355,7 +427,7 @@ class GatewayConversationRepositoryTest {
             val command = "excluded-command-$index"
             repository.reserveOrdinaryTurn(turn.chatRoom.id, "profile", route.endpoint, command, turn.userMessage.id, run.assistantMessageId, run.runId, "model")
             db.agentPersistenceDao().updateRunStatus(run.runId, case.first, 1, 2, case.second)
-            coEvery { client.command(config, command) } returns GatewayCommandReceipt(gatewayId = "gateway", principalId = "owner", commandId = command, conversationId = "excluded-$index", jobKind = "generation", jobId = "excluded-job-$index", profileId = "profile", model = "model")
+            coEvery { client.observeCommand(config, command) } returns GatewayCommandReceipt(gatewayId = "gateway", principalId = "owner", commandId = command, conversationId = "excluded-$index", jobKind = "generation", jobId = "excluded-job-$index", profileId = "profile", model = "model")
             repository.reconcileOrdinaryAdmissions(turn.chatRoom.id)
             assertEquals(case.first, db.agentRunDao().getById(run.runId)?.status)
             assertNull(db.agentRunDao().getById(run.runId)?.gatewayJobId)
@@ -467,19 +539,199 @@ class GatewayConversationRepositoryTest {
     }
 
     @Test fun lostInstructionReplyIsRetainedAndObserverReconcilesItWithoutPostingAgain() = runBlocking {
-        val record = GatewayJobRecord("job-key", "gateway", "owner", "engineering", "remote-job", key, "profile", route.endpoint, "profile", "{}", 1)
-        val summary = GatewayJobSummary("remote-job", "engineering", "conversation", state = "running", acceptedAt = 1.0, profileId = "profile")
-        db.gatewayJobDao().saveJobs(listOf(record))
-        io.mockk.every { jobs.summary(record) } returns summary
+        val record = instructionJob()
         coEvery { commands.instruction(config.withGatewayIdentity(GatewayScopeIdentity("gateway", "owner")), "conversation", any()) } throws IOException("Receipt lost")
         assertTrue(runCatching { repository.queueInstruction(record.key, "Inspect before editing", "instruction-command") }.isFailure)
         assertEquals("PENDING_INSTRUCTION", db.gatewayJobDao().submission("instruction-command")?.state)
-        coEvery { client.command(config, "instruction-command") } returns GatewayCommandReceipt(gatewayId = "gateway", principalId = "owner", commandId = "instruction-command", conversationId = "conversation", jobKind = "engineering", jobId = "remote-job")
+        val receipt = GatewayCommandReceipt(gatewayId = "gateway", principalId = "owner", commandId = "instruction-command", conversationId = "conversation", jobKind = "engineering", jobId = "remote-job")
+        coEvery { client.observeCommand(config, "instruction-command") } returns receipt
         repository.refreshPendingInstructions()
         assertEquals("ACCEPTED_INSTRUCTION", db.gatewayJobDao().submission("instruction-command")?.state)
+        coEvery { client.command(config, "instruction-command") } returns receipt
         repository.queueInstruction(record.key, "Inspect before editing", "instruction-command")
+        coVerify(exactly = 1) { client.observeCommand(config, "instruction-command") }
+        coVerify(exactly = 1) { client.command(config, "instruction-command") }
         coVerify(exactly = 1) { commands.instruction(config.withGatewayIdentity(GatewayScopeIdentity("gateway", "owner")), "conversation", any()) }
     }
+
+    @Test fun missingInstructionReceiptAfterRestartDoesNotAuthorizeAnExplicitReplay() = runBlocking {
+        val record = instructionJob()
+        coEvery { commands.instruction(any(), any(), any()) } throws IOException("Receipt lost")
+        assertTrue(runCatching { repository.queueInstruction(record.key, "Inspect before editing", "instruction-command") }.isFailure)
+        val original = requireNotNull(db.gatewayJobDao().submission("instruction-command"))
+        repository = GatewayConversationRepository(db, settings, client, jobs, commands)
+        coEvery { client.command(config, "instruction-command") } returns null
+
+        val failure = runCatching { repository.queueInstruction(record.key, "Inspect before editing", "instruction-command") }.exceptionOrNull()
+
+        assertTrue(requireNotNull(failure).message.orEmpty().contains("unconfirmed"))
+        val retained = requireNotNull(db.gatewayJobDao().submission("instruction-command"))
+        assertEquals(original.payload, retained.payload)
+        assertEquals(original.fingerprint, retained.fingerprint)
+        assertEquals("PENDING_INSTRUCTION", retained.state)
+        assertTrue(!retained.receipt.isNullOrBlank())
+        coVerify(exactly = 1) { client.command(config, "instruction-command") }
+        coVerify(exactly = 1) { commands.instruction(any(), any(), any()) }
+    }
+
+    @Test fun acceptedInstructionRetainsItsReceiptWhenServerLookupIsMissing() = runBlocking {
+        val record = instructionJob()
+        val receipt = instructionReceipt()
+        coEvery { commands.instruction(any(), any(), any()) } returns receipt
+        repository.queueInstruction(record.key, "Inspect before editing", "instruction-command")
+        repository = GatewayConversationRepository(db, settings, client, jobs, commands)
+        coEvery { client.command(config, "instruction-command") } returns null
+
+        repository.queueInstruction(record.key, "Inspect before editing", "instruction-command")
+
+        assertEquals("ACCEPTED_INSTRUCTION", db.gatewayJobDao().submission("instruction-command")?.state)
+        coVerify(exactly = 1) { client.command(config, "instruction-command") }
+        coVerify(exactly = 1) { commands.instruction(any(), any(), any()) }
+    }
+
+    @Test fun instructionRetryCanReconcileAfterItsJobFinishes() = runBlocking {
+        val record = instructionJob()
+        coEvery { commands.instruction(any(), any(), any()) } throws IOException("Receipt lost")
+        assertTrue(runCatching { repository.queueInstruction(record.key, "Inspect before editing", "instruction-command") }.isFailure)
+        io.mockk.every { jobs.summary(record) } returns GatewayJobSummary("remote-job", "engineering", "conversation", state = "completed", acceptedAt = 1.0, profileId = "profile")
+        coEvery { client.command(config, "instruction-command") } returns instructionReceipt()
+
+        repository.queueInstruction(record.key, "Inspect before editing", "instruction-command")
+
+        assertEquals("ACCEPTED_INSTRUCTION", db.gatewayJobDao().submission("instruction-command")?.state)
+        coVerify(exactly = 1) { commands.instruction(any(), any(), any()) }
+    }
+
+    @Test fun explicitInstructionReconciliationRetainsOnlyItsOriginalRejectionProof() = runBlocking {
+        val record = instructionJob()
+        coEvery { commands.instruction(any(), any(), any()) } throws IOException("Receipt lost")
+        assertTrue(runCatching { repository.queueInstruction(record.key, "Inspect before editing", "instruction-command") }.isFailure)
+        val rejection = GatewayCommandRejection(1, "gateway", "different-owner", "instruction-command", "engineering", "rejected", "conversation_conflict", 409, "provider_admission", "not_dispatched", false)
+        coEvery { client.command(config, "instruction-command") } throws GatewayCommandRejected(rejection)
+        assertTrue(runCatching { repository.queueInstruction(record.key, "Inspect before editing", "instruction-command") }.isFailure)
+        assertEquals("PENDING_INSTRUCTION", db.gatewayJobDao().submission("instruction-command")?.state)
+        coEvery { client.command(config, "instruction-command") } throws GatewayCommandRejected(rejection.copy(principalId = "owner"))
+
+        val failure = runCatching { repository.queueInstruction(record.key, "Inspect before editing", "instruction-command") }.exceptionOrNull()
+
+        assertTrue(failure is GatewayCommandRejected)
+        assertEquals("REJECTED:409", db.gatewayJobDao().submission("instruction-command")?.state)
+        coVerify(exactly = 1) { commands.instruction(any(), any(), any()) }
+    }
+
+    @Test fun newInstructionDoesNotFollowAStaleTileIntoAnotherActiveJob() = runBlocking {
+        val record = instructionJob()
+        coEvery { client.conversation(config, "conversation") } returns snapshot.copy(activeJobId = "replacement-job", jobState = "running")
+        coEvery { commands.instruction(any(), any(), any()) } returns instructionReceipt().copy(jobId = "replacement-job")
+
+        assertTrue(runCatching { repository.queueInstruction(record.key, "Inspect before editing", "instruction-command") }.isFailure)
+
+        assertNull(db.gatewayJobDao().submission("instruction-command"))
+        coVerify(exactly = 0) { commands.instruction(any(), any(), any()) }
+    }
+
+    @Test fun instructionReceiptCannotChangeThePersistedJobDuringRetryOrObservation() = runBlocking {
+        val record = instructionJob()
+        coEvery { commands.instruction(any(), any(), any()) } throws IOException("Receipt lost")
+        assertTrue(runCatching { repository.queueInstruction(record.key, "Inspect before editing", "instruction-command") }.isFailure)
+        val wrongJob = instructionReceipt().copy(jobId = "replacement-job")
+        coEvery { client.command(config, "instruction-command") } returns wrongJob
+        coEvery { client.observeCommand(config, "instruction-command") } returns wrongJob
+
+        assertTrue(runCatching { repository.queueInstruction(record.key, "Inspect before editing", "instruction-command") }.isFailure)
+        assertTrue(runCatching { repository.refreshPendingInstructions() }.isFailure)
+
+        assertEquals("PENDING_INSTRUCTION", db.gatewayJobDao().submission("instruction-command")?.state)
+        coVerify(exactly = 1) { commands.instruction(any(), any(), any()) }
+    }
+
+    @Test fun existingInstructionCannotBeReconciledThroughAnotherJobInTheConversation() = runBlocking {
+        val record = instructionJob()
+        coEvery { commands.instruction(any(), any(), any()) } throws IOException("Receipt lost")
+        assertTrue(runCatching { repository.queueInstruction(record.key, "Inspect before editing", "instruction-command") }.isFailure)
+        val replacement = record.copy(key = "replacement-key", remoteJobId = "replacement-job")
+        db.gatewayJobDao().saveJobs(listOf(replacement))
+        io.mockk.every { jobs.summary(replacement) } returns GatewayJobSummary("replacement-job", "engineering", "conversation", state = "running", acceptedAt = 2.0, profileId = "profile")
+        coEvery { client.command(config, "instruction-command") } returns instructionReceipt()
+
+        assertTrue(runCatching { repository.queueInstruction(replacement.key, "Inspect before editing", "instruction-command") }.isFailure)
+
+        assertEquals("PENDING_INSTRUCTION", db.gatewayJobDao().submission("instruction-command")?.state)
+        coVerify(exactly = 1) { commands.instruction(any(), any(), any()) }
+    }
+
+    @Test fun malformedAcceptedInstructionReceiptsCannotSettleTheOriginalCommand() = runBlocking {
+        val record = instructionJob()
+        coEvery { commands.instruction(any(), any(), any()) } throws IOException("Receipt lost")
+        assertTrue(runCatching { repository.queueInstruction(record.key, "Inspect before editing", "instruction-command") }.isFailure)
+        val receipt = instructionReceipt()
+        for (invalid in listOf(receipt.copy(schemaVersion = 2), receipt.copy(commandId = "another-command"), receipt.copy(conversationId = "another-conversation"), receipt.copy(principalId = "another-owner"), receipt.copy(gatewayId = "another-gateway"), receipt.copy(jobKind = "generation"))) {
+            coEvery { client.command(config, "instruction-command") } returns invalid
+            assertTrue(runCatching { repository.queueInstruction(record.key, "Inspect before editing", "instruction-command") }.isFailure)
+            assertEquals("PENDING_INSTRUCTION", db.gatewayJobDao().submission("instruction-command")?.state)
+        }
+        coVerify(exactly = 1) { commands.instruction(any(), any(), any()) }
+    }
+
+    @Test fun lateInstructionRejectionCannotDowngradeAnAcceptanceThatWonTheRace() = runBlocking {
+        val record = instructionJob()
+        coEvery { commands.instruction(any(), any(), any()) } throws IOException("Receipt lost")
+        assertTrue(runCatching { repository.queueInstruction(record.key, "Inspect before editing", "instruction-command") }.isFailure)
+        coEvery { client.observeCommand(config, "instruction-command") } returns instructionReceipt()
+        val rejection = GatewayCommandRejection(1, "gateway", "owner", "instruction-command", "engineering", "rejected", "conversation_conflict", 409, "provider_admission", "not_dispatched", false)
+        coEvery { client.command(config, "instruction-command") } coAnswers {
+            repository.refreshPendingInstructions()
+            throw GatewayCommandRejected(rejection)
+        }
+
+        repository.queueInstruction(record.key, "Inspect before editing", "instruction-command")
+
+        assertEquals("ACCEPTED_INSTRUCTION", db.gatewayJobDao().submission("instruction-command")?.state)
+        coVerify(exactly = 1) { commands.instruction(any(), any(), any()) }
+    }
+
+    @Test fun latePostConflictCannotOverwriteAnAcceptedInstructionReceipt() = runBlocking {
+        val record = instructionJob()
+        coEvery { client.observeCommand(config, "instruction-command") } returns instructionReceipt()
+        coEvery { commands.instruction(any(), any(), any()) } coAnswers {
+            repository.refreshPendingInstructions()
+            throw GatewayConversationConflict()
+        }
+
+        repository.queueInstruction(record.key, "Inspect before editing", "instruction-command")
+
+        assertEquals("ACCEPTED_INSTRUCTION", db.gatewayJobDao().submission("instruction-command")?.state)
+        coVerify(exactly = 1) { commands.instruction(any(), any(), any()) }
+    }
+
+    @Test fun legacyInstructionWithoutSavedJobMetadataStillReconcilesWithoutReplay() = runBlocking {
+        val record = instructionJob()
+        coEvery { commands.instruction(any(), any(), any()) } throws IOException("Receipt lost")
+        assertTrue(runCatching { repository.queueInstruction(record.key, "Inspect before editing", "instruction-command") }.isFailure)
+        val pending = requireNotNull(db.gatewayJobDao().submission("instruction-command"))
+        val legacyPayload = """{"command_id":"instruction-command","content":"Inspect before editing","expected_revision":2,"kind":"instruction"}"""
+        db.gatewayJobDao().saveSubmission(pending.copy(payload = legacyPayload, fingerprint = gatewayIdentityKey(legacyPayload)))
+        coEvery { client.command(config, "instruction-command") } returns null
+        assertTrue(runCatching { repository.queueInstruction(record.key, "Inspect before editing", "instruction-command") }.isFailure)
+        coEvery { client.command(config, "instruction-command") } returns instructionReceipt()
+
+        repository.queueInstruction(record.key, "Inspect before editing", "instruction-command")
+
+        val accepted = requireNotNull(db.gatewayJobDao().submission("instruction-command"))
+        assertEquals("ACCEPTED_INSTRUCTION", accepted.state)
+        assertEquals(legacyPayload, accepted.payload)
+        coVerify(exactly = 1) { commands.instruction(any(), any(), any()) }
+    }
+
+    private suspend fun instructionJob(): GatewayJobRecord {
+        val record = GatewayJobRecord("job-key", "gateway", "owner", "engineering", "remote-job", key, "profile", route.endpoint, "profile", "{}", 1)
+        db.gatewayJobDao().saveJobs(listOf(record))
+        io.mockk.every { jobs.summary(record) } returns GatewayJobSummary("remote-job", "engineering", "conversation", state = "running", acceptedAt = 1.0, profileId = "profile")
+        coEvery { client.conversation(config, "conversation") } returns snapshot.copy(activeJobId = "remote-job", jobState = "running")
+        return record
+    }
+
+    private fun instructionReceipt() = GatewayCommandReceipt(gatewayId = "gateway", principalId = "owner", commandId = "instruction-command", conversationId = "conversation", jobKind = "engineering", jobId = "remote-job")
 
     @Test fun localConversationIdentityReusesTheOrdinaryGatewayUuid() = runBlocking {
         val turn = turn()

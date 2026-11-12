@@ -15,8 +15,7 @@ internal object GitHubObservedWorkflowRuns {
             if (receipt["trusted"] != JsonPrimitive(true) || receipt["success"] != JsonPrimitive(true) || receipt["verification_eligible"] == JsonPrimitive(false) || receipt.text("tool").substringBefore("__") != "github_ci") return@flatMapIndexed emptyList()
             val arguments = receipt["arguments"] as? JsonObject ?: return@flatMapIndexed emptyList()
             val action = arguments.text("action")
-            val envelope = receipt["result"] as? JsonObject ?: return@flatMapIndexed emptyList()
-            val root = (envelope["data"] as? JsonObject) ?: envelope
+            val root = GitHubInventoryObservation.planningRoot(receipt) ?: return@flatMapIndexed emptyList()
             val runs = when (action) {
                 "runs" -> (root["workflow_runs"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
                 "run", "status" -> if (arguments["run_id"] == root["id"] && "run_id" in arguments && "job_id" !in arguments) listOf(root) else emptyList()

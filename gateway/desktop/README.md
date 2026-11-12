@@ -23,7 +23,7 @@ If startup fails, inspect `logs/gateway.log` and `status.json`. Logs rotate at 5
 
 ## Build and release
 
-On Windows x64 with Python 3.12 and Inno Setup 6:
+On Windows x64 with Python 3.12 and Inno Setup 6.6 or later:
 
 ```powershell
 python -m pip install --require-hashes -r gateway/requirements.txt
@@ -65,3 +65,7 @@ The token graph uses provider completion usage or llama.cpp timing receipts, inc
 ### Export gateway debug logs
 
 Open **Settings → Advanced**, enable **Debug mode**, save and restart after active work finishes. The gateway keeps at most **5,000** sanitized diagnostic lines in `logs/gateway-debug.jsonl`; **Export debug log…** writes the retained history to a file you choose. Enable Debug mode in Android as well to include the selected profile/model digests, app build, Android SDK and network revision. When local log tracking is enabled, the phone records the gateway acknowledgement and runtime instance ID. Temporary conversations suppress client diagnostic metadata. Prompts, response bodies, code, credentials and device identifiers are excluded. Disabling the option stops new records; saved diagnostic history remains available for export. This setting does not change the selected model, backend or transport permissions.
+
+### Benchmarks
+
+In the dashboard, open **Benchmarks**, select an advertised model, and run the suite. The latest result for each exact model and backend is saved on this PC. The score measures correct answers across five fixtures. Select a result to see Gateway round-trip latency, time to first text, total time, stream gaps, and model throughput when the backend reports it. A transport or stream failure leaves the run incomplete.

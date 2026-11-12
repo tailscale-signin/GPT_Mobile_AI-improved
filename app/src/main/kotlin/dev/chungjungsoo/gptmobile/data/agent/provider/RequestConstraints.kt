@@ -62,7 +62,7 @@ data class RequestConstraints(
             onGatewayCommandNotDispatched = onGatewayCommandNotDispatched.takeIf { role == "primary" || role == "synthesis" },
             onGatewayCommandDispatching = onGatewayCommandDispatching.takeIf { role == "primary" || role == "synthesis" },
             requireGatewayConversation = requireGatewayConversation && role in setOf("primary", "synthesis"),
-            maxOutputTokens = if (role == "github-review-preflight") minOf(maxOutputTokens ?: 512, 512) else maxOutputTokens,
+            maxOutputTokens = if (role == "github-review-preflight") minOf(maxOutputTokens ?: Int.MAX_VALUE, dev.chungjungsoo.gptmobile.data.github.GitHubReviewCompatibility.OUTPUT_TOKENS) else maxOutputTokens,
             // A short helper is a preference, not a new strict Off requirement. Preserve the
             // user's explicit policy; the serializer chooses verified Off only for Auto helpers.
             allowReasoning = allowReasoning,

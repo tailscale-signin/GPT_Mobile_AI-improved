@@ -1330,16 +1330,35 @@ class AgentToolResolver @Inject constructor(
                     "Engineering review stores the exact patch. Use a saved conversation or open GitHub review explicitly."
                 }
                 val engineeringTaskId = engineeringController.prepareFromTool(actualConnection.connectionUid, root, args.toString())
+                val stagedRun = engineeringController.run(engineeringTaskId)
+                val branch = (args["branch"] as? kotlinx.serialization.json.JsonPrimitive)?.content.orEmpty()
+                val expectedHead = (args["expected_head_sha"] as? kotlinx.serialization.json.JsonPrimitive)?.content
+                var approvalBindingDigest: String? = null
                 if (workspaceContext != null && gitHubRepositoryState != null && userMessage != null) {
-                    dev.chungjungsoo.gptmobile.data.github.GitHubApprovalBinding.bind(
+                    approvalBindingDigest = dev.chungjungsoo.gptmobile.data.github.GitHubApprovalBinding.bind(
                         gitHubRepositoryState,
                         engineeringTaskId,
                         workspaceContext,
-                        (args["branch"] as? kotlinx.serialization.json.JsonPrimitive)?.content.orEmpty(),
+                        branch,
                         userMessage.chatId,
                         userMessage.id,
                         requestedModel ?: approvalProfile?.model.orEmpty(),
-                        approvalProfile?.let { dev.chungjungsoo.gptmobile.data.github.GitHubApprovalBinding.profileContract(it.compatibleType.name, it.apiUrl, it.providerConnectionUid, it.reasoning) }.orEmpty()
+                        approvalProfile?.let { dev.chungjungsoo.gptmobile.data.github.GitHubApprovalBinding.profileContract(it.compatibleType.name, it.apiUrl, it.providerConnectionUid, it.reasoning) }.orEmpty(),
+                        expectedHead,
+                        stagedRun?.patchDigest,
+                        requireSameSource = true
+                    )
+                    dev.chungjungsoo.gptmobile.data.github.GitHubApprovalBinding.recordEvent(
+                        gitHubRepositoryState,
+                        engineeringTaskId,
+                        "approval_card_created",
+                        kotlinx.serialization.json.buildJsonObject {
+                            put("chat_id", userMessage.chatId)
+                            put("branch", branch)
+                            expectedHead?.let { put("expected_head_sha", it) }
+                            stagedRun?.patchDigest?.let { put("patch_digest", it) }
+                            put("risk", if (stagedRun?.patchDigest.isNullOrBlank()) "PATCH_DIGEST_UNAVAILABLE" else "REVIEW_REQUIRED_NO_REMOTE_WRITE")
+                        }
                     )
                     engineeringController.scheduleApprovalRecovery(engineeringTaskId)
                 }
@@ -1358,9 +1377,15 @@ class AgentToolResolver @Inject constructor(
                     put("status", "AWAITING_APPROVAL")
                     put("committed", false)
                     put("card_id", "github-approval-$engineeringTaskId")
+                    userMessage?.let {
+                        put("chat_id", it.chatId)
+                        put("source_message_id", it.id)
+                    }
+                    stagedRun?.patchDigest?.let { put("patch_digest", it) }
+                    approvalBindingDigest?.let { put("approval_binding_sha256", it) }
                     put("user_input_required", true)
                     args["branch"]?.let { put("branch", it) }
-                    args["expected_head_sha"]?.let { put("expected_head_sha", it) }
+                    expectedHead?.let { put("expected_head_sha", it) }
                     put("next_action", "The exact patch is awaiting native approval in the GitHub chat card. Stop polling or restating the plan. Approve & Commit resumes the chat automatically; no remote write has occurred.")
                 }
             }
@@ -1419,6 +1444,8 @@ class AgentToolResolver @Inject constructor(
                         // Explicitly resuming an older saved approval restores its exact
                         // native card association. Existing bindings remain immutable.
                         if (status["state"] == kotlinx.serialization.json.JsonPrimitive("AWAITING_APPROVAL") && workspaceContext != null && gitHubRepositoryState != null && userMessage != null) {
+                            val stagedRun = engineeringController.run(taskId)
+                            val publicationIntent = status["publication_intent"] as? kotlinx.serialization.json.JsonObject
                             dev.chungjungsoo.gptmobile.data.github.GitHubApprovalBinding.bind(
                                 gitHubRepositoryState,
                                 taskId,
@@ -1427,7 +1454,9 @@ class AgentToolResolver @Inject constructor(
                                 userMessage.chatId,
                                 userMessage.id,
                                 requestedModel ?: approvalProfile?.model.orEmpty(),
-                                approvalProfile?.let { dev.chungjungsoo.gptmobile.data.github.GitHubApprovalBinding.profileContract(it.compatibleType.name, it.apiUrl, it.providerConnectionUid, it.reasoning) }.orEmpty()
+                                approvalProfile?.let { dev.chungjungsoo.gptmobile.data.github.GitHubApprovalBinding.profileContract(it.compatibleType.name, it.apiUrl, it.providerConnectionUid, it.reasoning) }.orEmpty(),
+                                (publicationIntent?.get("expected_head_sha") as? kotlinx.serialization.json.JsonPrimitive)?.content,
+                                stagedRun?.patchDigest
                             )
                             engineeringController.scheduleApprovalRecovery(taskId)
                         }

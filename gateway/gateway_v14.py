@@ -48,7 +48,7 @@ from v14.tools import install_exact_routing
 from v14.github import install_github_fast_path
 from v14.batch import install_batch
 from v14.catalog import install_catalog_cache
-from v14.browser import BOOTSTRAP_PATH, install_browser_proxy
+from v14.browser import BOOTSTRAP_PATH, LANDING_PATHS, gateway_landing, install_browser_proxy
 from v14.service import ServiceState, LoadGuard
 from v14.activity import ActivityTracker, ActivityMiddleware, desktop_snapshot, client_snapshot
 from v14.mcp import install_mcp_resilience
@@ -66,6 +66,7 @@ from v14.job_catalog import install_routes as install_conversation_routes
 from v14.profile_metadata import profile_metadata
 from v14.conversation_policy import conversation_retention, verify_mutation_identity, MUTATION_IDENTITY_HEADERS, ORDINARY_RETENTION_POLICY
 from v14.execution_binding import ExecutionBindingError, configured_route, fingerprint
+from v14.model_preparation_routes import ModelPreparationService, install_model_preparation_routes
 
 runtime.GATEWAY_VERSION = VERSION
 runtime.AUTO_MEMORY_RETRIEVE = False
@@ -124,7 +125,8 @@ debug_log.configure_identity(gatewayVersion=VERSION, sourceCommit=build_identity
                              configurationFingerprint=fingerprint({'backend': diagnostic_route['runtime_config_revision'],
                                                                    'mode': config.mode, 'durableJobs': runtime.GATEWAY_DURABLE_JOBS}),
                              startupReason=os.getenv('GATEWAY_STARTUP_REASON', 'process_start'))
-app = FastAPI(title="Private Gateway 16", version=VERSION, lifespan=debug_lifecycle(debug_log, engineering.lifecycle(service.lifespan(runtime, config.shutdown_grace))),
+model_preparation = ModelPreparationService(engineering.capabilities)
+app = FastAPI(title="Private Gateway 16", version=VERSION, lifespan=model_preparation.lifecycle(debug_lifecycle(debug_log, engineering.lifecycle(service.lifespan(runtime, config.shutdown_grace)))),
               docs_url="/gateway/docs", openapi_url="/gateway/openapi.json")
 app.add_middleware(LoadGuard, config=config, state=service)
 app.add_middleware(ActivityMiddleware, tracker=activity)
@@ -133,6 +135,7 @@ app.add_middleware(DebugMiddleware, store=debug_log, instance_id=service.instanc
 install_debug_routes(app, debug_log)
 install_engineering_routes(app, engineering)
 install_conversation_routes(app, runtime.gateway_conversations, engineering, service, lambda: runtime.device_store)
+install_model_preparation_routes(app, model_preparation, runtime.gateway_conversations.gateway_id)
 from v14.maintenance import install_maintenance
 install_maintenance(app, runtime, service, engineering)
 
@@ -319,14 +322,16 @@ def capabilities(model=""):
                                     shaBoundMergeApproval=True, engineeringSupervisor=True, repositoryCodeGraph=True,
                                     loopbackBrowserCsrf=config.mode == "loopback", boundedAdmission=True,
                                     versionedJournal=True, mcpCircuitBreakers=True, supervisedShutdown=True,
-                                    selectedModelLimits=True, mutation_identity_preconditions_v1=True,
+                                    selectedModelLimits=True, model_preparation_v1=True, mutation_identity_preconditions_v1=True,
                                     ordinary_conversation_retention_v1=True, **{key: gateway_id is not None for key in FEATURES})})
     result['accepted_request_headers'].extend(['X-Gateway-Profile-ID', 'X-Gateway-Profile-Name-Base64', 'X-Gateway-Conversation-Retention', *MUTATION_IDENTITY_HEADERS])
-    result['endpoints'].update(identity='/gateway/identity', job_catalog='/gateway/job-catalog', conversations='/gateway/conversations', conversation_messages='/gateway/conversations/{conversation_id}/messages', command='/gateway/commands/{command_id}')
+    result['endpoints'].update(identity='/gateway/identity', job_catalog='/gateway/job-catalog', conversations='/gateway/conversations', conversation_messages='/gateway/conversations/{conversation_id}/messages', command='/gateway/commands/{command_id}', model_prepare='/gateway/models/prepare')
     result['headers'].update(gateway_id='X-Gateway-ID', principal_id='X-Gateway-Principal-ID', conversation_id='X-Gateway-Conversation-ID', command_id='X-Gateway-Command-ID', detach_safe='X-Gateway-Detach-Safe')
     result['contracts'].update(gatewayJobCatalog=['gptmobile.gateway.job-catalog.v1'], gatewayConversations=['gptmobile.gateway.conversations.v1'])
+    result['contracts']['modelPreparation'] = ['gptmobile.gateway.model-preparation.v1']
     if model:
         result['selectedModel'] = engineering.capabilities.selected_model(model)
+        model_preparation.observe_loaded(model, result['selectedModel'])
     return result
 
 
@@ -352,10 +357,19 @@ def v14_contract():
 
 @app.get("/gateway/ready")
 @app.get("/v1/gateway/ready")
-async def ready(model: str = ""):
+async def ready(model: str = "", required_tools: str = ""):
     if len(model) > 512:
         return JSONResponse({"error": {"code": "invalid_model_identifier"}}, status_code=400)
+    required = required_tools.split(',') if required_tools else []
+    if len(required) > 64 or any(not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', name) for name in required):
+        return JSONResponse({'error': {'code': 'invalid_required_tools'}}, status_code=400)
     result = await asyncio.to_thread(readiness, runtime, service, model)
+    if required:
+        result['taskReadiness'] = runtime.gateway_catalogue.task_readiness(required)
+        if not result['taskReadiness']['ready']:
+            result['ready'] = False
+            result['reasonCode'] = 'REQUIRED_TOOLS_UNAVAILABLE'
+            result['retryable'] = result.get('retryable', False) or result['taskReadiness']['retryable']
     return JSONResponse(result, status_code=200 if result['ready'] else 503)
 
 
@@ -381,9 +395,11 @@ async def admin_status():
 @app.get("/v1/gateway/connections")
 def connections():
     # Only IDs/state; commands, environment and credential values stay private.
+    observed = {row['serviceId']: row for row in runtime.gateway_catalogue.connection_observations()}
     return {"schemaVersion": 1, "connections": [
         {"serviceId": name, "connectionUid": "gateway:" + name, "owner": "gateway", "kind": "pc-managed-mcp",
-         "enabled": value.get("enabled", True), "supportedActions": ["configure-locally"], "health": "not-probed"}
+         "enabled": value.get("enabled", True), "supportedActions": ["configure-locally"],
+         "health": observed.get(name, {}).get('state', 'NOT_DISCOVERED'), **observed.get(name, {})}
         for name, value in sorted(approved_mcp_config().items())]}
 
 
@@ -410,6 +426,16 @@ async def local_doctor(model: str = ''):
     return await asyncio.to_thread(doctor, model)
 
 
+async def browser_entry(request: Request):
+    if config.mode == "open_network":
+        return gateway_landing()
+    return await runtime.proxy_to_llama(request, request.scope["route"].path[1:])
+
+
+for landing_path in LANDING_PATHS:
+    app.add_api_route(landing_path, browser_entry, methods=["GET", "HEAD"], include_in_schema=False)
+
+
 # New routes precede the retained catch-all UI proxy. Authentication is replaced
 # on this app only; the v13 app remains usable through its original launcher.
 app.router.routes.extend(runtime.app.router.routes)
@@ -431,7 +457,7 @@ def doctor(model=''):
                 'Run this doctor on the gateway host with --model and the exact selected model ID.',
                 'For connection refusal or timeout, check the configured backend listener, address, port and local firewall.',
                 'For denied metadata, authorize gateway-to-backend metadata access; keep remote gateway restrictions enabled.',
-                'For an advertised but unloaded llama.cpp router model, run prepare-model --model with that exact ID on the gateway host, then rerun doctor. This explicit command sends at most one load request and reconciles its outcome.',
+                'For an advertised but unloaded llama.cpp router model, select its exact profile in an updated app to use the advertised model preparation action, or run prepare-model --model on the host after reconciling any unresolved load. Metadata polls never load a model.',
                 'For invalid metadata or context, verify the backend version and expose the loaded model allocation.',
                 'Confirm readiness and verified selected-model metadata before a separate generation smoke test.'],
             "mcpTransportAdapters": capabilities()['mcpTransportAdapters'],

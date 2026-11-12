@@ -4,13 +4,28 @@ import java.io.IOException
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import javax.net.ssl.SSLException
+import kotlin.coroutines.AbstractCoroutineContextElement
+import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
 
 /** Only reads may be replayed. A lost write response must be reconciled by its existing receipt. */
 internal object GitHubReadRetry {
+    /** One replayable HTTP read; nested or concurrent reads keep distinct recovery scopes. */
+    internal class Scope : AbstractCoroutineContextElement(Key) {
+        companion object Key : CoroutineContext.Key<Scope>
+
+        var attempt: Int = 0
+            private set
+
+        fun nextAttempt() {
+            attempt++
+        }
+    }
+
     class HttpFailure(val status: Int, val retryAfter: String?) : IOException("GitHub HTTP $status: temporarily unavailable; read retries exhausted or deferred.")
 
     fun transientStatus(status: Int): Boolean = status in setOf(500, 502, 503, 504)
@@ -21,11 +36,32 @@ internal object GitHubReadRetry {
     }
 
     suspend fun <T> run(readOnly: Boolean = true, request: suspend () -> T): T {
+        val accounting = currentCoroutineContext()[GitHubDispatchAccounting]
+        if (!readOnly || accounting == null) return retry(readOnly, request)
+        val scope = Scope()
+        var recovered = false
+        var completed = false
+        try {
+            val result = withContext(scope) {
+                retry(readOnly, request, scope::nextAttempt) { recovered = true }
+            }
+            completed = true
+            return result
+        } finally {
+            accounting.completeReadRetry(scope, recovered && completed)
+        }
+    }
+
+    private suspend fun <T> retry(readOnly: Boolean, request: suspend () -> T, onAttempt: () -> Unit = {}, onRecovered: () -> Unit = {}): T {
         var retries = 0
         while (true) {
             currentCoroutineContext().ensureActive()
             try {
-                return request()
+                onAttempt()
+                val result = request()
+                currentCoroutineContext().ensureActive()
+                if (retries > 0) onRecovered()
+                return result
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: IOException) {

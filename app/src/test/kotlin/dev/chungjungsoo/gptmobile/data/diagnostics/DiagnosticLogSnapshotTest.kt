@@ -164,6 +164,8 @@ class DiagnosticLogSnapshotTest {
     @Test fun criticalWindowIncludesFailuresAndLifecycleWithoutVerboseSuccesses() {
         assertTrue(criticalDiagnosticRecord("Agent", "failed", "E"))
         assertTrue(criticalDiagnosticRecord("AppCrash", "sanitized frames", "F"))
+        assertTrue(criticalDiagnosticRecord("VoiceEngine", "stage=model_load_start · nativeOperationId=local-voice:abc", "I"))
+        assertFalse(criticalDiagnosticRecord("VoiceEngine", "ordinary playback status", "I"))
         assertTrue(criticalDiagnosticRecord("ToolExecution", "rejected before dispatch", "I"))
         assertTrue(criticalDiagnosticRecord("GitHubWorkspace", "failure", "W"))
         assertTrue(criticalDiagnosticRecord("Lifecycle", "MainActivity stopped", "I"))

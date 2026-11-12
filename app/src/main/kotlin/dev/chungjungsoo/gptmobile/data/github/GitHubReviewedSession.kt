@@ -203,7 +203,7 @@ internal class GitHubReviewedSession(
             progress("Checking the selected profile's review format before repository work")
             val compatible = compatibility.check(reviewerRevision) {
                 val response = try {
-                    collectPass(GitHubReviewCompatibility.PROMPT, "github-review-preflight", GitHubReviewSchema.MAX_OUTPUT_CHARACTERS)
+                    collectPreflight()
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (failure: Exception) {
@@ -368,7 +368,7 @@ internal class GitHubReviewedSession(
                 else -> "Retry can resume saved verdicts after model availability recovers."
             }
             progress("Answer review blocked · $code · saved draft and ${receipts.size} evidence records retained. $recovery")
-            emit(ProviderEvent.Failed("$code: GitHub answer withheld: ${failure.message.orEmpty().take(1200)} $recovery", errorCode = code, transportComplete = original?.transportComplete ?: (failure !is ReviewPassFailure), providerLimit = original?.providerLimit, taskOutcome = if (blocked && !formatRetry) "BLOCKED" else "PARTIAL", failureDetails = details))
+            emit(ProviderEvent.Failed("$code: GitHub answer withheld: ${failure.message.orEmpty().take(1200)} $recovery", errorCode = code, transportComplete = original?.transportComplete ?: (failure !is ReviewPassFailure), providerLimit = original?.providerLimit, taskOutcome = if (blocked && !formatRetry) "BLOCKED" else "PARTIAL", failureDetails = details, invocationId = original?.invocationId))
         }
     }
 
@@ -552,7 +552,25 @@ internal class GitHubReviewedSession(
     }
 
     private var reviewPasses = 0
-    private class ReviewPassFailure(message: String, val splittable: Boolean, val original: ProviderEvent.Failed? = null) : IllegalStateException(message)
+    private class ReviewPassFailure(
+        message: String,
+        val splittable: Boolean,
+        val original: ProviderEvent.Failed? = null,
+        val completedOutputLimit: Boolean = false
+    ) : IllegalStateException(message)
+
+    /** Only the synthetic, tools-disabled probe gets one compact fallback.
+     * An interrupted request, admission failure or malformed completed verdict
+     * keeps its original outcome; no repository work or alternate profile is used.
+     */
+    private suspend fun collectPreflight(): String = try {
+        collectPass(GitHubReviewCompatibility.PROMPT, "github-review-preflight", GitHubReviewSchema.MAX_OUTPUT_CHARACTERS)
+    } catch (failure: ReviewPassFailure) {
+        if (!failure.completedOutputLimit) throw failure
+        progress("Retrying the synthetic review check once with a compact verdict; repository work has not started")
+        collectPass(GitHubReviewCompatibility.BOUNDED_RETRY_PROMPT, "github-review-preflight", GitHubReviewSchema.MAX_OUTPUT_CHARACTERS)
+    }
+
     private class ReviewVerdictFailure(message: String) : IllegalStateException(message)
 
     private fun reviewUnavailable(failure: Exception, stage: String): ProviderEvent.Failed {
@@ -672,7 +690,17 @@ internal class GitHubReviewedSession(
         // length-limited. Exact schema and evidence-ID validation still decide acceptance.
         // Truncated JSON, interrupted transports and corrections cannot take this path.
         if (!kind.endsWith("repair") && !unsafeFailure && (length && completed && failure == null || limitFailureComplete) && runCatching { GitHubReviewSchema.parseVerdict(output.toString()) }.isSuccess) return output.toString()
-        if (failure != null || !completed || length || output.isBlank()) throw ReviewPassFailure(failure?.message ?: "Review produced no complete visible verdict.", splittable || length || completed && output.isBlank(), failure)
+        if (failure != null || !completed || length || output.isBlank()) {
+            throw ReviewPassFailure(
+                failure?.message ?: "Review produced no complete visible verdict.",
+                splittable || length || completed && output.isBlank(),
+                failure,
+                completedOutputLimit = !unsafeFailure &&
+                    (length && completed || limitFailureComplete) ||
+                    failure?.errorCode == "COMPLETION_REPAIR_BUDGET_EXHAUSTED" &&
+                    failure?.failureDetails?.get("requires_reconciliation") != JsonPrimitive(true)
+            )
+        }
         return output.toString()
     }
 

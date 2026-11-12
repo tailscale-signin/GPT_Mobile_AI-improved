@@ -87,6 +87,37 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
                     }
                 }
                 Text("Add a separate Llama or Ollama connection in Platforms using the desktop gateway address, then select it here.", style = MaterialTheme.typography.bodySmall)
+                Text("Gateway execution mode", style = MaterialTheme.typography.titleSmall)
+                var batchModeOpen by remember { mutableStateOf(false) }
+                OutlinedButton(
+                    onClick = { batchModeOpen = true },
+                    enabled = state.profileUid != null && state.profileSettings.engineeringGatewayProfileUid != null,
+                    modifier = Modifier.testTag("github_batch_mode")
+                ) {
+                    Text(
+                        when (state.profileSettings.executionBatchMode) {
+                            "smart" -> "Smart Batch"
+                            "full" -> "Full Integration Batch"
+                            else -> "Standard"
+                        }
+                    )
+                }
+                DropdownMenu(expanded = batchModeOpen, onDismissRequest = { batchModeOpen = false }) {
+                    listOf("standard" to "Standard", "smart" to "Smart Batch", "full" to "Full Integration Batch").forEach { (mode, name) ->
+                        DropdownMenuItem(
+                            text = { Text(name) },
+                            onClick = {
+                                batchModeOpen = false
+                                onSettings(state.profileSettings.copy(executionBatchMode = mode))
+                            }
+                        )
+                    }
+                }
+                Text(
+                    "Full Batch requires an explicitly enabled Windows Gateway. This changes only newly admitted jobs, not saved work. GitHub permissions and merge approvals are unchanged.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
                 GitHubGatewayConnectionCheck(
                     dev.chungjungsoo.gptmobile.data.github.engineeringGatewayProfile(state.profiles, state.profileSettings.engineeringGatewayProfileUid)?.uid
                 ) { inspection = it to true }
@@ -128,7 +159,7 @@ private fun GitHubDecisionSettings(mode: GitHubDecisionMode, enabled: Boolean, o
     fun label(value: GitHubDecisionMode) = when (value) {
         GitHubDecisionMode.ASK -> "Ask each time"
         GitHubDecisionMode.SUGGESTED -> "Use suggested choices"
-        GitHubDecisionMode.AUTO_APPROVE -> "Auto-approve eligible commits"
+        GitHubDecisionMode.AUTO_APPROVE -> "Fixture-only auto-approval"
     }
     OutlinedCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -147,7 +178,7 @@ private fun GitHubDecisionSettings(mode: GitHubDecisionMode, enabled: Boolean, o
                 when (mode) {
                     GitHubDecisionMode.ASK -> "Review each patch and choose how to answer each question."
                     GitHubDecisionMode.SUGGESTED -> "Use the suggested option when one is available. Review proposed commits yourself."
-                    GitHubDecisionMode.AUTO_APPROVE -> "Use suggested choices and approve eligible working-branch patches through saved task recovery. Deletions, workflow changes, and changes that require hardware verification still ask."
+                    GitHubDecisionMode.AUTO_APPROVE -> "Use suggested choices and auto-approve only verified patches on owned codex-self-test/* fixture branches. Commits to regular repository branches still require the native Approve & Commit action."
                 },
                 style = MaterialTheme.typography.bodySmall
             )

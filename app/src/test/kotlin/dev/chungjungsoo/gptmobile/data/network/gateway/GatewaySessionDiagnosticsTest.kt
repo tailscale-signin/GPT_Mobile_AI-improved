@@ -51,6 +51,22 @@ class GatewaySessionDiagnosticsTest {
         assertEquals("NONE", frame(8.0, 0, 0).diagnosticText("error_code"))
     }
 
+    @Test fun tinyFrameWindowsRemainMeasurementsWhileSevereIndividualStallsSurvive() {
+        for (count in listOf(1, 2, 29)) {
+            val event = project("FRAME_TIMING", "Rendering", mapOf("frames" to count, "jankFrames" to count, "droppedSamples" to 0, "maxMs" to 20.0))
+            assertEquals("NONE", event.diagnosticText("error_code"))
+            assertEquals("info", event.diagnosticText("severity"))
+            assertEquals(JsonPrimitive(false), event.attributes()["sustained_jank"])
+            assertEquals(30L, event.attributes().diagnosticLong("jank_minimum_frames"))
+            assertEquals(count.toLong(), event.attributes().diagnosticLong("missed_deadline_count"))
+            assertEquals("none", event.attributes().diagnosticText("recovery_action"))
+        }
+        val stall = project("FRAME_TIMING", "Rendering", mapOf("frames" to 1, "jankFrames" to 1, "maxMs" to 195.0))
+        assertEquals("RENDERER_STALL", stall.diagnosticText("error_code"))
+        assertEquals(JsonPrimitive(false), stall.attributes()["sustained_jank"])
+        assertEquals(JsonPrimitive(true), stall.attributes()["severe_long_frame"])
+    }
+
     @Test fun mcpDiscoveryFailureRetainsServerAndPhaseWithoutImplyingExecution() {
         val event = project("Health", "MCP", mapOf("connection" to "private-server", "failedStage" to "discovery", "errorCode" to "MCP_DISCOVERY_FAILED", "operation_id" to "mcp:operation:one"), "W")
         assertEquals("mcp_discovery", event.diagnosticText("stage"))

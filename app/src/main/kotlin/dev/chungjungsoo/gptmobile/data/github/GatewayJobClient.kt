@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.github
 
+import dev.chungjungsoo.gptmobile.data.context.RouteCapabilityCache
 import dev.chungjungsoo.gptmobile.data.network.LocalEndpointConnectionPolicy
 import dev.chungjungsoo.gptmobile.data.network.LocalServiceUnavailableException
 import dev.chungjungsoo.gptmobile.data.network.NetworkClient
@@ -32,9 +33,18 @@ import kotlinx.serialization.json.intOrNull
 
 /** Catalog and transcript reads have no admission, resume, or cancellation side effects. */
 @Singleton
-class GatewayJobClient internal constructor(private val http: HttpClient, private val evictIdleConnections: suspend () -> Unit = {}) {
+class GatewayJobClient internal constructor(
+    private val http: HttpClient,
+    private val evictIdleConnections: suspend () -> Unit = {},
+    private val now: () -> Long = { System.nanoTime() / 1_000_000 }
+) {
     @Inject constructor(network: NetworkClient) : this(network.gatewayReadClient(), network::evictIdleConnections)
     private val json = Json { ignoreUnknownKeys = true }
+    private data class CommandObservation(val receipt: GatewayCommandReceipt?, val misses: Int)
+    private val commandMisses = linkedMapOf<String, Int>()
+    private val commandObservations = RouteCapabilityCache<CommandObservation>(now, valueTtl = {
+        if (it.receipt == null) (5_000L shl (it.misses - 1).coerceIn(0, 4)).coerceAtMost(60_000L) else 0L
+    })
 
     private suspend fun read(config: ProviderRequestConfig, path: String, maxBytes: Int = 2_000_000): String {
         val diagnostic = GatewayClientDiagnostics.withHeaders(config, model = "", knownGateway = true)
@@ -50,7 +60,7 @@ class GatewayJobClient internal constructor(private val http: HttpClient, privat
             // One retry owner and one total deadline, for these GETs only.
             withTimeout(deadline) {
                 LocalEndpointConnectionPolicy.probe(endpoint, evictIdleConnections) {
-                    gatewayClientExchange(diagnostic, "job_catalog", safeRead = true) { headers ->
+                    gatewayClientExchange(diagnostic, diagnosticRoute(surface), safeRead = true) { headers ->
                         http.prepareRequest(endpoint) {
                             method = HttpMethod.Get
                             config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
@@ -130,11 +140,22 @@ class GatewayJobClient internal constructor(private val http: HttpClient, privat
         else -> GatewayAdmissionSurface.CONVERSATIONS
     }
 
+    private fun diagnosticRoute(surface: GatewayAdmissionSurface): String = when (surface) {
+        GatewayAdmissionSurface.IDENTITY -> "identity"
+        GatewayAdmissionSurface.CAPABILITIES -> "capabilities"
+        GatewayAdmissionSurface.COMMAND -> "commands"
+        GatewayAdmissionSurface.TRANSCRIPT -> "messages"
+        GatewayAdmissionSurface.CONVERSATIONS -> "conversations"
+        else -> "job_catalog"
+    }
+
     private inline fun <T> decode(surface: GatewayAdmissionSurface, block: () -> T): T = try {
         block()
     } catch (cancelled: CancellationException) {
         throw cancelled
     } catch (failure: GatewayAdmissionException) {
+        throw failure
+    } catch (failure: GatewayCommandRejected) {
         throw failure
     } catch (_: Exception) {
         // Decoder causes can embed the response body. Retain only the safe contract category.
@@ -160,13 +181,48 @@ class GatewayJobClient internal constructor(private val http: HttpClient, privat
         }
     }
 
-    suspend fun command(config: ProviderRequestConfig, commandId: String): GatewayCommandReceipt? {
+    /** Explicit reconciliation always reads live; a prior missing receipt never authorizes a write. */
+    suspend fun command(config: ProviderRequestConfig, commandId: String): GatewayCommandReceipt? =
+        lookupCommand(config, commandId, forceRefresh = true)
+
+    /** Passive observers back off absent receipts without retiring or replaying the saved command. */
+    internal suspend fun observeCommand(config: ProviderRequestConfig, commandId: String): GatewayCommandReceipt? =
+        lookupCommand(config, commandId, forceRefresh = false)
+
+    private suspend fun lookupCommand(config: ProviderRequestConfig, commandId: String, forceRefresh: Boolean): GatewayCommandReceipt? {
+        pathId(commandId)
+        val authority = config.extraHeaders.entries
+            .filter { it.key.equals("X-Gateway-Installation-ID", true) || it.key.equals("X-Gateway-Principal-ID", true) }
+            .sortedBy { it.key.lowercase() }.joinToString("\n") { "${it.key.lowercase()}:${it.value}" }
+        val key = gatewayIdentityKey(GatewaySurfacePolicy.identity(config), authority, commandId)
+        return commandObservations.getOrLoad(key, forceRefresh = forceRefresh) {
+            val receipt = readCommand(config, commandId)
+            val misses = synchronized(commandMisses) {
+                if (receipt == null) {
+                    if (commandMisses.size >= 128 && key !in commandMisses) commandMisses.remove(commandMisses.keys.first())
+                    ((commandMisses[key] ?: 0) + 1).coerceAtMost(5).also { commandMisses[key] = it }
+                } else {
+                    commandMisses.remove(key)
+                    0
+                }
+            }
+            CommandObservation(receipt, misses)
+        }?.receipt
+    }
+
+    private suspend fun readCommand(config: ProviderRequestConfig, commandId: String): GatewayCommandReceipt? {
         val payload = try {
-            read(config, "commands/${pathId(commandId)}")
+            read(config, "commands/${pathId(commandId)}?include_outcome=true")
         } catch (_: GatewayHistoryUnsupported) {
             return null
         }
         return decode(GatewayAdmissionSurface.COMMAND) {
+            val document = json.parseToJsonElement(payload) as? JsonObject ?: error("Invalid command receipt")
+            if (document.text("admission_state") == "rejected") {
+                val rejection = json.decodeFromString<GatewayCommandRejection>(payload)
+                rejection.verify(commandId)
+                throw GatewayCommandRejected(rejection)
+            }
             json.decodeFromString<GatewayCommandReceipt>(payload).also {
                 require(it.schemaVersion == 1 && it.commandId == commandId && it.jobKind in setOf("engineering", "generation"))
                 requireGatewayIdentity(it.gatewayId, it.principalId)

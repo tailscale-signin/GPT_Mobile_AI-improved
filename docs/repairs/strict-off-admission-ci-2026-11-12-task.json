@@ -1,0 +1,40 @@
+{
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "parent_pr": 819,
+  "base_branch": "fix/voice-chat-crash-and-diagnostics-2026-11-11",
+  "base_sha": "0df839f0bc2f11810e598885bf146bae51bc3a86",
+  "working_branch": "repair/strict-off-draft-local",
+  "intent": "Correct the strict-OFF admission regression fixture to exercise fresh Send checks and prove that explicit capability rechecks preserve the draft without dispatching.",
+  "checkpoint_kind": "local_repository_checkpoint",
+  "runtime_task_store": "The Android Room engineering task store is not running in this host checkout; this local checkpoint is not a runtime execution receipt.",
+  "diagnosis": {
+    "ci_head": "0df839f0bc2f11810e598885bf146bae51bc3a86",
+    "failure": "ChatViewModelStartupTest.strictOffSendPreservesDraftAndExplicitRecheckNeverAutomaticallyDispatches failed at the first draft-retention assertion.",
+    "cause": "The fixture returned SUPPORTED for every fresh check. Send began requiring forceRefresh=true in f22c93b56ffc2406c9d09840a2dd189cd0cecc6a, so its first Send was deliberately admitted by that stale fixture.",
+    "preserved_contract": "Send verifies the selected model and strict OFF with a fresh check; explicit recheck only refreshes the notice and cannot dispatch. Rejected admission retains the draft."
+  },
+  "changes": [
+    "The fixture returns unsupported for the first two fresh OFF checks and supported for the manual recheck and later explicit Send.",
+    "A supported cached observation cannot bypass either fresh rejection.",
+    "Every check uses the exact chat model override and OFF; recheck preserves the draft with zero persistence or provider starts.",
+    "A separate explicit Send checks again and persists and dispatches the same draft exactly once.",
+    "Production admission and persistence behavior are unchanged."
+  ],
+  "validation": {
+    "status": "passed",
+    "baseline_reproduction": "The unchanged test reproduced the CI assertion exactly: one test ran and failed because the fixture admitted the first Send.",
+    "corrected_regression": "One focused JVM/Robolectric test passed after compiling six current production sources plus the updated test with real cached supporting app and generated classes.",
+    "production_sources": [
+      "presentation/ui/chat/ChatViewModel.kt",
+      "data/context/ReasoningCapabilityRepository.kt",
+      "data/context/GatewayModelPreparationRepository.kt",
+      "data/context/GatewayModelPreparationStore.kt",
+      "data/context/GatewayModelSelectionController.kt",
+      "data/repository/ChatRepository.kt"
+    ],
+    "ktlint": "ktlint 1.3.1 passed on ChatViewModelStartupTest.kt.",
+    "canonical_fast": "bash scripts/validate-local.sh fast passed: 462 host tests, resource, policy, dependency, statistics coverage, and Android regex checks.",
+    "diff_check": "git diff --check passed.",
+    "limits": "No full Gradle, Android packaging, device, or live backend execution was performed for this test-only change. Hosted CI must validate the integrated head."
+  }
+}

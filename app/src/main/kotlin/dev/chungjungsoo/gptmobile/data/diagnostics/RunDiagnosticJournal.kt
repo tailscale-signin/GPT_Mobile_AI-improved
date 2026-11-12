@@ -124,6 +124,7 @@ internal class RunDiagnosticJournal(
     private val writes = kotlinx.coroutines.sync.Mutex()
     private val sequences = mutableMapOf<String, Long>()
     private val terminals = mutableSetOf<String>()
+    private val lastObservedStages = mutableMapOf<String, dev.chungjungsoo.gptmobile.data.agent.ObservedProgressStage>()
     private data class FirstVisibleKey(val runId: String, val fence: Long?, val origin: OutputOrigin, val invocationId: String?)
     private val firstVisible = mutableSetOf<FirstVisibleKey>()
     private val outputLineage = OutputLineageRegistry()
@@ -145,6 +146,7 @@ internal class RunDiagnosticJournal(
             if (field != value) {
                 outputEpoch++
                 outputLineage.clear()
+                lastObservedStages.clear()
             }
             field = value
         }
@@ -252,6 +254,7 @@ internal class RunDiagnosticJournal(
             pending.removeAll { it.runId == runId }
             outputLineage.removeRun(runId)
             firstVisible.removeAll { it.runId == runId }
+            lastObservedStages.remove(runId)
         } else if (runId !in privateRuns && permittedRuns.size < 10_000) {
             permittedRuns += runId
         }
@@ -268,6 +271,11 @@ internal class RunDiagnosticJournal(
                 failed = true
             }
         }
+    }
+
+    /** Last accepted progress evidence in this process; never presented as the cause of failure. */
+    fun lastObservedStage(runId: String): dev.chungjungsoo.gptmobile.data.agent.ObservedProgressStage? = synchronized(lock) {
+        lastObservedStages[runId].takeUnless { privateSession || runId !in permittedRuns }
     }
 
     fun record(
@@ -374,6 +382,14 @@ internal class RunDiagnosticJournal(
                 capacityDropped.incrementAndGet()
             }
             if (kind == RunDiagnosticKind.RUN_TERMINAL) terminals += runId
+            val observedStage = progressStage ?: when (kind) {
+                RunDiagnosticKind.FIRST_TEXT -> dev.chungjungsoo.gptmobile.data.agent.ObservedProgressStage.ANSWER
+                RunDiagnosticKind.FIRST_REASONING -> dev.chungjungsoo.gptmobile.data.agent.ObservedProgressStage.REASONING
+                RunDiagnosticKind.FIRST_TOOL, RunDiagnosticKind.TOOL_ADMITTED, RunDiagnosticKind.TOOL_RESULT -> dev.chungjungsoo.gptmobile.data.agent.ObservedProgressStage.TOOL
+                else -> null
+            }
+            if (observedStage != null) lastObservedStages[runId] = observedStage
+            if (kind == RunDiagnosticKind.RUN_TERMINAL) lastObservedStages.remove(runId)
             if (kind == RunDiagnosticKind.FIRST_VISIBLE_TEXT) firstVisible += visibleKey
             pending.addLast(event)
             event
@@ -693,6 +709,7 @@ internal class RunDiagnosticJournal(
             inFlight = emptyList()
             sequences.clear()
             terminals.clear()
+            lastObservedStages.clear()
             firstVisible.clear()
             outputLineage.clear()
             outputEpoch++
@@ -749,7 +766,7 @@ internal class RunDiagnosticJournal(
     private val minimalKinds = setOf(RunDiagnosticKind.FAILURE_RECEIPT, RunDiagnosticKind.INVOCATION_STARTED, RunDiagnosticKind.INVOCATION_FINISHED, RunDiagnosticKind.FIRST_TEXT, RunDiagnosticKind.FIRST_REASONING, RunDiagnosticKind.FIRST_TOOL, RunDiagnosticKind.FIRST_PROGRESS, RunDiagnosticKind.FIRST_VISIBLE_ANSWER, RunDiagnosticKind.FIRST_SYSTEM_ERROR, RunDiagnosticKind.FIRST_APPLICATION_REPORT, RunDiagnosticKind.FIRST_RETAINED_CONTENT, RunDiagnosticKind.FIRST_UNATTRIBUTED_OUTPUT, RunDiagnosticKind.INTENT_CONVERSATIONAL, RunDiagnosticKind.INTENT_SUBSTANTIVE, RunDiagnosticKind.TOOL_ADMITTED, RunDiagnosticKind.TOOL_RESULT, RunDiagnosticKind.TOOL_RESULTS_RESTORED, RunDiagnosticKind.CONTINUATION_SELECTED, RunDiagnosticKind.VERIFICATION_REJECTED, RunDiagnosticKind.ANSWER_REWRITE, RunDiagnosticKind.RUN_TERMINAL)
     private val criticalKinds = setOf(RunDiagnosticKind.FAILURE_RECEIPT, RunDiagnosticKind.INTENT_CONVERSATIONAL, RunDiagnosticKind.INTENT_SUBSTANTIVE, RunDiagnosticKind.VERIFICATION_REJECTED, RunDiagnosticKind.ANSWER_REWRITE) + setOf(RunDiagnosticKind.RUN_TERMINAL, RunDiagnosticKind.INVOCATION_FINISHED, RunDiagnosticKind.SEGMENT_COMMITTED, RunDiagnosticKind.PROGRESS_DEADLINE, RunDiagnosticKind.CAPTURE_GAP)
 
-    private fun identity(value: String) = java.security.MessageDigest.getInstance("SHA-256").digest(value.toByteArray()).take(12).joinToString("") { "%02x".format(it) }
+    private fun identity(value: String) = DiagnosticRecordChunks.sha256(value).take(24)
     private fun safeId(value: String) = value.length in 1..192 && value.all { it.isLetterOrDigit() || it in "_.:-" }
 }
 

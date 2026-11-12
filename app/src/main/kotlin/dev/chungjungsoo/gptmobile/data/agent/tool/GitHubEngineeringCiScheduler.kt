@@ -46,6 +46,16 @@ internal object GitHubEngineeringCiScheduler {
         WorkManager.getInstance(context.applicationContext).enqueueUniqueWork("engineering-approval-$taskId", ExistingWorkPolicy.KEEP, request)
     }
 
+    fun enqueueApprovalResolution(context: Context, taskId: String) {
+        require(taskId.isNotBlank() && taskId.length <= 128)
+        val request = OneTimeWorkRequestBuilder<GitHubEngineeringCiWorker>()
+            .setInputData(Data.Builder().putString(GitHubEngineeringCiWorker.KEY_TASK_ID, taskId).putBoolean(GitHubEngineeringCiWorker.KEY_APPROVAL_RESOLUTION, true).build())
+            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 10, TimeUnit.SECONDS)
+            .build()
+        WorkManager.getInstance(context.applicationContext).enqueueUniqueWork("engineering-approval-resolution-$taskId", ExistingWorkPolicy.KEEP, request)
+    }
+
     fun cancel(context: Context, taskId: String) {
         WorkManager.getInstance(context.applicationContext).cancelUniqueWork("engineering-ci-$taskId")
     }

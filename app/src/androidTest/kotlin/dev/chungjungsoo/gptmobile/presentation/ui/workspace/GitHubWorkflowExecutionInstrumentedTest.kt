@@ -54,7 +54,7 @@ class GitHubWorkflowExecutionInstrumentedTest {
     fun recoverableReadRoutesResumeAndRetryToSavedRun() {
         val run = run(AgentRunStatus.FAILED)
         val requests = mutableListOf<GitHubRecoveryRequest>()
-        compose.setContent { Panel(state(run, listOf(event(error = "SAVED_VIEW_UNAVAILABLE"))), onRecovery = requests::add) }
+        compose.setContent { Panel(state(run, listOf(event(error = "NETWORK_TIMEOUT"))), onRecovery = requests::add) }
 
         compose.onNodeWithText("Resume").performScrollTo().assertIsEnabled().performClick()
         compose.onNodeWithText("Retry failed stage").performScrollTo().assertIsEnabled().performClick()
@@ -67,6 +67,19 @@ class GitHubWorkflowExecutionInstrumentedTest {
                 requests
             )
         }
+    }
+
+    @Test
+    fun unavailableSavedReadOffersDetailsWithoutRepeatingTheExpiredView() {
+        val run = run(AgentRunStatus.FAILED)
+        val requests = mutableListOf<GitHubRecoveryRequest>()
+        compose.setContent { Panel(state(run, listOf(event(error = "SAVED_VIEW_UNAVAILABLE"))), onRecovery = requests::add) }
+
+        compose.onNodeWithText("Resume").assertDoesNotExist()
+        compose.onNodeWithText("Retry failed stage").assertDoesNotExist()
+        compose.onNodeWithText("View details").performScrollTo().performClick()
+        compose.onNodeWithText("Failure category: SAVED_VIEW_UNAVAILABLE").performScrollTo().assertIsDisplayed()
+        compose.runOnIdle { assertEquals(emptyList<GitHubRecoveryRequest>(), requests) }
     }
 
     @Test
@@ -125,7 +138,7 @@ class GitHubWorkflowExecutionInstrumentedTest {
     @Test
     fun submittingRequestDisablesRecoveryButPreservesDetails() {
         val run = run(AgentRunStatus.FAILED)
-        compose.setContent { Panel(state(run, listOf(event(error = "SAVED_VIEW_UNAVAILABLE"))).copy(submitting = true)) }
+        compose.setContent { Panel(state(run, listOf(event(error = "NETWORK_TIMEOUT"))).copy(submitting = true)) }
 
         compose.onNodeWithText("Resume").performScrollTo().assertIsNotEnabled()
         compose.onNodeWithText("Retry failed stage").performScrollTo().assertIsNotEnabled()

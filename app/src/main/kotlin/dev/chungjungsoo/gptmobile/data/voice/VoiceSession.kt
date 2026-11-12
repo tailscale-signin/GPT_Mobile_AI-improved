@@ -1,5 +1,8 @@
 package dev.chungjungsoo.gptmobile.data.voice
 
+import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidents
+import dev.chungjungsoo.gptmobile.data.diagnostics.ReportFeature
+
 /** Main-thread input for one reply. stop() on the owning VoiceAudio cancels the stream. */
 interface VoiceReplyPlayback {
     fun enqueue(text: String)
@@ -13,6 +16,20 @@ interface VoiceAudio {
         fun failure(message: String, retryMillis: Long) = error(message)
         fun retryableFailure(message: String, retryMillis: Long) = failure(message, retryMillis)
         fun repairRequired(message: String, retryMillis: Long, action: VoiceRecoveryAction) = failure(message, retryMillis)
+        fun failure(
+            message: String,
+            code: String,
+            retryMillis: Long = 0,
+            retryable: Boolean = false,
+            recoveryAction: VoiceRecoveryAction? = null,
+            cause: Throwable? = null
+        ) {
+            when {
+                recoveryAction != null -> repairRequired(message, retryMillis, recoveryAction)
+                retryable -> retryableFailure(message, retryMillis)
+                else -> failure(message, retryMillis)
+            }
+        }
         fun ready()
         fun level(value: Float)
         fun partial(text: String)
@@ -98,6 +115,7 @@ class VoiceSession(
         update(state.copy(transcript = text.take(8000)))
     }
     private fun continueTurn() {
+        if (state.phase == VoicePhase.SPEAKING) update(state.copy(phase = VoicePhase.PAUSED))
         if (autoContinue) resume() else pause()
     }
     fun tick() {
@@ -141,7 +159,7 @@ class VoiceSession(
     }
 
     fun permissionDenied() {
-        fail("Microphone access is off. Allow it in Android app permissions to use voice chat.")
+        fail("Microphone access is off. Allow it in Android app permissions to use voice chat.", "VOICE_MICROPHONE_PERMISSION_REQUIRED")
         update(state.copy(recoveryAction = VoiceRecoveryAction.MICROPHONE_PERMISSION))
     }
 
@@ -158,7 +176,10 @@ class VoiceSession(
         engaged = true
         reply("replay:$generation", state.reply)
     }
-    private fun update(next: VoiceState) {
+    private fun update(next: VoiceState, errorCode: String = "VOICE_SESSION_FAILED", error: Throwable? = null) {
+        if (next.phase == VoicePhase.ERROR && state.phase != VoicePhase.ERROR) {
+            IssueReportIncidents.failure(ReportFeature.VOICE, errorCode, error)
+        }
         state = next.copy(awaitingReply = waiting, hasDraft = draftPending)
         mutableState.value = state
         changed(state)
@@ -184,7 +205,7 @@ class VoiceSession(
     }
 
     fun resume() {
-        if (!accessAllowed() || state.phase in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING, VoicePhase.REVIEWING)) return
+        if (!accessAllowed() || state.phase in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING, VoicePhase.REVIEWING, VoicePhase.SPEAKING)) return
         if (waiting) {
             engaged = true
             update(state.copy(phase = VoicePhase.THINKING, level = 0f))
@@ -216,6 +237,21 @@ class VoiceSession(
         val ticket = generation
         update(state.copy(phase = VoicePhase.STARTING, transcript = "", level = 0f, hasAudioLevel = false, notice = null, retryAtMillis = 0, recoveryAction = null))
         fun valid() = ticket == generation && captureAllowed() && state.phase in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING)
+        fun recognitionFailed(
+            message: String,
+            retryMillis: Long,
+            retryable: Boolean = false,
+            recoveryAction: VoiceRecoveryAction? = null,
+            code: String = "VOICE_SESSION_FAILED",
+            cause: Throwable? = null
+        ) {
+            if (!valid()) return
+            val retry = retryable && recoveryAction == null && autoContinue && !state.muted && ++recognitionFailures <= 3
+            fail(message, code, cause)
+            // Partial speech is user input, not a disposable failed attempt.
+            automaticRetry = retry && !draftPending
+            update(state.copy(retryAtMillis = now() + if (retryable) maxOf(500, retryMillis) else retryMillis, recoveryAction = recoveryAction))
+        }
         audio.listen(object : VoiceAudio.Listener {
             override fun ready() {
                 if (valid()) update(state.copy(phase = VoicePhase.LISTENING))
@@ -224,24 +260,16 @@ class VoiceSession(
                 if (valid()) update(state.copy(phase = VoicePhase.FINALIZING, level = 0f))
             }
             override fun failure(message: String, retryMillis: Long) {
-                if (valid()) {
-                    fail(message)
-                    update(state.copy(retryAtMillis = now() + retryMillis))
-                }
+                recognitionFailed(message, retryMillis)
             }
             override fun repairRequired(message: String, retryMillis: Long, action: VoiceRecoveryAction) {
-                if (!valid()) return
-                fail(message)
-                update(state.copy(retryAtMillis = now() + retryMillis, recoveryAction = action))
+                recognitionFailed(message, retryMillis, recoveryAction = action)
             }
             override fun retryableFailure(message: String, retryMillis: Long) {
-                if (!valid()) return
-                val retry = autoContinue && !state.muted && ++recognitionFailures <= 3
-                fail(message)
-                // Partial speech is user input, not a disposable failed attempt.
-                // Keep it for explicit review instead of opening a fresh microphone.
-                automaticRetry = retry && !draftPending
-                update(state.copy(retryAtMillis = now() + maxOf(500, retryMillis)))
+                recognitionFailed(message, retryMillis, retryable = true)
+            }
+            override fun failure(message: String, code: String, retryMillis: Long, retryable: Boolean, recoveryAction: VoiceRecoveryAction?, cause: Throwable?) {
+                recognitionFailed(message, retryMillis, retryable, recoveryAction, code, cause)
             }
             override fun level(value: Float) {
                 if (valid()) update(state.copy(level = value.coerceIn(0f, 1f), hasAudioLevel = true))
@@ -262,7 +290,7 @@ class VoiceSession(
                         automaticRetry = true
                         update(state.copy(phase = VoicePhase.PAUSED, retryAtMillis = now() + maxOf(500, audio.retryAfterMillis())))
                     } else {
-                        if (autoContinue && !state.muted) fail("No speech was detected after several attempts. Tap to try again.") else pause()
+                        if (autoContinue && !state.muted) fail("No speech was detected after several attempts. Tap to try again.", "VOICE_NO_SPEECH") else pause()
                     }
                     return
                 }
@@ -356,7 +384,23 @@ class VoiceSession(
         engaged = false
         automaticRetry = false
         if (streamComplete) waiting = false
-        update(state.copy(phase = if (waiting) VoicePhase.THINKING else VoicePhase.ERROR, notice = message, level = 0f))
+        if (waiting) {
+            IssueReportIncidents.failure(ReportFeature.VOICE, "VOICE_PLAYBACK_FAILED")
+        }
+        update(state.copy(phase = if (waiting) VoicePhase.THINKING else VoicePhase.ERROR, notice = message, level = 0f), "VOICE_PLAYBACK_FAILED")
+    }
+
+    fun stopSpeaking() {
+        if (state.phase != VoicePhase.SPEAKING) return
+        stopAudio()
+        streamAudio = false
+        if (waiting && !streamComplete) {
+            update(state.copy(phase = VoicePhase.THINKING, level = 0f))
+        } else {
+            waiting = false
+            update(state.copy(phase = VoicePhase.PAUSED, level = 0f))
+            continueTurn()
+        }
     }
 
     fun interrupt() {
@@ -400,7 +444,7 @@ class VoiceSession(
         update(state.copy(phase = VoicePhase.SPEAKING, level = 0f, notice = null))
         audio.speak(text, complete = {
             if (ticket == generation && playbackAllowed()) continueTurn()
-        }, error = { message -> if (ticket == generation) fail(message) })
+        }, error = { message -> if (ticket == generation) fail(message, "VOICE_PLAYBACK_FAILED") })
     }
 
     fun mute() {
@@ -410,8 +454,7 @@ class VoiceSession(
         update(state.copy(muted = !state.muted))
         if (state.phase == VoicePhase.SPEAKING || state.phase == VoicePhase.THINKING || state.phase == VoicePhase.REVIEWING) return
         if (state.muted) {
-            stopAudio()
-            update(state.copy(phase = VoicePhase.PAUSED, level = 0f))
+            pause()
         } else {
             resume()
         }
@@ -419,10 +462,7 @@ class VoiceSession(
     fun speaker() {
         if (state.phase == VoicePhase.CLOSED) return
         update(state.copy(speaker = !state.speaker))
-        if (!state.speaker && state.phase == VoicePhase.SPEAKING) {
-            stopAudio()
-            continueTurn()
-        }
+        if (!state.speaker) stopSpeaking()
     }
     fun pause() {
         if (state.phase == VoicePhase.CLOSED) return
@@ -440,14 +480,14 @@ class VoiceSession(
         recognitionFailures = 0
         update(state.copy(retryAtMillis = 0, notice = null, recoveryAction = null))
     }
-    fun fail(message: String) {
+    fun fail(message: String, code: String = "VOICE_SESSION_FAILED", cause: Throwable? = null) {
         if (state.phase == VoicePhase.CLOSED) return
         if (state.phase in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING) && state.transcript.isNotBlank()) draftPending = true
         engaged = false
         automaticRetry = false
         stopAudio()
         waiting = false
-        update(state.copy(phase = VoicePhase.ERROR, level = 0f, notice = message, recoveryAction = null))
+        update(state.copy(phase = VoicePhase.ERROR, level = 0f, notice = message, recoveryAction = null), code, cause)
     }
     fun close() {
         if (state.phase == VoicePhase.CLOSED) return

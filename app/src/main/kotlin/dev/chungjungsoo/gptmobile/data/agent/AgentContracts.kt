@@ -94,6 +94,9 @@ data class AgentToolWorkflowLink(
     }
 }
 
+/** Local invocation metadata can extend the wire schema without changing the underlying API. */
+data class AgentToolSchemaProjection(val contract: JsonObject, val wire: JsonObject)
+
 data class AgentToolDefinition(
     val name: String,
     val description: String,
@@ -103,8 +106,12 @@ data class AgentToolDefinition(
     /** Declared tool-name dependencies are informational and never expand authorization. */
     val dependsOn: Set<String> = emptySet(),
     val workflowLinks: List<AgentToolWorkflowLink> = emptyList(),
-    val contractVersion: AgentContractVersion = AgentContractVersion()
+    val contractVersion: AgentContractVersion = AgentContractVersion(),
+    val schemaProjection: AgentToolSchemaProjection? = null
 ) {
+    /** A later schema replacement invalidates the projection instead of hiding a real contract change. */
+    val contractSchema: JsonObject get() = schemaProjection?.takeIf { it.wire == inputSchema }?.contract ?: inputSchema
+
     init {
         require(dependsOn.size <= 32 && dependsOn.all { it.isNotBlank() && it.length <= 160 && it != name }) {
             "Tool dependencies must contain at most 32 non-empty, distinct other tool names of at most 160 characters."

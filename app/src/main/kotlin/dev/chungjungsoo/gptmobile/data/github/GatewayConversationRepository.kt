@@ -23,6 +23,8 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
 /** A server conversation has one local mirror, independent of the workspace currently selected. */
@@ -238,7 +240,7 @@ class GatewayConversationRepository @Inject constructor(
         val job = jobs.summary(record)
         val conversationId = requireNotNull(job.conversationId) { "This legacy job retained evidence but no complete conversation." }
         val route = jobs.originalRoute(record.connectionProfileUid, record.endpoint)
-        reconcileOrdinaryAdmissions(connectionProfileUid = route.profileUid, endpoint = route.endpoint)
+        reconcileOrdinaryAdmissions(connectionProfileUid = route.profileUid, endpoint = route.endpoint, forceRefresh = true)
         reconcileEngineeringAdmissions(route)
         val snapshot = client.conversation(route.config, conversationId)
         requireSameIdentity(snapshot, record.gatewayId, record.principalId, conversationId)
@@ -250,7 +252,7 @@ class GatewayConversationRepository @Inject constructor(
 
     suspend fun openConversation(profileUid: String, gatewayId: String, principalId: String, conversationId: String): GatewayConversationAttachment = attachmentLock.withLock {
         val route = jobs.route(profileUid, useEngineeringGateway = false)
-        reconcileOrdinaryAdmissions(connectionProfileUid = route.profileUid, endpoint = route.endpoint)
+        reconcileOrdinaryAdmissions(connectionProfileUid = route.profileUid, endpoint = route.endpoint, forceRefresh = true)
         reconcileEngineeringAdmissions(route)
         val snapshot = client.conversation(route.config, conversationId)
         requireSameIdentity(snapshot, gatewayId, principalId, conversationId)
@@ -359,12 +361,12 @@ class GatewayConversationRepository @Inject constructor(
     }
 
     /** Resolve an ambiguous ordinary admission without dispatching a replacement generation. */
-    suspend fun reconcileOrdinaryAdmissions(chatId: Int? = null, connectionProfileUid: String? = null, endpoint: String? = null) {
+    suspend fun reconcileOrdinaryAdmissions(chatId: Int? = null, connectionProfileUid: String? = null, endpoint: String? = null, forceRefresh: Boolean = false) {
         for (pending in dao.pendingOrdinary(chatId).asReversed()) {
             if (connectionProfileUid != null && (pending.connectionProfileUid != connectionProfileUid || pending.endpoint != endpoint?.trimEnd('/'))) continue
             val reservation = json.decodeFromString<GatewayOrdinaryReservation>(pending.payload)
             val route = jobs.originalRoute(pending.connectionProfileUid, pending.endpoint)
-            val receipt = client.command(route.config, pending.commandId) ?: continue
+            val receipt = pendingCommand(pending, route.config, reservation.gatewayId, reservation.principalId, "generation", forceRefresh) ?: continue
             check(receipt.jobKind == "generation" && receipt.gatewayId == reservation.gatewayId && receipt.principalId == reservation.principalId && (receipt.profileId == null || receipt.profileId == pending.executionProfileUid) && (receipt.model == null || receipt.model == reservation.model)) { "The original gateway command account or execution profile changed." }
             val conversationKey = gatewayIdentityKey(receipt.gatewayId, receipt.principalId, receipt.conversationId)
             database.withTransaction {
@@ -393,7 +395,7 @@ class GatewayConversationRepository @Inject constructor(
         for (pending in dao.pendingEngineering()) {
             if (pending.connectionProfileUid != route.profileUid || pending.endpoint != route.endpoint) continue
             val binding = dao.binding(pending.commandId)?.let { json.decodeFromString<GatewayEngineeringBinding>(it.binding) } ?: continue
-            val receipt = client.command(route.config, pending.commandId) ?: continue
+            val receipt = pendingCommand(pending, route.config, binding.gatewayId, binding.principalId, "engineering", forceRefresh = true) ?: continue
             check(receipt.jobKind == "engineering" && receipt.principalId == binding.principalId && (binding.gatewayId == null || receipt.gatewayId == binding.gatewayId) && receipt.profileId == binding.request.profileId && receipt.model == binding.request.model && receipt.repository == binding.request.repository && gatewayWorkingBranchMatches(binding.request, receipt.branch, receipt.sourceBranch, receipt.sourceSha, receipt.workingBranch) && receipt.base == binding.request.base) { "The retained engineering receipt changed its original execution destination." }
             val key = gatewayIdentityKey(receipt.gatewayId, receipt.principalId, receipt.conversationId)
             database.withTransaction {
@@ -492,39 +494,62 @@ class GatewayConversationRepository @Inject constructor(
         require(content.isNotBlank() && content.length <= 16000 && commandId.length in 1..128)
         val record = requireNotNull(dao.job(jobKey)) { "Refresh the gateway jobs before adding an instruction." }
         val job = jobs.summary(record)
-        check(job.acceptsInstruction) { "Instructions require an active engineering job." }
+        val existing = dao.submission(commandId)
+        check(existing != null || job.acceptsInstruction) { "Instructions require an active engineering job." }
         val conversationId = requireNotNull(job.conversationId) { "This legacy job does not accept conversation instructions." }
         val route = jobs.originalRoute(record.connectionProfileUid, record.endpoint)
         val snapshot = client.conversation(route.config, conversationId)
         requireSameIdentity(snapshot, record.gatewayId, record.principalId, conversationId)
+        if (existing == null) check(snapshot.activeJobId == record.remoteJobId) { "The selected job changed or finished. Refresh it before adding an instruction." }
         val local = attachSnapshot(route, snapshot, record.executionProfileUid)
-        val existing = dao.submission(commandId)
         val command = if (existing == null) {
             GatewayInstructionCommand(commandId, content, snapshot.revision)
         } else {
             check(existing.conversationKey == local.key && existing.connectionProfileUid == route.profileUid && existing.endpoint == route.endpoint) { "The saved instruction belongs to another gateway conversation." }
-            json.decodeFromString<GatewayInstructionCommand>(existing.payload).also { check(it.content == content) { "A retry must preserve the original instruction." } }
+            check(existing.state in setOf("PENDING_INSTRUCTION", "ACCEPTED_INSTRUCTION")) { "This instruction was rejected. Refresh the conversation and review a new instruction before sending." }
+            instructionJobId(existing)?.let { check(it == record.remoteJobId) { "The saved instruction belongs to a different job. Open its original job to reconcile it." } }
+            json.decodeFromString<GatewayInstructionCommand>(existing.payload).also { check(it.commandId == commandId && it.content == content) { "A retry must preserve the original instruction." } }
         }
-        val payload = Json { encodeDefaults = true }.encodeToString(command)
         if (existing == null) {
+            // The original job is local reservation metadata; the wire command
+            // remains the existing revision-checked instruction contract.
+            val payload = JsonObject(json.encodeToJsonElement(GatewayInstructionCommand.serializer(), command).jsonObject + ("job_id" to JsonPrimitive(record.remoteJobId))).toString()
             database.withTransaction {
                 dao.insertSubmission(GatewaySubmissionRecord(commandId, requireNotNull(local.localChatId), null, null, null, route.profileUid, route.endpoint, local.executionProfileUid, gatewayIdentityKey(payload), payload, "PENDING_INSTRUCTION", local.key, createdAtMillis = System.currentTimeMillis()))
                 check(dao.submission(commandId)?.fingerprint == gatewayIdentityKey(payload)) { "The instruction command identity changed." }
             }
         }
+        val reservation = requireNotNull(dao.submission(commandId))
         val receipt = try {
-            val retained = if (existing != null) client.command(route.config, commandId) else null
-            retained ?: run {
+            if (existing != null) {
+                // Once persisted, the first POST may have been accepted even if its
+                // response was lost. An absent live receipt cannot authorize replay.
+                val observed = try {
+                    pendingCommand(existing, route.config, local.gatewayId, local.principalId, "engineering", forceRefresh = true, throwRejection = true)
+                } catch (rejected: GatewayCommandRejected) {
+                    // A concurrent observer may already have retained acceptance.
+                    // A late rejection cannot undo that original durable outcome.
+                    acceptedInstructionReceipt(existing) ?: throw rejected
+                }
+                observed ?: acceptedInstructionReceipt(existing)
+                    ?: error("The saved instruction is still unconfirmed. Reconnect to its original command before sending it again.")
+            } else {
                 val identity = client.identity(route.config)
                 check(identity.gatewayId == record.gatewayId && identity.principalId == record.principalId) { "The original gateway or account changed before the instruction." }
                 check(jobs.originalRoute(record.connectionProfileUid, record.endpoint).config == route.config) { "The original gateway credentials changed before the instruction." }
                 commands.instruction(route.config.withGatewayIdentity(identity), conversationId, command)
             }
         } catch (conflict: GatewayConversationConflict) {
-            dao.submission(commandId)?.let { dao.saveSubmission(it.copy(state = "INSTRUCTION_CONFLICT")) }
-            throw conflict
+            database.withTransaction {
+                val accepted = acceptedInstructionReceipt(reservation)
+                if (accepted == null) {
+                    dao.submission(commandId)?.takeIf { it.payload == reservation.payload && it.fingerprint == reservation.fingerprint && it.state == "PENDING_INSTRUCTION" }
+                        ?.let { dao.saveSubmission(it.copy(state = "INSTRUCTION_CONFLICT")) }
+                }
+                accepted
+            } ?: throw conflict
         }
-        acceptInstruction(local, receipt)
+        acceptInstruction(local, commandId, receipt, record.remoteJobId)
         try {
             sync(local, client.conversation(route.config, conversationId).also { requireSameIdentity(it, local.gatewayId, local.principalId, local.conversationId) })
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
@@ -539,16 +564,53 @@ class GatewayConversationRepository @Inject constructor(
         for (pending in dao.pendingInstructions(chatId)) {
             val local = pending.conversationKey?.let { dao.conversation(it) } ?: continue
             val route = jobs.originalRoute(pending.connectionProfileUid, pending.endpoint)
-            val receipt = client.command(route.config, pending.commandId) ?: continue
-            acceptInstruction(local, receipt)
+            val receipt = pendingCommand(pending, route.config, local.gatewayId, local.principalId, "engineering") ?: continue
+            acceptInstruction(local, pending.commandId, receipt)
         }
     }
 
-    private suspend fun acceptInstruction(local: GatewayConversationRecord, receipt: GatewayCommandReceipt) = database.withTransaction {
-        check(receipt.gatewayId == local.gatewayId && receipt.principalId == local.principalId && receipt.conversationId == local.conversationId && receipt.jobKind == "engineering") { "The gateway instruction identity changed." }
-        val pending = requireNotNull(dao.submission(receipt.commandId))
-        check(pending.conversationKey == local.key)
+    private fun instructionJobId(pending: GatewaySubmissionRecord): String? =
+        json.parseToJsonElement(pending.payload).jsonObject["job_id"]?.jsonPrimitive?.content
+            ?: pending.receipt?.takeIf { pending.state == "ACCEPTED_INSTRUCTION" }?.let { json.decodeFromString<GatewayCommandReceipt>(it).jobId }
+
+    private suspend fun acceptedInstructionReceipt(expected: GatewaySubmissionRecord): GatewayCommandReceipt? {
+        val current = dao.submission(expected.commandId) ?: return null
+        if (current.state != "ACCEPTED_INSTRUCTION" || current.fingerprint != expected.fingerprint || current.payload != expected.payload || current.conversationKey != expected.conversationKey || current.connectionProfileUid != expected.connectionProfileUid || current.endpoint != expected.endpoint) return null
+        return current.receipt?.let { json.decodeFromString<GatewayCommandReceipt>(it) }
+    }
+
+    private suspend fun acceptInstruction(local: GatewayConversationRecord, commandId: String, receipt: GatewayCommandReceipt, requestedJobId: String? = null) = database.withTransaction {
+        check(receipt.schemaVersion == 1 && receipt.commandId == commandId && receipt.gatewayId == local.gatewayId && receipt.principalId == local.principalId && receipt.conversationId == local.conversationId && receipt.jobKind == "engineering") { "The gateway instruction identity changed." }
+        val pending = requireNotNull(dao.submission(commandId))
+        check(pending.conversationKey == local.key && pending.state in setOf("PENDING_INSTRUCTION", "ACCEPTED_INSTRUCTION"))
+        val originalJobId = instructionJobId(pending)
+        check(receipt.jobId.isNotBlank() && (originalJobId == null || originalJobId == receipt.jobId) && (requestedJobId == null || requestedJobId == receipt.jobId)) { "The gateway instruction receipt belongs to a different job." }
         dao.saveSubmission(pending.copy(state = "ACCEPTED_INSTRUCTION", receipt = json.encodeToString(receipt)))
+    }
+
+    private suspend fun pendingCommand(pending: GatewaySubmissionRecord, config: ProviderRequestConfig, gatewayId: String?, principalId: String?, kind: String, forceRefresh: Boolean = false, throwRejection: Boolean = false): GatewayCommandReceipt? {
+        if (!forceRefresh && !GatewayCommandReconciliation.due(pending)) return null
+        try {
+            val receipt = if (forceRefresh) client.command(config, pending.commandId) else client.observeCommand(config, pending.commandId)
+            return receipt.also { if (it == null) deferCommand(pending) }
+        } catch (rejected: GatewayCommandRejected) {
+            val outcome = rejected.outcome
+            check(outcome.commandId == pending.commandId && outcome.gatewayId == gatewayId && outcome.principalId == principalId && outcome.jobKind == kind) { "The original gateway command rejection belongs to a different account or execution destination." }
+            retainGatewayCommandRejection(database, pending, outcome)
+            if (throwRejection) throw rejected
+            return null
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            deferCommand(pending)
+            throw failure
+        }
+    }
+
+    private suspend fun deferCommand(pending: GatewaySubmissionRecord) = database.withTransaction {
+        dao.submission(pending.commandId)?.takeIf {
+            it.fingerprint == pending.fingerprint && it.payload == pending.payload && it.state in GatewayCommandReconciliation.pendingStates
+        }?.let { dao.saveSubmission(GatewayCommandReconciliation.deferred(it)) }
     }
 
     suspend fun refreshChat(chatId: Int) = attachmentLock.withLock {

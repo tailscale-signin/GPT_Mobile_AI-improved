@@ -8,6 +8,12 @@ import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -94,6 +100,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.isCtrlPressed
 import androidx.compose.ui.input.key.key
@@ -146,6 +153,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.effectiveThoughts
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveTimeline
 import dev.chungjungsoo.gptmobile.data.database.entity.hasHistoricalRevisionSelected
 import dev.chungjungsoo.gptmobile.data.diagnostics.CombinedOperationOwner
+import dev.chungjungsoo.gptmobile.data.diagnostics.UiOperationContext
 import dev.chungjungsoo.gptmobile.data.model.delegationFor
 import dev.chungjungsoo.gptmobile.data.model.excludesMemory
 import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
@@ -225,8 +233,21 @@ private fun ChatScreenContent(
 ) {
     val chatRoom by chatViewModel.chatRoom.collectAsStateWithLifecycle()
     val agentRunsById by chatViewModel.agentRunsById.collectAsStateWithLifecycle()
+    val providerWaitDeadlines by chatViewModel.providerWaitDeadlines.collectAsStateWithLifecycle()
     val featureSettings by chatViewModel.featureSettings.collectAsStateWithLifecycle()
     val chatToolConfig by chatViewModel.chatToolConfig.collectAsStateWithLifecycle()
+    val sendPreparation by chatViewModel.sendPreparation.collectAsStateWithLifecycle()
+    val gatewayModelPreparation by chatViewModel.gatewayModelPreparation.collectAsStateWithLifecycle()
+    val githubContextForLinks = chatToolConfig.github
+    var githubLinkOrigin by remember(githubContextForLinks) { mutableStateOf<String?>(null) }
+    LaunchedEffect(githubContextForLinks) {
+        githubLinkOrigin = githubContextForLinks?.let { chatViewModel.gitHubWebOrigin(it.connectionUid) } ?: "https://github.com"
+    }
+    val githubResponseLinkContext = remember(githubContextForLinks, githubLinkOrigin) {
+        val github = githubContextForLinks
+        val origin = githubLinkOrigin
+        if (github == null || origin == null) null else GitHubAssistantReferenceContext(github.owner, github.repo, origin, github.ref)
+    }
     val snackbarHost = remember { androidx.compose.material3.SnackbarHostState() }
     val removedProfile by chatViewModel.removedCombinedProfile.collectAsStateWithLifecycle()
     LaunchedEffect(removedProfile) {
@@ -264,7 +285,11 @@ private fun ChatScreenContent(
     val reasoningAdmission by chatViewModel.reasoningAdmissionNotice.collectAsStateWithLifecycle()
     reasoningAdmission?.let { notice ->
         dev.chungjungsoo.gptmobile.presentation.ui.setting.ReasoningAdmissionDialog(
-            notice,
+            notice.copy(
+                state = gatewayModelPreparation[notice.profileUid]?.takeIf { notice.modelReadiness && it.model == notice.model && it.observation?.requested == notice.requested }?.let {
+                    notice.state.copy(checking = it.busy, observation = it.observation, preparation = it)
+                } ?: notice.state
+            ),
             onRecheck = chatViewModel::recheckReasoningAdmission,
             onSwitchToAuto = { chatViewModel.switchProfileReasoningToAuto(notice.profileUid) },
             onSettings = {
@@ -348,6 +373,15 @@ private fun ChatScreenContent(
     val hiddenTurnCount = firstVisibleTurn
     val visibleTurnCount = groupedMessages.userMessages.size - firstVisibleTurn
     val historyHeaderCount = (if (hiddenTurnCount > 0) 1 else 0) + (if (hasOlderHistory) 1 else 0)
+    // Existing expanded/retained turn counts, not a claim about viewport visibility.
+    val transcriptTiming = remember(visibleTurnCount, groupedMessages.userMessages.size) {
+        Modifier.diagnosticFrameTiming(
+            CombinedOperationOwner(
+                screen = "Chat",
+                uiContext = UiOperationContext("Transcript", itemCount = visibleTurnCount, retainedItemCount = groupedMessages.userMessages.size)
+            )
+        )
+    }
     val listState = rememberChatListState(
         messageCount = visibleTurnCount + historyHeaderCount,
         hasTargetMessage = hasTargetMessage
@@ -488,10 +522,10 @@ private fun ChatScreenContent(
     }
     val githubResponseStarting = !isIdle &&
         latestResponses.none { response -> response.currentRunId?.let(agentRunsById::get)?.status in AgentRunStatus.terminal }
-    val waitingForGitHubInput = LocalGitHubApprovalPending.current ||
-        visibleGitHubDecisions.any { it.sourceMessageId == latestUser?.id } ||
+    val pendingGitHubInput = LocalGitHubApprovalPending.current ||
         approvals.any { agentRunsById[it.runId]?.userMessageId == latestUser?.id } ||
         inputRequests.any { it.runId?.let(agentRunsById::get)?.userMessageId == latestUser?.id }
+    val waitingForGitHubInput = pendingGitHubInput || visibleGitHubDecisions.any { it.sourceMessageId == latestUser?.id }
     val awaitingGitHubTurn = latestUser != null &&
         githubPromptMode &&
         chatRoom.conversationMode != ConversationMode.COMBINED &&
@@ -854,6 +888,7 @@ private fun ChatScreenContent(
         ) {
             LazyColumn(
                 modifier = Modifier
+                    .then(transcriptTiming)
                     .fillMaxSize()
                     .nestedScroll(promptConnection)
                     .pointerInput(promptAnchor) {
@@ -912,10 +947,12 @@ private fun ChatScreenContent(
                         replyVisible = listState.layoutInfo.visibleItemsInfo.any { it.key == chatMessagePairKey(message, index) },
                         onAnswerDisplayed = { displayed -> chatViewModel.acknowledgeDisplayedReplies(listOf(displayed), pendingReplies) },
                         currentResearchTools = { chatViewModel.chatToolConfig.value },
+                        githubAssistantReferences = githubResponseLinkContext,
                         messageIndex = index,
                         message = message,
                         assistantMessages = groupedMessages.assistantMessages.getOrNull(index) ?: emptyList(),
                         agentRunsById = agentRunsById,
+                        providerWaitDeadlines = providerWaitDeadlines,
                         activeAgentRuns = activeAgentRuns,
                         runNoticesById = runNoticesById,
                         toolEventsByRun = toolEventsByRun,
@@ -1106,26 +1143,32 @@ private fun ChatScreenContent(
                 }
             }
 
-            if (githubPromptMode && (githubScrollMode != GitHubScrollMode.FOLLOW_BOTTOM || listState.canScrollForward) || !githubPromptMode && !isFollowingBottom && listState.canScrollForward) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(bottom = composerHeight + 12.dp),
-                    contentAlignment = Alignment.BottomCenter
-                ) {
-                    ScrollToBottomButton(isGenerating = !isIdle) {
-                        isHoldingEntryCenter = false
-                        isModelTabPositionLocked = false
-                        if (githubPromptMode) {
+            if (githubPromptMode) {
+                val following = githubScrollMode == GitHubScrollMode.FOLLOW_BOTTOM && !githubGestureActive && !isUserDragging && !isModelTabPositionLocked
+                Box(Modifier.align(Alignment.BottomCenter).padding(bottom = composerHeight + 12.dp)) {
+                    GitHubBottomIndicator(
+                        listState = listState,
+                        following = following,
+                        generating = entryPositioned && awaitingGitHubTurn && !pendingGitHubInput && (activeGitHubResponse || githubResponseStarting),
+                        animate = featureSettings.responseAnimation,
+                        onFollow = {
+                            isHoldingEntryCenter = false
+                            isModelTabPositionLocked = false
                             promptAnchor.followBottom()
                             githubScrollMode = promptAnchor.mode
                             githubGestureActive = false
                             promptAnchorRevision++
-                        } else {
-                            isFollowingBottom = featureSettings.smoothStreaming
-                            if (!featureSettings.smoothStreaming) {
-                                scope.launch { listState.animateToGitHubBottom(featureSettings.responseAnimation) }
-                            }
+                        }
+                    )
+                }
+            } else if (!isFollowingBottom && listState.canScrollForward) {
+                Box(Modifier.align(Alignment.BottomCenter).padding(bottom = composerHeight + 12.dp)) {
+                    ScrollToBottomButton(isGenerating = !isIdle) {
+                        isHoldingEntryCenter = false
+                        isModelTabPositionLocked = false
+                        isFollowingBottom = featureSettings.smoothStreaming
+                        if (!featureSettings.smoothStreaming) {
+                            scope.launch { listState.animateToGitHubBottom(featureSettings.responseAnimation) }
                         }
                     }
                 }
@@ -1143,6 +1186,28 @@ private fun ChatScreenContent(
                     }
             ) {
                 Column(Modifier.navigationBarsPadding()) {
+                    if (gatewayModelPreparation.isNotEmpty()) {
+                        Column(Modifier.fillMaxWidth().heightIn(max = 128.dp).verticalScroll(rememberScrollState())) {
+                            gatewayModelPreparation.values.forEach { state ->
+                                key(state.profileUid, state.model) {
+                                    dev.chungjungsoo.gptmobile.presentation.ui.setting.GatewayModelPreparationContent(
+                                        state,
+                                        onRecheck = { chatViewModel.recheckGatewayModel(state.profileUid) }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    if (!githubPromptMode && bottomInteractionContent != null) {
+                        Column(
+                            Modifier.fillMaxWidth()
+                                .heightIn(max = (viewportHeight * 0.42f).coerceAtMost(320.dp))
+                                .verticalScroll(rememberScrollState())
+                                .testTag("github_saved_action_notifications")
+                        ) {
+                            bottomInteractionContent()
+                        }
+                    }
                     if (githubPromptMode) {
                         Column(
                             Modifier.fillMaxWidth()
@@ -1217,6 +1282,7 @@ private fun ChatScreenContent(
                         }.orEmpty(),
                         chatEnabled = canUseChat,
                         sendButtonEnabled = selectedAttachments.none { it.status != ChatAttachmentDraft.Status.Ready },
+                        isPreparingSend = sendPreparation.isNotEmpty(),
                         isRunning = !isIdle,
                         queuedPromptCount = queuedPromptCount,
                         selectedAttachments = selectedAttachments,
@@ -1511,10 +1577,12 @@ internal fun ChatMessagePair(
     replyVisible: Boolean,
     onAnswerDisplayed: (MessageV2) -> Unit,
     currentResearchTools: () -> dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig,
+    githubAssistantReferences: GitHubAssistantReferenceContext? = null,
     messageIndex: Int,
     message: MessageV2,
     assistantMessages: List<MessageV2>,
     agentRunsById: Map<String, AgentRun>,
+    providerWaitDeadlines: Map<String, dev.chungjungsoo.gptmobile.data.agent.ProviderWaitDeadline>,
     activeAgentRuns: Map<String, ActiveAgentRun>,
     runNoticesById: Map<String, List<ChatRunNotice>>,
     toolEventsByRun: Map<String, List<ToolEvent>>,
@@ -1640,11 +1708,17 @@ internal fun ChatMessagePair(
     val selectedAssistantMessage = if (selectedProfile != null) selectedProfile.message else assistantMessages.getOrNull(displayPlatformIndex)
     val responseInsetPx = with(LocalDensity.current) { 12.dp.roundToPx() }
     val synthesisStarted = isCombinedConversation && combinedSynthesisIndex >= 0
+    val selectedRunId = selectedAssistantMessage?.effectiveRunId()
+    val agentRun = selectedRunId?.let(agentRunsById::get)
+    val waitingForProvider = agentRun?.status == AgentRunStatus.WAITING_PROVIDER_LIMIT
+    val waitingForApproval = agentRun?.status == AgentRunStatus.WAITING_FOR_APPROVAL
+    val providerRetryAt = selectedRunId?.let(providerWaitDeadlines::get)?.takeIf { it.fence == agentRun?.ownershipFence }?.retryAt
     val rawAssistantContent = if (selectedSourceReader != null) "" else dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(selectedAssistantMessage?.effectiveContent().orEmpty())
     val assistantContent = when {
         selectedSourceReader != null -> ""
         rawAssistantContent.isBlank() && selectedAssistantMessage?.currentRunId?.let(agentRunsById::get)?.status == AgentRunStatus.WAITING_REMOTE_JOB -> "Waiting for the saved remote job. Check its status without submitting another generation."
-        rawAssistantContent.isBlank() && (isCombinedConversation && combinedStatus == CombinedResponseStatus.PAUSED || selectedAssistantMessage?.currentRunId?.let(agentRunsById::get)?.status == AgentRunStatus.WAITING_PROVIDER_LIMIT) -> stringResource(R.string.provider_wait_saved)
+        rawAssistantContent.isBlank() && waitingForApproval -> stringResource(R.string.github_approval_wait_saved)
+        rawAssistantContent.isBlank() && isCombinedConversation && combinedStatus == CombinedResponseStatus.PAUSED && !waitingForProvider -> stringResource(R.string.provider_wait_saved)
         isCombinedConversation && !synthesisStarted && combinedStatus == CombinedResponseStatus.FAILED -> stringResource(R.string.combined_all_profiles_failed)
         isCombinedConversation && !synthesisStarted -> ""
         isSourceResponse && selectedProfile.status == CombinedResponseStatus.FAILED && selectedAssistantMessage?.content.isNullOrBlank() -> stringResource(R.string.combined_profile_no_response)
@@ -1668,8 +1742,6 @@ internal fun ChatMessagePair(
         }
     }
     val githubTask = message.content.takeIf { LocalChatProgressInHeader.current && !hasCombinedTabs }
-    val selectedRunId = selectedAssistantMessage?.effectiveRunId()
-    val agentRun = selectedRunId?.let(agentRunsById::get)
     val savedFailure = visibleResponseFailure(assistantTimeline.lastOrNull { it.runError != null }?.runError, agentRun?.terminalError, agentRun?.status)
     val nativeDecisions = LocalGitHubNativeDecisions.current
     val approvalCardOrReceipt = LocalGitHubApprovalPending.current || nativeDecisions.any { it.sourceMessageId == message.id }
@@ -1702,6 +1774,13 @@ internal fun ChatMessagePair(
         activeProfileUids = activePlatformUids - disabledPlatformUids,
         eventsByRun = toolEventsByRun
     )
+    val receiptScopedGitHubReferences = remember(githubAssistantReferences, provenanceToolEvents) {
+        githubAssistantReferences?.withReceiptReferences(
+            provenanceToolEvents.map { event ->
+                GitHubReferenceReceipt(event.toolName, event.arguments, event.result)
+            }
+        )
+    }
     val canShowPreviousRevision = !isSourceResponse &&
         (
             selectedAssistantMessage?.let { assistantMessage ->
@@ -1717,6 +1796,21 @@ internal fun ChatMessagePair(
             } ?: false
             )
     val selectedPlatformUid = selectedProfile?.uid ?: selectedAssistantMessage?.platformType ?: enabledPlatformsInChat.getOrElse(displayPlatformIndex) { "" }
+    val assistantManifest = selectedAssistantMessage?.effectiveCombinedManifest()
+    val assistantMessageId = selectedAssistantMessage?.id
+    val assistantRevisionIndex = selectedAssistantMessage?.activeRevisionIndex
+    val assistantTiming = remember(assistantMessageId, selectedRunId, assistantManifest?.revisionId, assistantRevisionIndex, selectedPlatformUid, assistantTimeline.size, assistantManifest?.blockCount) {
+        Modifier.diagnosticFrameTiming(
+            CombinedOperationOwner(
+                screen = "Chat",
+                messageId = assistantMessageId,
+                runId = selectedRunId,
+                revisionId = assistantManifest?.revisionId ?: assistantRevisionIndex?.let { "selected:$it" },
+                profileUid = selectedPlatformUid.takeIf(String::isNotBlank),
+                uiContext = UiOperationContext("Assistant", itemCount = assistantTimeline.size, blockCount = assistantManifest?.blockCount)
+            )
+        )
+    }
     val isCurrentPlatformLoading = when {
         isCombinedConversation -> combinedStatus == CombinedResponseStatus.GENERATING
         isSourceResponse -> selectedProfile.status == CombinedResponseStatus.GENERATING
@@ -1782,6 +1876,7 @@ internal fun ChatMessagePair(
 
         Column(
             modifier = Modifier
+                .then(assistantTiming)
                 .fillMaxWidth()
                 .padding(start = 8.dp, end = 8.dp, top = if (LocalChatProgressInHeader.current) 0.dp else 12.dp, bottom = 12.dp)
         ) {
@@ -1870,136 +1965,150 @@ internal fun ChatMessagePair(
                         )
                     }
                 }
-                OpponentChatBubble(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .alpha(if (!hasCombinedTabs && selectedPlatformUid in disabledPlatformUids) 0.5f else 1f)
-                        .padding(horizontal = 2.dp)
-                        .widthIn(max = maximumOpponentChatBubbleWidth),
-                    canEdit = canUseChat && isIdle && !isSourceResponse,
-                    canRetry = responseRecoveryKind == ProfileRecoveryKind.NONE &&
-                        if (isCombinedConversation) {
-                            canUseChat &&
-                                isIdle &&
-                                !isCurrentPlatformLoading &&
-                                activeAgentRun == null &&
-                                selectedAssistantMessage != null &&
-                                (!needsAnswerCorrection || revisionTarget != null) &&
-                                selectedPlatformUid in participatingUids &&
-                                enabledPlatformLookup[selectedPlatformUid]?.enabled == true
-                        } else {
-                            reviewRetryBlock == null &&
-                                !isSourceResponse &&
+                if (waitingForProvider) {
+                    val formatter = android.text.format.DateFormat.getTimeFormat(androidx.compose.ui.platform.LocalContext.current)
+                    val label = providerRetryAt?.let { stringResource(R.string.provider_wait_retry_at, formatter.format(java.util.Date(it))) }
+                        ?: stringResource(R.string.provider_wait_saved)
+                    Text(
+                        label,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 8.dp)
+                    )
+                }
+                androidx.compose.runtime.CompositionLocalProvider(LocalGitHubAssistantReferences provides receiptScopedGitHubReferences) {
+                    OpponentChatBubble(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .alpha(if (!hasCombinedTabs && selectedPlatformUid in disabledPlatformUids) 0.5f else 1f)
+                            .padding(horizontal = 2.dp)
+                            .widthIn(max = maximumOpponentChatBubbleWidth),
+                        canEdit = canUseChat && isIdle && !isSourceResponse,
+                        canRetry = !waitingForProvider &&
+                            responseRecoveryKind == ProfileRecoveryKind.NONE &&
+                            if (isCombinedConversation) {
                                 canUseChat &&
-                                (isActiveMessage || agentRun?.status in setOf(AgentRunStatus.FAILED, AgentRunStatus.INTERRUPTED, AgentRunStatus.CANCELED, AgentRunStatus.PARTIAL, AgentRunStatus.EVIDENCE_MISSING, AgentRunStatus.BLOCKED)) &&
-                                !isCurrentPlatformLoading &&
-                                selectedPlatformUid in participatingUids
+                                    isIdle &&
+                                    !isCurrentPlatformLoading &&
+                                    activeAgentRun == null &&
+                                    selectedAssistantMessage != null &&
+                                    (!needsAnswerCorrection || revisionTarget != null) &&
+                                    selectedPlatformUid in participatingUids &&
+                                    enabledPlatformLookup[selectedPlatformUid]?.enabled == true
+                            } else {
+                                reviewRetryBlock == null &&
+                                    !isSourceResponse &&
+                                    canUseChat &&
+                                    (isActiveMessage || agentRun?.status in setOf(AgentRunStatus.FAILED, AgentRunStatus.INTERRUPTED, AgentRunStatus.CANCELED, AgentRunStatus.PARTIAL, AgentRunStatus.EVIDENCE_MISSING, AgentRunStatus.BLOCKED)) &&
+                                    !isCurrentPlatformLoading &&
+                                    selectedPlatformUid in participatingUids
+                            },
+                        retryLabel = if (needsAnswerCorrection) {
+                            "Create revised answer"
+                        } else if (isCombinedConversation) {
+                            stringResource(if (combinedStatus == CombinedResponseStatus.FAILED) R.string.combined_retry else R.string.combined_regenerate)
+                        } else {
+                            stringResource(R.string.audit_generate_again)
                         },
-                    retryLabel = if (needsAnswerCorrection) {
-                        "Create revised answer"
-                    } else if (isCombinedConversation) {
-                        stringResource(if (combinedStatus == CombinedResponseStatus.FAILED) R.string.combined_retry else R.string.combined_regenerate)
-                    } else {
-                        stringResource(R.string.audit_generate_again)
-                    },
-                    isLoading = isResponseLoading,
-                    isError = agentRun?.status == AgentRunStatus.FAILED && isAssistantErrorMessage(assistantContent),
-                    isFavorite = selectedAssistantMessage?.isFavorite ?: false,
-                    debugMode = debugMode,
-                    showExecutionTrace = !isCombinedConversation,
-                    githubTask = githubTask,
-                    awaitingGitHubDelivery = awaitingGitHubDelivery,
-                    responseIcon = if (githubTask != null) {
-                        { GPTMobileIcon(loading = isResponseLoading, github = true) }
-                    } else {
-                        null
-                    },
-                    profileColorIdentity = selectedProfile?.uid?.let(combinedIdentities::get).takeIf { isSourceResponse },
-                    invocations = invocationDiagnostics.filter { it.parentRunId == selectedRunId },
-                    debugSettings = debugSettings,
-                    debugMemorySources = debugMemorySources,
-                    showReasoning = showReasoning,
-                    text = assistantContent,
-                    combinedManifest = selectedAssistantMessage?.effectiveCombinedManifest(),
-                    originalSource = selectedSourceReader,
-                    loadCombinedBlocks = loadCombinedBlocks,
-                    timestamp = selectedAssistantMessage?.let { it.createdAt * 1000L }?.takeIf { debugSettings.messageTimestamps },
-                    thoughts = assistantThoughts,
-                    timeline = assistantTimeline,
-                    attachments = selectedAssistantMessage?.attachments.orEmpty().map { it.filePathForDisplay },
-                    agentRun = agentRun,
-                    conversationId = selectedAssistantMessage?.chatId,
-                    showSourceBar = !isCombinedConversation,
-                    combinedWording = if (hasCombinedTabs && selectedProfile == null) {
-                        CombinedWordingPresentation(
-                            assistantMessages.getOrNull(combinedSynthesisIndex)?.effectiveCombinedSources().orEmpty(),
-                            attributionColors,
-                            assistantMessages.getOrNull(combinedSynthesisIndex)?.effectiveTimeline()?.lastOrNull { it.combinedQuality != null }?.combinedQuality?.passages.orEmpty(),
-                            assistantMessages.getOrNull(combinedSynthesisIndex)?.effectiveContent().orEmpty(),
-                            profileMarkers = combinedIdentities.mapValues { it.value.marker.toString() },
-                            loadSourceBlocks = remember(selectedAssistantMessage?.effectiveCombinedManifest(), loadCombinedSourceBlocks) { combinedInspectionLoader(selectedAssistantMessage?.effectiveCombinedManifest(), loadCombinedSourceBlocks) }
-                        )
-                    } else {
-                        null
-                    },
-                    // Shared contribution controls render inside the mapped Markdown tree.
-                    articleCards = { segment ->
-                        if (debugSettings.researchFeature.articleCards) {
-                            selectedAssistantMessage?.let { articleMessage ->
-                                dev.chungjungsoo.gptmobile.presentation.ui.research.ResearchCitationCards(articleMessage, segment, selectedPlatformUid.orEmpty(), debugSettings.researchFeature.compactCards, currentResearchTools, isStreaming = isCurrentPlatformLoading)
-                            }
-                        }
-                    },
-                    generationTiming = responseGenerationTiming(
-                        agentRun,
-                        if (isCombinedConversation) combinedProfiles.mapNotNull { it.message?.effectiveRunId()?.let(agentRunsById::get) } else emptyList()
-                    ),
-                    runNotices = selectedRunId?.let(runNoticesById::get).orEmpty(),
-                    toolEvents = toolEvents,
-                    locationToolEvents = provenanceToolEvents,
-                    sourceToolEvents = provenanceToolEvents,
-                    sourceProfilesByRun = agentRunsById.mapValues { it.value.profileUid },
-                    contentIdentity = "${selectedAssistantMessage?.id ?: "turn:$messageIndex"}:$selectedPlatformUid:${selectedRunId.orEmpty()}:${selectedAssistantMessage?.activeRevisionIndex}:${selectedSource?.originalDocument?.digest.orEmpty()}",
-                    revisionIndexLabel = selectedAssistantMessage?.takeIf { !isSourceResponse && it.revisions.isNotEmpty() }?.let { assistantMessage ->
-                        val totalRevisions = assistantMessage.revisions.size + 1
-                        if (assistantMessage.activeRevisionIndex == ACTIVE_REVISION_LATEST) {
-                            stringResource(
-                                R.string.revision_counter,
-                                totalRevisions,
-                                totalRevisions
+                        isLoading = isResponseLoading,
+                        isError = agentRun?.status == AgentRunStatus.FAILED && isAssistantErrorMessage(assistantContent),
+                        isFavorite = selectedAssistantMessage?.isFavorite ?: false,
+                        debugMode = debugMode,
+                        showExecutionTrace = !isCombinedConversation,
+                        githubTask = githubTask,
+                        awaitingGitHubDelivery = awaitingGitHubDelivery,
+                        responseIcon = if (githubTask != null) {
+                            { GPTMobileIcon(loading = isResponseLoading, github = true) }
+                        } else {
+                            null
+                        },
+                        profileColorIdentity = selectedProfile?.uid?.let(combinedIdentities::get).takeIf { isSourceResponse },
+                        invocations = remember(invocationDiagnostics, selectedRunId) { invocationDiagnostics.filter { it.parentRunId == selectedRunId } },
+                        debugSettings = debugSettings,
+                        debugMemorySources = debugMemorySources,
+                        showReasoning = showReasoning,
+                        text = assistantContent,
+                        combinedManifest = selectedAssistantMessage?.effectiveCombinedManifest(),
+                        originalSource = selectedSourceReader,
+                        loadCombinedBlocks = loadCombinedBlocks,
+                        timestamp = selectedAssistantMessage?.let { it.createdAt * 1000L }?.takeIf { debugSettings.messageTimestamps },
+                        thoughts = assistantThoughts,
+                        timeline = assistantTimeline,
+                        attachments = selectedAssistantMessage?.attachments.orEmpty().map { it.filePathForDisplay },
+                        agentRun = agentRun,
+                        conversationId = selectedAssistantMessage?.chatId,
+                        showSourceBar = !isCombinedConversation,
+                        combinedWording = if (hasCombinedTabs && selectedProfile == null) {
+                            CombinedWordingPresentation(
+                                assistantMessages.getOrNull(combinedSynthesisIndex)?.effectiveCombinedSources().orEmpty(),
+                                attributionColors,
+                                assistantMessages.getOrNull(combinedSynthesisIndex)?.effectiveTimeline()?.lastOrNull { it.combinedQuality != null }?.combinedQuality?.passages.orEmpty(),
+                                assistantMessages.getOrNull(combinedSynthesisIndex)?.effectiveContent().orEmpty(),
+                                profileMarkers = combinedIdentities.mapValues { it.value.marker.toString() },
+                                loadSourceBlocks = remember(selectedAssistantMessage?.effectiveCombinedManifest(), loadCombinedSourceBlocks) { combinedInspectionLoader(selectedAssistantMessage?.effectiveCombinedManifest(), loadCombinedSourceBlocks) }
                             )
                         } else {
-                            stringResource(
-                                R.string.revision_counter,
-                                assistantMessage.revisions.size - assistantMessage.activeRevisionIndex,
-                                totalRevisions
-                            )
-                        }
-                    },
-                    canShowPreviousRevision = canShowPreviousRevision,
-                    canShowNextRevision = canShowNextRevision,
-                    onCopyClick = {
-                        documentScope.launch { onCopyText(readAssistantActionText()) }
-                    },
-                    onSelectClick = {
-                        documentScope.launch { onSelectText(readAssistantActionText()) }
-                    },
-                    onRetryClick = {
-                        if (needsAnswerCorrection) revisionTarget?.let { onReviseCombinedAnswer(messageIndex, it) } else onRetry(messageIndex, displayPlatformIndex)
-                    },
-                    onInspectContext = selectedRunId?.let { id ->
-                        onInspectContext?.let { inspect -> { inspect(id) } }
-                    },
-                    onEditClick = { onEditAssistant(messageIndex, displayPlatformIndex) },
-                    onFavoriteClick = { onFavoriteClick(messageIndex, displayPlatformIndex) },
-                    onFavoriteLongPress = onFavoriteLongPress,
-                    onShowPreviousRevision = { onShowPreviousRevision(messageIndex, displayPlatformIndex) },
-                    onShowNextRevision = { onShowNextRevision(messageIndex, displayPlatformIndex) },
-                    isUserTyping = isUserTyping,
-                    isLastMessage = isActiveMessage && !isSourceResponse,
-                    onContinueClick = onContinueClick.takeIf { smartSuggestionsEnabled && !isSourceResponse },
-                    onActionClick = onActionClick.takeIf { smartSuggestionsEnabled && !isSourceResponse }
-                )
+                            null
+                        },
+                        // Shared contribution controls render inside the mapped Markdown tree.
+                        articleCards = { segment ->
+                            if (debugSettings.researchFeature.articleCards) {
+                                selectedAssistantMessage?.let { articleMessage ->
+                                    dev.chungjungsoo.gptmobile.presentation.ui.research.ResearchCitationCards(articleMessage, segment, selectedPlatformUid.orEmpty(), debugSettings.researchFeature.compactCards, currentResearchTools, isStreaming = isCurrentPlatformLoading)
+                                }
+                            }
+                        },
+                        generationTiming = responseGenerationTiming(
+                            agentRun,
+                            if (isCombinedConversation) combinedProfiles.mapNotNull { it.message?.effectiveRunId()?.let(agentRunsById::get) } else emptyList()
+                        ),
+                        runNotices = selectedRunId?.let(runNoticesById::get).orEmpty(),
+                        toolEvents = toolEvents,
+                        locationToolEvents = provenanceToolEvents,
+                        sourceToolEvents = provenanceToolEvents,
+                        sourceProfilesByRun = remember(agentRunsById) { agentRunsById.mapValues { it.value.profileUid } },
+                        contentIdentity = "${selectedAssistantMessage?.id ?: "turn:$messageIndex"}:$selectedPlatformUid:${selectedRunId.orEmpty()}:${selectedAssistantMessage?.activeRevisionIndex}:${selectedSource?.originalDocument?.digest.orEmpty()}",
+                        revisionIndexLabel = selectedAssistantMessage?.takeIf { !isSourceResponse && it.revisions.isNotEmpty() }?.let { assistantMessage ->
+                            val totalRevisions = assistantMessage.revisions.size + 1
+                            if (assistantMessage.activeRevisionIndex == ACTIVE_REVISION_LATEST) {
+                                stringResource(
+                                    R.string.revision_counter,
+                                    totalRevisions,
+                                    totalRevisions
+                                )
+                            } else {
+                                stringResource(
+                                    R.string.revision_counter,
+                                    assistantMessage.revisions.size - assistantMessage.activeRevisionIndex,
+                                    totalRevisions
+                                )
+                            }
+                        },
+                        canShowPreviousRevision = canShowPreviousRevision,
+                        canShowNextRevision = canShowNextRevision,
+                        onCopyClick = {
+                            documentScope.launch { onCopyText(readAssistantActionText()) }
+                        },
+                        onSelectClick = {
+                            documentScope.launch { onSelectText(readAssistantActionText()) }
+                        },
+                        onRetryClick = {
+                            if (needsAnswerCorrection) revisionTarget?.let { onReviseCombinedAnswer(messageIndex, it) } else onRetry(messageIndex, displayPlatformIndex)
+                        },
+                        onInspectContext = selectedRunId?.let { id ->
+                            onInspectContext?.let { inspect -> { inspect(id) } }
+                        },
+                        onEditClick = { onEditAssistant(messageIndex, displayPlatformIndex) },
+                        onFavoriteClick = { onFavoriteClick(messageIndex, displayPlatformIndex) },
+                        onFavoriteLongPress = onFavoriteLongPress,
+                        onShowPreviousRevision = { onShowPreviousRevision(messageIndex, displayPlatformIndex) },
+                        onShowNextRevision = { onShowNextRevision(messageIndex, displayPlatformIndex) },
+                        isUserTyping = isUserTyping,
+                        isLastMessage = isActiveMessage && !isSourceResponse,
+                        onContinueClick = onContinueClick.takeIf { smartSuggestionsEnabled && !isSourceResponse },
+                        onActionClick = onActionClick.takeIf { smartSuggestionsEnabled && !isSourceResponse }
+                    )
+                }
                 responseFailure?.takeUnless { approvalRetryBlock != null }?.let { error ->
                     Column(Modifier.fillMaxWidth().padding(12.dp)) {
                         Text(
@@ -2408,6 +2517,7 @@ fun ChatInputBox(
     placeholder: String? = null,
     attachmentsEnabled: Boolean = true,
     workflows: List<dev.chungjungsoo.gptmobile.data.github.GitHubQuickWorkflow> = emptyList(),
+    isPreparingSend: Boolean = false,
     onSendButtonClick: () -> Unit = {}
 ) {
     val localStyle = LocalTextStyle.current
@@ -2465,7 +2575,7 @@ fun ChatInputBox(
     val haptic = dev.chungjungsoo.gptmobile.presentation.common.rememberAppHaptic()
     var composerNotice by remember { mutableStateOf("") }
     val sendAction = {
-        if (chatEnabled && sendButtonEnabled && (inputState.text.isNotEmpty() || selectedAttachments.isNotEmpty())) {
+        if (chatEnabled && sendButtonEnabled && !isPreparingSend && (inputState.text.isNotEmpty() || selectedAttachments.isNotEmpty())) {
             haptic(dev.chungjungsoo.gptmobile.presentation.common.AppHaptic.CONFIRMATION)
             composerNotice = "Sending message"
             releaseComposerInput()
@@ -2517,7 +2627,8 @@ fun ChatInputBox(
         ) {
             Column {
                 ChatMemoryStatus()
-                if (composerNotice.isNotEmpty()) Text(composerNotice, style = MaterialTheme.typography.labelSmall, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+                val submissionNotice = if (isPreparingSend) stringResource(R.string.preparing_message) else composerNotice
+                if (submissionNotice.isNotEmpty()) Text(submissionNotice, style = MaterialTheme.typography.labelSmall, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
                 if (selectedAttachments.isNotEmpty()) {
                     FileThumbnailRow(
                         selectedAttachments = selectedAttachments,
@@ -2589,21 +2700,29 @@ fun ChatInputBox(
                                     }
                                 }
                                 if (!hasQuestionText && selectedAttachments.isEmpty() && workflows.isNotEmpty()) {
-                                    GitHubWorkflowButton(workflows, enabled = chatEnabled && sendButtonEnabled) { workflow ->
+                                    GitHubWorkflowButton(workflows, enabled = chatEnabled && sendButtonEnabled && !isPreparingSend) { workflow ->
                                         inputState.edit { replace(0, length, workflow.prompt) }
                                         sendAction()
                                     }
                                 } else {
                                     FilledIconButton(
                                         colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary),
-                                        enabled = chatEnabled && sendButtonEnabled && (hasQuestionText || selectedAttachments.isNotEmpty()),
+                                        enabled = chatEnabled && sendButtonEnabled && !isPreparingSend && (hasQuestionText || selectedAttachments.isNotEmpty()),
                                         onClick = sendAction,
                                         modifier = Modifier.testTag("chat_send")
                                     ) {
-                                        Icon(
-                                            imageVector = Icons.Rounded.ArrowUpward,
-                                            contentDescription = stringResource(if (isRunning) R.string.send_follow_up else R.string.send)
-                                        )
+                                        if (isPreparingSend) {
+                                            val preparingDescription = stringResource(R.string.preparing_message)
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(24.dp).semantics { contentDescription = preparingDescription },
+                                                strokeWidth = 2.dp
+                                            )
+                                        } else {
+                                            Icon(
+                                                imageVector = Icons.Rounded.ArrowUpward,
+                                                contentDescription = stringResource(if (isRunning) R.string.send_follow_up else R.string.send)
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -2845,6 +2964,54 @@ private fun isImageFile(extension: String?): Boolean {
 
 internal const val CHAT_INPUT_OPACITY = 0.85f
 internal const val CHAT_LATEST_OPACITY = 0.50f
+
+@Composable
+private fun GitHubBottomIndicator(
+    listState: LazyListState,
+    following: Boolean,
+    generating: Boolean,
+    animate: Boolean,
+    onFollow: () -> Unit
+) {
+    if (!following) {
+        IconButton(onClick = onFollow, modifier = Modifier.testTag("chat_jump_to_bottom")) {
+            Icon(Icons.Rounded.KeyboardArrowDown, stringResource(R.string.scroll_to_bottom_icon), tint = MaterialTheme.colorScheme.primary)
+        }
+        return
+    }
+    var reachedBottom by remember(listState) { mutableStateOf(false) }
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.layoutInfo.totalItemsCount > 0 && !listState.canScrollForward }.first { it }
+        reachedBottom = true
+    }
+    if (!reachedBottom || !generating) return
+    val pulse = if (animate) rememberInfiniteTransition(label = "GitHub generation") else null
+    val color = MaterialTheme.colorScheme.primary
+    Row(
+        Modifier.size(width = 48.dp, height = 48.dp)
+            .semantics { contentDescription = "Generating response" }
+            .testTag("github_bottom_generation"),
+        horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        repeat(3) { index ->
+            val opacity = pulse?.animateFloat(
+                initialValue = 0f,
+                targetValue = 1f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(1000, easing = LinearEasing),
+                    repeatMode = RepeatMode.Reverse,
+                    initialStartOffset = androidx.compose.animation.core.StartOffset(index * 120)
+                ),
+                label = "Dot ${index + 1}"
+            )
+            Spacer(
+                Modifier.size(5.dp).graphicsLayer { alpha = opacity?.value ?: 1f }
+                    .background(color, androidx.compose.foundation.shape.CircleShape)
+            )
+        }
+    }
+}
 
 @Composable
 fun ScrollToBottomButton(isGenerating: Boolean = false, onClick: () -> Unit) {

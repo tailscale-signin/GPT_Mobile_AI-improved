@@ -8,6 +8,8 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -122,5 +124,184 @@ class GitHubRunAcceptanceTest {
             GitHubRunAcceptance.readForCommit("run", 7, 1, 2, response, expectedInMemory = false, recordExists = { throw java.io.IOException("Storage unavailable") }, load = { null })
         }.exceptionOrNull()
         assertTrue(failure is java.io.IOException)
+    }
+
+    @Test fun pendingApprovalRemainsDistinctAndRetainsItsIndependentStopFields() {
+        val pending = JsonObject(
+            report() + mapOf(
+                "task_outcome" to JsonPrimitive("WAITING_FOR_APPROVAL"),
+                "task_state" to JsonPrimitive("WAITING_FOR_APPROVAL"),
+                "stop_code" to JsonPrimitive("WAITING_FOR_APPROVAL"),
+                "approval_state" to JsonPrimitive("WAITING_FOR_APPROVAL"),
+                "blocking_condition" to JsonPrimitive("WAITING_FOR_APPROVAL"),
+                "execution_ledger" to buildJsonObject {
+                    put("requested_task", "WAITING_FOR_APPROVAL")
+                    put("unresolved_remote_outcomes", 0)
+                    put("receipt_count", 2)
+                    put(
+                        "pending_approvals",
+                        JsonArray(
+                            listOf(
+                                buildJsonObject {
+                                    put("engineering_task_id", "task-123")
+                                    put("card_id", "github-approval-task-123")
+                                    put("state", "WAITING_FOR_APPROVAL")
+                                    put("branch", "codex-self-test/fixture")
+                                }
+                            )
+                        )
+                    )
+                }
+            )
+        )
+        val captured = GitHubRunAcceptance.capture(pending, "run", 7, 1, 2)
+        val acceptance = requireNotNull(GitHubRunAcceptance.assess(captured, "run", 7, 1, 2, response))
+        assertEquals("WAITING_FOR_APPROVAL", acceptance.verification)
+        assertEquals("WAITING_FOR_APPROVAL", acceptance.taskState)
+        assertEquals("WAITING_FOR_APPROVAL", acceptance.stopCode)
+        assertEquals("WAITING_FOR_APPROVAL", acceptance.approvalState)
+        assertEquals("WAITING_FOR_APPROVAL", acceptance.taskOutcome)
+        assertTrue(GitHubRunAcceptance.diagnosticLines(acceptance).first().contains("WAITING_FOR_APPROVAL"))
+        val failure = assertThrows(IllegalStateException::class.java) {
+            GitHubRunAcceptance.requireCompletion(true, true, acceptance)
+        }
+        assertTrue(failure.message.orEmpty().contains("WAITING_FOR_APPROVAL"))
+    }
+
+    @Test fun explicitRejectionSurvivesCaptureAsASeparateNonSuccessfulOutcome() {
+        val requirements = JsonArray(
+            (1..65).map { index ->
+                buildJsonObject {
+                    put("id", "criterion-$index")
+                    put("requirement", "Verify criterion $index")
+                    put("required", true)
+                    put("state", "PASS")
+                }
+            }
+        )
+        val incompleteDiagnostics = buildJsonObject {
+            put("completion_verified", true)
+            put("requirements", requirements)
+            put("diagnostic_projection", GitHubAcceptanceDiagnostics.snapshot(GitHubAcceptanceLedger.snapshot(requirements = requirements)))
+        }
+        val rejected = JsonObject(
+            report() + mapOf(
+                "task_outcome" to JsonPrimitive("REJECTED"),
+                "task_state" to JsonPrimitive("REJECTED"),
+                "stop_code" to JsonPrimitive("APPROVAL_REJECTED"),
+                "approval_state" to JsonPrimitive("REJECTED"),
+                "acceptance_ledger" to incompleteDiagnostics,
+                "execution_ledger" to buildJsonObject {
+                    put("requested_task", "REJECTED")
+                    put("unresolved_remote_outcomes", 0)
+                    put("receipt_count", 2)
+                    put("pending_approvals", JsonArray(emptyList()))
+                    put(
+                        "resolved_approvals",
+                        JsonArray(
+                            listOf(
+                                buildJsonObject {
+                                    put("task_id", "task-123")
+                                    put("branch", "codex-self-test/fixture")
+                                    put("expected_head_sha", "a".repeat(40))
+                                    put("patch_digest", "b".repeat(64))
+                                    put("state", "REJECTED")
+                                    put("decision_outcome", "REJECTED")
+                                    put("local_resolution_event", "approval_card_rejected")
+                                    put("remote_state_verified", false)
+                                }
+                            )
+                        )
+                    )
+                }
+            )
+        )
+        val acceptance = assess(rejected)
+        assertEquals("REJECTED", acceptance.verification)
+        assertEquals(false, acceptance.diagnosticsComplete)
+        assertEquals("REJECTED", acceptance.taskState)
+        assertEquals("APPROVAL_REJECTED", acceptance.stopCode)
+        assertEquals("REJECTED", acceptance.approvalState)
+        assertEquals("REJECTED", acceptance.taskOutcome)
+        val terminal = AgentRunTerminalDiagnostics.from(AgentRunStatus.PARTIAL, null, acceptance)
+        assertEquals("REJECTED", terminal.executionState)
+        assertEquals("REJECTED", terminal.taskVerification)
+        assertEquals("RECONCILE_FIXTURE_AFTER_APPROVAL_REJECTION", terminal.recoveryAction)
+        val failure = assertThrows(IllegalStateException::class.java) {
+            GitHubRunAcceptance.requireCompletion(true, true, acceptance)
+        }
+        assertTrue(failure.message.orEmpty().contains("APPROVAL_REJECTED"))
+    }
+
+    @Test fun allAcceptancePagesSurviveRunCaptureAssessmentAndExport() {
+        val requirements = JsonArray(
+            (1..109).map { index ->
+                buildJsonObject {
+                    put("id", "criterion-$index")
+                    put("requirement", "Verify criterion $index")
+                    put("status", "UNTESTED")
+                    put("acceptance_state", "NOT_TESTED")
+                }
+            }
+        )
+        val completeLedger = GitHubAcceptanceLedger.attach(
+            buildJsonObject {
+                put("requirements", requirements)
+                put("capabilities", JsonArray(emptyList()))
+            }
+        ).getValue("acceptance_ledger").jsonObject
+        val source = JsonObject(report(passed = false) + ("acceptance_ledger" to completeLedger))
+        val acceptance = requireNotNull(
+            GitHubRunAcceptance.assess(
+                GitHubRunAcceptance.capture(source, "run", 7, 1, 2),
+                "run",
+                7,
+                1,
+                2,
+                response
+            )
+        )
+        assertEquals(109, (acceptance.diagnostics?.get("criterion_count") as? JsonPrimitive)?.intOrNull)
+        assertEquals(2, acceptance.diagnosticPages.size)
+        assertTrue(acceptance.diagnosticsComplete)
+        val lines = GitHubRunAcceptance.diagnosticLines(acceptance, "run")
+        assertTrue(lines.first().contains("\"total\":109"))
+        assertTrue(lines.first().contains("\"omitted\":0"))
+        assertEquals(109, lines.count { it.contains("github.acceptance-criterion.v1") })
+        val events = GitHubRunAcceptance.diagnosticEvents(acceptance, "run")
+        assertEquals(109, events.size)
+        assertEquals(109, events.map { it["criterion_id_digest"] }.distinct().size)
+        assertTrue(events.all { it["runId"] == "run" && it["criterion_state"] == "NOT_TESTED" })
+        assertTrue(events.all { it["criterion_id_digest"].toString().matches(Regex("[a-f0-9]{64}")) })
+        assertTrue(events.none { "criterion_label" in it || "requirement" in it || "evidence_receipt_digests" in it })
+    }
+
+    @Test fun incompleteDiagnosticPagesProducePartialEvidenceInsteadOfAcceptance() {
+        val requirements = JsonArray(
+            (1..109).map { index ->
+                buildJsonObject {
+                    put("id", "criterion-$index")
+                    put("requirement", "Verify criterion $index")
+                    put("status", "UNTESTED")
+                    put("acceptance_state", "NOT_TESTED")
+                }
+            }
+        )
+        val ledger = GitHubAcceptanceLedger.snapshot(requirements = requirements)
+        val partialAcceptance = buildJsonObject {
+            put("completion_verified", true)
+            put("requirements", requirements)
+            put("diagnostic_projection", GitHubAcceptanceDiagnostics.snapshot(ledger))
+        }
+        val source = JsonObject(report(passed = false) + ("acceptance_ledger" to partialAcceptance))
+        val captured = GitHubRunAcceptance.capture(source, "run", 7, 1, 2)
+        val acceptance = requireNotNull(GitHubRunAcceptance.assess(captured, "run", 7, 1, 2, response))
+        assertEquals("PARTIAL_EVIDENCE", acceptance.verification)
+        assertEquals(false, acceptance.diagnosticsComplete)
+        assertTrue(GitHubRunAcceptance.diagnosticLines(acceptance).first().contains("\"omitted\":45"))
+        val error = assertThrows(IllegalStateException::class.java) {
+            GitHubRunAcceptance.requireCompletion(true, true, acceptance)
+        }
+        assertTrue(error.message.orEmpty().contains("PARTIAL_EVIDENCE"))
     }
 }

@@ -97,7 +97,8 @@ object ChatRepositoryModule {
         gatewayAPI: dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAPI,
         gatewayConversations: dev.chungjungsoo.gptmobile.data.github.GatewayConversationRepository,
         gatewayEngineering: dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringRepository,
-        reasoningCapabilities: dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityRepository
+        reasoningCapabilities: dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityRepository,
+        gitHubApprovalState: dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore
     ): ChatRepository = ChatRepositoryImpl(
         context = context,
         chatRoomV2Dao = chatRoomV2Dao,
@@ -147,6 +148,7 @@ object ChatRepositoryModule {
         gatewayAPI = gatewayAPI,
         gatewayConversations = gatewayConversations,
         gatewayEngineering = gatewayEngineering,
-        reasoningCapabilities = reasoningCapabilities
+        reasoningCapabilities = reasoningCapabilities,
+        gitHubApprovalState = gitHubApprovalState
     )
 }

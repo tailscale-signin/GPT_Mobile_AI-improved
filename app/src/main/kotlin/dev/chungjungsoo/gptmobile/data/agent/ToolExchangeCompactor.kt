@@ -19,6 +19,7 @@ internal object ToolExchangeCompactor {
     private const val MIN_RESULT_TOKENS = 64
     private const val CHARS_PER_TOKEN = 3
     private const val OMITTED_RESULT = "[Earlier consumed tool result omitted from primary replay.]"
+    private const val CONSUMED_RESULT = "[Earlier tool result already consumed by the model; durable evidence retained.]"
     private const val DUPLICATE_RESULT = "[Earlier duplicate tool result omitted; newest identical result retained.]"
 
     /** Per-run identity cache: immutable result bodies are serialized once across rounds.
@@ -112,6 +113,17 @@ internal object ToolExchangeCompactor {
             }
         }
         val lastOccurrence = fingerprints.withIndex().associate { (index, value) -> value to index }
+        // A completed provider round proves that these exact bodies were already
+        // delivered. Keep their call/result boundary, error metadata, and any
+        // bounded semantic summary, but do not keep paying for a large raw body on
+        // every later round. Complete GitHub pages stay eligible for the bounded
+        // replay allowance so follow-up rounds can use their exact evidence.
+        val consumedPayloads = BooleanArray(flattenedResults.size) { index ->
+            val result = flattenedResults[index]
+            result.callId in consumedCallIds &&
+                measurements[index].tokens > MIN_RESULT_TOKENS &&
+                GitHubReplayRecovery.envelope(result.content)?.get("local_page_complete") != JsonPrimitive(true)
+        }
         var resultIndex = 0
         var remaining = hardBudget
 
@@ -128,7 +140,7 @@ internal object ToolExchangeCompactor {
         val resultBudgets = IntArray(fingerprints.size)
         for (index in fingerprints.indices.reversed()) {
             val duplicate = lastOccurrence[fingerprints[index]] != index
-            if (duplicate || remaining < MIN_RESULT_TOKENS) continue
+            if (duplicate || consumedPayloads[index] || remaining < MIN_RESULT_TOKENS) continue
             val actualCost = measurements[index].tokens.coerceAtLeast(1)
             val allowance = minOf(perResultBudget, remaining, actualCost)
             resultBudgets[index] = allowance
@@ -145,6 +157,7 @@ internal object ToolExchangeCompactor {
                 val semantic by lazy(LazyThreadSafetyMode.NONE) { semanticContent(result) }
                 when {
                     duplicate -> result.copy(content = ToolResultContent.Text(DUPLICATE_RESULT))
+                    consumedPayloads[index] -> result.copy(content = semantic ?: ToolResultContent.Text(CONSUMED_RESULT))
                     resultBudgets[index] == 0 -> result.copy(content = semantic ?: ToolResultContent.Text(OMITTED_RESULT))
                     result.executionReceipt?.get("retained_original_complete") == JsonPrimitive(true) && raw.length > maxChars && semantic != null && render(requireNotNull(semantic)).length <= maxChars ->
                         result.copy(content = requireNotNull(semantic))

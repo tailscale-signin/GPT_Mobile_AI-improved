@@ -67,6 +67,28 @@ class GatewayEngineeringClientTest {
         }
     }
 
+    @Test fun preAdmissionEofIsTypedAsUnsentWhileJobPostEofRemainsAmbiguousAndIsNeverRetried() = runTest {
+        val paths = mutableListOf<String>()
+        http(
+            MockEngine { request ->
+                paths += request.url.encodedPath
+                throw java.io.EOFException("Private socket details")
+            }
+        ).use { http ->
+            val client = GatewayEngineeringClient(http)
+            val request = GatewayEngineeringRequest("owner/repo", "feature", "main", "Inspect", "local", chatId = 1, requestId = "original")
+            val preflight = runCatching { client.preflight(config, request) }.exceptionOrNull()
+            assertTrue(preflight is GatewayAdmissionException)
+            assertEquals(GatewayAdmissionReason.TRANSPORT_INTERRUPTED, (preflight as GatewayAdmissionException).reason)
+            assertEquals(GatewayAdmissionDispatchState.NOT_DISPATCHED, preflight.dispatchState)
+            assertNull(preflight.httpStatus)
+            assertFalse(preflight.message.orEmpty().contains("Private socket"))
+            val create = runCatching { client.create(config, request) }.exceptionOrNull()
+            assertTrue(create is java.io.EOFException)
+            assertEquals(listOf("/v1/gateway/engineering/preflight", "/v1/gateway/engineering/jobs"), paths)
+        }
+    }
+
     @Test fun missingProducerHasAnAdmissionReasonAndCannotBecomeGenericPartialWork() = runTest {
         val objective = "Repair build"
         val result = GatewayEngineeringPreflight("github.engineering-admission.v1", false, blockers = listOf(GatewayEngineeringBlocker("acceptance", "ACCEPTANCE_PRODUCER_REQUIRED", "admission", "Configure the build behavior test", "CONFIGURE_ACCEPTANCE_MAPPING")), objectiveSha256 = GitHubRepositoryStateStore.digest(objective))
@@ -376,6 +398,48 @@ class GatewayEngineeringClientTest {
         http(MockEngine { respond("Unavailable", HttpStatusCode.ServiceUnavailable) }).use { http ->
             val failure = runCatching { GatewayEngineeringClient(http).create(config, request) }.exceptionOrNull()
             assertTrue(failure != null && failure !is GatewayEngineeringRequestRejected)
+        }
+    }
+
+    @Test fun bindingConflictPreservesItsSelectedModelReasonAndDoesNotReplayThePost() = runTest {
+        val selection = GatewayExecutionSelection("profile", "revision", "provider", "provider-revision", "LLAMA", config.apiUrl, "selected", kotlinx.serialization.json.JsonObject(emptyMap()), "PRIVATE")
+        var calls = 0
+        http(
+            MockEngine { request ->
+                calls++
+                assertEquals(io.ktor.http.HttpMethod.Post, request.method)
+                assertTrue(request.url.encodedPath.endsWith("/bindings"))
+                respond("""{"error":{"code":"EXECUTION_MODEL_LOADING","failed_stage":"model_readiness","retryable":true,"inference_attempted":false,"message":"private backend details"}}""", HttpStatusCode.Conflict)
+            }
+        ).use { http ->
+            val failure = runCatching { GatewayEngineeringClient(http).prepareBinding(config, selection) }.exceptionOrNull()
+            assertTrue(failure is GatewayExecutionRejected)
+            val rejected = failure as GatewayExecutionRejected
+            assertEquals("EXECUTION_MODEL_LOADING", rejected.code)
+            assertEquals("model_readiness", rejected.failedStage)
+            assertEquals(409, rejected.httpStatus)
+            assertEquals(true, rejected.retryable)
+            assertEquals(false, rejected.inferenceAttempted)
+            assertFalse(rejected.commandOutcomeUnknown)
+            assertFalse(rejected.message.orEmpty().contains("private backend"))
+            val reconciled = rejected.withCommandOutcomeUnknown(true)
+            assertTrue(reconciled.commandOutcomeUnknown)
+            assertEquals(rejected.code, reconciled.code)
+            assertEquals(rejected.failedStage, reconciled.failedStage)
+            assertEquals(rejected.retryable, reconciled.retryable)
+            assertEquals(rejected.inferenceAttempted, reconciled.inferenceAttempted)
+        }
+        assertEquals(1, calls)
+    }
+
+    @Test fun bindingRejectionDoesNotCoerceUntrustedMetadataIntoExecutionEvidence() = runTest {
+        val selection = GatewayExecutionSelection("profile", "revision", "provider", "provider-revision", "LLAMA", config.apiUrl, "selected", kotlinx.serialization.json.JsonObject(emptyMap()), "PRIVATE")
+        http(MockEngine { respond("""{"detail":{"code":"EXECUTION_MODEL_UNAVAILABLE","stage":"private backend path/token","retryable":"true","inference_attempted":"false"}}""", HttpStatusCode.Conflict) }).use { http ->
+            val failure = runCatching { GatewayEngineeringClient(http).prepareBinding(config, selection) }.exceptionOrNull() as GatewayExecutionRejected
+            assertEquals("provider_admission", failure.failedStage)
+            assertNull(failure.retryable)
+            assertNull(failure.inferenceAttempted)
+            assertFalse(failure.message.orEmpty().contains("token"))
         }
     }
 }

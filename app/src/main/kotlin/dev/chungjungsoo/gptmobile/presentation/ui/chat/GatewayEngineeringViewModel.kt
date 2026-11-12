@@ -77,19 +77,24 @@ class GatewayEngineeringViewModel @Inject constructor(private val repository: Ga
         val selectedEpoch = epoch.get()
         polling = viewModelScope.launch(Dispatchers.IO) {
             while (isActive && epoch.get() == selectedEpoch) {
+                var nextDelayMillis = 30_000L
                 try {
-                    for (binding in repository.bindings(chatId)) {
+                    val bindings = repository.bindings(chatId)
+                    for (binding in bindings) {
                         // Foreground observation cannot create or resume a saved request.
                         repository.observe(binding.request.requestId)
                     }
                     val saved = repository.bindings(chatId)
                     if (epoch.get() == selectedEpoch) mutable.update { it.copy(bindings = saved, error = null) }
+                    val activeStates = setOf("QUEUED", "ACCEPTED", "STARTING", "RUNNING", "PLAN", "READ", "IMPLEMENT", "TEST", "COMMIT", "OPEN_PR", "CI", "WAIT_CI", "MERGE", "VERIFY")
+                    val active = saved.any { binding -> binding.job == null || binding.job.state.uppercase() in activeStates }
+                    nextDelayMillis = if (active) 5_000 else 30_000
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (failure: Exception) {
                     if (epoch.get() == selectedEpoch) mutable.update { it.copy(error = failure.message) }
                 }
-                delay(5_000)
+                delay(nextDelayMillis)
             }
         }
     }

@@ -51,13 +51,18 @@ def decode_event(line):
     return value
 
 
-def measure(post, endpoint, model, messages, *, headers=None, output_tokens=256, clock=time.perf_counter):
+def measure(post, endpoint, model, messages, *, headers=None, output_tokens=256, clock=time.perf_counter, validate_output=None, gateway_options=None):
     started = clock()
     first, previous, largest_gap, events, output_bytes = None, None, 0.0, 0, 0
+    output = bytearray()
     content_digest = hashlib.sha256()
     usage, timings, done, finish = None, None, False, None
-    with post(endpoint + '/v1/chat/completions', json={'model': model, 'messages': messages, 'max_tokens': output_tokens,
-              'temperature': 0, 'stream': True, 'stream_options': {'include_usage': True}}, headers=headers or {},
+    payload = {'model': model, 'messages': messages, 'max_tokens': output_tokens,
+               'temperature': 0, 'stream': True, 'stream_options': {'include_usage': True},
+               'tools': [], 'tool_choice': 'none'}
+    if gateway_options is not None:
+        payload['gateway'] = gateway_options
+    with post(endpoint + '/v1/chat/completions', json=payload, headers=headers or {},
               timeout=(10, 120), stream=True, allow_redirects=False) as response:
         if response.status_code != 200:
             raise ValueError('Benchmark selected route rejected the request: HTTP ' + str(response.status_code))
@@ -87,17 +92,24 @@ def measure(post, endpoint, model, messages, *, headers=None, output_tokens=256,
                     encoded = text.encode()
                     output_bytes += len(encoded)
                     content_digest.update(encoded)
+                    if validate_output is not None:
+                        if len(output) + len(encoded) > 16384:
+                            raise ValueError('Benchmark output exceeded the validation limit')
+                        output.extend(encoded)
             if isinstance(event.get('usage'), dict):
                 usage = {key: value for key, value in event['usage'].items() if key in {'prompt_tokens', 'completion_tokens', 'total_tokens'} and type(value) is int and value >= 0}
             if isinstance(event.get('timings'), dict):
                 timings = {key: value for key, value in event['timings'].items() if key in {'prompt_ms', 'predicted_ms', 'prompt_n', 'predicted_n'} and type(value) in (int, float) and math.isfinite(value) and value >= 0}
     if not done or first is None or finish is None:
         raise ValueError('Benchmark stream lacks first content or a verified terminal envelope')
-    return {'firstContentMs': (first - started) * 1000, 'totalMs': (clock() - started) * 1000,
+    result = {'firstContentMs': (first - started) * 1000, 'totalMs': (clock() - started) * 1000,
             'maximumContentGapMs': largest_gap * 1000, 'contentEvents': events, 'outputBytes': output_bytes,
             'outputSha256': content_digest.hexdigest(), 'finishReason': finish, 'usage': usage,
             'backendTimings': timings, 'queueMs': None, 'coldLoadMs': None, 'offload': 'NOT_MEASURED',
             'clock': 'source_monotonic', 'transport': 'HTTP_SSE', 'requestedModel': model}
+    if validate_output is not None:
+        result['passed'] = bool(validate_output(output.decode()))
+    return result
 
 
 def percentile(values, fraction):

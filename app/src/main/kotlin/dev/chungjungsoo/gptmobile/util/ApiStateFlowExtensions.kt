@@ -6,10 +6,12 @@ import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType
 import dev.chungjungsoo.gptmobile.data.database.entity.resetActiveRevision
 import dev.chungjungsoo.gptmobile.data.diagnostics.FirstOutputPublication
+import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidents
 import dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage
 import dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineageAccumulator
 import dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin
 import dev.chungjungsoo.gptmobile.data.diagnostics.OutputPublicationTracker
+import dev.chungjungsoo.gptmobile.data.diagnostics.ReportFeature
 import dev.chungjungsoo.gptmobile.data.dto.ApiState
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.GatewayProgress
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalInferencePhase
@@ -182,7 +184,7 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
                 is ApiState.ActivitySummary -> {
                     buffer.observeProgress(chunk.text, chunk.invocationId)
                     buffer.updateActivitySummary(chunk)
-                    buffer.publishNow(onUpdate)
+                    buffer.publishIfDue(onUpdate)
                 }
 
                 is ApiState.DelegationText -> {
@@ -251,7 +253,8 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
                     chunk.combinedFailure?.let(buffer::appendCombinedFailure)
                     if (chunk.errorCode == "QUEUE_JOB_PENDING") {
                         buffer.appendNotice(chunk.message)
-                    } else {
+                    } else if (chunk.providerLimit?.mayWait != true) {
+                        IssueReportIncidents.chatFailure(chunk.errorCode, chunk.providerLimit != null)
                         buffer.appendFailure(chunk.message, chunk.progressDeadline != null || chunk.recoveryBlock != null || chunk.combinedFailure != null, chunk.errorCode, chunk.failureDetails)
                     }
                     terminalError = chunk.message.ifBlank { "The provider could not complete this response." }
@@ -272,7 +275,10 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
     val completedError = terminalError
     return when {
         completedError != null -> ApiStateFlowOutcome.Failed(completedError, providerLimit, errorCode, taskOutcome)
-        isCompletedSuccessfully && !buffer.hasResponse -> ApiStateFlowOutcome.Failed("The model finished without a visible answer. Please retry or choose another model.")
+        isCompletedSuccessfully && !buffer.hasResponse -> {
+            IssueReportIncidents.failure(ReportFeature.CHAT, "NO_VISIBLE_ANSWER")
+            ApiStateFlowOutcome.Failed("The model finished without a visible answer. Please retry or choose another model.")
+        }
         isCompletedSuccessfully -> ApiStateFlowOutcome.Completed
         else -> ApiStateFlowOutcome.Incomplete
     }
@@ -492,8 +498,10 @@ private class StreamingMessageBuffer(
             githubAnswerPrefix.setLength(0)
             contentSnapshot = null
             content.append(chunk)
-            contentLineage.append(effectiveLineage)
-            if (dev.chungjungsoo.gptmobile.data.conversation.AnswerProjection.text(chunk).isNotBlank()) outputPublications.observe(effectiveLineage, chunk.length)
+            fun observeOutput(text: String, owner: OutputLineage) {
+                contentLineage.append(owner)
+                if (dev.chungjungsoo.gptmobile.data.conversation.AnswerProjection.text(text).isNotBlank()) outputPublications.observe(owner, text.length)
+            }
             var offset = 0
             while (offset < chunk.length && restoredIndex < restoredText.size) {
                 val prior = restoredText[restoredIndex]
@@ -502,7 +510,10 @@ private class StreamingMessageBuffer(
                     restoredIndex = restoredText.size
                     break
                 }
-                appendTimelineText(AssistantTimelineItemType.TEXT, chunk.substring(offset, offset + length), prior.responseSource)
+                val restored = chunk.substring(offset, offset + length)
+                val retainedOwner = OutputLineage(OutputOrigin.RETAINED_CONTENT)
+                observeOutput(restored, retainedOwner)
+                appendTimelineText(AssistantTimelineItemType.TEXT, restored, prior.responseSource, retainedOwner)
                 offset += length
                 restoredOffset += length
                 if (restoredOffset == prior.content.length) {
@@ -510,7 +521,11 @@ private class StreamingMessageBuffer(
                     restoredOffset = 0
                 }
             }
-            if (offset < chunk.length) appendTimelineText(AssistantTimelineItemType.TEXT, chunk.substring(offset), responseSource)
+            if (offset < chunk.length) {
+                val novel = chunk.substring(offset)
+                observeOutput(novel, effectiveLineage)
+                appendTimelineText(AssistantTimelineItemType.TEXT, novel, responseSource, effectiveLineage)
+            }
         }
     }
 
@@ -706,8 +721,12 @@ private class StreamingMessageBuffer(
     suspend fun flush(
         onUpdate: suspend (content: String, thoughts: String, timeline: List<AssistantTimelineItem>) -> Unit
     ) {
-        if (!hasPendingChanges()) return
-        publish(onUpdate, nanoTimeProvider())
+        if (hasPendingChanges()) {
+            publish(onUpdate, nanoTimeProvider())
+        } else {
+            val first = outputPublications.drain()
+            if (first.isNotEmpty()) onOutputPublication(currentContent(), contentLineage.lineage, first)
+        }
     }
 
     suspend fun publishNow(
@@ -731,7 +750,7 @@ private class StreamingMessageBuffer(
         lastPublishedAtNanos = publishedAtNanos
     }
 
-    private fun appendTimelineText(type: AssistantTimelineItemType, chunk: String, source: dev.chungjungsoo.gptmobile.data.database.entity.ResponseSource? = null) {
+    private fun appendTimelineText(type: AssistantTimelineItemType, chunk: String, source: dev.chungjungsoo.gptmobile.data.database.entity.ResponseSource? = null, lineage: OutputLineage? = null) {
         val last = timeline.lastOrNull()
         if (last?.type != type || last.toolSequence != null || last.responseSource != source) {
             flushTimelineText()
@@ -741,6 +760,11 @@ private class StreamingMessageBuffer(
             flushTimelineText()
             pendingTimelineIndex = timeline.lastIndex
             pendingTimelineText.append(timeline.last().content)
+        }
+        if (type == AssistantTimelineItemType.TEXT && chunk.isNotEmpty()) {
+            val previous = timeline.last()
+            val owner = if (pendingTimelineText.isEmpty()) lineage else previous.outputLineage.takeIf { it == lineage }
+            if (previous.outputLineage != owner) timeline[timeline.lastIndex] = previous.copy(outputLineage = owner)
         }
         pendingTimelineText.append(chunk)
         timelineVersion += 1

@@ -54,6 +54,8 @@ import dev.chungjungsoo.gptmobile.data.network.GoogleAPI
 import dev.chungjungsoo.gptmobile.data.network.GroqAPI
 import dev.chungjungsoo.gptmobile.data.network.OpenAIAPI
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
+import dev.chungjungsoo.gptmobile.data.network.providerExceptionDetails
+import dev.chungjungsoo.gptmobile.data.network.providerLimitDecision
 import dev.chungjungsoo.gptmobile.data.network.requireSelectedRoute
 import dev.chungjungsoo.gptmobile.data.nvidia.NvidiaModelCapabilities
 import dev.chungjungsoo.gptmobile.data.nvidia.NvidiaRequestPolicy
@@ -175,6 +177,7 @@ class OpenAIResponsesAdapter @Inject constructor(
                     var failedTransportComplete = false
                     var localCircuitRejection: ProviderEvent.Failed? = null
                     var failureDetails: JsonObject? = null
+                    var providerLimit: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision? = null
                     var responseObserved = false
 
                     api.streamResponses(request, platform.timeout, config)
@@ -214,8 +217,9 @@ class OpenAIResponsesAdapter @Inject constructor(
                                             lastFailedMessage = mapped.message
                                             lastFailedCode = mapped.errorCode
                                             failureDetails = mapped.failureDetails
+                                            providerLimit = mapped.providerLimit
                                         }
-                                        canRotate = !dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.requiresReconciliation(lastFailedMessage.orEmpty(), lastFailedCode) && previousResponseId == null && ApiCredentialRotator.containsQuotaOrRateLimitMessage(mapped.message)
+                                        canRotate = providerLimit == null && !dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.requiresReconciliation(lastFailedMessage.orEmpty(), lastFailedCode) && previousResponseId == null && ApiCredentialRotator.containsQuotaOrRateLimitMessage(mapped.message)
                                     }
 
                                     else -> emit(mapped)
@@ -233,7 +237,7 @@ class OpenAIResponsesAdapter @Inject constructor(
                     } else if (canRotate && attempt < attempts - 1) {
                         continue
                     } else if (roundFailed) {
-                        emit(localCircuitRejection ?: ProviderEvent.Failed(lastFailedMessage ?: "OpenAI stream request failed", errorCode = lastFailedCode, transportComplete = terminalReceived && failedTransportComplete, failureDetails = failureDetails))
+                        emit(localCircuitRejection ?: ProviderEvent.Failed(lastFailedMessage ?: "OpenAI stream request failed", errorCode = lastFailedCode, transportComplete = terminalReceived && failedTransportComplete, providerLimit = providerLimit, failureDetails = failureDetails))
                         return@flow
                     }
                 }
@@ -362,6 +366,10 @@ class OpenAICompatibleAdapter @Inject constructor(
             null to null
         }
         val parsedRouting = if (isOpenRouter) dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterPolicy.resolve(routerSettings.routing, profileRouting).let { if (constraints.lockSelectedRoute) it.copy(allowFallbacks = false) else it } else null
+        val fallbackModels = parsedOpenRouterOptions?.fallbackModels.orEmpty().takeIf {
+            dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterCatalogLimits.officialEndpoint(platform.apiUrl) &&
+                (constraints.requestRole ?: "primary") in setOf("primary", "github-output-continuation")
+        }.orEmpty()
         if (parsedRouting != null) privacyPreflight?.check(platform.apiUrl.orEmpty(), candidateKeys.firstOrNull(), platform.model, parsedRouting)
         val parsedOllamaOptions = if (isOllama && !platform.ollamaOptions.isNullOrBlank()) {
             runCatching { json.decodeFromString<OllamaOptions>(platform.ollamaOptions) }.getOrNull()
@@ -492,10 +500,25 @@ class OpenAICompatibleAdapter @Inject constructor(
             } else {
                 null
             },
+            responseFormat = constraints.finalResponseSchemaJson
+                ?.takeIf { isOpenRouter || isLlama }
+                ?.let { runCatching { json.parseToJsonElement(it) as? kotlinx.serialization.json.JsonObject }.getOrNull() },
             sessionId = openRouterSessionId,
             options = parsedOllamaOptions?.let { if (constraints.githubSampling == null) it else it.copy(temperature = effectiveTemperature, topP = null) }
         ).let { baseRequest ->
-            if (isNvidia) {
+            if (fallbackModels.isNotEmpty() && parsedRouting != null) {
+                val reservedOutput = effectiveOutputTokens?.takeIf { it > 0 } ?: return@let baseRequest
+                val estimate = (json.encodeToString(baseRequest).encodeToByteArray().size / 3 * 5) / 4
+                val compatible = dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterCatalogLimits.compatibleFallbacks(
+                    platform.apiUrl,
+                    platform.model,
+                    fallbackModels,
+                    estimate,
+                    reservedOutput,
+                    !requestTools.isNullOrEmpty()
+                )
+                if (compatible.isEmpty()) baseRequest else baseRequest.copy(models = compatible, provider = parsedRouting.copy(requireParameters = true))
+            } else if (isNvidia) {
                 NvidiaRequestPolicy.prepare(baseRequest, platform.reasoning || constraints.maximizeReasoning, constraints.allowReasoning)
             } else if (config.freeProvider == dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.BLOCKRUN && platform.model == "nvidia/nemotron-3.5-lightning") {
                 baseRequest.copy(chatTemplateKwargs = kotlinx.serialization.json.JsonObject(mapOf("enable_thinking" to JsonPrimitive((platform.reasoning || constraints.maximizeReasoning) && constraints.allowReasoning))))
@@ -771,6 +794,13 @@ class OpenAICompatibleAdapter @Inject constructor(
                     // Use the admitted route budget for tools as well as text. Unknown limits
                     // retain the shared 4096-token default; observed ceilings can only lower it.
                     var effectiveOutputTokens: Int? = ProviderRouteCapacity.output(platform, constraints.outputLimit(effectiveMaxTokens))
+                    if (constraints.lockSelectedRoute &&
+                        (constraints.requestRole ?: "primary") == "primary" &&
+                        exchanges.isEmpty() &&
+                        !requestTools.isNullOrEmpty()
+                    ) {
+                        effectiveOutputTokens = minOf(effectiveOutputTokens ?: 4_096, 4_096)
+                    }
                     var ceilingRetryUsed = false
                     if (constraints.maxOutputTokens != null) {
                         emit(
@@ -970,7 +1000,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                                     protocolErrorCode = contract?.code ?: error.type?.uppercase()?.takeIf { category -> dev.chungjungsoo.gptmobile.data.network.FreeFailureCategory.entries.any { it.name == category } }
                                         ?: error.code ?: error.type ?: protocolErrorCode
                                     if (error.failureDetails?.containsKey("failed_stage") == true) protocolErrorCode = contract?.code ?: error.code ?: protocolErrorCode
-                                    canRotate = error.retryable != false && contract == null && !dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.requiresReconciliation(error.message, error.code) && ApiCredentialRotator.containsQuotaOrRateLimitMessage(error.message)
+                                    canRotate = providerLimitDecision == null && error.retryable != false && contract == null && !dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.requiresReconciliation(error.message, error.code) && ApiCredentialRotator.containsQuotaOrRateLimitMessage(error.message)
                                 }
                                 chunk.choices.orEmpty().forEach { choice ->
                                     // Saved terminal failures may still carry useful partial prose.
@@ -1391,9 +1421,10 @@ class AnthropicMessagesAdapter @Inject constructor(
                             if (error is CancellationException || error is ToolDefinitionsRejectedException) throw error
                             roundFailed = true
                             terminalReceived = false
-                            localCircuitRejection = providerCircuitRejection(error, deliveredPayload)
+                            localCircuitRejection = providerRateLimitRejection(error, config, platform.model, deliveredPayload)
+                                ?: providerCircuitRejection(error, deliveredPayload)
                             lastFailedMessage = providerFailureMessage(error, "Anthropic stream request failed")
-                            canRotate = ApiCredentialRotator.isRotatableError(error)
+                            canRotate = localCircuitRejection == null && ApiCredentialRotator.isRotatableError(error)
                         }
                         .collect { chunk ->
                             if (chunk == dev.chungjungsoo.gptmobile.data.dto.anthropic.response.MessageStopResponseChunk) terminalReceived = true
@@ -1647,9 +1678,10 @@ class GeminiAdapter @Inject constructor(
                             if (error is CancellationException || error is ToolDefinitionsRejectedException) throw error
                             roundFailed = true
                             terminalReceived = false
-                            localCircuitRejection = providerCircuitRejection(error, deliveredPayload)
+                            localCircuitRejection = providerRateLimitRejection(error, config, platform.model, deliveredPayload)
+                                ?: providerCircuitRejection(error, deliveredPayload)
                             lastFailedMessage = providerFailureMessage(error, "Gemini stream request failed")
-                            canRotate = ApiCredentialRotator.isRotatableError(error)
+                            canRotate = localCircuitRejection == null && ApiCredentialRotator.isRotatableError(error)
                         }
                         .collect { response ->
                             if (response.candidates.orEmpty().any { it.finishReason != null }) terminalReceived = true
@@ -1850,6 +1882,18 @@ private fun createGroqChatCompletionRequest(
 
 private const val GROQ_OUTPUT_LIMIT_MESSAGE =
     "Groq reached the model output limit before producing a final answer."
+
+private fun providerRateLimitRejection(error: Throwable, config: ProviderRequestConfig, model: String, partialOutput: Boolean): ProviderEvent.Failed? {
+    val failure = error as? Exception ?: return null
+    val decision = providerLimitDecision(config, model, partialOutput, failure) ?: return null
+    val detail = providerExceptionDetails(failure, partialOutput)
+    return ProviderEvent.Failed(
+        detail?.message ?: "The provider reached its rate limit.",
+        errorCode = "PROVIDER_RATE_LIMITED",
+        providerLimit = decision,
+        failureDetails = detail?.failureDetails
+    )
+}
 
 private fun providerCircuitRejection(error: Throwable, partialOutput: Boolean): ProviderEvent.Failed? {
     val circuit = error as? dev.chungjungsoo.gptmobile.data.network.error.CircuitBreakerOpenException ?: return null

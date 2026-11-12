@@ -104,6 +104,7 @@ interface PendingPromptDao {
         if (pending.paused || pending.text.isBlank() || pending.text.length > maxCharacters.coerceIn(0, 8000)) return false
         val payload = pending.details()
         return payload.gateway == null &&
+            payload.recovery == null &&
             payload.tools == tools &&
             payload.attachments.isEmpty() &&
             !payload.localOnly &&

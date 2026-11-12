@@ -60,6 +60,28 @@ class ToolFailureMetadataTest {
         assertTrue(ToolFailureMetadata.retryable(result))
     }
 
+    @Test fun githubCircuitCooldownIsADurableReplaySafePrecheck() {
+        val result = ToolFailureMetadata.receipt(
+            AgentToolResult(
+                "github-read",
+                ToolResultContent.Text("GitHub circuit is cooling down"),
+                true,
+                errorCode = "GITHUB_CIRCUIT_OPEN",
+                dispatched = false,
+                executionReceipt = buildJsonObject {
+                    put("replay_safe", true)
+                    put("retry_not_before_ms", 1_234L)
+                }
+            ),
+            "github_ci"
+        )
+        assertEquals("PRECHECK_REJECTED", ToolResultEnvelope.executionState(result))
+        assertTrue(ToolFailureMetadata.retryable(result))
+        assertEquals(JsonPrimitive(true), result.executionReceipt?.get("replay_safe"))
+        assertEquals(JsonPrimitive(1_234L), result.executionReceipt?.get("retry_not_before_ms"))
+        assertEquals(JsonPrimitive(false), result.executionReceipt?.get("requires_reconciliation"))
+    }
+
     @Test fun paginationInvalidationCannotStopExecutionAuthority() {
         val stale = AgentToolResult("page", ToolResultContent.Text("Restart inventory"), true, errorCode = "STALE_INVENTORY", dispatched = false)
         assertEquals(null, ToolFailureMetadata.authorityCode(stale))

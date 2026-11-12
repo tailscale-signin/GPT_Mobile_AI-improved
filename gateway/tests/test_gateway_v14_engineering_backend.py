@@ -1,3 +1,4 @@
+import base64
 import copy
 import json
 import os
@@ -10,9 +11,12 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+import requests
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from v14.engineering import EngineeringSupervisor
-from v14.engineering_backend import GitHubEngineeringBackend, prepare_changes
+from v14.engineering_backend import GitHubEngineeringBackend, blob_sha, prepare_changes
+from v14.github_api_governor import GitHubApiGovernor
 
 
 class EngineeringCredentialTests(unittest.TestCase):
@@ -224,6 +228,28 @@ class EngineeringCredentialTests(unittest.TestCase):
 
 
 class EngineeringBackendTests(unittest.TestCase):
+    def test_api_waiter_cannot_dispatch_after_its_job_deadline(self):
+        backend = GitHubEngineeringBackend(SimpleNamespace(LLAMA_BASE='http://localhost:8080'))
+        backend.token = lambda: 'queue-deadline-fixture'
+        waiting = threading.Event()
+        backend.github_governor = GitHubApiGovernor(clock=lambda: (waiting.set(), time.monotonic())[1])
+        now = [1000.0]
+        job = {'id': 'deadline-test', 'state': 'READ', 'deadline': 1001.0, 'data': {},
+               'request': {'repository': 'owner/repo'}}
+        with patch('v14.engineering_backend.time.time', side_effect=lambda: now[0]), \
+                patch('v14.engineering_backend.requests.request') as request, ThreadPoolExecutor(max_workers=1) as pool:
+            response = request.return_value.__enter__.return_value
+            response.status_code = 200
+            response.iter_content.return_value = [b'{}']
+            with backend.github_governor.lease('queue-deadline-fixture'):
+                waiting.clear()
+                future = pool.submit(backend.api, '/repos/owner/repo', 'GET', None, job)
+                self.assertTrue(waiting.wait(2), 'request must reach the account queue')
+                now[0] = 1002.0
+            with self.assertRaises(InterruptedError):
+                future.result(timeout=2)
+            request.assert_not_called()
+
     def setUp(self):
         self.runtime = SimpleNamespace(LLAMA_BASE='http://localhost:8080')
         self.backend = GitHubEngineeringBackend(self.runtime)
@@ -378,6 +404,60 @@ class EngineeringBackendTests(unittest.TestCase):
                         backend.stopping.set()
                 self.assertEqual([1], attempts)
                 backend.journal.save.assert_not_called()
+
+    def test_read_cooldown_reuses_the_saved_batch_after_the_job_revision_changes(self):
+        contents = {'first.py': 'already read', 'second.py': 'temporarily limited'}
+        tree = {path: {'sha': blob_sha(value), 'mode': '100644'} for path, value in contents.items()}
+        by_sha = {tree[path]['sha']: value for path, value in contents.items()}
+        receipts = {}
+        journal = SimpleNamespace(
+            open=lambda principal, job_id, batch_id, plan, binding: copy.deepcopy(receipts.get(batch_id, {})),
+            save=lambda principal, job_id, batch_id, value: receipts.update({batch_id: copy.deepcopy(value)})
+        )
+        job = copy.deepcopy(self.job)
+        job['state'] = 'READ'
+        job['data'].update(plan={'paths': ['outdated.py']}, ci={'checks_failed': True})
+        limited_sha = tree['second.py']['sha']
+        calls = []
+
+        def backend(waiting):
+            client = GitHubEngineeringBackend(self.runtime)
+            client.identity = Mock(return_value={'id': job['data']['actor_id']})
+            client.tree = Mock(return_value=tree)
+            client.model = Mock(return_value={'paths': list(contents)})
+            client.journal = journal
+
+            def read(path, **kwargs):
+                sha = path.rsplit('/', 1)[1]
+                calls.append(sha)
+                if waiting and sha == limited_sha:
+                    response = requests.Response()
+                    response.status_code = 429
+                    response.headers['Retry-After'] = '600'
+                    raise requests.HTTPError('fixture cooldown', response=response)
+                content = by_sha[sha].encode()
+                return {'encoding': 'base64', 'size': len(content), 'content': base64.b64encode(content).decode()}
+
+            client.api = read
+            return client
+
+        first = backend(waiting=True)
+        with self.assertRaises(requests.HTTPError) as failure:
+            first.step(job, 'READ')
+        self.assertEqual(429, failure.exception.response.status_code)
+        first.model.assert_called_once()
+        batch_id, saved = next(iter(receipts.items()))
+        saved['1']['error']['retry_at'] = 0
+
+        resumed = json.loads(json.dumps(job))
+        resumed['revision'] += 1
+        second = backend(waiting=False)
+        result = second.step(resumed, 'READ')
+        second.model.assert_not_called()
+        self.assertEqual([batch_id], list(receipts))
+        self.assertEqual(1, calls.count(tree['first.py']['sha']))
+        self.assertEqual(2, calls.count(limited_sha))
+        self.assertEqual(contents, {path: value['content'] for path, value in result['files'].items()})
 
     def test_log_excerpt_keeps_actual_failure_tail_with_a_download_bound(self):
         response = Mock()

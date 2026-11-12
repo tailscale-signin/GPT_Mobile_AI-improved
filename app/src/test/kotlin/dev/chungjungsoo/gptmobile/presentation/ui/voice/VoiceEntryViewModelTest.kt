@@ -43,6 +43,9 @@ class VoiceEntryViewModelTest {
             assertNull(model.state.value.route)
             coVerify(exactly = 0) { chats.createDraftChat(any(), any(), any(), any()) }
             model.start(enable = true)
+            assertNull(model.state.value.route)
+            model.select("chosen")
+            model.start(enable = true)
             assertNotNull(model.state.value.route)
             model.start(enable = true)
             coVerify(exactly = 1) { chats.createDraftChat(listOf("chosen"), any(), any(), "chosen") }

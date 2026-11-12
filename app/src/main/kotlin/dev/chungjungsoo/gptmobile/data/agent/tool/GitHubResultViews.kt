@@ -32,7 +32,16 @@ internal class GitHubResultViews(
     private data class Entry(val scope: String, val operation: String, val modelName: String, val fragments: List<JsonObject>, val metadata: JsonObject, val continuations: List<JsonObject>, val expires: Long, val bytes: Int, val originalError: Boolean, val originalErrorCode: String?, val pageBytes: Int, val context: JsonObject, val sourceRecovery: JsonObject?, val issuedCursors: MutableSet<String> = mutableSetOf(), val failedPersistenceCursors: MutableSet<String> = mutableSetOf(), val compressedSource: ByteArray? = null, val sourceCharacters: Int = 0, val sourceSha256: String? = null) {
         val fragmentCount: Int get() = if (compressedSource == null) fragments.size else (sourceCharacters + SOURCE_FRAGMENT_CHARACTERS - 1) / SOURCE_FRAGMENT_CHARACTERS
     }
-    private data class EvictedView(val scope: String, val operation: String, val reason: String, val recovery: JsonObject?, val cursors: Set<String>, val expires: Long)
+    private data class EvictedView(
+        val scope: String,
+        val operation: String,
+        val modelName: String,
+        val reason: String,
+        val recovery: JsonObject?,
+        val cursors: Set<String>,
+        val expires: Long,
+        val context: JsonObject
+    )
     private val entries = LinkedHashMap<String, Entry>()
     private val evicted = LinkedHashMap<String, EvictedView>()
     private var retainedBytes = 0
@@ -50,7 +59,6 @@ internal class GitHubResultViews(
         }
     }
 
-    @Synchronized
     fun present(scope: String, operation: String, modelName: String, upstream: AgentToolResult, request: JsonObject = JsonObject(emptyMap()), maxPageBytes: Int = pageBytes): AgentToolResult {
         val pageBytes = minOf(this.pageBytes, maxPageBytes.coerceAtLeast(2048))
         fun value(content: ToolResultContent): JsonElement? = when (content) {
@@ -83,7 +91,6 @@ internal class GitHubResultViews(
                 if (continuations.size == 1) put("continuation_call", continuations.single().getValue("call"))
             }
         }
-        purge()
         var metadataBytes = 0
         val metadata = JsonObject(
             (value as? JsonObject).orEmpty().filter { (key, item) ->
@@ -117,12 +124,10 @@ internal class GitHubResultViews(
         val context = JsonObject((defaults + (value as? JsonObject).orEmpty() + request).filterKeys { it in SAVED_CONTEXT_KEYS })
         val retained = buffer.bytes + metadata.toString().toByteArray().size * 2L + lastContinuations.sumOf { it.toString().toByteArray().size * 2L + 256 } + context.toString().toByteArray().size * 2L + sourceRecovery.toString().toByteArray().size * 2L + 1024
         if (retained > capacityBytes) return compressed(scope, upstream, operation, modelName, value, request, pageBytes, display)
-        while (entries.isNotEmpty() && (entries.size >= 32 || retainedBytes + retained > capacityBytes)) evict(entries.keys.first())
         val entry = Entry(scope, operation, modelName, fragments, metadata, lastContinuations, now() + 10 * 60_000, retained.toInt(), upstream.isError, upstream.errorCode, pageBytes, context, sourceRecovery)
-        entries[id] = entry
-        retainedBytes += entry.bytes
         if (small.toString().toByteArray().size <= pageBytes) {
             authorize(entry, small)
+            store(id, entry)
             return upstream.copy(
                 content = ToolResultContent.Json(small),
                 executionReceipt = JsonObject(
@@ -138,6 +143,7 @@ internal class GitHubResultViews(
         }
         val first = page(id, entry, 0, modelName)
         authorize(entry, first)
+        store(id, entry)
         // The verifier consumes the complete durable source, not each display fragment.
         // Keep its exact remote recipes outside the model-visible page. If those
         // recipes are themselves too large, preserve the existing paged fallback.
@@ -199,8 +205,23 @@ internal class GitHubResultViews(
                 ToolResultContent.Json(
                     buildJsonObject {
                         put("schema", "github.arguments.v1")
+                        put("reason", "WRONG_OPERATION")
                         put("message", "This cursor belongs to another operation. Use the exact correction_call; no operation was dispatched.")
                         put("correction_call", savedCall(entry.modelName, cursor))
+                        put(
+                            "recovery_identity",
+                            recoveryIdentity(
+                                scope = scope,
+                                cursor = cursor,
+                                originalOperation = entry.operation,
+                                originalModelName = entry.modelName,
+                                requestedOperation = operation,
+                                requestedModelName = modelName,
+                                reason = "WRONG_OPERATION",
+                                sourceRecoveryAvailable = entry.sourceRecovery != null
+                            )
+                        )
+                        entry.sourceRecovery?.let { put("source_recovery_call", it) }
                     }
                 ),
                 true,
@@ -209,7 +230,11 @@ internal class GitHubResultViews(
             )
         }
         if (parts.size !in 2..3 || entry == null || offset == null || requestedBytes == null || requestedBytes !in 1024..entry.pageBytes || entry.scope != scope || entry.operation != operation || offset !in 0 until entry.fragmentCount || cursor !in entry.issuedCursors) {
-            val known = evicted[parts.firstOrNull()]?.takeIf { it.scope == scope && it.operation == operation && cursor in it.cursors }
+            // An exact issued cursor proves the authorized view even when the
+            // caller selected the wrong operation after eviction. Preserve the
+            // original and requested operation identities in the recovery object;
+            // never make recovery depend on guessing the old tool route.
+            val known = evicted[parts.firstOrNull()]?.takeIf { it.scope == scope && cursor in it.cursors }
             return AgentToolResult(
                 callId,
                 ToolResultContent.Json(
@@ -217,7 +242,28 @@ internal class GitHubResultViews(
                         put("schema", "github.arguments.v1")
                         put("reason", known?.reason ?: "UNAVAILABLE_IN_AUTHORIZED_SCOPE")
                         put("message", "The saved page is unavailable. Execute source_recovery_call from the retained result or recovery_call below to reopen the same immutable source. If neither exists, use scoped recovery context. Never repeat a mutation to recover output.")
-                        known?.recovery?.let { put("recovery_call", it) }
+                        known?.let { view ->
+                            put(
+                                "recovery_identity",
+                                recoveryIdentity(
+                                    scope = scope,
+                                    cursor = cursor,
+                                    originalOperation = view.operation,
+                                    originalModelName = view.modelName,
+                                    requestedOperation = operation,
+                                    requestedModelName = modelName,
+                                    reason = view.reason,
+                                    sourceRecoveryAvailable = view.recovery != null
+                                )
+                            )
+                            view.recovery?.let {
+                                // Keep the legacy key for old callers while naming the
+                                // exact immutable-source recipe unambiguously.
+                                put("recovery_call", it)
+                                put("source_recovery_call", it)
+                            }
+                            scopedRecovery(view)?.let { put("scoped_recovery_call", it) }
+                        }
                     }
                 ),
                 true,
@@ -588,16 +634,12 @@ internal class GitHubResultViews(
         val cost = compressed.size.toLong() + metadata.toString().encodeToByteArray().size * 2L +
             continuations.sumOf { it.toString().encodeToByteArray().size * 2L + 256 } + context.toString().encodeToByteArray().size * 2L + recovery.toString().encodeToByteArray().size * 2L + 1024
         if (cost > capacityBytes) return overflow(upstream, operation, modelName, value, request)
-        purge()
-        while (entries.isNotEmpty() && (entries.size >= 32 || retainedBytes + cost > capacityBytes)) evict(entries.keys.first())
         val id = UUID.randomUUID().toString()
         val entry = Entry(
             scope, operation, modelName, emptyList(), metadata, continuations, now() + 10 * 60_000, cost.toInt(),
             upstream.isError, upstream.errorCode, pageBytes, context, recovery,
             compressedSource = compressed, sourceCharacters = source.length, sourceSha256 = GitHubRepositoryStateStore.digest(source)
         )
-        entries[id] = entry
-        retainedBytes += entry.bytes
         val summary = if (display == value) {
             null
         } else {
@@ -617,6 +659,7 @@ internal class GitHubResultViews(
         }
         val first = summary?.takeIf { it.toString().encodeToByteArray().size <= pageBytes } ?: page(id, entry, 0, modelName)
         authorize(entry, first)
+        store(id, entry)
         return upstream.copy(
             content = ToolResultContent.Json(first),
             retainedContent = upstream.retainedContent ?: upstream.content,
@@ -749,6 +792,16 @@ internal class GitHubResultViews(
         }
     }
 
+    @Synchronized
+    private fun store(id: String, entry: Entry) {
+        purge()
+        while (entries.isNotEmpty() && (entries.size >= 32 || retainedBytes + entry.bytes > capacityBytes)) {
+            evict(entries.keys.first())
+        }
+        entries[id] = entry
+        retainedBytes += entry.bytes
+    }
+
     private fun purge() {
         entries.filterValues { it.expires <= now() }.keys.toList().forEach { evict(it, "EXPIRED") }
         evicted.entries.removeAll { it.value.expires <= now() }
@@ -756,10 +809,68 @@ internal class GitHubResultViews(
     private fun evict(id: String, reason: String = "CAPACITY_EVICTED") {
         entries.remove(id)?.let {
             retainedBytes -= it.bytes
-            evicted[id] = EvictedView(it.scope, it.operation, reason, it.sourceRecovery, it.issuedCursors.toList().takeLast(128).toSet(), now() + 24 * 60 * 60_000)
+            evicted[id] = EvictedView(
+                scope = it.scope,
+                operation = it.operation,
+                modelName = it.modelName,
+                reason = reason,
+                recovery = it.sourceRecovery,
+                cursors = it.issuedCursors.toList().takeLast(128).toSet(),
+                expires = now() + 24 * 60 * 60_000,
+                context = JsonObject(it.context.filterKeys { key -> key in setOf("owner", "repo") })
+            )
             while (evicted.size > 64) evicted.remove(evicted.keys.first())
         }
     }
+
+    /** A read-only inventory lookup can recover retained handles without replaying the lost operation. */
+    private fun scopedRecovery(view: EvictedView): JsonObject? {
+        if (view.context["owner"] !is JsonPrimitive || view.context["repo"] !is JsonPrimitive) return null
+        val suffix = view.modelName.removePrefix(view.operation)
+        return buildJsonObject {
+            put("tool", "github_context$suffix")
+            put(
+                "arguments",
+                buildJsonObject {
+                    put("action", "recovery")
+                    put("owner", requireNotNull(view.context["owner"]))
+                    put("repo", requireNotNull(view.context["repo"]))
+                }
+            )
+        }
+    }
+
+    /**
+     * Preserve the complete authorized handle identity in typed fields. Log and UI
+     * previews may be truncated, so recovery must never depend on parsing prose.
+     */
+    private fun recoveryIdentity(
+        scope: String,
+        cursor: String,
+        originalOperation: String,
+        originalModelName: String,
+        requestedOperation: String,
+        requestedModelName: String,
+        reason: String,
+        sourceRecoveryAvailable: Boolean
+    ): JsonObject = buildJsonObject {
+        put("schema", "github.saved-view-recovery.v1")
+        put("view_id", cursor.substringBefore(':'))
+        put("view_cursor", cursor)
+        put("cursor_sha256", GitHubRepositoryStateStore.digest(cursor))
+        put("scope_sha256", GitHubRepositoryStateStore.digest(scope))
+        // Keep operation/model_tool for readers of the original v1 projection.
+        put("operation", originalOperation)
+        put("model_tool", originalModelName)
+        put("original_operation", originalOperation)
+        put("original_model_tool", originalModelName)
+        put("requested_operation", requestedOperation)
+        put("requested_model_tool", requestedModelName)
+        put("reason", reason)
+        put("source_recovery_available", sourceRecoveryAvailable)
+        put("mutation_replay_allowed", false)
+    }
+
     companion object {
         // Only read selectors can accompany a cursor, and read() compares every
         // supplied value with the retained request. Never retain write payloads.

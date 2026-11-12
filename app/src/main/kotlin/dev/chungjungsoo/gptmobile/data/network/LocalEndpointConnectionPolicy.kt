@@ -7,6 +7,7 @@ import java.util.concurrent.ConcurrentHashMap
 import kotlin.coroutines.AbstractCoroutineContextElement
 import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ThreadContextElement
 import kotlinx.coroutines.withContext
 
 /** A local server observed closing reused sockets gets fresh HTTP/1 connections for 10 minutes. */
@@ -78,6 +79,24 @@ internal object LocalEndpointConnectionPolicy {
 }
 
 /** This ordinal describes only our bounded read loop; it does not count engine or SDK retries. */
-internal class LocalMetadataReadAttempt(val ordinal: Int, val readId: String = java.util.UUID.randomUUID().toString().replace("-", "")) : AbstractCoroutineContextElement(Key) {
-    companion object Key : CoroutineContext.Key<LocalMetadataReadAttempt>
+internal class LocalMetadataReadAttempt(val ordinal: Int, val readId: String = java.util.UUID.randomUUID().toString().replace("-", "")) :
+    AbstractCoroutineContextElement(Key),
+    ThreadContextElement<LocalMetadataReadAttempt?> {
+    // Ktor's Logger callback is synchronous rather than suspending. Carry the
+    // coroutine's exact read identity across thread switches; never match by URL
+    // or time, which would merge concurrent reads of the same endpoint.
+    override fun updateThreadContext(context: CoroutineContext): LocalMetadataReadAttempt? =
+        current.get().also { current.set(this) }
+
+    override fun restoreThreadContext(context: CoroutineContext, oldState: LocalMetadataReadAttempt?) {
+        if (oldState == null) current.remove() else current.set(oldState)
+    }
+
+    companion object Key : CoroutineContext.Key<LocalMetadataReadAttempt> {
+        private val current = ThreadLocal<LocalMetadataReadAttempt?>()
+
+        fun correlateLog(message: String): String = current.get()?.let {
+            "incident_id=${it.readId} · operation_id=${it.readId} · retry_attempt=${it.ordinal} · $message"
+        } ?: message
+    }
 }

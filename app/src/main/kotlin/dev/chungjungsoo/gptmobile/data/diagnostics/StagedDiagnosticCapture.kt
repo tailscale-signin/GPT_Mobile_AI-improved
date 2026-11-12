@@ -309,6 +309,31 @@ object StagedDiagnosticCapture {
             receipts += captureStage(session, stage, options, available.coerceAtLeast(0), archivePart, previousArchive)
             stageElapsed[stage.id] = (System.nanoTime() - stageStarted).coerceAtLeast(0)
         }
+        // Heap pressure is often transient. Once cheap sections have completed, retry
+        // each deferred collector at most once if measured headroom has recovered.
+        val retryThreshold = minOf(options.minimumHeadroomBytes, 8L * 1024 * 1024)
+        if (options.memorySampler().javaHeadroomBytes >= retryThreshold) {
+            for (index in receipts.indices) {
+                val prior = receipts[index]
+                val stage = stages.firstOrNull { it.id == prior.text("id") } ?: continue
+                val safeToRetry = prior.text("omissionReason") == "JAVA_HEAP_PRESSURE" &&
+                    (stage.resumableRecords || (prior.long("evidenceRecords") ?: 0L) == 0L)
+                if (!safeToRetry) continue
+                currentCoroutineContext().ensureActive()
+                options.guard()
+                val available = options.maxArchiveBytes - MANIFEST_LIMIT - receipts.sumOf { it.long("bytes") ?: 0 } + (prior.long("bytes") ?: 0)
+                val retryStarted = System.nanoTime()
+                val retried = captureStage(session, stage, options, available.coerceAtLeast(0), archivePart, previousArchive)
+                stageElapsed[stage.id] = (stageElapsed[stage.id] ?: 0) + (System.nanoTime() - retryStarted).coerceAtLeast(0)
+                receipts[index] = JsonObject(
+                    retried + buildJsonObject {
+                        put("heapPressureRetry", true)
+                        put("priorOmissionReason", "JAVA_HEAP_PRESSURE")
+                        put("retryHeadroomBytes", options.memorySampler().javaHeadroomBytes)
+                    }
+                )
+            }
+        }
         val collectionElapsed = (System.nanoTime() - collectionStarted).coerceAtLeast(0)
         val complete = receipts.all { it.text("status") in setOf("COMPLETED", "EMPTY") }
         val usefulRecords = receipts.sumOf { it.long("evidenceRecords") ?: 0 }
@@ -459,9 +484,13 @@ object StagedDiagnosticCapture {
         val existing = readReceipt(session, stage)
         require(!stage.resumableRecords || archivePart == 1L || existing != null) { "DIAGNOSTIC_CONTINUATION_CHECKPOINT_INVALID" }
         val olderPart = existing != null && (existing.long("archivePart") ?: 1) < archivePart
-        val sourceReference = existing?.get("sourceReference") as? JsonObject ?: if (
-            stage.resumableRecords && olderPart && existing["collectionCompleted"] == JsonPrimitive(true)
-        ) {
+        // A latest-state projection must refresh its data and source cursors together.
+        val continueOlderPart = stage.resumableRecords && !stage.refreshOnResume && olderPart
+        val sourceReference = if (stage.refreshOnResume) {
+            null
+        } else if (existing?.get("sourceReference") is JsonObject) {
+            existing["sourceReference"] as JsonObject
+        } else if (continueOlderPart && existing["collectionCompleted"] == JsonPrimitive(true)) {
             stageReference(requireNotNull(existing), requireNotNull(previousArchive))
         } else {
             null
@@ -496,8 +525,8 @@ object StagedDiagnosticCapture {
         // An unpublished committed prefix has no external archive to reference yet.
         // Preserve it when a smaller retry cannot hold it, rather than restarting its source.
         require(progress == null || (progress.long("bytes") ?: Long.MAX_VALUE) <= limit) { "DIAGNOSTIC_RESUME_BUDGET_TOO_SMALL" }
-        val initialCursor = progress?.get("cursor") as? JsonObject ?: if (stage.resumableRecords && olderPart) existing["cursor"] as? JsonObject else null
-        val continuedFrom = progress?.get("continuedFrom") as? JsonObject ?: if (stage.resumableRecords && olderPart) {
+        val initialCursor = progress?.get("cursor") as? JsonObject ?: if (continueOlderPart) existing["cursor"] as? JsonObject else null
+        val continuedFrom = progress?.get("continuedFrom") as? JsonObject ?: if (continueOlderPart) {
             stageReference(requireNotNull(existing), requireNotNull(previousArchive))
         } else {
             null

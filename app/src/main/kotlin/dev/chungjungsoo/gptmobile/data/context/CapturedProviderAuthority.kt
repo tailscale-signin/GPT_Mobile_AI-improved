@@ -37,9 +37,9 @@ data class CapturedProviderAuthority(
         if (routeRevision(admitted) != routeRevision) throw ProviderWaitAuthorityChanged("PROVIDER_WAIT_ROUTE_CHANGED")
         val live = settings.getFeatureSettings()
         val effective = acceptedTokenBudget?.takeIf { ConfiguredDispatchAuthority.allowsAcceptedTokenPlan(it, live.tokenBudget, profileUid) }?.let { live.copy(tokenBudget = it) } ?: live
-        val policyMatches = ConfiguredDispatchAuthority.policyRevision(effective, profileUid, chatId) == policyRevision ||
+        val policyMatches = ConfiguredDispatchAuthority.matchesPolicyRevision(policyRevision, effective, profileUid, chatId) ||
             acceptedTokenBudget == null &&
-            ConfiguredDispatchAuthority.legacyPolicyRevision(live, profileUid, chatId) == policyRevision
+            ConfiguredDispatchAuthority.matchesPolicyRevision(policyRevision, live, profileUid, chatId, scopeProfile = false)
         if (!policyMatches || settings.providerPermissionRevision(admitted) != permissionRevision || settings.providerActivationRequired(admitted)) throw ProviderWaitAuthorityChanged("PROVIDER_WAIT_PERMISSION_CHANGED")
     }
 

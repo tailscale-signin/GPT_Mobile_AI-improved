@@ -57,6 +57,10 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
                 put("authorization", config.authorizationHeader)
                 put("googleApiKey", config.googleApiKey)
                 put("allowCleartext", config.allowCleartext)
+                // Negative protocol decisions are scoped to the durable saved
+                // configuration. A settings repair must not inherit a legacy or
+                // malformed-endpoint decision from the previous revision.
+                put("configurationRevision", config.configurationRevision?.takeIf { it.matches(Regex("[a-f0-9]{64}")) } ?: "unobserved")
             }
         )
         val now = nowMs()
@@ -158,7 +162,7 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
     }
 
     fun close(uid: String) {
-        endpoints.remove(uid)
+        endpoints.remove(uid)?.let { endpointDiscoveryCache.remove(it.identity, it) }
         schemas.remove(uid)
     }
     fun closeAll() {
@@ -170,7 +174,25 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
     fun capabilities(uid: String): Set<String> = (endpoints[uid]?.discovery?.get("capabilities") as? JsonObject)?.keys.orEmpty()
 
     suspend fun listTools(config: McpConnectionConfig): List<Tool> {
-        val entries = withMcpConnectivityLease(config) { pages(config, "tools/list", "tools") }
+        val entries = try {
+            withMcpConnectivityLease(config) { pages(config, "tools/list", "tools") }
+        } catch (error: ModernMcpError) {
+            val deterministicConfigurationFailure =
+                !error.quotaFailure && (error.status in setOf(400, 404) || error.code in MODERN_VALIDATION_ERRORS)
+            if (!deterministicConfigurationFailure) throw error
+            val (rule, field) = if (error.status == 404) {
+                "CATALOG_ROUTE_REQUIRED" to "endpoint"
+            } else {
+                "CATALOG_REQUEST_ACCEPTANCE_REQUIRED" to "tools_list"
+            }
+            throw McpProtocolConfigurationException(
+                "MCP_CATALOG_CONFIGURATION",
+                "The MCP endpoint rejected tools/list. Check the endpoint path, bridge protocol, and catalogue configuration, then reconnect.",
+                error.status,
+                rule,
+                field
+            )
+        }
         val definitions = entries.map { element ->
             val definition = element as? JsonObject
                 ?: throw McpProtocolConfigurationException("MCP_CATALOG_SCHEMA_INVALID", "An MCP tool definition is not an object. Correct the server's tools/list response.")
@@ -443,6 +465,18 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
                 throw rpcFailure(status, method, null)
             }
             if (!successful) {
+                val responseId = envelope?.get("id")
+                if (status == 400 && envelope?.get("error") is JsonObject && (responseId == null || responseId == JsonNull)) {
+                    // A transport-level rejection may have no JSON-RPC request ID.
+                    // It cannot qualify a successful response or legacy negotiation.
+                    throw McpProtocolConfigurationException(
+                        "MCP_ENDPOINT_CONFIGURATION",
+                        "HTTP 400 rejected the MCP handshake without a matching request ID. Check the endpoint, session and protocol version.",
+                        status,
+                        "RESPONSE_ID_MATCH_REQUIRED",
+                        "id"
+                    )
+                }
                 val error = envelope?.takeIf { frame -> RPC_RESPONSE_FIELDS.any(frame::containsKey) }?.let { frame ->
                     try {
                         validateRpcEnvelope(frame, id, status)

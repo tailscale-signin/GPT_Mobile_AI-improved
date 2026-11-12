@@ -170,6 +170,7 @@ class ActivityMiddleware:
 def desktop_snapshot(runtime, service, tracker, principal=None, ownership=None):
     """Bounded metadata only: no auth headers, tool arguments, or result bodies."""
     from v14.usage import usage_snapshot
+    from v14.engineering_batch_plan import summary as batch_summary
     result = tracker.snapshot(principal)
     result['usage'] = usage_snapshot(runtime)
     result['service'] = service.snapshot()
@@ -209,7 +210,9 @@ def desktop_snapshot(runtime, service, tracker, principal=None, ownership=None):
                             request = job.get('request', {})
                             result['engineering'].append({'id': row[0], 'kind': 'github', 'title': text(request.get('repository') or 'GitHub job'),
                                 'status': text(row[1], 40), 'started': job.get('created_at'), 'updated': job.get('updated_at'),
-                                'detail': text(job.get('message')), 'branch': text(request.get('branch')), 'pr': job.get('pr')})
+                                'detail': text(job.get('message')), 'branch': text(request.get('branch')), 'pr': job.get('pr'),
+                                'execution_mode': request.get('execution_mode', 'standard'),
+                                'batch_progress': batch_summary(job.get('data', {}).get('integration_batch'))})
                     if open_chats is not None and open_engineering is not None:
                         result['openJobs'] = open_chats + open_engineering
                 finally:

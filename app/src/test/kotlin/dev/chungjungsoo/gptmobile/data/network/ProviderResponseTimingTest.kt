@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.network
 
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.GatewayDeliveryTiming
 import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -28,7 +29,14 @@ class ProviderResponseTimingTest {
 
     @Test fun asgiAcknowledgmentCannotBecomeSocketFlushOrUiPaintEvidence() {
         val timing = GatewayDeliveryTiming("gateway_asgi_stream", "completion_buffered", 10.0, 15.0, 100.0, 110.0, 120.0, 3)
-        assertEquals(JsonNull, timing.evidence()?.get("socket_flush_confirmed"))
+        for (mode in listOf("completion_buffered", "incremental_final_answer")) {
+            val evidence = timing.copy(deliveryMode = mode).evidence()
+            assertEquals(JsonPrimitive(mode), evidence?.get("delivery_mode"))
+            assertEquals(JsonNull, evidence?.get("socket_flush_confirmed"))
+            assertEquals(JsonPrimitive(100.0), evidence?.get("first_content_submit_ms"))
+        }
+        assertNull(timing.copy(deliveryMode = "unverified_incremental").evidence())
+        assertNull(timing.copy(deliveryMode = null).evidence())
         assertNull(timing.copy(measurementScope = "socket_flush").evidence())
         assertNull(timing.copy(firstEventSubmitMs = Double.NaN).evidence())
     }

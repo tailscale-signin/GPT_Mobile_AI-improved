@@ -91,6 +91,27 @@ class VoiceSessionTest {
         assertEquals("Retain this draft", pending.state.transcript)
     }
 
+    @Test fun `stopping streamed speech waits for final text before restarting the microphone`() {
+        audio.streamsReplies = true
+        start()
+        audio.listeners.last().final("Explain this")
+        session.streamReply("accepted", "This is the first clause, ")
+        assertEquals(VoicePhase.SPEAKING, session.state.phase)
+        session.resume()
+        assertEquals(VoicePhase.SPEAKING, session.state.phase)
+        val lateCompletion = requireNotNull(audio.done)
+        session.stopSpeaking()
+        lateCompletion()
+        assertEquals(VoicePhase.THINKING, session.state.phase)
+        assertEquals(1, audio.listeners.size)
+        val final = "This is the first clause, followed by the final answer."
+        session.reply("accepted", final)
+        assertEquals(final, session.state.reply)
+        assertEquals(1, audio.opened)
+        assertEquals(VoicePhase.LISTENING, session.state.phase)
+        assertEquals(2, audio.listeners.size)
+    }
+
     @Test fun `audio failure does not cut off final streamed captions or restart microphone`() {
         audio.streamsReplies = true
         start()
@@ -200,6 +221,25 @@ class VoiceSessionTest {
         assertEquals(2, audio.listeners.size)
     }
 
+    @Test fun `stopping the microphone keeps partial speech for explicit review`() {
+        start()
+        val capture = audio.listeners.single()
+        capture.partial("Keep this draft")
+        session.mute()
+        capture.final("Ignore this late result")
+        assertEquals(VoicePhase.PAUSED, session.state.phase)
+        assertTrue(session.state.hasDraft)
+        assertTrue(prompts.isEmpty())
+
+        session.mute()
+        assertEquals(VoicePhase.REVIEWING, session.state.phase)
+        assertEquals("Keep this draft", session.state.transcript)
+        assertEquals(1, audio.listeners.size)
+        assertTrue(prompts.isEmpty())
+        session.sendDraft()
+        assertEquals(listOf("Keep this draft"), prompts)
+    }
+
     @Test fun `muting during playback preserves speech and prevents automatic capture`() {
         start()
         audio.listeners.last().final("Hello")
@@ -261,7 +301,7 @@ class VoiceSessionTest {
         audio.listeners.last().final("Hello")
         session.reply("run", "Reply")
         val old = audio.done
-        session.resume()
+        session.stopSpeaking()
         assertEquals(2, audio.listeners.size)
         old?.invoke()
         assertEquals(2, audio.listeners.size)

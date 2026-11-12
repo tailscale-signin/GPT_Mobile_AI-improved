@@ -12,6 +12,7 @@ import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -37,6 +38,7 @@ class GatewayRunCancellationTest {
         val receipt = stopSavedGatewayRun(run, profile, gateway)
 
         assertEquals("GATEWAY_CANCELLATION_REQUESTED", receipt.code)
+        assertEquals(GatewayRunStopState.REMOTE_REQUESTED, gatewayRunStopState(run.copy(terminalError = receipt.retainedError)))
         coVerify(exactly = 1) { gateway.cancelJob("saved-job", match { it.apiUrl == "http://gateway:8090" && it.profileUid == "selected" }) }
     }
 
@@ -74,5 +76,16 @@ class GatewayRunCancellationTest {
 
         assertEquals("GATEWAY_CANCELLATION_UNCONFIRMED", receipt.code)
         coVerify(exactly = 0) { gateway.cancelJob(any(), any()) }
+    }
+
+    @Test
+    fun savedObserverCancellationCannotImplyRemoteAcknowledgement() {
+        assertEquals(GatewayRunStopState.LOCAL_WAIT_STOPPED, gatewayRunStopState(run))
+        assertEquals(GatewayRunStopState.LOCAL_WAIT_STOPPED, gatewayRunStopState(run.copy(terminalError = "GATEWAY_CANCELLATION_UNCONFIRMED: Reply lost")))
+        assertEquals(GatewayRunStopState.REMOTE_CONFIRMED, gatewayRunStopState(run.copy(terminalError = "GATEWAY_CANCELLATION_CONFIRMED: Confirmed")))
+        assertEquals(GatewayRunStopState.REMOTE_ALREADY_TERMINAL, gatewayRunStopState(run.copy(terminalError = "GATEWAY_ALREADY_TERMINAL: Already finished")))
+        assertNull(gatewayRunStopState(run.copy(gatewayJobId = null, terminalError = "GATEWAY_CANCELLATION_CONFIRMED: Unbound")))
+        assertNull(gatewayRunStopState(run.copy(status = AgentRunStatus.RUNNING)))
+        assertNull(gatewayRunStopState(run.copy(gatewayJobId = null, terminalError = "USER_CANCELLED")))
     }
 }

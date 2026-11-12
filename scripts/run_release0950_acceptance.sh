@@ -186,7 +186,13 @@ from pathlib import Path
 sys.path.insert(0, 'scripts')
 from check_native_memory_smoke import check_instrumentation
 folder = Path('app/build/acceptance-0950')
-for test in ('packagedNativeSpeechRuntimeMatchesItsJavaApi', 'modelInstallRequiresExplicitAction', 'downloadCancellationAndModelRemovalHaveSeparateActions'):
+for test in (
+    'packagedNativeSpeechRuntimeMatchesItsJavaApi',
+    'kokoroPlaybackClassVerifiesBeforeAnyModelIsInstalled',
+    'kokoroDelegateFallsBackToRealAndroidTextToSpeechWhenModelIsMissing',
+    'modelInstallRequiresExplicitAction',
+    'downloadCancellationAndModelRemovalHaveSeparateActions',
+):
     check_instrumentation(folder / 'local-voice-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.voice.LocalVoicePluginInstrumentedTest', test)
 for test in ('roundTripOverwriteAndDelete', 'rejectsUnsafeReferencesAndOversizedSecrets', 'rejectsMalformedRecords', 'oversizedRecordIsRejectedBeforeAllocationAndSizeDoesNotRequireAKey', 'rejectsRecordMovedToAnotherReference', 'missingKeystoreKey_preservesEncryptedRecord'):
     check_instrumentation(folder / 'secret-vault-instrumentation.txt', 'dev.chungjungsoo.gptmobile.data.security.SecretVaultInstrumentedTest', test)
@@ -214,7 +220,7 @@ for test in ('conversationGlassKeepsRequestedOpacityOverFadedMessages', 'convers
 for test in ('combinedTabStagesBothAxesAndRemovesDelegationCard', 'cancelKeepsCommittedMembershipAndPreventsEmptySave', 'membershipRowStagesChangesWithoutSavingImmediately', 'saveableDraftRestoresTheTwoAxesTogether', 'unsupportedFutureControlsStayVisibleButCannotBeEdited'):
     check_instrumentation(folder / 'combined-settings-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.chat.CombinedSettingsInstrumentedTest', test)
 check_instrumentation(folder / 'combined-finalization-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.chat.CombinedFinalizationLifecycleInstrumentedTest', 'finalizationWhilePointerIsDownAndScrollingDisposesThePreviousRenderer')
-for test in ('savedAcceptanceStatesRemainDistinctFromSuccessfulOperations', 'recoverableReadRoutesResumeAndRetryToSavedRun', 'unknownMutationOffersReconciliationAndIncidentDetailsWithoutRetry', 'unknownGatewayOutcomeKeepsDetailsWithoutResumeOrRetry', 'authorizationBlockKeepsDetailsWithoutRecovery', 'submittingRequestDisablesRecoveryButPreservesDetails'):
+for test in ('savedAcceptanceStatesRemainDistinctFromSuccessfulOperations', 'recoverableReadRoutesResumeAndRetryToSavedRun', 'unavailableSavedReadOffersDetailsWithoutRepeatingTheExpiredView', 'unknownMutationOffersReconciliationAndIncidentDetailsWithoutRetry', 'unknownGatewayOutcomeKeepsDetailsWithoutResumeOrRetry', 'authorizationBlockKeepsDetailsWithoutRecovery', 'submittingRequestDisablesRecoveryButPreservesDetails'):
     check_instrumentation(folder / 'github-workflow-execution-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.workspace.GitHubWorkflowExecutionInstrumentedTest', test)
 for test in ('boundReadUsesExactRepositoryAndRetainsRuntimeRevision', 'ownedDeletionReconcilesExactRefAbsenceWithoutRepeatingMutation'):
     check_instrumentation(folder / 'github-bound-transport-instrumentation.txt', 'dev.chungjungsoo.gptmobile.data.github.GitHubBoundTransportInstrumentedTest', test)

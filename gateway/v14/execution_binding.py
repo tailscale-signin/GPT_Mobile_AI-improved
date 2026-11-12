@@ -16,6 +16,23 @@ class ExecutionBindingError(ValueError):
         super().__init__(message)
         self.code, self.status, self.retryable = code, status, False
 
+    def error_payload(self, *, stage=None):
+        """Retain typed recovery evidence without exposing a backend response body."""
+        result = {'code': self.code, 'message': str(self), 'retryable': self.retryable,
+                  'routeSubstituted': False}
+        if stage:
+            result.update(failed_stage=stage, dispatch_state='not_dispatched', inference_attempted=False)
+        observed = getattr(self, 'observation', None) or {}
+        fields = {'reasonCode', 'failureCategory', 'dependency', 'upstreamStatus',
+                  'modelAdvertised', 'modelLoaded', 'modelState', 'observedAtMillis',
+                  'observationAgeMs', 'upstreamCode', 'upstreamErrorType',
+                  'upstreamMessageCode', 'upstreamErrorBodyState'}
+        for key in fields:
+            value = observed.get(key)
+            if type(value) in {bool, int} or isinstance(value, str) and re.fullmatch(r'[A-Za-z0-9_.:-]{1,128}', value):
+                result[key] = value
+        return result
+
 
 def canonical(value):
     return json.dumps(value, sort_keys=True, separators=(',', ':'), ensure_ascii=False, allow_nan=False)
@@ -167,8 +184,9 @@ class ExecutionBindings:
                 raise ExecutionBindingError('EXECUTION_BINDING_CAPACITY', 'Archive inactive execution bindings before creating more work.', 507)
             db.execute('INSERT OR IGNORE INTO engineering_bindings(id,principal,digest,created_at,payload) VALUES(?,?,?,?,?)',
                        (binding['binding_id'], principal, fingerprint(binding), self.store.now(), raw))
-        self.store.tx(save)
-        return {'binding': copy.deepcopy(binding), 'capabilities': observation}
+            return old is not None
+        reused = self.store.tx(save)
+        return {'binding': copy.deepcopy(binding), 'capabilities': observation, 'binding_reused': reused}
 
     def read(self, principal, binding_id):
         if not isinstance(binding_id, str) or not re.fullmatch(r'bind_[a-f0-9]{32}', binding_id):

@@ -5,6 +5,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -28,6 +29,44 @@ class GitHubRequestCompletionTest {
             assertTrue(request, GitHubRequestCompletion.informational(request))
             assertFalse(request, GitHubRequestCompletion.requiresRepositoryEvidence(request))
         }
+    }
+
+    @Test fun sessionReviewRequiresEvidenceLinkedFindingsAndLabeledRecommendations() {
+        val task = "Review this saved GitHub session and give recommendations."
+        assertTrue(GitHubRequestCompletion.informational(task))
+        val requirements = GitHubRequestCompletion.requirements(task)
+        val taskId = GitHubRequestCompletion.id(requirements.first())
+        val findingId = GitHubRequestCompletion.id(requirements.single { it.startsWith("Evidence-backed findings") })
+        val recommendationId = GitHubRequestCompletion.id(requirements.single { it.startsWith("Recommendations are clearly labeled") })
+        val claims = listOf(
+            buildJsonObject {
+                put("kind", "fact")
+                put("status", "VERIFIED")
+                put("receipt_id", "live-read")
+            },
+            buildJsonObject {
+                put("kind", "recommendation")
+                put("status", "INFERRED")
+                put("sources", JsonArray(listOf(buildJsonObject { put("receipt_id", "live-read") })))
+            }
+        )
+        val answer = buildJsonObject {
+            put(
+                "requirement_claims",
+                buildJsonObject {
+                    put(taskId, JsonArray(listOf(JsonPrimitive(0), JsonPrimitive(1))))
+                    put(findingId, JsonArray(listOf(JsonPrimitive(0))))
+                    put(recommendationId, JsonArray(listOf(JsonPrimitive(1))))
+                }
+            )
+        }
+        val result = GitHubRequestCompletion.evaluate(task, claims, answer, mapOf("live-read" to receipt("status", JsonObject(emptyMap()))))
+        assertTrue(result["completion_verified"] == JsonPrimitive(true))
+        val rows = (result["requirements"] as JsonArray).filterIsInstance<JsonObject>()
+        assertEquals(JsonArray(listOf(JsonPrimitive("live-read"))), rows.single { it["id"] == JsonPrimitive(findingId) }["receipt_ids"])
+        val unlinked = GitHubRequestCompletion.evaluate(task, claims, answer, emptyMap())
+        assertFalse(unlinked["completion_verified"] == JsonPrimitive(true))
+        assertTrue(unlinked.toString().contains("missing_evidence_ids"))
     }
 
     private fun receipt(action: String, data: JsonObject, trusted: Boolean = true) = buildJsonObject {

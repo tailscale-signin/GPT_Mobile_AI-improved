@@ -33,7 +33,9 @@ internal class GitHubEvidenceBook(
     private val retentionLimitBytes: Int = 16 * 1024 * 1024,
     private val runtimeIdentity: () -> JsonObject = GitHubRuntimeIdentity::current,
     private val readSources: Set<String> = emptySet(),
-    authorizationRevision: String? = null
+    authorizationRevision: String? = null,
+    internal val fixtureDecisionMode: GitHubDecisionMode? = null,
+    private val approvalResolution: suspend (JsonObject) -> List<JsonObject> = { emptyList() }
 ) {
     init {
         require(retentionLimitRecords in 1..4096)
@@ -49,6 +51,16 @@ internal class GitHubEvidenceBook(
     private var observedHead: String? = null
     private var overflow = false
     private val authorizationDigest = authorizationRevision?.takeIf(String::isNotBlank)?.let(::digest)
+    private val fixturePreflightId = "fixture_preflight_" + digest(binding).take(24)
+
+    /** Freeze the effective approval mode before an integration recipe may create a fixture. */
+    suspend fun fixtureApprovalPreflight(): JsonObject = mutex.withLock {
+        val saved = load(fixturePreflightId)
+        if (saved?.get("binding") == JsonPrimitive(binding)) return@withLock saved
+        val preflight = GitHubTestChecklist.fixtureApprovalPreflight(fixtureDecisionMode, binding, repository, branch, runtimeIdentity())
+        save(fixturePreflightId, preflight)
+        preflight
+    }
 
     private fun attemptKey(tool: String, arguments: JsonObject): AttemptKey =
         GitHubActionIdentity.digest(binding, repository, tool, arguments)?.let { AttemptKey(tool, JsonObject(emptyMap()), it) }
@@ -77,8 +89,9 @@ internal class GitHubEvidenceBook(
                 (saved["source_head_sha"] as? JsonPrimitive)?.contentOrNull?.let { observedHead = it }
             }
             epoch = maxOf(epoch, savedEpoch)
-            if (!originalComplete(id, saved)) overflow = true
-            retain(id, revalidate(saved))
+            val original = restoredOriginal(id, saved)
+            if (original == null) overflow = true
+            retain(id, revalidate(original ?: saved))
         }
     }
 
@@ -101,7 +114,12 @@ internal class GitHubEvidenceBook(
             }
         )
         val revalidated = GitHubPolicyReadRecovery.revalidated(current, authorizationDigest)
-        return if (revalidated == null) current else JsonObject(current + (GitHubPolicyReadRecovery.REVALIDATED to JsonPrimitive(revalidated)))
+        val migrated = if (current["inventory_observation"] == null) {
+            GitHubInventoryObservation.of(current)?.let { JsonObject(current + ("inventory_observation" to it)) } ?: current
+        } else {
+            current
+        }
+        return if (revalidated == null) migrated else JsonObject(migrated + (GitHubPolicyReadRecovery.REVALIDATED to JsonPrimitive(revalidated)))
     }
 
     suspend fun observe(call: ProviderEvent.ToolCall, result: AgentToolResult) = mutex.withLock {
@@ -115,8 +133,9 @@ internal class GitHubEvidenceBook(
                 (existing["source_head_sha"] as? JsonPrimitive)?.contentOrNull?.let { observedHead = it }
             }
             epoch = maxOf(epoch, savedEpoch)
-            if (!originalComplete(id, existing)) overflow = true
-            retain(id, revalidate(existing))
+            val original = restoredOriginal(id, existing)
+            if (original == null) overflow = true
+            retain(id, revalidate(original ?: existing))
             return@withLock
         }
         val content = when (val body = result.retainedContent ?: result.content) {
@@ -375,7 +394,7 @@ internal class GitHubEvidenceBook(
         if (key != "original_${id}_${originalHash.take(24)}_$page") return@withLock null
         val chunk = load(key) ?: return@withLock null
         val text = (chunk["text"] as? JsonPrimitive)?.contentOrNull ?: return@withLock null
-        if (chunk["binding"] != JsonPrimitive(binding) || chunk["receipt_id"] != JsonPrimitive(id) || chunk["index"] != JsonPrimitive(page) || chunk["offset_utf16"] != ref["offset_utf16"] || ref["sha256"] != JsonPrimitive(digest(text))) return@withLock null
+        if (chunk["binding"] != JsonPrimitive(binding) || chunk["receipt_id"] != JsonPrimitive(id) || chunk["index"] != JsonPrimitive(page) || chunk["offset_utf16"] != ref["offset_utf16"] || ref["characters"] != JsonPrimitive(text.length) || chunk["sha256"] != ref["sha256"] || ref["sha256"] != JsonPrimitive(digest(text))) return@withLock null
         JsonObject(
             chunk + buildJsonObject {
                 put("complete", page == chunks.lastIndex)
@@ -385,36 +404,55 @@ internal class GitHubEvidenceBook(
         )
     }
 
-    private suspend fun originalComplete(id: String, manifest: JsonObject): Boolean {
-        val chunks = manifest["original_chunks"] as? JsonArray ?: return true
-        if (chunks.size !in 1..64) return false
-        val expectedHash = (manifest["original_receipt_sha256"] as? JsonPrimitive)?.contentOrNull ?: return false
-        val expectedCharacters = (manifest["original_receipt_characters"] as? JsonPrimitive)?.longOrNull ?: return false
-        if (expectedCharacters !in 1..8L * 1024 * 1024) return false
+    private suspend fun restoredOriginal(id: String, manifest: JsonObject): JsonObject? {
+        val chunks = manifest["original_chunks"] as? JsonArray ?: return manifest
+        if (chunks.size !in 1..64) return null
+        val expectedHash = (manifest["original_receipt_sha256"] as? JsonPrimitive)?.contentOrNull ?: return null
+        val expectedCharacters = (manifest["original_receipt_characters"] as? JsonPrimitive)?.longOrNull ?: return null
+        if (expectedCharacters !in 1..8L * 1024 * 1024) return null
         val hasher = MessageDigest.getInstance("SHA-256")
+        val original = StringBuilder()
         var characters = 0L
         for ((index, raw) in chunks.withIndex()) {
-            val ref = raw as? JsonObject ?: return false
-            val key = (ref["id"] as? JsonPrimitive)?.contentOrNull ?: return false
-            if (key != "original_${id}_${expectedHash.take(24)}_$index") return false
-            val chunk = load(key) ?: return false
-            val text = (chunk["text"] as? JsonPrimitive)?.contentOrNull ?: return false
-            if (chunk["binding"] != JsonPrimitive(binding) || chunk["receipt_id"] != JsonPrimitive(id) || chunk["index"] != JsonPrimitive(index) || (chunk["offset_utf16"] as? JsonPrimitive)?.longOrNull != characters || ref["sha256"] != JsonPrimitive(digest(text))) return false
+            val ref = raw as? JsonObject ?: return null
+            val key = (ref["id"] as? JsonPrimitive)?.contentOrNull ?: return null
+            if (key != "original_${id}_${expectedHash.take(24)}_$index") return null
+            val chunk = load(key) ?: return null
+            val text = (chunk["text"] as? JsonPrimitive)?.contentOrNull ?: return null
+            if (chunk["binding"] != JsonPrimitive(binding) || chunk["receipt_id"] != JsonPrimitive(id) || chunk["index"] != JsonPrimitive(index) || (chunk["offset_utf16"] as? JsonPrimitive)?.longOrNull != characters || chunk["offset_utf16"] != ref["offset_utf16"] || ref["characters"] != JsonPrimitive(text.length) || chunk["sha256"] != ref["sha256"] || ref["sha256"] != JsonPrimitive(digest(text))) return null
             hasher.update(text.encodeToByteArray())
             characters += text.length
-            if (characters > expectedCharacters) return false
+            if (characters > expectedCharacters) return null
+            original.append(text)
         }
-        return characters == expectedCharacters && hasher.digest().joinToString("") { "%02x".format(it) } == expectedHash
+        if (characters != expectedCharacters || hasher.digest().joinToString("") { "%02x".format(it) } != expectedHash) return null
+        val restored = runCatching { Json.parseToJsonElement(original.toString()) as? JsonObject }.getOrNull() ?: return null
+        if (listOf("binding", "receipt_id", "call_id", "tool", "repository", "arguments", "result_sha256").any { restored[it] != manifest[it] }) return null
+        // Restore exact data before constructing today's projection and inventory metadata.
+        // The immutable saved manifest and chunks are never rewritten during migration.
+        return restored
     }
 
-    suspend fun snapshot(): Pair<Map<String, JsonObject>, Long> = mutex.withLock {
-        records.toMap() to epoch
+    suspend fun snapshot(): Pair<Map<String, JsonObject>, Long> {
+        val (saved, currentEpoch) = mutex.withLock { records.toMap() to epoch }
+        val resolutions = saved.values.flatMap { receipt ->
+            if (GitHubPendingApproval.taskId(receipt) == null) emptyList() else approvalResolution(receipt)
+        }
+        if (resolutions.isEmpty()) return saved to currentEpoch
+        val augmented = LinkedHashMap(saved)
+        resolutions.forEach { resolution ->
+            val id = (resolution["receipt_id"] as? JsonPrimitive)?.contentOrNull ?: return@forEach
+            augmented.putIfAbsent(id, resolution)
+        }
+        return augmented to currentEpoch
     }
 
     suspend fun complete(): Boolean = mutex.withLock { !overflow }
 
     /** Page persistence can recover independently without invalidating an accepted mutation. */
-    suspend fun retentionStatus(): JsonObject = mutex.withLock {
+    suspend fun retentionStatus(): JsonObject = mutex.withLock { retentionStatusLocked() }
+
+    private fun retentionStatusLocked(): JsonObject {
         val views = records.values.mapNotNull { receipt ->
             val execution = receipt["execution"] as? JsonObject ?: return@mapNotNull null
             val status = (execution["saved_view_persistence"] as? JsonPrimitive)?.contentOrNull
@@ -452,7 +490,7 @@ internal class GitHubEvidenceBook(
                 )
             }
         }
-        buildJsonObject {
+        return buildJsonObject {
             put("review_projection_bytes", bytes)
             put("review_projection_limit_bytes", retentionLimitBytes)
             put("review_receipt_count", records.size)
@@ -513,9 +551,15 @@ internal class GitHubEvidenceBook(
     suspend fun acceptedTaskRequest(): String? = ((taskContract ?: load("task_contract"))?.get("requested_actions") as? JsonPrimitive)?.contentOrNull
 
     /** One bounded delivery snapshot, separate from immutable operation receipts and their verdict. */
-    suspend fun retainAnswer(text: String, verdict: JsonObject) {
+    suspend fun retainAnswerIfCurrent(
+        text: String,
+        verdict: JsonObject,
+        expectedEpoch: Long,
+        expectedReceiptIds: Set<String>
+    ): Boolean = mutex.withLock {
+        if (epoch != expectedEpoch || records.keys != expectedReceiptIds) return@withLock false
         require(text.isNotBlank() && text.length <= 1_048_576)
-        val receiptDigest = digest(snapshot().first.keys.sorted().joinToString("\n"))
+        val receiptDigest = digest(expectedReceiptIds.sorted().joinToString("\n"))
         saveCurrent(
             "answer",
             buildJsonObject {
@@ -527,6 +571,7 @@ internal class GitHubEvidenceBook(
                 put("verdict", verdict)
             }
         )
+        true
     }
 
     suspend fun retainedAnswer(): Pair<String, JsonObject>? {
@@ -546,15 +591,23 @@ internal class GitHubEvidenceBook(
 
     private fun claimBatchKey() = "claim_extraction_current_" + digest(binding).take(24)
 
-    suspend fun retainedClaimExtraction(context: String): JsonObject? = load(claimBatchKey())?.takeIf { saved ->
+    suspend fun retainedClaimExtraction(context: String? = null): JsonObject? = load(claimBatchKey())?.takeIf { saved ->
         saved["schema"] == JsonPrimitive("github.claim-extraction.v1") &&
             saved["binding"] == JsonPrimitive(binding) &&
-            saved["context"] == JsonPrimitive(context) &&
+            (context == null || saved["context"] == JsonPrimitive(context)) &&
             saved["authorization"] == (authorizationDigest?.let(::JsonPrimitive) ?: kotlinx.serialization.json.JsonNull)
     }
 
-    suspend fun retainClaimBatches(context: String, plan: String, draft: String, batches: List<JsonObject>, pending: Boolean) {
+    suspend fun retainClaimBatches(
+        context: String,
+        plan: String,
+        draft: String,
+        batches: List<JsonObject?>,
+        requirementIds: List<Set<String>>,
+        pending: Boolean
+    ) {
         require(batches.size <= GitHubClaimBatches.MAX_BATCHES)
+        require(batches.size == requirementIds.size)
         require(draft.length <= 1_048_576) { "Claim extraction draft exceeds the accepted session bound" }
         save(
             claimBatchKey(),
@@ -565,8 +618,11 @@ internal class GitHubEvidenceBook(
                 put("plan", plan)
                 put("authorization", authorizationDigest)
                 put("pending", pending)
-                if (pending) put("draft", draft)
-                put("batches", JsonArray(batches))
+                // Keep the bounded source draft and finished batches after extraction.
+                // A later read can then invalidate only claims that no longer verify.
+                put("draft", draft)
+                put("batch_requirement_ids", JsonArray(requirementIds.map { ids -> JsonArray(ids.sorted().map(::JsonPrimitive)) }))
+                put("batches", JsonArray(batches.map { it ?: JsonNull }))
             }
         )
     }
@@ -582,7 +638,7 @@ internal class GitHubEvidenceBook(
                     tools.filter { it.modelVisible }.sortedBy { it.name }.map { tool ->
                         buildJsonObject {
                             put("name", tool.name)
-                            put("contract_digest", dev.chungjungsoo.gptmobile.data.agent.ToolContractFingerprint.schema(tool.inputSchema))
+                            put("contract_digest", dev.chungjungsoo.gptmobile.data.agent.ToolContractFingerprint.definition(tool))
                             put("contract_digest_kind", "SEMANTIC_SCHEMA_V1")
                         }
                     }
@@ -595,7 +651,8 @@ internal class GitHubEvidenceBook(
 
     suspend fun retainProgress(task: String, tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition>, failureCode: String? = null, failure: ProviderEvent.Failed? = null, remainingToolCalls: Int? = null) {
         val (receipts, _) = snapshot()
-        val checkpoint = GitHubTestChecklist.checkpoint(task, receipts, tools, remainingToolCalls)
+        val fixturePreflight = if (GitHubTestChecklist.integration(task)) fixtureApprovalPreflight() else null
+        val checkpoint = GitHubTestChecklist.checkpoint(task, receipts, tools, remainingToolCalls, fixturePreflight)
         val retention = retentionStatus()
         val previous = diagnostic() ?: load("verification_current_" + digest(binding).take(24))
         if (previous == null) {
@@ -614,7 +671,7 @@ internal class GitHubEvidenceBook(
         }
         val publishedProgressDigest = publishedChecklistDigest(previous)
         val requirements = if (GitHubTestChecklist.integration(task)) {
-            GitHubIntegrationAcceptance.requirements(task, receipts, tools)
+            GitHubIntegrationAcceptance.requirements(task, receipts, tools, fixturePreflight = fixturePreflight)
         } else {
             JsonArray(
                 GitHubRequestCompletion.requirements(task).map { requirement ->
@@ -648,6 +705,7 @@ internal class GitHubEvidenceBook(
                 put("remaining_requirements", JsonArray(requirements.filter { (it as JsonObject)["acceptance_state"] != JsonPrimitive("PASS") }))
                 put("test_checklist", checkpoint)
                 put("evidence_count", receipts.size)
+                if (retention["evidence_retention_complete"] == JsonPrimitive(true)) GitHubTestChecklist.sourceReadRecovery(tools, receipts)?.let { put("source_read_recovery", it) }
             },
             receipts
         )
@@ -662,8 +720,22 @@ internal class GitHubEvidenceBook(
         saveCurrent("checklist", JsonObject(checkpoint + ("binding" to JsonPrimitive(binding))))
     }
 
-    suspend fun retainVerdict(value: JsonObject): JsonObject {
-        val retention = retentionStatus()
+    suspend fun retainVerdict(value: JsonObject): JsonObject = mutex.withLock {
+        retainVerdictLocked(value)
+    }
+
+    /**
+     * A completion verdict is valid only for the exact receipt epoch that was
+     * rendered. The mutex makes this check and current-verdict persistence one
+     * operation, so a late child receipt cannot land between them.
+     */
+    suspend fun retainVerdictIfCurrent(value: JsonObject, expectedEpoch: Long, expectedReceiptIds: Set<String>): JsonObject? = mutex.withLock {
+        if (epoch != expectedEpoch || records.keys != expectedReceiptIds) return@withLock null
+        retainVerdictLocked(value)
+    }
+
+    private suspend fun retainVerdictLocked(value: JsonObject): JsonObject {
+        val retention = retentionStatusLocked()
         val limitation = if (retention["evidence_retention_complete"] == JsonPrimitive(false)) {
             buildJsonObject {
                 put("completion_verified", false)
@@ -674,7 +746,8 @@ internal class GitHubEvidenceBook(
         } else {
             JsonObject(emptyMap())
         }
-        val retained = GitHubAcceptanceLedger.attach(JsonObject(value + retention + limitation), snapshot().first)
+        val receipts = records.toMap()
+        val retained = GitHubAcceptanceLedger.attach(JsonObject(value + retention + limitation), receipts)
         val checklistComplete = (retained["acceptance_ledger"] as? JsonObject)?.get("completion_verified") == JsonPrimitive(true)
         val checked = if (retained["task_outcome"] == JsonPrimitive("COMPLETED") && !checklistComplete) {
             JsonObject(
@@ -689,9 +762,20 @@ internal class GitHubEvidenceBook(
         } else {
             retained
         }
-        val execution = GitHubExecutionLedger.attach(checked, snapshot().first)
+        val execution = GitHubExecutionLedger.attach(checked, receipts)
         val checkpoint = JsonObject(execution + ("task_state" to JsonPrimitive(GitHubTaskLifecycle.terminal(execution).name)))
-        val durable = JsonObject(checkpoint + ("binding" to JsonPrimitive(binding)))
+        val sourceRecovery = if (retention["evidence_retention_complete"] == JsonPrimitive(true)) {
+            val tools = currentToolContracts.map { (name, schema) -> dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition(name, "", schema) }
+            GitHubTestChecklist.sourceReadRecovery(tools, receipts)
+        } else {
+            null
+        }
+        val durable = JsonObject(
+            checkpoint.filterKeys { it != "source_read_recovery" } + buildJsonObject {
+                put("binding", binding)
+                sourceRecovery?.let { put("source_read_recovery", it) }
+            }
+        )
         saveCurrent("verification", durable)
         return durable
     }
@@ -700,23 +784,25 @@ internal class GitHubEvidenceBook(
     private suspend fun saveCurrent(kind: String, value: JsonObject) {
         val id = "${kind}_current_" + digest(binding).take(24)
         val previous = load(id)
+        if (previous?.filterKeys { it != "observed_at_ms" } == value.filterKeys { it != "observed_at_ms" }) return
         fun summary(snapshot: JsonObject): JsonObject = buildJsonObject {
             put("schema", "github.verification-event.v1")
             put("binding", binding)
             put("snapshot_id", id)
-            listOf("phase", "task_state", "task_outcome", "failure_code", "verification_failure", "completion_verified", "response_prepared", "response_delivered", "evidence_count", "progress_state").forEach { field -> snapshot[field]?.let { put(field, it) } }
+            listOf("phase", "task_state", "task_outcome", "failure_code", "verification_failure", "completion_verified", "response_prepared", "response_delivered", "progress_state").forEach { field -> snapshot[field]?.let { put(field, it) } }
             (snapshot["stop_reason"] as? JsonObject)?.get("code")?.let { put("stop_code", it) }
             val requirements = (snapshot["requirements"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
             put("requirements", JsonArray(requirements.take(64).map { row -> JsonObject(row.filterKeys { it in setOf("id", "status", "acceptance_state") }) }))
             ((snapshot["acceptance_ledger"] as? JsonObject)?.get("diagnostic_projection") as? JsonObject)?.takeIf(GitHubAcceptanceDiagnostics::valid)?.let { projection ->
-                put("acceptance_diagnostics_sha256", digest(projection.toString()))
+                val states = JsonArray((projection["criteria"] as JsonArray).filterIsInstance<JsonObject>().map { row -> JsonObject(row.filterKeys { it in setOf("id_sha256", "state", "blocker", "next_action") }) })
+                put("acceptance_states_sha256", digest(states.toString()))
                 put("criterion_count", projection.getValue("criterion_count"))
                 put("criteria_omitted", projection.getValue("omitted_count"))
                 put(
                     "acceptance_criteria",
                     JsonArray(
                         (projection["criteria"] as JsonArray).filterIsInstance<JsonObject>().filter { it["kind"] == JsonPrimitive("REQUIREMENT") }.map { row ->
-                            JsonObject(row.filterKeys { it in setOf("ordinal", "id_sha256", "category", "label", "operation", "state", "blocker", "next_action", "evidence_receipt_count", "evidence_class_counts") })
+                            JsonObject(row.filterKeys { it in setOf("ordinal", "id_sha256", "category", "label", "operation", "state", "blocker", "next_action") })
                         }
                     )
                 )
@@ -724,6 +810,7 @@ internal class GitHubEvidenceBook(
             val checklist = (snapshot["test_checklist"] as? JsonObject) ?: snapshot
             val capabilities = (checklist["capabilities"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
             put("capability_states", buildJsonObject { capabilities.groupingBy { (it["status"] as? JsonPrimitive)?.content.orEmpty() }.eachCount().toSortedMap().forEach { (state, count) -> put(state, count) } })
+            put("capability_states_sha256", digest(JsonArray(capabilities.map { row -> JsonObject(row.filterKeys { it in setOf("id", "status", "acceptance_state", "blocker_code") }) }).toString()))
             (checklist["authorized_catalog"] as? JsonObject)?.get("inventory_version")?.let { put("inventory_version", it) }
         }
         val event = summary(value)
@@ -734,6 +821,7 @@ internal class GitHubEvidenceBook(
                 event + buildJsonObject {
                     put("observed_at_ms", observed)
                     put("snapshot_sha256", digest(value.toString()))
+                    value["evidence_count"]?.let { put("evidence_count", it) }
                 }
             )
             save("verification_event_" + digest("$binding|$kind|$delta").take(24), delta)

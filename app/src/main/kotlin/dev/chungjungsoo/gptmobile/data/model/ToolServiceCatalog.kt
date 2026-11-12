@@ -36,7 +36,7 @@ object ToolServiceCatalog {
         }
 
     val integrated = listOf(
-        ToolServiceDefinition(ToolPluginId.VOICE_CHAT, "Voice Chat", "Optional spoken conversations with your selected AI profile. Download Moonshine for local English recognition, or choose Android speech. Microphone access only while the voice screen is open.", "voice", usesNetwork = true, supportsLocalTools = false),
+        ToolServiceDefinition(ToolPluginId.VOICE_CHAT, "Voice Chat", "Optional spoken conversations with your selected AI profile. Download Moonshine for English recognition and Kokoro for spoken replies. Microphone access only while the voice screen is open.", "voice", usesNetwork = true, supportsLocalTools = false),
         ToolServiceDefinition(ToolPluginId.HEALTH_CONNECT, "Smartwatch Health Connect", "Read synced wellness statistics on this phone. Separate Android permissions, profile opt-in and AI-sharing consent.", "health"),
         ToolServiceDefinition(ToolPluginId.DEEP_RESEARCH, "Deep Research", "Opt-in academic discovery, open-access evidence and quote verification. Native keyless sources; optional private gateway for PDFs.", "search", true),
         ToolServiceDefinition(ToolPluginId.MODEL_DELEGATION, "Model Delegation", "Let a configured helper research and process information.", "delegation"),

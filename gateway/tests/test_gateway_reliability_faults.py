@@ -360,7 +360,16 @@ class CatalogueContractFaultTest(unittest.TestCase):
         self.assertEqual('AUTH_REQUIRED', self.cache.readiness()['toolsState'])
         self.error = TimeoutError('read 403 bytes before fixture timed out')
         self.refresh()
+        # A transport failure cannot reauthorize the same denied connection.
+        self.assertEqual('AUTH_REQUIRED', self.cache.readiness()['toolsState'])
+        # Classify unrelated numbers independently, on a new configuration.
+        self.config['server'] = {'command': 'changed-fixture'}
+        self.refresh()
         self.assertNotEqual('AUTH_REQUIRED', self.cache.readiness()['toolsState'])
+        self.error = None
+        self.refresh()
+        self.assertTrue(self.cache.readiness()['schemaReady'])
+        self.assertIsNone(self.cache.readiness()['executionVerified'])
 
     def test_changed_configuration_cancels_old_discovery_without_late_publication(self):
         started, released, cancelled = threading.Event(), threading.Event(), threading.Event()

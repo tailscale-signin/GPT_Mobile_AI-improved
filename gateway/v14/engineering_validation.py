@@ -5,12 +5,14 @@ import os
 from pathlib import Path
 import queue
 import re
+import shutil
 import subprocess
 import tarfile
 import tempfile
 import threading
 import time
 import xml.etree.ElementTree as ET
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
 def _report_path(checkout, relative):
@@ -193,6 +195,16 @@ def load_policy(repository):
         raise ValueError('Validation image must be pinned by digest')
     if not isinstance(commands, list) or not 1 <= len(commands) <= 10 or any(not isinstance(command, list) or not command or len(command) > 32 or any(not isinstance(arg, str) or not arg or len(arg) > 1024 or '\0' in arg for arg in command) for command in commands):
         raise ValueError('Validation commands must be a bounded host-approved argv list')
+    groups = policy.get('parallel_command_groups', [])
+    if not isinstance(groups, list) or len(groups) > 5:
+        raise ValueError('Parallel validation groups exceed their host-approved bound')
+    occupied = set()
+    for group in groups:
+        if (not isinstance(group, list) or not 2 <= len(group) <= len(commands) or
+                any(type(index) is not int or not 0 <= index < len(commands) for index in group) or
+                group != list(range(group[0], group[0] + len(group))) or occupied.intersection(group)):
+            raise ValueError('Parallel validation groups must contain distinct contiguous command indexes')
+        occupied.update(group)
     coverage = policy.get('acceptance_map', [])
     if not isinstance(coverage, list) or len(coverage) > 256:
         raise ValueError('Host acceptance coverage exceeds its bound')
@@ -202,6 +214,17 @@ def load_policy(repository):
         if Path(item['report_path']).is_absolute() or any(part in {'', '.', '..', '.git'} for part in item['report_path'].split('/')) or '\\' in item['report_path']:
             raise ValueError('Acceptance report must be a bounded checkout-relative path')
     return policy, mirror, image, commands, coverage
+
+
+def _validation_workers(job):
+    if job.get('request', {}).get('execution_mode') != 'full':
+        return 1
+    plan = job.get('data', {}).get('integration_batch')
+    controls = plan.get('controls', {}) if isinstance(plan, dict) else {}
+    workers = controls.get('local_validation_workers', 1) if isinstance(controls, dict) else 1
+    if type(workers) is not int or not 1 <= workers <= 4:
+        raise ValueError('The retained Full Batch validation worker limit is invalid')
+    return workers
 
 
 def validate(job, changes):
@@ -218,6 +241,9 @@ def validate(job, changes):
         raise ValueError('Validation needs an exact source revision')
     timeout = min(1800, max(1, int(policy.get('timeout_seconds', 600))))
     results = []
+    workers = _validation_workers(job)
+    parallel_groups = policy.get('parallel_command_groups', []) if workers > 1 else []
+    groups_by_start = {group[0]: group for group in parallel_groups}
     with tempfile.TemporaryDirectory(prefix='engineering-validation-') as directory:
         root = Path(directory)
         # Archive is bounded while streaming, before extraction. No network fetch or credentials.
@@ -251,13 +277,13 @@ def validate(job, changes):
         root.chmod(0o755)
         for path in [checkout, *checkout.rglob('*')]:
             path.chmod(0o777 if path.is_dir() or path.stat().st_mode & 0o111 else 0o666)
-        for index, command in enumerate(commands):
+        def run_command(index, command, command_checkout):
             command_coverage = [item for item in coverage if item['command_index'] == index]
-            prepare_behavior_reports(command_coverage, checkout)
+            prepare_behavior_reports(command_coverage, command_checkout)
             cidfile = root / ('container-' + str(index))
             argv = ['docker', 'run', '--rm', '--pull=never', '--cidfile=' + str(cidfile), '--network=none', '--cap-drop=ALL',
                     '--security-opt=no-new-privileges', '--read-only', '--pids-limit=128', '--memory=2g', '--cpus=2', '--user=65534:65534',
-                    '--tmpfs=/tmp:rw,nosuid,nodev,size=512m', '--mount=type=bind,source=' + str(checkout) + ',target=/workspace',
+                    '--tmpfs=/tmp:rw,nosuid,nodev,size=512m', '--mount=type=bind,source=' + str(command_checkout) + ',target=/workspace',
                     '--workdir=/workspace', '--env=HOME=/tmp', image, *command]
             try:
                 result = run_bounded(argv, root, timeout)
@@ -266,7 +292,32 @@ def validate(job, changes):
                     container = cidfile.read_text().strip()
                     if re.fullmatch('[a-f0-9]{64}', container):
                         subprocess.run(['docker', 'rm', '-f', container], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15, check=False)
-            results.append(dict(result, command=command, report_snapshots=capture_behavior_reports(command_coverage, checkout)))
+            return dict(result, command=command, report_snapshots=capture_behavior_reports(command_coverage, command_checkout))
+
+        index = 0
+        while index < len(commands):
+            group = groups_by_start.get(index)
+            if group and workers > 1:
+                sandboxes = {}
+                for command_index in group:
+                    sandbox = root / ('parallel-checkout-' + str(command_index))
+                    shutil.copytree(checkout, sandbox)
+                    sandboxes[command_index] = sandbox
+                group_results = {}
+                with ThreadPoolExecutor(max_workers=min(workers, len(group)), thread_name_prefix='validation-suite') as pool:
+                    pending = {pool.submit(run_command, command_index, commands[command_index], sandboxes[command_index]): command_index
+                               for command_index in group}
+                    for future in as_completed(pending):
+                        command_index = pending[future]
+                        group_results[command_index] = future.result()
+                results.extend(group_results[command_index] for command_index in group)
+                index += len(group)
+                if any(item['exit_code'] != 0 for item in group_results.values()):
+                    break
+                continue
+            result = run_command(index, commands[index], checkout)
+            results.append(result)
+            index += 1
             if result['exit_code'] != 0:
                 break
         evidence = behavior_receipts(coverage, results, head, image)
@@ -274,4 +325,4 @@ def validate(job, changes):
               and len(evidence) == len(coverage) and all(item['status'] == 'PASSED' for item in evidence))
     return {'status': 'PASSED' if passed else 'FAILED',
             'patch_identity': identity, 'source_sha': head, 'image': image, 'commands': results, 'network': 'disabled', 'device_tested': False,
-            'requirement_evidence': evidence}
+            'validation_workers': workers, 'requirement_evidence': evidence}

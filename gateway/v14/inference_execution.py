@@ -209,10 +209,15 @@ class BoundModelInvocation:
             if self.current is None:
                 self.current = self.new_receipt()
             if self.current['state'] in {'PRECHECK', 'DISPATCHED'}:
-                rejected = isinstance(error, GatewayContractError) and error.details.get('dispatch_state') == 'backend_rejected'
+                http_status = getattr(getattr(error, 'response', None), 'status_code', None)
+                rate_limited = http_status == 429 and self.current['dispatched']
+                rejected = rate_limited or isinstance(error, GatewayContractError) and error.details.get('dispatch_state') == 'backend_rejected'
                 self.current.update(state='FAILED' if rejected else 'UNKNOWN_OUTCOME' if self.current['dispatched'] else 'PRECHECK_REJECTED',
-                                    error_code=getattr(error, 'code', type(error).__name__))
-                if rejected:
+                                    error_code='PROVIDER_RATE_LIMITED' if rate_limited else getattr(error, 'code', type(error).__name__))
+                if rate_limited:
+                    self.current.update(http_status=429, reserved_tokens=0, completed_at_ms=int(time.time() * 1000),
+                                        failure_details={'dispatch_state': 'backend_rejected', 'retryable': True})
+                elif rejected:
                     self.current.update(failure_details=copy.deepcopy(error.details), completed_at_ms=int(time.time() * 1000))
                 self.persist()
             if isinstance(error, ExecutionBindingError):

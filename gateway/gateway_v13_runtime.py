@@ -167,25 +167,47 @@ def validate_tool_message_pairs(messages):
     return completed
 
 
-def visible_answer_text(value):
-    """Reasoning-only, whitespace and tool markup are not a user-visible answer."""
+_CONTROL_NAMES = ("think", "analysis", "reasoning", "tool_call")
+_CONTROL_NAME_PATTERN = "|".join(_CONTROL_NAMES)
+_CONTROL_TAG = re.compile(rf"<(/?)({_CONTROL_NAME_PATTERN})(?:\s[^<>]*)?>", re.IGNORECASE)
+_CONTROL_PREFIXES = tuple(f"<{closing}{name}>" for name in _CONTROL_NAMES for closing in ("", "/"))
+_UNFINISHED_CONTROL_TAG = re.compile(rf"</?(?:{_CONTROL_NAME_PATTERN})\s[^<>]*")
+
+
+def visible_answer_text(value, *, preserve_whitespace=False):
+    """Remove private markup; trim for presence checks unless delivering exact layout."""
     content = value.get("content") if isinstance(value, dict) else value
     if not isinstance(content, str):
         return ""
-    text = re.sub(r"<(think|analysis|reasoning)(?:\s[^>]*)?>.*?(?:</\1>|$)", "", content, flags=re.I | re.S)
-    text = re.sub(r"<tool_call>.*?(?:</tool_call>|$)", "", text, flags=re.I | re.S)
-    return re.sub(r"</(?:think|analysis|reasoning)>", "", text, flags=re.I).strip()
+    visible = []
+    hidden = []
+    cursor = 0
+    for tag in _CONTROL_TAG.finditer(content):
+        if not hidden:
+            visible.append(content[cursor:tag.start()])
+        name = tag[2].lower()
+        if not tag[1]:
+            hidden.append(name)
+        elif hidden and hidden[-1] == name:
+            hidden.pop()
+        cursor = tag.end()
+    # A mismatched closing tag cannot end an inner control block or expose the
+    # rest of an unfinished outer block.
+    if not hidden:
+        visible.append(content[cursor:])
+    text = "".join(visible)
+    return text if preserve_whitespace else text.strip()
 
 
-def visible_stream_text(value):
+def visible_stream_text(value, *, preserve_whitespace=False):
     """A fragmented opening control tag is not the first visible answer token."""
-    text = visible_answer_text(value)
+    text = visible_answer_text(value, preserve_whitespace=preserve_whitespace)
     last = text.rfind("<")
     if last >= 0:
         suffix = text[last:].lower()
-        if any(tag.startswith(suffix) for tag in ("<think>", "<analysis>", "<reasoning>", "<tool_call>")):
+        if any(tag.startswith(suffix) for tag in _CONTROL_PREFIXES) or _UNFINISHED_CONTROL_TAG.fullmatch(suffix):
             text = text[:last]
-    return text.strip()
+    return text if preserve_whitespace else text.strip()
 
 
 def partition_owned_tool_calls(calls, routes):
@@ -510,7 +532,7 @@ def consume_sse(lines, on_progress=lambda state: None, cancelled=lambda: False):
     return state.result()
 
 
-def completion_chunks(data, chunk_chars=2048):
+def completion_chunks(data, chunk_chars=2048, *, emitted_content=None):
     """Deliver every output character, with usage once and one terminal marker."""
     if isinstance(chunk_chars, bool) or not isinstance(chunk_chars, int) or chunk_chars <= 0:
         raise ValueError("chunk_chars must be a positive integer")
@@ -529,6 +551,16 @@ def completion_chunks(data, chunk_chars=2048):
         yield encode({"error": {"message": "Backend completed without a visible answer or executable tool call.", "code": "empty_completion"}})
         yield "data: [DONE]\n\n"
         return
+
+    if emitted_content is not None:
+        visible = visible_answer_text(message, preserve_whitespace=True)
+        if message.get('tool_calls') or not visible.startswith(emitted_content):
+            yield encode({'error': {'code': 'streamed_answer_changed', 'retryable': False,
+                                   'partial_output_published': True,
+                                   'message': 'The final result does not match the published answer prefix. Inspect the saved result.'}})
+            yield 'data: [DONE]\n\n'
+            return
+        message = dict(message, content=visible[len(emitted_content):])
 
     def event(delta, finish=None):
         return {**base, "choices": [{"index": 0, "delta": delta, "finish_reason": finish}]}

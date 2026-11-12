@@ -14,8 +14,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.MotionDurationScale
 import androidx.compose.ui.geometry.Offset
@@ -30,6 +32,47 @@ import dev.chungjungsoo.gptmobile.data.diagnostics.FrameEffectPressure
 
 internal const val GITHUB_PROGRESS_PAN_MILLIS = 1800
 internal const val GITHUB_ACTIVITY_FADE_MILLIS = 1500
+internal const val GITHUB_ACTIVE_PREVIEW_ENTRY_FADE_MILLIS = 1000
+internal const val GITHUB_ACTIVE_PREVIEW_REFRESH_FADE_MILLIS = 500
+
+internal data class GitHubActivePreviewTransition(val text: State<String>, val opacity: State<Float>)
+
+/** Fade a new active row in, and replace changing active text through a 500 ms fade dip. */
+@Composable
+internal fun rememberGitHubActivePreviewTransition(text: String, active: Boolean, animate: Boolean = true): GitHubActivePreviewTransition {
+    val animationsEnabled = rememberGitHubActivityAnimationsEnabled()
+    val enabled = active && animate && animationsEnabled
+    val displayedText = remember { mutableStateOf(text) }
+    val hasBeenActive = remember { mutableStateOf(false) }
+    val opacity = remember { Animatable(if (enabled) 0f else 1f) }
+    LaunchedEffect(text, active, animate, animationsEnabled) {
+        if (!active) {
+            // Finalize the last active update before this row becomes history.
+            displayedText.value = text
+            opacity.snapTo(1f)
+            hasBeenActive.value = false
+        } else if (!enabled) {
+            displayedText.value = text
+            opacity.snapTo(1f)
+            hasBeenActive.value = true
+        } else if (!hasBeenActive.value) {
+            displayedText.value = text
+            opacity.snapTo(0f)
+            hasBeenActive.value = true
+            opacity.animateTo(1f, tween(GITHUB_ACTIVE_PREVIEW_ENTRY_FADE_MILLIS, easing = LinearEasing))
+        } else if (displayedText.value != text) {
+            val halfRefresh = GITHUB_ACTIVE_PREVIEW_REFRESH_FADE_MILLIS / 2
+            opacity.animateTo(0f, tween(halfRefresh, easing = LinearEasing))
+            displayedText.value = text
+            opacity.animateTo(1f, tween(halfRefresh, easing = LinearEasing))
+        }
+    }
+    return if (enabled) {
+        GitHubActivePreviewTransition(displayedText, opacity.asState())
+    } else {
+        GitHubActivePreviewTransition(rememberUpdatedState(text), rememberUpdatedState(1f))
+    }
+}
 
 /** Fade an arriving item once, without changing its measured position or replaying its text. */
 @Composable

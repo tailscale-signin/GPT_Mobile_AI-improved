@@ -6,20 +6,24 @@ package dev.chungjungsoo.gptmobile.data.agent
  * original request, instructions and evidence and admit the entire request separately.
  */
 internal object LongResponseContinuationContext {
-    fun build(draft: String, maxTokens: Int): String {
+    fun build(draft: String, maxTokens: Int, requestedRepetitionCharacters: Int = 0): String {
         require(maxTokens >= 0) { "Continuation context allowance cannot be negative." }
         if (draft.isEmpty() || maxTokens == 0) return ""
+        // Old checkpoints can predate the streaming guard. Never teach the repair
+        // request to imitate their repetitive tail; the saved original stays intact.
+        val safeDraft = RepetitiveProseGuard.safeContinuationPrefix(draft, requestedRepetitionCharacters)
         val maxBytes = (maxTokens.toLong() * 3).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
-        if (utf8Size(draft) <= maxBytes) return draft
-        val header = "Earlier text is saved outside this request (${LongResponsePolicy.countWords(draft)} words). Do not restart.\n"
+        val repair = if (safeDraft != draft) "A repetitive generated tail was excluded. Continue with new substantive material, not the repeated list or phrase.\n" else ""
+        if (utf8Size(repair + safeDraft) <= maxBytes) return repair + safeDraft
+        val header = repair + "Earlier text is saved outside this request (${LongResponsePolicy.countWords(safeDraft)} words). Do not restart.\n"
         val tailLabel = "Exact stopping point:\n"
         val fixedBytes = utf8Size(header + tailLabel)
-        if (fixedBytes >= maxBytes) return suffixWithinBytes(draft, maxBytes)
+        if (fixedBytes >= maxBytes) return suffixWithinBytes(safeDraft, maxBytes)
         val remaining = maxBytes - fixedBytes
         val headingsBudget = remaining / 4
         val headings = StringBuilder()
         var headingBytes = 0
-        draft.lineSequence().filter { it.trimStart().startsWith('#') }.forEach { heading ->
+        safeDraft.lineSequence().filter { it.trimStart().startsWith('#') }.forEach { heading ->
             val next = heading.trim() + "\n"
             val bytes = utf8Size(next)
             if (headingBytes + bytes <= headingsBudget) {
@@ -27,7 +31,7 @@ internal object LongResponseContinuationContext {
                 headingBytes += bytes
             }
         }
-        return header + headings + tailLabel + suffixWithinBytes(draft, remaining - headingBytes)
+        return header + headings + tailLabel + suffixWithinBytes(safeDraft, remaining - headingBytes)
     }
 
     private fun utf8Size(text: String): Int = text.toByteArray(Charsets.UTF_8).size

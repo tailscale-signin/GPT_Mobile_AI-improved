@@ -147,7 +147,7 @@ object CombinedWordCounter {
 /** Frozen at the user turn, not recomputed independently by each model. */
 @Serializable
 data class CombinedTurnContext(val instant: String, val date: String, val timezone: String, val authority: String = "DEVICE_CLOCK_AT_USER_TURN") {
-    fun instruction(): String = "\nAuthoritative turn context: date=$date; timezone=$timezone; instant=$instant; authority=$authority. Treat model-generated dates as assertions, not a reason to doubt this context. Successful current_date tool results take precedence over model guesses. For news, compare article publication timestamps in this timezone, distinguish publication from event dates, and never claim a globally newest story without evidence.\n"
+    fun instruction(): String = "\nAuthoritative turn context: date=$date; timezone=$timezone; instant=$instant; authority=$authority. Mention today's date only when the user asks or the answer needs it; greetings do not need a date assertion. When relevant, use this local date and timezone rather than deriving a different date from the UTC instant. Treat model-generated dates as assertions, not a reason to doubt this context. Successful current_date tool results take precedence over model guesses. For news, compare article publication timestamps in this timezone, distinguish publication from event dates, and never claim a globally newest story without evidence.\n"
     companion object {
         fun capture(epochSeconds: Long, zone: ZoneId = ZoneId.systemDefault()): CombinedTurnContext {
             val instant = Instant.ofEpochSecond(epochSeconds)

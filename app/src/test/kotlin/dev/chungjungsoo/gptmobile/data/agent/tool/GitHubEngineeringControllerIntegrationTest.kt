@@ -51,6 +51,104 @@ class GitHubEngineeringControllerIntegrationTest {
         verifyApprovedWorkflow(delete = false, interruptAtBoundaries = true)
     }
 
+    @Test fun replacingAPendingReviewRetainsTheBindingBeforeCancellationAndSurvivesBindingFailure() = runBlocking {
+        val controller = reviewController()
+        val original = prepareReview(controller, "original", requiresHardware = true)
+        val replacement = prepareReview(controller, "edited", requiresHardware = true)
+        val digest = requireNotNull(controller.run(original)).patchDigest
+        val failure = runCatching {
+            controller.replacePendingReview(original, digest, replacement) {
+                assertEquals("AWAITING_APPROVAL", controller.task(original)?.state)
+                error("Binding storage unavailable")
+            }
+        }.exceptionOrNull()
+        assertEquals("Binding storage unavailable", failure?.message)
+        assertEquals("AWAITING_APPROVAL", controller.task(original)?.state)
+        assertFalse(requireNotNull(controller.run(original)).approvalRevoked)
+        assertEquals("AWAITING_APPROVAL", controller.task(replacement)?.state)
+
+        var bindingRetained = false
+        controller.replacePendingReview(original, digest, replacement) {
+            assertEquals("AWAITING_APPROVAL", controller.task(original)?.state)
+            bindingRetained = true
+        }
+        assertTrue(bindingRetained)
+        closeControllerDatabase()
+        val restored = reviewController()
+        assertEquals("CANCELLED", restored.task(original)?.state)
+        assertTrue(requireNotNull(restored.run(original)).approvalRevoked)
+        assertEquals("AWAITING_APPROVAL", restored.task(replacement)?.state)
+        assertTrue(requireNotNull(restored.task(replacement)).requiresHardwareVerification)
+        assertTrue(GitHubEngineeringDatabaseFactory.open(RuntimeEnvironment.getApplication()).ledgerDao().operationsForTask(original).isEmpty())
+    }
+
+    @Test fun approvalThatWinsTheRepositoryLockCannotBeCancelledByAnEdit() = runBlocking {
+        val controller = reviewController()
+        val original = prepareReview(controller, "original")
+        val replacement = prepareReview(controller, "edited")
+        val digest = requireNotNull(controller.run(original)).patchDigest
+        controller.approve(original, digest)
+        var bindingAttempted = false
+
+        assertTrue(runCatching { controller.replacePendingReview(original, digest, replacement) { bindingAttempted = true } }.isFailure)
+
+        assertFalse(bindingAttempted)
+        assertEquals("COMMITTING", controller.task(original)?.state)
+        assertFalse(requireNotNull(controller.run(original)).approvalRevoked)
+        assertEquals("AWAITING_APPROVAL", controller.task(replacement)?.state)
+    }
+
+    @Test fun replacementCannotRemoveHardwareVerificationOrRetireItself() = runBlocking {
+        val controller = reviewController()
+        val original = prepareReview(controller, "original", requiresHardware = true)
+        val replacement = prepareReview(controller, "edited", requiresHardware = false)
+        val digest = requireNotNull(controller.run(original)).patchDigest
+        var bindingAttempted = false
+
+        assertTrue(runCatching { controller.replacePendingReview(original, digest, replacement) { bindingAttempted = true } }.isFailure)
+        assertTrue(runCatching { controller.replacePendingReview(original, digest, original) { bindingAttempted = true } }.isFailure)
+
+        assertFalse(bindingAttempted)
+        assertEquals("AWAITING_APPROVAL", controller.task(original)?.state)
+        assertFalse(requireNotNull(controller.run(original)).approvalRevoked)
+    }
+
+    private suspend fun prepareReview(controller: GitHubEngineeringController, content: String, requiresHardware: Boolean = false): String =
+        controller.prepare("connection", "owner", "repo", "fix/workflow", "a".repeat(40), listOf(EngineeringFilePatch("A.kt", "before", content)), "Fix", requiresHardware)
+
+    private fun reviewController(): GitHubEngineeringController {
+        val context = RuntimeEnvironment.getApplication()
+        val transport = object : GitHubEngineeringApi({ null }) {
+            override suspend fun request(path: String, method: String, body: JSONObject?): String {
+                assertEquals("GET", method)
+                return when (path) {
+                    "/user" -> """{"id":42,"login":"fixture"}"""
+                    "/repos/owner/repo" -> """{"default_branch":"main"}"""
+                    "/repos/owner/repo/git/ref/heads/fix%2Fworkflow" -> JSONObject().put("object", JSONObject().put("sha", "a".repeat(40))).toString()
+                    else -> error("Unexpected review request: $path")
+                }
+            }
+        }
+        val factory = object : GitHubEngineeringApiFactory() {
+            override fun create(token: suspend () -> String?) = transport
+        }
+        val queue = object : GitHubEngineeringWorkQueue(context) {
+            override fun cancel(taskId: String) = Unit
+        }
+        val connection = ToolConnection(
+            connectionUid = "connection",
+            name = "GitHub fixture",
+            alias = "github-fixture",
+            type = ToolConnectionType.GITHUB,
+            endpointUrl = "https://api.github.com",
+            authType = ToolConnectionAuthType.BEARER,
+            secretRef = null,
+            oauthClientId = null
+        )
+        val connections = mockk<ToolConnectionRepository> { coEvery { getConnection("connection") } returns connection }
+        return GitHubEngineeringController(context, connections, mockk<SecretVault>(), factory, mockk<BenchmarkStore>(), queue)
+    }
+
     // The production factory has process lifetime. Closing its real Room database
     // and clearing only that singleton simulates a process restart without changing
     // rows, task state, operation receipts, or the remote repository fixture.

@@ -38,7 +38,8 @@ import kotlinx.coroutines.launch
 @Composable
 fun AboutScreen(
     onNavigationClick: () -> Unit,
-    onNavigationToLicense: () -> Unit
+    onNavigationToLicense: () -> Unit,
+    onReportIssue: () -> Unit
 ) {
     val scrollState = rememberScrollState()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
@@ -49,7 +50,6 @@ fun AboutScreen(
     val githubLink = stringResource(R.string.github_link)
     val fdroidLink = stringResource(R.string.f_droid_link)
     val googlePlayLink = stringResource(R.string.play_store_link)
-    val bugReportLink = stringResource(R.string.bug_report_link)
     val feedbackLink = stringResource(R.string.feedback_link)
     val scope = rememberCoroutineScope()
 
@@ -137,10 +137,9 @@ fun AboutScreen(
             )
             SettingItem(
                 modifier = Modifier.height(64.dp),
-                title = stringResource(R.string.bug_report),
-                description = stringResource(R.string.bug_report_description),
-                onItemClick = { uriHandler.openUri(bugReportLink) },
-                showTrailingIcon = false,
+                title = stringResource(R.string.issue_report_title),
+                onItemClick = onReportIssue,
+                showTrailingIcon = true,
                 showLeadingIcon = true,
                 leadingIcon = {
                     Icon(

@@ -32,6 +32,7 @@ from gateway_v13_transport import backend_template_failure, post_chat as v13_pos
 from v14.inference_execution import before_physical_dispatch, observe_physical_response, selected_dispatch_headers
 from v14.inference_scheduler import admission_context, bound_invocation
 from v14.debug import diagnostic_trace_headers
+from v14.text_delivery import TextDelivery, current_delivery, final_answer, output_started, visible_output
 from gateway_multisearch import plan_searches, run_searches
 from gateway_v13_runtime import (
     GatewayContractError, validate_chat_request, compact_history, fit_context,
@@ -3870,6 +3871,7 @@ def _post_llama_model_http(url, *, cancel_event=None, hard_cancel_event=None, jo
                 cancelled=lambda: _llama_dispatch_cancelled(cancel_event, hard_cancel_event),
                 progress=lambda event: progress_callback(event) if progress_callback else None,
                 headers=kwargs.get('headers'),
+                visible_output=visible_output.get() if bound_invocation.get() is None else None,
                 prepare_repair=(lambda candidate: apply_context_guard(
                     candidate, 'completion-repair', get_effective_user_text(candidate.get('messages', [])),
                     round_number or 0, progress_callback=progress_callback,
@@ -13903,6 +13905,10 @@ def post_llama_model_round(
                 return response, int((time.monotonic() - started) * 1000)
 
             except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as exc:
+                if output_started():
+                    raise GatewayContractError('The backend stream stopped after publishing part of the answer. Inspect the saved job before continuing.',
+                        'backend_stream_interrupted', 502,
+                        details={'partial_output_may_have_been_published': True, 'automatic_replay': False, 'retryable': False}) from exc
                 if (
                     attempt >= retries
                     or _llama_dispatch_cancelled(cancel_event, hard_cancel_event)
@@ -17818,8 +17824,8 @@ def _process_chat_payload_core(
 # SSE CONVERSION FOR LLAMA.CPP WEB UI
 # ============================================================
 
-def completion_to_sse(data):
-    yield from completion_chunks(data)
+def completion_to_sse(data, *, emitted_content=None):
+    yield from completion_chunks(data, emitted_content=emitted_content)
 
 
 def extract_openai_completion_content(result):
@@ -17838,14 +17844,16 @@ def extract_openai_completion_content(result):
 
 
 def gateway_result_quality(status, result, error=None):
-    if error or str(status or "").lower() in {"failed", "cancelled", "canceled"}:
+    if error or str(status or "").lower() in {"failed", "cancelled", "canceled", "interrupted"}:
         return "error"
-    content = extract_openai_completion_content(result)
-    if content and content.strip():
-        choices = result.get("choices") or []
-        return "partial" if choices and choices[0].get("finish_reason") == "length" else "complete"
+    # Explanatory prose can accompany a validated tool handoff. Pending calls
+    # remain the authoritative continuation state until their results return.
     if completion_contains_tool_calls(result):
         return "tool_calls"
+    content = visible_answer_text(extract_openai_completion_content(result))
+    if content:
+        choices = result.get("choices") or []
+        return "partial" if choices and choices[0].get("finish_reason") == "length" else "complete"
     if isinstance(result, dict):
         choices = result.get("choices") or []
         message = (choices[0].get("message") or {}) if choices else {}
@@ -17861,11 +17869,25 @@ def android_job_result_shape(job_id, status, result, public=None, error=None):
     structured = dict(structured, job_id=job_id) if isinstance(structured, dict) else None
     if structured and isinstance(structured.get("message"), str):
         error = structured["message"]
+    terminal = status in {"completed", "failed", "cancelled", "canceled", "interrupted"}
+    quality = gateway_result_quality(status, result, error=error)
+    continuation_allowed = status == "waiting_for_client_tool" and quality == "tool_calls"
+    content = extract_openai_completion_content(result)
     return {
+        "schema_version": 2,
         "job_id": job_id,
         "status": status,
-        "content": extract_openai_completion_content(result),
-        "result_quality": gateway_result_quality(status, result, error=error),
+        "terminal": terminal,
+        "result_available": result is not None,
+        "continuation_allowed": continuation_allowed,
+        "next_action": "return_client_tool_results" if continuation_allowed else
+            "inspect_saved_result" if terminal and result is not None else
+            "inspect_interrupted_job" if status == "interrupted" else
+            "start_new_turn" if terminal else "observe_saved_job",
+        # Recovery displays a visible-answer projection. The full backend
+        # result and durable journal remain unchanged as retained evidence.
+        "content": visible_answer_text(content, preserve_whitespace=True) if content is not None else None,
+        "result_quality": quality,
         "error": str(error) if error else None,
         "structured_error": structured,
         "completed_at": (public or {}).get("finished_at") if isinstance(public, dict) else None,
@@ -18307,7 +18329,7 @@ def gateway_job_result(job_id: str):
         result = job.get("_result")
         public = public_gateway_job(job, include_result=False)
         error = None
-        if status in {"failed", "cancelled", "canceled"}:
+        if status in {"failed", "cancelled", "canceled", "interrupted"}:
             error = job.get("message")
 
     body = android_job_result_shape(
@@ -18327,7 +18349,7 @@ def gateway_job_result(job_id: str):
         headers["Retry-After"] = "2"
         return JSONResponse(status_code=202, content=body, headers=headers)
 
-    if result is None and status not in {"completed", "failed", "cancelled", "canceled"}:
+    if result is None and status not in {"completed", "failed", "cancelled", "canceled", "interrupted"}:
         return JSONResponse(status_code=404, content=body, headers=headers)
 
     return JSONResponse(content=body, headers=headers)
@@ -18998,17 +19020,18 @@ async def stream_chat_with_keepalive(
             except Exception:
                 pass
 
-        task = asyncio.create_task(
-            asyncio.to_thread(
-                process_chat_payload,
-                incoming_payload,
-                cancel_event,
-                progress_callback,
-                hard_cancel_event,
-            )
-        )
+        delivery = TextDelivery()
+        marker = current_delivery.set(delivery)
+        try:
+            task = asyncio.create_task(asyncio.to_thread(
+                process_chat_payload, incoming_payload, cancel_event,
+                progress_callback, hard_cancel_event,
+            ))
+        finally:
+            current_delivery.reset(marker)
 
         worker_entry = {
+            "text_delivery": delivery,
             "task":
                 task,
             "cancel_event":
@@ -19086,6 +19109,8 @@ async def stream_chat_with_keepalive(
 
     last_progress_emit = 0.0
     last_progress_signature = None
+    delivery = worker_entry.get('text_delivery')
+    emitted_content = ''
     v12_last_event = {"phase": "starting", "message": "Preparing memory, tools, and routing"}
     v12_stream_started = time.monotonic()
     v12_delegate_stream = v12_isolated_delegate(incoming_payload.get("_gateway_performance") or {})
@@ -19114,6 +19139,10 @@ async def stream_chat_with_keepalive(
             created,
         )
         while True:
+            if delivery is not None:
+                for delta, packet in delivery.chunks(emitted_content, model, keepalive_id, created):
+                    yield packet
+                    emitted_content += delta
             if v12_delegate_stream and time.monotonic() - v12_stream_started >= V13_DELEGATE_DEADLINE_SECONDS + LLAMA_MODEL_QUEUE_TIMEOUT_SECONDS + 5:
                 cancel_event.set()
                 raise TimeoutError("DELEGATE_STREAM_TIMEOUT: configured model and queue deadlines exceeded")
@@ -19343,8 +19372,15 @@ async def stream_chat_with_keepalive(
         yield "data: [DONE]\n\n"
         return
 
+    if emitted_content:
+        # A published answer has one OpenAI stream identity. The stored backend
+        # result retains its original identity and complete content.
+        result = dict(result, id=keepalive_id, created=created, model=result.get('model') or model)
+    # The worker can finish before the subscriber emits its first delta.
+    # Use the same projection if the worker produced a visible answer prefix.
+    delivered_prefix = emitted_content if delivery is not None and delivery.snapshot() else None
     for chunk in completion_to_sse(
-        result
+        result, emitted_content=delivered_prefix,
     ):
         yield chunk
 
@@ -19970,7 +20006,8 @@ def v13_contract():
             "features": {"preserve_original_goal": True, "explicit_output_budget_preserved": True,
                          "validated_tool_calls": True, "client_tool_ownership": True,
                          "reviewer_isolation": True, "backend_streaming": V13_BACKEND_STREAMING,
-                         "chunked_final_delivery": True, "device_scoped_read_cache": True},
+                         "chunked_final_delivery": True, "incremental_final_text_delivery": V13_BACKEND_STREAMING,
+                         "device_scoped_read_cache": True},
             "delegate_deadline_seconds": V13_DELEGATE_DEADLINE_SECONDS,
             "model_deadline_seconds": V13_MODEL_DEADLINE_SECONDS,
             "progress_text_is_generated_reasoning": False}
@@ -20126,16 +20163,18 @@ def v12_delegate_model_round(incoming, runtime_perf, progress_callback=None,
     apply_context_guard(payload, runtime_perf.get("request_role", "delegate"), get_effective_user_text(payload.get("messages", [])), 1, progress_callback)
     emit_progress(progress_callback, "model", "Running GitHub engineering with client-owned tools" if engineering else "Running the selected delegate with its supplied tools",
                   event="model_started", status="running", stage="reasoning")
-    response, wall_ms = post_llama_model_round(
-        payload, progress_callback, 1, "delegate", cancel_event,
-        hard_cancel_event, job_mode=round_mode,
-    )
-    if response.status_code == 400 and adaptive_llama_request_error(_bounded_response_text(response)):
-        disable_adaptive_llama_request_fields(payload)
+    visible_role = runtime_perf.get('request_role', 'delegate' if runtime_perf.get('delegated_worker') else 'primary')
+    with final_answer(payload, visible_role):
         response, wall_ms = post_llama_model_round(
             payload, progress_callback, 1, "delegate", cancel_event,
             hard_cancel_event, job_mode=round_mode,
         )
+        if response.status_code == 400 and adaptive_llama_request_error(_bounded_response_text(response)):
+            disable_adaptive_llama_request_fields(payload)
+            response, wall_ms = post_llama_model_round(
+                payload, progress_callback, 1, "delegate", cancel_event,
+                hard_cancel_event, job_mode=round_mode,
+            )
     if response.status_code != 200:
         return response.status_code, {"error": {
             "message": _bounded_response_text(response), "type": "gateway_upstream_error",

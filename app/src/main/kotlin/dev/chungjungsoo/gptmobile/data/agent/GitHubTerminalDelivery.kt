@@ -20,7 +20,7 @@ internal fun Flow<AgentRunEvent>.withGitHubTerminalDelivery(enabled: Boolean): F
             if (terminal) return
             // A typed rejection can be saved for the existing provider wait. Do not
             // turn a no-output attempt into an answer before its durable safety check.
-            if (!visible && failure.providerLimit?.knownNotAccepted != true) {
+            if (!visible && failure.providerLimit?.mayWait != true) {
                 val reason = failure.errorCode?.takeIf { it.matches(Regex("[A-Z][A-Z0-9_]{0,95}")) } ?: "GITHUB_RUN_INTERRUPTED"
                 val evidence = if (receipts.isEmpty()) {
                     "No tool result was delivered for this attempt."

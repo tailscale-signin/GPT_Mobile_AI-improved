@@ -41,7 +41,7 @@ internal object GitHubAnswerPresentation {
                 mapOf("Repository details" to usefulFacts.distinct())
             }
             sections.forEach { (heading, rows) ->
-                append("\n## $heading\n\n| Detail | Result |\n| --- | --- |\n")
+                append("\n## $heading\n\n| Detail | Result | As of (UTC) |\n| --- | --- | --- |\n")
                 append(rows.joinToString("\n")).append('\n')
             }
         }

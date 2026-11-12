@@ -34,7 +34,7 @@ internal object RunToolAdmissionSnapshot {
         val catalog = inventory?.map { definition ->
             buildJsonObject {
                 put("name", label(definition.name))
-                put("schemaDigest", ToolContractFingerprint.schema(definition.inputSchema))
+                put("schemaDigest", ToolContractFingerprint.definition(definition))
                 put("connectionUid", toolConnections[definition.name]?.let(::label))
                 put("modelVisible", definition.modelVisible)
             }

@@ -60,6 +60,10 @@ class GitHubTaskTrustTest {
         assertNull(GitHubExecutionLimits.requestedDurationMillis("At most 50 tool calls. Inspect failures from the last 30 minutes."))
         assertNull(GitHubExecutionLimits.requestedDurationMillis("Work within src and inspect events from the last 2 hours."))
         assertEquals(60_000L, GitHubExecutionLimits.requestedDurationMillis("Budget: 1 minutes. Inspect events from the last 20 hours."))
+        assertEquals(600_000L, GitHubExecutionLimits.requestedDurationMillis("Test all authorized GitHub tools. Do not merge. Budget: 10 minutes and 17 tool calls."))
+        assertEquals(30_000L, GitHubExecutionLimits.requestedDurationMillis("Budget: 10 minutes. Time limit: 30 seconds. Inspect the previous 2 hours."))
+        assertEquals(20_000L, GitHubExecutionLimits.requestedDurationMillis("Budget: 10 minutes. Finish within 20 seconds."))
+        assertNull(GitHubExecutionLimits.requestedDurationMillis("The previous budget: 5 minutes. Inspect the failure."))
         assertFalse(GitHubTaskContinuity.reuse("proceed", ""))
         assertTrue(GitHubTaskContinuity.reportOnly("Please show the full report!"))
     }
@@ -75,6 +79,19 @@ class GitHubTaskTrustTest {
         book.retainTaskContract(task, 1, listOf(read), 99)
         assertEquals(0L, book.remainingTaskMillis())
         assertTrue(runCatching { book.retainTaskContract(task, 2, listOf(read), 10) }.isFailure)
+    }
+
+    @Test fun durationFirstBudgetRetainsTheToolCeilingWithoutCountingHistoricalCalls() {
+        val preset = GitHubWorkflowPreset.selected(GitHubWorkflowPreset.DEFAULT_ID)
+        val task = "Test all authorized GitHub tools. Budget: 10 minutes and 17 tool calls."
+        val limit = GitHubExecutionLimits.callLimit(task, 256, preset)
+        assertEquals(17, limit.effective)
+        assertEquals(17, limit.requested)
+        assertTrue("request ceiling" in limit.sources)
+        assertEquals(9, GitHubExecutionLimits.toolCalls(task, 9, preset))
+        assertEquals(5, GitHubExecutionLimits.toolCalls("$task At most 5 tool calls.", 256, preset))
+        val historical = GitHubExecutionLimits.callLimit("Inspect the previous 17 tool calls. Budget: 10 minutes.", 256, preset)
+        assertNull(historical.requested)
     }
 
     @Test fun everyRecoveryAliasRetainsTheSameAcceptedTask() {
@@ -183,7 +200,15 @@ class GitHubTaskTrustTest {
             put("task_outcome", "PARTIAL")
             put("completion_verified", false)
         }
-        evidence.retainAnswer("Verified file reading finished; implementation remains blocked.", verdict)
+        val (receipts, epoch) = evidence.snapshot()
+        assertTrue(
+            evidence.retainAnswerIfCurrent(
+                "Verified file reading finished; implementation remains blocked.",
+                verdict,
+                epoch,
+                receipts.keys
+            )
+        )
         val provider = object : AgentProviderSession {
             override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = error("Writing retry must not invoke model operations")
         }
@@ -292,6 +317,10 @@ class GitHubTaskTrustTest {
         assertEquals(JsonPrimitive("NEW_TASK_REQUIRED"), (saved["execution_ledger"] as JsonObject)["recovery"])
         assertTrue((saved["pending_approvals"] as JsonArray).isNotEmpty())
         assertTrue(saved["stop_reason"] is JsonObject)
+        val runAcceptance = GitHubRunAcceptance.capture(saved, "expired-run", 1, 2, 3)
+        assertEquals(JsonPrimitive("BLOCKED"), runAcceptance["task_state"])
+        assertEquals(JsonPrimitive("BLOCKED"), runAcceptance["task_outcome"])
+        assertEquals(JsonPrimitive("ACCEPTED_TASK_DEADLINE_REACHED"), runAcceptance["stop_code"])
     }
 
     @Test fun expiredRunnerStillDeliversExplicitSavedReportsAndInterruptionExplanations() = runBlocking {
@@ -303,7 +332,15 @@ class GitHubTaskTrustTest {
             put("verification_failure", "GITHUB_TASK_INCOMPLETE")
         }
         val book = GitHubEvidenceBook("expired", "o/r", "feature", setOf(read.name), load = { saved[it] }, save = { key, value -> saved[key] = value }, latestVerdict = { verdict })
-        book.retainAnswer("The saved report contains the verified source observations.", verdict)
+        val (receipts, epoch) = book.snapshot()
+        assertTrue(
+            book.retainAnswerIfCurrent(
+                "The saved report contains the verified source observations.",
+                verdict,
+                epoch,
+                receipts.keys
+            )
+        )
         val provider = object : AgentProviderSession {
             override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): kotlinx.coroutines.flow.Flow<ProviderEvent> = error("Retained delivery cannot invoke the provider")
         }

@@ -9,6 +9,7 @@ import threading
 import time
 import unittest
 from contextlib import ExitStack, closing
+from itertools import product
 from pathlib import Path
 from unittest.mock import patch
 
@@ -117,6 +118,102 @@ class JournalTests(unittest.TestCase):
             self.assertEqual(result, recovered.json()['result'])
             model.assert_not_called()
 
+    def test_retained_interrupted_job_is_terminal_even_without_result_after_restart(self):
+        job_id = 'interrupted-without-result'
+        self.runtime.register_gateway_job(job_id, 'local', 'interactive', threading.Event(), threading.Event())
+        self.store.claim(job_id, 'local:single-user')
+        with self.runtime.job_registry_lock:
+            self.runtime.job_registry[job_id].update(status='interrupted', message='Worker stopped before completion')
+            self.runtime.durable_persist_job(job_id)
+        self.runtime.job_registry.clear()
+        with self.client() as client, patch.object(self.runtime, 'process_chat_payload') as model:
+            observed = client.get('/gateway/jobs/' + job_id + '/result')
+            self.assertEqual(200, observed.status_code, observed.text)
+            result = observed.json()
+            self.assertEqual('interrupted', result['status'])
+            self.assertTrue(result['terminal'])
+            self.assertFalse(result['result_available'])
+            self.assertFalse(result['continuation_allowed'])
+            self.assertEqual('inspect_interrupted_job', result['next_action'])
+            self.assertEqual('error', result['result_quality'])
+            self.assertEqual(404, client.get('/gateway/jobs/unknown-job/result').status_code)
+            model.assert_not_called()
+
+    def test_terminal_failure_with_retained_prose_and_tools_never_allows_continuation(self):
+        result = {'choices': [{'message': {'role': 'assistant', 'content': 'Retained explanation.',
+                                           'tool_calls': [{'id': 'retained-call', 'type': 'function',
+                                                           'function': {'name': 'lookup', 'arguments': '{}'}}]},
+                                'finish_reason': 'tool_calls'}]}
+        for code, status in ((500, 'failed'), (499, 'cancelled')):
+            job_id = 'terminal-handoff-' + status
+            self.runtime.register_gateway_job(job_id, 'local', 'interactive', threading.Event(), threading.Event())
+            self.store.claim(job_id, 'local:single-user')
+            self.runtime.finish_gateway_job(job_id, code, result)
+            with closing(sqlite3.connect(self.db)) as db:
+                self.assertEqual(status, db.execute('SELECT status FROM gateway_jobs WHERE job_id=?', (job_id,)).fetchone()[0])
+        self.runtime.job_registry.clear()
+        with self.client() as client, patch.object(self.runtime, 'process_chat_payload') as model:
+            for status in ('failed', 'cancelled'):
+                observed = client.get('/gateway/jobs/terminal-handoff-' + status + '/result')
+                self.assertEqual(200, observed.status_code, observed.text)
+                saved = observed.json()
+                self.assertEqual(status, saved['status'])
+                self.assertEqual('error', saved['result_quality'])
+                self.assertTrue(saved['terminal'])
+                self.assertFalse(saved['continuation_allowed'])
+                self.assertEqual('inspect_saved_result', saved['next_action'])
+                self.assertEqual('Retained explanation.', saved['content'])
+            model.assert_not_called()
+
+    def test_saved_result_projects_visible_answer_without_changing_raw_evidence(self):
+        answer = '    def example():\n\treturn "🌸"\n\n'
+        cases = []
+        for tag in ('think', 'analysis', 'reasoning'):
+            closed = f'<{tag}>private {tag}</{tag}>'
+            unclosed = f'<{tag}>private {tag}'
+            cases.extend(((closed + answer, answer, 'stop', 'complete'),
+                          (closed, '', 'stop', 'empty'),
+                          (unclosed, '', 'stop', 'empty'),
+                          (answer + unclosed, answer, 'stop', 'complete')))
+        cases.extend((('<THINK mode="private">private</THINK>' + answer, answer, 'length', 'partial'),
+                      ('<think>private</think>', '', 'length', 'empty'),
+                      ('<think><think>inner</think>outer</think>' + answer, answer, 'stop', 'complete'),
+                      (answer + '<think><analysis>inner</think>private tail', answer, 'stop', 'complete')))
+        expected = {}
+        for index, (raw, visible, finish, quality) in enumerate(cases):
+            job_id = 'saved-visible-' + str(index)
+            result = {'model': 'local', 'choices': [{'message': {'role': 'assistant', 'content': raw},
+                                                    'finish_reason': finish}],
+                      'usage': {'completion_tokens': 12}}
+            self.runtime.register_gateway_job(job_id, 'local', 'interactive', threading.Event(), threading.Event())
+            self.store.claim(job_id, 'local:single-user')
+            # Persist legacy completed data directly, including hidden-only
+            # responses that current completion admission rejects.
+            self.runtime.finish_gateway_job(job_id, 200, result)
+            expected[job_id] = (raw, visible, quality, result)
+            with closing(sqlite3.connect(self.db)) as db:
+                stored = json.loads(db.execute('SELECT result_json FROM gateway_jobs WHERE job_id=?', (job_id,)).fetchone()[0])
+                self.assertEqual(result, stored)
+                self.assertEqual(raw, stored['choices'][0]['message']['content'])
+        self.runtime.job_registry.clear()
+        with self.client() as client, patch.object(self.runtime, 'process_chat_payload') as model:
+            for job_id, (raw, visible, quality, original) in expected.items():
+                with self.subTest(job_id=job_id):
+                    observed = client.get('/gateway/jobs/' + job_id + '/result')
+                    self.assertEqual(200, observed.status_code, observed.text)
+                    saved = observed.json()
+                    self.assertEqual('completed', saved['status'])
+                    self.assertTrue(saved['terminal'])
+                    self.assertFalse(saved['continuation_allowed'])
+                    self.assertEqual(visible, saved['content'])
+                    self.assertEqual(quality, saved['result_quality'])
+                    self.assertEqual(original, saved['result'])
+                    self.assertEqual(raw, saved['result']['choices'][0]['message']['content'])
+                    with closing(sqlite3.connect(self.db)) as db:
+                        stored = json.loads(db.execute('SELECT result_json FROM gateway_jobs WHERE job_id=?', (job_id,)).fetchone()[0])
+                        self.assertEqual(original, stored)
+            model.assert_not_called()
+
     def test_durable_retention_never_overrides_explicit_cancellation_or_uncommitted_admission(self):
         soft, hard = threading.Event(), threading.Event()
         self.runtime.register_gateway_job('manual-cancel', 'local', 'interactive', soft, hard)
@@ -143,11 +240,12 @@ class JournalTests(unittest.TestCase):
 
     def test_client_tool_handoff_continues_same_job_over_http_and_sqlite(self):
         import requests
-        for stream, restart in ((False, False), (True, False), (False, True), (True, True)):
-            with self.subTest(stream=stream, restart=restart), self.client() as client:
-                call = {'id': 'github-call-' + str((stream, restart)), 'type': 'function',
+        for stream, restart, explanation in product((False, True), (False, True), (None, 'I will inspect the workflows.')):
+            case = (stream, restart, bool(explanation))
+            with self.subTest(stream=stream, restart=restart, explanation=explanation), self.client() as client:
+                call = {'id': 'github-call-' + str(case), 'type': 'function',
                         'function': {'name': 'github_ci__github_api', 'arguments': '{"action":"workflows"}'}}
-                tool_message = {'role': 'assistant', 'content': None, 'tool_calls': [call]}
+                tool_message = {'role': 'assistant', 'content': explanation, 'tool_calls': [call]}
                 replies = iter([
                     {'choices': [{'index': 0, 'message': tool_message, 'finish_reason': 'tool_calls'}]},
                     {'choices': [{'index': 0, 'message': {'role': 'assistant', 'content': 'Verified workflow reply'}, 'finish_reason': 'stop'}]},
@@ -159,7 +257,7 @@ class JournalTests(unittest.TestCase):
                     return response, 1
                 headers = {'X-Gateway-Request-Role': 'github-primary', 'X-Gateway-Delegated-Worker': 'true'}
                 body = {'model': 'fixture', 'stream': stream, 'max_tokens': 128,
-                        'messages': [{'role': 'user', 'content': 'Inspect workflows ' + str((stream, restart))}],
+                        'messages': [{'role': 'user', 'content': 'Inspect workflows ' + str(case)}],
                         'tools': [{'type': 'function', 'function': {'name': 'github_ci__github_api',
                                   'parameters': {'type': 'object', 'required': ['action']}}}]}
                 with patch.object(self.runtime, 'post_llama_model_round', side_effect=model_round) as backend, \
@@ -186,6 +284,9 @@ class JournalTests(unittest.TestCase):
                     self.assertEqual(202, pending.status_code, pending.text)
                     self.assertEqual(tool_message, pending.json()['result']['choices'][0]['message'])
                     self.assertEqual('tool_calls', pending.json()['result_quality'])
+                    self.assertFalse(pending.json()['terminal'])
+                    self.assertTrue(pending.json()['continuation_allowed'])
+                    self.assertEqual('return_client_tool_results', pending.json()['next_action'])
                     self.assertEqual(1, backend.call_count)
                     missing = client.post('/v1/chat/completions', json=body, headers=dict(headers, **{'X-Gateway-Job-ID': job_id}))
                     self.assertEqual(409, missing.status_code, missing.text)
@@ -235,6 +336,8 @@ class JournalTests(unittest.TestCase):
                     self.assertEqual(200, recovered.status_code, recovered.text)
                     self.assertEqual(job_id, recovered.json()['job_id'])
                     self.assertEqual('complete', recovered.json()['result_quality'])
+                    self.assertTrue(recovered.json()['terminal'])
+                    self.assertFalse(recovered.json()['continuation_allowed'])
                     self.assertEqual('Verified workflow reply', recovered.json()['content'])
                     self.assertIsInstance(recovered.json()['completed_at'], (int, float))
                     proof = recovered.json()['job']

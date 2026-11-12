@@ -128,6 +128,25 @@ class GatewayRepositoryOperationsTest {
         }
     }
 
+    @Test fun typedUnknownMutationOutcomeRetainsTheClaimAndUsesOnlyStatusReads() = runTest {
+        Fixture().use { fixture ->
+            fixture.operation = { request ->
+                if (request.method == HttpMethod.Post) {
+                    HttpStatusCode.Conflict to """{"error":{"code":"EXECUTION_OPERATION_UNKNOWN_OUTCOME","failed_stage":"repository_operation","retryable":false}}"""
+                } else {
+                    HttpStatusCode.OK to fixture.receipt().toString()
+                }
+            }
+            val failure = runCatching { fixture.execute() }.exceptionOrNull() as GatewayExecutionRejected
+            assertTrue(failure.commandOutcomeUnknown)
+            assertTrue(failure.withCommandOutcomeUnknown(false).commandOutcomeUnknown)
+            assertEquals(JsonPrimitive("DISPATCH_ATTEMPTED"), fixture.state.read(NAMESPACE, requestKey(fixture.payload))?.get("dispatch_state"))
+            fixture.execute()
+            assertEquals(1, fixture.posts)
+            assertEquals(1, fixture.statusReads)
+        }
+    }
+
     @Test fun provenPreAdmissionRejectionAllowsOnlyAnExplicitLaterRetry() = runTest {
         Fixture().use { fixture ->
             fixture.operation = { HttpStatusCode.Forbidden to "{}" }

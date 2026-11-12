@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="preparing_message">Preparing message…</string>
     <string name="app_name">GPT Mobile</string>
     <string name="quick_settings_tile_name">GPT Assistant</string>
     <string name="user">User</string>
@@ -1173,7 +1174,11 @@
     <string name="audit_assessment_history">Assessment history</string>
     <string name="audit_remove_profile_effect">Profiles using this model remain saved and will need a model before running.</string>
     <string name="combined_profile_paused">Paused: provider limit</string>
+    <string name="openrouter_fallback_models">Fallback models</string>
+    <string name="openrouter_fallback_models_help">Up to three exact model IDs, in order, separated by commas. Compatible models use this profile’s routing, privacy, and pricing settings.</string>
+    <string name="provider_wait_retry_at">Waiting for provider · work saved · retry after %1$s</string>
     <string name="provider_wait_saved">Paused: provider limit. Your work is saved and eligibility will be checked again after the cooldown.</string>
+    <string name="github_approval_wait_saved">Waiting for your decision on the existing GitHub approval card. Use Approve &amp; Commit or Reject there; generic Continue is paused until you choose.</string>
     <string name="github_chat_title">GitHub Chat</string>
     <string name="github_chat_description">Work on a repository with one AI profile</string>
     <string name="chat_retry_formatting">Retry formatting</string>
@@ -1190,4 +1195,23 @@
     <string name="gateway_recovery_reconcile">Reconnect to the original job to check its result before retrying.</string>
     <string name="gateway_recovery_verify">Review the remaining acceptance evidence before marking the task complete.</string>
     <string name="gateway_recovery_inspect">Open the gateway diagnostics to inspect the failed dependency and recovery condition.</string>
+    <string name="issue_report_title">Report an issue</string>
+    <string name="issue_report_short_title">Short title</string>
+    <string name="issue_report_description">What happened?</string>
+    <string name="issue_report_include_diagnostics">Include recent diagnostics</string>
+    <string name="issue_report_public">Posts a public issue on GitHub.</string>
+    <string name="issue_report_debug_question">Do you want to report the error?</string>
+    <string name="issue_report_debug_public">Posts a public GitHub issue with redacted app events and device details.</string>
+    <string name="issue_report_cancel">Cancel</string>
+    <string name="issue_report_submit">Submit</string>
+    <string name="issue_report_open_github">Open GitHub</string>
+    <string name="issue_report_no">No</string>
+    <string name="issue_report_yes">Yes</string>
+    <string name="issue_report_view">View on GitHub</string>
+    <string name="issue_report_posted">Issue #%1$d created</string>
+    <string name="issue_report_queued">Report queued for sending.</string>
+    <string name="issue_report_finish_on_github">Finish submitting the prefilled report on GitHub.</string>
+    <string name="issue_report_browser_unavailable">Couldn’t open GitHub. Install or enable a browser, then try again.</string>
+    <string name="issue_report_save_failed">Couldn’t save the report. Try again.</string>
+    <string name="issue_report_send_failed">Automatic sending failed. You can still submit the prefilled report on GitHub.</string>
 </resources>

@@ -5,6 +5,22 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class AgentRunTerminalDiagnosticsTest {
+    @Test fun lastProgressEvidenceIsKeptSeparateFromAnUnprovenFailureStage() {
+        val result = AgentRunTerminalDiagnostics.from(
+            AgentRunStatus.PARTIAL,
+            ProfileFailureRecord("INCOMPLETE", false, phase = "stage_not_recorded"),
+            lastObservedStage = ObservedProgressStage.TOOL
+        )
+        assertEquals("stage_not_recorded", result.stage)
+        assertEquals(ObservedProgressStage.TOOL, result.lastObservedStage)
+    }
+
+    @Test fun completionRepairExhaustionResumesSavedEvidenceWithAnExplicitAllowance() {
+        val result = AgentRunTerminalDiagnostics.from(AgentRunStatus.PARTIAL, ProfileFailureRecord.classify("COMPLETION_REPAIR_BUDGET_EXHAUSTED"))
+        assertEquals("provider_generation", result.stage)
+        assertEquals("RESUME_SAVED_EVIDENCE_WITH_REVISED_OUTPUT_ALLOWANCE", result.recoveryAction)
+    }
+
     @Test fun completedResponseDoesNotClaimVerifiedObjectiveCompletion() {
         val result = AgentRunTerminalDiagnostics.from(AgentRunStatus.COMPLETED, null)
         assertEquals("RESPONSE_FLOW_COMPLETED", result.reason)
@@ -56,5 +72,60 @@ class AgentRunTerminalDiagnosticsTest {
         assertEquals("PARTIAL", result.taskVerification)
         assertEquals(null, result.dispatched)
         assertEquals(RemoteRequestAcceptance.UNKNOWN, result.remoteAcceptance)
+    }
+
+    @Test fun extractionFailuresKeepStageAndPointToSmallerSavedBatch() {
+        val failure = ProfileFailureRecord("GITHUB_EXTRACTION_OUTPUT_LIMIT", false, dispatched = true, phase = "claim_extraction", invocationId = "extract-4")
+        val result = AgentRunTerminalDiagnostics.from(AgentRunStatus.PARTIAL, failure)
+        assertEquals("GITHUB_EXTRACTION_OUTPUT_LIMIT", result.reason)
+        assertEquals("claim_extraction", result.stage)
+        assertEquals("extract-4", result.invocationId)
+        assertEquals("RESUME_SAVED_BATCH_WITH_SMALLER_CLAIM_LIMIT", result.recoveryAction)
+    }
+
+    @Test fun waitingApprovalRetainsIndependentApprovalStateAndRecoveryAction() {
+        val acceptance = dev.chungjungsoo.gptmobile.data.github.GitHubRunAcceptance.Assessment(
+            verification = "WAITING_FOR_APPROVAL",
+            evidenceId = "receipt",
+            requiredCriteria = 2,
+            verifiedCriteria = 1,
+            unresolvedOutcomes = 0,
+            taskState = "WAITING_FOR_APPROVAL",
+            stopCode = "NATIVE_APPROVAL_REQUIRED",
+            approvalState = "PENDING",
+            taskOutcome = "WAITING_FOR_APPROVAL"
+        )
+        val result = AgentRunTerminalDiagnostics.from(
+            AgentRunStatus.WAITING_FOR_APPROVAL,
+            ProfileFailureRecord("WAITING_FOR_APPROVAL", false, phase = "tool_continuation"),
+            acceptance
+        )
+        assertEquals("WAITING_FOR_APPROVAL", result.taskState)
+        assertEquals("WAITING_FOR_APPROVAL", result.executionState)
+        assertEquals("NATIVE_APPROVAL_REQUIRED", result.stopCode)
+        assertEquals("PENDING", result.approvalState)
+        assertEquals("WAITING_FOR_APPROVAL", result.taskOutcome)
+        assertEquals("REVIEW_EXISTING_APPROVAL_CARD", result.recoveryAction)
+    }
+
+    @Test fun exactUserRejectionHasItsOwnTerminalStateAndCleanupAction() {
+        val acceptance = dev.chungjungsoo.gptmobile.data.github.GitHubRunAcceptance.Assessment(
+            verification = "REJECTED",
+            evidenceId = "receipt",
+            requiredCriteria = 2,
+            verifiedCriteria = 1,
+            unresolvedOutcomes = 0,
+            taskState = "REJECTED",
+            stopCode = "APPROVAL_REJECTED",
+            approvalState = "REJECTED",
+            taskOutcome = "REJECTED"
+        )
+        val result = AgentRunTerminalDiagnostics.from(AgentRunStatus.PARTIAL, null, acceptance)
+        assertEquals("REJECTED", result.executionState)
+        assertEquals("REJECTED", result.taskVerification)
+        assertEquals("APPROVAL_REJECTED", result.reason)
+        assertEquals("RECONCILE_FIXTURE_AFTER_APPROVAL_REJECTION", result.recoveryAction)
+        assertEquals("REJECTED", result.taskState)
+        assertEquals("REJECTED", result.approvalState)
     }
 }

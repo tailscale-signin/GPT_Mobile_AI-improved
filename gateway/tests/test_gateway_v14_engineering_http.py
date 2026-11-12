@@ -25,6 +25,25 @@ from requests import Response
 
 
 class EngineeringHTTPTests(unittest.TestCase):
+    def test_binding_failure_keeps_typed_dependency_and_transient_retryability(self):
+        from v14.execution_binding import ExecutionBindingError
+        error = ExecutionBindingError('EXECUTION_BACKEND_UNAVAILABLE', 'The selected backend is not ready.', 503)
+        error.retryable = True
+        error.observation = {'reasonCode': 'BACKEND_CONNECTION_REFUSED', 'dependency': 'backend_models',
+                             'failureCategory': 'connection_refused', 'observationAgeMs': 0}
+        with patch.object(self.service, 'prepare_binding', side_effect=error):
+            response = self.client.post('/gateway/engineering/bindings', json={'selection': {}}, headers=self.headers)
+        self.assertEqual(503, response.status_code)
+        observed = response.json()['error']
+        self.assertEqual('EXECUTION_BACKEND_UNAVAILABLE', observed['code'])
+        self.assertEqual('BACKEND_CONNECTION_REFUSED', observed['reasonCode'])
+        self.assertEqual('backend_models', observed['dependency'])
+        self.assertEqual('provider_admission', observed['failed_stage'])
+        self.assertIs(False, observed['inference_attempted'])
+        self.assertEqual('not_dispatched', observed['dispatch_state'])
+        self.assertTrue(observed['retryable'])
+        self.assertFalse(observed['routeSubstituted'])
+
     def test_evidence_pagination_preview_and_account_isolation(self):
         job = self.store.create('tailnet:owner', self.request)
         for index in range(21):

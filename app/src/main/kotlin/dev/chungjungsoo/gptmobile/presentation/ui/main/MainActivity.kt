@@ -24,6 +24,8 @@ import androidx.navigation.compose.rememberNavController
 import dagger.hilt.android.AndroidEntryPoint
 import dev.chungjungsoo.gptmobile.data.agent.tool.MCP_OAUTH_SCHEME
 import dev.chungjungsoo.gptmobile.data.agent.tool.isMcpOAuthCallbackUri
+import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidents
+import dev.chungjungsoo.gptmobile.data.diagnostics.ReportFeature
 import dev.chungjungsoo.gptmobile.presentation.common.LocalCustomPrimaryArgb
 import dev.chungjungsoo.gptmobile.presentation.common.LocalDynamicTheme
 import dev.chungjungsoo.gptmobile.presentation.common.LocalThemeMode
@@ -31,6 +33,8 @@ import dev.chungjungsoo.gptmobile.presentation.common.Route
 import dev.chungjungsoo.gptmobile.presentation.common.SetupNavGraph
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeSettingProvider
 import dev.chungjungsoo.gptmobile.presentation.theme.GPTMobileTheme
+import dev.chungjungsoo.gptmobile.presentation.ui.setting.IssueReportHost
+import dev.chungjungsoo.gptmobile.presentation.ui.setting.IssueReportViewModel
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.ToolConnectionsViewModel
 import kotlinx.coroutines.launch
 
@@ -39,6 +43,7 @@ class MainActivity : dev.chungjungsoo.gptmobile.presentation.ui.main.ProtectedAc
 
     private val mainViewModel: MainViewModel by viewModels()
     private val toolConnectionsViewModel: ToolConnectionsViewModel by viewModels()
+    private val issueReportViewModel: IssueReportViewModel by viewModels()
     private lateinit var authTabLauncher: ActivityResultLauncher<Intent>
     private var lastOAuthCallback: String? = null
     private var lastOAuthLaunchUri: String? = null
@@ -64,7 +69,12 @@ class MainActivity : dev.chungjungsoo.gptmobile.presentation.ui.main.ProtectedAc
             val navController = rememberNavController()
             val isReady by mainViewModel.isReady.collectAsStateWithLifecycle()
             val startupError by mainViewModel.startupError.collectAsStateWithLifecycle()
-            LaunchedEffect(startupError) { if (startupError != null) keepSplashOnScreen = false }
+            LaunchedEffect(startupError) {
+                if (startupError != null) {
+                    keepSplashOnScreen = false
+                    IssueReportIncidents.failure(ReportFeature.APP, "STARTUP_FAILED")
+                }
+            }
 
             ThemeSettingProvider(enabled = isReady) {
                 GPTMobileTheme(
@@ -73,24 +83,27 @@ class MainActivity : dev.chungjungsoo.gptmobile.presentation.ui.main.ProtectedAc
                     customPrimaryArgb = LocalCustomPrimaryArgb.current,
                     customPalette = dev.chungjungsoo.gptmobile.presentation.common.LocalCustomPalette.current
                 ) {
-                    if (startupError != null) {
-                        StartupRecoveryScreen(requireNotNull(startupError), mainViewModel::retryStartup)
-                    } else if (!isReady) {
-                        androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.Center) { androidx.compose.material3.CircularProgressIndicator() }
-                    } else if (isReady) {
-                        dev.chungjungsoo.gptmobile.presentation.common.GlassBackdropHost {
-                            SetupNavGraph(
-                                navController = navController,
-                                toolConnectionsViewModel = toolConnectionsViewModel,
-                                onLaunchOAuth = ::launchOAuth
-                            )
-                        }
-                        LaunchedEffect(navController) {
-                            navController.checkForExistingSettings()
-                            navController.observeNotificationDeepLinks()
-                            keepSplashOnScreen = false
-                            androidx.compose.runtime.withFrameNanos { }
-                            if (mainViewModel.event.replayCache.lastOrNull() == MainViewModel.SplashEvent.OpenHome) dev.chungjungsoo.gptmobile.data.readiness.ReadinessHints.usableUi()
+                    IssueReportHost(issueReportViewModel, showPrompts = isReady || startupError != null) { openReport ->
+                        if (startupError != null) {
+                            StartupRecoveryScreen(requireNotNull(startupError), mainViewModel::retryStartup)
+                        } else if (!isReady) {
+                            androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.Center) { androidx.compose.material3.CircularProgressIndicator() }
+                        } else {
+                            dev.chungjungsoo.gptmobile.presentation.common.GlassBackdropHost {
+                                SetupNavGraph(
+                                    navController = navController,
+                                    toolConnectionsViewModel = toolConnectionsViewModel,
+                                    onLaunchOAuth = ::launchOAuth,
+                                    onReportIssue = openReport
+                                )
+                            }
+                            LaunchedEffect(navController) {
+                                navController.checkForExistingSettings()
+                                navController.observeNotificationDeepLinks()
+                                keepSplashOnScreen = false
+                                androidx.compose.runtime.withFrameNanos { }
+                                if (mainViewModel.event.replayCache.lastOrNull() == MainViewModel.SplashEvent.OpenHome) dev.chungjungsoo.gptmobile.data.readiness.ReadinessHints.usableUi()
+                            }
                         }
                     }
                 }

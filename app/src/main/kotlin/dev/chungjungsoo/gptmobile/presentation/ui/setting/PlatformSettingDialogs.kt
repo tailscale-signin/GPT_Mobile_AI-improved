@@ -1641,6 +1641,7 @@ private fun OpenRouterAdvancedSettingsDialog(
     var sortStrategy by remember {
         mutableStateOf(initialParsed.provider?.sort ?: OpenRouterOptions.DEFAULT_PROVIDER_SORT)
     }
+    var fallbackModels by remember { mutableStateOf(initialParsed.fallbackModels.orEmpty().joinToString(", ")) }
 
     var sortExpanded by remember { mutableStateOf(false) }
 
@@ -1770,6 +1771,13 @@ private fun OpenRouterAdvancedSettingsDialog(
                     )
                 }
 
+                OutlinedTextField(
+                    value = fallbackModels,
+                    onValueChange = { fallbackModels = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text(stringResource(R.string.openrouter_fallback_models)) },
+                    supportingText = { Text(stringResource(R.string.openrouter_fallback_models_help)) }
+                )
                 ExposedDropdownMenuBox(
                     expanded = sortExpanded,
                     onExpandedChange = { sortExpanded = it }
@@ -1809,11 +1817,18 @@ private fun OpenRouterAdvancedSettingsDialog(
                 onClick = {
                     runCatching {
                         val decoded = dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterProfileOverrides.parse(initialRoutingJson ?: "{}")
-                        val wrapped = decoded.raw.keys.any { it == "provider" || it in dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterProfileOverrides.GENERATION_FIELDS }
+                        val wrapped = decoded.raw.keys.any { it in setOf("provider", "fallback_models") || it in dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterProfileOverrides.GENERATION_FIELDS }
                         val fields = (if (wrapped) decoded.raw else kotlinx.serialization.json.JsonObject(mapOf("provider" to decoded.raw))).toMutableMap()
                         fun number(key: String, text: String, initial: Number?) {
                             if (text == initial?.toString().orEmpty()) return
                             fields[key] = if (text.isBlank()) kotlinx.serialization.json.JsonNull else Json.parseToJsonElement(text)
+                        }
+                        val candidates = fallbackModels.split(',').map(String::trim).filter(String::isNotEmpty)
+                        if (candidates.isEmpty()) {
+                            fields.remove("fallback_models")
+                        } else {
+                            fields["fallback_models"] =
+                                kotlinx.serialization.json.JsonArray(candidates.map { kotlinx.serialization.json.JsonPrimitive(it) })
                         }
                         number("max_tokens", maxTokensText, initialParsed.maxTokens)
                         number("temperature", temperatureText, initialParsed.temperature)
@@ -1832,7 +1847,8 @@ private fun OpenRouterAdvancedSettingsDialog(
                         dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterPolicy.decodeProfile(resultJson)
                         resultJson
                     }.onSuccess(onConfirmRequest).onFailure {
-                        validationError = "Invalid overrides. Use JSON numbers in range, or leave a field blank to inherit."
+                        validationError = it.message?.takeIf { message -> message.startsWith("Enter up to three") }
+                            ?: "Invalid overrides. Use JSON numbers in range, or leave a field blank to inherit."
                     }
                 }
             ) {

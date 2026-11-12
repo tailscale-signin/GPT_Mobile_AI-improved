@@ -1,0 +1,135 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "e62bded83b3861816c2c6e97116b30c9eb0920f1",
+  "working_branch": "fix/voice-chat-crash-and-diagnostics-2026-11-11",
+  "starting_head": "ab77b77dba3e9e7c928b153e2accf44e937d7e0c",
+  "parent_pr": 819,
+  "intent": "Implement the 23 gateway-debug audit issue groups with exact-model preparation, durable admission and receipt recovery, task-specific tool readiness, bounded generation repair, criterion evidence, complete diagnostics and measured client-performance fixes.",
+  "state": "IMPLEMENTED_FOCUSED_VALIDATED_PENDING_FULL_ANDROID_CI",
+  "task_store": "engineering_agent_checkpoints",
+  "task_store_key": "gateway-debug-remediation-2026-11-11",
+  "source_capture": {
+    "transport_sha256": "915d458dbc0705c8621c3b18819ea1f41c5390e1f5d9f2f6a47e31dabdd362d6",
+    "diagnostic_sha256": "55e9c61db05955df0f715cb1cbb2221b7e52d420e7b17319b4b10d5c739702fe",
+    "coverage": "Retained evidence only; host listener availability and physical model execution require deployed qualification."
+  },
+  "workstreams": {
+    "model_preparation": "IMPLEMENTED",
+    "admission_reconciliation": "IMPLEMENTED",
+    "diagnostics_export_performance": "IMPLEMENTED",
+    "tools_generation_acceptance": "IMPLEMENTED",
+    "saved_backend_preparation": "IMPLEMENTED"
+  },
+  "validation": {
+    "fast": {
+      "status": "PASS",
+      "script_tests": 462,
+      "command": "bash scripts/validate-local.sh fast",
+      "source_commit": "9fe97ffa7466f308af75ef8d501c86f21c3d6dc9"
+    },
+    "authentication": {
+      "status": "PASS",
+      "tests": 35
+    },
+    "focused_gateway": {
+      "status": "PASS",
+      "model_preparation": 47,
+      "task_readiness": 10,
+      "debug_evidence": 13,
+      "diagnostic_events": 28,
+      "selected_execution": 23
+    },
+    "android_compile": {
+      "status": "PENDING_FULL_CI",
+      "detail": "Focused host validation passed: 144 model/receipt/queue tests on the integrated source, plus 121 diagnostics tests with verified exercised-source equivalence. Full Gradle/KSP/KAPT, dependency-injection, APK and device validation remain separate gates. Local full Gradle processes disappeared without a compiler verdict."
+    },
+    "complete_gateway": {
+      "status": "PASS",
+      "python_tests": 880,
+      "python_passed": 878,
+      "python_skipped": 2,
+      "browser_tests_passed": 7,
+      "command": "python3 gateway/check_gateway.py"
+    },
+    "focused_android": {
+      "model_receipt_queue": {
+        "status": "PASS",
+        "tests": 144,
+        "test_classes": 9,
+        "production_source_closure": 100,
+        "closure_compile_source_commit": "1a1f224600780b82226437cec8b1efb12e7dcd6c",
+        "final_source_commit": "9fe97ffa7466f308af75ef8d501c86f21c3d6dc9",
+        "incremental_production_sources_compiled": 1,
+        "incremental_test_sources_compiled": 1,
+        "source_hashes_unchanged": true,
+        "reused_current_output_byte_hashes_verified": true,
+        "runner": "Current-source Kotlin compiler plus JUnit/Robolectric host harness",
+        "limitation": "Real cached supporting dependencies include prebuilt Room-generated implementations; this is not a full Android build.",
+        "source_manifest_sha256": "ef314ca423e4f8f18a53d9dcc424909970022524a186261b0712256f89de5e0c",
+        "dependency_provenance_sha256": "78a3d3032974104fbeedb975b2b847fad44211d81fc76a2a54efe7d3a9dd463a",
+        "verification_receipt_sha256": "b892a99c41664bdecf0ab550b04c0017e4acbba33837a83e39ac514418cb4fb2",
+        "changed_cached_source_owners": 0,
+        "unidentified_classes": 0,
+        "unchanged_cached_source_owners": 142,
+        "cached_room_generated_classes": 108,
+        "cached_room_generated_source_files": 23,
+        "reused_current_production_source_owners": 99
+      },
+      "diagnostics": {
+        "status": "PASS",
+        "tests": 121,
+        "test_classes": 13,
+        "compiled_production_sources": 98,
+        "compile_source_commit": "1a1f224600780b82226437cec8b1efb12e7dcd6c",
+        "exercised_source_equivalent_commit": "9fe97ffa7466f308af75ef8d501c86f21c3d6dc9",
+        "exercised_source_owners": 100,
+        "source_manifest_sha256": "77fffd758837bd9ec8b8e748c20beab585887e91cdc608c3e84ce08eb480fbc7",
+        "dependency_provenance_sha256": "bdedb29b6c27fd1339e6abc23af9fc0d5612f2137f76d874d01c9ae616741c30",
+        "source_equivalence_receipt_sha256": "6298d47e19f5b6985e0b3c4e7ff03c6d7df2ee33a6c2d1f8f5a86573d72971d5",
+        "changed_cached_source_owners": 0,
+        "unidentified_classes": 0,
+        "limitation": "The changed queue owner was not loaded by these diagnostics tests; the separate model/receipt/queue refresh covers it."
+      }
+    },
+    "model_preparation_http_refresh": {
+      "status": "PASS",
+      "tests": 29,
+      "command": "python3 gateway/tests/test_gateway_model_preparation_http.py",
+      "source_commit": "1a1f224600780b82226437cec8b1efb12e7dcd6c",
+      "source_unchanged_at_final_commit": true
+    },
+    "formatting": {
+      "status": "PASS",
+      "tool": "ktlint 1.3.1",
+      "scope": "Final Gateway engineering binding and queue production/tests",
+      "whitespace": "git diff --check passed"
+    }
+  },
+  "publication": {
+    "target_pr": 819,
+    "target_branch": "fix/voice-chat-crash-and-diagnostics-2026-11-11",
+    "expected_head": "aa51231a492ae4fde208d1ca2d17e64790f3bf53",
+    "method": "GitHub Git Database API, expected-head fast-forward update",
+    "implementation_commit": "f22c93b56ffc2406c9d09840a2dd189cd0cecc6a",
+    "verification": "Target ref ancestry and PR CI are authoritative; no deployment or merge is claimed.",
+    "followup": {
+      "expected_head": "ee02e9135cfbec9169c05e1e1e2c06c5ebe1fb58",
+      "implementation_commit": "9fe97ffa7466f308af75ef8d501c86f21c3d6dc9",
+      "tree_sha": "49fb3484c846a37e83998ce8ac68d9a361b61495",
+      "method": "Expected-head fast-forward through GitHub Git Database API",
+      "scope": "Original backend validation before and after model preparation; seven behavior regressions; all concurrent queue, recovery, approval, rendering and diagnostic work preserved."
+    }
+  },
+  "concurrent_head_integrated": "ee02e9135cfbec9169c05e1e1e2c06c5ebe1fb58",
+  "concurrent_heads_integrated": [
+    "aa51231a492ae4fde208d1ca2d17e64790f3bf53",
+    "3c963d57acfa3221881b3b9dc7d269dc23a72a0f",
+    "52f545c13dd49a25dee6153008bfaaef0a977109",
+    "c6fbdf0031be37f426a4832c847c7ab4cfa9b1ec",
+    "cd7e49234b601e7394f582fb12346f0df8f57287",
+    "113ce6ef3726e837e49e6aab0673d24f665609d2",
+    "ee02e9135cfbec9169c05e1e1e2c06c5ebe1fb58"
+  ]
+}

@@ -21,6 +21,7 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentRunCoordinator
 import dev.chungjungsoo.gptmobile.data.backup.SanitizedChatBackup
 import dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao
 import dev.chungjungsoo.gptmobile.data.database.dao.AgentRunDao
+import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidents
 import dev.chungjungsoo.gptmobile.data.localmodel.PendingLocalPlatformActivator
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntime
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayNetworkRecoveryMonitor
@@ -95,7 +96,13 @@ class GPTMobileApp :
         dev.chungjungsoo.gptmobile.data.localmodel.LinkedModelSources.initialize(this)
         if (dev.chungjungsoo.gptmobile.data.localruntime.isInferenceProcess()) return
         dev.chungjungsoo.gptmobile.data.security.DevicePrivacySettings.initialize(this)
+        IssueReportIncidents.initialize(this)
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.initialize(this)
+        applicationScope.launch {
+            startupDependencies().settingRepository().observeDebugMode().distinctUntilChanged().collect { enabled ->
+                runCatching { IssueReportIncidents.debugPreferenceChanged(enabled) }
+            }
+        }
         dev.chungjungsoo.gptmobile.data.network.FreeAiRequestLimiter.shared.initialize({ java.io.File(noBackupFilesDir, "free-provider-cooldowns.json") }, requireExplicitLoad = true)
         dev.chungjungsoo.gptmobile.data.free.FreeProviderDiagnostics.initialize { java.io.File(noBackupFilesDir, "free-provider-failures.json") }
         if (dev.chungjungsoo.gptmobile.BuildConfig.DEBUG) {

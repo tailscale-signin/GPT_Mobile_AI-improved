@@ -95,6 +95,36 @@ class GitHubChecklistPaginationTest {
         assertTrue(GitHubTestChecklist.pendingPages(mapOf("source" to source(), "read" to success)).isEmpty())
     }
 
+    @Test fun duplicatePageRecipesKeepTheStrongestFreshnessAndExactRevision() {
+        val head = "a".repeat(40)
+        fun receipt(id: String, args: String, revision: String = head, binding: String = "task") = json("""{"receipt_id":"$id","trusted":true,"success":true,"binding":"$binding","repository":"owner/repo","source_head_sha":"$revision","tool":"github_ci","arguments":{"action":"definitions"},"result":{"continuation_call":{"tool":"github_ci","arguments":$args}}}""")
+        val weak = """{"action":"definitions","index_cursor":4,"commit_sha":"$head"}"""
+        val strong = """{"action":"definitions","index_cursor":4,"commit_sha":"$head","verify_live":true}"""
+        val records = linkedMapOf("old" to receipt("old", weak), "live" to receipt("live", strong))
+        assertEquals(listOf(json("""{"tool":"github_ci","arguments":$strong}""")), GitHubTestChecklist.pendingPages(records))
+        records["different-revision"] = receipt("different-revision", weak.replace(head, "b".repeat(40)), "b".repeat(40))
+        records["other-task"] = receipt("other-task", strong, binding = "other")
+        assertEquals(3, GitHubTestChecklist.pendingPages(records).size)
+        val completed = json("""{"trusted":true,"success":true,"binding":"task","repository":"owner/repo","tool":"github_ci","arguments":$strong,"result":{}}""")
+        assertEquals(2, GitHubTestChecklist.pendingPages(records + ("completed" to completed)).size)
+    }
+
+    @Test fun sourceReadResumeProofRequiresTheBoundIssuerAndAnUnspentAuthorizedRecipe() {
+        fun bound(value: JsonObject, id: String) = JsonObject(value + mapOf("receipt_id" to JsonPrimitive(id), "call_id" to JsonPrimitive(id), "binding" to JsonPrimitive("task"), "repository" to JsonPrimitive("owner/repo")))
+        val original = bound(source(), "source")
+        val rejected = JsonObject(bound(failed(), "failed-cursor") + ("dispatched" to JsonPrimitive(false)))
+        val records = linkedMapOf("source" to original, "failure" to rejected)
+        val proof = requireNotNull(GitHubTestChecklist.sourceReadRecovery(tools, records))
+        assertEquals(JsonPrimitive("failed-cursor"), proof["failed_call_id"])
+        assertEquals(JsonPrimitive("source"), proof["source_receipt_id"])
+        assertEquals(recovery["arguments"], proof["arguments"])
+        assertEquals(null, GitHubTestChecklist.sourceReadRecovery(emptyList(), records))
+        assertEquals(null, GitHubTestChecklist.sourceReadRecovery(tools, mapOf("failure" to rejected)))
+        assertEquals(null, GitHubTestChecklist.sourceReadRecovery(tools, records + ("reopened" to bound(source(), "reopened"))))
+        val foreign = JsonObject(original + ("binding" to JsonPrimitive("foreign")))
+        assertEquals(null, GitHubTestChecklist.sourceReadRecovery(tools, records + ("source" to foreign)))
+    }
+
     @Test fun repositoryBindingEnrichmentClosesExactPagesAndSpendsLogSamplingBudget() {
         fun bound(row: JsonObject, binding: String = "task"): JsonObject {
             val arguments = row["arguments"] as JsonObject

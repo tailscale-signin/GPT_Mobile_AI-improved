@@ -62,6 +62,20 @@ class GatewayCoordinatorRecoveryTest {
         coVerify(exactly = 0) { f.gateway.cancelJob(any(), any()) }
     }
 
+    @Test fun interruptedTerminalJobWithoutTextStopsPollingWithoutReplayingIt() = runTest {
+        val f = Fixture(old = true)
+        coEvery { f.gateway.getJobResult("saved-job", any()) } returns f.complete.copy(status = "interrupted", content = null, resultQuality = "failed", terminal = true, resultAvailable = false, continuationAllowed = false)
+        val coordinator = f.coordinator()
+        coordinator.recoverInterruptedGatewayRuns()
+        coordinator.recoverInterruptedGatewayRuns()
+        assertEquals(AgentRunStatus.FAILED, f.state)
+        assertTrue(f.error.orEmpty().contains("GATEWAY_SAVED_RESULT_FAILED"))
+        coVerify(exactly = 1) { f.gateway.getJobResult("saved-job", any()) }
+        coVerify(exactly = 1) { f.chats.finishInterruptedAgentRun("run", AgentRunStatus.FAILED, any(), any()) }
+        coVerify(exactly = 0) { f.chats.restoreGatewayAnswer(any(), any(), any(), any(), any(), any()) }
+        coVerify(exactly = 0) { f.gateway.cancelJob(any(), any()) }
+    }
+
     @Test fun conversationOwnedJobsUseTheirOriginalRecoveryEngineWithoutOrdinaryResultAdoption() = runTest {
         val f = Fixture(old = true, github = true)
         val engineering = mockk<GatewayChatSubmission>(relaxed = true)

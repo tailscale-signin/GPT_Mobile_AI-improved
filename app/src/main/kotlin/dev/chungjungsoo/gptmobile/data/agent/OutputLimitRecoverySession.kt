@@ -4,8 +4,9 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.transformWhile
 
-internal enum class ContinuationTrigger { PROVIDER_OUTPUT_LIMIT, REQUESTED_LENGTH, STREAM_INTERRUPTED, RESTORED_DRAFT, NO_PROGRESS }
+internal enum class ContinuationTrigger { PROVIDER_OUTPUT_LIMIT, REQUESTED_LENGTH, STREAM_INTERRUPTED, RESTORED_DRAFT, NO_PROGRESS, REPETITIVE_OUTPUT }
 
 /** Bounded text-only continuations. Completed actions are evidence, never replayed. */
 internal class OutputLimitRecoverySession(
@@ -20,6 +21,7 @@ internal class OutputLimitRecoverySession(
     private val maxAnswerCharacters: Int = 1_048_576,
     private val combined: CombinedExecutionContext? = null,
     private val adaptToObservedOutput: Boolean = false,
+    private val requestedRepetitionCharacters: Int = 0,
     private val saveProgress: suspend (draft: String, index: Int, outputCap: Int?, reason: String) -> Unit = { _, _, _, _ -> },
     private val onContinuationTrigger: (ContinuationTrigger) -> Unit = {},
     private val continuation: suspend (String, List<AgentToolExchange>) -> AgentProviderSession
@@ -45,13 +47,13 @@ internal class OutputLimitRecoverySession(
 
     override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
         if (handlesToolsInternally && !allowInternalToolRecovery) {
-            emitAll(active.streamRound(tools, exchanges).withAssistantTextMarkupGuard(validateSearchClaims = false))
+            emitAll(guardInternalToolStream(tools, exchanges))
             return@flow
         }
         val evidence = exchanges // Re-admission decides fit; recovery must not silently replace completed evidence with snippets.
         if (resumePending) {
             resumePending = false
-            emit(ProviderEvent.TextDelta(answer.toString()))
+            emit(ProviderEvent.TextDelta(answer.toString(), dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.RETAINED_CONTENT)))
             if (continuationLimit == 0) {
                 saveProgress(answer.toString(), continuations, effectiveOutputCap, "PARTIAL")
                 emit(ProviderEvent.Failed("OUTPUT_CONTINUATION_DISABLED: The saved answer is retained after 0 continuation requests; automatic continuation is disabled.", errorCode = "OUTPUT_CONTINUATION_DISABLED"))
@@ -85,10 +87,28 @@ internal class OutputLimitRecoverySession(
             val pendingCalls = mutableListOf<ProviderEvent.ToolCall>()
             val admission = ToolRoundAdmission()
             val segment = StringBuilder()
+            val progress = ContinuationTextProgress(if (continuing) answer.toString() else "", requestedRepetitionCharacters)
+            val textLineage = dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineageAccumulator()
             var savedCharacters = 0
             try {
                 active.streamRound(if (continuing) emptyList() else tools, if (continuing) emptyList() else exchanges)
-                    .stopAtUnknownGatewayOutcome().withAssistantTextMarkupGuard(validateSearchClaims = false).withSummedRequestUsage().collect { event ->
+                    .stopAtUnknownGatewayOutcome().withAssistantTextMarkupGuard(validateSearchClaims = false)
+                    .transformWhile { event ->
+                        if (event is ProviderEvent.TextDelta) {
+                            if (event.text.isNotEmpty()) textLineage.append(event.lineage)
+                            val confirmed = progress.append(event.text)
+                            if (confirmed.isNotEmpty()) emit(ProviderEvent.TextDelta(confirmed, textLineage.lineage))
+                        } else {
+                            if (event.isVisibleTextBoundary()) {
+                                val confirmed = progress.flushBoundary()
+                                if (confirmed.isNotEmpty()) emit(ProviderEvent.TextDelta(confirmed, textLineage.lineage))
+                            }
+                            emit(event)
+                        }
+                        // transformWhile cancels upstream collection and runs its cleanup.
+                        // Ignoring later deltas would leave the same generation consuming tokens.
+                        !progress.stopped
+                    }.withSummedRequestUsage().collect { event ->
                         when (event) {
                             is ProviderEvent.ToolCall -> {
                                 if (!admission.admit(event)) throw ToolBatchOversizeException()
@@ -114,10 +134,9 @@ internal class OutputLimitRecoverySession(
                                 // Bound retained text, including misbehaving providers that ignore output caps.
                                 check(answer.length.toLong() + segment.length + event.text.length <= retainedCharacterLimit) { "Response exceeded the safe continuation buffer. Partial output is saved." }
                                 segment.append(event.text)
-                                if (!continuing) emit(event)
+                                emit(event)
                                 if (segment.length - savedCharacters >= 4096) {
-                                    val progress = if (continuing) continuationSuffix(answer.toString(), segment.toString()) else segment.toString()
-                                    saveProgress(answer.toString() + progress, continuations, effectiveOutputCap, "WRITING")
+                                    saveProgress(answer.toString() + segment, continuations, effectiveOutputCap, "WRITING")
                                     savedCharacters = segment.length
                                 }
                             }
@@ -125,21 +144,26 @@ internal class OutputLimitRecoverySession(
                             else -> emit(event)
                         }
                     }
+                val finalText = progress.finish()
+                check(answer.length.toLong() + segment.length + finalText.length <= retainedCharacterLimit) { "Response exceeded the safe continuation buffer. Partial output is saved." }
+                if (finalText.isNotEmpty()) {
+                    segment.append(finalText)
+                    emit(ProviderEvent.TextDelta(finalText, textLineage.lineage))
+                }
             } catch (failure: Exception) {
                 // Preserve even a short, interrupted segment. Never emit from this catch: a
                 // downstream collector failure must retain Flow exception transparency.
-                val progress = if (continuing) continuationSuffix(answer.toString(), segment.toString()) else segment.toString()
+                val retained = answer.toString() + segment + progress.finish()
                 kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
                     try {
-                        saveProgress(answer.toString() + progress, continuations, effectiveOutputCap, if (failure is kotlinx.coroutines.CancellationException) "CANCELLED" else "PARTIAL")
+                        saveProgress(retained, continuations, effectiveOutputCap, if (failure is kotlinx.coroutines.CancellationException) "CANCELLED" else "PARTIAL")
                     } catch (saveFailure: Exception) {
                         failure.addSuppressed(saveFailure)
                     }
                 }
                 throw failure
             }
-            val novel = if (continuing) continuationSuffix(answer.toString(), segment.toString()) else segment.toString()
-            if (continuing && novel.isNotEmpty()) emit(ProviderEvent.TextDelta(novel))
+            val novel = segment.toString()
             answer.append(novel)
             saveProgress(answer.toString(), continuations, effectiveOutputCap, "SEGMENT_COMMITTED")
             failure?.takeIf { GatewayOutcomeRecovery.requiresReconciliation(it.message, it.errorCode) }?.let { unresolved ->
@@ -150,7 +174,7 @@ internal class OutputLimitRecoverySession(
             val limitFailure = failure?.let { dev.chungjungsoo.gptmobile.data.agent.tool.isProviderOutputLimitFailure(it.message) } == true ||
                 reportedFinishReason?.lowercase() in setOf("length", "max_tokens", "output_limit") ||
                 (pendingCalls.isEmpty() && LongResponsePolicy.unfinishedQueuedPacket(segment.toString(), reportedFinishReason, effectiveOutputCap))
-            if (completed && !limitFailure && failure == null && pendingCalls.isEmpty() && answer.isNotBlank() && (!continuing || novel.isNotBlank())) completedAnswerLength = answer.length
+            if (completed && !limitFailure && failure == null && !progress.stopped && pendingCalls.isEmpty() && answer.isNotBlank() && (!continuing || novel.isNotBlank())) completedAnswerLength = answer.length
             suspend fun retainedFailure(original: ProviderEvent.Failed) {
                 val recovering = continuations > 0 || transientRetries > 0
                 val earlierComplete = completedAnswerLength == answer.length && recovering
@@ -191,16 +215,16 @@ internal class OutputLimitRecoverySession(
             }
             val needsMore = if (combined == null) LongResponsePolicy.needsMore(answer.toString(), targetWords) else targetWords?.let { visibleWords() < it } == true
             val shortAnswer = completed && pendingCalls.isEmpty() && needsMore
-            val noProgress = continuing && novel.isBlank() && !transientFailure && pendingCalls.isEmpty()
+            val noProgress = progress.stopped || (continuing && novel.isBlank() && !transientFailure && pendingCalls.isEmpty())
             // A successful but repeated/empty packet gets one text-only regeneration
             // within the existing request allowance. Provider failures retain their own
             // recovery policy; a second repetition cannot become an unbounded loop.
-            val regenerateNoProgress = noProgress && completed && failure == null && noProgressRetries == 0 && continuations < continuationLimit && answer.length < retainedCharacterLimit
+            val regenerateNoProgress = noProgress && (completed || progress.stopped) && failure == null && pendingCalls.isEmpty() && noProgressRetries == 0 && continuations < continuationLimit && answer.length < retainedCharacterLimit
             if (noProgress && !regenerateNoProgress) {
                 saveProgress(answer.toString(), continuations, effectiveOutputCap, "PARTIAL")
                 retainedFailure(
                     ProviderEvent.Failed(
-                        "OUTPUT_CONTINUATION_NO_PROGRESS: The provider returned no new answer text. The existing ${visibleWords()} words are saved; the answer was not restarted or duplicated.",
+                        "OUTPUT_CONTINUATION_NO_PROGRESS: The provider returned repeated or no new answer text. The existing ${visibleWords()} words are saved; the answer was not restarted or duplicated.",
                         errorCode = "OUTPUT_CONTINUATION_NO_PROGRESS"
                     )
                 )
@@ -245,12 +269,13 @@ internal class OutputLimitRecoverySession(
                 if (regenerateNoProgress) noProgressRetries++
             }
             if (regenerateNoProgress) {
-                emit(ProviderEvent.Notice("The continuation added no new text. Regenerating the unfinished continuation once from the saved answer; completed actions will not repeat.", false))
+                emit(ProviderEvent.Notice(if (progress.repetitive) "Stopped a repetitive response. Trying the unfinished answer once from its saved useful text; completed actions will not repeat." else "The continuation added no new text. Regenerating the unfinished continuation once from the saved answer; completed actions will not repeat.", false))
             } else if (!transientFailure) {
                 emit(ProviderEvent.Notice("Continuing the response (part ${continuations + 1}) from the saved answer and completed evidence.", false))
             }
             val trigger = when {
                 transientFailure -> ContinuationTrigger.STREAM_INTERRUPTED
+                progress.repetitive -> ContinuationTrigger.REPETITIVE_OUTPUT
                 regenerateNoProgress -> ContinuationTrigger.NO_PROGRESS
                 limitFailure -> ContinuationTrigger.PROVIDER_OUTPUT_LIMIT
                 else -> ContinuationTrigger.REQUESTED_LENGTH
@@ -275,6 +300,81 @@ internal class OutputLimitRecoverySession(
             }
         }
     }
+
+    /** Guard model text without changing the internal session's live tool protocol or replaying it. */
+    private fun guardInternalToolStream(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
+        val progress = ContinuationTextProgress(requestedRepetitionCharacters = requestedRepetitionCharacters)
+        val lineage = dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineageAccumulator()
+        val retained = StringBuilder()
+        var completed = false
+        var failed = false
+        try {
+            active.streamRound(tools, exchanges).stopAtUnknownGatewayOutcome().withAssistantTextMarkupGuard(validateSearchClaims = false)
+                .transformWhile { event ->
+                    if (event is ProviderEvent.TextDelta) {
+                        if (event.text.isNotEmpty()) lineage.append(event.lineage)
+                        val confirmed = progress.append(event.text)
+                        if (confirmed.isNotEmpty()) emit(ProviderEvent.TextDelta(confirmed, lineage.lineage))
+                    } else {
+                        if (event.isVisibleTextBoundary()) {
+                            val confirmed = progress.flushBoundary()
+                            if (confirmed.isNotEmpty()) emit(ProviderEvent.TextDelta(confirmed, lineage.lineage))
+                        }
+                        emit(event)
+                    }
+                    !progress.stopped
+                }.withSummedRequestUsage().collect { event ->
+                    when (event) {
+                        is ProviderEvent.TextDelta -> {
+                            check(retained.length.toLong() + event.text.length <= retainedCharacterLimit) { "Response exceeded the safe continuation buffer. Partial output is saved." }
+                            retained.append(event.text)
+                            emit(event)
+                        }
+                        ProviderEvent.Completed -> completed = true
+                        is ProviderEvent.Failed -> {
+                            val finalText = progress.finish()
+                            check(retained.length.toLong() + finalText.length <= retainedCharacterLimit) { "Response exceeded the safe continuation buffer. Partial output is saved." }
+                            if (finalText.isNotEmpty()) {
+                                retained.append(finalText)
+                                emit(ProviderEvent.TextDelta(finalText, lineage.lineage))
+                            }
+                            failed = true
+                            emit(event)
+                        }
+                        else -> emit(event)
+                    }
+                }
+            val finalText = progress.finish()
+            check(retained.length.toLong() + finalText.length <= retainedCharacterLimit) { "Response exceeded the safe continuation buffer. Partial output is saved." }
+            if (finalText.isNotEmpty()) {
+                retained.append(finalText)
+                emit(ProviderEvent.TextDelta(finalText, lineage.lineage))
+            }
+        } catch (failure: Exception) {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                try {
+                    saveProgress(retained.toString() + progress.finish(), continuations, effectiveOutputCap, if (failure is kotlinx.coroutines.CancellationException) "CANCELLED" else "PARTIAL")
+                } catch (saveFailure: Exception) {
+                    failure.addSuppressed(saveFailure)
+                }
+            }
+            throw failure
+        }
+        if (progress.stopped && !failed) {
+            saveProgress(retained.toString(), continuations, effectiveOutputCap, "PARTIAL")
+            emit(ProviderEvent.Failed("OUTPUT_CONTINUATION_NO_PROGRESS: Repetitive model output was stopped. The useful answer and completed tool evidence are retained; the internally managed tool session was not replayed.", errorCode = "OUTPUT_CONTINUATION_NO_PROGRESS"))
+        } else if (completed && !failed) {
+            emit(ProviderEvent.Completed)
+        }
+    }
+}
+
+/** Usage and transport progress remain observations within the current text segment. */
+private fun ProviderEvent.isVisibleTextBoundary(): Boolean = when (this) {
+    is ProviderEvent.ToolCall, is ProviderEvent.ToolResult -> true
+    is ProviderEvent.ThinkingDelta -> text.isNotEmpty()
+    is ProviderEvent.Notice -> message.isNotEmpty()
+    else -> false
 }
 
 /** Remove literal restart/overlap without guessing that similar but distinct facts are duplicates. */

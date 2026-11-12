@@ -5,6 +5,9 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.chungjungsoo.gptmobile.data.agent.AgentRunCoordinator
 import dev.chungjungsoo.gptmobile.data.chat.GenerationCompletionStore
+import dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationRepository
+import dev.chungjungsoo.gptmobile.data.context.GatewayModelSelectionController
+import dev.chungjungsoo.gptmobile.data.context.ReasoningPolicy
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
@@ -68,8 +71,11 @@ class HomeViewModel @Inject constructor(
     private val foldersRepository: dev.chungjungsoo.gptmobile.data.chat.ConversationFolderRepository,
     private val pinnedOrderStore: dev.chungjungsoo.gptmobile.data.chat.PinnedConversationOrderStore,
     private val researchSessions: dev.chungjungsoo.gptmobile.data.research.ResearchSessionStore? = null,
-    private val combinedBudgets: dev.chungjungsoo.gptmobile.data.agent.CombinedTurnBudgetStore? = null
+    private val combinedBudgets: dev.chungjungsoo.gptmobile.data.agent.CombinedTurnBudgetStore? = null,
+    gatewayPreparation: GatewayModelPreparationRepository? = null
 ) : ViewModel() {
+    private val gatewayModelSelection = GatewayModelSelectionController(gatewayPreparation, viewModelScope)
+    val gatewayModelPreparation = gatewayModelSelection.states
 
     companion object {
         private const val SEARCH_DEBOUNCE_MS = 300L
@@ -84,7 +90,7 @@ class HomeViewModel @Inject constructor(
         val chats: List<ChatRoomV2> = listOf(),
         val isSelectionMode: Boolean = false,
         val isSearchMode: Boolean = false,
-        val selectedPlatforms: List<Boolean> = listOf(),
+        val selectedPlatformUids: Set<String> = emptySet(),
         val selectedChatIds: Set<Int> = emptySet()
     ) {
         val selectedChats: List<Boolean> get() = chats.map { it.id in selectedChatIds }
@@ -279,6 +285,14 @@ class HomeViewModel @Inject constructor(
         )
 
     init {
+        if (gatewayPreparation != null) {
+            combine(_platformState, _chatListState.map { it.selectedPlatformUids }.distinctUntilChanged(), settingRepository.observeFeatureSettings()) { available, selected, features ->
+                val profiles = available.filter { it.enabled && it.uid in selected }
+                profiles to profiles.associate { it.uid to ReasoningPolicy.preference(it.reasoning, features.llamaReasoningModes[it.uid]) }
+            }.distinctUntilChanged().onEach { (profiles, modes) ->
+                gatewayModelSelection.update(profiles, modes)
+            }.launchIn(viewModelScope)
+        }
         pinnedOrderStore.order.onEach { order ->
             pinnedOrder = order
             _chatListState.update { it.copy(chats = sortChats(it.chats)) }
@@ -292,12 +306,7 @@ class HomeViewModel @Inject constructor(
                 _folderError.value = "Pinned conversation order could not be loaded."
             }
         }
-        settingRepository.observePlatformV2s().onEach { platforms ->
-            val selected = _platformState.value.filterIndexed { index, _ -> _chatListState.value.selectedPlatforms.getOrElse(index) { false } }.map { it.uid }.toSet()
-            dev.chungjungsoo.gptmobile.data.readiness.ReadinessHints.selectProfiles(selected.toList())
-            _platformState.value = platforms
-            _chatListState.update { it.copy(selectedPlatforms = platforms.map { profile -> profile.enabled && profile.uid in selected }) }
-        }.launchIn(viewModelScope)
+        settingRepository.observePlatformV2s().onEach(::replacePlatforms).launchIn(viewModelScope)
         foldersRepository.members.onEach { members ->
             folderMembers = members.associate { it.chatId to it.folderId }
             publishFolderChats()
@@ -497,25 +506,24 @@ class HomeViewModel @Inject constructor(
     }
 
     fun togglePlatformSelection(uid: String) {
-        val index = _platformState.value.indexOfFirst { it.uid == uid && it.enabled }
-        if (index >= 0) updatePlatformCheckedState(index)
+        if (_platformState.value.none { it.uid == uid && it.enabled }) return
+        val selected = _chatListState.value.selectedPlatformUids
+        val updated = updatePlatformSelection(if (uid in selected) selected - uid else selected + uid)
+        dev.chungjungsoo.gptmobile.data.readiness.ReadinessHints.selectProfiles(updated.toList())
     }
 
-    fun updatePlatformCheckedState(idx: Int) {
-        if (idx < 0 || idx >= _chatListState.value.selectedPlatforms.size) return
+    fun recheckGatewayModel(uid: String) = gatewayModelSelection.recheck(uid)
 
-        _chatListState.update {
-            it.copy(
-                selectedPlatforms = it.selectedPlatforms.mapIndexed { index, b ->
-                    if (index == idx) {
-                        !b
-                    } else {
-                        b
-                    }
-                }
-            )
-        }
-        dev.chungjungsoo.gptmobile.data.readiness.ReadinessHints.selectProfiles(_platformState.value.filterIndexed { index, _ -> _chatListState.value.selectedPlatforms.getOrElse(index) { false } }.map { it.uid })
+    private fun replacePlatforms(platforms: List<PlatformV2>) {
+        _platformState.value = platforms
+        val selected = updatePlatformSelection(_chatListState.value.selectedPlatformUids)
+        dev.chungjungsoo.gptmobile.data.readiness.ReadinessHints.selectProfiles(selected.toList())
+    }
+
+    private fun updatePlatformSelection(requested: Set<String>): Set<String> {
+        val selected = _platformState.value.filter { it.enabled && it.uid in requested }.mapTo(linkedSetOf()) { it.uid }
+        _chatListState.update { it.copy(selectedPlatformUids = selected) }
+        return selected
     }
 
     fun updateSearchQuery(query: String) {
@@ -562,15 +570,14 @@ class HomeViewModel @Inject constructor(
     }
 
     fun openSelectModelDialog() {
-        val suggested = featureSettings.value.lastChatProfileUids.toSet()
-        _chatListState.update { state -> state.copy(selectedPlatforms = platformState.value.map { it.enabled && it.uid in suggested }) }
+        updatePlatformSelection(featureSettings.value.lastChatProfileUids.toSet())
         _showSelectModelDialog.update { true }
         disableSelectionMode()
     }
 
     fun closeSelectModelDialog() {
         _showSelectModelDialog.update { false }
-        _chatListState.update { it.copy(selectedPlatforms = List(it.selectedPlatforms.size) { false }) }
+        updatePlatformSelection(emptySet())
     }
 
     private suspend fun deleteConversations(roots: List<ChatRoomV2>) {
@@ -778,11 +785,7 @@ class HomeViewModel @Inject constructor(
 
     fun fetchPlatformStatus() {
         viewModelScope.launch {
-            val platforms = settingRepository.fetchPlatformV2s()
-            val selected = _platformState.value.filterIndexed { index, _ -> _chatListState.value.selectedPlatforms.getOrElse(index) { false } }.map { it.uid }.toSet()
-            dev.chungjungsoo.gptmobile.data.readiness.ReadinessHints.selectProfiles(selected.toList())
-            _platformState.value = platforms
-            _chatListState.update { it.copy(selectedPlatforms = platforms.map { profile -> profile.enabled && profile.uid in selected }) }
+            replacePlatforms(settingRepository.fetchPlatformV2s())
         }
     }
 

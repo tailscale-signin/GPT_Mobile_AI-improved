@@ -149,7 +149,11 @@ data class OpenRouterOptions(
 
     @SerialName("provider")
     @EncodeDefault(EncodeDefault.Mode.NEVER)
-    val provider: OpenRouterProviderRouting? = null
+    val provider: OpenRouterProviderRouting? = null,
+
+    @SerialName("fallback_models")
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val fallbackModels: List<String>? = null
 ) {
     companion object {
         const val DEFAULT_STREAM = true

@@ -79,6 +79,7 @@ class CombinedSourceTabPagingTest {
                         replyRevision = 0, replyVisible = true, onAnswerDisplayed = {}, currentResearchTools = { ChatMcpToolConfig() },
                         messageIndex = 0, message = MessageV2(id = 1, chatId = 1, platformType = null, content = "Compare the explanations"),
                         assistantMessages = listOf(finalMessage), agentRunsById = emptyMap(), activeAgentRuns = emptyMap(), runNoticesById = emptyMap(), toolEventsByRun = emptyMap(),
+                        providerWaitDeadlines = emptyMap(),
                         platformIndexState = 0, loadingStates = emptyList(), enabledPlatformsInChat = listOf("one", "two"), enabledPlatformLookup = emptyMap(), disabledPlatformUids = emptySet(), activePlatformUids = setOf("one", "two"),
                         canUseChat = true, isIdle = true, isActiveMessage = false, maximumUserChatBubbleWidth = 400.dp, maximumOpponentChatBubbleWidth = 440.dp,
                         combinedMode = true, selectedCombinedProfileUid = selected, onCombinedProfileClick = { selected = it }, smartSuggestionsEnabled = false,

@@ -5,6 +5,37 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProviderThrottleRegistryTest {
+    @Test fun announcedResetDefersRequestsBeforeAnyProviderRejection() {
+        var now = 0L
+        val registry = ProviderThrottleRegistry({ now }, { 0 })
+        val reset = requireNotNull(ProviderRetryPolicy.resetDelayMillis("2m59.56s", now))
+        assertEquals(179_560L, reset)
+        registry.defer("account", reset, authoritativeReset = true)
+        val wait = registry.admit("account")
+        assertEquals(reset, wait.waitMillis)
+        assertEquals(0, wait.rejectionCount)
+        now = reset
+        assertTrue(registry.admit("account").ownsProbe)
+    }
+
+    @Test fun longCooldownAdmitsOneRecoveryProbeForTheSharedCredential() {
+        var now = 0L
+        val registry = ProviderThrottleRegistry({ now }, { 0 })
+        assertEquals(600_000L to 1, registry.reject("account", 600_000))
+        assertEquals(600_000L, registry.admit("account").waitMillis)
+        assertEquals(0L, registry.admit("different").waitMillis)
+        now = 600_000L
+        assertTrue(registry.admit("account").ownsProbe)
+        repeat(20) { assertEquals(1_000L, registry.admit("account").waitMillis) }
+        assertEquals(60_000L to 2, registry.reject("account", null))
+        registry.releaseProbe("account")
+        now += 60_000L
+        assertTrue(registry.admit("account").ownsProbe)
+        registry.accepted("account")
+        registry.releaseProbe("account")
+        assertEquals(30_000L to 1, registry.reject("account", null))
+    }
+
     @Test fun cooledRequestsArePacedWhileOtherCredentialsRemainImmediate() {
         var now = 0L
         val registry = ProviderThrottleRegistry({ now }, { 0 })

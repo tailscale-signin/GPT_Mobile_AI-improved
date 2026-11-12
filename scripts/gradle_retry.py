@@ -8,8 +8,12 @@ import sys
 import threading
 import time
 
-TRANSIENT = re.compile(r'(?:HTTP|status(?: code)?)\D{0,12}(?:429|502|503|504)\b', re.I)
-DEPENDENCY = re.compile(r'Could not (?:resolve|download|GET|HEAD)|Could not get resource', re.I)
+TRANSIENT = re.compile(r'(?:HTTP|status(?: code)?|response code:)\D{0,12}(?:429|500|502|503|504)\b', re.I)
+DEPENDENCY = re.compile(
+    r'Could not (?:resolve|download|GET|HEAD)|Could not get resource|'
+    r'Downloading https?://|services\.gradle\.org/distributions|gradle-distributions/releases/download',
+    re.I,
+)
 DETERMINISTIC = re.compile(r'There were failing tests|\btests completed, [1-9]\d* failed|Compilation error|^e: .*\.(?:kt|java):|Lint found .* errors', re.I)
 
 

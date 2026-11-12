@@ -149,6 +149,7 @@ def post_chat(
     terminal_grace_seconds=None,
     headers=None,
     prepare_repair=None,
+    visible_output=None,
 ):
     """One model round, at most one repair, and one shared deadline/output allowance.
 
@@ -171,12 +172,16 @@ def post_chat(
     if request.get("tools"):
         request["parallel_tool_calls"] = False
     first, repair_reason = None, None
+    # Only an internal final-answer scope opts in. A round with tool authority
+    # or structured output must be validated before any answer is published.
+    if request.get('tools') or request.get('tool_choice') not in (None, 'none') or (request.get('response_format') or {}).get('type', 'text') != 'text':
+        visible_output = None
     for attempt in range(2):
         data = None
         try:
             response, data = _post_once(
                 session, url, request, connect_timeout, idle_timeout, deadline_at,
-                cancelled, progress, finish_grace_seconds, headers,
+                cancelled, progress, finish_grace_seconds, headers, visible_output,
             )
             if response is not None:
                 return response
@@ -245,7 +250,7 @@ def post_chat(
     raise AssertionError("Unreachable completion state")
 
 
-def _post_once(session, url, request, connect_timeout, idle_timeout, deadline_at, cancelled, progress, finish_grace_seconds, headers=None):
+def _post_once(session, url, request, connect_timeout, idle_timeout, deadline_at, cancelled, progress, finish_grace_seconds, headers=None, visible_output=None):
     if cancelled():
         raise InterruptedError("Model request cancelled before sending.")
     remaining = deadline_at - time.monotonic()
@@ -302,6 +307,11 @@ def _post_once(session, url, request, connect_timeout, idle_timeout, deadline_at
             progress({"phase": "model_output", "event": "backend_first_visible_output", "status": "running", "stage": "generating",
                       "message": "Backend answer text received; completion validation is pending",
                       "backend_first_visible_output_ms": backend_first_visible_output_ms, "user_visible": False})
+        if visible_output is not None:
+            if state.calls:
+                raise GatewayContractError('The backend returned a tool in a text-only final round. No tool was executed.',
+                                           'unauthorized_tool_call', 502)
+            visible_output(state.message.get('content') or '')
         if state.received and size != last_size and (last_progress == 0.0 or now - last_progress >= 0.25):
             progress({"phase": "model_output", "event": "model_output_progress", "status": "running", "stage": "generating", "message": "Receiving model output", "elapsed_seconds": round(now - started, 3), "output_characters": state.visible_characters, "reasoning_characters": state.reasoning_characters, "tool_calls_pending": len(state.calls), "observed_output": True})
             last_progress, last_size = now, size
@@ -343,7 +353,7 @@ def _post_once(session, url, request, connect_timeout, idle_timeout, deadline_at
         if expired.is_set() or time.monotonic() >= deadline_at:
             raise GatewayContractError("Backend model deadline exceeded.", "backend_deadline_exceeded", 504)
         data["gateway_timing"] = {"measurement_scope": "physical_backend_request",
-                                  "delivery_mode": "completion_buffered",
+                                  "delivery_mode": "incremental_final_answer" if visible_output is not None else "completion_buffered",
                                   "backend_response_headers_ms": backend_response_headers_ms,
                                   "backend_first_event_ms": backend_first_event_ms,
                                   "backend_first_output_ms": backend_first_output_ms,
@@ -372,14 +382,18 @@ def _post_once(session, url, request, connect_timeout, idle_timeout, deadline_at
         observe_physical_response(data, response)
         return None, data
     except Exception as exc:
+        partial = ({'partial_output_may_have_been_published': True, 'automatic_replay': False, 'retryable': False}
+                   if visible_output is not None and last_state is not None and last_state.visible_characters else {})
         if stopped.is_set() or cancelled():
             raise InterruptedError("Model request cancelled.") from exc
         if expired.is_set() or time.monotonic() >= deadline_at:
-            raise GatewayContractError("Backend model deadline exceeded.", "backend_deadline_exceeded", 504) from exc
+            raise GatewayContractError("Backend model deadline exceeded.", "backend_deadline_exceeded", 504, details=partial) from exc
         if isinstance(exc, requests.Timeout):
-            raise GatewayContractError("Backend timed out before completing the response.", "backend_timeout", 504) from exc
+            raise GatewayContractError("Backend timed out before completing the response.", "backend_timeout", 504, details=partial) from exc
         if isinstance(exc, requests.RequestException):
-            raise GatewayContractError("Backend connection or stream failed; no partial tool call was executed.", "backend_stream_interrupted", 502) from exc
+            raise GatewayContractError("Backend connection or stream failed; no partial tool call was executed.", "backend_stream_interrupted", 502, details=partial) from exc
+        if isinstance(exc, GatewayContractError):
+            exc.details.update(partial)
         if isinstance(exc, GatewayContractError) and exc.details.get("origin") == "backend" and response is not None:
             exc.details.setdefault("backend_status", response.status_code)
         raise

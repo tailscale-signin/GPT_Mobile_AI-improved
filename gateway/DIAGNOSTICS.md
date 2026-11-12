@@ -36,20 +36,32 @@ Failure receipts contain fixed `reasonCode`, `failureCategory`, `dependency`, `u
 
 Error envelopes are read under a 16 KiB bound. Only known upstream code/type values and canonical summaries of recognized complete messages are retained. `upstreamErrorBodyState` distinguishes a parsed, invalid, oversized, interrupted or deadline-limited body. A lost error body does not erase the received HTTP rejection. Unknown messages remain available only in the backend's own protected logs.
 
-## Explicitly prepare an advertised router model
+## Prepare the exact selected router model
 
 `modelAdvertised`, `modelLoaded` and `modelState` distinguish catalogue membership from an observed loaded allocation. A router can list an unloaded, loading or sleeping model while its process answers health requests. Readiness and qualification remain passive, with `autoload=false` on model and properties reads. The exact-model properties URL already includes `model`; removing that parameter or permitting metadata reads to autoload is not a repair.
 
-When the configured backend is a llama.cpp router exposing `GET /models` with a known load state, an operator can run this separate command in the same protected service environment:
+Updated clients can prepare a Gateway profile's exact model on selection when capabilities advertise `features.model_preparation_v1: true` and `endpoints.model_prepare: "/gateway/models/prepare"`. This explicit mutation uses the same admitted principal and chat/tools scopes as chat, the existing browser CSRF rules, and optional installation/principal preconditions. Both `/gateway/models/prepare` and `/v1/gateway/models/prepare` accept:
+
+```json
+{"model":"EXACT_SELECTED_MODEL_ID","operationId":"stable-selection-operation-id"}
+```
+
+The model must be an exact advertised identifier of at most 512 characters. `operationId` must contain 1–128 ASCII letters, digits, `.`, `_`, `~` or `-`; an optional `Idempotency-Key` header must match it. The body is limited to 4 KiB. Reusing an operation for a different model or backend configuration returns 409 before dispatch. The response uses `gptmobile.gateway.model-preparation.v1` and reports `operationId`, `requestedModel`, `state`, `dispatchState`, `loadAccepted`, `loadRequests`, `modelState`, and the independently observed `selectedModel`. No generation is submitted and no selection or reasoning setting is changed.
+
+An admitted preparation checks the configured llama.cpp router's `GET /models` state, then sends at most one `POST /models/load` for that exact unloaded or sleeping model. Already loaded or loading models receive no load request. The observer uses the admitted backend route, and a configuration revision change before dispatch rejects the action. SQLite records dispatch intent before the external POST, coalesces unresolved requests for the same backend/model across principals and restarts, and rejects a new load when its outcome is unresolved. A lost response or client cancellation cannot authorize another load. Cancellation before the dispatch fence can prevent the request; cancellation after it does not undo the host action. The backend may allocate memory or apply its configured eviction policy. Backends without the supported router contract require their own host controls.
+
+`PREPARING`, `WAITING_FOR_MODEL`, and `LOAD_OUTCOME_UNKNOWN` return HTTP 202. Other valid-operation receipts return 200; HTTP 4xx rejects the current request before dispatch. A backend rejection after a dispatched load appears inside its receipt, including the upstream status. A transport or storage 5xx can have an unknown dispatch outcome: retain the operation identity and reconcile. A rejection of a later retry does not disprove a prior unresolved dispatch. The worker has a shared 20-second network deadline, at most two active preparations, a 16 KiB receipt bound, and bounded SQLite record capacity. Resolved records retain idempotency for 30 days; unresolved intent never expires into permission to dispatch again.
+
+Readiness and selected-model capabilities GETs remain passive. They never load a model, submit inference, or change reasoning settings. A verified exact `LOADED` selected-model observation measured after the pending intent can retire an existing unresolved preparation receipt. Per-model invalidation tokens prevent an old in-flight metadata or template probe from republishing stale readiness after a new preparation begins. This permits a new selection operation to prepare the same model after a later backend eviction. An old gateway without the preparation capability requires an update or explicit host preparation; clients must not emulate this action through metadata autoload.
+
+An operator can also run the existing separate CLI in the same protected service environment after reconciling any unresolved load:
 
 ```sh
 python gateway.py prepare-model --model 'EXACT_SELECTED_MODEL_ID'
 python gateway.py doctor --model 'EXACT_SELECTED_MODEL_ID'
 ```
 
-`prepare-model` verifies that exact identifier and router state, then sends at most one `POST /models/load` for an unloaded or sleeping model. It does not substitute a different model, change reasoning settings, run a generation, or send a load for an already loading/loaded model. The backend may allocate memory and apply its configured model eviction policy; this is an explicit host action and is never run by a readiness poll or an automatic retry. Backends without the supported router load contract require their own host controls.
-
-The command reads the exact model state again after a load response, including a timeout or closed connection. Its receipt keeps `loadAccepted` separate from observed `modelState`; an unknown acceptance remains unknown even if a later read establishes that the model is loaded. `WAITING_FOR_MODEL` means wait and use `doctor`, not repeat the load. `METADATA_QUALIFIED` confirms the capacity observation only: inspect `reasoningControlState`, recheck the same profile in Android, and submit one explicit generation to qualify inference. The command is available in this source; it has not been run against the incident's PC by the repair tests.
+Both actions read the exact model state again after a load response, including a timeout or closed connection. `loadAccepted` records acceptance of that load request independently of `modelState`: null is unknown or not dispatched, true means accepted, and false requires a definite backend rejection. An unknown acceptance remains unknown even if a later read proves the model loaded. `WAITING_FOR_MODEL` means poll readiness/capabilities or use `doctor`; do not repeat an unresolved load. `METADATA_QUALIFIED` confirms capacity only: inspect `reasoningControlState`, recheck the same profile in Android, and submit one explicit generation to qualify inference. Regression fixtures exercise these contracts; they do not establish the incident PC's deployed backend behavior.
 
 The load/state contract follows the upstream [llama.cpp router API](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md#using-multiple-models), including its documented `POST /models/load` and sleeping-state metadata. Server-version compatibility is verified through the actual responses, not inferred from the gateway's version label.
 

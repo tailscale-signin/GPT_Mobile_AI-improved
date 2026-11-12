@@ -147,7 +147,9 @@ fun WorkspaceScreen(onBack: () -> Unit, onChat: (Int) -> Unit, initialChat: Int 
                                     run.terminalError?.let { Text(it.take(400)) }
                                     if (run.status == "INTERRUPTED") Text(if (run.gatewayJobId != null) "A saved remote job may be recoverable." else "Open the conversation to review evidence before starting another response.", style = MaterialTheme.typography.bodySmall)
                                     Row {
-                                        TextButton(onClick = { onChat(run.chatId) }) { Text("Open conversation") }
+                                        TextButton(onClick = { onChat(run.chatId) }) {
+                                            Text(if (run.status == "WAITING_FOR_APPROVAL" || run.terminalError?.contains("WAITING_FOR_APPROVAL") == true) "Review approval" else "Open conversation")
+                                        }
                                         if (run.status in setOf("RUNNING", "QUEUED")) TextButton(onClick = { model.coordinator.cancelChat(run.chatId) }) { Text("Stop") }
                                     }
                                 }

@@ -168,11 +168,29 @@ internal suspend fun writeStagedChatDiagnostics(
             }
         }
         val stages = mutableListOf(
-            DiagnosticCaptureStage("latest_state", "latest-state.jsonl", refreshOnResume = true) { sink ->
+            DiagnosticCaptureStage("latest_state", "latest-state.jsonl", critical = true, lowMemorySafe = true, resumableRecords = true, refreshOnResume = true) { sink ->
+                sink.emit(
+                    database.latestFailureSummary(
+                        room.id,
+                        BuildConfig.VERSION_NAME,
+                        BuildConfig.VERSION_CODE,
+                        BuildConfig.APP_COMMIT,
+                        {
+                            authorized()
+                            sink.checkBudget()
+                        },
+                        { sink.omit(it) }
+                    ),
+                    evidence = false
+                )
                 sink.emit(
                     buildJsonObject {
                         put("kind", "latest_state_projection")
-                        put("scope", "Latest retained run verdict, accepted policy fragments, tool receipt, pending work, and GitHub verification/review/budget/output/task checkpoints.")
+                        put("scope", "Latest retained run verdict, provider retry deadline, accepted policy fragments, tool receipt, pending work, and GitHub verification/review/budget/output/task checkpoints.")
+                        put("version", BuildConfig.VERSION_NAME)
+                        put("build", BuildConfig.VERSION_CODE)
+                        put("appCommit", BuildConfig.APP_COMMIT)
+                        put("testedShaAvailability", "A retained exact tested SHA is included in compact_failure_summary; otherwise its status is NOT_RETAINED.")
                         put("fullHistorySelected", includeHistory)
                         put("capturedAtMillis", System.currentTimeMillis())
                     },
@@ -181,7 +199,7 @@ internal suspend fun writeStagedChatDiagnostics(
                 database.capture(room.id, "latest_state", maximumCharacters, {
                     authorized()
                     sink.checkBudget()
-                }, { sink.emit(it, projected = true) }, { sink.omit(it) }, maximumSourceBytes = maximumSourceCharacters, metadata = { sink.emit(it, evidence = false, projected = true) })
+                }, { sink.emit(it, projected = true) }, { sink.omit(it) }, maximumSourceBytes = maximumSourceCharacters, metadata = { sink.emit(it, evidence = false, projected = true) }, resumeCursor = sink.resumeCursor, checkpoint = sink::checkpoint)
             },
             DiagnosticCaptureStage("critical_logs", "critical-app-logs.jsonl", critical = true, lowMemorySafe = true, emptyReason = "NO_RETAINED_CRITICAL_LOGS") { captureLogs(it, critical = true) },
             DiagnosticCaptureStage("capture_context", "capture-context.jsonl", lowMemorySafe = true, content = dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticStageContent.CONFIGURATION) { sink ->

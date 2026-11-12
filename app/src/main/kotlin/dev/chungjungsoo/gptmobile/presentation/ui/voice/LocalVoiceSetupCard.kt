@@ -28,7 +28,8 @@ internal fun LocalVoiceSetupCard(
     install: () -> Unit,
     cancel: () -> Unit,
     remove: () -> Unit,
-    showRemove: Boolean = false
+    showRemove: Boolean = false,
+    compact: Boolean = false
 ) {
     val context = LocalContext.current
     Surface(
@@ -39,7 +40,7 @@ internal fun LocalVoiceSetupCard(
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("Speech on this phone", style = MaterialTheme.typography.titleMedium)
             Text("Moonshine Tiny Streaming · English", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-            Text("Download the speech model once, then recognize your voice without Android’s speech service. Your selected AI profile still handles the conversation.", style = MaterialTheme.typography.bodySmall)
+            if (!compact) Text("Recognize English speech on this phone.", style = MaterialTheme.typography.bodySmall)
             when (state.status) {
                 LocalVoiceModelStatus.CHECKING -> {
                     LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -60,12 +61,13 @@ internal fun LocalVoiceSetupCard(
                     Button(onClick = install, modifier = Modifier.testTag("download_local_voice")) { Text("Download model · ${state.totalBytes / 1_000_000} MB") }
                 }
             }
-            Row {
-                TextButton(onClick = {
-                    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/moonshine-ai/moonshine"))) }
-                }) { Text("GitHub project") }
+            if (!compact) {
+                Row {
+                    TextButton(onClick = {
+                        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/moonshine-ai/moonshine"))) }
+                    }) { Text("GitHub project") }
+                }
             }
-            Text("Audio stays in memory. Models are stored privately on this phone. No speech API key is needed.", style = MaterialTheme.typography.bodySmall)
         }
     }
 }

@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.agent
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
@@ -177,7 +178,7 @@ class OutputLimitRecoverySessionTest {
     }
 
     @Test fun fourOutputLimitedPacketsProduceOne4096TokenFinalAnswer() = runTest {
-        fun text(index: Int) = "era$index ".repeat(256)
+        fun text(index: Int) = (0 until 256).joinToString(" ", postfix = " ") { "era${index}detail$it" }
         fun packet(index: Int) = session {
             emit(ProviderEvent.RequestConfigured(effectiveOutputTokens = 1024))
             emit(ProviderEvent.TextDelta(text(index)))
@@ -205,7 +206,7 @@ class OutputLimitRecoverySessionTest {
 
     @Test fun smallOutputAllowancesCanFinishAnExplicitGoalBeyondSixteenRequests() = runTest {
         fun packet(index: Int) = session {
-            emit(ProviderEvent.TextDelta("era$index ".repeat(250)))
+            emit(ProviderEvent.TextDelta((0 until 250).joinToString(" ", postfix = " ") { "era${index}detail$it" }))
             emit(ProviderEvent.Usage(outputTokens = 256, finishReason = if (index < 19) "length" else "stop"))
             emit(ProviderEvent.Completed)
         }
@@ -225,7 +226,7 @@ class OutputLimitRecoverySessionTest {
     @Test fun shortNaturalStopsAdaptToRealYieldInsteadOfAcceptingTheAdvertisedOutputAllowance() = runTest {
         fun packet(index: Int) = session {
             emit(ProviderEvent.RequestConfigured(effectiveOutputTokens = 8192))
-            emit(ProviderEvent.TextDelta("section$index ".repeat(100)))
+            emit(ProviderEvent.TextDelta((0 until 100).joinToString(" ", postfix = " ") { "section${index}detail$it" }))
             emit(ProviderEvent.Completed)
         }
         var requests = 0
@@ -271,7 +272,7 @@ class OutputLimitRecoverySessionTest {
     }
 
     @Test fun queuePacketAtItsSerializedCapContinuesWhileShortAnswersFinish() = runTest {
-        val first = "Portugal developed under different dynasties and institutions ".repeat(13)
+        val first = (0 until 13).joinToString(" ", postfix = " ") { "Portugal developed distinct institution$it under dynasty$it" }
         val wrapper = OutputLimitRecoverySession(
             session {
                 emit(ProviderEvent.RequestConfigured(effectiveOutputTokens = 8192, serializedOutputTokens = 256))
@@ -496,7 +497,7 @@ class OutputLimitRecoverySessionTest {
     }
 
     @Test fun threeThousandWordsCanSpanManySmallRequestsWithoutRestartingHistory() = runTest {
-        fun part(number: Int) = "Era$number " + "detail$number ".repeat(299)
+        fun part(number: Int) = "Era$number " + (0 until 299).joinToString(" ", postfix = " ") { "detail${number}part$it" }
         var attempts = 0
         val wrapper = OutputLimitRecoverySession(
             session {
@@ -758,5 +759,368 @@ class OutputLimitRecoverySessionTest {
         assertEquals("fixture", usage.actualRuntime)
         assertEquals(9, usage.reasoningTokens)
         assertEquals("served-route", usage.writerObservationKey)
+    }
+
+    @Test fun capturedNameLoopCancelsUpstreamBeforeOneSafeTextOnlyRepair() = runTest {
+        val names = "**Molière**, **Racine**, **Corneille**, **La Fontaine**, "
+        val prefix = "French classical literature includes "
+        val remainder = "\nThe Enlightenment introduced new political debates."
+        var upstreamStopped = false
+        var emittedCycles = 0
+        var repairs = 0
+        val triggers = mutableListOf<ContinuationTrigger>()
+        val saved = mutableListOf<String>()
+        val wrapper = OutputLimitRecoverySession(
+            session {
+                try {
+                    emit(ProviderEvent.TextDelta(prefix))
+                    repeat(331) {
+                        emittedCycles++
+                        emit(ProviderEvent.TextDelta(names))
+                    }
+                    error("Repetitive generation must be canceled before it runs to its limit")
+                } finally {
+                    upstreamStopped = true
+                }
+            },
+            maxContinuations = 8,
+            onContinuationTrigger = { triggers += it },
+            saveProgress = { draft, _, _, _ -> saved += draft }
+        ) { draft, _ ->
+            repairs++
+            assertTrue(upstreamStopped)
+            assertEquals(prefix + names, draft)
+            object : AgentProviderSession {
+                override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                    assertTrue(tools.isEmpty())
+                    assertTrue(exchanges.isEmpty())
+                    emit(ProviderEvent.TextDelta(names + remainder))
+                    emit(ProviderEvent.Completed)
+                }
+            }
+        }
+        val events = wrapper.streamRound(emptyList(), emptyList()).toList()
+        assertEquals(1, repairs)
+        assertTrue(emittedCycles < 12)
+        assertEquals(listOf(ContinuationTrigger.REPETITIVE_OUTPUT), triggers)
+        assertEquals(prefix + names + remainder, events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text })
+        assertTrue(saved.all { Regex("Molière").findAll(it).count() <= 1 })
+        assertEquals(1, events.count { it == ProviderEvent.Completed })
+        assertTrue(events.none { it is ProviderEvent.Failed })
+    }
+
+    @Test fun repeatedRepairStopsWithoutAnotherRequestOrACompletedClaim() = runTest {
+        var repairs = 0
+        var stoppedRequests = 0
+        fun looping() = session {
+            try {
+                repeat(200) { emit(ProviderEvent.TextDelta("The same phrase adds no new facts. ")) }
+            } finally {
+                stoppedRequests++
+            }
+        }
+        val wrapper = OutputLimitRecoverySession(looping(), maxContinuations = 100) { _, _ ->
+            repairs++
+            looping()
+        }
+        val events = wrapper.streamRound(emptyList(), emptyList()).toList()
+        assertEquals(1, repairs)
+        assertEquals(2, stoppedRequests)
+        assertEquals("OUTPUT_CONTINUATION_NO_PROGRESS", events.filterIsInstance<ProviderEvent.Failed>().single().errorCode)
+        assertTrue(events.none { it == ProviderEvent.Completed })
+    }
+
+    @Test fun continuationPublishesBeforeCompletionAndKeepsItsInvocationLineage() = runTest {
+        val prefix = "The saved historical introduction ends here. "
+        val lineage = dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.MODEL_TEXT, "continuation-invocation")
+        val visible = StringBuilder()
+        val deltas = mutableListOf<ProviderEvent.TextDelta>()
+        val wrapper = OutputLimitRecoverySession(
+            session {
+                emit(ProviderEvent.TextDelta(prefix))
+                emit(ProviderEvent.Usage(finishReason = "length"))
+            }
+        ) { _, _ ->
+            session {
+                emit(ProviderEvent.TextDelta(prefix.takeLast(28), lineage))
+                emit(ProviderEvent.TextDelta("The next era changed institutions. Additional material ", lineage))
+                assertTrue("A live continuation must reach the collector before completion", visible.contains("The next era"))
+                emit(ProviderEvent.TextDelta("finishes this account.", lineage))
+                emit(ProviderEvent.Completed)
+            }
+        }
+        wrapper.streamRound(emptyList(), emptyList()).collect { event ->
+            if (event is ProviderEvent.TextDelta) {
+                visible.append(event.text)
+                deltas += event
+            }
+        }
+        assertEquals(prefix + "The next era changed institutions. Additional material finishes this account.", visible.toString())
+        assertTrue(deltas.filter { "next era" in it.text || "finishes" in it.text }.all { it.lineage == lineage })
+    }
+
+    @Test fun mixedInvocationBufferedTextDoesNotGuessItsOwner() = runTest {
+        val first = dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.MODEL_TEXT, "first")
+        val second = first.copy(invocationId = "second")
+        val wrapper = OutputLimitRecoverySession(
+            session {
+                emit(ProviderEvent.TextDelta("A meaningful ", first))
+                emit(ProviderEvent.TextDelta("answer with different ownership.", second))
+                emit(ProviderEvent.Completed)
+            }
+        ) { _, _ -> error("No continuation") }
+        val deltas = wrapper.streamRound(emptyList(), emptyList()).toList().filterIsInstance<ProviderEvent.TextDelta>()
+        assertTrue(deltas.last().lineage == dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage())
+    }
+
+    @Test fun collectorFailureDuringIncrementalContinuationIsNotCaughtAsARepair() = runTest {
+        val prefix = "The saved paragraph is complete. "
+        val saved = mutableListOf<Pair<String, String>>()
+        val downstream = IllegalStateException("Collector rejected publication")
+        var requests = 0
+        val wrapper = OutputLimitRecoverySession(
+            session {
+                emit(ProviderEvent.TextDelta(prefix))
+                emit(ProviderEvent.Usage(finishReason = "length"))
+            },
+            saveProgress = { draft, _, _, reason -> saved += draft to reason }
+        ) { _, _ ->
+            requests++
+            session {
+                emit(ProviderEvent.TextDelta("A new section preserves distinct details. "))
+                error("Downstream failure must stop collection first")
+            }
+        }
+        val caught = runCatching {
+            wrapper.streamRound(emptyList(), emptyList()).collect { event ->
+                if (event is ProviderEvent.TextDelta && event.text.contains("new section")) throw downstream
+            }
+        }.exceptionOrNull()
+        assertTrue(caught === downstream)
+        assertEquals(1, requests)
+        assertEquals("PARTIAL", saved.last().second)
+        assertTrue(saved.last().first.startsWith(prefix + "A new section"))
+    }
+
+    @Test fun midChunkRepetitionRetainsOnlySafeProgressAndAlreadyObservedUsage() = runTest {
+        val names = "**Molière**, **Racine**, **Corneille**, **La Fontaine**, "
+        val saved = mutableListOf<String>()
+        var cleanedUp = false
+        val wrapper = OutputLimitRecoverySession(
+            session {
+                try {
+                    emit(ProviderEvent.Usage(outputTokens = 12, phase = ProviderUsagePhase.INTERIM))
+                    emit(ProviderEvent.TextDelta("Useful history. " + names.repeat(331)))
+                    error("The producer must be canceled at the guarded chunk")
+                } finally {
+                    cleanedUp = true
+                }
+            },
+            maxContinuations = 0,
+            saveProgress = { draft, _, _, _ -> saved += draft }
+        ) { _, _ -> error("Continuation is disabled") }
+        val events = wrapper.streamRound(emptyList(), emptyList()).toList()
+        assertTrue(cleanedUp)
+        val text = events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text }
+        assertEquals("Useful history. $names", text)
+        assertTrue(saved.all { it == text })
+        val usage = events.filterIsInstance<ProviderEvent.Usage>().single()
+        assertEquals(12, usage.outputTokens)
+        assertEquals(ProviderUsagePhase.INTERIM, usage.phase)
+        assertTrue(events.none { it == ProviderEvent.Completed })
+    }
+
+    @Test fun visibleReasoningAndNoticeBoundariesKeepTextChronologyInBothSessionTypes() = runTest {
+        for (internalTools in listOf(false, true)) {
+            val expected = listOf(
+                ProviderEvent.TextDelta("before"),
+                ProviderEvent.ThinkingDelta("Checking the evidence"),
+                ProviderEvent.TextDelta("between"),
+                ProviderEvent.Notice("Evidence checked"),
+                ProviderEvent.TextDelta("after"),
+                ProviderEvent.Completed
+            )
+            val provider = object : AgentProviderSession {
+                override val handlesToolsInternally = internalTools
+                override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                    expected.forEach { emit(it) }
+                }
+            }
+            val wrapper = OutputLimitRecoverySession(provider) { _, _ -> error("No continuation is needed") }
+            assertEquals("handlesToolsInternally=$internalTools", expected, wrapper.streamRound(emptyList(), emptyList()).toList())
+        }
+    }
+
+    @Test fun continuationNoticesCannotResolveAnAmbiguousOverlapBeforeMoreTextArrives() = runTest {
+        val overlap = "The saved introduction ends here. "
+        val previous = "Earlier eras. $overlap"
+        val next = "The next era changed institutions."
+        val notice = ProviderEvent.Notice("Continuing the saved answer")
+        val reasoning = ProviderEvent.ThinkingDelta("Checking the next era")
+        var requests = 0
+        val wrapper = OutputLimitRecoverySession(session { error("The saved request must not replay") }, initialDraft = previous) { _, _ ->
+            requests++
+            session {
+                emit(ProviderEvent.TextDelta(overlap.take(9)))
+                emit(notice)
+                emit(reasoning)
+                emit(ProviderEvent.TextDelta(overlap.drop(9) + next))
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val events = wrapper.streamRound(emptyList(), emptyList()).toList()
+        assertEquals(previous + next, events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text })
+        assertEquals(listOf(notice, reasoning, ProviderEvent.Completed), events.filterNot { it is ProviderEvent.TextDelta })
+        assertEquals(1, requests)
+    }
+
+    @Test fun internallyManagedToolBoundariesPreserveTextOrderUsageAndLineage() = runTest {
+        val lineage = dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.MODEL_TEXT, "internal-tool-invocation")
+        val call = ProviderEvent.ToolCall("owned-call", "read", buildJsonObject {})
+        val result = ProviderEvent.ToolResult(call, AgentToolResult(call.callId, ToolResultContent.Text("Saved evidence"), false))
+        var requests = 0
+        val provider = object : AgentProviderSession {
+            override val handlesToolsInternally = true
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                requests++
+                emit(ProviderEvent.TextDelta("before", lineage))
+                emit(ProviderEvent.Usage(outputTokens = 4, phase = ProviderUsagePhase.INTERIM))
+                emit(call)
+                emit(ProviderEvent.TextDelta("during", lineage))
+                emit(result)
+                emit(ProviderEvent.TextDelta("after", lineage))
+                emit(ProviderEvent.Usage(outputTokens = 7, finishReason = "stop", writerObservationKey = "internal-tool-usage"))
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val wrapper = OutputLimitRecoverySession(provider) { _, _ -> error("Internal tool session must never replay") }
+        val events = wrapper.streamRound(emptyList(), emptyList()).toList()
+        assertEquals(
+            listOf(ProviderEvent.TextDelta("before", lineage), call, ProviderEvent.TextDelta("during", lineage), result, ProviderEvent.TextDelta("after", lineage), ProviderEvent.Completed),
+            events.filterNot { it is ProviderEvent.Usage }
+        )
+        val usage = events.filterIsInstance<ProviderEvent.Usage>().single()
+        assertEquals(7, usage.outputTokens)
+        assertEquals("stop", usage.finishReason)
+        assertEquals("internal-tool-usage", usage.writerObservationKey)
+        assertEquals(ProviderUsagePhase.FINAL, usage.phase)
+        assertFalse(usage.cumulative)
+        assertEquals(1, requests)
+    }
+
+    @Test fun internalToolBoundaryKeepsRepetitionHistoryAcrossInterleavedUsage() = runTest {
+        val repeated = "This repeating passage is not new evidence. "
+        val call = ProviderEvent.ToolCall("already-owned", "read", buildJsonObject {})
+        val result = ProviderEvent.ToolResult(call, AgentToolResult(call.callId, ToolResultContent.Text("Saved evidence"), false))
+        val saved = mutableListOf<String>()
+        var requests = 0
+        var observedTokens = 0
+        var stopped = false
+        val provider = object : AgentProviderSession {
+            override val handlesToolsInternally = true
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                requests++
+                try {
+                    emit(ProviderEvent.TextDelta(repeated))
+                    emit(call)
+                    emit(result)
+                    repeat(100) {
+                        observedTokens++
+                        emit(ProviderEvent.Usage(outputTokens = observedTokens, phase = ProviderUsagePhase.INTERIM))
+                        emit(ProviderEvent.TextDelta(repeated))
+                    }
+                    emit(ProviderEvent.Completed)
+                } finally {
+                    stopped = true
+                }
+            }
+        }
+        val wrapper = OutputLimitRecoverySession(provider, maxContinuations = 10, saveProgress = { draft, _, _, _ -> saved += draft }) { _, _ -> error("Internal tool session must never replay") }
+        val events = wrapper.streamRound(emptyList(), emptyList()).toList()
+        assertTrue(stopped)
+        assertTrue(observedTokens < 100)
+        assertEquals(1, requests)
+        assertEquals(repeated, events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text })
+        assertEquals(listOf(repeated), saved)
+        assertEquals(1, events.count { it == call })
+        assertEquals(1, events.count { it == result })
+        val usage = events.filterIsInstance<ProviderEvent.Usage>().single()
+        assertEquals(observedTokens, usage.outputTokens)
+        assertEquals(ProviderUsagePhase.INTERIM, usage.phase)
+        assertEquals("OUTPUT_CONTINUATION_NO_PROGRESS", events.filterIsInstance<ProviderEvent.Failed>().single().errorCode)
+        assertTrue(events.none { it == ProviderEvent.Completed })
+    }
+
+    @Test fun recurringVisibleBoundariesStopRepetitionWithoutReplayingEitherSessionType() = runTest {
+        val repeated = "This repeating passage is not new evidence. "
+        for (internalTools in listOf(false, true)) {
+            val kinds = if (internalTools) listOf("thinking", "notice", "call", "result") else listOf("thinking", "notice")
+            for (kind in kinds) {
+                val saved = mutableListOf<String>()
+                var requests = 0
+                var chunks = 0
+                var cleanedUp = false
+                val provider = object : AgentProviderSession {
+                    override val handlesToolsInternally = internalTools
+                    override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                        requests++
+                        try {
+                            repeat(100) { index ->
+                                chunks++
+                                emit(ProviderEvent.TextDelta(repeated))
+                                val call = ProviderEvent.ToolCall("owned-$index", "read", buildJsonObject {})
+                                emit(
+                                    when (kind) {
+                                        "thinking" -> ProviderEvent.ThinkingDelta("Checking the evidence")
+                                        "notice" -> ProviderEvent.Notice("Evidence checked")
+                                        "call" -> call
+                                        else -> ProviderEvent.ToolResult(call, AgentToolResult(call.callId, ToolResultContent.Text("Saved evidence"), false))
+                                    }
+                                )
+                            }
+                            emit(ProviderEvent.Completed)
+                        } finally {
+                            cleanedUp = true
+                        }
+                    }
+                }
+                val wrapper = OutputLimitRecoverySession(provider, maxContinuations = 0, saveProgress = { draft, _, _, _ -> saved += draft }) { _, _ -> error("The stream must not replay") }
+                val events = wrapper.streamRound(emptyList(), emptyList()).toList()
+                val text = events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text }
+                val label = "handlesToolsInternally=$internalTools boundary=$kind"
+                assertTrue(label, cleanedUp)
+                assertTrue(label, chunks < 100)
+                assertEquals(label, 1, requests)
+                assertTrue(label, text.startsWith(repeated))
+                assertTrue(label, text.length < repeated.length * 10)
+                assertTrue(label, saved.isNotEmpty() && saved.all { it == text })
+                assertTrue(label, events.any { it is ProviderEvent.Failed })
+                assertTrue(label, events.none { it == ProviderEvent.Completed })
+            }
+        }
+    }
+
+    @Test fun internallyManagedToolsKeepTheirLiveEventsButRepetitiveAnswerCannotReplayThem() = runTest {
+        val call = ProviderEvent.ToolCall("already-owned", "read", buildJsonObject {})
+        val received = mutableListOf<ProviderEvent>()
+        var stopped = false
+        val provider = object : AgentProviderSession {
+            override val handlesToolsInternally = true
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                try {
+                    emit(call)
+                    assertTrue(received.contains(call))
+                    repeat(100) { emit(ProviderEvent.TextDelta("This repeating passage is not new evidence. ")) }
+                } finally {
+                    stopped = true
+                }
+            }
+        }
+        val wrapper = OutputLimitRecoverySession(provider, maxContinuations = 10) { _, _ -> error("Internal tool session must never replay") }
+        wrapper.streamRound(emptyList(), emptyList()).collect { received += it }
+        assertTrue(stopped)
+        assertEquals(1, received.count { it == call })
+        assertEquals("OUTPUT_CONTINUATION_NO_PROGRESS", received.filterIsInstance<ProviderEvent.Failed>().single().errorCode)
+        assertTrue(received.none { it == ProviderEvent.Completed })
     }
 }

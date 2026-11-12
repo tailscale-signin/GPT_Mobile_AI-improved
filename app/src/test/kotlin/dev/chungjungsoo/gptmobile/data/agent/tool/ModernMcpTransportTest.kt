@@ -480,6 +480,92 @@ class ModernMcpTransportTest {
         }
     }
 
+    @Test fun catalogHttp400And404AreQuarantinedUntilTheSavedConfigurationRevisionChanges() = runBlocking {
+        for (status in listOf(HttpStatusCode.BadRequest, HttpStatusCode.NotFound)) {
+            val methods = mutableListOf<String>()
+            var repaired = false
+            HttpClient(
+                MockEngine { request ->
+                    val body = Json.parseToJsonElement((request.body as TextContent).text).jsonObject
+                    val method = body.getValue("method").jsonPrimitive.content
+                    methods += method
+                    when (method) {
+                        "server/discover" -> respond(
+                            buildJsonObject {
+                                put("jsonrpc", "2.0")
+                                put("id", body.getValue("id"))
+                                put("result", obj("""{"supportedVersions":["2026-07-28"],"capabilities":{"tools":{}}}"""))
+                            }.toString(),
+                            headers = headersOf("Content-Type", "application/json")
+                        )
+                        "tools/list" -> if (repaired) {
+                            respond(
+                                buildJsonObject {
+                                    put("jsonrpc", "2.0")
+                                    put("id", body.getValue("id"))
+                                    put("result", obj("""{"tools":[{"name":"echo","inputSchema":{"type":"object"}}]}"""))
+                                }.toString(),
+                                headers = headersOf("Content-Type", "application/json")
+                            )
+                        } else if (status == HttpStatusCode.BadRequest) {
+                            respond(
+                                rpcError(request, """{"code":-32602,"message":"private server detail"}"""),
+                                status,
+                                headersOf("Content-Type", "application/json")
+                            )
+                        } else {
+                            respond("<html>private missing route</html>", status, headersOf("Content-Type", "text/html"))
+                        }
+                        else -> error("Unexpected method $method")
+                    }
+                }
+            ).use { client ->
+                val manager = McpClientManager(client, modern = ModernMcpTransport(client))
+                val firstRevision = McpConnectionConfig(
+                    "catalog-${status.value}",
+                    config.endpointUrl,
+                    false,
+                    config.authorizationHeader,
+                    configurationRevision = "a".repeat(64)
+                )
+                try {
+                    val failure = runCatching { manager.listTools(firstRevision, awaitCompletion = true) }.exceptionOrNull()
+                    assertTrue(failure is McpProtocolConfigurationException)
+                    failure as McpProtocolConfigurationException
+                    assertEquals("MCP_CATALOG_CONFIGURATION", failure.diagnosticCode)
+                    assertEquals(status.value, failure.httpStatus)
+                    assertEquals(if (status == HttpStatusCode.NotFound) "CATALOG_ROUTE_REQUIRED" else "CATALOG_REQUEST_ACCEPTANCE_REQUIRED", failure.validationRule)
+                    assertFalse(failure.message.orEmpty().contains("private"))
+                    assertEquals(false, manager.healthSnapshot(firstRevision.connectionUid).failureRetryable)
+                    assertEquals("catalogue", manager.healthSnapshot(firstRevision.connectionUid).failedStage)
+                    assertEquals("PROTOCOL_CONFIGURATION", mcpFailurePresentation(failure, manager.healthSnapshot(firstRevision.connectionUid)).outcome)
+
+                    val firstMethods = methods.toList()
+                    dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.networkChanged()
+                    repeat(3) {
+                        assertTrue(runCatching { manager.listTools(firstRevision, awaitCompletion = true) }.exceptionOrNull() is McpProtocolConfigurationException)
+                    }
+                    assertEquals(firstMethods, methods)
+
+                    repaired = true
+                    val repairedRevision = McpConnectionConfig(
+                        firstRevision.connectionUid,
+                        firstRevision.endpointUrl,
+                        firstRevision.allowCleartext,
+                        firstRevision.authorizationHeader,
+                        configurationRevision = "b".repeat(64)
+                    )
+                    assertEquals(listOf("echo"), manager.listTools(repairedRevision, awaitCompletion = true).map { it.name })
+                    assertEquals(2, methods.count { it == "server/discover" })
+                    assertEquals(2, methods.count { it == "tools/list" })
+                    assertEquals(McpConnectionHealthState.CONNECTED, manager.healthSnapshot(repairedRevision.connectionUid).state)
+                } finally {
+                    manager.closeAll()
+                }
+            }
+        }
+    }
+
     @Test fun invalidToolArgumentsNeverSelectHandshakeFallbackOrRepeatTheCall() = runBlocking {
         val methods = mutableListOf<String>()
         HttpClient(

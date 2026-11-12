@@ -56,8 +56,10 @@ internal fun GitHubChatApprovalCard(model: GitHubReviewViewModel, onCommitted: (
     val review by model.review.collectAsStateWithLifecycle()
     val busy by model.busy.collectAsStateWithLifecycle()
     val notice by model.notice.collectAsStateWithLifecycle()
+    val tasks by model.engineeringTasks.collectAsStateWithLifecycle()
     val snapshot = run?.takeIf { it.taskId == pending } ?: return
     val proposal = review ?: return
+    val task = tasks.firstOrNull { it.taskId == snapshot.taskId }
     val files = remember(proposal.files) { proposal.files.filter { it.changed } }
     var showDetails by remember(snapshot.taskId, snapshot.patchDigest) { mutableStateOf(false) }
     var editPath by remember(snapshot.taskId, snapshot.patchDigest) { mutableStateOf<String?>(null) }
@@ -65,6 +67,13 @@ internal fun GitHubChatApprovalCard(model: GitHubReviewViewModel, onCommitted: (
     var replacement by remember(snapshot.taskId, snapshot.patchDigest, editPath) { mutableStateOf("") }
     val canCommit = !busy && !proposal.stale && files.isNotEmpty()
     val status = if (proposal.stale) "Branch changed. Refresh the proposal before committing." else notice
+    val taskContext = buildString {
+        append("Task ${snapshot.taskId.take(20)} · ${proposal.owner}/${proposal.repo} · ${proposal.branch}\n")
+        append("Base ${proposal.head.take(12)} · Patch ${snapshot.patchDigest.take(12)}\n")
+        append(if (task?.requiresHardwareVerification == true) "Risk: hardware verification remains required." else "Risk: build and CI are not verified by this approval.")
+    }
+    val fixtureBranch = proposal.branch.matches(Regex("codex-self-test/[a-f0-9]{20}"))
+    LaunchedEffect(snapshot.taskId, snapshot.patchDigest) { model.recordApprovalEvent(snapshot.taskId, "approval_card_shown") }
     GitHubApprovalSummary(
         summary = compactApprovalSummary(files.size, proposal.branch, snapshot.commitMessage, "${proposal.owner}/${proposal.repo}"),
         busy = busy,
@@ -72,7 +81,10 @@ internal fun GitHubChatApprovalCard(model: GitHubReviewViewModel, onCommitted: (
         notice = status,
         onCommit = { model.approveCommit(snapshot.taskId, snapshot.patchDigest, onCommitted) },
         onDetails = { showDetails = true },
-        onReject = { model.rejectCommit(snapshot.taskId) }
+        onReject = { model.rejectCommit(snapshot.taskId) },
+        taskContext = taskContext,
+        keepFixture = fixtureBranch,
+        onKeepFixture = { model.keepFixture(snapshot.taskId) }
     )
     if (showDetails) {
         FadingDialog(onDismissRequest = { showDetails = false }, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
@@ -127,7 +139,10 @@ internal fun GitHubApprovalSummary(
     notice: String,
     onCommit: () -> Unit,
     onDetails: () -> Unit,
-    onReject: () -> Unit
+    onReject: () -> Unit,
+    taskContext: String = "",
+    keepFixture: Boolean = false,
+    onKeepFixture: () -> Unit = {}
 ) {
     val shape = MaterialTheme.shapes.large
     AppGlassSurface(Modifier.fillMaxWidth().padding(horizontal = 12.dp).gitHubDecisionOutline(shape, active = !busy).testTag("github_chat_approval"), shape = shape) {
@@ -143,6 +158,7 @@ internal fun GitHubApprovalSummary(
                 )
             }
             Text(summary, style = MaterialTheme.typography.bodySmall, maxLines = 3, overflow = TextOverflow.Ellipsis)
+            if (taskContext.isNotBlank()) Text(taskContext, style = MaterialTheme.typography.labelSmall, maxLines = 4, overflow = TextOverflow.Ellipsis)
             BoxWithConstraints(Modifier.fillMaxWidth()) {
                 // Keep all actions horizontal and their touch targets intact at large text sizes.
                 val iconsOnly = maxWidth < 300.dp * LocalDensity.current.fontScale
@@ -172,6 +188,7 @@ internal fun GitHubApprovalSummary(
                     }
                 }
             }
+            if (keepFixture) TextButton(enabled = !busy, onClick = onKeepFixture, modifier = Modifier.heightIn(min = 40.dp)) { Text("Keep fixture") }
             if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
             if (notice.isNotBlank()) Text(notice, style = MaterialTheme.typography.labelSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }

@@ -24,6 +24,8 @@ For manual Python installations set `GATEWAY_HOST=0.0.0.0`, `GATEWAY_PORT=8090`,
 
 Open-network clients share the `network:shared` principal. Existing local or legacy private jobs are retained under their old owner and are not silently transferred to the network. Legacy optional bearer/proxy modes keep their existing ownership rules.
 
+In network mode, opening the Gateway address (with or without `/v1`) in a browser shows a read-only connection page with a link to the liveness check. Use the Gateway app on the host PC for its desktop dashboard and settings. The proxied llama.cpp web UI is available in loopback mode.
+
 Environment options: `GATEWAY_HOST`, `GATEWAY_PORT`, `GATEWAY_AUTH_DB`, `GATEWAY_JOB_DB`, `LLAMA_BASE` (default localhost:8080), `MEMORY_BASE` (default localhost:8765), and `MCP_CONFIG_PATH`. The gateway token is stripped from backend proxy requests. Configure backend authentication independently if needed.
 
 Bounded context, explicit failover, output caps, cancellation, durable recovery, progress events and delegation diagnostics remain available. This server is optional; Android's local memory has no gateway dependency.

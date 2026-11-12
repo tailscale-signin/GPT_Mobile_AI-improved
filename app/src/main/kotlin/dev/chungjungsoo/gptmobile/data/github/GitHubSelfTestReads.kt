@@ -21,11 +21,27 @@ internal object GitHubSelfTestReads {
         val retiredRead = GitHubSelfTestFixtures.retiredReadPredicate(receipts.mapIndexed { index, receipt -> index.toString() to receipt }.toMap())
         val observations = receipts.filter { it["trusted"] == JsonPrimitive(true) && it["verification_eligible"] != JsonPrimitive(false) && !retiredRead(it) }
         GitHubPolicyReadRecovery.next(tools, observations)?.let { ready += it }
+        // Old receipts may retain a count and only the first inventory row. Reacquire
+        // their exact read once under today's authorization; never synthesize the lost rows.
+        observations.forEachIndexed { index, receipt ->
+            if (receipt["success"] != JsonPrimitive(true) || (receipt["result"] as? JsonObject)?.get("observationTruncated") != JsonPrimitive(true)) return@forEachIndexed
+            val args = receipt["arguments"] as? JsonObject ?: return@forEachIndexed
+            val name = receipt.text("tool")
+            if (args.text("action") !in setOf("runs", "workflows", "jobs", "commits", "list", "tags", "branches") || "view_cursor" in args || !dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary.isReplayableRead(name, args)) return@forEachIndexed
+            val id = "inventory-source-" + GitHubEvidenceBook.digest("${receipt.text("binding")}|${receipt.text("receipt_id")}|$name|$args").take(24)
+            if (observations.any { it.text("call_id") == id || it.text("call_id").startsWith("$id-") } ||
+                observations.drop(index + 1).any { it.text("tool") == name && (it["arguments"] == args || GitHubActionIdentity.matches(name, args, it)) }
+            ) {
+                return@forEachIndexed
+            }
+            val tool = tools.firstOrNull { it.modelVisible && it.name == name && ToolArgumentValidator.errors(args, it.inputSchema).isEmpty() } ?: return@forEachIndexed
+            ready += ProviderEvent.ToolCall(id, tool.name, args)
+        }
         fun roots(tool: String, action: String? = null) = observations.filter {
             it["success"] == JsonPrimitive(true) &&
                 it.text("tool").substringBefore("__") == tool &&
                 (action == null || (it["arguments"] as? JsonObject)?.text("action") == action)
-        }.mapNotNull { (it["result"] as? JsonObject)?.let { root -> (root["data"] as? JsonObject) ?: root } }.asReversed()
+        }.mapNotNull(GitHubInventoryObservation::planningRoot).asReversed()
         fun records(tool: String, action: String, vararg fields: String) = roots(tool, action).flatMap { root ->
             fields.firstNotNullOfOrNull { root[it] as? JsonArray }.orEmpty().filterIsInstance<JsonObject>()
         }
@@ -33,7 +49,8 @@ internal object GitHubSelfTestReads {
         val sha = (status?.get("commit_sha") as? JsonPrimitive)?.takeIf { it.content.matches(Regex("[a-fA-F0-9]{40}")) }
         val branch = status?.get("branch") ?: status?.get("ref")
         val currentRuns = GitHubObservedWorkflowRuns.current(observations, sha)
-        val run = currentRuns.firstOrNull { it.text("status") == "completed" && it.text("conclusion") !in setOf("skipped", "neutral") }
+        val run = currentRuns.firstOrNull { it.text("status") == "completed" && it.text("conclusion") in setOf("success", "failure", "timed_out", "action_required") }
+            ?: currentRuns.firstOrNull { it.text("status") != "completed" }
             ?: currentRuns.firstOrNull()
         // Failure analysis has its own prerequisite. A successful run selected
         // for ordinary inspection must not hide a different observed failed run.
@@ -122,8 +139,16 @@ internal object GitHubSelfTestReads {
             pr?.get("number")?.let { id -> listOf("headers", "context", "comments", "reviews", "threads").forEach { recipe("github_pr", it, "pull_number" to id) } }
             issue?.get("number")?.let { id -> listOf("headers", "context", "comments", "history").forEach { recipe("github_issue", it, "issue_number" to id) } }
         }
-        for ((name, args) in recipes) {
-            val tool = tools.firstOrNull { it.modelVisible && it.name.substringBefore("__") == name } ?: continue
+        for ((name, recipe) in recipes) {
+            val tool = tools.firstOrNull { it.modelVisible && it.name.substringBefore("__") == name && ToolArgumentValidator.errors(recipe, it.inputSchema).isEmpty() } ?: continue
+            // A live-required capability should make its first admissible read
+            // live. Re-reading every cached inventory page wastes the fixture
+            // and verification budget without increasing capability coverage.
+            val args = if (GitHubTestChecklist.requiresLiveTransport(name, recipe.text("action")) && (tool.inputSchema["properties"] as? JsonObject)?.containsKey("verify_live") == true) {
+                JsonObject(recipe + ("verify_live" to JsonPrimitive(true)))
+            } else {
+                recipe
+            }
             val prior = observations.filter { it.text("tool") == tool.name && (it["arguments"] as? JsonObject)?.text("action") == args.text("action") }
             if (prior.isNotEmpty()) {
                 if (prior.any { it["success"] == JsonPrimitive(true) || it["arguments"] == args || GitHubActionIdentity.matches(tool.name, args, it) }) continue
@@ -139,7 +164,19 @@ internal object GitHubSelfTestReads {
             if (ToolArgumentValidator.errors(args, tool.inputSchema).isNotEmpty()) continue
             ready += ProviderEvent.ToolCall("checklist-" + GitHubEvidenceBook.digest("${tool.name}:$args").take(24), tool.name, args)
         }
-        return ready
+        return ready.sortedBy(::priority)
+    }
+
+    fun isDependency(call: ProviderEvent.ToolCall): Boolean = priority(call) <= 1
+
+    private fun priority(call: ProviderEvent.ToolCall): Int = when {
+        call.callId.startsWith("policy-read-") -> 0
+        call.callId.startsWith("inventory-source-") -> 0
+        call.name.substringBefore("__") == "github_issue" && call.arguments.text("action") == "list" -> 1
+        call.name.substringBefore("__") == "github_release" && call.arguments.text("action") in setOf("tags", "list") -> 1
+        call.name.substringBefore("__") == "github_ci" && call.arguments.text("action") == "jobs" -> 1
+        call.name.substringBefore("__") == "github_ci" && call.arguments.text("action") == "definitions" -> 3
+        else -> 2
     }
 
     private fun JsonObject.text(key: String) = (get(key) as? JsonPrimitive)?.contentOrNull.orEmpty()

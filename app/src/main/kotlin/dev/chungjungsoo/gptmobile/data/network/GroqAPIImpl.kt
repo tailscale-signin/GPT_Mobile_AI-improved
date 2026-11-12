@@ -41,69 +41,93 @@ class GroqAPIImpl @Inject constructor(
         try {
             val endpoint = config.copy(apiUrl = config.apiUrl.ifBlank { ModelConstants.GROQ_API_URL }).buildEndpoint("chat/completions")
 
-            ProviderCooldown.await(config)
-            val admittedPayload = requestPreparation.prepare(NetworkClient.openAIJson.encodeToString(request), config, request.model, request.maxCompletionTokens)
-            networkClient().preparePost(endpoint) {
-                applyPlatformStreamingTimeout(timeoutSeconds, workerBudget)
-                contentType(ContentType.Application.Json)
-                setBody(admittedPayload)
-                accept(if (request.stream) ContentType.Text.EventStream else ContentType.Application.Json)
-                config.token?.let { bearerAuth(it) }
-            }.execute { response ->
-                if (!response.status.isSuccess()) {
-                    if (response.status.value == 429 && !receivedPayload) {
-                        throw ProviderHttpFailure(
-                            429,
-                            ProviderCooldown.defer(config, response.headers[HttpHeaders.RetryAfter]),
-                            knownNotAccepted = response.headers["X-Gateway-Job-ID"].isNullOrBlank()
-                        )
-                    }
-                    val errorBody = response.body<String>()
-                    throwIfToolDefinitionsRejected(response.status.value, !request.tools.isNullOrEmpty(), errorBody)
-                    val errorMessage = try {
-                        val errorResponse = NetworkClient.openAIJson.decodeFromString<GroqErrorResponse>(errorBody)
-                        errorResponse.error.message
-                    } catch (_: Exception) {
-                        "HTTP ${response.status.value}: $errorBody"
-                    }
+            ProviderCooldown.withPermit(config) {
+                val admittedPayload = requestPreparation.prepare(NetworkClient.openAIJson.encodeToString(request), config, request.model, request.maxCompletionTokens)
+                networkClient().preparePost(endpoint) {
+                    applyPlatformStreamingTimeout(timeoutSeconds, workerBudget)
+                    contentType(ContentType.Application.Json)
+                    setBody(admittedPayload)
+                    accept(if (request.stream) ContentType.Text.EventStream else ContentType.Application.Json)
+                    config.token?.let { bearerAuth(it) }
+                }.execute { response ->
+                    if (!response.status.isSuccess()) {
+                        if (response.status.value == 429 && !receivedPayload) {
+                            throw ProviderCooldown.rejected(
+                                config,
+                                429,
+                                response.headers[HttpHeaders.RetryAfter],
+                                knownNotAccepted = response.headers["X-Gateway-Job-ID"].isNullOrBlank(),
+                                rateReset = response.headers["X-RateLimit-Reset"],
+                                errorOrigin = "provider"
+                            )
+                        }
+                        val errorBody = response.body<String>()
+                        throwIfToolDefinitionsRejected(response.status.value, !request.tools.isNullOrEmpty(), errorBody)
+                        val errorMessage = try {
+                            val errorResponse = NetworkClient.openAIJson.decodeFromString<GroqErrorResponse>(errorBody)
+                            errorResponse.error.message
+                        } catch (_: Exception) {
+                            "HTTP ${response.status.value}: $errorBody"
+                        }
 
-                    emit(
-                        GroqChatCompletionChunk(
-                            error = GroqErrorDetail(
-                                message = errorMessage,
-                                type = "http_error",
-                                code = response.status.value.toString()
+                        emit(
+                            GroqChatCompletionChunk(
+                                error = GroqErrorDetail(
+                                    message = errorMessage,
+                                    type = "http_error",
+                                    code = response.status.value.toString()
+                                )
                             )
                         )
-                    )
-                    return@execute
-                }
-
-                if (!request.stream) {
-                    val chunk = NetworkClient.openAIJson.decodeFromString<GroqChatCompletionChunk>(response.body())
-                    receivedPayload = true
-                    emit(chunk)
-                    return@execute
-                }
-
-                val channel = response.bodyAsChannel()
-                while (!channel.isClosedForRead) {
-                    val line = channel.readLine() ?: break
-                    val data = SseUtils.extractSseData(line) ?: continue
-
-                    if (data == "[DONE]") {
-                        emit(GroqChatCompletionChunk(streamFinished = true))
-                        break
+                        return@execute
                     }
 
-                    val chunk = try {
-                        NetworkClient.openAIJson.decodeFromString<GroqChatCompletionChunk>(data)
-                    } catch (e: kotlinx.serialization.SerializationException) {
-                        Log.w("GroqAPI", "Skipping malformed Groq chunk", e)
-                        continue
+                    ProviderCooldown.observeQuota(config) { response.headers[it] }
+                    if (!request.stream) {
+                        val chunk = NetworkClient.openAIJson.decodeFromString<GroqChatCompletionChunk>(response.body())
+                        if (chunk.error == null) ProviderCooldown.accepted(config)
+                        receivedPayload = true
+                        emit(chunk)
+                        return@execute
                     }
-                    receivedPayload = true
-                    emit(chunk)
+
+                    val channel = response.bodyAsChannel()
+                    while (!channel.isClosedForRead) {
+                        val line = channel.readLine() ?: break
+                        val data = SseUtils.extractSseData(line) ?: continue
+
+                        if (data == "[DONE]") {
+                            ProviderCooldown.accepted(config)
+                            emit(GroqChatCompletionChunk(streamFinished = true))
+                            break
+                        }
+
+                        val chunk = try {
+                            NetworkClient.openAIJson.decodeFromString<GroqChatCompletionChunk>(data)
+                        } catch (e: kotlinx.serialization.SerializationException) {
+                            Log.w("GroqAPI", "Skipping malformed Groq chunk", e)
+                            continue
+                        }
+                        val error = chunk.error
+                        if (error != null &&
+                            (error.code == "429" || error.code == "rate_limit_exceeded") &&
+                            ProviderCooldown.durableRateLimits() &&
+                            response.headers["X-Gateway-Job-ID"].isNullOrBlank()
+                        ) {
+                            throw ProviderCooldown.rejected(
+                                config,
+                                429,
+                                response.headers[HttpHeaders.RetryAfter],
+                                knownNotAccepted = !receivedPayload,
+                                rateReset = response.headers["X-RateLimit-Reset"],
+                                errorOrigin = "provider",
+                                errorType = error.type,
+                                checkpointContinuationAllowed = true
+                            )
+                        }
+                        receivedPayload = true
+                        emit(chunk)
+                    }
                 }
             }
         } catch (e: Exception) {

@@ -152,6 +152,7 @@ object AgentRunStatus {
     const val QUEUED = "QUEUED"
     const val WAITING_PROVIDER_LIMIT = "WAITING_PROVIDER_LIMIT"
     const val WAITING_REMOTE_JOB = "WAITING_REMOTE_JOB"
+    const val WAITING_FOR_APPROVAL = "WAITING_FOR_APPROVAL"
     const val RUNNING = "RUNNING"
     const val COMPLETED = "COMPLETED"
     const val FAILED = "FAILED"
@@ -160,7 +161,10 @@ object AgentRunStatus {
     const val PARTIAL = "PARTIAL"
     const val EVIDENCE_MISSING = "EVIDENCE_MISSING"
     const val BLOCKED = "BLOCKED"
-    val terminal = setOf(COMPLETED, FAILED, CANCELED, INTERRUPTED, PARTIAL, EVIDENCE_MISSING, BLOCKED)
+
+    // Approval is a durable pause awaiting a user action. It is terminal for this
+    // provider attempt, but it remains distinct from a failed or blocked run.
+    val terminal = setOf(COMPLETED, FAILED, CANCELED, INTERRUPTED, PARTIAL, EVIDENCE_MISSING, BLOCKED, WAITING_FOR_APPROVAL)
 }
 
 object AgentRunTerminalError {

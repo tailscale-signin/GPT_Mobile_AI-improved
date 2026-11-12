@@ -13,7 +13,7 @@ class GitHubReasoningPolicyTest {
     @Test fun reviewCompatibilityPreflightHasABoundedVisibleOutputAllowance() {
         val primary = RequestConstraints(maxOutputTokens = 8192, allowReasoning = true, maximizeReasoning = true)
         val preflight = primary.forRole("github-review-preflight")
-        assertEquals(512, preflight.maxOutputTokens)
+        assertEquals(2048, preflight.maxOutputTokens)
         assertTrue(preflight.allowReasoning)
         assertFalse(preflight.maximizeReasoning)
         assertEquals(128, primary.copy(maxOutputTokens = 128).forRole("github-review-preflight").maxOutputTokens)

@@ -170,15 +170,18 @@ internal fun providerExceptionDetails(error: Exception, partialOutput: Boolean, 
             }
         )
     }
-    val http = (error as? ProviderHttpFailure)?.let { ProviderFailure.parse(it.status, retryAfterMillis = it.retryAfterMs) }
+    val httpFailure = error as? ProviderHttpFailure
+    val http = httpFailure?.let { ProviderFailure.parse(it.status, retryAfterMillis = it.retryAfterMs) }
     val rateLimit = error as? FreeAiRateLimitException
     val free = error as? FreeProviderException
     val category = free?.category ?: rateLimit?.let(::freeFailureCategory)
     if (http == null && category == null) return null
     val localLimit = category in setOf(FreeFailureCategory.LOCAL_COOLDOWN_ACTIVE, FreeFailureCategory.LOCAL_ALLOWANCE_EXHAUSTED)
-    val localBlock = rateLimit?.localBlock == true || free != null && localLimit
-    val responded = http != null || rateLimit?.localBlock == false
+    val localBlock = rateLimit?.localBlock == true || free != null && localLimit || httpFailure?.beforeDispatch == true
+    val responded = http != null && httpFailure?.beforeDispatch != true || rateLimit?.localBlock == false
     val retryAt = rateLimit?.retryAt ?: free?.providerLimit?.retryAt
+    val observedHttpStatus = httpFailure?.takeUnless { it.beforeDispatch && it.consecutiveRejections == 0 }?.status
+    val observedRetryAt = httpFailure?.takeIf { it.retrySource != null }?.retryAtMillis
     val retryable = !partialOutput && (http?.retryable ?: (retryAt != null && (localLimit || category == FreeFailureCategory.PROVIDER_RATE_LIMITED)))
     val code = http?.status?.toString() ?: requireNotNull(category).name
     return ErrorDetail(
@@ -202,10 +205,15 @@ internal fun providerExceptionDetails(error: Exception, partialOutput: Boolean, 
                 put("dispatched", responded)
                 put("dispatch_state", if (responded) "FAILED" else "PRECHECK_REJECTED")
             }
-            (http?.status ?: rateLimit?.cooldown?.status)?.let { put(if (responded) "http_status" else "originating_http_status", it) }
+            (observedHttpStatus ?: rateLimit?.cooldown?.status)
+                ?.let { put(if (responded) "http_status" else "originating_http_status", it) }
             rateLimit?.cooldown?.providerCode?.let { put(if (responded) "provider_code" else "originating_provider_code", it) }
             (http?.retryAfterMillis ?: retryAt?.let { ProviderRetryPolicy.remainingMillis(it, nowMillis) })?.let { put("retry_after_ms", it) }
-            retryAt?.let { put("retry_at_ms", it) }
+            (retryAt ?: observedRetryAt)?.let { put("retry_at_ms", it) }
+            httpFailure?.retrySource?.let { put("retry_source", it) }
+            httpFailure?.consecutiveRejections?.takeIf { it > 0 }?.let { put("consecutive_rejections", it) }
+            httpFailure?.errorOrigin?.let { put("provider_error_origin", it) }
+            httpFailure?.errorType?.let { put("provider_error_type", it) }
             put("retryable", retryable)
             put("partial_output_preserved", partialOutput)
         }

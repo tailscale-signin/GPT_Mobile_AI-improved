@@ -22,6 +22,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentRunnerTest {
+    @Test fun typedBindingAdmissionFailureReachesTheRunnerWithoutLosingItsDispatchFacts() = runBlocking {
+        var requests = 0
+        val provider = session { _, _ ->
+            requests++
+            throw dev.chungjungsoo.gptmobile.data.github.GatewayExecutionRejected("EXECUTION_MODEL_MISMATCH", 409, "provider_admission", inferenceAttempted = false)
+        }
+        val events = AgentRunner(AgentRunLimits(maxRounds = 1)).run(provider, emptyList()).toList()
+        val failure = events.filterIsInstance<AgentRunEvent.Provider>().map { it.event }.filterIsInstance<ProviderEvent.Failed>().single()
+        assertEquals("EXECUTION_MODEL_MISMATCH", failure.errorCode)
+        assertEquals("BLOCKED", failure.taskOutcome)
+        assertEquals(JsonPrimitive("provider_admission"), failure.failureDetails?.get("failed_stage"))
+        assertEquals(JsonPrimitive(false), failure.failureDetails?.get("dispatched"))
+        assertEquals(JsonPrimitive("NO"), failure.failureDetails?.get("remote_acceptance"))
+        assertEquals(JsonPrimitive(409), failure.failureDetails?.get("http_status"))
+        assertEquals(1, requests)
+    }
+
     @Test fun repeatedFlowCollectionsDoNotShareLoopBudgetsOrFinalizationFlags() = runBlocking {
         var invocations = 0
         var providerRequests = 0

@@ -4,6 +4,7 @@ import dev.chungjungsoo.gptmobile.data.dto.anthropic.request.MessageRequest
 import dev.chungjungsoo.gptmobile.data.dto.anthropic.response.ErrorDetail
 import dev.chungjungsoo.gptmobile.data.dto.anthropic.response.ErrorResponseChunk
 import dev.chungjungsoo.gptmobile.data.dto.anthropic.response.MessageResponseChunk
+import dev.chungjungsoo.gptmobile.data.dto.anthropic.response.MessageStopResponseChunk
 import dev.chungjungsoo.gptmobile.util.applyPlatformStreamingTimeout
 import io.ktor.client.call.body
 import io.ktor.client.plugins.HttpRequestTimeoutException
@@ -116,65 +117,87 @@ class AnthropicAPIImpl @Inject constructor(
                     config = ResilientStreamingClient.RetryConfig(maxAttempts = 3),
                     shouldRetry = { !receivedPayload }
                 ) {
-                    ProviderCooldown.await(config)
-                    val admittedPayload = requestPreparation.prepare(json.encodeToString(messageRequest), config, messageRequest.model, null)
-                    networkClient().preparePost(endpoint) {
-                        applyPlatformStreamingTimeout(timeoutSeconds, workerBudget)
-                        contentType(ContentType.Application.Json)
-                        setBody(admittedPayload)
-                        accept(if (messageRequest.stream) ContentType.Text.EventStream else ContentType.Application.Json)
-                        headers {
-                            append(API_KEY_HEADER, config.token ?: "")
-                            append(VERSION_HEADER, ANTHROPIC_VERSION)
-                            append(BETA_HEADER, anthropicBetaHeader(config.anthropicBetaFeatures))
-                        }
-                    }.execute { response ->
-                        if (!response.status.isSuccess()) {
-                            if (response.status.value in setOf(429, 502, 503, 504, 529)) {
-                                throw ProviderHttpFailure(response.status.value, ProviderCooldown.defer(config, response.headers[io.ktor.http.HttpHeaders.RetryAfter]))
+                    ProviderCooldown.withPermit(config) {
+                        val admittedPayload = requestPreparation.prepare(json.encodeToString(messageRequest), config, messageRequest.model, null)
+                        networkClient().preparePost(endpoint) {
+                            applyPlatformStreamingTimeout(timeoutSeconds, workerBudget)
+                            contentType(ContentType.Application.Json)
+                            setBody(admittedPayload)
+                            accept(if (messageRequest.stream) ContentType.Text.EventStream else ContentType.Application.Json)
+                            headers {
+                                append(API_KEY_HEADER, config.token ?: "")
+                                append(VERSION_HEADER, ANTHROPIC_VERSION)
+                                append(BETA_HEADER, anthropicBetaHeader(config.anthropicBetaFeatures))
                             }
-                            val errorBody = response.body<String>()
-                            throwIfToolDefinitionsRejected(
-                                response.status.value,
-                                !messageRequest.tools.isNullOrEmpty(),
-                                errorBody
-                            )
+                        }.execute { response ->
+                            if (!response.status.isSuccess()) {
+                                if (response.status.value in setOf(429, 502, 503, 504, 529)) {
+                                    throw ProviderCooldown.rejected(
+                                        config,
+                                        response.status.value,
+                                        response.headers[HttpHeaders.RetryAfter],
+                                        knownNotAccepted = response.status.value == 429 && !receivedPayload,
+                                        errorOrigin = "provider"
+                                    )
+                                }
+                                val errorBody = response.body<String>()
+                                throwIfToolDefinitionsRejected(
+                                    response.status.value,
+                                    !messageRequest.tools.isNullOrEmpty(),
+                                    errorBody
+                                )
 
-                            val errorMessage = try {
-                                val errorResponse = json.decodeFromString<AnthropicErrorResponse>(errorBody)
-                                errorResponse.error.message
-                            } catch (_: Exception) {
-                                "HTTP ${response.status.value}: $errorBody"
+                                val errorMessage = try {
+                                    val errorResponse = json.decodeFromString<AnthropicErrorResponse>(errorBody)
+                                    errorResponse.error.message
+                                } catch (_: Exception) {
+                                    "HTTP ${response.status.value}: $errorBody"
+                                }
+
+                                emit(ErrorResponseChunk(error = ErrorDetail(type = "api_error", message = errorMessage)))
+                                return@execute
                             }
 
-                            emit(ErrorResponseChunk(error = ErrorDetail(type = "api_error", message = errorMessage)))
-                            return@execute
-                        }
-
-                        if (!messageRequest.stream) {
-                            val chunks = anthropicCompleteResponseChunks(response.body<String>())
-                            receivedPayload = true
-                            chunks.forEach { emit(it) }
-                            return@execute
-                        }
-                        val channel = response.bodyAsChannel()
-                        while (!channel.isClosedForRead) {
-                            val line = channel.readLine() ?: break
-                            val data = SseUtils.extractSseData(line) ?: continue
-
-                            val chunk = try {
-                                json.decodeFromString<MessageResponseChunk>(data)
-                            } catch (_: kotlinx.serialization.SerializationException) {
-                                // Skip malformed payloads, never exceptions from downstream emit.
-                                continue
+                            ProviderCooldown.observeQuota(config) { response.headers[it] }
+                            if (!messageRequest.stream) {
+                                val chunks = anthropicCompleteResponseChunks(response.body<String>())
+                                receivedPayload = true
+                                if (chunks.none { it is ErrorResponseChunk }) ProviderCooldown.accepted(config)
+                                chunks.forEach { emit(it) }
+                                return@execute
                             }
-                            receivedPayload = true
-                            emit(chunk)
+                            val channel = response.bodyAsChannel()
+                            while (!channel.isClosedForRead) {
+                                val line = channel.readLine() ?: break
+                                val data = SseUtils.extractSseData(line) ?: continue
+
+                                val chunk = try {
+                                    json.decodeFromString<MessageResponseChunk>(data)
+                                } catch (_: kotlinx.serialization.SerializationException) {
+                                    // Skip malformed payloads, never exceptions from downstream emit.
+                                    continue
+                                }
+                                if (chunk is ErrorResponseChunk && chunk.error.type == "rate_limit_error" && ProviderCooldown.durableRateLimits()) {
+                                    throw ProviderCooldown.rejected(
+                                        config,
+                                        429,
+                                        response.headers[HttpHeaders.RetryAfter],
+                                        knownNotAccepted = !receivedPayload,
+                                        errorOrigin = "provider",
+                                        errorType = chunk.error.type,
+                                        checkpointContinuationAllowed = true
+                                    )
+                                }
+                                if (chunk == MessageStopResponseChunk) ProviderCooldown.accepted(config)
+                                receivedPayload = true
+                                emit(chunk)
+                            }
                         }
                     }
                 }
             }.catch { e ->
                 if (e is CancellationException || e is dev.chungjungsoo.gptmobile.data.agent.ToolDefinitionsRejectedException) throw e
+                if (e is ProviderHttpFailure && e.status == 429 && ProviderCooldown.durableRateLimits()) throw e
                 if (ResilientStreamingClient.shouldTreatPrematureCloseAsStreamEnd(receivedPayload, e)) {
                     return@catch
                 }

@@ -130,7 +130,8 @@ class ChatViewModel @Inject constructor(
     private val gitHubDecisionNotifications: dev.chungjungsoo.gptmobile.data.github.GitHubDecisionNotifications? = null,
     private val diagnosticDatabase: dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticDatabaseSource? = null,
     private val reasoningCapabilities: dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityRepository? = null,
-    private val diagnosticWorkspace: dev.chungjungsoo.gptmobile.data.workspace.WorkspaceRepository? = null
+    private val diagnosticWorkspace: dev.chungjungsoo.gptmobile.data.workspace.WorkspaceRepository? = null,
+    private val modelPreparationRepository: dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationRepository? = null
 ) : ViewModel() {
     private val diagnosticPrivacyOwner = java.util.UUID.randomUUID().toString()
     private val visibleHistoryTurns = MutableStateFlow(if (savedStateHandle.get<Int>("targetMessageId") != null) Int.MAX_VALUE else 40)
@@ -370,7 +371,17 @@ class ChatViewModel @Inject constructor(
 
     private val _chatToolConfig = MutableStateFlow(ChatMcpToolConfig())
     val chatToolConfig = _chatToolConfig.asStateFlow()
-    private var gatewayAdmissionChecking = false
+    enum class SendPreparation { MODEL_CHECK, GATEWAY_CHECK, QUEUE_SAVE }
+
+    private val _sendPreparation = MutableStateFlow<Set<SendPreparation>>(emptySet())
+    val sendPreparation = _sendPreparation.asStateFlow()
+    private var gatewayAdmissionChecking: Boolean
+        get() = SendPreparation.GATEWAY_CHECK in _sendPreparation.value
+        set(value) = updateSendPreparation(SendPreparation.GATEWAY_CHECK, value)
+
+    private fun updateSendPreparation(stage: SendPreparation, active: Boolean) {
+        _sendPreparation.update { if (active) it + stage else it - stage }
+    }
     private val _gatewayWriteBlocker = MutableStateFlow<String?>(null)
     val gatewayWriteBlocker = _gatewayWriteBlocker.asStateFlow()
     private val _gatewayQueueState = MutableStateFlow<dev.chungjungsoo.gptmobile.data.queue.GatewayQueuedChatState?>(null)
@@ -469,6 +480,7 @@ class ChatViewModel @Inject constructor(
     private val _agentRunsById = MutableStateFlow<Map<String, AgentRun>>(emptyMap())
     val agentRunsById = _agentRunsById.asStateFlow()
     private val providerWaitDeadlinesByRun = MutableStateFlow<Map<String, ProviderWaitDeadline>>(emptyMap())
+    val providerWaitDeadlines = providerWaitDeadlinesByRun.asStateFlow()
 
     // Each chat states for assistant chat messages
     // Index of the currently shown message's platform - default is 0 (first platform)
@@ -574,7 +586,9 @@ class ChatViewModel @Inject constructor(
         val merging = progress.values.filter { it.prompt.chatId == _chatRoom.value.id && it.phase == dev.chungjungsoo.gptmobile.data.queue.FollowUpPhase.MERGING }.map { it.prompt }
         (prompts + merging).distinctBy { it.id }.sortedBy { it.position }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
-    private var queueSubmissionPending = false
+    private var queueSubmissionPending: Boolean
+        get() = SendPreparation.QUEUE_SAVE in _sendPreparation.value
+        set(value) = updateSendPreparation(SendPreparation.QUEUE_SAVE, value)
     private val _queuedPromptCount = MutableStateFlow(0)
     val queuedPromptCount = _queuedPromptCount.asStateFlow()
     private val _disabledPlatformUids = MutableStateFlow<Set<String>>(emptySet())
@@ -598,7 +612,12 @@ class ChatViewModel @Inject constructor(
 
     private val _reasoningAdmissionNotice = MutableStateFlow<dev.chungjungsoo.gptmobile.presentation.ui.setting.ReasoningAdmissionNotice?>(null)
     val reasoningAdmissionNotice = _reasoningAdmissionNotice.asStateFlow()
-    private var reasoningSendChecking = false
+    private val selectedGatewayModels = dev.chungjungsoo.gptmobile.data.context.GatewayModelSelectionController(modelPreparationRepository, viewModelScope)
+    val gatewayModelPreparation = selectedGatewayModels.states
+    fun recheckGatewayModel(profileUid: String) = selectedGatewayModels.recheck(profileUid)
+    private var reasoningSendChecking: Boolean
+        get() = SendPreparation.MODEL_CHECK in _sendPreparation.value
+        set(value) = updateSendPreparation(SendPreparation.MODEL_CHECK, value)
     private var reasoningSendCheckJob: kotlinx.coroutines.Job? = null
     private var reasoningSendGeneration = 0L
 
@@ -634,6 +653,7 @@ class ChatViewModel @Inject constructor(
 
     init {
         observeVoiceAdmission()
+        observeSelectedGatewayModels()
         viewModelScope.launch {
             combine(_platformsInApp, _chatPlatformModels, featureSettings, _chatToolConfig) { _, _, _, _ -> Unit }.collect {
                 if (_reasoningRecoveries.value.isNotEmpty()) refreshCombinedFailures()
@@ -687,6 +707,37 @@ class ChatViewModel @Inject constructor(
         loadAvailableChatTools()
         viewModelScope.launch {
             _catalogEntries.value = modelCatalogRepository.getCachedVisibleEntries()
+        }
+    }
+
+    private fun observeSelectedGatewayModels() {
+        viewModelScope.launch {
+            combine(_platformsInApp, _chatPlatformModels, _activePlatformUids, _disabledPlatformUids, nextMessageProfileUid) { profiles, models, active, paused, next ->
+                profiles.filter { it.enabled && it.uid in active && it.uid !in paused && (next == null || it.uid == next) }
+                    .mapNotNull { profile -> models[profile.uid]?.takeIf(String::isNotBlank)?.let { profile.copy(model = it) } }
+            }.combine(_voiceRoomReady) { profiles, restored -> if (restored) profiles else emptyList() }
+                .combine(_chatToolConfig) { profiles, tools -> profiles to tools.reasoning }
+                .combine(featureSettings) { (profiles, conversationReasoning), settings ->
+                    profiles to profiles.associate { it.uid to dev.chungjungsoo.gptmobile.data.context.ReasoningPolicy.preference(it.reasoning, settings.llamaReasoningModes[it.uid], conversationReasoning) }
+                }.distinctUntilChanged().collect { (profiles, modes) ->
+                    if (!leavingConversation) selectedGatewayModels.update(profiles, modes)
+                }
+        }
+        viewModelScope.launch {
+            selectedGatewayModels.states.collect { states ->
+                val notice = _reasoningAdmissionNotice.value ?: return@collect
+                val current = _platformsInApp.value.singleOrNull { it.uid == notice.profileUid && it.enabled }?.let(::resolvePlatformModel)
+                val state = states[notice.profileUid]?.takeIf { it.model == notice.model && current?.model == notice.model && it.observation?.requested == notice.requested } ?: return@collect
+                if (notice.modelReadiness) {
+                    _reasoningAdmissionNotice.value = notice.copy(
+                        state = dev.chungjungsoo.gptmobile.presentation.ui.setting.ReasoningCapabilityUiState(
+                            checking = state.busy,
+                            observation = state.observation,
+                            preparation = state
+                        )
+                    )
+                }
+            }
         }
     }
 
@@ -765,6 +816,9 @@ class ChatViewModel @Inject constructor(
     }
 
     fun askQuestion() {
+        // The first tap owns its frozen draft and resumes after admission.
+        // Keyboard/accessibility taps can arrive before Compose disables Send.
+        if (_sendPreparation.value.isNotEmpty()) return
         val attempt = dev.chungjungsoo.gptmobile.data.diagnostics.SendAttemptTrace()
         val questionText = question.text.toString()
         val hasReadyAttachments = _selectedAttachments.value.any { it.status == ChatAttachmentDraft.Status.Ready }
@@ -883,7 +937,15 @@ class ChatViewModel @Inject constructor(
                         var rejected: Pair<ReasoningRecoveryRequest, dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityObservation?>? = null
                         for (request in selected) {
                             checkingRequest = request
-                            val observation = reasoningCapabilities.check(request.profile, request.mode)
+                            var observation = reasoningCapabilities.check(request.profile, request.mode, forceRefresh = true)
+                            if (observation.safeReasonCode in setOf("SELECTED_MODEL_NOT_LOADED", "SELECTED_MODEL_LOADING") && modelPreparationRepository != null) {
+                                modelPreparationRepository.prepareSelected(request.profile, request.mode, forceRefresh = true) { state ->
+                                    if (generation == reasoningSendGeneration && !leavingConversation) {
+                                        _attachmentNotice.value = state?.message ?: "Checking the selected model. Your draft is kept."
+                                    }
+                                }
+                                observation = reasoningCapabilities.check(request.profile, request.mode, forceRefresh = true)
+                            }
                             if (!observation.permitsRequest ||
                                 request.mode != dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO &&
                                 !observation.routeVerified ||
@@ -942,6 +1004,10 @@ class ChatViewModel @Inject constructor(
             }
             val chatId = _chatRoom.value.id
             val composerAtCheck = question.text.toString()
+            val conversationModeAtCheck = _chatRoom.value.conversationMode
+            val temporaryAtCheck = _chatRoom.value.isTemporary
+            val profilesAtCheck = _platformsInApp.value
+            val modesAtCheck = featureSettings.value.llamaReasoningModes
             val attachmentsAtCheck = _selectedAttachments.value
             val activeProfilesAtCheck = _activePlatformUids.value
             val modelsAtCheck = _chatPlatformModels.value
@@ -956,7 +1022,12 @@ class ChatViewModel @Inject constructor(
                     } else if (gatewayTurn && agentRunCoordinator.hasUnconfirmedGatewayAdmission(chatId, requireNotNull(gatewayProfile).uid)) {
                         _attachmentNotice.value = "Confirming the previous gateway submission. Your new draft is kept until its saved conversation is known."
                         attempt.finish("GATEWAY_ADMISSION_UNCONFIRMED")
-                    } else if (_chatRoom.value.id == chatId &&
+                    } else if (!leavingConversation &&
+                        _chatRoom.value.id == chatId &&
+                        _chatRoom.value.conversationMode == conversationModeAtCheck &&
+                        _chatRoom.value.isTemporary == temporaryAtCheck &&
+                        _platformsInApp.value == profilesAtCheck &&
+                        featureSettings.value.llamaReasoningModes == modesAtCheck &&
                         question.text.toString() == composerAtCheck &&
                         _selectedAttachments.value == attachmentsAtCheck &&
                         nextMessageProfileUid.value == oneMessageUid &&
@@ -966,9 +1037,11 @@ class ChatViewModel @Inject constructor(
                     ) {
                         submitOrQueueQuestion(questionText, attachments, attempt, gatewayAdmissionChecked = true, reasoningAdmissionChecked = reasoningAdmissionChecked)
                     } else {
+                        _attachmentNotice.value = "The draft or connection changed during the check. Your current draft is kept; press Send when ready."
                         attempt.finish("COMPOSER_CHANGED_DURING_GATEWAY_CHECK")
                     }
                 } catch (cancelled: CancellationException) {
+                    attempt.finish("GATEWAY_ADMISSION_CHECK_CANCELLED")
                     throw cancelled
                 } catch (_: Exception) {
                     _attachmentNotice.value = "The previous gateway submission could not be checked. Your draft is kept; reconnect and try again."
@@ -1945,30 +2018,73 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    private var gitHubWorkflowRecoveryJob: kotlinx.coroutines.Job? = null
+
     /** A workspace recovery action targets one saved run, never an unrelated latest message. */
     fun recoverGitHubRun(runId: String, action: dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction) {
         val run = _agentRunsById.value[runId] ?: return
-        if (_chatToolConfig.value.github == null || run.chatId != _chatRoom.value.id || isGenerationBusy()) {
+        if (run.chatId != _chatRoom.value.id || isGenerationBusy() || gitHubWorkflowRecoveryJob?.isActive == true) {
             _attachmentNotice.value = "Wait for the current request to finish before resuming this workflow."
             return
         }
-        val allowed = dev.chungjungsoo.gptmobile.presentation.ui.workspace.GitHubWorkflowPresentation.snapshot(
-            run,
-            _toolEventsByRun.value[runId].orEmpty(),
-            eventWindowComplete = true
-        ).recovery
-        if (action !in allowed) {
-            _attachmentNotice.value = "This recovery action is no longer available. Open Status to review the saved workflow."
-            return
+        gitHubWorkflowRecoveryJob = viewModelScope.launch {
+            val evidence = try {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    diagnosticWorkspace?.let { dev.chungjungsoo.gptmobile.presentation.ui.workspace.GitHubWorkflowRecovery.load(it, run) }
+                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            }
+            val current = _agentRunsById.value[runId]
+            if (evidence == null ||
+                current == null ||
+                !dev.chungjungsoo.gptmobile.presentation.ui.workspace.GitHubWorkflowRecovery.sameAttempt(evidence.run, current) ||
+                current.chatId != _chatRoom.value.id ||
+                isGenerationBusy()
+            ) {
+                _attachmentNotice.value = "The saved response or its evidence changed. Reopen the workflow to review its current recovery action."
+                return@launch
+            }
+            // Older ordinary chats may own a native workflow without a GitHub display context.
+            // Its durable task is retained; normal retry admission still checks today's tool policy.
+            if ((_chatToolConfig.value.github == null && !evidence.hasSavedTask) || action !in evidence.snapshot.recovery) {
+                _attachmentNotice.value = "This recovery action is no longer available. Open Status to review the saved workflow."
+                return@launch
+            }
+            if (evidence.snapshot.sourceReadRecoveryAvailable) {
+                val sourceConnection = evidence.sourceConnectionUid
+                val permitted = try {
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        val features = settingRepository.getFeatureSettings()
+                        val profile = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == current.profileUid && it.enabled }
+                        val connection = sourceConnection?.let { toolConnectionRepository.getConnection(it) }
+                        profile != null &&
+                            connection?.type == dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType.GITHUB &&
+                            features.isToolPluginEnabledForProfile(profile.uid, dev.chungjungsoo.gptmobile.data.model.ToolPluginId.GITHUB) &&
+                            features.isToolPluginEnabledForProfile(profile.uid, dev.chungjungsoo.gptmobile.data.model.ToolPluginId.connection(connection.connectionUid))
+                    }
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    false
+                }
+                if (!permitted) {
+                    _attachmentNotice.value = "Restore the saved profile's GitHub access before restoring this read. Its source receipt is retained."
+                    return@launch
+                }
+            }
+            if (_chatRoom.value.id != current.chatId || isGenerationBusy() || _agentRunsById.value[runId]?.let { dev.chungjungsoo.gptmobile.presentation.ui.workspace.GitHubWorkflowRecovery.sameAttempt(current, it) } != true) return@launch
+            val turnIndex = _groupedMessages.value.userMessages.indexOfFirst { it.id == current.userMessageId }
+            val row = _groupedMessages.value.assistantMessages.getOrNull(turnIndex).orEmpty()
+            val platformIndex = row.indexOfFirst { it.currentRunId == runId && it.platformType == current.profileUid }
+            if (platformIndex < 0) {
+                _attachmentNotice.value = "The saved response has changed. Open Status to select its current recovery action."
+                return@launch
+            }
+            retryChat(turnIndex, platformIndex, action)
         }
-        val turnIndex = _groupedMessages.value.userMessages.indexOfFirst { it.id == run.userMessageId }
-        val row = _groupedMessages.value.assistantMessages.getOrNull(turnIndex).orEmpty()
-        val platformIndex = row.indexOfFirst { it.currentRunId == runId && it.platformType == run.profileUid }
-        if (platformIndex < 0) {
-            _attachmentNotice.value = "The saved response has changed. Open Status to select its current recovery action."
-            return
-        }
-        retryChat(turnIndex, platformIndex, action)
     }
 
     /** Recovery controls are bound to the card's persisted original turn, never latest chat text. */
@@ -2078,14 +2194,22 @@ class ChatViewModel @Inject constructor(
 
     fun recheckReasoningAdmission() {
         val notice = _reasoningAdmissionNotice.value ?: return
-        val profile = _platformsInApp.value.singleOrNull { it.uid == notice.profileUid && it.enabled }?.copy(model = notice.model) ?: return
+        val profile = _platformsInApp.value.singleOrNull { it.uid == notice.profileUid && it.enabled }?.let(::resolvePlatformModel) ?: return
+        if (profile.model != notice.model || profile.uid !in _activePlatformUids.value) {
+            dismissReasoningAdmission()
+            return
+        }
+        if (notice.modelReadiness && gatewayModelPreparation.value[notice.profileUid] != null) {
+            selectedGatewayModels.recheck(notice.profileUid)
+            return
+        }
         val generation = ++reasoningSendGeneration
         reasoningSendCheckJob?.cancel()
         _reasoningAdmissionNotice.value = notice.copy(state = notice.state.copy(checking = true))
         reasoningSendCheckJob = viewModelScope.launch {
             try {
                 val observation = reasoningCapabilities?.check(profile, notice.requested, forceRefresh = true)
-                if (generation == reasoningSendGeneration && _reasoningAdmissionNotice.value?.profileUid == notice.profileUid && _platformsInApp.value.singleOrNull { it.uid == notice.profileUid && it.enabled }?.copy(model = notice.model) == profile) {
+                if (generation == reasoningSendGeneration && _reasoningAdmissionNotice.value?.profileUid == notice.profileUid && _platformsInApp.value.singleOrNull { it.uid == notice.profileUid && it.enabled }?.let(::resolvePlatformModel) == profile) {
                     _reasoningAdmissionNotice.value = notice.copy(state = dev.chungjungsoo.gptmobile.presentation.ui.setting.ReasoningCapabilityUiState(observation = observation))
                 }
             } catch (cancelled: CancellationException) {
@@ -2242,12 +2366,16 @@ class ChatViewModel @Inject constructor(
                     val decisions = combinedCollectionDecisions
                     val excluded = decisions?.excludedProfiles(accepted.context.rootBudgetId).orEmpty()
                     val activeRows = rows.filter { it.platformType in _activePlatformUids.value && it.platformType in accepted.context.requested.participantUids && it.platformType !in excluded }
-                    val pendingRows = activeRows.filter { runs[it.currentRunId]?.status in setOf(AgentRunStatus.WAITING_REMOTE_JOB, AgentRunStatus.WAITING_PROVIDER_LIMIT) }
+                    val pendingRows = activeRows.filter { runs[it.currentRunId]?.status in setOf(AgentRunStatus.WAITING_REMOTE_JOB, AgentRunStatus.WAITING_PROVIDER_LIMIT, AgentRunStatus.WAITING_FOR_APPROVAL) }
                     val pendingProfiles = pendingRows.mapNotNull { it.platformType }
                     if (pendingProfiles.isNotEmpty()) {
                         val savedDecisions = requireNotNull(decisions)
                         check(accepted.context.requested.participantUids.any { it in _activePlatformUids.value && it !in excluded && it !in pendingProfiles }) {
-                            "All remaining profiles are waiting for a provider. Check their saved status or select another profile before combining."
+                            if (pendingRows.any { runs[it.currentRunId]?.status == AgentRunStatus.WAITING_FOR_APPROVAL }) {
+                                "All remaining profiles are paused. Resolve the existing GitHub approval card before continuing this task."
+                            } else {
+                                "All remaining profiles are waiting for a provider. Check their saved status or select another profile before combining."
+                            }
                         }
                         pendingProfiles.forEach { savedDecisions.excludeProfile(accepted.context.rootBudgetId, it, accepted.context.persistBudget) }
                         pendingRows.forEach { cancelExcludedProviderWait(runs[it.currentRunId], accepted.context.rootBudgetId) }
@@ -2359,6 +2487,11 @@ class ChatViewModel @Inject constructor(
         if (_loadingStates.value.getOrNull(ownerLoadingIndex) == LoadingState.Loading) return
         val userMessage = _groupedMessages.value.userMessages.getOrNull(turnIndex) ?: return
         val previousRun = currentAssistantMessage.currentRunId?.let { _agentRunsById.value[it] }
+        if (previousRun?.status == AgentRunStatus.WAITING_PROVIDER_LIMIT) return
+        if (previousRun?.status == AgentRunStatus.WAITING_FOR_APPROVAL) {
+            _attachmentNotice.value = "Resolve the existing GitHub approval card before continuing this task."
+            return
+        }
         val failureDetails = previousRun?.terminalError ?: currentAssistantMessage.timeline.lastOrNull { it.runError != null }?.runError
         gitHubApprovalRetryBlock(failureDetails, gitHubApprovalPending)?.let {
             _attachmentNotice.value = it
@@ -2812,6 +2945,15 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    /** Resolve the selected GitHub host's browser origin for repository links in GitHub chat. */
+    suspend fun gitHubWebOrigin(connectionUid: String): String = withContext(Dispatchers.IO) {
+        runCatching {
+            toolConnectionRepository.getConnection(connectionUid)
+                ?.takeIf { it.type == ToolConnectionType.GITHUB }
+                ?.let { dev.chungjungsoo.gptmobile.data.github.GitHubApiOrigins.fromEndpoint(it.endpointUrl).authorization }
+        }.getOrNull() ?: dev.chungjungsoo.gptmobile.data.github.GitHubApiOrigins.GITHUB_COM.authorization
+    }
+
     /** Save before switching an embedded GitHub tab without marking this conversation as left. */
     fun checkpointComposer() {
         val room = _chatRoom.value
@@ -2829,6 +2971,7 @@ class ChatViewModel @Inject constructor(
     fun leaveConversation(done: () -> Unit) {
         if (leavingConversation) return
         leavingConversation = true
+        selectedGatewayModels.clear()
         memoryPreview?.clear()
         val room = _chatRoom.value
         val text = question.text.toString()
@@ -4350,7 +4493,7 @@ private inline fun pruneTransientChatRunNoticesWithStatusLookup(
     getStatus: (String) -> String?
 ): Map<String, List<ChatRunNotice>> = noticesByRunId.mapValues { (runId, notices) ->
     val status = getStatus(runId)
-    val isActive = runId in activeRunIds || status == AgentRunStatus.QUEUED || status == AgentRunStatus.RUNNING || status == AgentRunStatus.WAITING_PROVIDER_LIMIT
+    val isActive = runId in activeRunIds || status == AgentRunStatus.QUEUED || status == AgentRunStatus.RUNNING || status == AgentRunStatus.WAITING_PROVIDER_LIMIT || status == AgentRunStatus.WAITING_FOR_APPROVAL
     if (isActive) notices else notices.filter { it.persistent }
 }.filterValues { it.isNotEmpty() }
 

@@ -123,7 +123,7 @@ internal fun readNativeIncidentRecords(directory: File): List<JsonObject> {
         val errors = (preserved?.get("errors") as? JsonPrimitive)?.content.orEmpty()
         val warnings = (preserved?.get("warnings") as? JsonPrimitive)?.content.orEmpty()
         val occurredAt = (preserved?.get("occurredAtMillis") as? JsonPrimitive)?.let { it.content.toLongOrNull() }
-        val identity = java.security.MessageDigest.getInstance("SHA-256").digest(raw.toByteArray()).joinToString("") { "%02x".format(it) }
+        val identity = DiagnosticRecordChunks.sha256(raw)
         return buildJsonObject {
             preserved?.forEach { (key, value) -> put(key, value) }
             put(

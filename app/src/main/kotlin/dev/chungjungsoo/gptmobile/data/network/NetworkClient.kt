@@ -96,8 +96,9 @@ class NetworkClient @Inject constructor(
         install(Logging) {
             logger = object : Logger {
                 override fun log(message: String) {
-                    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Network", message)
-                    if (diagnosticsEnabled && !dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.enabled.value) Logger.DEFAULT.log(dev.chungjungsoo.gptmobile.data.diagnostics.redactLogMessage(message))
+                    val correlated = LocalMetadataReadAttempt.correlateLog(message)
+                    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Network", correlated)
+                    if (diagnosticsEnabled && !dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.enabled.value) Logger.DEFAULT.log(dev.chungjungsoo.gptmobile.data.diagnostics.redactLogMessage(correlated))
                 }
             }
             level = LogLevel.HEADERS

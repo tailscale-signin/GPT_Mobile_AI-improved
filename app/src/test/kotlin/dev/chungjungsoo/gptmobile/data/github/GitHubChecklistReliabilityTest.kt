@@ -38,6 +38,18 @@ class GitHubChecklistReliabilityTest {
         assertEquals(0, GitHubChecklistBudget.remaining(historical, current = 0))
     }
 
+    @Test fun unrequestedCiMutationsAreConditionalWithoutAWorkflowRunOrJob() {
+        val ci = tool("github_ci", "\"runs\",\"dispatch\",\"rerun\",\"cancel\"")
+        val rows = GitHubTestChecklist.rows(emptyMap(), listOf(ci), "Test GitHub integration coverage").filterIsInstance<JsonObject>()
+        for (action in listOf("dispatch", "rerun", "cancel")) {
+            val row = rows.single { it["id"] == JsonPrimitive("github_ci:$action") }
+            assertEquals(JsonPrimitive("NOT_REQUESTED"), row["status"])
+            assertEquals(JsonPrimitive(false), row["required"])
+            assertEquals(JsonPrimitive("CONDITIONAL_RESOURCE_NOT_PRESENT"), row["applicability"])
+            assertEquals(JsonPrimitive("OUT_OF_SCOPE"), row["blocker_code"])
+        }
+    }
+
     @Test fun existingOwnedFixtureCleanupRunsBeforeOptionalAcquisition() {
         val sha = "a".repeat(40)
         val fixture = "codex-self-test/" + GitHubEvidenceBook.digest("tasksource").take(20)
@@ -65,6 +77,65 @@ class GitHubChecklistReliabilityTest {
         assertEquals(null, GitHubTestChecklist.nextCall("test all tools", listOf(branches), records.toMap()))
         records["retry"] = JsonObject(records.getValue("retry") + ("evidence_origin" to JsonPrimitive("LIVE")))
         assertEquals(JsonPrimitive("PASSED"), (GitHubTestChecklist.rows(records, listOf(branches)).single() as JsonObject)["status"])
+    }
+
+    @Test fun automaticInventoryUsesOneLiveAttemptAndDoesNotScheduleARedundantRefresh() {
+        val call = requireNotNull(GitHubTestChecklist.nextCall("test all tools", listOf(branches), emptyMap()))
+        assertEquals(JsonPrimitive(true), call.arguments["verify_live"])
+        val receipt = json("""{"trusted":true,"success":true,"tool":"github_context","dispatched":true,"evidence_origin":"LIVE","arguments":${call.arguments},"result":{"has_more":false}}""")
+        assertEquals(null, GitHubTestChecklist.nextCall("test all tools", listOf(branches), mapOf("live" to receipt)))
+    }
+
+    @Test fun oneLiveDefinitionPageQualifiesTransportOnlyForTheSamePinnedTreeAndAuthority() {
+        val sha = "a".repeat(40)
+        val ci = tool("github_ci", "\"definitions\"")
+        val cached = json("""{"binding":"task","repository":"o/r","trusted":true,"success":true,"tool":"github_ci","evidence_origin":"CACHED","arguments":{"action":"definitions","commit_sha":"$sha","index_cursor":4},"result":{}}""")
+        val live = JsonObject(cached + mapOf("evidence_origin" to JsonPrimitive("LIVE"), "arguments" to json("""{"action":"definitions","commit_sha":"$sha","index_cursor":8,"verify_live":true}""")))
+        assertEquals(null, GitHubTestChecklist.nextCall("test all tools", listOf(ci), linkedMapOf("cached" to cached, "live" to live)))
+        val mismatches = listOf(
+            JsonObject(live + ("binding" to JsonPrimitive("other-task"))),
+            JsonObject(live + ("repository" to JsonPrimitive("o/other"))),
+            JsonObject(live + (GitHubPolicyReadRecovery.AUTHORITY to JsonPrimitive("b".repeat(64)))),
+            JsonObject(live + ("arguments" to json("""{"action":"definitions","commit_sha":"${"b".repeat(40)}","index_cursor":8,"verify_live":true}""")))
+        )
+        mismatches.forEach { other ->
+            val refresh = requireNotNull(GitHubTestChecklist.nextCall("test all tools", listOf(ci), linkedMapOf("cached" to cached, "other" to other)))
+            assertEquals(JsonPrimitive(sha), refresh.arguments["commit_sha"])
+            assertEquals(JsonPrimitive(4), refresh.arguments["index_cursor"])
+            assertEquals(JsonPrimitive(true), refresh.arguments["verify_live"])
+        }
+    }
+
+    @Test fun approvedFixtureStartsBeforeOptionalReadsButNeverWithoutCleanupReserve() {
+        val sha = "a".repeat(40)
+        val source = json("""{"receipt_id":"source","binding":"task","repository":"o/r","trusted":true,"success":true,"tool":"github_context","arguments":{"action":"status"},"result":{"branch":"main","commit_sha":"$sha","repository":{"default_branch":"main"}}}""")
+        val tools = listOf(tool("github_context", "\"status\",\"resolve\",\"branch_dependencies\""), tool("github_commit", "\"branch\",\"delete_branch\""))
+        val ready = json("""{"state":"READY"}""")
+        val admitted = requireNotNull(GitHubTestChecklist.nextCall("test all tools", tools, mapOf("source" to source), remainingToolCalls = 6, fixturePreflight = ready))
+        assertEquals("github_commit", admitted.name)
+        assertEquals(JsonPrimitive("branch"), admitted.arguments["action"])
+        assertEquals(JsonPrimitive(false), admitted.arguments["select_created_branch"])
+        for (remaining in listOf(3, 5)) {
+            val optional = GitHubTestChecklist.nextCall("test all tools", tools, mapOf("source" to source), remainingToolCalls = remaining, fixturePreflight = ready)
+            assertEquals("github_context", optional?.name)
+            assertEquals(JsonPrimitive("resolve"), optional?.arguments?.get("action"))
+        }
+        val manual = GitHubTestChecklist.nextCall("test all tools", tools, mapOf("source" to source), remainingToolCalls = 64, fixturePreflight = json("""{"state":"CONDITIONAL"}"""))
+        assertEquals("github_context", manual?.name)
+        assertEquals(null, GitHubTestChecklist.nextCall("test all tools", tools, mapOf("source" to source), remainingToolCalls = 2, fixturePreflight = ready))
+    }
+
+    @Test fun cachedReadAcceptanceExplicitlyStatesItsResponseScope() {
+        val tool = tool("github_context", "\"index\"")
+        val cached = json("""{"receipt_id":"cached","trusted":true,"success":true,"dispatched":false,"evidence_origin":"CACHED","tool":"github_context","arguments":{"action":"index"},"result":{}}""")
+        val row = GitHubTestChecklist.rows(mapOf("cached" to cached), listOf(tool), "test all tools").single() as JsonObject
+        assertEquals(JsonPrimitive("PASS"), row["acceptance_state"])
+        assertEquals(JsonPrimitive("RETAINED_RESPONSE"), row["acceptance_basis"])
+        assertEquals(JsonPrimitive(false), row["live_verified"])
+        assertEquals(JsonPrimitive(false), row["requires_live_transport"])
+        val ledger = GitHubAcceptanceLedger.snapshot(capabilities = kotlinx.serialization.json.JsonArray(listOf(row)))
+        val retained = (ledger["capabilities"] as kotlinx.serialization.json.JsonArray).single() as JsonObject
+        assertEquals(JsonPrimitive("RETAINED_RESPONSE"), retained["acceptance_basis"])
     }
 
     @Test fun mixedNonLiveSuccessesCannotQualifyARemoteCapability() {

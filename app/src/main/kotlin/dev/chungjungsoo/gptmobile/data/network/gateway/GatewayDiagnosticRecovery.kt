@@ -3,6 +3,8 @@ package dev.chungjungsoo.gptmobile.data.network.gateway
 /** Repair hints are fixed vocabulary; they never grant permission to replay an operation. */
 internal fun gatewayDiagnosticRecovery(reason: String?, terminal: String? = null, execution: String? = null): String = when {
     execution == "UNKNOWN_OUTCOME" -> "reconcile"
+    reason == "TRANSPORT_EOF" -> "reconcile"
+    reason in setOf("COMPLETION_REPAIR_BUDGET_EXHAUSTED", "INCOMPLETE", "TASK_INCOMPLETE", "GITHUB_TASK_INCOMPLETE") -> "resume_checkpoint"
     reason in setOf("ACCEPTANCE_CONTRACT_REQUIRED", "ACCEPTANCE_PRODUCER_REQUIRED", "VALIDATION_POLICY_REQUIRED", "VALIDATION_CHECKS_REQUIRED", "VALIDATION_CHECK_UNSUPPORTED", "VALIDATION_RUNTIME_UNAVAILABLE", "VALIDATION_REVISION_UNAVAILABLE") -> "repair_configuration"
     reason in setOf("SOURCE_REVISION_REQUIRED", "SOURCE_REVISION_CHANGED") -> "repair_request"
     reason == "ENGINEERING_REPOSITORY_ACCESS_REQUIRED" -> "authorize"

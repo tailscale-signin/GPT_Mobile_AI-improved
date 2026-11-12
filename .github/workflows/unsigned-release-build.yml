@@ -18,11 +18,21 @@ jobs:
     name: Build Release APKs and AAB (unsigned)
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    env:
+      ISSUE_REPORT_ORIGIN: ${{ vars.ISSUE_REPORT_ORIGIN }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+
+      - name: Require deployed issue-report origin
+        shell: bash
+        run: |
+          if [[ -z "$ISSUE_REPORT_ORIGIN" ]]; then
+            echo "::error::Configure the repository Actions variable ISSUE_REPORT_ORIGIN after deploying the hosted issue-report service. Release APKs must be able to submit reports."
+            exit 1
+          fi
 
       - name: Free runner disk and memory space
         run: |

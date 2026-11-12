@@ -9,6 +9,7 @@ from dataclasses import dataclass
 
 from fastapi.responses import JSONResponse
 from gateway_security import current_device, device_store
+from v14.browser import LANDING_PATHS
 
 
 @dataclass(frozen=True)
@@ -95,7 +96,7 @@ class Admission:
         pairs = [(k.decode("latin1").lower(), v.decode("latin1")) for k, v in scope.get("headers", [])]
         sensitive = {"host", "origin", "authorization", "tailscale-user-login", "x-gateway-csrf", "x-gateway-management",
                      "x-gateway-profile-id", "x-gateway-profile-name-base64", "x-gateway-conversation-retention",
-                     "x-gateway-installation-id", "x-gateway-principal-id"}
+                     "x-gateway-installation-id", "x-gateway-principal-id", "idempotency-key"}
         if any(sum(k == name for k, _ in pairs) > 1 for name in sensitive):
             return await deny("duplicate_admission_header", 400)
         headers = dict(pairs)
@@ -122,7 +123,8 @@ class Admission:
         principal = await self.resolver.resolve(scope, headers)
         if principal is None:
             return await deny("transport_identity_required", 401)
-        path = scope.get("path", "").removeprefix("/v1")
+        request_path = scope.get("path", "")
+        path = request_path.removeprefix("/v1")
         if path.startswith("/gateway/admin/") or path.startswith("/gateway/mcp/restart/") or path == "/gateway/tools/refresh":
             if not principal.local_admin:
                 return await deny("local_admin_required")
@@ -133,15 +135,17 @@ class Admission:
         catalog_path = path in {'/gateway/identity', '/gateway/job-catalog'} or path.startswith('/gateway/commands/')
         diagnostics_path = path in {"/gateway/debug/events", "/gateway/debug/export"}
         diagnostics_write = path == "/gateway/debug/events" and scope["method"] == "POST"
+        model_preparation_write = path == '/gateway/models/prepare' and scope['method'] == 'POST'
         if engineering_path and not principal.engineering_allowed and not (public_map_path and 'tools' in principal.scopes):
             return await deny("engineering_scope_required")
         if self.config.mode in {"trusted_proxy", "open_network"} and not principal.local_admin:
             public_reads = {"/models", "/gateway/capabilities", "/gateway/ready", "/gateway/live", "/gateway/v13", "/gateway/v14", "/gateway/v15", "/gateway/v16", "/gateway/connections", "/gateway/tools", "/gateway/session", "/gateway/dashboard"}
             job_path = path == "/gateway/jobs" or path.startswith("/gateway/jobs/")
             if scope["method"] in {"GET", "HEAD"}:
-                if path not in public_reads and not job_path and not engineering_path and not diagnostics_path and not conversation_path and not catalog_path:
+                landing_page = self.config.mode == "open_network" and request_path in LANDING_PATHS
+                if not landing_page and path not in public_reads and not job_path and not engineering_path and not diagnostics_path and not conversation_path and not catalog_path:
                     return await deny("remote_surface_not_admitted")
-            elif not engineering_path and not (conversation_path and path.endswith('/messages') and scope['method'] == 'POST') and not diagnostics_write and path != "/chat/completions" and not (job_path and path.endswith("/cancel") and scope["method"] == "POST"):
+            elif not engineering_path and not (conversation_path and path.endswith('/messages') and scope['method'] == 'POST') and not diagnostics_write and not model_preparation_write and path != "/chat/completions" and not (job_path and path.endswith("/cancel") and scope["method"] == "POST"):
                 return await deny("local_admin_required")
         required = "engineering" if engineering_path and not principal.local_admin else "jobs" if path.startswith("/gateway/jobs") or conversation_path or catalog_path else "tools" if path.startswith(("/gateway/tools", "/gateway/mcp", "/tools")) else "chat"
         if public_map_path and not principal.engineering_allowed:
@@ -155,7 +159,7 @@ class Admission:
             return await deny("scope_not_granted")
         # The retained runtime can select PC tools automatically. A limited user
         # cannot use chat until a separately tested tool-free runtime is available.
-        if path == "/chat/completions" and "tools" not in principal.scopes:
+        if (path == "/chat/completions" or model_preparation_write) and "tools" not in principal.scopes:
             return await deny("tool_scope_required_for_runtime")
         csrf = hmac.new(self.csrf_key, principal.id.encode(), hashlib.sha256).hexdigest()
         if scope["method"] not in {"GET", "HEAD", "OPTIONS"} and (origin is not None or "cookie" in headers or "sec-fetch-site" in headers):

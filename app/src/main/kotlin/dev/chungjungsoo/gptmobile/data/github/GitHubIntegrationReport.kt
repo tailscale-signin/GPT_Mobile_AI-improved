@@ -70,8 +70,11 @@ internal object GitHubIntegrationReport {
         val capabilities = checkpoint.array("capabilities")
         val criteria = checkpoint.array("requirements")
         val catalog = checkpoint["authorized_catalog"] as JsonObject
-        val accepted = criteria.count { it.text("acceptance_state") == "PASS" }
-        val complete = criteria.isNotEmpty() && accepted == criteria.size
+        val requiredCriteria = criteria.filter { it["required"] != JsonPrimitive(false) }
+        val requiredCapabilities = capabilities.filter { it["required"] == JsonPrimitive(true) }
+        val passedCapabilities = requiredCapabilities.filter { it.text("acceptance_state") == "PASS" }
+        val accepted = requiredCriteria.count { it.text("acceptance_state") == "PASS" }
+        val complete = requiredCriteria.isNotEmpty() && accepted == requiredCriteria.size
         val activeNames = tools.filter { it.modelVisible && (it.name.substringBefore("__").startsWith("github_") || it.name.substringBefore("__") == "repository_graph") }.map { it.name.substringBefore("__") }.toSet()
         val observations = receipts.values.filter { it["trusted"] == JsonPrimitive(true) && it["verification_eligible"] != JsonPrimitive(false) }
         val exercised = observations.filter { GitHubEvidenceOrigin.of(it) == "LIVE" }.map { it.text("tool").substringBefore("__") }.toSet().intersect(activeNames).size
@@ -84,7 +87,9 @@ internal object GitHubIntegrationReport {
                 else -> "BLOCKED"
             }
         }
-        append("**Task outcome: ${if (complete) "acceptance verified" else "partial acceptance"}.** $accepted/${criteria.size} requested criteria verified. ")
+        append("**Task outcome: ${if (complete) "acceptance verified" else "partial acceptance"}.** $accepted/${requiredCriteria.size} required task criteria verified. ")
+        append("${passedCapabilities.size}/${requiredCapabilities.size} required API capabilities verified; ${capabilities.size - requiredCapabilities.size} capability rows are excluded from that denominator. Task criteria and API capabilities are independent counts.\n\n")
+        append("Of the passed required capabilities, ${passedCapabilities.count { it["live_verified"] == JsonPrimitive(true) }} have live response evidence and ${passedCapabilities.count { it["live_verified"] != JsonPrimitive(true) }} qualify only the recorded response scope. Cached or local acceptance does not establish live transport or application/device execution.\n\n")
         append("$exercised/${activeNames.size} known authorized GitHub tools have live observations. ")
         append(if (catalog["denominator_final"] == JsonPrimitive(true)) "The authorized catalog is complete.\n\n" else "The all-tools denominator remains provisional until authorized catalog discovery is exhausted.\n\n")
         append("Discovery: ${catalog.text("discovery_calls_succeeded")}/${catalog.text("discovery_calls_observed")} retained calls succeeded; ${catalog.text("inventory_pages_verified")} version-bound pages verified. ")
@@ -154,7 +159,7 @@ internal object GitHubIntegrationReport {
             append("| $name | ${value.text("count")} | ${if (name == "HISTORICAL_CI_OBSERVATION") "Observed remote CI; does not establish a newly executed app/device test" else value.text("status").ifBlank { "${ids(value["receipt_ids"] as? JsonArray)}" }} |\n")
         }
         append("\n### Repository inventory and stop reason\n\n")
-        checkpoint.array("inventory_coverage").forEach { row -> append("- ${safe(row.text("tool"))}/${safe(row.text("operation"))}: ${row.text("retrieved")} of ${row.text("total")} retrieved; ${safe(row.text("coverage"))}.\n") }
+        checkpoint.array("inventory_coverage").forEach { row -> append("- ${safe(row.text("tool"))}/${safe(row.text("operation"))}: ${safe(GitHubTestChecklist.inventorySummary(row))}.\n") }
         val stop = stopReason(task, receipts, tools, remainingToolCalls)
         append("\n**${stop.text("code")}**: ${safe(stop.text("detail"))}\n")
         val budget = checkpoint["stage_budget"] as JsonObject

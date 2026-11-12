@@ -43,6 +43,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
 import dev.chungjungsoo.gptmobile.R
+import dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationState
 import dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.ProfileLabel
@@ -56,19 +57,22 @@ import dev.chungjungsoo.gptmobile.presentation.common.ProfileSearchField
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import dev.chungjungsoo.gptmobile.presentation.common.glassBackdrop
 import dev.chungjungsoo.gptmobile.presentation.common.profileMatchesQuery
+import dev.chungjungsoo.gptmobile.presentation.ui.setting.GatewayModelPreparationContent
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun SelectPlatformDialog(
     platforms: List<PlatformV2>,
-    selectedPlatforms: List<Boolean>,
+    selectedPlatformUids: Set<String>,
     onDismissRequest: () -> Unit,
     onConfirmation: (enabledPlatforms: List<String>, conversationMode: String) -> Unit,
     onPlatformSelect: (uid: String) -> Unit,
     onTogglePlatformFavorite: (platformId: Int) -> Unit = {},
     initialCombined: Boolean = false,
     insights: Map<String, ProfileInsight> = emptyMap(),
-    onRefreshPrices: () -> Unit = {}
+    onRefreshPrices: () -> Unit = {},
+    modelPreparation: Map<String, GatewayModelPreparationState> = emptyMap(),
+    onRecheckModel: (String) -> Unit = {}
 ) {
     val window = LocalWindowInfo.current
     val height = with(LocalDensity.current) { window.containerSize.height.toDp() }
@@ -80,7 +84,7 @@ internal fun SelectPlatformDialog(
     var help by rememberSaveable { mutableStateOf(false) }
     var confirming by remember { mutableStateOf(false) }
     val now by dev.chungjungsoo.gptmobile.presentation.common.freeProviderClock()
-    val selected = selectedProfileUids(platforms, selectedPlatforms)
+    val selected = selectedProfileUids(platforms, selectedPlatformUids)
     val confirmed = remember(platforms, selected, now) { confirmedProfileUids(platforms, selected) }
     val labels = remember(platforms) { collectReusableProfileLabels(platforms.map { it.labels }) }
     LaunchedEffect(selected.size) { if (selected.size < 2) combined = false }
@@ -123,17 +127,22 @@ internal fun SelectPlatformDialog(
                         }
                     }
                     items(visible, key = { it.uid }) { profile ->
-                        SelectPlatformProfileCard(
-                            profile = profile,
-                            selected = profile.uid in selected,
-                            insight = insights[profile.uid]?.takeIf { it.matches(profile) },
-                            onToggle = onPlatformSelect,
-                            onFavorite = { onTogglePlatformFavorite(profile.id) },
-                            onInsights = {
-                                detailsUid = profile.uid
-                                detailsContext = priceContextKey(profile)
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            SelectPlatformProfileCard(
+                                profile = profile,
+                                selected = profile.uid in selected,
+                                insight = insights[profile.uid]?.takeIf { it.matches(profile) },
+                                onToggle = onPlatformSelect,
+                                onFavorite = { onTogglePlatformFavorite(profile.id) },
+                                onInsights = {
+                                    detailsUid = profile.uid
+                                    detailsContext = priceContextKey(profile)
+                                }
+                            )
+                            modelPreparation[profile.uid]?.takeIf { profile.uid in selected }?.let { state ->
+                                GatewayModelPreparationContent(state) { onRecheckModel(profile.uid) }
                             }
-                        )
+                        }
                     }
                     if (visible.isEmpty()) {
                         item(key = "empty") {

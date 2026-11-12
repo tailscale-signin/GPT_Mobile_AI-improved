@@ -35,7 +35,12 @@ import dev.chungjungsoo.gptmobile.presentation.ui.thinking.ThinkingParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-internal data class PreparedAssistantDisplay(val thinking: String = "", val citationText: String = "", val response: String = "")
+internal data class PreparedAssistantDisplay(val thinking: String = "", val citationText: String = "", val response: String = "", val outputLineage: dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage? = null) {
+    fun traceOwner(owner: dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceOwner?) = owner?.copy(
+        origin = outputLineage?.origin ?: dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.UNKNOWN,
+        invocationId = outputLineage?.invocationId
+    )
+}
 
 internal fun prepareAssistantDisplay(raw: String, combined: Boolean): PreparedAssistantDisplay {
     val parsed = ThinkingParser.extractThinking(raw)
@@ -185,10 +190,10 @@ internal fun AssistantChronologicalContent(
                             CompositionLocalProvider(LocalAnswerSource provides item.responseSource) {
                                 // Retain the previous committed display while the next streamed
                                 // snapshot is prepared. A message key prevents cross-message reuse.
-                                val latestBody = rememberUpdatedState(item.content)
+                                val latestBody = rememberUpdatedState(item.content to item.outputLineage)
                                 val preparedDisplay by produceState(PreparedAssistantDisplay(), combinedWording != null) {
-                                    snapshotFlow { latestBody.value }.prepareConflatedRender { body ->
-                                        withContext(Dispatchers.Default) { prepareAssistantDisplay(body, combinedWording != null) }
+                                    snapshotFlow { latestBody.value }.prepareConflatedRender { (body, lineage) ->
+                                        withContext(Dispatchers.Default) { prepareAssistantDisplay(body, combinedWording != null).copy(outputLineage = lineage) }
                                     }.collect { value = it }
                                 }
                                 if (effectiveExecutionTrace && expanded && showReasoning && preparedDisplay.thinking.isNotBlank()) {
@@ -196,19 +201,22 @@ internal fun AssistantChronologicalContent(
                                 }
                                 val citationText = preparedDisplay.citationText
                                 val response = preparedDisplay.response
+                                // Keep ownership attached to the prepared snapshot, including
+                                // when citation/thinking filtering changes its exact bytes.
+                                val preparedTrace = preparedDisplay.traceOwner(outputTrace)
                                 if (response.isNotBlank()) {
                                     if (isError) {
                                         Text(citationText, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(vertical = 8.dp))
                                     } else {
                                         if (requiresPagedAssistantResponse(response.length)) {
-                                            BoundedInlineAssistantDocument("$answerIdentity:$rendererIndex", response, combinedWording, proseColor, outputTrace?.copy(partId = "$index"), articleCards, streaming = isLoading)
+                                            BoundedInlineAssistantDocument("$answerIdentity:$rendererIndex", response, combinedWording, proseColor, preparedTrace?.copy(partId = "$index"), articleCards, streaming = isLoading)
                                         } else if (isLoading) {
-                                            ChatMarkdown(adaptiveAnswerLength = totalAnswerLength, wording = combinedWording, outputTrace = outputTrace?.copy(partId = "$index"), proseColor = proseColor, memoryValues = recalledSources.map { it.value }, content = response, contentIdentity = "$answerIdentity:$rendererIndex", streaming = true, animateStreaming = animateResponse, modifier = Modifier.padding(vertical = 8.dp))
+                                            ChatMarkdown(adaptiveAnswerLength = totalAnswerLength, wording = combinedWording, outputTrace = preparedTrace?.copy(partId = "$index"), proseColor = proseColor, memoryValues = recalledSources.map { it.value }, content = response, contentIdentity = "$answerIdentity:$rendererIndex", streaming = true, animateStreaming = animateResponse, modifier = Modifier.padding(vertical = 8.dp))
                                         } else {
                                             if (!splitForPassageIndicators && !debugSettings.researchFeature.articleCards) {
                                                 // Standard and Combined replies without citation cards use
                                                 // one Markdown tree: no paragraph splitting or extra work.
-                                                ChatMarkdown(adaptiveAnswerLength = totalAnswerLength, wording = combinedWording, outputTrace = outputTrace?.copy(partId = "$index"), proseColor = proseColor, memoryValues = recalledSources.map { it.value }, content = response, contentIdentity = "$answerIdentity:$rendererIndex", streaming = false, modifier = Modifier.padding(vertical = 8.dp))
+                                                ChatMarkdown(adaptiveAnswerLength = totalAnswerLength, wording = combinedWording, outputTrace = preparedTrace?.copy(partId = "$index"), proseColor = proseColor, memoryValues = recalledSources.map { it.value }, content = response, contentIdentity = "$answerIdentity:$rendererIndex", streaming = false, modifier = Modifier.padding(vertical = 8.dp))
                                             } else {
                                                 val prepared by produceState<PreparedResearchBlocks?>(null, response, splitForPassageIndicators) {
                                                     value = withContext(Dispatchers.Default) {
@@ -218,10 +226,10 @@ internal fun AssistantChronologicalContent(
                                                 val blocks = prepared?.takeIf { it.response == response && it.splitParagraphs == splitForPassageIndicators }?.blocks
                                                 if (blocks == null) {
                                                     // Keep prose responsive while preparing citation boundaries.
-                                                    ChatMarkdown(adaptiveAnswerLength = totalAnswerLength, wording = combinedWording, outputTrace = outputTrace?.copy(partId = "$index:pending"), proseColor = proseColor, memoryValues = recalledSources.map { it.value }, content = response, contentIdentity = "$answerIdentity:$rendererIndex:pending", streaming = false, modifier = Modifier.padding(vertical = 8.dp))
+                                                    ChatMarkdown(adaptiveAnswerLength = totalAnswerLength, wording = combinedWording, outputTrace = preparedTrace?.copy(partId = "$index:pending"), proseColor = proseColor, memoryValues = recalledSources.map { it.value }, content = response, contentIdentity = "$answerIdentity:$rendererIndex:pending", streaming = false, modifier = Modifier.padding(vertical = 8.dp))
                                                 } else {
                                                     blocks.forEachIndexed { blockIndex, block ->
-                                                        ChatMarkdown(adaptiveAnswerLength = totalAnswerLength, wording = combinedWording, outputTrace = outputTrace?.copy(partId = "$index:$blockIndex"), proseColor = proseColor, memoryValues = recalledSources.map { it.value }, content = block.text, contentIdentity = "$answerIdentity:$rendererIndex:$blockIndex", streaming = false, modifier = Modifier.padding(vertical = 8.dp))
+                                                        ChatMarkdown(adaptiveAnswerLength = totalAnswerLength, wording = combinedWording, outputTrace = preparedTrace?.copy(partId = "$index:$blockIndex"), proseColor = proseColor, memoryValues = recalledSources.map { it.value }, content = block.text, contentIdentity = "$answerIdentity:$rendererIndex:$blockIndex", streaming = false, modifier = Modifier.padding(vertical = 8.dp))
                                                         passageIndicators(block.text)
                                                     }
                                                 }

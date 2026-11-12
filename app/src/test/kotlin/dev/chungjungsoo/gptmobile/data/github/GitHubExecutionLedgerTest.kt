@@ -38,6 +38,112 @@ class GitHubExecutionLedgerTest {
         assertEquals(GitHubExecutionLedger.ReceiptState.UNKNOWN_OUTCOME, GitHubExecutionLedger.receiptState(receipt(false)))
     }
 
+    @Test fun exactDurableApprovalRejectionIsNotACompletedMutationOrGenericCancellation() {
+        val head = "a".repeat(40)
+        val patchDigest = "b".repeat(64)
+        val proposal = buildJsonObject {
+            put("tool", "github_write")
+            put("receipt_id", "proposal")
+            put("binding", "bound-task")
+            put("repository", "owner/repo")
+            put("success", true)
+            put("trusted", true)
+            put(
+                "arguments",
+                buildJsonObject {
+                    put("branch", "codex-self-test/fixture")
+                    put("expected_head_sha", head)
+                }
+            )
+            put(
+                "result",
+                buildJsonObject {
+                    put("status", "AWAITING_APPROVAL")
+                    put("committed", false)
+                    put("engineering_task_id", "engineering-task")
+                    put("branch", "codex-self-test/fixture")
+                    put("expected_head_sha", head)
+                    put("patch_digest", patchDigest)
+                }
+            )
+        }
+        val rejected = buildJsonObject {
+            put("tool", "github_context")
+            put("receipt_id", "rejection")
+            put("binding", "bound-task")
+            put("repository", "owner/repo")
+            put("success", true)
+            put("trusted", true)
+            put("evidence_origin", "LOCAL_DURABLE_APPROVAL_EVENT")
+            put("local_resolution_event", "approval_card_rejected")
+            put(
+                "arguments",
+                buildJsonObject {
+                    put("action", "recovery")
+                    put("engineering_task_id", "engineering-task")
+                    put("branch", "codex-self-test/fixture")
+                }
+            )
+            put(
+                "result",
+                buildJsonObject {
+                    put("engineering_task_id", "engineering-task")
+                    put("branch", "codex-self-test/fixture")
+                    put("expected_head_sha", head)
+                    put("patch_digest", patchDigest)
+                    put("approval_state", "CANCELLED_BEFORE_PUBLICATION")
+                    put("native_task_state", "CANCELLED")
+                    put("cancellation_confirmed", true)
+                    put("remote_mutation_performed", false)
+                    put("remote_state_verified", false)
+                    put("keep_fixture", false)
+                }
+            )
+        }
+        assertEquals(GitHubExecutionLedger.ReceiptState.REJECTED, GitHubExecutionLedger.receiptState(rejected))
+        assertEquals(GitHubExecutionLedger.ObservationKind.REJECTED, GitHubExecutionLedger.observationKind(rejected))
+        val checkpoint = GitHubExecutionLedger.attach(
+            GitHubAcceptanceLedger.attach(
+                buildJsonObject {
+                    put("task_outcome", "PARTIAL")
+                    put("original_failure", buildJsonObject { put("code", "APPROVAL_REJECTED") })
+                }
+            ),
+            mapOf("proposal" to proposal, "rejection" to rejected)
+        )
+        val ledger = checkpoint.getValue("execution_ledger").jsonObject
+        assertEquals(JsonPrimitive("REJECTED"), checkpoint["task_state"])
+        assertEquals(JsonPrimitive("REJECTED"), checkpoint["task_outcome"])
+        assertEquals(JsonPrimitive("APPROVAL_REJECTED"), checkpoint["stop_code"])
+        assertEquals(JsonPrimitive("REJECTED"), checkpoint["approval_state"])
+        assertEquals(JsonPrimitive("REJECTED"), ledger["requested_task"])
+        assertEquals(JsonPrimitive("REJECTED"), ledger["verification"])
+        assertEquals(JsonPrimitive(0), ledger.getValue("receipt_states").jsonObject["COMPLETED"])
+        assertEquals(JsonPrimitive(false), ledger["retryable_without_new_input"])
+        assertEquals(GitHubTaskLifecycle.State.REJECTED, GitHubTaskLifecycle.terminal(checkpoint))
+        val failed = GitHubExecutionLedger.attach(
+            JsonObject(
+                checkpoint + mapOf(
+                    "failure_code" to JsonPrimitive("429"),
+                    "original_failure" to buildJsonObject { put("code", "429") }
+                )
+            ),
+            mapOf("proposal" to proposal, "rejection" to rejected)
+        )
+        assertEquals(JsonPrimitive("PARTIAL"), failed["task_state"])
+        assertEquals(JsonPrimitive("429"), failed["stop_code"])
+        assertEquals(JsonPrimitive("REJECTED"), failed["approval_state"])
+        assertEquals(JsonPrimitive(false), failed["retryable_without_new_input"])
+        val failureLedger = failed.getValue("execution_ledger").jsonObject
+        assertEquals(JsonPrimitive("INSPECT_EXECUTION_FAILURE"), failureLedger["recovery"])
+        assertEquals(1, (failureLedger["resolved_approvals"] as JsonArray).size)
+        val acceptance = GitHubRunAcceptance.capture(failed, "run", 1, 2, 3)
+        assertEquals(JsonPrimitive("PARTIAL"), acceptance["verification"])
+        assertEquals(JsonPrimitive("PARTIAL"), acceptance["task_state"])
+        assertEquals(JsonPrimitive("429"), acceptance["stop_code"])
+        assertEquals(JsonPrimitive("REJECTED"), acceptance["approval_state"])
+    }
+
     @Test fun deliveredPartialAnswerKeepsTaskAndReviewUnfinishedWithoutInventingAUserDecision() {
         val value = GitHubAcceptanceLedger.attach(
             buildJsonObject {

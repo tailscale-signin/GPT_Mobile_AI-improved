@@ -28,6 +28,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -134,6 +135,20 @@ internal fun GatewayJobsScreen(model: GatewayJobsViewModel, onOpenConversation: 
                         Text(state.profileNames[job.profileId] ?: job.model.ifBlank { job.profileId ?: stringResource(R.string.gateway_jobs_saved_profile) }, style = MaterialTheme.typography.labelMedium)
                         if (state.legacy) Text(stringResource(R.string.gateway_jobs_legacy_account, row.record.principalId, row.record.gatewayId), style = MaterialTheme.typography.bodySmall)
                         Text(job.phase?.takeIf(String::isNotBlank)?.let(::gatewayPhaseLabel) ?: gatewaySchedulingLabel(job.state.lowercase(java.util.Locale.ROOT)), style = MaterialTheme.typography.bodySmall)
+                        job.batchProgress?.let { progress ->
+                            Text(
+                                progress.readableLabel,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.testTag("gateway_full_batch_progress")
+                            )
+                            progress.currentState?.let {
+                                Text(
+                                    it.replace('_', ' ').replaceFirstChar(Char::uppercase),
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
+                        }
                         if (job.repository != null) {
                             val source = job.sourceBranch ?: job.branch ?: job.sourceSha?.take(12)
                             Text(listOfNotNull(job.repository, source).joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -143,7 +158,10 @@ internal fun GatewayJobsScreen(model: GatewayJobsViewModel, onOpenConversation: 
                         if (!rowFresh && job.finishedAt == null) Text(stringResource(R.string.gateway_jobs_cached_state), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         if (row.record.key in state.partialHistoryKeys) Text(stringResource(R.string.gateway_transcript_history_partial), style = MaterialTheme.typography.bodySmall)
                         if (job.group == GatewayJobGroup.QUEUED) {
-                            val queueText = job.queuePosition?.let { stringResource(R.string.gateway_jobs_queue_position, it) } ?: job.queueReason
+                            val formatter = android.text.format.DateFormat.getTimeFormat(androidx.compose.ui.platform.LocalContext.current)
+                            val waitLabel = job.providerRetryAt?.takeIf { it.isFinite() && it > 0 }
+                                ?.let { stringResource(R.string.provider_wait_retry_at, formatter.format(java.util.Date((it * 1000).toLong()))) }
+                            val queueText = waitLabel ?: job.queuePosition?.let { stringResource(R.string.gateway_jobs_queue_position, it) } ?: job.queueReason
                             queueText?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                         }
                         if (!state.legacy && job.acceptsInstruction) {

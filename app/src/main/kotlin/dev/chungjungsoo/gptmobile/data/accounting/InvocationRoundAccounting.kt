@@ -92,7 +92,7 @@ internal class InvocationRoundAccounting(
                 "gateway_timing",
                 kotlinx.serialization.json.buildJsonObject {
                     put("measurement_scope", kotlinx.serialization.json.JsonPrimitive("physical_backend_request"))
-                    gatewayTiming?.deliveryMode?.takeIf { it == "completion_buffered" }?.let { put("delivery_mode", kotlinx.serialization.json.JsonPrimitive(it)) }
+                    gatewayTiming?.deliveryMode?.takeIf { it in setOf("completion_buffered", "incremental_final_answer") }?.let { put("delivery_mode", kotlinx.serialization.json.JsonPrimitive(it)) }
                     timings.forEach { (name, value) -> put(name, kotlinx.serialization.json.JsonPrimitive(value)) }
                     // UI publication is measured by the run journal, never inferred from backend output.
                     put("first_user_visible_text_ms", kotlinx.serialization.json.JsonNull)

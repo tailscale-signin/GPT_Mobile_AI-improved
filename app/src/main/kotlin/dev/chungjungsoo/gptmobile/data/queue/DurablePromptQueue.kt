@@ -293,7 +293,7 @@ class DurablePromptQueue @Inject constructor(
             if (gatewayStore.remoteSettled(lease)) {
                 // Terminal execution proof releases the global fence independently
                 // of transcript delivery, which may need a later read-only sync.
-                val needsDelivery = remote.any { it.state !in setOf("RESERVED_ORDINARY", "REJECTED_NOT_DISPATCHED") }
+                val needsDelivery = gatewayStore.needsDelivery(lease)
                 gatewayStore.release(lease, if (remote.isEmpty()) "NO_REMOTE_ADMISSION" else "VERIFIED_REMOTE_TERMINAL", pendingDelivery = needsDelivery)
                 submittedRuns -= runId
                 if (needsDelivery) {

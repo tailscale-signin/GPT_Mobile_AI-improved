@@ -16,8 +16,8 @@ from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
 from v14.config import Config
 from v14.debug import DebugLogStore, DebugMiddleware, install_routes, sanitized_record
-from v14.debug_projection import route_kind, response_summary
-from v14.identity import Admission
+from v14.debug_projection import route_kind, response_summary, backend_build_provenance
+from v14.identity import Admission, Principal
 
 
 class DebugEvidenceTests(unittest.TestCase):
@@ -48,6 +48,15 @@ class DebugEvidenceTests(unittest.TestCase):
                                       'reasonCode': 'BACKEND_METADATA_DENIED', 'dependency': 'backend_properties',
                                       'upstreamStatus': 403, 'retryable': False, 'reasoningControlState': 'UNVERIFIED',
                                       'requestedModel': 'private selected model'}}
+        @app.get('/gateway/commands/{command_id}')
+        async def rejected(command_id: str):
+            return JSONResponse({'error': {'code': 'EXECUTION_PARAMETERS_UNSUPPORTED', 'message': 'private prompt and path',
+                                          'failed_stage': 'provider_admission', 'dispatch_state': 'not_dispatched',
+                                          'inference_attempted': False, 'retryable': False}}, status_code=409)
+        @app.get('/gateway/admin/dashboard')
+        async def dashboard(failed: bool = False):
+            return JSONResponse({'error': {'code': 'DURABLE_STORAGE_UNAVAILABLE'}} if failed else {'ready': True},
+                                status_code=503 if failed else 200)
         app.add_middleware(Admission, config=config or Config())
         app.add_middleware(DebugMiddleware, store=self.store, instance_id='2' * 32)
         client = TestClient(app, base_url='http://127.0.0.1:8090', client=(peer, 1234))
@@ -84,6 +93,75 @@ class DebugEvidenceTests(unittest.TestCase):
         self.assertEqual(403, result['observation']['upstreamStatus'])
         self.assertFalse(result['observation']['limitsVerified'])
         self.assertNotIn('private selected model', self.store.export())
+
+    def test_command_rejection_preserves_cause_and_execution_stage_without_response_text(self):
+        headers = {'X-Gateway-Diagnostic-Session': 'a' * 32, 'X-Gateway-Diagnostic-Started': str(int(time.time() * 1000))}
+        response = self.client().get('/gateway/commands/private-command', headers=headers)
+        self.assertEqual(409, response.status_code)
+        with zipfile.ZipFile(io.BytesIO(self.store.export_bundle())) as archive:
+            events = [json.loads(line) for line in archive.read('diagnostic-events.jsonl').splitlines()]
+            text = archive.read('gateway-debug.jsonl').decode()
+        receipt = next(row for row in events if row['stage'] == 'response')
+        attributes = receipt['bounded_attributes']
+        self.assertEqual('commands', attributes['route'])
+        self.assertEqual('EXECUTION_PARAMETERS_UNSUPPORTED', attributes['reason_code'])
+        self.assertEqual('provider_admission', attributes['failed_stage'])
+        self.assertEqual('not_dispatched', attributes['execution_dispatch_state'])
+        self.assertFalse(attributes['inference_attempted'])
+        self.assertEqual('response_received', receipt['dispatch_state'])
+        self.assertNotIn('private', text + json.dumps(events))
+
+    def test_dashboard_successes_are_sampled_and_each_failure_pair_survives(self):
+        client = self.client(Config(management_token='test-manager'))
+        headers = {'X-Gateway-Management': 'test-manager'}
+        for _ in range(12):
+            self.assertEqual(200, client.get('/gateway/admin/dashboard', headers=headers).status_code)
+        for _ in range(2):
+            self.assertEqual(503, client.get('/gateway/admin/dashboard?failed=true', headers=headers).status_code)
+        rows = [json.loads(line) for line in self.store.export().splitlines()]
+        self.assertEqual(['client_request', 'gateway_response'] * 3, [row['event'] for row in rows])
+        self.assertEqual([200, 503, 503], [row['status'] for row in rows if row['event'] == 'gateway_response'])
+        self.assertEqual(11, self.store.snapshot()['suppressedSuccessfulPolls'])
+        for request, response in zip(rows[::2], rows[1::2]):
+            self.assertEqual(request['httpRequestId'], response['httpRequestId'])
+
+    def test_sampled_success_header_does_not_hide_a_later_transport_failure(self):
+        async def app(scope, receive, send):
+            scope['state']['principal'] = Principal('local:manager', frozenset({'chat'}), True)
+            await send({'type': 'http.response.start', 'status': 200, 'headers': []})
+            await send({'type': 'http.response.body', 'body': b'{}'})
+        middleware = DebugMiddleware(app, self.store, '2' * 32)
+        async def call(fail):
+            async def receive():
+                return {'type': 'http.request', 'body': b''}
+            async def send(message):
+                if fail and message['type'] == 'http.response.body':
+                    raise BrokenPipeError('private socket description')
+            await middleware({'type': 'http', 'method': 'GET', 'path': '/gateway/admin/dashboard', 'headers': []}, receive, send)
+        asyncio.run(call(False))
+        with self.assertRaises(BrokenPipeError):
+            asyncio.run(call(True))
+        rows = [json.loads(line) for line in self.store.export().splitlines()]
+        self.assertEqual(1, sum(row['event'] == 'transport_failure' for row in rows))
+        self.assertFalse(rows[-1]['responseBodyCompleted'])
+        self.assertEqual(0, self.store.snapshot()['suppressedSuccessfulPolls'])
+        self.assertNotIn('private socket', self.store.export())
+
+    def test_build_provenance_keeps_safe_revision_and_marks_unobserved_metadata(self):
+        safe = backend_build_provenance({'version': 'b7654', 'commit': 'a' * 40, 'compiler': '/private/path'})
+        self.assertEqual('b7654', safe['backendBuildVersion'])
+        self.assertEqual('a' * 40, safe['backendBuildRevision'])
+        self.assertEqual('observed', safe['backendBuildStatus'])
+        self.assertNotIn('private', json.dumps(safe))
+        opaque = backend_build_provenance('private server build /path')
+        self.assertEqual({'backendBuildStatus', 'backendBuildDigest'}, set(opaque))
+        self.assertEqual('digest_only', opaque['backendBuildStatus'])
+        self.assertEqual({'backendBuildStatus': 'not_observed'}, backend_build_provenance(None))
+        self.store.observe_backend_build({'version': 'b7654'}, 1000)
+        with zipfile.ZipFile(io.BytesIO(self.store.export_bundle())) as archive:
+            manifest = json.loads(archive.read('manifest.json'))
+        self.assertEqual('b7654', manifest['versions'][-1]['backendBuildVersion'])
+        self.assertEqual('observed', manifest['buildIdentity']['backendBuildStatus'])
 
     def test_expected_restriction_is_named_without_accepting_unadmitted_metadata(self):
         client = self.client(Config(mode='open_network', host='0.0.0.0'), peer='192.168.1.50')

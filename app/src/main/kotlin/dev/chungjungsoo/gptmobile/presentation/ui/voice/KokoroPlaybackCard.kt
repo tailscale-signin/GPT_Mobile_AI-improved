@@ -33,7 +33,8 @@ internal fun KokoroPlaybackCard(
     install: () -> Unit,
     cancel: () -> Unit,
     remove: () -> Unit,
-    preview: (KokoroVoice) -> Unit
+    preview: (KokoroVoice) -> Unit,
+    setup: Boolean = false
 ) {
     val ready = state.status == LocalVoiceModelStatus.READY
     val downloadMiB = (state.totalBytes + 524_288) / 1_048_576
@@ -44,7 +45,7 @@ internal fun KokoroPlaybackCard(
     ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text("Kokoro · Offline English voices", style = MaterialTheme.typography.titleMedium)
-            Text("Download once to play spoken replies on your phone. If Kokoro is unavailable, Voice uses an installed offline Android voice.", style = MaterialTheme.typography.bodySmall)
+            Text("Play spoken replies on your phone.", style = MaterialTheme.typography.bodySmall)
             when (state.status) {
                 LocalVoiceModelStatus.CHECKING -> Text("Checking for the voice pack…", style = MaterialTheme.typography.bodySmall)
                 LocalVoiceModelStatus.DOWNLOADING -> {
@@ -65,13 +66,7 @@ internal fun KokoroPlaybackCard(
                 }
             }
             state.message?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-            if (!ready && voice != null) {
-                Text("${voice.label} selected · Uses Android until the pack is ready", style = MaterialTheme.typography.bodySmall)
-            }
-            if (ready || voice != null) {
-                FilterChip(selected = voice == null, onClick = { select(null) }, label = { Text("Android voice") })
-            }
-            if (ready) {
+            if (ready && !setup) {
                 if (!english) Text("Set the speech language to English to use Kokoro.", style = MaterialTheme.typography.bodySmall)
                 KokoroVoice.entries.forEach { option ->
                     FilterChip(selected = voice == option, onClick = { select(option) }, label = { Text(option.label) }, enabled = english)

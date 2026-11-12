@@ -10,11 +10,12 @@ import kotlinx.serialization.json.put
 
 /** Task state is persisted alongside its receipts, independently of a provider's terminal frame. */
 internal object GitHubTaskLifecycle {
-    enum class State { PLANNED, RUNNING, WAITING_FOR_APPROVAL, WAITING_FOR_CONNECTION, BLOCKED, PARTIAL, FAILED, COMPLETED }
+    enum class State { PLANNED, RUNNING, WAITING_FOR_APPROVAL, WAITING_FOR_CONNECTION, REJECTED, BLOCKED, PARTIAL, FAILED, COMPLETED }
 
     fun progress(failure: ProviderEvent.Failed?, receiptCount: Int): State = when {
         failure == null -> State.RUNNING
         failure.errorCode == "WAITING_FOR_APPROVAL" -> State.WAITING_FOR_APPROVAL
+        failure.taskOutcome == "REJECTED" || failure.errorCode == "APPROVAL_REJECTED" -> State.REJECTED
         failure.failureDetails?.get("recovery_state") == JsonPrimitive("WAITING_FOR_CONNECTION") -> State.WAITING_FOR_CONNECTION
         failure.taskOutcome in setOf("BLOCKED", "CONFIGURATION_INVALIDATED") -> State.BLOCKED
         failure.errorCode == "GITHUB_REVIEW_BLOCKED" || failure.errorCode == "REVIEW_INPUT_REQUIRED" -> State.BLOCKED
@@ -29,6 +30,7 @@ internal object GitHubTaskLifecycle {
         val checklist = verdict["acceptance_ledger"] as? JsonObject
         return when {
             verdict["blocking_condition"] == JsonPrimitive("WAITING_FOR_APPROVAL") || verdict["task_state"] == JsonPrimitive("WAITING_FOR_APPROVAL") -> State.WAITING_FOR_APPROVAL
+            requested == "REJECTED" || verdict["task_state"] == JsonPrimitive("REJECTED") -> State.REJECTED
             verdict["recovery_state"] == JsonPrimitive("WAITING_FOR_CONNECTION") -> State.WAITING_FOR_CONNECTION
             requested == "BLOCKED" || requested == "CONFIGURATION_INVALIDATED" -> State.BLOCKED
             requested == "COMPLETED" &&

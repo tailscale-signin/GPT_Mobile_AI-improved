@@ -56,7 +56,7 @@ interface AgentPersistenceDao :
     @Transaction
     suspend fun deferRunningProvider(row: dev.chungjungsoo.gptmobile.data.agent.ProviderWait): Boolean {
         val saved = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromString<dev.chungjungsoo.gptmobile.data.agent.ProviderWaitCheckpoint>(row.checkpoint)
-        require(saved.version == 2 && saved.decision?.knownNotAccepted == true && saved.decision.scope == row.scope && saved.decision.retryAt == row.retryAt)
+        require(saved.version == 2 && saved.decision?.mayWait == true && saved.decision.scope == row.scope && saved.decision.retryAt == row.retryAt)
         if (saved.mode == dev.chungjungsoo.gptmobile.data.agent.ProviderWaitMode.TEXT_CONTINUATION) {
             val prior = recoveryRun(row.runId) ?: return false
             val message = recoveryMessage(prior.assistantMessageId) ?: return false
@@ -152,6 +152,11 @@ interface AgentPersistenceDao :
 
     @Query("UPDATE agent_runs SET status = 'INTERRUPTED', terminal_error = :reason WHERE run_id = :runId AND (status = 'WAITING_PROVIDER_LIMIT' OR (status = 'QUEUED' AND started_at IS NULL))")
     suspend fun blockProviderWait(runId: String, reason: String): Int
+
+    @Transaction
+    suspend fun blockCurrentProviderWait(row: dev.chungjungsoo.gptmobile.data.agent.ProviderWait, reason: String) {
+        if (rawProviderWait(row.runId) == row) blockProviderWait(row.runId, reason)
+    }
 
     @Update
     suspend fun updateChatRoom(chatRoom: ChatRoomV2)
@@ -703,13 +708,45 @@ interface AgentPersistenceDao :
         if (run.gatewayJobId != jobId || !dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.canReadSavedResult(run) || run.terminalError == "BACKUP_RESTORED") return false
         val message = recoveryMessage(run.assistantMessageId) ?: return false
         if (message.currentRunId != runId || message.chatId != run.chatId || message.ownershipFence != run.ownershipFence) return false
+        val supersededStatus = message.timeline.any {
+            it.runError != null ||
+                it.profileFailure != null ||
+                it.progressCheckpoint ||
+                it.progressDeadline != null ||
+                it.recoveryBlock != null ||
+                it.recovery != null ||
+                it.combinedFailure?.remoteJobStatus == "PENDING"
+        }
+        val source = dev.chungjungsoo.gptmobile.data.database.entity.ResponseSource(
+            transport = dev.chungjungsoo.gptmobile.data.database.entity.ResponseTransport.GATEWAY,
+            profileUid = run.profileUid,
+            modelId = run.modelSnapshot,
+            gatewayVerified = true
+        )
         val restored = message.copy(
             content = content,
-            revisions = if (message.content.isNotBlank() && !content.startsWith(message.content)) listOfNotNull(message.snapshotLatestAssistantRevision(completedAt)) + message.revisions else message.revisions,
+            createdAt = completedAt,
+            revisions = if (supersededStatus || message.content.isNotBlank() && !content.startsWith(message.content)) listOfNotNull(message.snapshotLatestAssistantRevision(completedAt)) + message.revisions else message.revisions,
             activeRevisionIndex = ACTIVE_REVISION_LATEST,
-            timeline = message.timeline.filter { it.type != dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.TEXT } +
-                dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.TEXT, content = content) +
-                listOfNotNull(terminalError?.let { dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE, runError = it) })
+            // Old failure and resume controls belong to the retained revision,
+            // not the newly published answer. Confirmed tool history survives.
+            timeline = message.timeline.filterNot {
+                it.type == dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.TEXT ||
+                    it.runError != null ||
+                    it.profileFailure != null ||
+                    it.progressCheckpoint ||
+                    it.progressDeadline != null ||
+                    it.recoveryBlock != null ||
+                    it.recovery != null ||
+                    it.combinedFailure?.remoteJobStatus == "PENDING"
+            } +
+                dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.TEXT, content = content, responseSource = source) +
+                dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(
+                    dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE,
+                    content = "The saved Gateway answer was recovered without starting a new request.",
+                    generation = dev.chungjungsoo.gptmobile.data.database.entity.GenerationReceipt(finishReason = "gateway_saved_result", responseSource = source),
+                    runError = terminalError
+                )
         )
         updateMessage(restored)
         publishReply(run, restored, terminalStatus, completedAt)
@@ -846,6 +883,7 @@ interface AgentPersistenceDao :
 
     @Transaction
     suspend fun persistAgentTurn(request: PersistAgentTurnRequest): PersistAgentTurnResult {
+        var queuedRecovery: dev.chungjungsoo.gptmobile.data.agent.TaskResumeDescriptor? = null
         request.queuedPromptId?.let { id ->
             val pending = requireNotNull(pendingPrompt(id)) { "Queued input has already been dispatched or removed." }
             require(pending.chatId == request.chatRoom.id && !pending.paused)
@@ -864,6 +902,23 @@ interface AgentPersistenceDao :
             require(firstPendingId(pending.chatId) == id) { "Queue order changed." }
             require(queuedTurnReady(pending.chatId, request.queuedPausedProfiles)) { "Conversation is still running or awaiting its combined answer." }
             require(pending.text == request.userMessage.content && pending.details().attachments == request.userMessage.attachments) { "Queued input was edited." }
+            pending.details().recovery?.let { descriptor ->
+                val original = requireNotNull(rawRecoveryMessage(descriptor.sourceMessageId)) { "The queued continuation's original task is unavailable." }
+                val github = pending.details().tools.github
+                require(
+                    github != null &&
+                        accepted == null &&
+                        request.runs.singleOrNull()?.profileUid == github.mainProfileUid &&
+                        original.chatId == pending.chatId &&
+                        original.platformType == null &&
+                        descriptor.rootWorkId == "${pending.chatId}:${original.id}" &&
+                        descriptor.action == dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.CONTINUE_RUN &&
+                        !descriptor.allowNewToolBudget &&
+                        !descriptor.allowUndispatchedBudgetRetry &&
+                        dev.chungjungsoo.gptmobile.data.github.GitHubNativeContinuation.matches(pending.text)
+                ) { "The queued approval continuation no longer matches its original task." }
+                queuedRecovery = descriptor
+            }
         }
         val pinnedRequestRoom = request.chatRoom.let { room ->
             if (room.conversationMode == dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode.COMBINED && room.combinedPrimaryUid == null) room.copy(combinedPrimaryUid = room.activePlatform.firstOrNull()) else room
@@ -900,6 +955,13 @@ interface AgentPersistenceDao :
                 currentRunId = draft.runId,
                 createdAt = draft.createdAt,
                 timeline = listOfNotNull(
+                    queuedRecovery?.let { descriptor ->
+                        dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(
+                            type = dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE,
+                            content = "Reconciling the saved GitHub approval from its original task.",
+                            recovery = descriptor.copy(generationId = draft.runId)
+                        )
+                    },
                     dev.chungjungsoo.gptmobile.data.agent.CombinedAcceptedTurn.context(draft.synthesisSnapshot)?.let { context ->
                         dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(
                             type = dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE,

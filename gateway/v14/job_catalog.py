@@ -9,6 +9,7 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 from v14.conversations import Conversations, ConversationConflict, QueueFull, CursorExpired, cursor_encode, cursor_decode, short_title
 from v14.conversation_policy import verify_mutation_identity
+from v14.engineering_batch_plan import summary as batch_summary
 from v14.execution_binding import ExecutionBindingError
 
 
@@ -35,6 +36,7 @@ def generation_summary(public, now):
 
 def engineering_summary(job, lease, now):
     request, phase = job['request'], job['state']
+    provider_retry_at = (job.get('provider_wait') or {}).get('retry_at')
     state = ('completed' if phase == 'COMPLETED' else 'cancelled' if phase == 'CANCELLED' else 'failed' if phase == 'FAILED' else
              'needs_attention' if phase in {'NEEDS_INPUT', 'MERGE_READY', 'CANCELLING'} else 'running' if lease else 'queued')
     return {'job_id': job['id'], 'job_kind': 'engineering', 'conversation_id': job.get('conversation_id'),
@@ -44,7 +46,10 @@ def engineering_summary(job, lease, now):
             'task_scope': accepted_scope(request), 'cancellation_requested': phase == 'CANCELLING', 'state': state, 'phase': phase, 'revision': job['revision'],
             'accepted_at': job.get('accepted_at', job['created_at']), 'queued_at': job.get('queued_at', job['created_at']),
             'started_at': job.get('started_at'), 'finished_at': job.get('finished_at', job['updated_at'] if phase in {'COMPLETED', 'CANCELLED', 'FAILED'} else None),
-            'server_now': now, 'queue_reason': ('ci_wait' if phase == 'CI' else 'engineering_worker') if state == 'queued' else None,
+            'server_now': now, 'provider_retry_at': provider_retry_at,
+            'execution_mode': request.get('execution_mode', 'standard'),
+            'batch_progress': batch_summary(job.get('data', {}).get('integration_batch')),
+            'queue_reason': ('provider_rate_limit' if provider_retry_at is not None else 'ci_wait' if phase == 'CI' else 'engineering_worker') if state == 'queued' else None,
             'queue_position': None, 'result_available': phase == 'COMPLETED', 'transcript_available': bool(job.get('conversation_id')),
             'allowed_actions': ['open'] + (['cancel'] if phase not in {'COMPLETED', 'CANCELLED', 'FAILED', 'CANCELLING'} else []) + (['approve'] if phase == 'MERGE_READY' else [])}
 
@@ -119,7 +124,7 @@ def install_routes(app, conversations, engineering, service, ownership):
                 return JSONResponse({'error': {'code': 'not_found'}}, status_code=404)
             return value
         except ExecutionBindingError as error:
-            return JSONResponse({'error': {'code': error.code, 'message': str(error), 'retryable': False},
+            return JSONResponse({'error': error.error_payload(),
                                  **({'preflight': error.result} if hasattr(error, 'result') else {})}, status_code=error.status)
         except QueueFull:
             return JSONResponse({'error': {'code': 'queue_full', 'retryable': True}}, status_code=429)
@@ -168,7 +173,7 @@ def install_routes(app, conversations, engineering, service, ownership):
     @app.get('/v1/gateway/commands/{command_id}')
     async def command(command_id: str, request: Request):
         def read():
-            receipt = conversations.command(request.state.principal.id, command_id)
+            receipt = conversations.command(request.state.principal.id, command_id, include_outcome=request.query_params.get('include_outcome') == 'true')
             allowed = engineering_allowed(request) if receipt and receipt['job_kind'] == 'engineering' else request.state.principal.local_admin or 'jobs' in request.state.principal.scopes
             return receipt if receipt and allowed else None
         return await execute(read)

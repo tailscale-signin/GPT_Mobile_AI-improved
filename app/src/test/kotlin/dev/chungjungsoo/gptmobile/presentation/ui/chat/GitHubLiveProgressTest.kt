@@ -182,6 +182,50 @@ class GitHubLiveProgressTest {
         compose.onAllNodesWithTag("github_preview_row").assertCountEquals(2)
     }
 
+    @Test fun activePreviewFadesInForOneSecondAndRefreshesInHalfASecond() {
+        compose.mainClock.autoAdvance = false
+        var text by mutableStateOf("Reading the first file")
+        var active by mutableStateOf(true)
+        lateinit var transition: GitHubActivePreviewTransition
+        compose.setContent {
+            MaterialTheme {
+                transition = rememberGitHubActivePreviewTransition(text, active)
+                Text(transition.text.value, Modifier.testTag("active_preview_transition"))
+            }
+        }
+
+        val clock = compose.mainClock
+        // LaunchedEffect starts its tween on a frame. Allow the frame boundary
+        // while checking the full entry and both halves of the replacement.
+        clock.advanceTimeByFrame()
+        val entryStart = clock.currentTime
+        assertEquals("Reading the first file", transition.text.value)
+        assertEquals(0f, transition.opacity.value, 0.01f)
+        clock.advanceTimeBy(500)
+        assertTrue(transition.opacity.value in 0.45f..0.55f)
+        clock.advanceTimeUntil(550) { transition.opacity.value == 1f }
+        assertTrue(clock.currentTime - entryStart in 992..1048)
+
+        compose.runOnIdle { text = "Reading the updated file" }
+        compose.waitForIdle()
+        val refreshStart = clock.currentTime
+        clock.advanceTimeBy(208)
+        assertEquals("Reading the first file", transition.text.value)
+        assertTrue(transition.opacity.value in 0.1f..0.4f)
+        clock.advanceTimeUntil(100) { transition.text.value == "Reading the updated file" }
+        assertTrue(clock.currentTime - refreshStart in 240..304)
+        assertEquals("Reading the updated file", transition.text.value)
+        assertTrue(transition.opacity.value <= 0.07f)
+        clock.advanceTimeBy(112)
+        assertTrue(transition.opacity.value in 0.3f..0.6f)
+        clock.advanceTimeUntil(200) { transition.opacity.value == 1f }
+        assertTrue(clock.currentTime - refreshStart in 496..576)
+
+        compose.runOnIdle { active = false }
+        clock.advanceTimeByFrame()
+        assertEquals(1f, transition.opacity.value, 0.01f)
+    }
+
     @Test fun detailedSummariesRemainCompleteInCompactActivity() {
         val summary = "I verified the files changed by this request.\n".repeat(8) + "The remaining check is still running."
         compose.setContent { MaterialTheme { GitHubLiveProgressCard(listOf(line(summary, true).copy(modelAuthored = true)), expanded = false) } }

@@ -13,25 +13,44 @@ import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
+import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelStatus
 import dev.chungjungsoo.gptmobile.presentation.common.Route
 
 internal fun NavGraphBuilder.voiceNavigation(navController: NavHostController, origin: () -> Offset) {
     composable(Route.VOICE_ENTRY, enterTransition = { fadeIn(tween(150)) }, exitTransition = { fadeOut(tween(150)) }) {
         val model: VoiceEntryViewModel = hiltViewModel()
         val state by model.state.collectAsStateWithLifecycle()
+        val modelPreparation by model.gatewayModelPreparation.collectAsStateWithLifecycle()
         LaunchedEffect(state.route) {
             state.route?.let { route -> navController.navigate(route) { popUpTo(Route.VOICE_ENTRY) { inclusive = true } } }
         }
-        LaunchedEffect(state.loaded, state.selected, state.enabled) {
-            if (state.loaded && state.enabled && state.selected.isNotBlank() && state.error == null) model.start()
+        val voiceSettings: VoicePreferencesViewModel = hiltViewModel()
+        val stores by voiceSettings.modelStores.collectAsStateWithLifecycle()
+        val moonshine = stores?.moonshine?.state?.collectAsStateWithLifecycle()?.value
+        val kokoro = stores?.kokoro?.state?.collectAsStateWithLifecycle()?.value
+        val modelsReady = moonshine?.status == LocalVoiceModelStatus.READY && kokoro?.status == LocalVoiceModelStatus.READY
+        LaunchedEffect(state.loaded, state.selected, state.enabled, modelsReady) {
+            if (modelsReady && state.loaded && state.enabled && state.selected.isNotBlank() && state.error == null) model.start()
         }
         VoiceEntryScreen(
             state,
             origin(),
             model::select,
-            { model.start(enable = true) },
+            { if (modelsReady) model.start(enable = true) },
             { navController.navigateUp() },
-            { navController.navigate(Route.AI_PLATFORMS) }
+            { navController.navigate(Route.AI_PLATFORMS) },
+            modelPreparation = modelPreparation[state.selected],
+            recheckModel = { model.recheckGatewayModel(state.selected) },
+            modelsReady = modelsReady,
+            setup = {
+                if (!modelsReady && moonshine != null && kokoro != null) {
+                    LocalVoiceSetupCard(moonshine, voiceSettings::installLocalModel, voiceSettings::cancelLocalModelInstall, {}, compact = true)
+                    KokoroPlaybackCard(
+                        kokoro, null, 2, true, null, {}, {}, voiceSettings::installKokoroModel,
+                        voiceSettings::cancelKokoroInstall, {}, {}, setup = true
+                    )
+                }
+            }
         )
     }
     composable(

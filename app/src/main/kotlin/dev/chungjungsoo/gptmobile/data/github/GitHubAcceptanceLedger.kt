@@ -44,6 +44,9 @@ internal object GitHubAcceptanceLedger {
                     )
                 )
                 (row["readiness"] as? JsonObject)?.let { put("readiness", it) }
+                if (kind == "CAPABILITY") {
+                    listOf("requires_live_transport", "live_verified", "response_validated", "evidence_origins", "acceptance_basis").forEach { key -> row[key]?.let { put(key, it) } }
+                }
             }
         }
         val required = entries(requirements, "REQUIREMENT")
@@ -61,7 +64,20 @@ internal object GitHubAcceptanceLedger {
             // Capability success proves only that API action. It cannot satisfy a product requirement.
             put("completion_verified", requiredCriteria.isNotEmpty() && requiredCriteria.all { it["state"] == JsonPrimitive(State.PASS.name) })
             put("state_counts", buildJsonObject { State.entries.forEach { state -> put(state.name, (required + operations).count { it["state"] == JsonPrimitive(state.name) }) } })
+            put("state_counts_scope", "All retained requirement and capability rows, including excluded rows; not an acceptance denominator.")
+            put("requirement_counts", counts(required))
+            put("capability_counts", counts(operations))
+            put("capability_inventory_counts", counts(inventory))
         }
+    }
+
+    fun counts(rows: List<JsonObject>): JsonObject = buildJsonObject {
+        val required = rows.filter { it["required"] == JsonPrimitive(true) }
+        put("total", rows.size)
+        put("required", required.size)
+        put("excluded", rows.size - required.size)
+        put("required_passed", required.count { it["state"] == JsonPrimitive(State.PASS.name) })
+        put("required_state_counts", buildJsonObject { State.entries.forEach { state -> put(state.name, required.count { it["state"] == JsonPrimitive(state.name) }) } })
     }
 
     fun attach(value: JsonObject): JsonObject = attach(value, emptyMap())

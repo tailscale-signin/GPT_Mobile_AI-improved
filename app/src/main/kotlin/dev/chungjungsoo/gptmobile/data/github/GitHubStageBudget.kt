@@ -6,7 +6,7 @@ internal object GitHubStageBudget {
 
     fun resolve(context: Int, outputCap: Int?, role: String): Allowance {
         val preferred = when {
-            role.endsWith("-preflight") -> 512
+            role.endsWith("-preflight") -> GitHubReviewCompatibility.OUTPUT_TOKENS
             role.endsWith("-repair") || role == "github-claim-extraction" -> 4096
             else -> GitHubReviewSchema.OUTPUT_TOKENS
         }

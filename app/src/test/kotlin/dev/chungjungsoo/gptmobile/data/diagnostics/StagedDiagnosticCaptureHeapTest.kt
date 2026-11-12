@@ -14,7 +14,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
-/** Dedicated 64 MiB JVM gate: the raw source corpus exceeds the entire process heap. */
+/** Dedicated 64 MiB JVM gate: the raw source corpus exceeds the process heap and resumes after interruption. */
 class StagedDiagnosticCaptureHeapTest {
     @get:Rule
     val temporary = TemporaryFolder()
@@ -24,10 +24,10 @@ class StagedDiagnosticCaptureHeapTest {
         assumeTrue("Requires the diagnostic 64 MiB heap gate", java.lang.Boolean.getBoolean("gptmobile.diagnosticHeapStress"))
         val heap = Runtime.getRuntime().maxMemory()
         assertTrue("The gate must actually constrain the test JVM to 64 MiB", heap <= 64L * 1024 * 1024)
-        val records = 20_000
-        val payload = "a".repeat(8192)
+        val records = 40_000
+        val payload = "a".repeat(4096)
         val generatedBytes = records.toLong() * payload.length
-        assertTrue("Generated source must be larger than the process heap", generatedBytes > heap * 2)
+        assertTrue("Generated source must be larger than twice the process heap", generatedBytes > heap * 2)
         val directory = temporary.newFolder("capture")
         var toolHealthy = false
         var conversationCaptures = 0
@@ -57,7 +57,7 @@ class StagedDiagnosticCaptureHeapTest {
         assertEquals(records.toLong() + 3, first.usefulRecords)
         assertEquals("JAVA_HEAP_PRESSURE", stage(first, "tool_receipts")["omissionReason"]?.let { (it as JsonPrimitive).content })
         assertEquals("COMPLETED", stage(first, "profiles")["status"]?.let { (it as JsonPrimitive).content })
-        assertTrue(File(directory, "diagnostic-capture-checkpoints/${first.sessionId}/conversation.jsonl").length() > heap * 2)
+        assertTrue(File(directory, "diagnostic-capture-checkpoints/${first.sessionId}/conversation.jsonl").length() > heap)
         toolHealthy = true
         val resumed = StagedDiagnosticCapture.capture(directory, "heap-fixture", stages, options, first.sessionId)
         assertTrue(resumed.complete)

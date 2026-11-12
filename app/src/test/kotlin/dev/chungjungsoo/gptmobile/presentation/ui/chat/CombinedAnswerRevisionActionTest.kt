@@ -292,6 +292,7 @@ class CombinedAnswerRevisionActionTest {
                         agentRunsById = runs.associateBy { it.runId },
                         activeAgentRuns = emptyMap(),
                         runNoticesById = emptyMap(),
+                        providerWaitDeadlines = emptyMap(),
                         toolEventsByRun = emptyMap(),
                         platformIndexState = 0,
                         loadingStates = emptyList(),

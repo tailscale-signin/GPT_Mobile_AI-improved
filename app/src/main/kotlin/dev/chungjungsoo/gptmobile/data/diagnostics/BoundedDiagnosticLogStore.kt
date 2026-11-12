@@ -72,6 +72,7 @@ internal fun criticalDiagnosticRecord(tag: String, message: String, level: Strin
     level == "E" ||
         level == "F" ||
         tag in criticalDiagnosticTags ||
+        (tag == "VoiceEngine" && message.contains("nativeOperationId=")) ||
         (tag == "Memory" && level == "W") ||
         message.contains("HEAP_PRESSURE", ignoreCase = true) ||
         message.contains("heap pressure", ignoreCase = true) ||

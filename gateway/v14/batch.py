@@ -115,8 +115,59 @@ class BatchJournal:
         self.transaction(write)
 
 
+def deferred_read(result):
+    """Only confirmed rate-limit receipts are eligible for timed read replay."""
+    return (isinstance(result, dict) and isinstance(result.get('error'), dict)
+            and result['error'].get('code') == 'BATCH_READ_DEFERRED')
+
+
+def deferred_receipt(error, attempt):
+    """Keep sanitized cooldown evidence instead of erasing an HTTP 429 inside a batch."""
+    response = getattr(error, 'response', None)
+    status = getattr(response, 'status_code', None)
+    headers = getattr(response, 'headers', {}) or {}
+    lowered = {str(key).lower(): value for key, value in headers.items()}
+    secondary = (status == 403 and
+                 ('retry-after' in lowered or lowered.get('x-ratelimit-remaining') == '0'))
+    if status != 429 and not secondary:
+        return None
+    wait, source = provider_rate_limit_delay(headers, attempt + 1, time.time())
+    return {'isError': True, 'error': {
+        'code': 'BATCH_READ_DEFERRED', 'http_status': 429,
+        'original_status': status, 'retry_at': round(time.time() + wait, 3),
+        'retry_source': source}, 'dispatched': getattr(error, 'dispatched', True)}
+
+
 def failed(result):
     return not isinstance(result, dict) or result.get('isError') is True or result.get('error') is not None
+
+
+def provider_rate_limit_delay(headers, attempt, now):
+    """Preserve server deadlines for durable jobs, including waits longer than a worker lease."""
+    headers = {key.lower(): value for key, value in headers.items()}
+    hints = []
+    if 'retry-after' in headers:
+        value = headers['retry-after']
+        try:
+            seconds = float(value)
+        except (TypeError, ValueError, OverflowError):
+            try:
+                seconds = parsedate_to_datetime(str(value)).timestamp() - now
+            except (TypeError, ValueError, OverflowError, OSError):
+                seconds = None
+        if seconds is not None and math.isfinite(seconds):
+            hints.append((max(0.0, seconds), 'RETRY_AFTER'))
+    if 'x-ratelimit-reset' in headers:
+        try:
+            epoch = float(headers['x-ratelimit-reset'])
+            if epoch >= 1_000_000_000_000:
+                epoch /= 1000
+            if math.isfinite(epoch) and epoch >= 1_000_000_000 and epoch > now:
+                hints.append((epoch - now, 'RATE_LIMIT_RESET'))
+        except (TypeError, ValueError, OverflowError):
+            pass
+    delay, source = max(hints, default=(min(600, 30 * 2 ** min(5, max(0, attempt - 1))), 'APP_BACKOFF'))
+    return max(1.0, delay) + random.uniform(0, .25), source
 
 
 def retry_delay(error, attempt):
@@ -173,6 +224,13 @@ class BatchExecutor:
         if not set(results) <= {node['id'] for node in nodes}:
             self.admission.release()
             raise ValueError('Batch receipts do not match the plan')
+        # Only timed, read-only deferrals may be removed from completed receipts.
+        # Previously successful sibling reads are never redispatched on resume.
+        for node_id, receipt in list(results.items()):
+            if deferred_read(receipt):
+                retry_at = receipt['error'].get('retry_at')
+                if isinstance(retry_at, (int, float)) and retry_at <= time.time():
+                    del results[node_id]
         started, width, healthy = time.monotonic(), min(5, self.maximum), 0
         pending = [node for node in nodes if node['id'] not in results]
         active = {}
@@ -205,6 +263,9 @@ class BatchExecutor:
                     halted.set()
                     raise
                 except Exception as error:
+                    deferred = deferred_receipt(error, attempt)
+                    if deferred is not None:
+                        return deferred, (time.monotonic() - before) * 1000, attempt
                     delay = retry_delay(error, attempt)
                     if delay is None or attempt == 2:
                         # No source, arguments, credentials or exception text in telemetry.
@@ -225,6 +286,10 @@ class BatchExecutor:
                             halted.set()
                             break
                         if not set(node['depends_on']) <= results.keys():
+                            continue
+                        # An upstream cooldown is not an irrecoverable dependency
+                        # failure; leave its descendants undispatched and unreceipted.
+                        if any(deferred_read(results[dep]) for dep in node['depends_on']):
                             continue
                         if any(failed(results[dep]) for dep in node['depends_on']):
                             results[node['id']] = {'isError': True, 'error': {'code': 'DEPENDENCY_FAILED'}, 'dispatched': False}
@@ -253,6 +318,8 @@ class BatchExecutor:
                         if halted.is_set():
                             break
                         if pending:
+                            if any(any(deferred_read(results.get(dep)) for dep in node['depends_on']) for node in pending):
+                                break
                             raise ValueError('Batch dependencies cannot advance')
                         break
                     done, _ = wait(active, timeout=.1, return_when=FIRST_COMPLETED)
@@ -336,7 +403,8 @@ def install_batch(runtime):
                                    progress_callback or (lambda value: None), cancel_event)
         body = {'schema': 'gateway.batch.v1', 'batch_id': batch_id, 'job_id': job_id,
                 'complete': not any(failed(value) for value in results.values()),
-                'results': [{'id': node['id'], 'result': json.loads(bound_result(results[node['id']], 16000))} for node in nodes]}
+                'results': [{'id': node['id'], 'result': json.loads(bound_result(results.get(node['id'],
+                    {'isError': True, 'error': {'code': 'BATCH_DEPENDENCY_DEFERRED'}, 'dispatched': False}), 16000))} for node in nodes]}
         return {'content': [{'type': 'text', 'text': json.dumps(body, ensure_ascii=False)}],
                 'isError': not body['complete'], 'gateway_engine_calls': len(nodes)}
 

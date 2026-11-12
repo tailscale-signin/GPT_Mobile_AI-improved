@@ -40,7 +40,7 @@ class PlatformPickerInstrumentedTest {
         compose.setContent {
             CompositionLocalProvider(LocalLayoutDirection provides if (rtl) LayoutDirection.Rtl else LayoutDirection.Ltr) {
                 MaterialTheme(colorScheme = if (dark) darkColorScheme() else lightColorScheme()) {
-                    SelectPlatformDialog(profiles, profiles.map { it.uid in selected }, {}, { values, selectedMode ->
+                    SelectPlatformDialog(profiles, selected, {}, { values, selectedMode ->
                         assertEquals(listOf("fixture-0"), values)
                         mode = selectedMode
                         confirmations++

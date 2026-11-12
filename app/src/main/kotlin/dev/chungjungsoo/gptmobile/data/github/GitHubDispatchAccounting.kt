@@ -18,7 +18,10 @@ internal class GitHubDispatchAccounting(
     private val record: (String) -> Unit = { AppLogRecorder.record("GitHub", it) }
 ) : AbstractCoroutineContextElement(Key) {
     companion object Key : CoroutineContext.Key<GitHubDispatchAccounting> {
-        suspend fun started(mutation: Boolean, path: String? = null): String? = currentCoroutineContext()[Key]?.start(mutation, path)
+        suspend fun started(mutation: Boolean, path: String? = null): String? {
+            val context = currentCoroutineContext()
+            return context[Key]?.start(mutation, path, context[GitHubReadRetry.Scope])
+        }
         suspend fun responded(mutation: Boolean, status: Int, requestId: String? = null, serverRequestId: String? = null) =
             currentCoroutineContext()[Key]?.response(mutation, status, requestId, serverRequestId, false)
         suspend fun responded(mutation: Boolean, status: Int, requestId: String?, serverRequestId: String?, expectedAbsence: Boolean) =
@@ -26,7 +29,15 @@ internal class GitHubDispatchAccounting(
         suspend fun cached(observedAt: Long?, immutable: Boolean = false) = currentCoroutineContext()[Key]?.cache(observedAt, immutable)
     }
 
-    private data class Pending(val mutation: Boolean, val startedAt: Long, val endpoint: String, val targetDigest: String?)
+    private data class Pending(
+        val mutation: Boolean,
+        val startedAt: Long,
+        val endpoint: String,
+        val targetDigest: String?,
+        val readRetry: GitHubReadRetry.Scope?,
+        val readAttempt: Int?,
+        val requestDigest: String?
+    )
     private val failures = mutableListOf<kotlinx.serialization.json.JsonObject>()
     private var omittedFailures = 0
     private val invocationId = UUID.randomUUID().toString()
@@ -34,6 +45,8 @@ internal class GitHubDispatchAccounting(
     private var sequence = 0L
     private var reads = 0
     private var readResponses = 0
+    private var recoveredReadRequests = 0
+    private val observedRetryTargets = mutableMapOf<GitHubReadRetry.Scope, MutableMap<Int, MutableSet<String>>>()
     private var readHttpFailures = 0
     private var expectedAbsenceResponses = 0
     private var observationMismatches = 0
@@ -62,7 +75,7 @@ internal class GitHubDispatchAccounting(
         }
     }
 
-    @Synchronized private fun start(mutation: Boolean, path: String?): String {
+    @Synchronized private fun start(mutation: Boolean, path: String?, readRetry: GitHubReadRetry.Scope?): String {
         val requestId = "$invocationId:${++sequence}"
         val route = path?.substringBefore('?').orEmpty()
         val endpoint = when {
@@ -79,7 +92,15 @@ internal class GitHubDispatchAccounting(
             route.startsWith("/repos/") -> "REPOSITORY"
             else -> "OTHER"
         }
-        pending[requestId] = Pending(mutation, now(), endpoint, route.takeIf { it.isNotBlank() }?.let(GitHubEvidenceBook::digest))
+        pending[requestId] = Pending(
+            mutation,
+            now(),
+            endpoint,
+            route.takeIf { it.isNotBlank() }?.let(GitHubEvidenceBook::digest),
+            readRetry.takeUnless { mutation },
+            readRetry?.attempt.takeUnless { mutation },
+            path?.takeIf { it.isNotBlank() }?.let(GitHubEvidenceBook::digest)
+        )
         if (mutation) {
             mutations++
             unknown++
@@ -120,6 +141,11 @@ internal class GitHubDispatchAccounting(
             }
         } else {
             readResponses++
+            val qualifiedResponse = status in 200..299 || status == 304 || expectedAbsence && status == 404
+            if (qualifiedResponse && request.readRetry != null && request.readAttempt != null && request.requestDigest != null) {
+                observedRetryTargets.getOrPut(request.readRetry) { mutableMapOf() }
+                    .getOrPut(request.readAttempt) { mutableSetOf() }.add(request.requestDigest)
+            }
             if (expectedAbsence && status == 404) {
                 expectedAbsenceResponses++
             } else if (status >= 400) {
@@ -160,6 +186,25 @@ internal class GitHubDispatchAccounting(
 
     @Synchronized fun cancelled() = recordTerminal("CANCELLED")
 
+    /** A completed retry can replace only its own unanswered GET of the exact path and query. */
+    @Synchronized internal fun completeReadRetry(scope: GitHubReadRetry.Scope, recovered: Boolean) {
+        // Earlier responses, including HTTP failures, do not certify the final retry's target.
+        val observed = observedRetryTargets.remove(scope)?.get(scope.attempt).orEmpty()
+        if (!recovered || observed.isEmpty()) return
+        val attempts = pending.filterValues { request ->
+            !request.mutation &&
+                request.readRetry === scope &&
+                request.readAttempt != null &&
+                request.readAttempt < scope.attempt &&
+                request.requestDigest in observed
+        }
+        attempts.forEach { (id, request) ->
+            pending.remove(id)
+            recoveredReadRequests++
+            emit("REQUEST_EXECUTION_STATE · state=READ_RETRY_RECOVERED · invocationId=$invocationId · requestId=$id · mutation=false · elapsedMs=${(now() - request.startedAt).coerceAtLeast(0)} · responseForOriginalAttempt=NOT_OBSERVED")
+        }
+    }
+
     @Synchronized fun mutationMayHaveTakenEffect(): Boolean = accepted > 0 || unknown > 0
 
     private fun recordTerminal(phase: String) {
@@ -173,7 +218,7 @@ internal class GitHubDispatchAccounting(
     }
 
     @Synchronized fun finish(candidate: AgentToolResult, mutation: Boolean): AgentToolResult {
-        val liveObserved = reads > 0 && readResponses == reads && observationMismatches == 0
+        val liveObserved = reads > 0 && readResponses + recoveredReadRequests == reads && observationMismatches == 0
         val result = if (forceLiveReads && !mutation && !candidate.isError && !liveObserved) {
             candidate.copy(
                 content = ToolResultContent.Text("A fresh GitHub response was not verified for this request. Run the exact read again with verify_live=true."),
@@ -216,6 +261,7 @@ internal class GitHubDispatchAccounting(
                 )
                 put("read_requests", reads)
                 put("read_response_observations", readResponses)
+                put("recovered_read_requests", recoveredReadRequests)
                 put("read_http_failures", readHttpFailures)
                 put("failed_requests", kotlinx.serialization.json.JsonArray(failures))
                 put("omitted_failed_requests", omittedFailures)

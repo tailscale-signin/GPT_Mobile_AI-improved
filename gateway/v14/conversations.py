@@ -10,6 +10,7 @@ import contextvars
 import hashlib
 import hmac
 import json
+import re
 import sqlite3
 import secrets
 import time
@@ -17,7 +18,7 @@ import uuid
 
 admission_context = contextvars.ContextVar('gateway_conversation_admission', default=None)
 TERMINAL = {'completed', 'failed', 'cancelled', 'canceled', 'interrupted', 'COMPLETED', 'CANCELLED', 'FAILED'}
-FEATURES = {'job_catalog_v1': True, 'conversation_sync_v1': True, 'conversation_message_parts_v1': True, 'durable_detach_v1': True}
+FEATURES = {'job_catalog_v1': True, 'conversation_sync_v1': True, 'conversation_message_parts_v1': True, 'durable_detach_v1': True, 'command_outcomes_v1': True}
 SCHEMA_VERSION = '3'
 MESSAGE_PAGE_BYTES = 1_900_000
 MESSAGE_PART_BYTES = 256 * 1024
@@ -25,6 +26,10 @@ MESSAGE_PART_BYTES = 256 * 1024
 
 class ConversationConflict(ValueError):
     pass
+
+
+class CommandIdentityConflict(ConversationConflict):
+    """A reused ID cannot establish the outcome of the altered payload."""
 
 
 class QueueFull(ValueError):
@@ -106,6 +111,7 @@ class Conversations:
             'CREATE TABLE IF NOT EXISTS gateway_catalog_keys (sequence INTEGER PRIMARY KEY AUTOINCREMENT,job_kind TEXT NOT NULL,job_id TEXT NOT NULL,UNIQUE(job_kind,job_id))',
             'CREATE TABLE IF NOT EXISTS gateway_conversation_catalog (sequence INTEGER PRIMARY KEY AUTOINCREMENT,conversation_id TEXT NOT NULL UNIQUE)',
             'CREATE TABLE IF NOT EXISTS gateway_commands (principal TEXT NOT NULL,id TEXT NOT NULL,fingerprint TEXT NOT NULL,conversation_id TEXT NOT NULL,job_kind TEXT NOT NULL,job_id TEXT NOT NULL,receipt TEXT NOT NULL,created_at REAL NOT NULL,PRIMARY KEY(principal,id))',
+            'CREATE TABLE IF NOT EXISTS gateway_command_rejections (principal TEXT NOT NULL,id TEXT NOT NULL,fingerprint TEXT NOT NULL,receipt TEXT NOT NULL,created_at REAL NOT NULL,PRIMARY KEY(principal,id))',
             'CREATE TABLE IF NOT EXISTS gateway_generation_admissions (job_id TEXT PRIMARY KEY,principal TEXT NOT NULL,payload_json TEXT,dispatch_state TEXT NOT NULL,accepted_at REAL NOT NULL,deadline REAL NOT NULL,binding_fingerprint TEXT NOT NULL)',
             'CREATE TABLE IF NOT EXISTS gateway_pending_instructions (command_id TEXT NOT NULL,conversation_id TEXT NOT NULL,content TEXT NOT NULL,status TEXT NOT NULL,created_at REAL NOT NULL,PRIMARY KEY(conversation_id,command_id))',
             'CREATE TABLE IF NOT EXISTS gateway_history_tombstones (principal TEXT NOT NULL,kind TEXT NOT NULL,id TEXT NOT NULL,expired_at REAL NOT NULL,PRIMARY KEY(principal,kind,id))',
@@ -244,6 +250,8 @@ class Conversations:
             if receipt['job_id'] != job_id:
                 raise ConversationConflict('Command already belongs to a different admitted job')
             return receipt
+        if db.execute('SELECT 1 FROM gateway_command_rejections WHERE principal=? AND id=?', (principal, command_id)).fetchone():
+            raise ConversationConflict('This command was definitively rejected. Repair its prerequisite and submit a new command identity.')
         remote_id = request.get('conversation_id')
         client_key = request.get('client_conversation_id') or kind + ':' + job_id
         self.bounded_id(client_key, 'client conversation identity')
@@ -267,6 +275,8 @@ class Conversations:
                 raise ConversationConflict('The original conversation profile, model or repository binding changed')
             if saved_binding.get('execution_binding') is not None and saved_binding['execution_binding'] != binding.get('execution_binding'):
                 raise ConversationConflict('The original selected execution binding changed')
+            if kind == 'engineering' and saved_binding.get('execution_mode', 'standard') != binding.get('execution_mode', 'standard'):
+                raise ConversationConflict('The original Gateway execution mode changed')
             expected = request.get('expected_revision')
             if expected is not None and (type(expected) is not int or expected != row['revision']):
                 raise ConversationConflict('Conversation revision changed; refresh before sending')
@@ -433,9 +443,61 @@ class Conversations:
     def is_expired(self, principal, kind, ident):
         return self.read(lambda db: bool(db.execute('SELECT 1 FROM gateway_history_tombstones WHERE principal=? AND kind=? AND id=?', (principal, kind, ident)).fetchone()))
 
-    def command(self, principal, command_id):
+    def reject_command(self, principal, command_id, request, code, status, *, kind='engineering'):
+        """Fence a definite pre-admission rejection; a committed acceptance always wins.
+
+        Called only after a validated admission fails before dispatch, never for a
+        timeout/cancellation or an uncertain upstream result. The same transaction
+        fence is checked by admission(), so a late duplicate cannot execute after
+        a rejection was published. No prompt, credentials or error message is kept.
+        """
+        self.bounded_id(command_id, 'command identity')
+        if kind not in {'engineering', 'generation'} or not isinstance(code, str) or not re.fullmatch('[A-Za-z][A-Za-z0-9_]{0,95}', code) or type(status) is not int or status not in {400, 403, 409, 412, 422, 429, 503}:
+            raise ValueError('Invalid command rejection')
+        if kind == 'engineering':
+            from v14.engineering import validate_request, digest
+            from v14.engineering_defaults import new_request_defaults, retained_request_defaults
+            request_hash = fingerprint(validate_request(new_request_defaults(request)))
+        else:
+            request_hash = fingerprint(request)
+        def save(db):
+            accepted = db.execute('SELECT receipt,fingerprint FROM gateway_commands WHERE principal=? AND id=?', (principal, command_id)).fetchone()
+            if accepted:
+                receipt = json.loads(accepted[0])
+                matches = accepted[1] == request_hash
+                if kind == receipt['job_kind'] == 'engineering':
+                    # Accepted jobs can contain host-expanded acceptance. Compare
+                    # the frozen original request digest, including its defaults.
+                    job = db.execute('SELECT data,request_digest FROM engineering_jobs WHERE principal=? AND id=?', (principal, receipt['job_id'])).fetchone()
+                    matches = job is not None and job[1] == digest(validate_request(retained_request_defaults(request, json.loads(job[0])['request'])))
+                if not matches or receipt['job_kind'] != kind:
+                    raise CommandIdentityConflict('Command identity was reused with different content or binding')
+                return dict(receipt, server_now=self.now())
+            previous = db.execute('SELECT receipt,fingerprint FROM gateway_command_rejections WHERE principal=? AND id=?', (principal, command_id)).fetchone()
+            if previous:
+                if previous[1] != request_hash or json.loads(previous[0])['job_kind'] != kind:
+                    raise CommandIdentityConflict('Rejected command identity was reused with different content or binding')
+                return dict(json.loads(previous[0]), server_now=self.now())
+            # Fail closed if the bounded rejection ledger is full; never evict a
+            # fence and accidentally make an earlier command safe to dispatch.
+            if db.execute('SELECT COUNT(*) FROM gateway_command_rejections').fetchone()[0] >= 16384:
+                raise QueueFull('Command outcome history is full')
+            now = self.now()
+            receipt = {'schema_version': 1, 'gateway_id': self.identity(db), 'principal_id': principal,
+                       'command_id': command_id, 'job_kind': kind, 'admission_state': 'rejected',
+                       'error_code': code, 'http_status': status, 'failed_stage': 'provider_admission',
+                       'dispatch_state': 'not_dispatched', 'inference_attempted': False,
+                       'server_now': now, 'recorded_at': now}
+            db.execute('INSERT INTO gateway_command_rejections VALUES(?,?,?,?,?)',
+                       (principal, command_id, request_hash, json.dumps(receipt), now))
+            return receipt
+        return self.tx(save)
+
+    def command(self, principal, command_id, *, include_outcome=False):
         def read(db):
             row = db.execute('SELECT receipt FROM gateway_commands WHERE principal=? AND id=?', (principal, command_id)).fetchone()
+            if not row and include_outcome and db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='gateway_command_rejections'").fetchone():
+                row = db.execute('SELECT receipt FROM gateway_command_rejections WHERE principal=? AND id=?', (principal, command_id)).fetchone()
             return dict(json.loads(row[0]), server_now=self.now()) if row else None
         return self.read(read)
 
@@ -587,6 +649,8 @@ class Conversations:
                 if old[0] != request_hash:
                     raise ConversationConflict('Command identity was reused')
                 return json.loads(old[1])
+            if db.execute('SELECT 1 FROM gateway_command_rejections WHERE principal=? AND id=?', (principal, command)).fetchone():
+                raise ConversationConflict('This command was definitively rejected. Submit a new command identity.')
             row = db.execute('SELECT * FROM gateway_conversations WHERE id=? AND principal=?', (conversation_id, principal)).fetchone()
             if not row:
                 raise KeyError('Unknown conversation')

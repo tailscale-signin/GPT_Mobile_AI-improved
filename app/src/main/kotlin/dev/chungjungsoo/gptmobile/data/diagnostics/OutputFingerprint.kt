@@ -12,6 +12,7 @@ enum class OutputTextRepresentation { VISIBLE_UTF8, DISPLAY_FILTERED_MARKDOWN_UT
 @Serializable
 enum class OutputOrigin { MODEL_TEXT, SYSTEM_ERROR, PROGRESS_NOTICE, APPLICATION_REPORT, RETAINED_CONTENT, UNKNOWN }
 
+@Serializable
 data class OutputLineage(val origin: OutputOrigin = OutputOrigin.UNKNOWN, val invocationId: String? = null)
 
 data class OutputTraceOwner(
@@ -48,13 +49,13 @@ internal class OutputFingerprintAccumulator {
         val copy = digest.clone() as MessageDigest
         val tail = pendingHighSurrogate?.toString()?.toByteArray(Charsets.UTF_8) ?: byteArrayOf()
         copy.update(tail)
-        OutputFingerprint(Math.addExact(bytes, tail.size.toLong()), copy.digest().joinToString("") { "%02x".format(it) })
+        OutputFingerprint(Math.addExact(bytes, tail.size.toLong()), DiagnosticRecordChunks.hex(copy.digest()))
     }.getOrNull()
 }
 
 internal fun outputFingerprint(text: String): OutputFingerprint {
     val bytes = text.toByteArray(Charsets.UTF_8)
-    return OutputFingerprint(bytes.size.toLong(), MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) })
+    return OutputFingerprint(bytes.size.toLong(), DiagnosticRecordChunks.hex(MessageDigest.getInstance("SHA-256").digest(bytes)))
 }
 
 /** Keep numeric legacy IDs readable; hash composite renderer identities before persistence. */

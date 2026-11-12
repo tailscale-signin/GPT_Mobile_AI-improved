@@ -15,6 +15,20 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubCheckpointCompactionTest {
+    @Test fun identicalCurrentSnapshotsDoNotAppendJournalWrites() = runTest {
+        val saved = linkedMapOf<String, JsonObject>()
+        var writes = 0
+        val book = GitHubEvidenceBook("binding", "owner/repo", "main", emptySet(), load = { saved[it] }, save = { id, row ->
+            writes++
+            saved[id] = row
+        })
+        val checkpoint = Json.parseToJsonElement("""{"task_outcome":"PARTIAL","observed_at_ms":1,"capabilities":[]}""").jsonObject
+        book.retainChecklist(checkpoint)
+        val firstWrites = writes
+        repeat(5) { book.retainChecklist(JsonObject(checkpoint + ("observed_at_ms" to JsonPrimitive(it + 2)))) }
+        assertEquals(firstWrites, writes)
+    }
+
     @Test fun immediateStagePublicationIsRecordedAsARemoteMutationAndChangesTheEvidenceEpoch() = runTest {
         val book = GitHubEvidenceBook("binding", "owner/repo", "fixture", setOf("github_stage_patch"))
         for (immediate in listOf(false, true)) {
@@ -47,6 +61,7 @@ class GitHubCheckpointCompactionTest {
         assertEquals(2, saved.keys.count(GitHubEvidenceBook::currentSnapshot))
         val events = saved.filterKeys { it.startsWith("verification_event_") }.values
         assertTrue(events.isNotEmpty())
+        assertTrue("Repeated evidence must not duplicate unchanged acceptance transitions", events.size <= 4)
         assertTrue(events.all { it["schema"] == JsonPrimitive("github.verification-event.v1") })
         assertTrue(events.all { "capabilities" !in it && "test_checklist" !in it && "result" !in it })
         assertFalse(GitHubEvidenceBook.currentSnapshot("ev_current_" + "a".repeat(24)))

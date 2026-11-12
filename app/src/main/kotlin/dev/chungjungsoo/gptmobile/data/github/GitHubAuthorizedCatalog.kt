@@ -184,7 +184,7 @@ internal object GitHubAuthorizedCatalog {
             // receipts remain independently revalidated against their own arguments.
             val signature = GitHubEvidenceBook.digest(
                 catalogTools.filter { it.modelVisible && github(it.name) }.sortedBy { it.name }.joinToString("\n") {
-                    "${it.name}:${it.contractVersion}:${ToolContractFingerprint.schema(it.inputSchema)}"
+                    "${it.name}:${it.contractVersion}:${ToolContractFingerprint.definition(it)}"
                 }
             ).take(20)
             val callId = "catalog-contract-refresh-$signature"
@@ -211,10 +211,11 @@ internal object GitHubAuthorizedCatalog {
     private fun contractChange(entry: JsonObject, definition: AgentToolDefinition): JsonObject? {
         val semantic = entry.text("semantic_schema_fingerprint").isNotBlank()
         val observed = entry.text(if (semantic) "semantic_schema_fingerprint" else "schema_fingerprint")
-        val expected = if (semantic) ToolContractFingerprint.schema(definition.inputSchema) else GitHubEvidenceBook.digest(definition.inputSchema.toString())
+        val expected = if (semantic) ToolContractFingerprint.definition(definition) else GitHubEvidenceBook.digest(definition.contractSchema.toString())
         val observedVersion = entry.text("invocation_contract_version")
         val versionChanged = observedVersion.isNotBlank() && observedVersion != definition.contractVersion.toString()
-        if (observed == expected && !versionChanged) return null
+        val schemaMatches = observed == expected || !semantic && observed == GitHubEvidenceBook.digest(definition.inputSchema.toString())
+        if (schemaMatches && !versionChanged) return null
         val fingerprintValid = observed.matches(Regex("[a-fA-F0-9]{64}"))
         val versionValid = observedVersion.matches(Regex("[1-9][0-9]{0,9}\\.[0-9]{1,10}"))
         return buildJsonObject {
@@ -223,7 +224,7 @@ internal object GitHubAuthorizedCatalog {
             put("observed_schema_fingerprint", if (fingerprintValid) observed else "INVALID")
             put("schema_fingerprint_invalid", !fingerprintValid)
             put("expected_schema_fingerprint", expected)
-            put("schema_changed", observed != expected)
+            put("schema_changed", !schemaMatches)
             put(
                 "observed_contract_version",
                 if (versionValid) {

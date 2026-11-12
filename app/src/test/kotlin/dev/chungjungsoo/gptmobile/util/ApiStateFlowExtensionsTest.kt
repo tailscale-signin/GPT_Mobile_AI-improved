@@ -5,6 +5,8 @@ import dev.chungjungsoo.gptmobile.data.database.entity.AssistantRevision
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
+import dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage
+import dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin
 import dev.chungjungsoo.gptmobile.data.dto.ApiState
 import dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatViewModel
 import kotlinx.coroutines.CancellationException
@@ -583,12 +585,12 @@ class ApiStateFlowExtensionsTest {
         assertEquals(
             listOf(
                 AssistantTimelineItem(AssistantTimelineItemType.THINKING, content = "Check sources"),
-                AssistantTimelineItem(AssistantTimelineItemType.TEXT, content = "I will search."),
+                AssistantTimelineItem(AssistantTimelineItemType.TEXT, content = "I will search.", outputLineage = OutputLineage(OutputOrigin.UNKNOWN)),
                 AssistantTimelineItem(AssistantTimelineItemType.TOOL, toolSequence = 0),
                 AssistantTimelineItem(AssistantTimelineItemType.THINKING, content = "Compare results."),
-                AssistantTimelineItem(AssistantTimelineItemType.TEXT, content = "First result."),
+                AssistantTimelineItem(AssistantTimelineItemType.TEXT, content = "First result.", outputLineage = OutputLineage(OutputOrigin.UNKNOWN)),
                 AssistantTimelineItem(AssistantTimelineItemType.TOOL, toolSequence = 1),
-                AssistantTimelineItem(AssistantTimelineItemType.TEXT, content = "Final answer.")
+                AssistantTimelineItem(AssistantTimelineItemType.TEXT, content = "Final answer.", outputLineage = OutputLineage(OutputOrigin.UNKNOWN))
             ),
             updates.last().timeline
         )
@@ -669,7 +671,7 @@ class ApiStateFlowExtensionsTest {
         assertEquals(
             listOf(
                 AssistantTimelineItem(AssistantTimelineItemType.NOTICE, content = "The local platform ignored attachments"),
-                AssistantTimelineItem(AssistantTimelineItemType.TEXT, content = "hello")
+                AssistantTimelineItem(AssistantTimelineItemType.TEXT, content = "hello", outputLineage = OutputLineage(OutputOrigin.UNKNOWN))
             ),
             updates.last().timeline
         )

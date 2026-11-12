@@ -68,6 +68,20 @@ fun GatewayEngineeringPanel(chatId: Int, context: GitHubConversationContext, pro
                         Text("Stage: ${recovery.stage} · Profile: ${recovery.profileUid}", style = MaterialTheme.typography.bodySmall)
                         Text("Requested model: ${recovery.requestedModel}\nObserved model: ${recovery.observedModel}", style = MaterialTheme.typography.bodySmall)
                         GatewayEngineeringBudgetStatus(binding)
+                        job?.batchProgress?.let { progress ->
+                            Text(
+                                progress.readableLabel,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.testTag("github_full_batch_progress")
+                            )
+                            progress.currentState?.let {
+                                Text(
+                                    it.replace('_', ' '),
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
+                        }
                         if (binding.profileUid != context.mainProfileUid || profile?.uid != binding.profileUid || profile?.enabled != true) {
                             Text("This job retains its original profile. Its saved progress remains available after a selection change.", style = MaterialTheme.typography.bodySmall)
                         }

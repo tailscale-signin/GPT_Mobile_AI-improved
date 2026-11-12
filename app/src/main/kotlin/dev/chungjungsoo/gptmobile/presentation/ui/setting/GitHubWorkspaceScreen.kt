@@ -162,6 +162,7 @@ fun GitHubWorkspaceScreen(
     val pendingCommit by commitReview.pendingEngineeringTask.collectAsStateWithLifecycle()
     val savedEngineeringTasks by commitReview.engineeringTasks.collectAsStateWithLifecycle()
     val nativeDecisions by commitReview.decisionReceipts.collectAsStateWithLifecycle()
+    val nativeApprovalProgress by commitReview.nativeApprovalProgress.collectAsStateWithLifecycle()
     val pendingEngineeringRun by commitReview.selectedEngineeringRun.collectAsStateWithLifecycle()
     val approvalChatId = visibleProgrammer.chatId
     LaunchedEffect(commandContext, approvalChatId) {
@@ -368,7 +369,7 @@ fun GitHubWorkspaceScreen(
                                     ) { Text(label, style = MaterialTheme.typography.labelLarge) }
                                 }
                             }
-                            Column(Modifier.padding(horizontal = 16.dp)) { GitHubChatProgress(state, visibleProgrammer, engineeringJob) }
+                            Column(Modifier.padding(horizontal = 16.dp)) { GitHubChatProgress(state, visibleProgrammer, engineeringJob, nativeApprovalProgress) }
                             visibleProgrammer.chatId?.takeIf { collapsibleHeader && commandContext != null }?.let { GitHubChatChecks(it) }
                         }
                     }
@@ -561,7 +562,8 @@ fun GitHubWorkspaceScreen(
                                                 exportChatId = visibleProgrammer.chatId
                                                 tab = 3
                                             },
-                                            approvalPending = savedEngineeringTasks.any { it.taskId == pendingCommit && it.state == "AWAITING_APPROVAL" }
+                                            approvalPending = savedEngineeringTasks.any { it.taskId == pendingCommit && it.state == "AWAITING_APPROVAL" },
+                                            onReviewApproval = { tab = 3 }
                                         )
                                         visibleProgrammer.chatId?.let { GitHubChatChecks(it, expanded = true) }
                                     }

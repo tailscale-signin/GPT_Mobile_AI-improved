@@ -13,10 +13,16 @@ import kotlinx.serialization.json.put
 private val eventIdPattern = Regex("(?:^|: | · )eventId=([a-zA-Z0-9_.:-]+)")
 private val recordPattern = Regex("^(\\S+) ([VDIWEF])/([^:]+): (.*)$")
 private val fieldPattern = Regex("(?:^| · |(?<=\\s))([A-Za-z][A-Za-z0-9_]*)=")
+private val boundedTokenFields = setOf(
+    "eventId", "parentEventId", "incidentId", "incident_id", "operation_id", "retry_attempt", "causalIncidentId", "runId", "parentRunId", "invocationId", "callId", "toolCallId",
+    "monoNs", "bootMs", "processId", "processName", "processSessionId", "truncatedAtSource", "reasonTruncated", "dispatched", "retryable",
+    "tool", "action"
+)
+private val acceptanceSchemas = setOf(JsonPrimitive("github.acceptance-criterion.v1"), JsonPrimitive("github.acceptance-summary.v1"))
 
 /** Keep every record and continuation. A duplicate is not the same thing as a non-issue. */
 internal fun diagnosticEventIdentity(line: String): String = eventIdPattern.find(line)?.groupValues?.get(1)
-    ?: java.security.MessageDigest.getInstance("SHA-256").digest(redactLogMessage(line).toByteArray()).joinToString("") { "%02x".format(it) }
+    ?: DiagnosticRecordChunks.sha256(redactLogMessage(line))
 
 internal fun structuredDiagnosticLine(
     line: String,
@@ -41,8 +47,12 @@ internal fun structuredDiagnosticLine(
     fun text(key: String) = parsedFields.diagnosticText(key)
     val eventMessage = diagnosticEventMessage(message)
     val eventName = diagnosticStructuredEvent(message)?.name ?: eventMessage.substringBefore(" · ").trim().take(128)
-    val execution = diagnosticExecutionEvidence(parsedFields, eventName)
-    val correlation = diagnosticCorrelation(parsedFields, eventMessage, match?.groupValues?.get(3))
+    val typedPayload = diagnosticTypedPayload(eventMessage, message, match?.groupValues?.get(3))
+    val trace = typedPayload?.takeIf { it["schema"] == JsonPrimitive("github.trace.v1") }
+    val acceptance = typedPayload?.takeIf { it["schema"] in acceptanceSchemas }
+    val execution = diagnosticExecutionEvidence(parsedFields, eventName, eventMessage)
+    val correlation = diagnosticCorrelation(parsedFields, eventMessage, match?.groupValues?.get(3), acceptance ?: typedPayload)
+    val toolIdentity = diagnosticToolIdentity(parsedFields, eventMessage, match?.groupValues?.get(3), typedPayload)
     val recordTime = match?.groupValues?.get(1)?.let { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() }
     val occurredAt = number("occurredAtMillis") ?: recordTime
     val historical = captureSource in setOf("runtime_incident_history", "android_exit_history", "provider_failure")
@@ -51,11 +61,12 @@ internal fun structuredDiagnosticLine(
     val capturedAt = number("capturedAtMillis") ?: recordTime.takeUnless { historical }
     val exitConfirmed = (parsedFields["workerExitConfirmed"] as? JsonPrimitive)?.booleanOrNull
         ?: (parsedFields["exitConfirmed"] as? JsonPrimitive)?.booleanOrNull
+    val identity = captureIdentity ?: diagnosticEventIdentity(line)
     return buildJsonObject {
         put("schema", 7)
-        put("incidentId", incidentId ?: text("incidentId") ?: text("incident_id") ?: parentEventId ?: captureIdentity ?: diagnosticEventIdentity(line))
+        put("incidentId", incidentId ?: text("incidentId") ?: text("incident_id") ?: parentEventId ?: identity)
         put("incidentRoot", incidentRoot)
-        put("eventId", captureIdentity ?: diagnosticEventIdentity(line))
+        put("eventId", identity)
         parentEventId?.let { put("parentEventId", it) }
         put("sequence", sequence)
         put("captureSource", captureSource)
@@ -70,7 +81,7 @@ internal fun structuredDiagnosticLine(
             when {
                 match == null || duplicate || !incidentRoot && classification.actionable -> "SYMPTOM"
                 classification.actionable -> "OBSERVED_FAILURE"
-                classification.category in setOf("compatibility_probe", "model_compatibility", "connectivity_progress", "platform_job_hint", "deferred_work", "recovery") -> "EXPECTED_LIFECYCLE"
+                classification.category in setOf("compatibility_probe", "model_compatibility", "connectivity_progress", "platform_job_hint", "input_lifecycle", "memory_trim_lifecycle", "deferred_work", "recovery") -> "EXPECTED_LIFECYCLE"
                 else -> "INFORMATIONAL"
             }
         )
@@ -83,6 +94,9 @@ internal fun structuredDiagnosticLine(
         put("dispatchState", execution.state)
         put("runId", correlation.runId)
         put("invocationId", correlation.invocationId)
+        toolIdentity.name?.let { put("toolName", it) }
+        toolIdentity.callId?.let { put("toolCallId", it) }
+        toolIdentity.action?.let { put("toolAction", it) }
         put("causalIncidentId", text("causalIncidentId"))
         put("retryable", (parsedFields["retryable"] as? JsonPrimitive)?.booleanOrNull)
         put("recovery", classification.recovery)
@@ -117,9 +131,6 @@ internal fun structuredDiagnosticLine(
         put("retainedLength", safe.length)
         put("kind", if (match == null) "continuation" else "event")
         put("message", message)
-        val typedPayload = runCatching { Json.parseToJsonElement(eventMessage) as? JsonObject }.getOrNull()
-        val trace = typedPayload?.takeIf { it["schema"] == JsonPrimitive("github.trace.v1") }
-        val acceptance = typedPayload?.takeIf { it["schema"] in setOf(JsonPrimitive("github.acceptance-criterion.v1"), JsonPrimitive("github.acceptance-summary.v1")) }
         put(
             "eventName",
             if (trace != null) {
@@ -139,6 +150,15 @@ internal fun structuredDiagnosticLine(
             put("fields", parsedFields)
         }
     }.toString()
+}
+
+/** Accept current raw typed records and recover the bounded payload from legacy acceptance prefixes. */
+private fun diagnosticTypedPayload(eventMessage: String, message: String, tag: String?): JsonObject? {
+    runCatching { Json.parseToJsonElement(eventMessage) as? JsonObject }.getOrNull()?.let { return it }
+    if (tag != "GitHubAcceptance") return null
+    val start = message.indexOf('{').takeIf { it >= 0 } ?: return null
+    return runCatching { Json.parseToJsonElement(message.substring(start)) as? JsonObject }.getOrNull()
+        ?.takeIf { it["schema"] in acceptanceSchemas }
 }
 
 internal fun diagnosticFields(message: String): JsonObject {
@@ -179,7 +199,7 @@ internal fun diagnosticFields(message: String): JsonObject {
             val formattedValue = message.substring(field.range.last + 1, end).trim().removeSuffix("[private payload redacted]").trim().trimEnd('·').trim().let {
                 if (legacyReadiness) it.removeSuffix(";").trimEnd() else it
             }
-            val value = if (key in setOf("eventId", "parentEventId", "monoNs", "bootMs", "processId", "processName", "processSessionId")) formattedValue.takeWhile { !it.isWhitespace() && it != '·' } else formattedValue
+            val value = if (key in boundedTokenFields) formattedValue.takeWhile { !it.isWhitespace() && it != '·' } else formattedValue
             val nested = if (value.startsWith('{') || value.startsWith('[')) runCatching { Json.parseToJsonElement(value) }.getOrNull() else null
             when {
                 nested is JsonObject || nested is JsonArray -> put(key, diagnosticJsonValue(nested))

@@ -5,17 +5,20 @@ import hmac
 import json
 import os
 import requests
+import sqlite3
 from pathlib import Path
 from v14 import VERSION
 from fastapi import Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from v14.engineering import public_job, validate_request
+from v14.engineering_batch_policy import capability as batch_capability
+from v14.engineering_batch_plan import page as batch_plan_page
 from v14.engineering_preflight import EngineeringPreflightError
 from v14.engineering_defaults import DEFAULT_DURATION_HOURS, DEFAULT_EXECUTION_BUDGET, EXECUTION_BUDGET_LIMITS
 from v14.engineering_diagnostics import diagnostic_job
 from v14.execution_binding import ExecutionBindingError
-from v14.conversations import FEATURES, QueueFull, ConversationConflict
+from v14.conversations import FEATURES, QueueFull, ConversationConflict, CommandIdentityConflict
 from v14.conversation_policy import verify_mutation_identity, MUTATION_IDENTITY_HEADERS
 from v14.repository_lifecycle import RepositoryLifecycle, RepositoryLifecycleError
 from v14.code_graph.public_github import PublicGitHubRateLimited, PublicRepositoryUnavailable
@@ -60,19 +63,20 @@ def install_engineering_routes(app, service):
             raise ValueError('Expected a JSON object')
         return value
 
-    async def execute(action):
+    async def execute(action, *, stage=None):
         try:
             return await action()
         except EngineeringPreflightError as error:
             return JSONResponse({'error': {'code': error.code, 'message': str(error), 'retryable': False},
                                  'preflight': error.result}, status_code=error.status)
         except ExecutionBindingError as error:
-            return JSONResponse({'error': {'code': error.code, 'message': str(error),
-                                           'retryable': error.retryable, 'routeSubstituted': False}}, status_code=error.status)
+            return JSONResponse({'error': error.error_payload(stage=stage)}, status_code=error.status)
         except RepositoryLifecycleError as error:
             return JSONResponse({'error': {'code': error.code, 'message': str(error), 'retryable': False}}, status_code=error.status)
         except QueueFull:
             return JSONResponse({'error': {'code': 'queue_full', 'retryable': True}}, status_code=429)
+        except CommandIdentityConflict:
+            return JSONResponse({'error': {'code': 'conversation_conflict', 'command_outcome_unknown': True, 'retryable': False}}, status_code=409)
         except ConversationConflict as error:
             return JSONResponse({'error': {'code': 'conversation_conflict', 'message': str(error), 'retryable': False}}, status_code=409)
         except PublicGitHubRateLimited:
@@ -115,6 +119,7 @@ def install_engineering_routes(app, service):
                     'mutationIdentityPreconditions': MUTATION_IDENTITY_HEADERS,
                     'repair_attempts': 5, 'explicit_merge_approval': True, 'approval_ttl_seconds': 1800,
                     'notifications': 'android_background_sync', 'batch_reads': True,
+                    'execution_batch': batch_capability(durable=service.store.runtime.GATEWAY_DURABLE_JOBS),
                     'execution_binding_protocol': 1, 'routing_policy': 'SELECTED_ONLY',
                     'execution_owner': 'GATEWAY', 'retry_owner': 'GATEWAY', 'admission_preflight_protocol': 1, 'sampling_policy_protocol': 1}
         return await execute(run)
@@ -147,7 +152,7 @@ def install_engineering_routes(app, service):
                 raise ExecutionBindingError('EXECUTION_SELECTION_INVALID', 'A selected profile snapshot is required.', 400)
             return await asyncio.to_thread(service.prepare_binding, owner, payload['selection'],
                                            gateway_endpoint=str(request.base_url).rstrip('/'))
-        return await execute(run)
+        return await execute(run, stage='provider_admission')
 
     @app.get('/gateway/engineering/bindings/{binding_id}/capabilities')
     @app.get('/v1/gateway/engineering/bindings/{binding_id}/capabilities')
@@ -225,18 +230,63 @@ def install_engineering_routes(app, service):
     @app.post('/gateway/engineering/jobs')
     @app.post('/v1/gateway/engineering/jobs')
     async def create(request: Request):
+        async def reject(owner, payload, code, status):
+            command_id = payload.get('command_id', payload.get('request_id'))
+            service.store.conversations.bounded_id(command_id, 'command identity')
+            try:
+                outcome = await asyncio.to_thread(service.store.conversations.reject_command, owner, command_id, payload, code, status)
+            except (QueueFull, sqlite3.Error, OSError):
+                # No durable rejection fence was established. Another copy of
+                # this command could still be accepted, so neither the original
+                # preflight error nor this storage failure can retire it.
+                return JSONResponse({'error': {'code': 'engineering_connection_unavailable',
+                                               'admission_state': 'unknown', 'dispatch_state': 'unknown',
+                                               'command_outcome_unknown': True, 'failed_stage': 'provider_admission'}}, status_code=503)
+            if outcome.get('admission_state') == 'rejected':
+                return None
+            # A concurrent acceptance won the durable transaction. Its receipt
+            # outranks this request's later readiness/preflight failure.
+            job = await asyncio.to_thread(service.store.get, outcome['job_id'], owner) if outcome['job_kind'] == 'engineering' else None
+            if job:
+                return JSONResponse(public_job(job), status_code=200)
+            return JSONResponse({'error': {'code': 'conversation_conflict', 'command_outcome_unknown': True}}, status_code=409)
+
         async def run():
             owner = principal(request)
             payload = await body(request)
             validate_request(payload)
             readiness = await asyncio.to_thread(service.readiness)
             if readiness['saved_results']:
-                existing = await asyncio.to_thread(service.store.existing_request, owner, payload)
+                try:
+                    existing = await asyncio.to_thread(service.store.existing_request, owner, payload)
+                except ValueError as error:
+                    raise CommandIdentityConflict('Request identity was reused') from error
                 if existing:
                     return JSONResponse(public_job(existing), status_code=200)
             if not readiness['ready']:
-                return JSONResponse({'error': {'code': 'engineering_connection_required', 'message': 'Check durable storage, the gateway host GitHub connection and the engineering worker before starting an autonomous job.'}, 'readiness': readiness}, status_code=503)
-            job = await asyncio.to_thread(service.admit, owner, payload)
+                outcome = {'admission_state': 'unknown', 'dispatch_state': 'unknown', 'command_outcome_unknown': True}
+                if readiness['saved_results']:
+                    accepted = await reject(owner, payload, 'engineering_connection_required', 503)
+                    if accepted is not None:
+                        return accepted
+                    # Only a committed rejection fence rules out an earlier
+                    # acceptance of this same command while storage is readable.
+                    outcome = {'admission_state': 'rejected', 'dispatch_state': 'not_dispatched', 'inference_attempted': False}
+                return JSONResponse({'error': {'code': 'engineering_connection_required', 'message': 'Check durable storage, the gateway host GitHub connection and the engineering worker before starting an autonomous job.',
+                                               'failed_stage': 'provider_admission', **outcome}, 'readiness': readiness}, status_code=503)
+            try:
+                job = await asyncio.to_thread(service.admit, owner, payload)
+            except (ExecutionBindingError, QueueFull, ConversationConflict, ValueError, KeyError, TypeError) as error:
+                # Admission has not dispatched work. Preserve its definitive
+                # result even if the HTTP response is lost. An accepted command
+                # already committed by a concurrent call always takes precedence.
+                code = error.code if isinstance(error, ExecutionBindingError) else 'queue_full' if isinstance(error, QueueFull) else 'conversation_conflict' if isinstance(error, ConversationConflict) else 'engineering_state_or_input_changed'
+                status = error.status if isinstance(error, ExecutionBindingError) else 429 if isinstance(error, QueueFull) else 409
+                if status in {400, 403, 409, 412, 422, 429, 503}:
+                    accepted = await reject(owner, payload, code, status)
+                    if accepted is not None:
+                        return accepted
+                raise
             service.wake.set()
             return JSONResponse(public_job(job), status_code=202)
         return await execute(run)
@@ -247,6 +297,21 @@ def install_engineering_routes(app, service):
         async def run():
             rows = await asyncio.to_thread(service.store.list, principal(request))
             return {'jobs': [public_job(row) for row in rows]}
+        return await execute(run)
+
+    @app.get('/gateway/engineering/jobs/{job_id}/batch-plan')
+    @app.get('/v1/gateway/engineering/jobs/{job_id}/batch-plan')
+    async def integration_batch_plan(job_id: str, request: Request):
+        async def run():
+            row = await asyncio.to_thread(service.store.get, job_id, principal(request))
+            if not row:
+                return JSONResponse({'error': {'code': 'unknown_job'}}, status_code=404)
+            plan = row.get('data', {}).get('integration_batch')
+            if plan is None:
+                return JSONResponse({'error': {'code': 'batch_not_enabled_for_job'}}, status_code=409)
+            after = int(request.query_params.get('after', '0'))
+            limit = int(request.query_params.get('limit', '20'))
+            return batch_plan_page(plan, after=after, limit=limit)
         return await execute(run)
 
     @app.get('/gateway/engineering/jobs/{job_id}')

@@ -117,13 +117,22 @@ class ActivityTests(unittest.TestCase):
                 db.execute('CREATE TABLE gateway_jobs(job_id, public_json, status, created_at, updated_at)')
                 db.execute('INSERT INTO gateway_jobs VALUES(?,?,?,?,?)', ('chat-1', json.dumps({'model': 'model', 'prompt': 'private prompt', 'result': 'private answer'}), 'completed', 1, 2))
                 db.execute('CREATE TABLE engineering_jobs(id,state,data,next_at)')
-                db.execute('INSERT INTO engineering_jobs VALUES(?,?,?,?)', ('eng-1', 'CI', json.dumps({'request': {'repository': 'owner/repo', 'branch': 'feature', 'token': 'secret'}, 'created_at': 1, 'updated_at': 3, 'message': 'Checking CI'}), 3))
+                db.execute('INSERT INTO engineering_jobs VALUES(?,?,?,?)', ('eng-1', 'CI', json.dumps({
+                    'request': {'repository': 'owner/repo', 'branch': 'feature', 'token': 'secret', 'execution_mode': 'full'},
+                    'data': {'integration_batch': {'schema_version': 1, 'execution_mode': 'full', 'revision': 2,
+                        'controls': {'local_validation_workers': 3}, 'nodes': [
+                            {'id': 'stage-0001', 'phase': 'PLAN', 'state': 'completed'},
+                            {'id': 'stage-0002', 'phase': 'CI', 'state': 'running'}]}},
+                    'created_at': 1, 'updated_at': 3, 'message': 'Checking CI'}), 3))
             runtime = SimpleNamespace(GATEWAY_DURABLE_JOBS=True, durable_job_initialized=True, durable_job_lock=threading.RLock(), _durable_connect=lambda: sqlite3.connect(path))
             snapshot = desktop_snapshot(runtime, SimpleNamespace(snapshot=lambda: {'activeWorkers': 0}), ActivityTracker())
         self.assertIsNone(snapshot['historyError'])
         self.assertEqual('model', snapshot['jobs'][0]['title'])
         self.assertEqual('owner/repo', snapshot['engineering'][0]['title'])
         self.assertEqual('feature', snapshot['engineering'][0]['branch'])
+        self.assertEqual({'schema_version': 1, 'mode': 'full', 'revision': 2, 'completed': 1, 'total': 2,
+                          'current_phase': 'CI', 'current_state': 'running', 'local_validation_workers': 3,
+                          'status': 'active'}, snapshot['engineering'][0]['batch_progress'])
         self.assertNotIn('private', json.dumps(snapshot))
         self.assertNotIn('secret', json.dumps(snapshot))
 

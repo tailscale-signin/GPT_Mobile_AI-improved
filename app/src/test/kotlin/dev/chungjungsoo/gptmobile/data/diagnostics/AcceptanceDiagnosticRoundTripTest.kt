@@ -16,6 +16,46 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AcceptanceDiagnosticRoundTripTest {
+    @Test fun runLinkedAcceptanceExportsBothTypedPayloadAndCanonicalRunIdentity() {
+        val ledger = buildJsonObject {
+            put(
+                "requirements",
+                JsonArray(
+                    listOf(
+                        buildJsonObject {
+                            put("id", "required-check")
+                            put("kind", "REQUIREMENT")
+                            put("criterion", "Verify the requested check")
+                            put("required", true)
+                            put("state", "NOT_TESTED")
+                        }
+                    )
+                )
+            )
+        }
+        val projection = GitHubAcceptanceDiagnostics.snapshot(ledger)
+        val assessment = GitHubRunAcceptance.Assessment("PARTIAL", "evidence", 1, 0, 0, projection)
+        val runId = "run-acceptance-1"
+        val current = GitHubRunAcceptance.diagnosticLines(assessment, runId)
+        assertTrue(current.isNotEmpty())
+        current.forEach { payload ->
+            val exported = Json.parseToJsonElement(structuredDiagnosticLine("2026-11-11T12:00:00Z I/GitHubAcceptance: $payload")).jsonObject
+            assertEquals(JsonPrimitive(runId), exported["runId"])
+            assertEquals(JsonPrimitive("GITHUB_ACCEPTANCE"), exported["eventName"])
+            assertEquals(JsonPrimitive(runId), exported.getValue("acceptance").jsonObject["run_id"])
+        }
+
+        // Existing captures used a prefix that accidentally consumed the JSON as
+        // fields.runId. Continue to recover those exports while new writes stay raw JSON.
+        val legacyPayload = GitHubRunAcceptance.diagnosticLines(assessment).first()
+        val legacy = Json.parseToJsonElement(
+            structuredDiagnosticLine("2026-11-11T12:00:00Z I/GitHubAcceptance: ACCEPTANCE_CRITERION · runId=$runId · $legacyPayload")
+        ).jsonObject
+        assertEquals(JsonPrimitive(runId), legacy["runId"])
+        assertEquals(JsonPrimitive("GITHUB_ACCEPTANCE"), legacy["eventName"])
+        assertEquals(JsonPrimitive("github.acceptance-summary.v1"), legacy.getValue("acceptance").jsonObject["schema"])
+    }
+
     @Test fun typedReadinessRetainsAuthorizationEnumButNotCredentials() {
         val row = buildJsonObject {
             put("schema", "github.capability-readiness.v1")

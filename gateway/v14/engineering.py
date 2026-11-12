@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 import asyncio
 
 from v14.actions import canonical_json
-from v14.batch import digest, retry_delay
+from v14.batch import digest, provider_rate_limit_delay, retry_delay
 from v14.evidence import EvidenceLedger, completion_gate
 from v14.engineering_memory import EngineeringMemory
 from v14.execution_binding import ExecutionBindings, ExecutionBindingError, fingerprint
@@ -21,6 +21,8 @@ from v14.inference_scheduler import install_scheduler
 from v14.engineering_artifacts import EngineeringArtifacts
 from v14.engineering_operations import EngineeringOperations
 from v14.engineering_defaults import EXECUTION_BUDGET_LIMITS, new_request_defaults, retained_request_defaults, effective_execution_budget
+from v14.engineering_batch_policy import authorize_request, load_policy as load_batch_policy
+from v14.engineering_batch_plan import new_plan, claimed as batch_claimed, transition as batch_transition, control_transition as batch_control, summary as batch_summary
 from v14.debug import capture_context_snapshot, execution_diagnostic_context
 from v14.conversations import Conversations, ConversationConflict, short_title
 
@@ -39,12 +41,19 @@ def principal_authorized(config, principal, devices):
 
 
 def validate_request(request):
-    allowed = {'repository', 'branch', 'base', 'objective', 'model', 'duration_hours', 'repair_attempts', 'chat_id', 'request_id', 'acceptance', 'profile_id', 'memory_mode', 'execution_binding_id', 'execution_budget', 'task_scope', 'scope', 'profile_name', 'source_branch', 'source_sha', 'conversation_id', 'client_conversation_id', 'command_id', 'expected_revision', 'draft_repair', 'sampling_policy'}
+    allowed = {'repository', 'branch', 'base', 'objective', 'model', 'duration_hours', 'repair_attempts', 'chat_id', 'request_id', 'acceptance', 'profile_id', 'memory_mode', 'execution_binding_id', 'execution_budget', 'task_scope', 'scope', 'profile_name', 'source_branch', 'source_sha', 'conversation_id', 'client_conversation_id', 'command_id', 'expected_revision', 'draft_repair', 'sampling_policy', 'execution_mode', 'batch_policy_version', 'batch_preferences'}
     if not isinstance(request, dict) or set(request) - allowed:
         raise ValueError('Unsupported engineering request fields')
     result = dict(request)
     if 'sampling_policy' in result:
         result['sampling_policy'] = validate_policy(result['sampling_policy'])
+    if 'execution_mode' in result and result['execution_mode'] not in {'standard', 'smart', 'full'}:
+        raise ValueError('Unsupported Gateway execution mode')
+    if 'batch_policy_version' in result and (type(result['batch_policy_version']) is not int or result['batch_policy_version'] != 1):
+        raise ValueError('Unsupported batch policy protocol')
+    if 'batch_preferences' in result and (not isinstance(result['batch_preferences'], dict) or
+            set(result['batch_preferences']) - {'enable_provider_native_batch', 'max_git_api_inflight', 'allow_parallel_local_tests', 'resume_after_transient_limits'}):
+        raise ValueError('Invalid batch preferences')
     if 'scope' in result:
         result['task_scope'] = accepted_scope(result)
         result.pop('scope')
@@ -207,6 +216,8 @@ class EngineeringStore:
         if existing:
             return existing
         request = validate_request(new_request_defaults(request))
+        batch_policy = load_batch_policy() if request.get('execution_mode') == 'full' else None
+        authorize_request(request, durable=self.runtime.GATEWAY_DURABLE_JOBS, policy=batch_policy)
         request_hash = digest(request)
         if admission is not None:
             if not admission.get('ready'):
@@ -223,6 +234,8 @@ class EngineeringStore:
                'updated_at': now, 'steps': 0, 'milestones': [], 'repairs': {}, 'patches': [], 'stalls': 0,
                'message': 'Queued for repository inspection', 'data': {}, 'approval': None,
                'execution_binding': binding}
+        if request.get('execution_mode') == 'full':
+            job['data']['integration_batch'] = new_plan(job, batch_policy)
         if admission is not None:
             job['data']['admission'] = admission
         capture = capture_context_snapshot(principal, self.runtime)
@@ -245,11 +258,13 @@ class EngineeringStore:
                     raise ConversationConflict('The preceding job is still active; wait for its safe checkpoint')
                 previous.update(approval=None, updated_at=now, finished_at=now, superseded_by=job['id'],
                                 message='Stopped at its paused checkpoint by an explicit follow-up. Earlier operation receipts and uncertain outcomes remain retained.')
+                batch_control(previous, 'CANCELLED', 'superseded')
                 db.execute("UPDATE engineering_jobs SET state='CANCELLED',revision=revision+1,data=? WHERE id=? AND revision=? AND lease IS NULL", (json.dumps(previous), previous_id, previous['revision']))
                 self.event(db, previous, 'CANCELLED', previous['revision'] + 1, now)
                 self.conversations.engineering_projection(db, previous, 'CANCELLED')
             conversation_binding = {key: request.get(key) for key in ('profile_id', 'profile_name', 'model', 'repository', 'branch', 'base', 'source_sha')}
-            conversation_binding.update(source_branch=request.get('source_branch', request['branch']), working_branch=request['branch'], execution_binding=binding)
+            conversation_binding.update(source_branch=request.get('source_branch', request['branch']), working_branch=request['branch'],
+                                        execution_binding=binding, execution_mode=request.get('execution_mode', 'standard'))
             receipt = self.conversations.admission(db, principal, request.get('command_id', request['request_id']), 'engineering', job['id'], request,
                 conversation_binding, request['objective'], now=now, replace_paused=replace_paused)
             previous = self.get_in_transaction(db, receipt.get('previous_job_id'), principal)
@@ -309,17 +324,19 @@ class EngineeringStore:
         self.tx(recover)
 
     def wake_checks(self, principal):
-        self.tx(lambda db: db.execute('UPDATE engineering_jobs SET next_at=? WHERE principal=? AND state=? AND lease IS NULL', (self.now(), principal, 'CI')))
+        self.tx(lambda db: db.execute("UPDATE engineering_jobs SET next_at=? WHERE principal=? AND state=? AND lease IS NULL "
+                                      "AND json_extract(data, '$.provider_wait') IS NULL", (self.now(), principal, 'CI')))
 
     def claim(self, job_id):
         lease = uuid.uuid4().hex
         def claim(db):
-            row = db.execute('SELECT data,state,revision FROM engineering_jobs WHERE id=? AND lease IS NULL', (job_id,)).fetchone()
+            row = db.execute('SELECT data,state,revision,next_at FROM engineering_jobs WHERE id=? AND lease IS NULL', (job_id,)).fetchone()
             job = self.decode(row)
-            if not job or job['state'] in PAUSED:
+            if not job or job['state'] in PAUSED or job.get('provider_wait') and row[3] > self.now():
                 return None
             job['started_at'] = job.get('started_at') or self.now()
             self.conversations.consume_instructions(db, job)
+            batch_claimed(job)
             db.execute('UPDATE engineering_jobs SET lease=?,data=? WHERE id=? AND lease IS NULL', (lease, json.dumps(job), job_id))
             db.execute('INSERT INTO engineering_owner_epochs VALUES(?,1) ON CONFLICT(job_id) DO UPDATE SET epoch=epoch+1', (job_id,))
             epoch = db.execute('SELECT epoch FROM engineering_owner_epochs WHERE job_id=?', (job_id,)).fetchone()[0]
@@ -334,6 +351,9 @@ class EngineeringStore:
         return self.tx(claim)
 
     def complete(self, job, lease, phase, output, delay=0):
+        # The stage graph is a projection of this exact leased job, not a new
+        # executor. It is committed with the same journal CAS as phase results.
+        batch_transition(job, phase, output)
         job = dict(job, updated_at=self.now(), queued_at=self.now() + delay)
         if phase in {'COMPLETED', 'CANCELLED', 'FAILED'}:
             job['finished_at'] = self.now()
@@ -350,8 +370,15 @@ class EngineeringStore:
                 phase = 'NEEDS_INPUT'
                 job['message'] = 'The run finished while new instructions were queued. Review the saved result and start a new turn for those instructions.'
                 job.pop('finished_at', None)
+                # The terminal projection was prepared before opening this
+                # transaction. Reclassify it with the effective committed
+                # phase so the UI cannot claim Full Batch completion while the
+                # durable job is actually waiting for a user continuation.
+                batch_transition(job, phase, dict(output, error_code='PENDING_INSTRUCTIONS'))
                 checkpoint.update(message=job['message'])
                 checkpoint.pop('finished_at', None)
+                # The checkpoint shares the updated batch plan and already
+                # holds the artifact references prepared before this write.
                 payload, _ = canonical_json(checkpoint, maximum_bytes=4 * 1024 * 1024)
             # Keep every meaningful update, without thousands of identical CI
             # polls filling Android history during a multi-day job.
@@ -437,6 +464,7 @@ class EngineeringStore:
                     return job
                 raise ValueError('Cancellation is still pending')
             job['updated_at'] = self.now()
+            job.pop('provider_wait', None)
             if action == 'approve':
                 if job['state'] != 'MERGE_READY':
                     raise ValueError('The job is not merge-ready')
@@ -459,6 +487,7 @@ class EngineeringStore:
                 state = 'NEEDS_INPUT'
             else:
                 raise ValueError('Unsupported job action')
+            batch_control(job, state, action)
             db.execute('UPDATE engineering_jobs SET data=?,state=?,revision=revision+1,next_at=?,lease=NULL WHERE id=?', (json.dumps(job), state, self.now(), job_id))
             self.event(db, job, state, job['revision'] + 1, self.now())
             self.conversations.engineering_projection(db, job, state)
@@ -476,6 +505,7 @@ class EngineeringStore:
             now = self.now()
             job.update(updated_at=now, finished_at=now, cancellation_requested=False, cancellation_outcome='confirmed',
                        message='Gateway work stopped. Operations dispatched before cancellation retain their recorded or uncertain outcomes.')
+            batch_control(job, 'CANCELLED', 'cancellation_confirmed')
             changed = db.execute("UPDATE engineering_jobs SET state='CANCELLED',revision=revision+1,lease=NULL,data=? WHERE id=? AND state='CANCELLING' AND revision=?", (json.dumps(job), job['id'], job['revision']))
             if changed.rowcount:
                 self.event(db, job, 'CANCELLED', job['revision'] + 1, now)
@@ -492,6 +522,7 @@ class EngineeringStore:
             'The PR head changed outside this job. Review the new commit before continuing.' if changed_head else
             'Merge readiness changed. Waiting for current checks, reviews and policy.'))
         job['data'] = dict(job['data'], readiness=evidence)
+        batch_control(job, state, 'readiness_changed')
         def update(db):
             changed = db.execute('UPDATE engineering_jobs SET state=?,revision=revision+1,next_at=?,data=? WHERE id=? AND revision=? AND state=? AND lease IS NULL',
                                  (state, self.now(), json.dumps(job), job['id'], job['revision'], 'MERGE_READY'))
@@ -582,6 +613,8 @@ class EngineeringService:
 
     def validate_submission(self, principal, request):
         value = validate_request(request)
+        batch_policy = load_batch_policy() if value.get('execution_mode') == 'full' else None
+        authorize_request(value, durable=self.store.runtime.GATEWAY_DURABLE_JOBS, policy=batch_policy)
         binding, _, _ = self.bindings.validate(principal, value.get('execution_binding_id'), force=True)
         if value['model'] != binding['requested_model_id'] or value.get('profile_id') != binding['profile_uid']:
             raise ExecutionBindingError('EXECUTION_SELECTION_MISMATCH', 'The submitted model/profile does not match the selected execution binding.')
@@ -745,6 +778,7 @@ class EngineeringService:
 
     def _tick_claimed(self, job, lease, recovering):
         phase, output, delay = job['state'], {}, 0
+        previous_wait = job.pop('provider_wait', None) or {}
         try:
             self.artifacts.restore_stage(job)
             limit = EngineeringSupervisor.limit(job, self.store.now()) if self.authorized(job) else 'Gateway engineering permission was revoked'
@@ -859,24 +893,47 @@ class EngineeringService:
             output = {'error_type': type(error).__name__}
             if isinstance(error, ExecutionBindingError):
                 output.update(error_code=error.code, dispatched=getattr(error, 'dispatched', False))
-            http_status = getattr(getattr(error, 'response', None), 'status_code', None)
+            response = getattr(error, 'response', None)
+            http_status = getattr(response, 'status_code', None)
             http_status = http_status if type(http_status) is int else None
-            recovery_delay = retry_delay(error, 0)
+            response_headers = getattr(response, 'headers', None) or {}
+            lowered_headers = {str(key).lower(): str(value) for key, value in response_headers.items()}
+            rate_limited = http_status == 429 or (
+                http_status == 403 and
+                ('retry-after' in lowered_headers or lowered_headers.get('x-ratelimit-remaining') == '0')
+            )
+            mutation = job['state'] in MUTATIONS
+            before_dispatch = (mutation and getattr(self.backend, 'physical_operation_journal', False)
+                               and not self.operations.dispatched(job))
+            deferred_write = before_dispatch and rate_limited
+            model_readiness_wait = (
+                isinstance(error, ExecutionBindingError) and
+                error.code in {'EXECUTION_MODEL_NOT_LOADED', 'EXECUTION_MODEL_LOADING'}
+            )
+            backend_readiness_wait = (
+                isinstance(error, ExecutionBindingError) and error.retryable and
+                error.code in {'EXECUTION_BACKEND_UNAVAILABLE', 'EXECUTION_METADATA_DEADLINE'} and
+                not getattr(error, 'dispatched', False)
+            )
+            readiness_wait = model_readiness_wait or backend_readiness_wait
+            host_interrupted = isinstance(error, InterruptedError) and (self.stop.is_set() or getattr(self.store.runtime, 'gateway_draining', False))
+            recovery_delay = None if rate_limited or readiness_wait else retry_delay(error, 0)
             transient = recovery_delay is not None
-            job['connection_retries'] = job.get('connection_retries', 0) + 1 if transient else 0
-            if not transient:
+            if not host_interrupted:
+                job['connection_retries'] = job.get('connection_retries', 0) + 1 if transient else 0
+            if not transient and not rate_limited and not readiness_wait and not host_interrupted:
                 job['stalls'] += 1
             # Mutations stay uncertain; no automatic replay after a lost response.
             if accepted_scope(job['request']) != 'implement' and job['state'] not in {'PLAN', 'READ'}:
                 phase = 'NEEDS_INPUT'
                 job['message'] = 'The retained phase is outside this read-only task scope. No repository operation was dispatched.'
                 output.update(error_code='TASK_SCOPE_READ_ONLY', dispatched=False)
-            elif job['state'] in MUTATIONS and getattr(self.backend, 'physical_operation_journal', False) and not self.operations.dispatched(job):
+            elif before_dispatch and not deferred_write:
                 phase = 'NEEDS_INPUT'
                 output['dispatched'] = False
                 job['message'] = 'The write was rejected before dispatch. Confirmed work is retained. ' + str(getattr(error, 'code', type(error).__name__))
                 job['data']['blocked_reason'] = {'code': getattr(error, 'code', 'OPERATION_PRECHECK_REJECTED'), 'retryable': False, 'dispatched': False}
-            elif job['state'] in MUTATIONS:
+            elif mutation and not deferred_write:
                 recovered = None
                 try:
                     recovered = self.backend.reconcile(job, job['state'])
@@ -889,6 +946,61 @@ class EngineeringService:
                 else:
                     phase = 'NEEDS_INPUT'
                     job['message'] = 'A write could not be confirmed. Reconcile its remote outcome before continuing.'
+            elif host_interrupted:
+                if previous_wait:
+                    job['provider_wait'] = previous_wait
+                output.update(error_code='ENGINEERING_HOST_INTERRUPTED', retryable=True)
+                job['message'] = 'The saved step will resume when the gateway is running.'
+            elif rate_limited:
+                attempts = previous_wait.get('attempts', 0) + 1
+                now = self.store.now()
+                wait, source = provider_rate_limit_delay(response_headers, attempts, now)
+                retry_at = now + wait
+                # A durable job owns provider cooldown recovery until its accepted
+                # deadline. An arbitrary retry-count ceiling converted a healthy
+                # long-running job into NEEDS_INPUT during extended 429 windows.
+                available = retry_at < job['deadline'] - job['request'].get('execution_budget', {}).get('final_seconds', 30)
+                resume_limit = (job['request'].get('batch_preferences') or {}).get('resume_after_transient_limits', True)
+                can_resume = available and (job['request'].get('execution_mode') != 'full' or resume_limit)
+                output.update(error_code='ENGINEERING_RATE_LIMIT_WAIT', http_status=http_status, retryable=can_resume,
+                              retry_at=retry_at, retry_source=source, attempts=attempts)
+                if deferred_write:
+                    output['dispatched'] = False
+                if can_resume:
+                    job['provider_wait'] = {'retry_at': retry_at, 'source': source, 'attempts': attempts}
+                    job['message'] = 'Waiting for provider capacity. The saved step will resume automatically.'
+                    delay = wait
+                else:
+                    phase = 'NEEDS_INPUT'
+                    job['message'] = ('Automatic recovery is disabled by the accepted batch policy. Confirmed work is saved for review.'
+                                      if available else 'The provider wait reached the job budget. Confirmed work is saved for review.')
+                    job['data']['blocked_reason'] = dict(output)
+            elif readiness_wait:
+                attempts = previous_wait.get('attempts', 0) + 1
+                now = self.store.now()
+                # Transient metadata outages and host-controlled model preparation
+                # keep the exact selected binding. Only this non-mutating stage
+                # resumes; the mutation reconciliation branches above take priority.
+                wait = min(300, 5 * 2 ** min(6, max(0, attempts - 1)))
+                retry_at = now + wait
+                available = retry_at < job['deadline'] - job['request'].get('execution_budget', {}).get('final_seconds', 30)
+                resume_limit = (job['request'].get('batch_preferences') or {}).get('resume_after_transient_limits', True)
+                can_resume = available and (job['request'].get('execution_mode') != 'full' or resume_limit)
+                source = 'MODEL_READINESS' if model_readiness_wait else 'BACKEND_READINESS'
+                output.update(error_code=error.code, retryable=can_resume,
+                              retry_at=retry_at, retry_source=source, attempts=attempts)
+                if can_resume:
+                    job['provider_wait'] = {'retry_at': retry_at, 'source': source, 'attempts': attempts,
+                                            'reason_code': error.code}
+                    job['message'] = ('Waiting for the exact selected model. The saved step will resume automatically after host preparation completes.'
+                                      if model_readiness_wait else
+                                      'Waiting for the selected backend to recover. The saved step will resume with the same model and binding.')
+                    delay = wait
+                else:
+                    phase = 'NEEDS_INPUT'
+                    job['message'] = ('Automatic recovery is disabled by the accepted batch policy. Confirmed work is saved for review.' if available else
+                                      'The selected backend or model remained unavailable through the accepted job deadline. Confirmed work is saved for review.')
+                    job['data']['blocked_reason'] = dict(output)
             elif isinstance(error, ExecutionBindingError):
                 phase = 'NEEDS_INPUT'
                 job['message'] = str(error)
@@ -899,9 +1011,7 @@ class EngineeringService:
                 # polling the same stage. Mutation reconciliation above retains
                 # precedence: a validation failure never erases a dispatch receipt.
                 status = http_status
-                if status == 429:
-                    code, instruction = 'ENGINEERING_RATE_LIMIT_WAIT', 'Honor the server cooldown and review the bounded retry budget'
-                elif status == 401:
+                if status == 401:
                     code, instruction = 'ENGINEERING_AUTHENTICATION_REQUIRED', 'Restore the host connection authentication'
                 elif status == 403 or isinstance(error, PermissionError):
                     code, instruction = 'ENGINEERING_ACCESS_DENIED', 'Review execution authority and repository access'
@@ -979,8 +1089,12 @@ class EngineeringService:
         self.store.recover()
         self.stop.clear()
         def work():
+            recovery_pending = False
             while not self.stop.is_set():
                 try:
+                    if recovery_pending:
+                        self.store.recover()
+                        recovery_pending = False
                     for job_id in ([] if getattr(self.store.runtime, "gateway_draining", False) else self.store.due()):
                         if self.stop.is_set():
                             break
@@ -989,10 +1103,9 @@ class EngineeringService:
                     # Only this worker owns leases under the process state lock.
                     # A failed journal save must not strand a job until restart.
                     logging.getLogger(__name__).warning('Engineering checkpoint unavailable: %s', type(error).__name__)
-                    try:
-                        self.store.recover()
-                    except Exception:
-                        pass
+                    # Keep retrying recovery before admitting work: a transient
+                    # recovery failure otherwise leaves leases hidden from due().
+                    recovery_pending = True
                 self.wake.wait(2)
                 self.wake.clear()
         self.thread = threading.Thread(target=work, name='engineering-supervisor', daemon=True)
@@ -1025,6 +1138,9 @@ def public_job(job):
             'command_id': job.get('command_id', job['request']['request_id']), 'accepted_at': job.get('accepted_at', job['created_at']),
             'server_now': time.time(), 'detach_safe': bool(job.get('detach_safe')), 'task_scope': accepted_scope(job['request']),
             'started_at': job.get('started_at'), 'queued_at': job.get('queued_at'), 'title': job.get('title'),
+            'provider_retry_at': (job.get('provider_wait') or {}).get('retry_at'),
+            'execution_mode': job['request'].get('execution_mode', 'standard'),
+            'batch_progress': batch_summary(data.get('integration_batch')),
             'cancellation_requested': bool(job.get('cancellation_requested')), 'cancellation_outcome': job.get('cancellation_outcome'),
             'id': job['id'], 'job_id': job['id'], 'repository': job['request']['repository'], 'branch': job['request']['branch'],
             'profile_id': job['request'].get('profile_id'), 'profile_name': job['request'].get('profile_name'), 'model': job['request']['model'],

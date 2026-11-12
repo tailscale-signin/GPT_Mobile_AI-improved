@@ -715,27 +715,100 @@ class ChatViewModelStartupTest {
     private val exitWork = mockk<dev.chungjungsoo.gptmobile.data.chat.ConversationExitWork>(relaxed = true)
     private var exitAction: (suspend () -> Unit)? = null
 
+    @Test fun restoredGatewaySelectionAndModelChangePrepareWithoutSubmittingTheDraft() = runTest(dispatcher) {
+        StartupRecoveryGate.start(backgroundScope) {}
+        profiles = profiles.take(1).map { it.copy(compatibleType = dev.chungjungsoo.gptmobile.data.model.ClientType.LLAMA) }
+        val selected = profiles.single()
+        val preparation = mockk<dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationRepository>()
+        val models = mutableListOf<String>()
+        coEvery { preparation.prepareSelected(any(), any(), any(), any()) } coAnswers {
+            val profile = firstArg<PlatformV2>()
+            models += profile.model
+            arg<(dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationState?) -> Unit>(3)(
+                dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationState(profile.uid, profile.model, dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationPhase.LOADING, "Loading exact model")
+            )
+            kotlinx.coroutines.awaitCancellation()
+        }
+        val model = createViewModel(combined = false, modelPreparation = preparation)
+        assertEquals(listOf(selected.model), models)
+        assertEquals("Saved draft", model.question.text.toString())
+        model.updateChatPlatformModels(mapOf(selected.uid to "exact-chat-override"))
+        assertEquals(listOf(selected.model, "exact-chat-override"), models)
+        assertEquals("exact-chat-override", model.gatewayModelPreparation.value[selected.uid]?.model)
+        assertEquals("Saved draft", model.question.text.toString())
+        verify(exactly = 0) { coordinator.start(any()) }
+        coVerify(exactly = 0) { repository.persistAgentTurn(any()) }
+        model.togglePlatformDisabled(selected.uid)
+        assertTrue(model.gatewayModelPreparation.value.isEmpty())
+    }
+
+    @Test fun selectedModelPreparationUsesTheSameConversationReasoningOverrideAsSend() = runTest(dispatcher) {
+        StartupRecoveryGate.start(backgroundScope) {}
+        profiles = profiles.take(1).map { it.copy(compatibleType = dev.chungjungsoo.gptmobile.data.model.ClientType.LLAMA) }
+        val selected = profiles.single()
+        for (conversation in listOf(false, true)) {
+            val preparation = mockk<dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationRepository>()
+            val requested = mutableListOf<dev.chungjungsoo.gptmobile.data.context.ReasoningMode>()
+            coEvery { preparation.prepareSelected(any(), any(), any(), any()) } coAnswers {
+                requested += secondArg<dev.chungjungsoo.gptmobile.data.context.ReasoningMode>()
+                null
+            }
+            val settings = features.copy(
+                llamaReasoningModes = mapOf(selected.uid to if (conversation) dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF else dev.chungjungsoo.gptmobile.data.context.ReasoningMode.ON),
+                conversationReasoning = mapOf(7 to conversation)
+            )
+            createViewModel(combined = false, modelPreparation = preparation, testFeatures = settings)
+            assertEquals(listOf(if (conversation) dev.chungjungsoo.gptmobile.data.context.ReasoningMode.ON else dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF), requested)
+            clearViewModels()
+        }
+        verify(exactly = 0) { coordinator.start(any()) }
+    }
+
     @Test fun strictOffSendPreservesDraftAndExplicitRecheckNeverAutomaticallyDispatches() = runTest(dispatcher) {
         StartupRecoveryGate.start(backgroundScope) {}
         profiles = profiles.take(1).map { it.copy(compatibleType = dev.chungjungsoo.gptmobile.data.model.ClientType.LLAMA) }
-        val profile = profiles.single()
+        val profile = profiles.single().copy(model = "exact-chat-override")
         val capabilities = mockk<dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityRepository>()
         val unsupported = dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityObservation(profile.uid, profile.model, dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF, dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityStatus.UNSUPPORTED, "opaque", "runtime", System.currentTimeMillis(), "REASONING_OFF_UNSUPPORTED", true, false)
-        coEvery { capabilities.check(any(), any(), false) } returns unsupported
-        coEvery { capabilities.check(any(), any(), true) } returns unsupported.copy(status = dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityStatus.SUPPORTED, supportVerified = true)
+        val supported = unsupported.copy(status = dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityStatus.SUPPORTED, safeReasonCode = null, supportVerified = true)
+        // Cached support cannot admit Send; both Send and manual Recheck require fresh evidence.
+        coEvery { capabilities.check(any(), any(), false) } returns supported
+        coEvery { capabilities.check(any(), any(), true) } returnsMany listOf(unsupported, unsupported, supported, supported)
+        coEvery { repository.persistAgentTurn(any()) } answers {
+            val request = firstArg<PersistAgentTurnRequest>()
+            val draft = request.runs.single()
+            val user = request.userMessage.copy(id = 71)
+            val answer = MessageV2(id = 72, chatId = 7, content = "", platformType = profile.uid, linkedMessageId = 71, currentRunId = draft.runId)
+            val run = AgentRun(draft.runId, 7, 71, 72, profile.uid, profile.compatibleType.name, profile.model)
+            PersistAgentTurnResult(request.chatRoom, user, listOf(answer), listOf(run))
+        }
+        val dispatched = CompletableDeferred<Unit>()
+        every { coordinator.start(any()) } answers {
+            dispatched.complete(Unit)
+            Unit
+        }
         val model = createViewModel(combined = false, reasoningCapabilities = capabilities)
+        model.updateChatPlatformModels(mapOf(profile.uid to profile.model))
         model.question.edit { replace(0, length, "Keep this draft") }
         model.askQuestion()
         model.askQuestion()
         assertEquals("Keep this draft", model.question.text.toString())
         assertEquals(dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF, model.reasoningAdmissionNotice.value?.requested)
+        assertEquals(profile.model, model.reasoningAdmissionNotice.value?.model)
         model.recheckReasoningAdmission()
         assertEquals(dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityStatus.SUPPORTED, model.reasoningAdmissionNotice.value?.state?.observation?.status)
         assertEquals("Keep this draft", model.question.text.toString())
-        coVerify(exactly = 2) { capabilities.check(match { it.uid == profile.uid && it.model == profile.model }, dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF, false) }
-        coVerify(exactly = 1) { capabilities.check(match { it.uid == profile.uid }, dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF, true) }
+        coVerify(exactly = 0) { capabilities.check(any(), any(), false) }
+        coVerify(exactly = 3) { capabilities.check(match { it.uid == profile.uid && it.model == profile.model }, dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF, true) }
         verify(exactly = 0) { coordinator.start(any()) }
         coVerify(exactly = 0) { repository.persistAgentTurn(any()) }
+
+        model.askQuestion()
+        withTimeout(5000) { dispatched.await() }
+        assertEquals("", model.question.text.toString())
+        coVerify(exactly = 4) { capabilities.check(match { it.uid == profile.uid && it.model == profile.model }, dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF, true) }
+        coVerify(exactly = 1) { repository.persistAgentTurn(match { it.userMessage.content == "Keep this draft" && it.runs.single().modelSnapshot == profile.model }) }
+        verify(exactly = 1) { coordinator.start(any()) }
     }
 
     @Test fun draftChangedDuringReasoningCheckCannotSendTheOldRequest() = runTest(dispatcher) {
@@ -748,11 +821,78 @@ class ChatViewModelStartupTest {
         val model = createViewModel(combined = false, reasoningCapabilities = capabilities)
         model.question.edit { replace(0, length, "Original draft") }
         model.askQuestion()
+        assertEquals(setOf(ChatViewModel.SendPreparation.MODEL_CHECK), model.sendPreparation.value)
+        repeat(7) { model.askQuestion() }
+        coVerify(exactly = 1) { capabilities.check(any(), any(), any()) }
         model.question.edit { replace(0, length, "Newer draft") }
         result.complete(dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityObservation(profile.uid, profile.model, dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF, dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityStatus.SUPPORTED, "opaque", "runtime", System.currentTimeMillis(), null, true, true))
         assertEquals("Newer draft", model.question.text.toString())
+        assertTrue(model.sendPreparation.value.isEmpty())
         verify(exactly = 0) { coordinator.start(any()) }
         coVerify(exactly = 0) { repository.persistAgentTurn(any()) }
+    }
+
+    @Test fun preparingSendCoalescesTapsAndAutomaticallySubmitsOnceAfterBothChecks() = runTest(dispatcher) {
+        StartupRecoveryGate.start(backgroundScope) {}
+        profiles = profiles.take(1).map { it.copy(compatibleType = dev.chungjungsoo.gptmobile.data.model.ClientType.LLAMA) }
+        val profile = profiles.single()
+        val check = CompletableDeferred<dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityObservation>()
+        val gateway = CompletableDeferred<String?>()
+        val capabilities = mockk<dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityRepository>()
+        coEvery { capabilities.check(any(), any(), any()) } coAnswers { check.await() }
+        coEvery { repository.persistAgentTurn(any()) } answers {
+            val request = firstArg<PersistAgentTurnRequest>()
+            val draft = request.runs.single()
+            val user = request.userMessage.copy(id = 71)
+            val answer = MessageV2(id = 72, chatId = 7, content = "", platformType = profile.uid, linkedMessageId = 71, currentRunId = draft.runId)
+            val run = AgentRun(draft.runId, 7, 71, 72, profile.uid, profile.compatibleType.name, profile.model)
+            PersistAgentTurnResult(request.chatRoom, user, listOf(answer), listOf(run))
+        }
+        val dispatched = CompletableDeferred<Unit>()
+        every { coordinator.start(any()) } answers {
+            dispatched.complete(Unit)
+            Unit
+        }
+        val model = createViewModel(combined = false, reasoningCapabilities = capabilities)
+        coEvery { coordinator.gatewayConversationWriteBlocker(7) } coAnswers { gateway.await() }
+        model.question.edit { replace(0, length, "Send this once") }
+        model.askQuestion()
+        repeat(7) { model.askQuestion() }
+        assertEquals("Send this once", model.question.text.toString())
+        assertEquals(setOf(ChatViewModel.SendPreparation.MODEL_CHECK), model.sendPreparation.value)
+        check.complete(dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityObservation(profile.uid, profile.model, dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF, dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityStatus.SUPPORTED, "configuration", "runtime", System.currentTimeMillis(), null, true, true))
+        withTimeout(5000) { model.sendPreparation.first { it == setOf(ChatViewModel.SendPreparation.GATEWAY_CHECK) } }
+        repeat(7) { model.askQuestion() }
+        gateway.complete(null)
+        withTimeout(5000) { dispatched.await() }
+        assertTrue(model.sendPreparation.value.isEmpty())
+        assertEquals("", model.question.text.toString())
+        coVerify(exactly = 1) { capabilities.check(any(), any(), any()) }
+        coVerify(exactly = 1) { repository.persistAgentTurn(any()) }
+        verify(exactly = 1) { coordinator.start(any()) }
+    }
+
+    @Test fun connectionChangedDuringGatewayCheckCannotReuseTheEarlierModelAdmission() = runTest(dispatcher) {
+        StartupRecoveryGate.start(backgroundScope) {}
+        profiles = profiles.take(1).map { it.copy(compatibleType = dev.chungjungsoo.gptmobile.data.model.ClientType.LLAMA) }
+        val profile = profiles.single()
+        val gateway = CompletableDeferred<String?>()
+        val capabilities = mockk<dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityRepository>()
+        coEvery { capabilities.check(any(), any(), any()) } returns dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityObservation(profile.uid, profile.model, dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF, dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityStatus.SUPPORTED, "configuration", "runtime", System.currentTimeMillis(), null, true, true)
+        val model = createViewModel(combined = false, reasoningCapabilities = capabilities)
+        coEvery { coordinator.gatewayConversationWriteBlocker(7) } coAnswers { gateway.await() }
+        model.question.edit { replace(0, length, "Keep the original request") }
+        model.askQuestion()
+        withTimeout(5000) { model.sendPreparation.first { ChatViewModel.SendPreparation.GATEWAY_CHECK in it } }
+        profiles = listOf(profile.copy(apiUrl = "https://changed-connection.example/v1", token = "changed-test-account"))
+        model.refreshLocalNetworkRequirement()
+        withTimeout(5000) { model.platformsInApp.first { it == profiles } }
+        gateway.complete(null)
+        withTimeout(5000) { model.sendPreparation.first { it.isEmpty() } }
+        assertEquals("Keep the original request", model.question.text.toString())
+        assertTrue(model.attachmentNotice.value.orEmpty().contains("connection changed"))
+        coVerify(exactly = 0) { repository.persistAgentTurn(any()) }
+        verify(exactly = 0) { coordinator.start(any()) }
     }
 
     @Test fun unverifiedStrictModeIsExplainedWithoutClaimingTheModelIsUnsupported() = runTest(dispatcher) {
@@ -923,7 +1063,7 @@ class ChatViewModelStartupTest {
         activeRuns.value = runs.value.filter { it.status == AgentRunStatus.RUNNING }.associate { it.runId to ActiveAgentRun(it.runId, 7, it.profileUid, it.assistantMessageId) }
     }
 
-    private fun createViewModel(chatId: Int = 7, combined: Boolean = true, research: ResearchSessionStore? = null, combinedSettings: ConversationCombinedSettings? = null, toolConnections: ToolConnectionRepository = mockk(relaxed = true), testFeatures: AppFeatureSettings? = null, reasoningCapabilities: dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityRepository? = null, roomAvailable: Boolean = true, profileLoad: CompletableDeferred<List<PlatformV2>>? = null): ChatViewModel {
+    private fun createViewModel(chatId: Int = 7, combined: Boolean = true, research: ResearchSessionStore? = null, combinedSettings: ConversationCombinedSettings? = null, toolConnections: ToolConnectionRepository = mockk(relaxed = true), testFeatures: AppFeatureSettings? = null, reasoningCapabilities: dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityRepository? = null, roomAvailable: Boolean = true, profileLoad: CompletableDeferred<List<PlatformV2>>? = null, modelPreparation: dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationRepository? = null): ChatViewModel {
         val room = ChatRoomV2(id = chatId, title = "Saved chat", enabledPlatform = profiles.map { it.uid }, activePlatform = profiles.map { it.uid }, conversationMode = if (combined) ConversationMode.COMBINED else ConversationMode.STANDARD, draftText = "Saved draft")
         every { repository.observeMessageWindow(chatId, any()) } returns messages
         every { repository.observeTurnCount(chatId) } returns flowOf(messages.value.count { it.platformType == null })
@@ -968,7 +1108,8 @@ class ChatViewModelStartupTest {
             researchSessionStore = research,
             conversationExitWork = exitWork,
             messageGroupingDispatcher = dispatcher,
-            reasoningCapabilities = reasoningCapabilities
+            reasoningCapabilities = reasoningCapabilities,
+            modelPreparationRepository = modelPreparation
         ).also {
             viewModelJobs += requireNotNull(it.viewModelScope.coroutineContext[Job])
             store.put("chat", it)

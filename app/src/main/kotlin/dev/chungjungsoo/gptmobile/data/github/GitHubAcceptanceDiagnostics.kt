@@ -17,6 +17,14 @@ internal object GitHubAcceptanceDiagnostics {
     private val lifecycleActions = mapOf("create_repository" to "create", "fork_repository" to "fork", "import_repository" to "import", "clone_repository" to "clone", "repository_lifecycle_status" to "status", "repository_lifecycle_capabilities" to "capabilities")
     private val actions = setOf("default", "status", "resolve", "branch", "branches", "branch_dependencies", "commits", "commit", "commit_search", "checks", "changes", "list", "get", "search", "search_code", "search_repository", "ranges", "files", "history", "headers", "context", "comments", "reviews", "create", "update", "close", "comment", "reply", "review", "merge", "write", "delete_branch", "delete_fixture_branch", "commit_staged_patch", "definitions", "workflows", "runs", "run", "jobs", "job", "logs", "artifacts", "failure", "dispatch", "rerun", "rerun_failed_jobs", "rerun_all", "cancel", "index", "query", "node", "callers", "callees", "path", "impact", "architecture", "diff", "diagnose", "contracts", "prs", "symbols", "neighbors", "note", "notes", "requirements", "wiki", "metrics", "federated", "provider", "publish", "create_tag", "tags", "tag", "detail", "by_tag", "repository", "repositories", "capabilities", "efficiency", "recovery")
     private val repositoryActions = setOf("fork", "import", "clone")
+    private val nativeActions by lazy {
+        dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.names.associateWith { name ->
+            val schema = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.definition(name).inputSchema
+            val properties = schema["properties"] as? JsonObject
+            val action = properties?.get("action") as? JsonObject
+            (action?.get("enum") as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.contentOrNull }.toSet()
+        }
+    }
     private val labels = mapOf(
         "BUILD_REVISION_BINDING" to "Running build and repository revision",
         "AUTHORIZED_CATALOG" to "Authorized tool catalog",
@@ -69,6 +77,7 @@ internal object GitHubAcceptanceDiagnostics {
             val proof = (row["receipt_ids"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.contentOrNull }.distinct()
             val observed = proof.mapNotNull(byId::get)
             val classified = observed.flatMap(::evidenceClasses).groupingBy { it }.eachCount()
+            val qualifyingClasses = observed.filter { it["success"] == JsonPrimitive(true) && it["verification_eligible"] != JsonPrimitive(false) }.flatMap(::evidenceClasses).toSet()
             val stored = row["evidence_class_counts"] as? JsonObject
             val operation = operation(row.text("id"))
             val readiness = row["readiness"] as? JsonObject
@@ -111,6 +120,18 @@ internal object GitHubAcceptanceDiagnostics {
                 put("availability", readiness?.text("availability")?.takeIf { it in setOf("AVAILABLE", "UNAVAILABLE", "UNKNOWN") } ?: "UNKNOWN")
                 put("attempted", row["attempted"] == JsonPrimitive(true) || observed.isNotEmpty())
                 put("state", state)
+                put(
+                    "proof_scope",
+                    when {
+                        state != "PASS" -> "UNVERIFIED"
+                        kind != "CAPABILITY" -> "TASK_REQUIREMENT"
+                        row.text("acceptance_basis") in setOf("LIVE_RESPONSE", "RETAINED_RESPONSE", "MOCK_RESPONSE", "RESPONSE_ONLY") -> row.text("acceptance_basis")
+                        qualifyingClasses.any { it in setOf("LIVE_ACCOUNT", "APP_GATEWAY") } -> "LIVE_RESPONSE"
+                        qualifyingClasses.any { it in setOf("CACHED", "LOCAL") } -> "RETAINED_RESPONSE"
+                        "MOCKED" in qualifyingClasses -> "MOCK_RESPONSE"
+                        else -> "RESPONSE_ONLY"
+                    }
+                )
                 put("blocker", disposition?.name ?: blocker(category, state))
                 put("next_action", disposition?.nextAction ?: nextAction(category, state))
                 put("evidence_receipt_count", proof.size)
@@ -160,7 +181,7 @@ internal object GitHubAcceptanceDiagnostics {
             (omitted > 0 || value["criteria_sha256"] == value["included_sha256"]) &&
             rows.all { element ->
                 val row = element as? JsonObject ?: return@all false
-                row.keys - setOf("operation_identity", "applicability", "authorization", "availability", "attempted") == setOf("ordinal", "id_sha256", "kind", "category", "label", "required", "state", "blocker", "next_action", "evidence_receipt_count", "evidence_receipt_digests", "evidence_class_counts") + listOfNotNull("operation".takeIf { "operation" in row }) &&
+                row.keys - setOf("operation_identity", "applicability", "authorization", "availability", "attempted", "proof_scope") == setOf("ordinal", "id_sha256", "kind", "category", "label", "required", "state", "blocker", "next_action", "evidence_receipt_count", "evidence_receipt_digests", "evidence_class_counts") + listOfNotNull("operation".takeIf { "operation" in row }) &&
                     (row["ordinal"] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull?.let { it in 1..count } == true &&
                     row["required"] in setOf(JsonPrimitive(true), JsonPrimitive(false)) &&
                     (row["evidence_receipt_count"] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull?.let { it >= 0 } == true &&
@@ -197,6 +218,7 @@ internal object GitHubAcceptanceDiagnostics {
             (row["applicability"] == null || row.text("applicability") == if (row["required"] == JsonPrimitive(false)) "EXCLUDED" else "REQUIRED") &&
             (row["authorization"] == null || row.text("authorization") in setOf("AUTHORIZED", "NOT_AUTHORIZED", "DENIED", "UNKNOWN")) &&
             (row["availability"] == null || row.text("availability") in setOf("AVAILABLE", "UNAVAILABLE", "UNKNOWN")) &&
+            (row["proof_scope"] == null || row.text("proof_scope") in setOf("UNVERIFIED", "TASK_REQUIREMENT", "LIVE_RESPONSE", "RETAINED_RESPONSE", "MOCK_RESPONSE", "RESPONSE_ONLY")) &&
             (row["attempted"] == null || row["attempted"] in setOf(JsonPrimitive(true), JsonPrimitive(false)))
     }
 
@@ -204,7 +226,7 @@ internal object GitHubAcceptanceDiagnostics {
         val tool = id.substringBefore(':').substringBefore("__")
         val action = id.substringAfter(':', "default").ifBlank { "default" }
         if (tool in setOf("github", "github_repository")) lifecycleActions[action]?.let { return "github_repository:$it" }
-        return "$tool:$action".takeIf { tool in tools && (action in actions || tool == "github_repository" && action in repositoryActions) }
+        return "$tool:$action".takeIf { tool in tools && (action in actions || action in nativeActions[tool].orEmpty() || tool == "github_repository" && action in repositoryActions) }
     }
 
     private fun blocker(category: String, state: String): String = when {

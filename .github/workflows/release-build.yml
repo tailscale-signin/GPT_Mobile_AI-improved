@@ -48,6 +48,11 @@ jobs:
     # The measured cold debug phases took 77 minutes, and production lint alone
     # took 27 minutes. Reserve time for release generation, compilation and lint.
     timeout-minutes: 150
+    env:
+      # Pull requests compile release sources but never publish artifacts. Use
+      # a reserved, non-routable origin for that validation only; real release
+      # events must receive the deployed service origin from repository config.
+      ISSUE_REPORT_ORIGIN: ${{ github.event_name == 'pull_request' && 'https://issue-report-pr-validation.invalid' || vars.ISSUE_REPORT_ORIGIN }}
     outputs:
       tag: ${{ steps.version.outputs.tag }}
       prerelease: ${{ steps.version.outputs.prerelease }}
@@ -56,16 +61,27 @@ jobs:
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
+      - name: Require deployed issue-report origin
+        if: github.event_name != 'pull_request'
+        shell: bash
+        run: |
+          if [[ -z "$ISSUE_REPORT_ORIGIN" ]]; then
+            echo "::error::Configure the repository Actions variable ISSUE_REPORT_ORIGIN after deploying the hosted issue-report service. Production release validation requires issue reporting."
+            exit 1
+          fi
+      - name: Validate Unified Reliability evidence consistency
+        run: python3 scripts/check_unified_reliability_v2.py
       - name: Validate reviewed release scope and truthful milestone evidence
+        if: github.event_name != 'pull_request'
         run: |
           set -euo pipefail
-          python3 scripts/check_unified_reliability_v2.py
           MODE=$(python3 scripts/check_release_scope.py --commit "$GITHUB_SHA")
           if [[ "$MODE" == full ]]; then
             python3 scripts/check_unified_reliability_v2.py --require-done
           fi
       - name: Check release version before building
         id: version
+        if: github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -109,11 +125,7 @@ jobs:
         run: python3 scripts/provision_memory_model.py
       - name: Install Vulkan shader headers for Android GGUF backend
         timeout-minutes: 8
-        run: |
-          trap 'echo "::error::Android native dependency installation failed or timed out. Retry after checking the Ubuntu package mirror and dpkg lock."' ERR
-          apt_options=(-o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o DPkg::Lock::Timeout=60)
-          sudo timeout --kill-after=15s 180s apt-get "${apt_options[@]}" update
-          sudo env DEBIAN_FRONTEND=noninteractive timeout --kill-after=15s 180s apt-get "${apt_options[@]}" install --no-install-recommends -y glslc libvulkan-dev spirv-headers
+        run: bash scripts/install_android_native_dependencies.sh
       - name: Validate Android resources
         run: python3 scripts/check_android_resources.py
       # Release KSP/KAPT and compiler state between phases. Run 42164047485
@@ -171,11 +183,13 @@ jobs:
             app/build/reports/tests/
             app/build/reports/lint-results-*
   build:
-    needs: validate
-    if: github.event_name != 'pull_request'
+    needs: [release_intent, validate]
+    if: github.event_name != 'pull_request' && needs.release_intent.outputs.publish == 'true'
     name: Build, verify and publish
     runs-on: ubuntu-latest
     timeout-minutes: 180
+    env:
+      ISSUE_REPORT_ORIGIN: ${{ vars.ISSUE_REPORT_ORIGIN }}
     permissions:
       contents: write
       id-token: write
@@ -201,11 +215,7 @@ jobs:
         run: python3 scripts/provision_memory_model.py
       - name: Install Vulkan shader headers for Android GGUF backend
         timeout-minutes: 8
-        run: |
-          trap 'echo "::error::Android native dependency installation failed or timed out. Retry after checking the Ubuntu package mirror and dpkg lock."' ERR
-          apt_options=(-o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o DPkg::Lock::Timeout=60)
-          sudo timeout --kill-after=15s 180s apt-get "${apt_options[@]}" update
-          sudo env DEBIAN_FRONTEND=noninteractive timeout --kill-after=15s 180s apt-get "${apt_options[@]}" install --no-install-recommends -y glslc libvulkan-dev spirv-headers
+        run: bash scripts/install_android_native_dependencies.sh
       - name: Require green main checks on this exact candidate
         if: github.ref_name == 'main'
         env:

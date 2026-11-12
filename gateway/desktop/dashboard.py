@@ -10,6 +10,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 
 from desktop import theme
+from desktop.benchmark_panel import BenchmarkPanel
 from desktop.metrics import number
 from desktop.token_history import TokenHistory
 from desktop.configuration import atomic_json, load
@@ -18,7 +19,7 @@ from desktop.manager import request
 from v14 import VERSION
 from v14.state_lock import StateDirectoryLock, StateDirectoryAlreadyOwned
 
-PAGES = ['Overview', 'Devices', 'Recent activity', 'Search jobs', 'GitHub jobs']
+PAGES = ['Overview', 'Jobs', 'Devices', 'Recent activity', 'Search jobs', 'GitHub jobs', 'Benchmarks']
 
 
 class Dashboard:
@@ -63,8 +64,8 @@ class Dashboard:
         theme.label(sidebar, 'GATEWAY', 20, bold=True, bg='#061C24').pack(anchor='w', padx=23)
         theme.label(sidebar, f'GPT Mobile  /  {VERSION}', 10, color=theme.MUTED, bg='#061C24').pack(anchor='w', padx=23, pady=(3, 28))
         self.nav = {}
-        for index, page in enumerate(PAGES):
-            button = tk.Button(sidebar, text=f'{index + 1:02d}   {page}', anchor='w', padx=15, pady=12,
+        for page in PAGES:
+            button = tk.Button(sidebar, text=page, anchor='w', padx=15, pady=12,
                 font=('Segoe UI', 11), foreground=theme.MUTED, background='#061C24', activebackground=theme.RAISED,
                 activeforeground=theme.CYAN, relief='flat', borderwidth=0, highlightthickness=0, cursor='hand2',
                 command=lambda value=page: self.navigate(value))
@@ -73,9 +74,15 @@ class Dashboard:
         tk.Frame(sidebar, bg=theme.LINE, height=1).pack(fill='x', padx=25, pady=25)
         for section in ('General', 'Advanced', 'Add-ons', 'GitHub'):
             ttk.Button(sidebar, text=section, command=lambda value=section: self.settings(value)).pack(fill='x', padx=17, pady=4)
-        theme.label(sidebar, 'Runs on your PC\nNo cloud dashboard', 10, color=theme.MUTED, bg='#061C24', justify='left').pack(side='bottom', anchor='w', padx=25, pady=24)
-        self.body = tk.Frame(self.window, bg=theme.BG)
-        self.body.pack(side='left', fill='both', expand=True, padx=16 if self.compact else 27, pady=16)
+        content = tk.Frame(self.window, bg=theme.BG)
+        content.pack(side='left', fill='both', expand=True, padx=16 if self.compact else 27, pady=16)
+        self.body = tk.Frame(content, bg=theme.BG)
+        self.benchmark_page = tk.Frame(content, bg=theme.BG)
+        theme.label(self.benchmark_page, 'Benchmarks', 23, bold=True).pack(anchor='w', pady=(0, 4))
+        theme.label(self.benchmark_page, 'Test an AI model through this Gateway and compare saved scores.',
+                    color=theme.MUTED).pack(anchor='w', pady=(0, 18))
+        self.benchmark_panel = BenchmarkPanel(self.benchmark_page, self.root)
+        self.benchmark_panel.pack(fill='both', expand=True)
         header = tk.Frame(self.body, bg=theme.BG)
         header.pack(fill='x')
         self.title = theme.label(header, 'Your gateway, at a glance', 18 if self.compact else 23, bold=True)
@@ -158,6 +165,14 @@ class Dashboard:
         self.page = page
         for name, button in self.nav.items():
             button.configure(background=theme.RAISED if name == page else '#061C24', foreground=theme.CYAN if name == page else theme.MUTED)
+        if page == 'Benchmarks':
+            self.body.pack_forget()
+            self.benchmark_page.pack(fill='both', expand=True)
+            if not getattr(self, 'smoke', False):
+                self.benchmark_panel.activate()
+            return
+        self.benchmark_page.pack_forget()
+        self.body.pack(fill='both', expand=True)
         self.title.configure(text='Your gateway, at a glance' if page == 'Overview' else page)
         self.section.configure(text='Recent activity' if page == 'Overview' else page)
         if page == 'Overview':
@@ -169,9 +184,21 @@ class Dashboard:
         self.render_rows()
 
     def render_rows(self):
+        if self.page == 'Benchmarks':
+            return
+        candidates = rows(self.snapshot, self.page, self.query.get())
+        if candidates == self.displayed and getattr(self, 'rendered_page', None) == self.page:
+            for index, item in enumerate(candidates):
+                self.table.set(str(index), 'updated', age(item.get('lastSeen' if self.page == 'Devices' else 'updated')))
+                if self.page == 'Devices':
+                    self.table.set(str(index), 'state', self.device_status(item))
+            return
+        previous_page = getattr(self, 'rendered_page', None)
+        view = self.table.yview()[0] if previous_page == self.page else 0
+        self.rendered_page = self.page
         selected = self.table.selection()
         selected_id = self.displayed[int(selected[0])].get('id') if selected and int(selected[0]) < len(self.displayed) else None
-        self.displayed = rows(self.snapshot, self.page, self.query.get())
+        self.displayed = candidates
         self.table.delete(*self.table.get_children())
         device_page = self.page == 'Devices'
         for col, title in [('kind', 'CLIENT' if device_page else 'TYPE'), ('title', 'ADDRESS / AGENT' if device_page else 'ACTIVITY'), ('state', 'CONNECTION' if device_page else 'STATE'), ('updated', 'LAST SEEN' if device_page else 'UPDATED')]:
@@ -179,7 +206,7 @@ class Dashboard:
         for index, item in enumerate(self.displayed):
             status = item.get('state', '') if device_page else item.get('status', '')
             if device_page:
-                status = f'{item.get("activeRequests", 0)} active' if item.get('activeRequests') and self.snapshot.get('fresh') else 'Seen recently' if status == 'recent' and self.snapshot.get('fresh') else 'Idle / last seen'
+                status = self.device_status(item)
                 values = ('DEVICE', f'{item.get("address", "Unknown")}  ·  {item.get("agent") or "Client type unavailable"}', status, age(item.get('lastSeen')))
             else:
                 values = (str(item.get('kind', 'job')).upper(), item.get('title') or 'Gateway job', str(status).replace('_', ' ').title(), age(item.get('updated')))
@@ -187,10 +214,19 @@ class Dashboard:
             self.table.insert('', 'end', iid=str(index), values=values, tags=(tag,))
             if item.get('id') and item.get('id') == selected_id:
                 self.table.selection_set(str(index))
+        self.table.yview_moveto(view)
         if not self.displayed:
             self.detail.configure(text='No matching activity yet. Items appear when connected clients use the gateway.' if self.query.get() else 'No activity recorded yet. Connect the Android app and send a task to begin.')
         elif not self.table.selection():
             self.detail.configure(text='Select a row to inspect its details.')
+
+    def device_status(self, item):
+        if self.snapshot.get('fresh'):
+            if item.get('activeRequests'):
+                return f"{item['activeRequests']} active"
+            if item.get('state') == 'recent':
+                return 'Seen recently'
+        return 'Idle / last seen'
 
     def details(self, _event=None):
         selected = self.table.selection()
@@ -200,7 +236,14 @@ class Dashboard:
         if self.page == 'Devices':
             content = f'Observed address: {item.get("address")}  ·  Requests this session: {item.get("requests", 0)}\nKey-free connections are grouped by socket address; this is not a verified device identity.'
         else:
-            content = '  ·  '.join(str(item[key]) for key in ('id', 'detail', 'branch', 'peer') if item.get(key))
+            content = '  ·  '.join(str(item[key]) for key in ('detail', 'branch', 'peer', 'id') if item.get(key))
+            progress = item.get('batch_progress')
+            if isinstance(progress, dict):
+                current = progress.get('current_phase') or 'planning'
+                state = progress.get('current_state') or 'queued'
+                content += (f'  ·  Full Batch: {current} / {state} · '
+                            f"{progress.get('completed', 0)} of {progress.get('total', 0)} stages · "
+                            f"{progress.get('local_validation_workers', 1)} local validation workers")
             duration = item.get('duration')
             if isinstance(duration, (int, float)):
                 content += f'  ·  {duration:.1f}s'
@@ -233,7 +276,9 @@ class Dashboard:
             cfg = load(self.root)
             endpoint = f'{cfg["bind_host"]}:{cfg["port"]}'
             mode = 'Key-free network' if cfg['access'] == 'network' else 'This PC only'
-            self.subtitle.configure(text=f'{endpoint}  /  {mode}  /  Model backend: {status.get("backend", "not measured")}')
+            revision = status.get('build', {}).get('sourceCommit', '')
+            build = f'{status.get("version", "unknown")} ({revision[:12] if revision else "revision not observed"})'
+            self.subtitle.configure(text=f'{endpoint}  /  {mode}  /  Gateway {build}  /  Model backend: {status.get("backend", "not measured")}')
         except (OSError, ValueError):
             self.subtitle.configure(text='Connection settings unavailable. Open settings to recover the configuration.')
         usage = self.snapshot.get('usage', {})
@@ -301,6 +346,7 @@ def show(root, smoke=False):
 
 def _show(root, smoke):
     dashboard = Dashboard(root)
+    dashboard.smoke = smoke
     if smoke:
         def inspect():
             try:

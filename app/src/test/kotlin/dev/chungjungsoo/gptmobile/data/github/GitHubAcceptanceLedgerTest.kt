@@ -60,6 +60,33 @@ class GitHubAcceptanceLedgerTest {
         assertEquals(JsonPrimitive(false), GitHubAcceptanceLedger.snapshot(requirements = JsonArray(listOf(optionalFailure)))["completion_verified"])
     }
 
+    @Test fun aggregateRequirementsAndExcludedInventoryNeverInflateTheCapabilityDenominator() {
+        val requirement = json("""{"id":"aggregate","requirement":"Test all tools","status":"UNTESTED"}""")
+        val capabilities = (0 until 102).map { index ->
+            json(
+                """{"id":"capability-$index","required":true,"status":"${if (index < 28) {
+                    "PASSED"
+                } else if (index < 99) {
+                    "BLOCKED"
+                } else {
+                    "UNTESTED"
+                }}"}"""
+            )
+        } + json("""{"id":"github_context:repositories","required":false,"status":"OUT_OF_SCOPE"}""")
+        val ledger = GitHubAcceptanceLedger.snapshot(JsonArray(listOf(requirement)), JsonArray(capabilities))
+        val requirements = ledger.getValue("requirement_counts").jsonObject
+        val coverage = ledger.getValue("capability_counts").jsonObject
+        assertEquals(JsonPrimitive(1), requirements["required"])
+        assertEquals(JsonPrimitive(0), requirements["required_passed"])
+        assertEquals(JsonPrimitive(103), coverage["total"])
+        assertEquals(JsonPrimitive(102), coverage["required"])
+        assertEquals(JsonPrimitive(1), coverage["excluded"])
+        assertEquals(JsonPrimitive(28), coverage["required_passed"])
+        assertEquals(json("""{"PASS":28,"FAIL":0,"BLOCKED":71,"NOT_TESTED":3}"""), coverage["required_state_counts"])
+        assertEquals(JsonPrimitive(false), ledger["completion_verified"])
+        assertEquals(JsonPrimitive(5), ledger.getValue("state_counts").jsonObject["NOT_TESTED"])
+    }
+
     @Test fun deniedDispatchIsBlockedAndNeverCountedAsTestExecution() {
         val receipt = json("""{"receipt_id":"denied","trusted":true,"success":false,"dispatched":false,"tool":"github_context","arguments":{"action":"status"},"error_code":"PERMISSION_DENIED","result":{}}""")
         val row = GitHubTestChecklist.rows(mapOf("denied" to receipt), tools, "test all tools").single().jsonObject

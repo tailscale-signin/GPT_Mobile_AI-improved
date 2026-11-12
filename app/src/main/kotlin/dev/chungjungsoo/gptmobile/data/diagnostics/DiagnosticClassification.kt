@@ -83,6 +83,10 @@ internal fun classifyDiagnostic(level: String?, tag: String?, message: String): 
         text.startsWith("metadata_inspection_wait") || text.startsWith("metadata_request_coalesced") ->
             DiagnosticClassification("metadata_inspection_wait", "info", false, "await_existing_inspection")
         text.startsWith("native_operation_interrupted") -> DiagnosticClassification("native_exit_evidence", if ("exit=low_memory" in text) "warning" else "error", true)
+        text.startsWith("android_memory_trim") &&
+            level !in setOf("E", "W") &&
+            Regex("(?:^| · )level=(?:20|40)(?: · |$)").containsMatchIn(text) ->
+            DiagnosticClassification("memory_trim_lifecycle", "info", false, "background_cleanup_observed_low_memory_not_inferred")
         text.startsWith("android_memory_trim") || text.startsWith("android_low_memory") -> DiagnosticClassification("memory_pressure", if (level == "E") "error" else "warning", true)
         text.startsWith("catalog_canceled") -> DiagnosticClassification("cancellation", "info", false)
         tag == "Android" &&
@@ -103,6 +107,11 @@ internal fun classifyDiagnostic(level: String?, tag: String?, message: String): 
         )
         tag == "Android" && capturedTag == "imebackdispatcher" && text.startsWith("ime callback not found. ignoring unregisterreceivedcallback.") -> DiagnosticClassification("platform_input_cleanup", "info", false)
         tag == "Android" && capturedTag == "interactionjankmonitor" && text.startsWith("initializing without read_device_config permission. enabled=false") -> DiagnosticClassification("platform_optional_monitor", "info", false)
+        tag == "Android" &&
+            level == "W" &&
+            capturedTag == "remoteinputconnectionimpl" &&
+            Regex("^(?:gettextbeforecursor|gettextaftercursor|getselectedtext|requestcursorupdates) on inactive inputconnection$").matches(text) ->
+            DiagnosticClassification("input_lifecycle", "info", false, "inspect_focus_lifecycle_if_input_loss_is_observed")
         "inactive inputconnection" in text -> DiagnosticClassification("input_lifecycle", "warning", true, "release_composer_focus_before_screen_or_editor_detaches")
         tag == "Android" && "systemjobservice" in text && "onnetworkchanged" in text && "not implemented" in text ->
             DiagnosticClassification("work_scheduler_compatibility", "warning", true, "verify_workmanager_and_android_build_with_background_recovery")
@@ -126,7 +135,7 @@ internal fun classifyDiagnostic(level: String?, tag: String?, message: String): 
         text.startsWith("connectivity_recovered") -> DiagnosticClassification("recovery", "info", false, "response_observed_on_current_network")
         tag == "Gateway" && text.startsWith("metadata_read_outcome") && "outcome=completed" in text ->
             DiagnosticClassification("recovery", "info", false, "metadata_read_completed_model_readiness_not_inferred")
-        tag == "Gateway" && text.startsWith("client_exchange") && Regex("(?:^| · )transport=(?:connect_timeout|read_timeout|stream_interrupted|stream_idle_timeout|connection_aborted|dns_failed|dns_failure|route_unavailable|connection_refused|connection_reset)(?: · |$)").containsMatchIn(text) ->
+        tag == "Gateway" && text.startsWith("client_exchange") && Regex("(?:^| · )transport=(?:timeout|transport_failure|connect_timeout|read_timeout|stream_interrupted|stream_idle_timeout|connection_aborted|dns_failed|dns_failure|route_unavailable|connection_refused|connection_reset)(?: · |$)").containsMatchIn(text) ->
             DiagnosticClassification("transport_availability", "warning", true, "correlate_metadata_read_attempts_and_final_outcome")
         text.startsWith("search_index_ready") ||
             text.startsWith("refresh_ok") ||
@@ -175,8 +184,8 @@ private fun significantFrameWindow(message: String): Boolean {
     fun value(name: String): Double? = Regex("(?:^| · )$name=([0-9]+(?:\\.[0-9]+)?)").find(message)?.groupValues?.get(1)?.toDoubleOrNull()
     if ((value("stallsOver100Ms") ?: 0.0) > 0 || (value("maxMs") ?: 0.0) >= 100 || (value("droppedSamples") ?: 0.0) > 0) return true
     val missed = value("jankFrames") ?: value("jankyFrames") ?: value("slowFrames") ?: return false
-    val frames = value("frames") ?: return missed > 0
-    return frames > 0 && missed / frames >= 0.05
+    val frames = value("frames") ?: return false
+    return FrameJankPolicy.sustained(frames.toLong(), missed.toLong())
 }
 
 /** Strip recorder metadata without swallowing the event label. */

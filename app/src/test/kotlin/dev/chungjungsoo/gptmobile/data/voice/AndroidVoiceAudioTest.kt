@@ -227,11 +227,13 @@ class AndroidVoiceAudioTest {
             callbacks[0].onInit(TextToSpeech.ERROR)
             shadowOf(Looper.getMainLooper()).idle()
             assertEquals(1, failures.size)
-            verify(engines[0]).shutdown()
+            // ERROR means the platform never bound this object. Calling shutdown here creates
+            // a false "not bound to TTS engine" incident and releases no service.
+            verify(engines[0], org.mockito.Mockito.never()).shutdown()
 
             audio.speak("Next reply", {}, failures::add)
             assertEquals(2, engines.size)
-            // A late callback from the released engine cannot consume the new reply.
+            // A duplicate callback from the failed engine cannot consume the new reply.
             callbacks[0].onInit(TextToSpeech.SUCCESS)
             shadowOf(Looper.getMainLooper()).idle()
             callbacks[1].onInit(TextToSpeech.SUCCESS)

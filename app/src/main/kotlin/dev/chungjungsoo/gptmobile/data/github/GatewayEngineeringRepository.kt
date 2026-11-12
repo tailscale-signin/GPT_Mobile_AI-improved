@@ -8,6 +8,10 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.workDataOf
 import dagger.hilt.android.qualifiers.ApplicationContext
+import dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority
+import dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationPhase
+import dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationRepository
+import dev.chungjungsoo.gptmobile.data.context.ReasoningPolicy
 import dev.chungjungsoo.gptmobile.data.database.entity.GatewayConversationRecord
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
@@ -16,10 +20,13 @@ import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
 @Singleton
@@ -30,7 +37,8 @@ class GatewayEngineeringRepository @Inject constructor(
     private val notifications: GitHubDecisionNotifications,
     private val store: GatewayEngineeringStore,
     private val conversations: GatewayConversationRepository,
-    private val history: GatewayJobClient
+    private val history: GatewayJobClient,
+    private val modelPreparation: GatewayModelPreparationRepository
 ) {
     private val synchronization = Mutex()
     private val scheduling = Mutex()
@@ -179,7 +187,6 @@ class GatewayEngineeringRepository @Inject constructor(
         val profile = storedProfile.copy(model = selectedModel ?: storedProfile.model, reasoning = featuresAtAdmission.conversationReasoning[chatId] ?: storedProfile.reasoning)
         require(profile.model.isNotBlank())
         require(GitHubAutonomousEngineeringPolicy.supportsSavedJobs(profile)) { "Autonomous jobs require a local Llama or Ollama engineering profile. Remote profiles cannot start them." }
-        val preferences = settings.getFeatureSettings().githubProfileOverrides[profile.uid] ?: GitHubChatProfileOverride()
         val gateway = if (savedBinding == null) {
             settings.engineeringGateway(profile.uid)
         } else {
@@ -189,25 +196,69 @@ class GatewayEngineeringRepository @Inject constructor(
         val capability = client.capabilities(gateway.engineeringConfig())
         if (runId != null) check(capability.supportsDurableChat) { "This gateway does not support durable chat admission. Update it before sending this saved turn." }
         capability.requireJobReadiness()
-        check(capability.samplingPolicyProtocol == 1) { "Update the desktop Gateway to support per-stage creativity before starting a new saved job. Existing saved jobs remain resumable." }
-        val budgetSelection = options.resolveBudget(capability, preferences.engineeringMode, objective, featuresAtAdmission.tokenBudget.totalRunTokens)
         val principal = requireNotNull(capability.principalId)
         val frozenConfig = gateway.engineeringConfig()
         val identity = if (capability.conversationSync) history.identity(frozenConfig) else null
         check(identity == null || identity.principalId == principal) { "The authenticated gateway account changed before binding admission." }
         if (savedBinding != null) check(savedBinding.principalId == principal && savedBinding.gatewayId == identity?.gatewayId) { "The original gateway or account changed. The saved conversation was retained." }
+        val admissionConfig = identity?.let { frozenConfig.withGatewayIdentity(it) } ?: frozenConfig
+        val savedSnapshot = savedBinding?.snapshot?.let { Json { ignoreUnknownKeys = true }.decodeFromString<GatewayConversationSnapshot>(it) }
         val connection = profile.providerConnectionUid?.let { settings.getProviderConnection(it) }
-        val originalExecution = savedBinding?.snapshot?.let { Json { ignoreUnknownKeys = true }.decodeFromString<GatewayConversationSnapshot>(it).executionBinding }
+        val originalExecution = savedSnapshot?.executionBinding
         val privacyScope = originalExecution?.get("privacy_scope")?.jsonPrimitive?.content ?: "$principal/chat/$chatId/repository/$repository"
         val selection = executionSelection(profile, connection, privacyScope)
+        val originalAdmission = originalExecution?.let { GatewayExecutionAdmission(it, JsonObject(emptyMap())) }
+        if (originalAdmission != null) {
+            try {
+                validateOriginalBinding(admissionConfig, selection, originalAdmission)
+            } catch (rejected: GatewayExecutionRejected) {
+                // The host checks the retained backend before observing readiness.
+                // Only these typed observations permit waking that exact binding.
+                if (rejected.code !in setOf("EXECUTION_MODEL_NOT_LOADED", "EXECUTION_MODEL_LOADING") ||
+                    rejected.retryable != true ||
+                    rejected.httpStatus !in setOf(409, 503) ||
+                    rejected.inferenceAttempted == true
+                ) {
+                    throw rejected
+                }
+            }
+        }
+        check(settings.fetchPlatformV2s().singleOrNull { it.uid == gateway.uid && it.enabled }?.engineeringConfig() == frozenConfig) { "The gateway configuration changed before model preparation." }
+        if (!admissionAllowed()) throw GatewayEngineeringRequestRejected(403, "Remote tool permission changed before model preparation. The draft was not submitted.")
+        val reasoningMode = ReasoningPolicy.preference(storedProfile.reasoning, featuresAtAdmission.llamaReasoningModes[profile.uid], featuresAtAdmission.conversationReasoning[chatId])
+        // The inference profile supplies the model; the verified engineering Gateway owns the load.
+        val preparationProfile = gateway.copy(model = profile.model, compatibleType = profile.compatibleType)
+        val prepared = modelPreparation.prepareSelected(preparationProfile, reasoningMode, forceRefresh = true)
+        check(prepared == null || prepared.phase == GatewayModelPreparationPhase.READY && prepared.observation?.permitsRequest == true) {
+            prepared?.message ?: "The exact selected model could not be prepared. Your saved draft was not submitted."
+        }
+        if (!admissionAllowed()) throw GatewayEngineeringRequestRejected(403, "Remote tool permission changed during model preparation. The draft was not submitted.")
+        val afterPreparation = settings.fetchPlatformV2s().singleOrNull { it.uid == profileUid && it.enabled }
+        val currentFeatures = settings.getFeatureSettings()
+        check(afterPreparation != null && ConfiguredDispatchAuthority.profileRevision(afterPreparation) == ConfiguredDispatchAuthority.profileRevision(storedProfile) && currentFeatures.llamaReasoningModes[profile.uid] == featuresAtAdmission.llamaReasoningModes[profile.uid] && currentFeatures.conversationReasoning[chatId] == featuresAtAdmission.conversationReasoning[chatId]) { "The selected model or reasoning setting changed during preparation. Review the retained draft before sending it." }
+        check(savedBinding != null || currentFeatures.githubProfileOverrides[profile.uid]?.engineeringGatewayProfileUid == gateway.uid) { "The engineering gateway changed during model preparation." }
+        val preferences = currentFeatures.githubProfileOverrides[profile.uid] ?: GitHubChatProfileOverride()
+        val batchMode = if (savedSnapshot != null) savedSnapshot.executionMode ?: "standard" else preferences.executionBatchMode
+        check(batchMode in setOf("standard", "smart", "full")) { "Choose a supported Gateway execution mode." }
+        check(
+            batchMode == "standard" ||
+                capability.executionBatch?.let {
+                    it.protocolVersion == 1 && batchMode in it.modes && (batchMode != "full" || it.fullEnabled)
+                } == true
+        ) { "This Windows Gateway has not enabled $batchMode batching. Choose Standard or configure the execution mode on the host." }
+        check(capability.samplingPolicyProtocol == 1) { "Update the desktop Gateway to support per-stage creativity before starting a new saved job. Existing saved jobs remain resumable." }
+        val budgetSelection = options.resolveBudget(capability, preferences.engineeringMode, objective, featuresAtAdmission.tokenBudget.totalRunTokens)
         check(settings.fetchPlatformV2s().singleOrNull { it.uid == gateway.uid && it.enabled }?.engineeringConfig() == frozenConfig) { "The gateway configuration changed before binding admission." }
-        val admission = client.prepareBinding(identity?.let { frozenConfig.withGatewayIdentity(it) } ?: frozenConfig, selection)
-        originalExecution?.let { GatewayExecutionAdmission(it, admission.capabilities).verify(selection) }
+        val admission = if (originalAdmission == null) {
+            client.prepareBinding(admissionConfig, selection)
+        } else {
+            validateOriginalBinding(admissionConfig, selection, originalAdmission)
+        }
         val current = settings.fetchPlatformV2s().singleOrNull { it.uid == profile.uid && it.enabled }
             ?: error("The selected profile was disabled during admission.")
         check(executionSelection(current.copy(model = profile.model, reasoning = profile.reasoning), current.providerConnectionUid?.let { settings.getProviderConnection(it) }, selection.privacyScope) == selection) { "The selected profile changed during admission. Review it before starting." }
         val currentGateway = if (savedBinding == null) settings.engineeringGateway(profile.uid) else settings.fetchPlatformV2s().singleOrNull { it.uid == gateway.uid && it.enabled }
-        check(currentGateway?.let { it.uid == gateway.uid && it.apiUrl == gateway.apiUrl } == true) { "The engineering gateway changed during admission." }
+        check(currentGateway?.engineeringConfig() == frozenConfig) { "The engineering gateway changed during admission." }
         val remote = savedBinding ?: if (capability.supportsDurableChat) conversations.savedConversation(chatId, gateway.uid, gateway.apiUrl.trimEnd('/'), principal, profile.uid) else null
         val binding = GatewayEngineeringBinding(
             gateway.uid,
@@ -219,7 +270,9 @@ class GatewayEngineeringRepository @Inject constructor(
                 memoryMode = preferences.engineeringMemory, executionBindingId = admission.bindingId, taskScope = taskScope,
                 clientConversationId = if (capability.supportsDurableChat) conversations.clientConversationId(chatId) else null, conversationId = remote?.conversationId,
                 expectedRevision = remote?.revision?.takeIf { it >= 0 }, sourceBranch = sourceBranch, sourceSha = sourceSha,
-                executionBudget = budgetSelection.effectiveBudget, draftRepair = draftRepair, samplingPolicy = preferences.sampling
+                executionBudget = budgetSelection.effectiveBudget, draftRepair = draftRepair, samplingPolicy = preferences.sampling,
+                executionMode = batchMode.takeUnless { it == "standard" },
+                batchPolicyVersion = 1.takeIf { batchMode == "full" }
             ).let { request ->
                 if (capability.admissionPreflightProtocol == 1) {
                     val preflight = client.preflight(identity?.let { frozenConfig.withGatewayIdentity(it) } ?: frozenConfig, request)
@@ -243,6 +296,13 @@ class GatewayEngineeringRepository @Inject constructor(
         settings.mutateFeatureSettings { it.copy(githubEngineeringSettings = options.copy(acceptance = emptyList())) }
         schedule()
         reconnect(commandId, admissionAllowed)
+    }
+
+    private suspend fun validateOriginalBinding(config: ProviderRequestConfig, selection: GatewayExecutionSelection, original: GatewayExecutionAdmission): GatewayExecutionAdmission {
+        original.verifySelection(selection)
+        return client.bindingCapabilities(config, selection, original.bindingId).also {
+            check(it.binding == original.binding) { "The original saved execution binding changed. Restore its configured backend before continuing." }
+        }
     }
 
     suspend fun schedule() = scheduling.withLock {
@@ -277,6 +337,7 @@ class GatewayEngineeringRepository @Inject constructor(
             mirror(binding)
             return@withLock binding
         }
+        if (!allowCreate && binding.job == null && admissionState != "PENDING" && !store.commandLookupDue(requestId)) return@withLock binding
         val config = config(binding)
         if (System.nanoTime() / 1_000_000 - (lastPoll[requestId] ?: Long.MIN_VALUE / 2) < 2000 && !allowCreate) return@withLock binding
         check(binding.principalId == client.principal(config, requireReady = false)) { "The gateway account changed. Restore the original connection before reconnecting to this job." }
@@ -284,7 +345,23 @@ class GatewayEngineeringRepository @Inject constructor(
             val capability = client.capabilities(config)
             val identity = if (capability.conversationSync) history.identity(config) else null
             check(identity == null || identity.principalId == binding.principalId && (binding.gatewayId == null || identity.gatewayId == binding.gatewayId)) { "The original gateway installation or account changed." }
-            val receipt = if (capability.conversationSync) history.command(config, requestId) else null
+            val receipt = try {
+                if (capability.conversationSync) {
+                    if (allowCreate) history.command(config, requestId) else history.observeCommand(config, requestId)
+                } else {
+                    null
+                }
+            } catch (rejected: GatewayCommandRejected) {
+                check(rejected.outcome.gatewayId == binding.gatewayId && rejected.outcome.principalId == binding.principalId && rejected.outcome.commandId == requestId && rejected.outcome.jobKind == "engineering") { "The command rejection belongs to a different gateway or account." }
+                store.rejectAdmission(requestId, rejected.outcome)
+                if (allowCreate) throw rejected
+                return@withLock binding
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                store.deferCommandLookup(requestId)
+                throw failure
+            }
             if (receipt != null) {
                 check(receipt.commandId == requestId && receipt.jobKind == "engineering" && receipt.principalId == binding.principalId && receipt.gatewayId == identity?.gatewayId && (binding.gatewayId == null || receipt.gatewayId == binding.gatewayId)) { "The saved command receipt belongs to a different gateway or account." }
                 val recovered = client.get(config, receipt.jobId, binding.syncedRevision)
@@ -292,16 +369,24 @@ class GatewayEngineeringRepository @Inject constructor(
                 check(recovered.conversationId == receipt.conversationId && recovered.commandId == requestId) { "The saved command conversation changed." }
                 binding = binding.copy(job = recovered.copy(updates = emptyList()))
                 save(binding)
-            } else if (!allowCreate) {
+            } else if (!allowCreate || admissionState != "PENDING") {
+                // A 404 only means that this read did not find a receipt. Reconnect
+                // cannot replay a command whose first POST may have been accepted.
+                store.deferCommandLookup(requestId)
                 lastPoll[requestId] = System.nanoTime() / 1_000_000
                 return@withLock binding
             } else {
-                check(admissionState != "MIGRATED_REVIEW") { "The earlier gateway submission is retained for receipt reconciliation. Its payload must not be replayed in a different protocol." }
                 val selection = requireNotNull(binding.executionSelection) { "This saved request predates strict execution binding. Select a profile explicitly before starting new work." }
                 val accepted = requireNotNull(binding.executionAdmission)
                 accepted.verify(selection)
                 check(binding.request.executionBindingId == accepted.bindingId)
-                client.bindingCapabilities(config, selection, accepted.bindingId)
+                try {
+                    client.bindingCapabilities(config, selection, accepted.bindingId)
+                } catch (rejected: GatewayEngineeringRequestRejected) {
+                    // A fresh readiness rejection cannot prove that a previously
+                    // dispatched command was rejected. Preserve its receipt fence.
+                    throw rejected.withCommandOutcomeUnknown(store.admissionState(requestId) != "PENDING")
+                }
                 val current = settings.fetchPlatformV2s().singleOrNull { it.uid == binding.request.profileId && it.enabled }
                 val features = settings.getFeatureSettings()
                 if (!admissionAllowed() || current == null || current.disableAllTools || current.disableRemoteTools || features.githubProfileOverrides[current.uid]?.githubTools != true) {
@@ -327,10 +412,13 @@ class GatewayEngineeringRepository @Inject constructor(
                     if (!admissionAllowed()) throw GatewayEngineeringRequestRejected(403, "Remote tool permission changed before dispatch. The saved command was not sent.")
                     client.create(verifiedConfig, binding.request)
                 } catch (rejected: GatewayEngineeringRequestRejected) {
-                    store.markAdmission(requestId, if (attemptedBefore) "OUTCOME_UNKNOWN" else "REJECTED:${rejected.httpStatus}")
-                    throw GatewayEngineeringRequestRejected(rejected.httpStatus, rejected.message.orEmpty(), commandOutcomeUnknown = attemptedBefore)
+                    store.markAdmission(requestId, if (attemptedBefore || rejected.commandOutcomeUnknown) "OUTCOME_UNKNOWN" else "REJECTED:${rejected.httpStatus}")
+                    throw rejected.withCommandOutcomeUnknown(attemptedBefore)
                 } catch (failure: Exception) {
-                    store.markAdmission(requestId, "OUTCOME_UNKNOWN")
+                    withContext(NonCancellable) {
+                        store.markAdmission(requestId, "OUTCOME_UNKNOWN")
+                        store.deferCommandLookup(requestId)
+                    }
                     throw failure
                 }
                 verifyReceipt(binding, job)

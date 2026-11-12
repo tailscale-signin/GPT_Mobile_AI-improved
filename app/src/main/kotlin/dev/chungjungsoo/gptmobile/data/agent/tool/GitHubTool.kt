@@ -2037,6 +2037,9 @@ class GitHubTool(
             errorCode = code,
             dispatched = false,
             executionReceipt = buildJsonObject {
+                // An open circuit rejects before any GitHub request is dispatched,
+                // so the exact call is safe to replay after its durable cooldown.
+                if (code == "GITHUB_CIRCUIT_OPEN") put("replay_safe", true)
                 if (retryAfterMillis > 0) put("retry_not_before_ms", now + retryAfterMillis.coerceAtMost(Long.MAX_VALUE - now))
             }
         )
@@ -2217,7 +2220,7 @@ class GitHubTool(
             credential.refAvailability.requireAvailable(resourcePath)
             rateLimits.requireAvailable(if (url.contains("/search/")) "search" else "core")
             scheduler.recordRequest()
-            val observationId = dev.chungjungsoo.gptmobile.data.github.GitHubDispatchAccounting.started(false)
+            val observationId = dev.chungjungsoo.gptmobile.data.github.GitHubDispatchAccounting.started(false, resourcePath)
             httpClient.githubRequest(url) {
                 header(HttpHeaders.Accept, "application/vnd.github+json")
                 header(HttpHeaders.UserAgent, "GPT-Mobile-App")
@@ -2254,9 +2257,12 @@ class GitHubTool(
     private fun incidentId(callId: String) = "github:" + dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore.digest("$connectionUid|$conversationId|$taskId|$callId").take(24)
 
     private fun errorResult(callId: String, errorMessage: String): AgentToolResult {
+        val diagnosticCode = errorMessage.substringBefore(" · ").takeIf { it.matches(Regex("GITHUB_[A-Z0-9_]{2,80}")) } ?: "GITHUB_TOOL_FAILED"
+        val failedStage = if (diagnosticCode == "GITHUB_INVALID_ARGUMENT") "argument_validation" else "github_tool"
+        val preview = errorMessage.replace('\n', ' ').replace('\r', ' ').let { if (it.length <= 600) it else it.take(600) + " [truncated]" }
         AppLogRecorder.record(
             "GitHubTool",
-            "Request failed · callId=$callId · causalIncidentId=${incidentId(callId)} · truncatedAtSource=${errorMessage.length > 600} · ${truncate(errorMessage.replace("\n", " "), 600)}",
+            "Request failed · callId=$callId · causalIncidentId=${incidentId(callId)} · truncatedAtSource=${errorMessage.length > 600} · errorCode=$diagnosticCode · failedStage=$failedStage · failurePreview=$preview",
             "E"
         )
         return AgentToolResult(

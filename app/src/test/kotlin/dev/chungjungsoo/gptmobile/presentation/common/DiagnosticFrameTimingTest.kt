@@ -18,6 +18,8 @@ import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.unit.dp
+import dev.chungjungsoo.gptmobile.data.diagnostics.CombinedOperationOwner
+import dev.chungjungsoo.gptmobile.data.diagnostics.UiOperationContext
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
 import org.junit.Rule
@@ -37,6 +39,27 @@ class DiagnosticFrameTimingTest {
         val original = Modifier.testTag("content")
         listOf("Gateway chats", "", "private\nconversation", "x".repeat(41), "gateway/model?token=private").forEach { label ->
             assertSame(original, original.diagnosticFrameTiming(label))
+            assertSame(original, original.diagnosticFrameTiming(CombinedOperationOwner(screen = "Chat", uiContext = UiOperationContext(label))))
+        }
+    }
+
+    @Test fun componentIdentityChangesKeepTheSubtreeMeasurableAndDrawable() {
+        var owner by mutableStateOf(CombinedOperationOwner(screen = "Chat", messageId = 42, revisionId = "selected:0", uiContext = UiOperationContext("Assistant", itemCount = 3)))
+        compose.setContent {
+            val timing = androidx.compose.runtime.remember(owner) { androidx.compose.ui.Modifier.diagnosticFrameTiming(owner) }
+            Box(
+                Modifier.then(timing).size(120.dp, 64.dp).testTag("component_content").drawWithContent {
+                    drawRect(Color.Magenta)
+                    drawContent()
+                }
+            )
+        }
+        for (component in listOf("Assistant", "private\nconversation", "Transcript", "")) {
+            compose.runOnIdle { owner = owner.copy(revisionId = "selected:1", uiContext = UiOperationContext(component, itemCount = 4)) }
+            val content = compose.onNodeWithTag("component_content")
+            content.assertIsDisplayed().assertWidthIsEqualTo(120.dp).assertHeightIsEqualTo(64.dp)
+            val pixels = content.captureToImage().toPixelMap()
+            assertEquals(Color.Magenta, pixels[pixels.width / 2, pixels.height / 2])
         }
     }
 

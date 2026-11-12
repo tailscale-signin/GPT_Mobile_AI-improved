@@ -1,7 +1,9 @@
 package dev.chungjungsoo.gptmobile.data.github
 
+import dev.chungjungsoo.gptmobile.data.agent.tool.EngineeringFilePatch
 import java.nio.file.Files
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
@@ -12,6 +14,14 @@ import org.junit.Test
 
 class GitHubApprovalBindingTest {
     private val workspace = GitHubConversationContext("account", "owner", "repo", "main", "a".repeat(40), "selected-profile")
+
+    @Test fun automaticCommitApprovalIsRestrictedToOwnedSelfTestFixturePaths() {
+        val fixtureBranch = "codex-self-test/${"b".repeat(20)}"
+        val fixture = listOf(EngineeringFilePatch("docs/codex-self-test/${"b".repeat(20)}/fixture.txt", "phase: created", "phase: staged"))
+        assertTrue(eligibleAutomaticEngineeringPatch(fixtureBranch, "main", fixture))
+        assertFalse(eligibleAutomaticEngineeringPatch("fix/normal-change", "main", fixture))
+        assertFalse(eligibleAutomaticEngineeringPatch(fixtureBranch, "main", listOf(fixture.single().copy(path = "app/src/Main.kt"))))
+    }
 
     @Test fun exactFixtureCardSurvivesRestartOnlyWithinItsOriginalWorkspace() = runBlocking {
         val directory = Files.createTempDirectory("github-approval-binding").toFile()
@@ -28,6 +38,33 @@ class GitHubApprovalBindingTest {
         } finally {
             directory.deleteRecursively()
         }
+    }
+
+    @Test fun standardChatRestoresOnlyItsOriginalExactApprovalWorkspace() = runBlocking {
+        val store = GitHubRepositoryStateStore()
+        val branch = "codex-self-test/" + "b".repeat(20)
+        val patch = "c".repeat(64)
+        GitHubApprovalBinding.bind(store, "saved", workspace, branch, 31, 42, "model", "profile-contract", workspace.commitSha, patch)
+        suspend fun restored(chat: Int = 31, account: String = "account", repository: String = "repo", head: String = workspace.commitSha, digest: String = patch) = GitHubApprovalBinding.boundWorkspace(store, "saved", chat, account, "owner", repository, branch, head, digest)
+        assertEquals(workspace, restored())
+        assertEquals(restored(), restored())
+        assertNull(restored(chat = 32))
+        assertNull(restored(account = "other"))
+        assertNull(restored(repository = "other"))
+        assertNull(restored(head = "d".repeat(40)))
+        assertNull(restored(digest = "d".repeat(64)))
+        assertFalse(requireNotNull(restored()).autoApproveTools)
+    }
+
+    @Test fun legacyApprovalUsesTheFrozenPatchButNeverChangesItsBoundSourceOrProfile() = runBlocking {
+        val store = GitHubRepositoryStateStore()
+        val branch = "codex-self-test/" + "b".repeat(20)
+        GitHubApprovalBinding.bind(store, "legacy", workspace, branch, 31, 42, "model", "contract")
+        val restored = requireNotNull(GitHubApprovalBinding.boundWorkspace(store, "legacy", 31, "account", "owner", "repo", branch, "d".repeat(40), "c".repeat(64)))
+        assertEquals(workspace.ref, restored.ref)
+        assertEquals(workspace.mainProfileUid, restored.mainProfileUid)
+        assertEquals(workspace.commitSha, restored.commitSha)
+        assertEquals(GitHubApprovalBinding.Source(31, 42, "model", "contract"), GitHubApprovalBinding.source(store, "legacy", restored, branch))
     }
 
     @Test fun publicationWakeupKeepsOriginalChatAndStopsOnlyAfterQueueAcceptance() = runBlocking {
@@ -67,6 +104,83 @@ class GitHubApprovalBindingTest {
         }
     }
 
+    @Test fun editedApprovalDurablyRetainsItsSourceAndFixtureChoiceWithoutCopyingApproval() = runBlocking {
+        val directory = Files.createTempDirectory("github-replacement-binding").toFile()
+        try {
+            val store = GitHubRepositoryStateStore(directory)
+            val branch = "codex-self-test/" + "b".repeat(20)
+            val oldDigest = "c".repeat(64)
+            val replacementDigest = "d".repeat(64)
+            GitHubApprovalBinding.bind(store, "original", workspace, branch, 31, 42, "saved-model", "saved-contract", workspace.commitSha, oldDigest)
+            GitHubApprovalBinding.keepFixture(store, "original", workspace, branch)
+            GitHubApprovalBinding.markDecision(store, "original", workspace, branch, automatic = true)
+
+            GitHubApprovalBinding.bindReplacement(store, "original", "replacement", workspace, branch, workspace.commitSha, oldDigest, replacementDigest, 31)
+
+            val restored = GitHubRepositoryStateStore(directory)
+            assertEquals(GitHubApprovalBinding.Source(31, 42, "saved-model", "saved-contract"), GitHubApprovalBinding.source(restored, "replacement", workspace, branch))
+            assertTrue(GitHubApprovalBinding.fixtureKept(restored, "replacement"))
+            assertFalse(GitHubApprovalBinding.automaticallyApproved(restored, "replacement"))
+            assertNull(GitHubApprovalBinding.receipt(restored, "replacement", workspace, branch, "Edited patch", null, true))
+            assertTrue(runCatching { GitHubApprovalBinding.bind(restored, "replacement", workspace, branch, 31, 42, expectedHeadSha = workspace.commitSha, patchDigest = oldDigest) }.isFailure)
+            assertEquals("original", (GitHubApprovalBinding.events(restored, "replacement").last()["details"] as JsonObject)["replaces_task_id"]?.toString()?.trim('"'))
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test fun replacementCannotTakeAnotherRequestsBindingOrReplaceItself() = runBlocking {
+        val store = GitHubRepositoryStateStore()
+        val branch = "fix/saved-patch"
+        val oldDigest = "c".repeat(64)
+        val replacementDigest = "d".repeat(64)
+        GitHubApprovalBinding.bind(store, "original", workspace, branch, 31, 42, "saved-model", "saved-contract", workspace.commitSha, oldDigest)
+        GitHubApprovalBinding.bind(store, "replacement", workspace, branch, 51, 62, "other-model", "other-contract", workspace.commitSha, replacementDigest)
+
+        assertTrue(runCatching { GitHubApprovalBinding.bindReplacement(store, "original", "replacement", workspace, branch, workspace.commitSha, oldDigest, replacementDigest, 31) }.isFailure)
+        assertTrue(runCatching { GitHubApprovalBinding.bindReplacement(store, "original", "original", workspace, branch, workspace.commitSha, oldDigest, oldDigest, 31) }.isFailure)
+        assertEquals(GitHubApprovalBinding.Source(31, 42, "saved-model", "saved-contract"), GitHubApprovalBinding.source(store, "original", workspace, branch))
+        assertEquals(GitHubApprovalBinding.Source(51, 62, "other-model", "other-contract"), GitHubApprovalBinding.source(store, "replacement", workspace, branch))
+    }
+
+    @Test fun deduplicatedStagingCannotClaimAnApprovalOwnedByAnotherSavedRequest() = runBlocking {
+        val store = GitHubRepositoryStateStore()
+        val branch = "fix/saved-patch"
+        val patch = "d".repeat(64)
+        val original = GitHubApprovalBinding.bind(store, "same-patch", workspace, branch, 31, 42, "model", "contract", workspace.commitSha, patch)
+
+        assertTrue(
+            runCatching {
+                GitHubApprovalBinding.bind(store, "same-patch", workspace, branch, 51, 62, "model", "contract", workspace.commitSha, patch, requireSameSource = true)
+            }.isFailure
+        )
+
+        assertEquals(GitHubApprovalBinding.Source(31, 42, "model", "contract"), GitHubApprovalBinding.source(store, "same-patch", workspace, branch))
+        assertEquals(original, GitHubApprovalBinding.bind(store, "same-patch", workspace, branch, 31, 42, "model", "contract", workspace.commitSha, patch, requireSameSource = true))
+    }
+
+    @Test fun legacyRecoveryUpgradeCalculatesItsDigestFromThePersistedOriginalChat() = runBlocking {
+        val directory = Files.createTempDirectory("github-legacy-approval-source").toFile()
+        try {
+            val store = GitHubRepositoryStateStore(directory)
+            val branch = "fix/saved-patch"
+            val patch = "d".repeat(64)
+            GitHubApprovalBinding.bind(store, "legacy-task", workspace, branch, 31, 42, "original-model", "original-contract")
+            GitHubApprovalBinding.recordEvent(store, "legacy-task", "approval_card_created")
+
+            val upgraded = GitHubApprovalBinding.bind(store, "legacy-task", workspace, branch, 51, 62, "inspecting-model", "inspecting-contract", workspace.commitSha, patch)
+            val expected = GitHubApprovalBinding.dedupeKey(31, "owner/repo", branch, workspace.commitSha, patch, "legacy-task")
+            val restored = GitHubRepositoryStateStore(directory)
+
+            assertEquals(expected, upgraded)
+            assertEquals(expected, GitHubApprovalBinding.bind(restored, "legacy-task", workspace, branch, 71, 82, expectedHeadSha = workspace.commitSha, patchDigest = patch))
+            assertEquals(GitHubApprovalBinding.Source(31, 42, "original-model", "original-contract"), GitHubApprovalBinding.source(restored, "legacy-task", workspace, branch))
+            assertEquals(1, GitHubApprovalBinding.events(restored, "legacy-task").size)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
     @Test fun rejectedReceiptRequiresExplicitDecisionAndCancellationBeforePublication() = runBlocking {
         val store = GitHubRepositoryStateStore()
         val branch = "fix/saved-patch"
@@ -78,5 +192,97 @@ class GitHubApprovalBindingTest {
         val receipt = requireNotNull(GitHubApprovalBinding.receipt(store, "task", workspace, branch, "Repair CI", null, true))
         assertEquals(31, receipt.chatId)
         assertNull(receipt.sha)
+    }
+
+    @Test fun approvalLifecycleAndFixtureChoicePersistAgainstTheExactPatchBinding() = runBlocking {
+        val directory = Files.createTempDirectory("github-approval-events").toFile()
+        try {
+            val store = GitHubRepositoryStateStore(directory)
+            val branch = "codex-self-test/" + "c".repeat(20)
+            val base = "a".repeat(40)
+            val patch = "d".repeat(64)
+            GitHubApprovalBinding.bind(store, "task-events", workspace, branch, 31, 42, expectedHeadSha = base, patchDigest = patch)
+            GitHubApprovalBinding.recordEvent(store, "task-events", "approval_card_created")
+            GitHubApprovalBinding.recordEvent(store, "task-events", "approval_card_shown")
+            GitHubApprovalBinding.recordEvent(store, "task-events", "approval_card_clicked", buildJsonObject { put("choice", "REJECT") })
+            GitHubApprovalBinding.markDecision(store, "task-events", workspace, branch, automatic = false)
+            GitHubApprovalBinding.keepFixture(store, "task-events", workspace, branch)
+
+            val restored = GitHubRepositoryStateStore(directory)
+            assertTrue(GitHubApprovalBinding.fixtureKept(restored, "task-events"))
+            assertEquals(
+                listOf("approval_card_created", "approval_card_shown", "approval_card_clicked", "approval_card_rejected", "approval_card_keep_fixture"),
+                GitHubApprovalBinding.events(restored, "task-events").map { it["event"]?.toString()?.trim('"') }
+            )
+            val conflict = runCatching {
+                GitHubApprovalBinding.bind(restored, "task-events", workspace, branch, 31, 42, expectedHeadSha = base, patchDigest = "e".repeat(64))
+            }.exceptionOrNull()
+            assertTrue(conflict is IllegalArgumentException)
+            assertFalse(GitHubApprovalBinding.fixtureKept(restored, "other-task"))
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test fun localCancellationReceiptResolvesOnlyTheExactRejectedPatchAndKeepsItsLocalOrigin() = runBlocking {
+        val store = GitHubRepositoryStateStore()
+        val branch = "codex-self-test/${"e".repeat(20)}"
+        val expectedHead = "a".repeat(40)
+        val patchDigest = "b".repeat(64)
+        val staged = buildJsonObject {
+            put("tool", "github_write")
+            put("receipt_id", "staged-receipt")
+            put("binding", "task-binding")
+            put("repository", "owner/repo")
+            put("trusted", true)
+            put("success", true)
+            put(
+                "arguments",
+                buildJsonObject {
+                    put("action", "commit")
+                    put("branch", branch)
+                    put("expected_head_sha", expectedHead)
+                }
+            )
+            put(
+                "result",
+                buildJsonObject {
+                    put("engineering_task_id", "cancelled-task")
+                    put("status", "AWAITING_APPROVAL")
+                    put("committed", false)
+                    put("chat_id", 31)
+                    put("source_message_id", 42)
+                    put("branch", branch)
+                    put("expected_head_sha", expectedHead)
+                    put("patch_digest", patchDigest)
+                }
+            )
+        }
+        GitHubApprovalBinding.bind(store, "cancelled-task", workspace, branch, 31, 42, expectedHeadSha = expectedHead, patchDigest = patchDigest)
+        GitHubApprovalBinding.recordEvent(store, "cancelled-task", "approval_card_clicked", buildJsonObject { put("choice", "REJECT") })
+        assertNull(GitHubApprovalBinding.localCancellationReceipt(store, workspace, staged))
+        GitHubApprovalBinding.markDecision(store, "cancelled-task", workspace, branch, automatic = false, cancellationConfirmed = true)
+        val cancellation = requireNotNull(GitHubApprovalBinding.localCancellationReceipt(store, workspace, staged))
+        assertEquals("LOCAL_DURABLE_APPROVAL_EVENT", cancellation["evidence_origin"]?.toString()?.trim('"'))
+        assertEquals("CANCELLED_BEFORE_PUBLICATION", ((cancellation["result"] as kotlinx.serialization.json.JsonObject)["approval_state"])?.toString()?.trim('"'))
+        assertTrue(GitHubPendingApproval.snapshot(mapOf("staged" to staged, "cancelled" to cancellation)).isEmpty())
+        GitHubApprovalBinding.keepFixture(store, "cancelled-task", workspace, branch)
+        val keepDecision = requireNotNull(GitHubApprovalBinding.localFixtureDecisionReceipt(store, workspace, staged))
+        assertEquals("approval_card_keep_fixture", keepDecision["local_resolution_event"]?.toString()?.trim('"'))
+        assertEquals(kotlinx.serialization.json.JsonPrimitive(true), (keepDecision["result"] as kotlinx.serialization.json.JsonObject)["keep_fixture"])
+        val wrongPatch = JsonObject(staged + mapOf("result" to JsonObject(staged.getValue("result").let { (it as JsonObject) + mapOf("patch_digest" to kotlinx.serialization.json.JsonPrimitive("c".repeat(64))) })))
+        assertNull(GitHubApprovalBinding.localCancellationReceipt(store, workspace, wrongPatch))
+    }
+
+    @Test fun approvalDedupeKeyChangesForAnyDifferentRunBinding() {
+        val branch = "codex-self-test/fixture"
+        val sha = "a".repeat(40)
+        val patch = "b".repeat(64)
+        val key = GitHubApprovalBinding.dedupeKey(31, "Owner/Repo", branch, sha, patch, "task")
+        assertEquals(key, GitHubApprovalBinding.dedupeKey(31, "owner/repo", branch, sha, patch, "task"))
+        assertFalse(key == GitHubApprovalBinding.dedupeKey(32, "owner/repo", branch, sha, patch, "task"))
+        assertFalse(key == GitHubApprovalBinding.dedupeKey(31, "owner/repo", "$branch-2", sha, patch, "task"))
+        assertFalse(key == GitHubApprovalBinding.dedupeKey(31, "owner/repo", branch, "c".repeat(40), patch, "task"))
+        assertFalse(key == GitHubApprovalBinding.dedupeKey(31, "owner/repo", branch, sha, "d".repeat(64), "task"))
     }
 }

@@ -1,6 +1,5 @@
 package dev.chungjungsoo.gptmobile.data.diagnostics
 
-import java.security.MessageDigest
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -18,7 +17,7 @@ internal class DiagnosticExportDeduplicator(private val limit: Int = 8192) {
     }
 
     fun accept(line: String, identity: String, source: String, index: Int): Decision {
-        val digest = MessageDigest.getInstance("SHA-256").digest(line.encodeToByteArray()).joinToString("") { "%02x".format(it) }
+        val digest = DiagnosticRecordChunks.sha256(line)
         val previous = originals[identity]
         if (previous?.digest != digest) {
             if (previous == null) {

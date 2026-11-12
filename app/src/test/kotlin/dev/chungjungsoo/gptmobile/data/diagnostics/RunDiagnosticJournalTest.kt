@@ -11,6 +11,28 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class RunDiagnosticJournalTest {
+    @Test fun lastObservedStageUsesAcceptedEventsAndClearsWithPrivacyOrTerminal() = runTest {
+        val journal = RunDiagnosticJournal(MemoryVault(), backgroundScope).apply {
+            enabled = true
+            setRunPrivacy("run", false)
+        }
+        assertEquals(null, journal.lastObservedStage("run"))
+        journal.record("run", RunDiagnosticKind.FIRST_REASONING)
+        assertEquals(dev.chungjungsoo.gptmobile.data.agent.ObservedProgressStage.REASONING, journal.lastObservedStage("run"))
+        journal.record("run", RunDiagnosticKind.TOOL_RESULT)
+        assertEquals(dev.chungjungsoo.gptmobile.data.agent.ObservedProgressStage.TOOL, journal.lastObservedStage("run"))
+        assertEquals(null, journal.lastObservedStage("unrelated"))
+        journal.record("run", RunDiagnosticKind.RUN_TERMINAL)
+        assertEquals(null, journal.lastObservedStage("run"))
+        journal.setRunPrivacy("private", true)
+        journal.record("private", RunDiagnosticKind.FIRST_TEXT)
+        assertEquals(null, journal.lastObservedStage("private"))
+        journal.setRunPrivacy("another", false)
+        journal.record("another", RunDiagnosticKind.FIRST_TEXT)
+        journal.privateSession = true
+        assertEquals(null, journal.lastObservedStage("another"))
+    }
+
     @Test fun noncriticalBatchFlushesAtBoundedDeadlineWithoutTerminal() = runTest {
         val vault = MemoryVault()
         val journal = RunDiagnosticJournal(vault, backgroundScope).apply {

@@ -230,6 +230,34 @@ class GitHubOperationToolTest {
         assertEquals(1, backend.calls.size)
     }
 
+    @Test fun missingOrInvalidPullRequestSelectorReturnsTypedRoutePreservingDiscovery() = runBlocking {
+        val backend = Backend()
+        val tool = GitHubOperationTool("github_pr", backend, "pr-selector", modelName = "github_pr__connection")
+        for ((callId, request, field) in listOf(
+            Triple("missing", args("""{"owner":"owner","repo":"repo","action":"context"}"""), "missing_fields"),
+            Triple("invalid", args("""{"owner":"owner","repo":"repo","action":"threads","pull_number":0}"""), "invalid_fields")
+        )) {
+            val rejected = tool.execute(callId, request)
+            assertTrue(rejected.isError)
+            assertFalse(rejected.dispatched)
+            assertEquals("INVALID_ARGUMENTS", rejected.errorCode)
+            val envelope = (rejected.content as ToolResultContent.Json).value.jsonObject
+            assertEquals(JsonPrimitive("PR_SELECTOR_REQUIRED"), envelope["reason"])
+            assertEquals(JsonArray(listOf(JsonPrimitive("pull_number"))), envelope[field])
+            val selector = envelope.getValue("required_selector").jsonObject
+            assertEquals(JsonPrimitive("pull_number"), selector["field"])
+            assertEquals(JsonPrimitive("positive_integer"), selector["type"])
+            assertEquals(JsonPrimitive("list"), selector["discovery_action"])
+            val correction = envelope.getValue("correction_call").jsonObject
+            assertEquals(JsonPrimitive("github_pr__connection"), correction["tool"])
+            assertEquals(
+                args("""{"action":"list","owner":"owner","repo":"repo"}"""),
+                correction.getValue("arguments")
+            )
+        }
+        assertTrue(backend.calls.isEmpty())
+    }
+
     @Test fun tagCreationContinuationInspectsWithoutRepeatingTheMutation() = runBlocking {
         val backend = Backend().apply {
             body = args("""{"upstream_completed":true,"continuation":{"action":"tag_context","tag_name":"v1"}}""")

@@ -18,7 +18,7 @@ internal fun Flow<ApiState>.withGitHubApiDelivery(enabled: Boolean, runId: Strin
         var done = false
         suspend fun ensureVisible(error: ApiState.Error? = null) {
             if (visible) return
-            if (error?.providerLimit?.knownNotAccepted == true) {
+            if (error?.providerLimit?.mayWait == true) {
                 emit(ApiState.ProgressCheckpoint("The provider limited this request before accepting it. The saved request is being checked for a safe wait and resume.", invocationId = error.invocationId))
                 visible = true
                 return

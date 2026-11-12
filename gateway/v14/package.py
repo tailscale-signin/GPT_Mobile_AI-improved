@@ -10,6 +10,8 @@ REQUIRED.update({'v14/evidence.py', 'v14/engineering_diagnostics.py'})
 REQUIRED.update({'v14/engineering_memory.py', 'v14/engineering_crypto.py'})
 REQUIRED.update({'v14/engineering_backup.py', 'v14/maintenance.py', 'v14/debug.py'})
 REQUIRED.update({'v14/repository_lifecycle.py', 'v14/adaptive_sampling.py'})
+REQUIRED.update({'v14/engineering_batch_plan.py', 'v14/engineering_batch_policy.py', 'v14/github_api_governor.py'})
+REQUIRED.update({'v14/model_preparation.py', 'v14/model_preparation_routes.py', 'v14/inference_capabilities.py'})
 
 
 def validate_package(root):

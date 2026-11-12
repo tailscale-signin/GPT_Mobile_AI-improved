@@ -15,17 +15,27 @@ internal object GitHubClaimBatches {
     const val MAX_BATCHES = 8
     const val MAX_CLAIMS = 8
 
-    data class Request(val payload: String, val requirementIds: Set<String>)
+    data class Request(val payload: String, val requirementIds: Set<String>, val maxClaims: Int = MAX_CLAIMS)
+
+    /** OpenAI-compatible JSON Schema response format; other providers keep the same local validator. */
+    fun responseSchemaJson(): String = """{"type":"json_schema","json_schema":{"name":"github_evidence_claims","strict":true,"schema":{"type":"object","properties":{"claims":{"type":"array","items":{"type":"object","properties":{"kind":{"type":"string","enum":["fact","excerpt","inferred","calculation","recommendation","not_measured"]},"receipt_id":{"type":["string","null"]},"pointer":{"type":["string","null"]},"value":{},"text":{"type":["string","null"]},"sources":{"type":["array","null"],"items":{"type":"object","properties":{"receipt_id":{"type":"string"},"pointer":{"type":"string"},"value":{}},"required":["receipt_id","pointer","value"],"additionalProperties":false}},"subject":{"type":["string","null"]},"operation":{"type":["string","null"]}},"required":["kind","receipt_id","pointer","value","text","sources","subject","operation"],"additionalProperties":false}},"requirement_claims":{"type":"object","additionalProperties":{"type":"array","items":{"type":"integer"}}},"acceptance":{"type":"object","additionalProperties":{"type":"object","additionalProperties":{"type":"array","items":{"type":"string"}}}},"questions":{"type":"array","items":{"type":"string"}}},"required":["claims","requirement_claims","acceptance","questions"],"additionalProperties":false}}}"""
+
+    fun withClaimLimit(request: Request, limit: Int): Request {
+        require(limit in 1 until request.maxClaims)
+        val parsed = kotlinx.serialization.json.Json.parseToJsonElement(request.payload) as JsonObject
+        val reduced = JsonObject(parsed + ("claim_limit" to JsonPrimitive(limit)))
+        return request.copy(payload = reduced.toString(), maxClaims = limit)
+    }
 
     fun validate(answer: JsonObject, request: Request): JsonObject {
         val claims = requireNotNull(answer["claims"] as? JsonArray)
-        require(claims.size in 1..MAX_CLAIMS)
+        require(request.maxClaims in 1..MAX_CLAIMS && claims.size in 1..request.maxClaims)
         claims.forEach { entry ->
             val claim = requireNotNull(entry as? JsonObject)
             when (claim.string("kind")) {
                 "fact", "excerpt" -> validateSource(claim)
-                "inferred", "calculation" -> {
-                    if (claim.string("kind") == "inferred") require(claim.string("text").length in 1..1200)
+                "inferred", "calculation", "recommendation" -> {
+                    if (claim.string("kind") in setOf("inferred", "recommendation")) require(claim.string("text").length in 1..1200)
                     val sources = requireNotNull(claim["sources"] as? JsonArray)
                     require(sources.size in 1..16)
                     sources.forEach { validateSource(requireNotNull(it as? JsonObject)) }

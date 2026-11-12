@@ -5,11 +5,47 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubSelfTestReadsTest {
     private fun json(text: String) = Json.parseToJsonElement(text) as JsonObject
     private fun tool(name: String, action: String) = AgentToolDefinition(name, action, json("""{"type":"object","properties":{"action":{"const":"$action"}}}"""))
+
+    @Test fun dependencyInventoriesPrecedeOptionalMetadataAndDefinitionPages() {
+        val tools = listOf(tool("github_context", "resolve"), tool("github_issue", "list"), tool("github_release__tags", "tags"), tool("github_release__list", "list"), tool("github_ci", "definitions"))
+        val sha = "a".repeat(40)
+        val status = json("""{"trusted":true,"success":true,"tool":"github_context","arguments":{"action":"status"},"result":{"commit_sha":"$sha"}}""")
+        val available = GitHubSelfTestReads.available(tools, listOf(status))
+        assertEquals(listOf("github_issue", "github_release__tags", "github_release__list"), available.take(3).map { it.name })
+        assertEquals("github_ci", available.last().name)
+        assertEquals(listOf(true, true, true, false, false), available.map(GitHubSelfTestReads::isDependency))
+    }
+
+    @Test fun legacyInventoryReacquiresItsExactSourceOnceBeforeSelectingDependencies() {
+        val sha = "a".repeat(40)
+        val legacy = json("""{"receipt_id":"legacy","call_id":"old","binding":"task","trusted":true,"success":true,"tool":"github_ci","arguments":{"action":"runs","commit_sha":"$sha","page":1},"result":{"observationTruncated":true,"excerpt":{"workflow_runs":[{"id":7,"head_sha":"$sha","status":"completed","conclusion":"skipped"}]}}}""")
+        val tools = listOf(tool("github_ci", "runs"))
+        val next = requireNotNull(GitHubSelfTestReads.next(tools, listOf(legacy)))
+        assertTrue(next.callId.startsWith("inventory-source-"))
+        assertEquals(legacy["arguments"], next.arguments)
+        val failed = JsonObject(legacy + mapOf("call_id" to JsonPrimitive(next.callId + "-1"), "success" to JsonPrimitive(false)))
+        assertEquals(null, GitHubSelfTestReads.next(tools, listOf(legacy, failed)))
+        assertEquals(null, GitHubSelfTestReads.next(emptyList(), listOf(legacy)))
+    }
+
+    @Test fun firstLiveRequiredReadBypassesCacheOnlyWhenItsExactSchemaSupportsIt() {
+        val sha = "a".repeat(40)
+        val status = json("""{"trusted":true,"success":true,"tool":"github_context","arguments":{"action":"status"},"result":{"commit_sha":"$sha"}}""")
+        val live = AgentToolDefinition("github_ci", "Definitions", json("""{"properties":{"action":{"const":"definitions"},"verify_live":{"type":"boolean"}}}"""))
+        val first = requireNotNull(GitHubSelfTestReads.next(listOf(live), listOf(status)))
+        assertEquals(JsonPrimitive(true), first.arguments["verify_live"])
+        assertEquals(JsonPrimitive(sha), first.arguments["commit_sha"])
+        val legacy = GitHubSelfTestReads.next(listOf(tool("github_ci", "definitions")), listOf(status))
+        assertEquals(null, legacy?.arguments?.get("verify_live"))
+        val source = AgentToolDefinition("github_search", "Search", json("""{"properties":{"action":{"const":"search"},"verify_live":{"type":"boolean"}}}"""))
+        assertEquals(null, GitHubSelfTestReads.next(listOf(source), listOf(status))?.arguments?.get("verify_live"))
+    }
 
     @Test fun historicalGreenRunCannotSupplyCurrentRevisionAcceptance() {
         val sha = "a".repeat(40)

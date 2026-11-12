@@ -15,6 +15,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
@@ -67,5 +68,28 @@ class GitHubApprovalSummaryLayoutTest {
         }
         commit.performClick()
         compose.runOnIdle { assertEquals(1, commits) }
+    }
+
+    @Test fun fixtureApprovalShowsPersistentKeepChoiceAndRecordsIt() {
+        var kept = 0
+        compose.setContent {
+            MaterialTheme {
+                GitHubApprovalSummary(
+                    summary = "One file will be updated.",
+                    busy = false,
+                    canCommit = true,
+                    notice = "",
+                    onCommit = {},
+                    onDetails = {},
+                    onReject = {},
+                    taskContext = "Task task-123 · owner/repo · codex-self-test/fixture",
+                    keepFixture = true,
+                    onKeepFixture = { kept++ }
+                )
+            }
+        }
+        compose.onNodeWithText("Keep fixture").assertIsDisplayed().performClick()
+        compose.runOnIdle { assertEquals(1, kept) }
+        compose.onNodeWithText("Task task-123 · owner/repo · codex-self-test/fixture").assertIsDisplayed()
     }
 }

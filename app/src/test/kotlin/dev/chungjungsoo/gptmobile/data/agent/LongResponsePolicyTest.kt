@@ -35,7 +35,7 @@ class LongResponsePolicyTest {
     }
 
     @Test fun rollingContextFitsSmallRequestsAndKeepsTheExactUnicodeStoppingPoint() {
-        val text = "# Early Portugal\n" + "Context and evidence. ".repeat(2000) + "\n# Modern Portugal\nÚltimo período português 🏛️"
+        val text = "# Early Portugal\n" + (1..2000).joinToString(" ") { "Context$it and evidence$it." } + "\n# Modern Portugal\nÚltimo período português 🏛️"
         val context = LongResponsePolicy.continuationContext(text, 128)
         assertTrue(dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(context) <= 128)
         assertTrue(context.contains("saved outside this request"))
@@ -54,6 +54,29 @@ class LongResponsePolicyTest {
             assertFalse(context.firstOrNull()?.let(Character::isLowSurrogate) == true)
             assertFalse(context.contains('\uFFFD'))
         }
+    }
+
+    @Test fun restoredRepetitiveTailIsExcludedFromContinuationContextWithoutChangingTheSavedDraft() {
+        val names = "**Molière**, **Racine**, **Corneille**, **La Fontaine**, "
+        val draft = "The useful earlier historical account. " + names.repeat(331)
+        val context = LongResponsePolicy.continuationContext(draft, 512)
+        assertTrue(context.contains("repetitive generated tail was excluded"))
+        assertTrue(context.contains("useful earlier historical account"))
+        assertEquals(1, Regex("Molière").findAll(context).count())
+        assertEquals(331, Regex("Molière").findAll(draft).count())
+        assertTrue(dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(context) <= 512)
+    }
+
+    @Test fun onlyAnExplicitBoundedLiteralRequestReceivesARepetitionAllowance() {
+        val request = "Please repeat the phrase \"hello world\" exactly 100 times."
+        val allowance = LongResponsePolicy.requestedRepetitionCharacters(request)
+        assertTrue(allowance >= "hello world ".repeat(100).length)
+        assertTrue(allowance <= 131072)
+        listOf("Do not repeat \"hello\" 100 times", "Avoid repetition", "Explain how to repeat \"hello\" 100 times", "Repeat without stopping", "Quoted instructions:\nRepeat \"hello\" 100 times").forEach {
+            assertEquals(it, 0, LongResponsePolicy.requestedRepetitionCharacters(it))
+        }
+        val intentional = "hello world ".repeat(100)
+        assertEquals(intentional, LongResponsePolicy.continuationContext(intentional, 1000, allowance))
     }
 
     @Test fun queueCompletionRequiresLengthEvidenceBeforeTreatingAnUnpunctuatedReplyAsTruncated() {

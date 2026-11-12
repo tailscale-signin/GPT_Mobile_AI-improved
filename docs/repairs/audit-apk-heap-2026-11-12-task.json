@@ -1,0 +1,80 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "pull_request": 819,
+  "base_branch": "main",
+  "base_sha": "e62bded83b3861816c2c6e97116b30c9eb0920f1",
+  "working_branch": "fix/voice-chat-crash-and-diagnostics-2026-11-11",
+  "observed_head": "57fd7dc3d63960c4226e07ee6ddabc31c7256ddc",
+  "observed_tree": "591f554e824554152f399cdd24d2a1aa3df7d452",
+  "task_store": "engineering_agent_checkpoints",
+  "task_store_key": "audit-apk-heap-2026-11-12",
+  "state": "HOST_VALIDATED_AWAITING_FRESH_CI",
+  "intent": "Repair the measured diagnostic APK compression heap failure and cover the same uncached path in PR Validation while preserving bounded execution and all verification gates.",
+  "failure": {
+    "run_id": 43165575025,
+    "job_id": 131006607174,
+    "step": "Debug APK build",
+    "started_at": "2026-11-12T06:29:53Z",
+    "completed_at": "2026-11-12T06:38:35Z",
+    "elapsed_seconds": 522,
+    "error": "java.lang.OutOfMemoryError: Java heap space",
+    "cause": "Zipflinger NoCopyByteArrayOutputStream / Compressor.deflate / BytesSource / Sources.from, propagated through ApkFlinger and PackageAndroidArtifact",
+    "heap_mib": 3072,
+    "metaspace_mib": 1024,
+    "exit_code": 1,
+    "evidence_source": "Completed step log on the authorized live GitHub job page while lint continued; distinct from historical packaging stalls."
+  },
+  "same_tree_success": {
+    "run_id": 43165574984,
+    "job_id": 131006646100,
+    "build_commit": "cb6c933b5cb5b65ed63b11375ca83373008797dd",
+    "tree": "591f554e824554152f399cdd24d2a1aa3df7d452",
+    "heap_mib": 4096,
+    "metaspace_mib": 768,
+    "gradle_build_seconds": 909,
+    "result": "SUCCESS; all three APK variants passed packaged runtime, 16 KB alignment, telemetry-absence and research-dispatch checks.",
+    "comparison_limit": "UI Review APK uses default common-pool parallelism and a cold combined build; it is not an otherwise identical experiment."
+  },
+  "repair": {
+    "workflows": [
+      ".github/workflows/audit-workspace.yml",
+      ".github/workflows/pr-validation.yml"
+    ],
+    "heap_mib": 4096,
+    "metaspace_mib": 768,
+    "gradle_workers": 1,
+    "common_pool_parallelism": 2,
+    "process_deadline_seconds": 1140,
+    "step_timeout_minutes": 20,
+    "diagnostic_watchdog_seconds": 900,
+    "pr_validation_reason": "Cover the same uncached build path; the original PR APK invocation succeeded with four DEX-related cache hits."
+  },
+  "pr_validation_success": {
+    "run_id": 43165575032,
+    "job_id": 131006758317,
+    "step_completed_at": "2026-11-12T06:53:41Z",
+    "heap_mib": 3072,
+    "metaspace_mib": 1024,
+    "common_pool_parallelism": 2,
+    "gradle_build_seconds": 601,
+    "result": "SUCCESS: packaging, runtime, privacy, APK-size and research-dispatch checks",
+    "from_cache_only_in_pr_build": [
+      "generateDebugGlobalSynthetics",
+      "desugarDebugFileDependencies",
+      "mergeExtDexDebug",
+      "mergeLibDexDebug"
+    ],
+    "explanation_limit": "Retained DEX memory is a plausible, unproven explanation. No heap profile establishes causality or identifies an audit-only input/variant/JVM-limit difference."
+  },
+  "validation": {
+    "final_canonical_fast": "PASSED: 462 host tests and all canonical policy, schema, dependency, secret, regex, resource and provenance checks",
+    "final_workflow_yaml_and_bash_syntax": "PASSED: both workflows; 38 run blocks (10 diagnostic, 28 PR Validation)",
+    "workflow_structural_comparison": "PASSED: only executable differences are the two APK heap/metaspace replacements; guards, deadlines and artifact validators preserved",
+    "working_candidate_release_scope": "PASSED: 1932 paths from exact historical base; exactly two allowed-path additions and all other manifest fields preserved",
+    "checkpoint_json_and_whitespace": "PASSED",
+    "committed_candidate_release_scope": "REQUIRED_AFTER_COMMIT",
+    "current_head_hosted_apks": "REQUIRED_AFTER_PUBLICATION"
+  },
+  "evidence_document": "docs/repairs/audit-apk-heap-2026-11-12.md"
+}

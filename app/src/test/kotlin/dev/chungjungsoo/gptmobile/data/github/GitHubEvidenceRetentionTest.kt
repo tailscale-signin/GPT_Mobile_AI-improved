@@ -5,6 +5,7 @@ import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -19,6 +20,67 @@ import org.junit.Test
 
 class GitHubEvidenceRetentionTest {
     private val sha = "a".repeat(40)
+
+    @Test fun legacyInventoryMigrationRetainsDispatchCountsWithoutRewritingTheOriginalReceipt() = runBlocking {
+        val id = "ev_" + GitHubEvidenceBook.digest("task|legacy").take(24)
+        val original = Json.parseToJsonElement("""{"receipt_id":"$id","call_id":"legacy","binding":"task","repository":"owner/repo","tool":"github_ci","trusted":true,"success":true,"arguments":{"action":"runs","commit_sha":"$sha","page":1},"result":{"observationTruncated":true,"excerpt":{"workflow_runs":[{"id":7,"head_sha":"$sha"}]}},"execution":{"schema":"github.dispatch.v1","pagination_progress":{"schema":"github.pagination-progress.v1","remote_page":1,"upstream_rows_returned":30,"reported_total":67}}}""").jsonObject
+        val saved = linkedMapOf(id to original)
+        val book = GitHubEvidenceBook("task", "owner/repo", "main", setOf("github_ci"), load = { saved[it] }, save = { key, row -> saved[key] = row }, retainedIds = { listOf(id) })
+        book.restore()
+        val restored = book.snapshot().first.getValue(id)
+        assertEquals(JsonPrimitive(30), restored.getValue("inventory_observation").jsonObject["fetched"])
+        assertEquals(JsonPrimitive(false), restored.getValue("inventory_observation").jsonObject["record_keys_complete"])
+        assertEquals(original, saved.getValue(id))
+        assertEquals(original["result"], restored["result"])
+    }
+
+    @Test fun manifestOffsetsLengthsAndChunkHashesMustAgreeBeforeRestorationOrPaging() = runBlocking {
+        val id = "ev_" + GitHubEvidenceBook.digest("task|chunked").take(24)
+        val original = Json.parseToJsonElement("""{"receipt_id":"$id","call_id":"chunked","binding":"task","repository":"owner/repo","tool":"github_read","trusted":true,"success":true,"arguments":{},"result":{"head_sha":"$sha"}}""").jsonObject
+        val text = original.toString()
+        val hash = GitHubEvidenceBook.digest(text)
+        val key = "original_${id}_${hash.take(24)}_0"
+        val reference = buildJsonObject {
+            put("id", key)
+            put("offset_utf16", 0)
+            put("characters", text.length)
+            put("sha256", hash)
+        }
+        val chunk = buildJsonObject {
+            put("binding", "task")
+            put("receipt_id", id)
+            put("index", 0)
+            put("offset_utf16", 0)
+            put("sha256", hash)
+            put("text", text)
+        }
+        fun manifest(ref: JsonObject) = JsonObject(
+            original + buildJsonObject {
+                put("original_chunks", JsonArray(listOf(ref)))
+                put("original_receipt_sha256", hash)
+                put("original_receipt_characters", text.length)
+            }
+        )
+        val saved = linkedMapOf(id to manifest(reference), key to chunk)
+        fun book() = GitHubEvidenceBook("task", "owner/repo", "main", setOf("github_read"), load = { saved[it] }, retainedIds = { listOf(id) })
+        val valid = book()
+        valid.restore()
+        assertTrue(valid.complete())
+        assertNotNull(valid.originalPage(id, 0))
+        for (mismatch in listOf("offset_utf16" to JsonPrimitive(1), "characters" to JsonPrimitive(text.length + 1))) {
+            saved[id] = manifest(JsonObject(reference + mismatch))
+            val damaged = book()
+            damaged.restore()
+            assertFalse(damaged.complete())
+            assertEquals(null, damaged.originalPage(id, 0))
+        }
+        saved[id] = manifest(reference)
+        saved[key] = JsonObject(chunk + ("sha256" to JsonPrimitive("b".repeat(64))))
+        val damagedHash = book()
+        damagedHash.restore()
+        assertFalse(damagedHash.complete())
+        assertEquals(null, damagedHash.originalPage(id, 0))
+    }
 
     @Test fun liveReadOnlyReconciliationGetsAnObservationTimeWithoutClaimingAnotherWrite() = runBlocking {
         val book = GitHubEvidenceBook("task", "owner/repo", "work", setOf("github_write"), now = { 1000 })

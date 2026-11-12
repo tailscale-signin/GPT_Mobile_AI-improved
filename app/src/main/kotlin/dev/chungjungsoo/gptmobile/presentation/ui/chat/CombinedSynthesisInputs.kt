@@ -13,7 +13,7 @@ import dev.chungjungsoo.gptmobile.util.isAssistantErrorMessage
 
 /** A preview for the explicit Continue action; actual exclusion remains a durable turn decision. */
 internal fun availableCombinedResponses(responses: List<MessageV2>, runs: Map<String, AgentRun>): List<MessageV2> =
-    responses.filterNot { runs[it.currentRunId]?.status in setOf(AgentRunStatus.WAITING_PROVIDER_LIMIT, AgentRunStatus.WAITING_REMOTE_JOB) }
+    responses.filterNot { runs[it.currentRunId]?.status in setOf(AgentRunStatus.WAITING_PROVIDER_LIMIT, AgentRunStatus.WAITING_REMOTE_JOB, AgentRunStatus.WAITING_FOR_APPROVAL) }
 
 /** Freeze a usable contribution revision; a failed latest retry cannot erase an earlier success. */
 internal fun combinedSynthesisInputs(
@@ -27,7 +27,7 @@ internal fun combinedSynthesisInputs(
 ): List<CombinedModelResponse>? {
     if (responses.any { message ->
             val status = runs[message.currentRunId]?.status
-            status in setOf(AgentRunStatus.QUEUED, AgentRunStatus.RUNNING, AgentRunStatus.WAITING_PROVIDER_LIMIT, AgentRunStatus.WAITING_REMOTE_JOB) ||
+            status in setOf(AgentRunStatus.QUEUED, AgentRunStatus.RUNNING, AgentRunStatus.WAITING_PROVIDER_LIMIT, AgentRunStatus.WAITING_REMOTE_JOB, AgentRunStatus.WAITING_FOR_APPROVAL) ||
                 (message.currentRunId != null && status == null) ||
                 (message.currentRunId == null && message.content.isBlank())
         }

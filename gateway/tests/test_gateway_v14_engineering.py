@@ -5,16 +5,18 @@ import sys
 import tempfile
 import threading
 import unittest
-import time
 import requests
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from v14.engineering import EngineeringStore, EngineeringService, EngineeringSupervisor, public_job, validate_request, principal_authorized, digest
 from v14.engineering_defaults import DEFAULT_EXECUTION_BUDGET, LEGACY_EXECUTION_BUDGET
 from v14.engineering_backend import prepare_changes, blob_sha
-from v14.execution_binding import fingerprint
+from v14.engineering_batch_policy import DEFAULTS as BATCH_POLICY_DEFAULTS
+from v14.execution_binding import ExecutionBindingError, fingerprint
+from v14.github_api_governor import GitHubApiRateWait
 
 
 class Backend:
@@ -167,6 +169,70 @@ class DurableEngineeringTests(unittest.TestCase):
         self.assertEqual(1, self.backend.calls.count('merge'))
         self.assertEqual('COMPLETED', self.store.get(job['id'])['state'])
 
+    def enable_full_batch(self):
+        policy = patch(
+            'v14.engineering.load_batch_policy',
+            return_value=dict(BATCH_POLICY_DEFAULTS, default_mode='full', full_enabled=True),
+        )
+        policy.start()
+        self.addCleanup(policy.stop)
+        self.request.update(execution_mode='full', batch_policy_version=1)
+
+    def test_full_batch_tracks_approval_through_verified_completion(self):
+        self.enable_full_batch()
+        job = self.ready()
+        self.service.approve(job['id'], 'owner', job['revision'], 7, 'a' * 40)
+        approved = self.store.get(job['id'])
+        self.assertEqual('MERGE', public_job(approved)['batch_progress']['current_phase'])
+        self.service.tick(job['id'])
+        self.service.tick(job['id'])
+        reopened = EngineeringStore(self.runtime, lambda: self.time).get(job['id'], 'owner')
+        self.assertEqual('COMPLETED', reopened['state'])
+        self.assertEqual('completed', public_job(reopened)['batch_progress']['status'])
+        self.assertEqual('VERIFY', public_job(reopened)['batch_progress']['current_phase'])
+        self.assertEqual(1, self.backend.calls.count('merge'))
+
+    def test_full_batch_tracks_cancel_without_accepting_late_worker_output(self):
+        self.enable_full_batch()
+        job = self.store.create('owner', self.request)
+        claimed, lease, _ = self.store.claim(job['id'])
+        self.assertEqual('running', public_job(self.store.get(job['id']))['batch_progress']['current_state'])
+        cancelled = self.store.control(job['id'], 'owner', 'cancel', job['revision'])
+        self.assertEqual('cancelling', public_job(cancelled)['batch_progress']['status'])
+        self.assertFalse(self.store.complete(claimed, lease, 'READ', {'ok': True}))
+        stored = self.store.get(job['id'])
+        self.assertEqual('CANCELLED', stored['state'])
+        self.assertEqual('cancelled', public_job(stored)['batch_progress']['status'])
+        self.assertEqual(0, public_job(stored)['batch_progress']['completed'])
+
+    def test_full_batch_tracks_changed_readiness_and_request_changes(self):
+        self.enable_full_batch()
+        job = self.ready()
+        self.backend.evidence['checks_passed'] = False
+        with self.assertRaises(ValueError):
+            self.service.approve(job['id'], 'owner', job['revision'], 7, 'a' * 40)
+        waiting = self.store.get(job['id'])
+        self.assertEqual('CI', waiting['state'])
+        self.assertEqual('CI', public_job(waiting)['batch_progress']['current_phase'])
+        changed = self.store.control(job['id'], 'owner', 'request_changes', waiting['revision'])
+        self.assertEqual('needs_attention', public_job(changed)['batch_progress']['status'])
+        cancelled = self.store.control(job['id'], 'owner', 'cancel', changed['revision'])
+        self.assertEqual('cancelled', public_job(cancelled)['batch_progress']['status'])
+        self.assertNotIn('merge', self.backend.calls)
+
+    def test_full_batch_model_wait_is_visible_and_claimed_as_running_when_due(self):
+        self.enable_full_batch()
+        self.backend.step = lambda *args: (_ for _ in ()).throw(ExecutionBindingError('EXECUTION_MODEL_LOADING', 'Loading'))
+        job = self.store.create('owner', self.request)
+        self.service.tick(job['id'])
+        waiting = self.store.get(job['id'])
+        self.assertEqual('waiting_model', public_job(waiting)['batch_progress']['current_state'])
+        self.assertIsNone(self.store.claim(job['id']))
+        self.time = waiting['provider_wait']['retry_at'] + 1
+        claimed, _, _ = self.store.claim(job['id'])
+        self.assertEqual('running', public_job(claimed)['batch_progress']['current_state'])
+        self.assertEqual(0, public_job(claimed)['batch_progress']['completed'])
+
     def test_head_base_policy_and_expiry_invalidate_approval(self):
         for key, value in [('head_sha', 'd' * 40), ('base_sha', 'd' * 40), ('policy_verified', False), ('reviews_satisfied', False), ('draft', True), ('checks_passed', False), ('expired', True)]:
             with self.subTest(key=key):
@@ -247,6 +313,227 @@ class DurableEngineeringTests(unittest.TestCase):
         reopened = EngineeringStore(self.runtime, lambda: self.time)
         self.assertIn(job['id'], reopened.due())
 
+    def test_long_provider_cooldown_resumes_same_stage_after_store_recovery(self):
+        job = self.store.create('owner', self.request)
+        original_step = self.backend.step
+        response = requests.Response()
+        response.status_code = 429
+        response.headers['Retry-After'] = '600'
+        attempts = []
+        def step(current, phase):
+            attempts.append((current['id'], phase))
+            if len(attempts) == 1:
+                raise requests.HTTPError('fixture rate limit', response=response)
+            return original_step(current, phase)
+        self.backend.step = step
+        self.service.tick(job['id'])
+        waiting = self.store.get(job['id'])
+        self.assertEqual('PLAN', waiting['state'])
+        self.assertEqual('RETRY_AFTER', waiting['provider_wait']['source'])
+        self.assertGreaterEqual(waiting['provider_wait']['retry_at'], self.time + 600)
+        self.assertEqual(0, waiting['stalls'])
+        self.store.recover()
+        self.time += 599
+        self.assertNotIn(job['id'], self.store.due())
+        self.service.tick(job['id'])
+        self.assertEqual([(job['id'], 'PLAN')], attempts)
+        self.time += 2
+        self.service.tick(job['id'])
+        resumed = self.store.get(job['id'])
+        self.assertEqual('READ', resumed['state'])
+        self.assertNotIn('provider_wait', resumed)
+        self.assertEqual([(job['id'], 'PLAN'), (job['id'], 'PLAN')], attempts)
+
+    def test_repeated_provider_cooldowns_keep_the_durable_job_until_its_deadline(self):
+        job = self.store.create('owner', self.request)
+        response = requests.Response()
+        response.status_code = 429
+        response.headers['Retry-After'] = '1'
+        self.backend.step = lambda *args: (_ for _ in ()).throw(requests.HTTPError('fixture rate limit', response=response))
+        for attempt in range(1, 11):
+            self.service.tick(job['id'])
+            waiting = self.store.get(job['id'])
+            self.assertEqual('PLAN', waiting['state'])
+            self.assertEqual(attempt, waiting['provider_wait']['attempts'])
+            self.assertEqual('RETRY_AFTER', waiting['provider_wait']['source'])
+            self.assertEqual(0, waiting['stalls'])
+            self.time = waiting['provider_wait']['retry_at'] + .1
+        self.assertNotIn('blocked_reason', self.store.get(job['id'])['data'])
+
+    def test_secondary_provider_limit_uses_the_same_durable_wait(self):
+        job = self.store.create('owner', self.request)
+        response = requests.Response()
+        response.status_code = 403
+        response.headers['X-RateLimit-Remaining'] = '0'
+        response.headers['Retry-After'] = '45'
+        self.backend.step = lambda *args: (_ for _ in ()).throw(requests.HTTPError('fixture secondary limit', response=response))
+
+        self.service.tick(job['id'])
+
+        waiting = self.store.get(job['id'])
+        self.assertEqual('PLAN', waiting['state'])
+        self.assertEqual('RETRY_AFTER', waiting['provider_wait']['source'])
+        self.assertGreaterEqual(waiting['provider_wait']['retry_at'], self.time + 45)
+        self.assertEqual(0, waiting['stalls'])
+        self.assertNotIn('blocked_reason', waiting['data'])
+
+    def test_selected_model_readiness_wait_resumes_the_same_bound_stage(self):
+        job = self.store.create('owner', self.request)
+        original_probe = self.service.capabilities._probe
+
+        def not_loaded(*_args, **_kwargs):
+            error = ExecutionBindingError(
+                'EXECUTION_MODEL_NOT_LOADED',
+                'The exact selected model is advertised but not loaded.',
+                503,
+            )
+            error.retryable = True
+            raise error
+
+        self.service.capabilities._probe = not_loaded
+        self.service.capabilities.cache.clear()
+        self.service.tick(job['id'])
+        waiting = self.store.get(job['id'])
+        self.assertEqual('PLAN', waiting['state'])
+        self.assertEqual('MODEL_READINESS', waiting['provider_wait']['source'])
+        self.assertIn('exact selected model', waiting['message'])
+        self.assertNotIn('blocked_reason', waiting['data'])
+        self.assertEqual(0, waiting['stalls'])
+        self.assertEqual([], self.backend.calls)
+
+        self.time = waiting['provider_wait']['retry_at'] + .1
+        self.service.capabilities._probe = original_probe
+        self.service.capabilities.cache.clear()
+        self.service.tick(job['id'])
+        resumed = self.store.get(job['id'])
+        self.assertEqual('READ', resumed['state'])
+        self.assertNotIn('provider_wait', resumed)
+        self.assertEqual(['PLAN'], self.backend.calls)
+
+    def test_stop_during_provider_cooldown_prevents_due_dispatch(self):
+        job = self.store.create('owner', self.request)
+        response = requests.Response()
+        response.status_code = 429
+        self.backend.step = lambda *args: (_ for _ in ()).throw(requests.HTTPError('fixture rate limit', response=response))
+        self.service.tick(job['id'])
+        waiting = self.store.get(job['id'])
+        self.assertEqual('APP_BACKOFF', waiting['provider_wait']['source'])
+        self.store.control(job['id'], 'owner', 'cancel', waiting['revision'])
+        self.time += 120
+        self.assertNotIn(job['id'], self.store.due())
+        self.assertEqual('CANCELLED', self.store.get(job['id'])['state'])
+
+    def test_retryable_selected_backend_outage_retains_deadline_binding_and_due_stage(self):
+        job = self.store.create('owner', self.request)
+        original_probe = self.service.capabilities._probe
+        attempts = []
+        def unavailable(*args, **kwargs):
+            attempts.append(1)
+            error = ExecutionBindingError('EXECUTION_BACKEND_UNAVAILABLE', 'Selected backend temporarily unavailable.', 503)
+            error.retryable = True
+            error.observation = {'failureCategory': 'connection_refused', 'reasonCode': 'BACKEND_CONNECTION_REFUSED',
+                                 'dependency': 'backend_models', 'retryable': True}
+            raise error
+        self.service.capabilities._probe = unavailable
+        self.service.capabilities.cache.clear()
+        self.service.tick(job['id'])
+        waiting = self.store.get(job['id'])
+        self.assertEqual('PLAN', waiting['state'])
+        self.assertEqual('BACKEND_READINESS', waiting['provider_wait']['source'])
+        self.assertEqual('EXECUTION_BACKEND_UNAVAILABLE', waiting['provider_wait']['reason_code'])
+        self.assertEqual(job['deadline'], waiting['deadline'])
+        self.assertEqual(job['request']['execution_binding_id'], waiting['request']['execution_binding_id'])
+        self.assertEqual(0, waiting['stalls'])
+        self.assertEqual([], self.backend.calls)
+        self.service.tick(job['id'])
+        self.assertEqual(1, len(attempts))
+        # A host restart retains the pending time and cannot dispatch early.
+        reopened = EngineeringStore(self.runtime, lambda: self.time)
+        reopened.recover()
+        self.assertEqual(waiting['provider_wait'], reopened.get(job['id'])['provider_wait'])
+        self.assertNotIn(job['id'], reopened.due())
+        self.time = waiting['provider_wait']['retry_at'] + .1
+        self.service.capabilities._probe = original_probe
+        self.service.capabilities.cache.clear()
+        self.service.tick(job['id'])
+        resumed = self.store.get(job['id'])
+        self.assertEqual('READ', resumed['state'])
+        self.assertNotIn('provider_wait', resumed)
+        self.assertEqual(['PLAN'], self.backend.calls)
+        self.assertEqual(job['request']['execution_binding_id'], resumed['request']['execution_binding_id'])
+
+    def test_selected_backend_wait_obeys_deadline_cancel_and_full_batch_policy(self):
+        original_step = self.backend.step
+        def unavailable(*args):
+            error = ExecutionBindingError('EXECUTION_BACKEND_UNAVAILABLE', 'Selected backend unavailable.', 503)
+            error.retryable = True
+            raise error
+        self.backend.step = unavailable
+        job = self.store.create('owner', self.request)
+        self.service.tick(job['id'])
+        waiting = self.store.get(job['id'])
+        self.store.control(job['id'], 'owner', 'cancel', waiting['revision'])
+        self.time = waiting['provider_wait']['retry_at'] + 1
+        self.assertNotIn(job['id'], self.store.due())
+        self.assertEqual('CANCELLED', self.store.get(job['id'])['state'])
+        deadline_job = self.store.create('owner', dict(self.request, request_id='backend-deadline'))
+        self.time = deadline_job['deadline'] - deadline_job['request']['execution_budget']['final_seconds'] - 1
+        self.service.tick(deadline_job['id'])
+        blocked = self.store.get(deadline_job['id'])
+        self.assertEqual('NEEDS_INPUT', blocked['state'])
+        self.assertFalse(blocked['data']['blocked_reason']['retryable'])
+        self.assertNotIn('provider_wait', blocked)
+        self.enable_full_batch()
+        self.request['batch_preferences'] = {'resume_after_transient_limits': False}
+        full_job = self.store.create('owner', dict(self.request, request_id='backend-no-autoresume'))
+        self.service.tick(full_job['id'])
+        self.assertEqual('NEEDS_INPUT', self.store.get(full_job['id'])['state'])
+        self.assertNotIn('provider_wait', self.store.get(full_job['id']))
+        self.backend.step = original_step
+
+    def test_typed_backend_recovery_never_replays_unknown_writes_or_denied_metadata(self):
+        for code, retryable in [('EXECUTION_BACKEND_UNAVAILABLE', False), ('EXECUTION_METADATA_DENIED', False),
+                                ('EXECUTION_MODEL_MISMATCH', True)]:
+            with self.subTest(code=code):
+                error = ExecutionBindingError(code, 'Selected route cannot be used.', 403)
+                error.retryable = retryable
+                self.backend.step = lambda *args: (_ for _ in ()).throw(error)
+                job = self.store.create('owner', dict(self.request, request_id=code))
+                self.service.tick(job['id'])
+                self.assertEqual('NEEDS_INPUT', self.store.get(job['id'])['state'])
+                self.assertNotIn('provider_wait', self.store.get(job['id']))
+        self.backend.step = Backend.step.__get__(self.backend, Backend)
+        mutation = self.store.create('owner', dict(self.request, request_id='unknown-mutation'))
+        for _ in range(4):
+            self.service.tick(mutation['id'])
+        self.assertEqual('COMMIT', self.store.get(mutation['id'])['state'])
+        error = ExecutionBindingError('EXECUTION_BACKEND_UNAVAILABLE', 'Lost mutation outcome.', 503)
+        error.retryable = True
+        error.dispatched = True
+        self.backend.step = lambda *args: (_ for _ in ()).throw(error)
+        self.service.tick(mutation['id'])
+        self.assertEqual('NEEDS_INPUT', self.store.get(mutation['id'])['state'])
+        self.assertIn('reconcile:COMMIT', self.backend.calls)
+        self.assertNotIn('COMMIT', self.backend.calls)
+        self.assertNotIn('provider_wait', self.store.get(mutation['id']))
+
+    def test_host_shutdown_preserves_a_nonmutating_stage(self):
+        job = self.store.create('owner', self.request)
+        original_step = self.backend.step
+        def interrupt(*args):
+            self.service.stop.set()
+            raise InterruptedError('gateway shutdown')
+        self.backend.step = interrupt
+        self.service.tick(job['id'])
+        saved = self.store.get(job['id'])
+        self.assertEqual('PLAN', saved['state'])
+        self.assertEqual(0, saved['stalls'])
+        self.service.stop.clear()
+        self.store.recover()
+        self.backend.step = original_step
+        self.service.tick(job['id'])
+        self.assertEqual('READ', self.store.get(job['id'])['state'])
+
     def test_tls_failures_and_excessive_cooldowns_pause_without_replaying_stages(self):
         response = requests.Response()
         response.status_code = 503
@@ -324,6 +611,35 @@ class DurableEngineeringTests(unittest.TestCase):
                 self.assertEqual(['PLAN'], calls)
                 self.assertFalse(self.store.get(job['id'])['data']['blocked_reason']['retryable'])
 
+    def test_api_cooldown_before_dispatch_preserves_the_mutation_stage(self):
+        job = self.store.create('owner', self.request)
+        for _ in range(4):
+            self.service.tick(job['id'])
+        self.assertEqual('COMMIT', self.store.get(job['id'])['state'])
+        self.backend.physical_operation_journal = True
+        original_step = self.backend.step
+
+        def wait_for_capacity(claimed, phase):
+            self.assertEqual('COMMIT', phase)
+            claimed['data']['execution_integrity'] = 'VERIFIED'
+            self.service.operations.prepare(claimed, 'PATCH', '/repos/owner/repo/git/refs/heads/feature/job', {'sha': 'a' * 40})
+            raise GitHubApiRateWait(60)
+
+        self.backend.step = wait_for_capacity
+        self.service.tick(job['id'])
+        waiting = self.store.get(job['id'])
+        self.assertEqual('COMMIT', waiting['state'])
+        self.assertEqual('PREPARED', waiting['data']['latest_operation']['state'])
+        self.assertFalse(waiting['data']['latest_operation']['dispatched'])
+        self.assertEqual('RETRY_AFTER', waiting['provider_wait']['source'])
+        self.assertNotIn(job['id'], self.store.due())
+
+        self.time = waiting['provider_wait']['retry_at'] + .1
+        self.backend.step = original_step
+        self.service.tick(job['id'])
+        self.assertEqual('OPEN_PR', self.store.get(job['id'])['state'])
+        self.assertNotIn('reconcile:COMMIT', self.backend.calls)
+
     def test_validation_failure_after_dispatch_preserves_unknown_outcome_and_never_replays_write(self):
         job = self.store.create('owner', self.request)
         for _ in range(4):
@@ -369,30 +685,62 @@ class DurableEngineeringTests(unittest.TestCase):
         self.assertEqual(count, len(self.store.updates(job['id'])))
 
     def test_worker_recovers_failed_checkpoint_without_a_client_or_repeated_commit(self):
+        self.assert_autonomous_checkpoint_recovery()
+
+    def test_worker_retries_failed_lease_recovery_before_dispatching_again(self):
+        self.assert_autonomous_checkpoint_recovery(recovery_failures=2)
+
+    def assert_autonomous_checkpoint_recovery(self, recovery_failures=0):
         job = self.store.create('owner', self.request)
         complete = self.store.complete
+        recover = self.store.recover
         failed = False
-        def save(current, *args, **kwargs):
+        recovery_attempts = 0
+        failed_recovery_calls = []
+        ready = threading.Event()
+        def save(current, lease, phase, output, delay=0):
             nonlocal failed
             if current['state'] == 'COMMIT' and not failed:
                 failed = True
                 raise OSError('simulated interrupted journal write')
-            return complete(current, *args, **kwargs)
+            persisted = complete(current, lease, phase, output, delay)
+            if persisted and phase == 'MERGE_READY':
+                ready.set()
+            return persisted
+        def recover_leases():
+            nonlocal recovery_attempts
+            if failed:
+                recovery_attempts += 1
+                if recovery_attempts <= recovery_failures:
+                    failed_recovery_calls.append(tuple(self.backend.calls))
+                    raise OSError('simulated journal unavailable during lease recovery')
+            return recover()
         self.store.complete = save
+        self.store.recover = recover_leases
         self.backend.recovered = {'head_sha': 'a' * 40}
         self.service.start()
         try:
-            deadline = time.monotonic() + 5
-            while time.monotonic() < deadline and self.store.get(job['id'])['state'] != 'MERGE_READY':
-                self.service.wake.set()
-                threading.Event().wait(.02)
-            self.assertEqual('MERGE_READY', self.store.get(job['id'])['state'])
-            self.assertEqual(1, self.backend.calls.count('COMMIT'))
-            self.assertIn('reconcile:COMMIT', self.backend.calls)
+            # Let the real worker recover without client wakeups or contending
+            # SQLite reads. Signal only after the ready checkpoint is durable;
+            # allow its normal stage waits and slower Windows filesystem I/O.
+            reached_ready = ready.wait(45)
         finally:
             self.service.stop.set()
             self.service.wake.set()
-            self.service.thread.join(3)
+            self.service.thread.join(10)
+            self.assertFalse(self.service.thread.is_alive(), 'Engineering worker did not stop after the recovery test')
+        current = self.store.get(job['id'])
+        diagnostics = (f"state={current['state']}, revision={current['revision']}, injected_failure={failed}, "
+                       f"recovery_attempts={recovery_attempts}, calls={self.backend.calls}")
+        self.assertTrue(reached_ready, 'Autonomous checkpoint recovery timed out: ' + diagnostics)
+        self.assertTrue(failed, 'The interrupted checkpoint was not exercised: ' + diagnostics)
+        self.assertEqual('MERGE_READY', current['state'], diagnostics)
+        self.assertEqual(1, self.backend.calls.count('COMMIT'), diagnostics)
+        self.assertEqual(1, self.backend.calls.count('reconcile:COMMIT'), diagnostics)
+        self.assertEqual(recovery_failures + 1, recovery_attempts, diagnostics)
+        if recovery_failures:
+            self.assertEqual([failed_recovery_calls[0]] * recovery_failures, failed_recovery_calls, diagnostics)
+            self.assertNotIn('reconcile:COMMIT', failed_recovery_calls[0], diagnostics)
 
     def test_supervisor_bounds_duration_repairs_and_until_complete(self):
         job = self.store.create('owner', dict(self.request, duration_hours=0))

@@ -50,6 +50,7 @@ class GatewaySessionContractTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256(normalized).hexdigest(), SCHEMA_DIGEST)
         self.assertEqual(ROUTES, ENUM_ATTRIBUTES['route'])
         for path, route in [('/v1/gateway/capabilities', 'capabilities'), ('/gateway/identity','identity'),
+                            ('/gateway/models/prepare', 'models'), ('/v1/gateway/models/prepare', 'models'),
                             ('/gateway/job-catalog','job_catalog'), ('/gateway/conversations/id/messages','messages'),
                             ('/gateway/commands/id','commands'), ('/gateway/engineering/jobs/id','engineering')]:
             self.assertEqual(route, route_kind(path))

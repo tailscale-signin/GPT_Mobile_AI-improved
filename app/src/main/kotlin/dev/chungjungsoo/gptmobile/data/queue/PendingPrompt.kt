@@ -40,5 +40,7 @@ data class PendingPromptPayload(
     val localOnly: Boolean = false,
     val requiresSpendAllowance: Boolean = false,
     val requestId: String? = null,
-    val gateway: GatewayQueuedSelection? = null
+    val gateway: GatewayQueuedSelection? = null,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val recovery: dev.chungjungsoo.gptmobile.data.agent.TaskResumeDescriptor? = null
 )

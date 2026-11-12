@@ -1,5 +1,8 @@
 package dev.chungjungsoo.gptmobile.data.network.gateway
 
+import dev.chungjungsoo.gptmobile.data.dto.openai.response.ChatCompletionChunk
+import dev.chungjungsoo.gptmobile.data.dto.openai.response.Choice
+import dev.chungjungsoo.gptmobile.data.dto.openai.response.Delta
 import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import io.ktor.client.HttpClient
@@ -18,6 +21,68 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 class GatewayRecoveryContractTest {
+    @Test fun savedAnswerProjectionPreservesLayoutAndRawEvidenceWithoutPublishingInlineControlBlocks() {
+        val answer = "    indented answer\n\tsecond line Ω\n\n"
+        for (control in listOf(
+            "<think>private reasoning</think>",
+            "<ANALYSIS mode=\"private\">private reasoning</ANALYSIS>",
+            "<reasoning>outer<think>inner</think>still hidden</reasoning>",
+            "<tool_call>{\"private\":true}</tool_call>"
+        )) {
+            val raw = control + answer
+            val result = ChatCompletionChunk(model = "selected", choices = listOf(Choice(delta = Delta(content = raw), finishReason = "stop")))
+            val saved = GatewayJobResult("job-1", "completed", raw, "complete", result = result)
+            assertEquals(answer, saved.recoverableContent)
+            assertEquals(answer, saved.copy(content = null).recoverableContent)
+            assertEquals(GatewayResultDisposition.COMPLETE, saved.recoveryDisposition)
+            assertEquals(raw, saved.content)
+            assertEquals(raw, saved.result?.choices?.single()?.effectiveDelta?.content)
+        }
+    }
+
+    @Test fun hiddenOnlyOrUnclosedSavedReasoningCannotBecomeACompleteRecoveredAnswer() {
+        for (raw in listOf("<think>private</think>\n ", "<analysis>unfinished private", "<reasoning>private</think>still hidden", "<tool_call>{}")) {
+            val result = ChatCompletionChunk(model = "selected", choices = listOf(Choice(delta = Delta(content = raw), finishReason = "stop")))
+            val saved = GatewayJobResult("job-1", "completed", raw, "complete", result = result)
+            assertEquals(null, saved.recoverableContent)
+            assertEquals(null, saved.copy(content = null).recoverableContent)
+            assertEquals(GatewayResultDisposition.UNAVAILABLE, saved.recoveryDisposition)
+            assertEquals(raw, saved.result?.choices?.single()?.effectiveDelta?.content)
+        }
+    }
+
+    @Test fun terminalInterruptedJobWithoutAnAnswerRemainsAReconciledFailureReceipt() = runBlocking {
+        val body = """{"job_id":"job-1","status":"interrupted","result_quality":"failed","terminal":true,"result_available":false,"continuation_allowed":false,"next_action":"inspect_failure","job":{"job_id":"job-1","model":"selected-model"}}"""
+        var calls = 0
+        HttpClient(
+            MockEngine { request ->
+                calls++
+                assertEquals(io.ktor.http.HttpMethod.Get, request.method)
+                respond(body, HttpStatusCode.OK)
+            }
+        ).use { client ->
+            val network = mockk<NetworkClient>()
+            every { network.gatewayReadClient() } returns client
+            val saved = requireNotNull(GatewayAPIImpl(network).getJobResult("job-1", ProviderRequestConfig("https://saved-job.example/v1", "selected-token")))
+            assertEquals(true, saved.terminal)
+            assertEquals(false, saved.resultAvailable)
+            assertEquals(false, saved.continuationAllowed)
+            assertEquals(GatewayResultDisposition.FAILED, saved.recoveryDisposition)
+            assertTrue(saved.matchesRequestedModel("selected-model"))
+            assertEquals(null, saved.recoverableContent)
+        }
+        assertEquals(1, calls)
+    }
+
+    @Test fun contradictoryTerminalOrContinuationReceiptsCannotPublishAnAnswer() {
+        val saved = GatewayJobResult("job-1", "completed", "Saved answer", "complete", job = GatewaySavedJob("selected"), terminal = true, resultAvailable = true, continuationAllowed = false)
+        assertEquals(GatewayResultDisposition.COMPLETE, saved.recoveryDisposition)
+        for (invalid in listOf(saved.copy(terminal = false), saved.copy(resultAvailable = false), saved.copy(continuationAllowed = true), saved.copy(status = "running"))) {
+            assertEquals(GatewayResultDisposition.UNAVAILABLE, invalid.recoveryDisposition)
+        }
+        assertEquals(GatewayResultDisposition.WAITING, saved.copy(status = "queued", terminal = false, resultAvailable = false).recoveryDisposition)
+    }
+
     @Test fun waitingResultRetainsItsBoundHandoffWithoutPromotingItToCompletion() = runBlocking {
         val body = """{"job_id":"job-1","status":"waiting_for_client_tool","job":{"job_id":"job-1","model":"selected-model","pending_client_tool_call_ids":["call-1"]},"result":{"model":"selected-model","choices":[{"index":0,"message":{"role":"assistant","tool_calls":[{"id":"call-1","type":"function","function":{"name":"read_repository","arguments":"{}"}}]},"finish_reason":"tool_calls"}]}}"""
         HttpClient(MockEngine { respond(body, HttpStatusCode.Accepted) }).use { client ->

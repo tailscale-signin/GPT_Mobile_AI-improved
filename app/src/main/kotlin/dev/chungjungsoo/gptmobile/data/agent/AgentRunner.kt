@@ -6,6 +6,8 @@ import java.net.URI
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
@@ -20,6 +22,7 @@ import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -65,6 +68,40 @@ data class AgentRunLimits(
     }
 }
 
+private data class ReplayProjection(
+    val exchanges: List<AgentToolExchange>,
+    val rawTokens: Int,
+    val compactedTokens: Int,
+    val compactionMicros: Long
+)
+
+/**
+ * Replay compaction is expected on long tool runs. Report exponential high-water
+ * marks and genuinely slow projections instead of writing the same maintenance
+ * event on every round and competing with UI/diagnostic persistence locks.
+ */
+internal class ReplayCompactionLogGate(
+    private val slowProjectionMicros: Long = 50_000L
+) {
+    private var lastLoggedRawTokens = 0
+    private var lastLoggedExchangeBucket = 0
+
+    @Synchronized
+    fun shouldLog(rawTokens: Int, exchangeCount: Int, compactionMicros: Long): Boolean {
+        val bucket = Integer.highestOneBit(exchangeCount.coerceAtLeast(1))
+        val first = lastLoggedRawTokens == 0
+        val doubled = lastLoggedRawTokens > 0 && rawTokens.toLong() >= lastLoggedRawTokens.toLong() * 2L
+        val newExchangeBucket = bucket > lastLoggedExchangeBucket
+        val slow = compactionMicros >= slowProjectionMicros
+        val log = first || doubled || newExchangeBucket || slow
+        if (log) {
+            lastLoggedRawTokens = maxOf(lastLoggedRawTokens, rawTokens)
+            lastLoggedExchangeBucket = maxOf(lastLoggedExchangeBucket, bucket)
+        }
+        return log
+    }
+}
+
 class AgentRunner(
     val limits: AgentRunLimits = AgentRunLimits(),
     private val checkpoint: ToolBatchCheckpoint? = null,
@@ -75,12 +112,35 @@ class AgentRunner(
     private val initialToolCallCountOverride: Int? = null,
     private val onToolResultCommitted: (suspend (ProviderEvent.ToolCall, AgentToolResult) -> Unit)? = null,
     private val onToolResultsRestored: (suspend (List<AgentToolExchange>) -> Unit)? = null,
-    private val remainingTaskMillis: (suspend () -> Long?)? = null
+    private val remainingTaskMillis: (suspend () -> Long?)? = null,
+    private val replayDispatcher: CoroutineDispatcher = Dispatchers.Default
 ) {
     private val replayRenderCache = ToolExchangeCompactor.RenderCache()
+    private val replayCompactionLogGate = ReplayCompactionLogGate()
 
-    private fun compactReplay(exchanges: List<AgentToolExchange>, maxReplayTokens: Int, maxResultTokens: Int, consumedCallIds: Set<String> = emptySet()) =
-        ToolExchangeCompactor.compact(exchanges, maxReplayTokens, maxResultTokens, consumedCallIds, replayRenderCache)
+    /** Serialization, hashing, and replay projection can scan megabytes of evidence. */
+    private suspend fun prepareReplay(
+        exchanges: List<AgentToolExchange>,
+        maxReplayTokens: Int,
+        maxResultTokens: Int,
+        consumedCallIds: Set<String> = emptySet()
+    ): ReplayProjection = withContext(replayDispatcher) {
+        val rawTokens = ToolExchangeCompactor.estimateTokens(exchanges, replayRenderCache)
+        val started = System.nanoTime()
+        val compacted = ToolExchangeCompactor.compact(
+            exchanges,
+            maxReplayTokens,
+            if (rawTokens <= maxReplayTokens) maxReplayTokens else maxResultTokens,
+            consumedCallIds,
+            replayRenderCache
+        )
+        ReplayProjection(
+            exchanges = compacted,
+            rawTokens = rawTokens,
+            compactedTokens = ToolExchangeCompactor.estimateTokens(compacted, replayRenderCache),
+            compactionMicros = ((System.nanoTime() - started) / 1000).coerceAtLeast(0)
+        )
+    }
 
     fun run(session: AgentProviderSession, tools: List<AgentTool>, dynamicTools: () -> List<AgentTool> = { emptyList() }, selectDefinitions: (List<AgentToolDefinition>) -> List<AgentToolDefinition> = { it }): Flow<AgentRunEvent> = flow {
         if (minOf(limits.runTimeoutMillis, remainingTaskMillis?.invoke() ?: Long.MAX_VALUE) <= 0L) {
@@ -182,13 +242,14 @@ class AgentRunner(
         selectDefinitions: (List<AgentToolDefinition>) -> List<AgentToolDefinition>
     ) {
         val initialSchemaTokens = selectedForRound(initialExposedDefinitions, selectDefinitions).sumOf { providerSchemaTokens(it, limits.githubMode) }
-        val state = LoopState(initialExecutableToolByName, initialExposedDefinitions, initialRounds, initialToolCallCount, initialToolMayHaveExecuted, initialRetriedWithoutTools, recovery)
+        val retainedUnknownOutcome = recovery?.unsettledCalls.orEmpty().any { !replayableRead(it, toolByName[it.name]) }
+        val state = LoopState(initialExecutableToolByName, initialExposedDefinitions, initialRounds, initialToolCallCount, initialToolMayHaveExecuted, initialRetriedWithoutTools, recovery, retainedUnknownOutcome)
         if (state.restoredCalls.isNotEmpty() && recovery != null) {
             AppLogRecorder.record("Recovery", "TOOL_BATCH_RESTORED · checkpointVersion=1 · pendingCalls=${state.restoredCalls.size} · previouslyDispatched=${state.restoredDispatched.size} · completed=${recovery.completedCount} · failed=${recovery.failedCount} · uncertain=${recovery.unknownCount} · queued=${recovery.queuedCount} · rejected=${recovery.rejectedCount} · snapshotLoadMs=${recovery.loadMillis} · objectiveMs=${recovery.objectiveMillis ?: "none"} · objectiveStatus=${recovery.objectiveStatus} · measurement=checkpoint_load_only")
         }
         val executionToolCallLimit = ToolBudgetPolicy.executionLimit(limits)
         if (!restoreCompletedExchanges(recovery, toolByName, exchanges, state)) return
-        state.replayTokens = ToolExchangeCompactor.estimateTokens(compactReplay(exchanges, limits.maxReplayTokens, limits.maxReplayResultTokens), replayRenderCache).toLong()
+        state.replayTokens = prepareReplay(exchanges, limits.maxReplayTokens, limits.maxReplayResultTokens).compactedTokens.toLong()
 
         with(state) {
             while (true) {
@@ -256,7 +317,7 @@ class AgentRunner(
                     if (recovery.finalize) {
                         executableToolByName = emptyMap()
                         finalResponseRequested = true
-                        instructFinalResponse(exchanges)
+                        instructFinalResponse(exchanges, consumedCallIds)
                     }
                     continue
                 }
@@ -278,7 +339,7 @@ class AgentRunner(
                 val calls = routeSearchCalls(resolvedCalls, executableToolByName)
                 savedResultRecovery.record(calls)
                 if (calls.isEmpty()) {
-                    val recovery = recoverRoundWithoutCalls(session, round, exchanges, exposedDefinitions, emptyAnswerRecoveryAttempted, finalResponseRequested) ?: return
+                    val recovery = recoverRoundWithoutCalls(session, round, exchanges, consumedCallIds, exposedDefinitions, emptyAnswerRecoveryAttempted, finalResponseRequested) ?: return
                     exposedDefinitions = recovery.definitions
                     emptyAnswerRecoveryAttempted = recovery.emptyAnswerRecoveryAttempted
                     finalResponseRequested = recovery.finalResponseRequested
@@ -315,7 +376,7 @@ class AgentRunner(
                     finalResponseRequested = true
                     exposedDefinitions = emptyList()
                     executableToolByName = emptyMap()
-                    instructFinalResponse(exchanges)
+                    instructFinalResponse(exchanges, consumedCallIds)
                     emit(AgentRunEvent.Notice(stalled ?: "GitHub operations failed for three consecutive rounds. Finishing with saved results and the remaining blockers.", persistent = false))
                 }
             }
@@ -330,7 +391,8 @@ class AgentRunner(
         initialToolCallCount: Int,
         initialToolMayHaveExecuted: Boolean,
         initialRetriedWithoutTools: Boolean,
-        recovery: ToolBatchRecoverySnapshot?
+        recovery: ToolBatchRecoverySnapshot?,
+        val retainedUnknownOutcome: Boolean
     ) {
         var executableToolByName = initialExecutableToolByName
         var exposedDefinitions = initialExposedDefinitions
@@ -359,7 +421,6 @@ class AgentRunner(
         val consecutiveToolFailures = mutableMapOf<String, Int>()
         val blockedReadScopes = mutableSetOf<String>()
         val unknownOutcomes = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
-        val retainedUnknownOutcome = (recovery?.unknownCount ?: 0) > 0
         val consumedCallIds = recovery?.consumedCallIds.orEmpty().toMutableSet()
         val savedResultRecovery = GitHubReplayRecovery.State(recovery?.completedExchanges.orEmpty().flatMap { it.calls } + recovery?.pending.orEmpty())
     }
@@ -522,6 +583,7 @@ class AgentRunner(
         session: AgentProviderSession,
         round: RoundResult,
         exchanges: MutableList<AgentToolExchange>,
+        consumedCallIds: MutableSet<String>,
         definitions: List<AgentToolDefinition>,
         emptyAnswerRecoveryAttempted: Boolean,
         finalResponseRequested: Boolean
@@ -538,7 +600,7 @@ class AgentRunner(
                 }
             }
             if (limits.githubTask && limits.combined?.requested?.singlePass != true && !session.handlesToolsInternally && !finalResponseRequested) {
-                instructFinalResponse(exchanges)
+                instructFinalResponse(exchanges, consumedCallIds)
                 emit(AgentRunEvent.Notice("The GitHub provider returned another empty round. Generating a text answer from the saved operation results.", persistent = false))
                 return EmptyRoundRecovery(emptyList(), emptyAnswerRecoveryAttempted, true)
             }
@@ -1123,15 +1185,11 @@ class AgentRunner(
             .filter { it.outputBudgetExhausted }
             .maxByOrNull { it.toolResultBudgetUsedBytes ?: -1 }
         val projectedExchanges = exchanges + AgentToolExchange(calls, allResults)
-        val projectedReplayTokens = ToolExchangeCompactor.estimateTokens(projectedExchanges, replayRenderCache)
-        val replayTokens = ToolExchangeCompactor.estimateTokens(
-            compactReplay(
-                exchanges = projectedExchanges,
-                maxReplayTokens = limits.maxReplayTokens,
-                maxResultTokens = if (projectedReplayTokens <= limits.maxReplayTokens) limits.maxReplayTokens else limits.maxReplayResultTokens
-            ),
-            replayRenderCache
-        ).toLong()
+        val replayTokens = prepareReplay(
+            exchanges = projectedExchanges,
+            maxReplayTokens = limits.maxReplayTokens,
+            maxResultTokens = limits.maxReplayResultTokens
+        ).compactedTokens.toLong()
         val contextNearLimit = limits.contextTokens != Int.MAX_VALUE &&
             limits.initialContextTokens.toLong() + replayTokens + limits.finalResponseReserveTokens + 256 >= limits.contextTokens
         val repeatLimited = allResults.any { toolResultText(it).contains("reached the per-response repeat limit", ignoreCase = true) }
@@ -1245,13 +1303,13 @@ class AgentRunner(
         // Retain bounded observations on ingress, including trace/retained payloads.
         val retentionBudget = limits.maxRetainedEvidenceTokens.coerceIn(1024, if (limits.githubTask) 262_144 else 32_000)
         val observations = exchanges + AgentToolExchange(calls, allResults.map { it.copy(traceContent = null, retainedContent = null) })
-        val retained = compactReplay(
+        val retained = prepareReplay(
             observations,
             retentionBudget,
             // Preserve complete evidence while it fits the retained budget.
             // Provider replay still enforces its independent, smaller allowance.
-            if (ToolExchangeCompactor.estimateTokens(observations, replayRenderCache) <= retentionBudget) retentionBudget else limits.maxReplayResultTokens.coerceIn(64, 2048)
-        )
+            limits.maxReplayResultTokens.coerceIn(64, 2048)
+        ).exchanges
         exchanges.clear()
         exchanges.addAll(retained)
         return BatchCompletion(replayTokens, unproductiveDiscoveryRounds, finalResponseRequested, allResults.any { !it.isError }, suppressDiscovery)
@@ -1372,22 +1430,22 @@ class AgentRunner(
                 )
                 return@flow
             }
-            val rawReplayTokens = ToolExchangeCompactor.estimateTokens(exchanges, replayRenderCache)
-            val compactionStarted = System.nanoTime()
-            val replayExchanges = compactReplay(
+            val replay = prepareReplay(
                 exchanges = exchanges,
                 maxReplayTokens = limits.maxReplayTokens,
-                maxResultTokens = if (rawReplayTokens <= limits.maxReplayTokens) limits.maxReplayTokens else limits.maxReplayResultTokens,
+                maxResultTokens = limits.maxReplayResultTokens,
                 consumedCallIds = consumedCallIds
             )
+            val rawReplayTokens = replay.rawTokens
+            val replayExchanges = replay.exchanges
             val originalResults = exchanges.flatMap { it.results }.associateBy { it.callId }
             deliveredCallIds = replayExchanges.flatMap { it.results }.filter { originalResults[it.callId]?.content == it.content }.mapTo(mutableSetOf()) { it.callId }
-            val compactedReplayTokens = ToolExchangeCompactor.estimateTokens(replayExchanges, replayRenderCache)
-            val compactionMicros = ((System.nanoTime() - compactionStarted) / 1000).coerceAtLeast(0)
-            if (rawReplayTokens > compactedReplayTokens) {
+            val compactedReplayTokens = replay.compactedTokens
+            val compactionMicros = replay.compactionMicros
+            if (rawReplayTokens > compactedReplayTokens && replayCompactionLogGate.shouldLog(rawReplayTokens, exchanges.size, compactionMicros)) {
                 AppLogRecorder.record(
                     "Agent",
-                    "PRIMARY_REPLAY_COMPACTED · rawTokens=$rawReplayTokens · replayTokens=$compactedReplayTokens · savedTokens=${rawReplayTokens - compactedReplayTokens} · exchanges=${exchanges.size} · budget=${limits.maxReplayTokens} · compactionUs=$compactionMicros · tokenCounts=ESTIMATED · retainedEvidenceIndependent=true"
+                    "PRIMARY_REPLAY_COMPACTED · rawTokens=$rawReplayTokens · replayTokens=$compactedReplayTokens · savedTokens=${rawReplayTokens - compactedReplayTokens} · exchanges=${exchanges.size} · budget=${limits.maxReplayTokens} · compactionUs=$compactionMicros · tokenCounts=ESTIMATED · retainedEvidenceIndependent=true · logPolicy=EXPONENTIAL_HIGH_WATER"
                 )
             }
             if (compactedReplayTokens > limits.maxReplayTokens) {
@@ -1438,7 +1496,8 @@ class AgentRunner(
                 val gatewayOutcomeUnknown = GatewayOutcomeRecovery.requiresReconciliation(error.message.orEmpty(), classified.errorCode)
                 val localCircuitRejection = (error as? dev.chungjungsoo.gptmobile.data.network.error.CircuitBreakerOpenException)
                     ?.takeUnless { gatewayOutcomeUnknown }
-                failureDetails = localCircuitRejection?.failureDetails(providerPayloadObserved) ?: kotlinx.serialization.json.buildJsonObject {
+                val typedRejection = AgentFailureEvidence.exception(error, providerPayloadObserved)
+                failureDetails = typedRejection?.failureDetails ?: localCircuitRejection?.failureDetails(providerPayloadObserved) ?: kotlinx.serialization.json.buildJsonObject {
                     put(
                         "failed_stage",
                         when {
@@ -1453,8 +1512,10 @@ class AgentRunner(
                 failure = if (toolDefinitionsRejected) {
                     error.message ?: "Tools are unavailable for this model."
                 } else {
-                    failureCode = if (gatewayOutcomeUnknown) GatewayOutcomeRecovery.ERROR_CODE else ToolFailureMetadata.authorityCode(error) ?: ToolFailureMetadata.classify(error)
-                    classified.userMessage
+                    failureCode = if (gatewayOutcomeUnknown) GatewayOutcomeRecovery.ERROR_CODE else typedRejection?.errorCode ?: ToolFailureMetadata.authorityCode(error) ?: ToolFailureMetadata.classify(error)
+                    taskOutcome = typedRejection?.taskOutcome
+                    failureTransportComplete = typedRejection?.transportComplete ?: false
+                    typedRejection?.message ?: classified.userMessage
                 }
             }
         }.transformWhile { event ->
@@ -1777,10 +1838,14 @@ class AgentRunner(
 
     private fun appendFinalResponseInstruction(result: AgentToolResult): AgentToolResult = appendInstruction(result, FINAL_RESPONSE_INSTRUCTION)
 
-    private fun instructFinalResponse(exchanges: MutableList<AgentToolExchange>) {
+    private fun instructFinalResponse(exchanges: MutableList<AgentToolExchange>, consumedCallIds: MutableSet<String>) {
         val previous = exchanges.lastOrNull() ?: return
         val result = previous.results.lastOrNull() ?: return
-        exchanges[exchanges.lastIndex] = previous.copy(results = previous.results.dropLast(1) + appendInstruction(result, "Continue with a text answer and no further tool calls. Report verified outcomes from saved receipts, the concrete failure and any unfinished work. Do not claim changes were applied without a successful receipt or repeat a completed action."))
+        val updated = appendInstruction(result, "Continue with a text answer and no further tool calls. Report verified outcomes from saved receipts, the concrete failure and any unfinished work. Do not claim changes were applied without a successful receipt or repeat a completed action.")
+        if (updated === result) return
+        // The changed payload needs to reach the provider with its new instruction.
+        consumedCallIds.remove(result.callId)
+        exchanges[exchanges.lastIndex] = previous.copy(results = previous.results.dropLast(1) + updated)
     }
 
     private suspend fun executeBounded(

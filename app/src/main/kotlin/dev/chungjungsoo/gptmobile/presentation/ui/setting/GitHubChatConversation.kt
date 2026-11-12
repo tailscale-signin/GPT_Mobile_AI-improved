@@ -19,11 +19,9 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
-import dev.chungjungsoo.gptmobile.data.database.entity.effectiveTimeline
 import dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext
+import dev.chungjungsoo.gptmobile.data.github.GitHubNativeApprovalProgress
 import dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatScreen
-
-private val GITHUB_TERMINAL_RUN_STATUSES = setOf(AgentRunStatus.COMPLETED, AgentRunStatus.FAILED, AgentRunStatus.CANCELED, AgentRunStatus.INTERRUPTED, AgentRunStatus.PARTIAL, AgentRunStatus.EVIDENCE_MISSING, AgentRunStatus.BLOCKED)
 
 /** A real Chat destination supplies its own SavedStateHandle and lifecycle to the standard chat renderer. */
 @Composable
@@ -121,20 +119,14 @@ internal fun GitHubChatConversation(
     }
 }
 
-internal fun GitHubProgrammerState.progressDescription(): String {
-    if (approvals.isNotEmpty()) return "Needs your approval"
-    if (runs.any { it.status.startsWith("WAITING_") }) return "Waiting"
-    val activeIds = runs.filter { it.status !in GITHUB_TERMINAL_RUN_STATUSES }.mapTo(hashSetOf()) { it.runId }
-    if (activeIds.isEmpty()) return activityLabel()
-    return dev.chungjungsoo.gptmobile.presentation.ui.chat.generationActivityLabel(
-        events.filter { it.runId in activeIds },
-        messages.lastOrNull { it.currentRunId in activeIds }?.effectiveTimeline().orEmpty()
-    )
-}
-
 /** Pinned under the repository title on every workspace tab. */
 @Composable
-internal fun GitHubChatProgress(workspace: GitHubWorkspaceState, state: GitHubProgrammerState, engineeringJob: dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringJob? = null) {
+internal fun GitHubChatProgress(
+    workspace: GitHubWorkspaceState,
+    state: GitHubProgrammerState,
+    engineeringJob: dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringJob? = null,
+    nativeProgress: GitHubNativeApprovalProgress? = null
+) {
     val profile = state.profiles.firstOrNull { it.uid == state.context?.mainProfileUid }
     var profileNotice by androidx.compose.runtime.remember(state.chatId, profile?.uid) { androidx.compose.runtime.mutableStateOf<String?>(null) }
     androidx.compose.runtime.LaunchedEffect(state.chatId, profile?.uid) {
@@ -144,21 +136,16 @@ internal fun GitHubChatProgress(workspace: GitHubWorkspaceState, state: GitHubPr
             profileNotice = null
         }
     }
-    val activeRuns = state.runs.filter { it.status !in GITHUB_TERMINAL_RUN_STATUSES }
-    val activeIds = activeRuns.mapTo(hashSetOf()) { it.runId }
-    val generating = state.submitting || state.pending.any { !it.paused } || activeRuns.isNotEmpty()
-    val active = generating || engineeringJob?.terminal == false
+    val progress = androidx.compose.runtime.remember(state, nativeProgress) { state.progressProjection(nativeProgress) }
+    val active = progress.active || engineeringJob?.terminal == false
     if (!active && engineeringJob == null) return
-    val currentTask = (activeRuns.maxByOrNull { it.createdAt } ?: state.runs.maxByOrNull { it.createdAt })?.userMessageId
-    val taskRuns = state.runs.filter { it.userMessageId == currentTask }
     val fallbackStart = androidx.compose.runtime.saveable.rememberSaveable(state.chatId, active) { System.currentTimeMillis() }
-    val started = if (active && activeRuns.isEmpty()) fallbackStart else taskRuns.minOfOrNull { it.createdAt * 1000 }
-    val completed = if (active) null else taskRuns.mapNotNull { it.completedAt }.maxOrNull()?.times(1000)
-    val waiting = state.approvals.isNotEmpty() || activeRuns.any { it.status.startsWith("WAITING_") }
-    val timeline = state.messages.lastOrNull { it.currentRunId in activeIds }?.effectiveTimeline().orEmpty()
+    val trackingAttempt = progress.taskRuns.isNotEmpty() && (progress.waiting || progress.taskRuns.any { it.status !in AgentRunStatus.terminal })
+    val started = if (active && !trackingAttempt) fallbackStart else progress.taskRuns.minOfOrNull { it.createdAt * 1000 }
+    val completed = if (active) null else progress.taskRuns.mapNotNull { it.completedAt }.maxOrNull()?.times(1000)
     dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatGenerationProgress(
-        toolEvents = state.events.filter { it.runId in activeIds },
-        timeline = timeline,
+        toolEvents = progress.toolEvents,
+        timeline = progress.timeline,
         modifier = Modifier.fillMaxWidth().testTag("github_chat_progress").padding(vertical = 4.dp),
         active = active,
         textSizeIncrease = 0,
@@ -167,11 +154,11 @@ internal fun GitHubChatProgress(workspace: GitHubWorkspaceState, state: GitHubPr
         engineeringJob = engineeringJob,
         githubPresentation = true,
         statusOverride = when {
-            waiting -> state.progressDescription()
-            generating -> null
+            progress.waiting -> progress.description
+            progress.generating -> null
             profileNotice != null -> profileNotice
             workspace.busy -> "Refreshing the repository"
-            !active -> state.progressDescription()
+            !active -> progress.description
             else -> null
         }
     )

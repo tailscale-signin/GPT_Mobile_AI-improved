@@ -12,6 +12,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -30,6 +31,107 @@ class DiagnosticDatabaseSource @Inject constructor(
     private val researchDatabase: ResearchDatabase,
     private val workspace: WorkspaceRepository
 ) {
+    /** A small, bounded failure index is emitted before heavier diagnostic sections. */
+    internal suspend fun latestFailureSummary(
+        chatId: Int,
+        appVersion: String,
+        appBuild: Int,
+        appCommit: String,
+        beforeRead: suspend () -> Unit,
+        omitted: (String) -> Unit
+    ): JsonObject = withContext(Dispatchers.IO) {
+        require(chatId > 0)
+        beforeRead()
+        val run = database.openHelper.readableDatabase.query(
+            SimpleSQLiteQuery(
+                "SELECT run_id, status, terminal_error FROM agent_runs WHERE chat_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1",
+                arrayOf<Any?>(chatId)
+            )
+        ).use { cursor ->
+            if (!cursor.moveToFirst()) null else Triple(cursor.getString(0), cursor.getString(1), cursor.getString(2))
+        }
+        var report: JsonObject? = null
+        if (run != null) {
+            beforeRead()
+            val stored = database.openHelper.readableDatabase.query(
+                SimpleSQLiteQuery(
+                    "SELECT id, kind, payload FROM workspace_records WHERE chatId = ? AND runId = ? AND kind IN ('github_evidence','synthesis_checkpoint') AND id GLOB 'github-evidence:*:verification_current_*' ORDER BY updatedAt DESC, rowid DESC LIMIT 1",
+                    arrayOf<Any?>(chatId, run.first)
+                )
+            ).use { cursor ->
+                if (!cursor.moveToFirst()) null else Triple(cursor.getString(0), cursor.getString(1), cursor.getString(2))
+            }
+            if (stored != null) {
+                val protected = workspace.diagnosticPayload(chatId, stored.first, stored.second, stored.third, 256 * 1024, beforeRead, omitted)
+                report = protected.payload as? JsonObject
+                if (protected.protected && report == null) omitted(protected.omissionReason ?: "LATEST_FAILURE_EVIDENCE_UNAVAILABLE")
+            }
+        }
+        fun JsonObject.text(key: String): String? = (this[key] as? JsonPrimitive)?.contentOrNull?.takeIf(String::isNotBlank)
+        fun readFrom(vararg values: JsonObject?, key: String): String? = values.firstNotNullOfOrNull { it?.text(key) }
+        val acceptance = report?.get("acceptance_ledger") as? JsonObject
+        val failureEnvelope = report?.get("verification_failure") as? JsonObject
+        val stopReason = report?.get("stop_reason") as? JsonObject
+        val requirements = ((acceptance?.get("requirements") as? JsonArray).orEmpty() + (report?.get("remaining_requirements") as? JsonArray).orEmpty())
+            .filterIsInstance<JsonObject>()
+        val failed = requirements.firstOrNull { requirement ->
+            val state = requirement.text("acceptance_state") ?: requirement.text("state") ?: requirement.text("status")
+            state != null && state !in setOf("PASS", "VERIFIED", "COMPLETED", "NOT_APPLICABLE", "OUT_OF_SCOPE")
+        }
+        val failureCode = readFrom(failureEnvelope, report, acceptance, key = "code")
+            ?: readFrom(report, acceptance, key = "verification_failure")
+            ?: readFrom(report, acceptance, key = "failure_code")
+            ?: readFrom(report, acceptance, key = "stop_code")
+            ?: stopReason?.text("code")
+            ?: Regex("\\b(?:GITHUB_[A-Z0-9_]+|WAITING_FOR_APPROVAL|PARTIAL_EVIDENCE)\\b").find(run?.third.orEmpty())?.value
+        val testedSha = listOf("tested_sha", "head_sha", "expected_head_sha", "source_head_sha")
+            .firstNotNullOfOrNull { key -> readFrom(report, acceptance, key = key)?.takeIf { it.matches(Regex("(?i)[a-f0-9]{40}")) } }
+        val receiptIds = (
+            failed?.let { criterion ->
+                listOf("receipt_ids", "missing_evidence_ids", "evidence_receipt_ids", "receipt_id").flatMap { key ->
+                    when (val value = criterion[key]) {
+                        is JsonArray -> value.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+                        is JsonPrimitive -> listOfNotNull(value.contentOrNull)
+                        else -> emptyList()
+                    }
+                }
+            } ?: emptyList()
+            ).distinct().take(12)
+        val taskState = readFrom(report, acceptance, key = "task_state")
+        val approvalState = readFrom(report, acceptance, key = "approval_state")
+        val taskOutcome = readFrom(report, acceptance, key = "task_outcome")
+        val verdict = when {
+            taskState == "WAITING_FOR_APPROVAL" || approvalState == "WAITING_FOR_APPROVAL" -> "WAITING_FOR_APPROVAL"
+            report?.get("completion_verified") == JsonPrimitive(true) -> "VERIFIED"
+            failureCode != null -> failureCode
+            taskOutcome != null -> taskOutcome
+            report == null -> run?.second ?: "NOT_RETAINED"
+            else -> report?.text("phase") ?: run?.second ?: "NOT_RECORDED"
+        }
+        buildJsonObject {
+            put("kind", "compact_failure_summary")
+            put("run_id", run?.first?.let(::JsonPrimitive) ?: JsonNull)
+            put("run_status", run?.second?.let(::JsonPrimitive) ?: JsonNull)
+            put("app_version", appVersion)
+            put("app_build", appBuild)
+            put("app_commit", appCommit)
+            put("latest_verdict", verdict)
+            put("task_state", taskState?.let(::JsonPrimitive) ?: JsonNull)
+            put("task_outcome", taskOutcome?.let(::JsonPrimitive) ?: JsonNull)
+            put("stop_code", (readFrom(report, acceptance, key = "stop_code") ?: stopReason?.text("code") ?: failureCode)?.let(::JsonPrimitive) ?: JsonNull)
+            put("approval_state", approvalState?.let(::JsonPrimitive) ?: JsonNull)
+            put("failed_criterion", (failed?.text("requirement") ?: failed?.text("label") ?: failed?.text("id"))?.take(360)?.let(::JsonPrimitive) ?: JsonNull)
+            put("causal_receipt_ids", JsonArray(receiptIds.map(::JsonPrimitive)))
+            put("invocation_id", readFrom(failureEnvelope, report, acceptance, key = "invocation_id")?.let(::JsonPrimitive) ?: JsonNull)
+            put("failed_stage", (readFrom(failureEnvelope, report, acceptance, key = "failed_stage") ?: report?.text("phase"))?.let(::JsonPrimitive) ?: JsonNull)
+            put("failure_code", failureCode?.let(::JsonPrimitive) ?: JsonNull)
+            put("recovery_action", readFrom(report, acceptance, key = "recovery_action")?.let(::JsonPrimitive) ?: JsonNull)
+            put("tested_sha", testedSha?.let(::JsonPrimitive) ?: JsonNull)
+            put("tested_sha_status", if (testedSha == null) "NOT_RETAINED" else "EXACT_SHA_RETAINED")
+            put("captured_at_millis", System.currentTimeMillis())
+        }
+    }
+
     internal suspend fun capture(
         chatId: Int,
         section: String,
@@ -326,10 +428,15 @@ class DiagnosticDatabaseSource @Inject constructor(
                     "t.run_id IN ($latestRun)",
                     listOf("run_id", "profile_uid", "provider_snapshot", "model_snapshot", "status", "created_at", "started_at", "completed_at", "terminal_error", "gateway_job_id", "gateway_last_sequence", "input_tokens", "output_tokens", "total_tokens", "ownership_fence")
                 ),
+                Table(
+                    "provider_waits",
+                    "t.runId IN ($latestRun) AND EXISTS (SELECT 1 FROM agent_runs r WHERE r.run_id = t.runId AND r.status = 'WAITING_PROVIDER_LIMIT' AND r.ownership_fence = t.fence)",
+                    listOf("runId", "fence", "retryAt")
+                ),
                 Table("agent_run_policy_refs", "t.runId IN ($latestRun)"),
                 Table("run_policy_snapshots", "t.chatId = :chatId AND t.digest IN (SELECT digest FROM agent_run_policy_refs WHERE runId IN ($latestRun))"),
                 Table("workspace_records", "t.chatId = :chatId AND ($latestWorkspace)", newestFirst = true),
-                Table("tool_events", "t.rowid IN (SELECT rowid FROM tool_events WHERE run_id IN ($latestRun) ORDER BY rowid DESC LIMIT 1)"),
+                Table("tool_events", "t.rowid IN (SELECT rowid FROM tool_events WHERE run_id IN ($latestRun) ORDER BY rowid DESC LIMIT 8)", newestFirst = true),
                 Table("pending_prompts", "t.rowid IN (SELECT rowid FROM pending_prompts WHERE chatId = :chatId ORDER BY rowid DESC LIMIT 1)")
             )
             "run_index" -> listOf(Table("agent_runs", "t.chat_id = :chatId", listOf("run_id")))

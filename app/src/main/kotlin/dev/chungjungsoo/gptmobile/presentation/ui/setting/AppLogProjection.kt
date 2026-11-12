@@ -26,7 +26,24 @@ internal data class AppLogProjection(
     val hasOlderRows: Boolean = false
 )
 
-internal fun projectAppLogs(entries: List<AppLogEntry>, groups: List<GroupedAppLog>, errorsOnly: Boolean, selectedTag: String, query: String, pageIndex: Int = 0): AppLogProjection {
+/** Cache only the visible page. Immutable unchanged groups do not reformat or reparse their previews. */
+internal class AppLogProjector {
+    private var rows = java.util.IdentityHashMap<GroupedAppLog, AppLogRow>()
+
+    fun project(entries: List<AppLogEntry>, groups: List<GroupedAppLog>, errorsOnly: Boolean, selectedTag: String, query: String, pageIndex: Int = 0): AppLogProjection {
+        val visibleRows = java.util.IdentityHashMap<GroupedAppLog, AppLogRow>()
+        val projection = projectAppLogs(entries, groups, errorsOnly, selectedTag, query, pageIndex) { group ->
+            (rows[group] ?: projectAppLogRow(group)).also { visibleRows[group] = it }
+        }
+        rows = visibleRows
+        return projection
+    }
+}
+
+internal fun projectAppLogs(entries: List<AppLogEntry>, groups: List<GroupedAppLog>, errorsOnly: Boolean, selectedTag: String, query: String, pageIndex: Int = 0): AppLogProjection =
+    projectAppLogs(entries, groups, errorsOnly, selectedTag, query, pageIndex, ::projectAppLogRow)
+
+private fun projectAppLogs(entries: List<AppLogEntry>, groups: List<GroupedAppLog>, errorsOnly: Boolean, selectedTag: String, query: String, pageIndex: Int, row: (GroupedAppLog) -> AppLogRow): AppLogProjection {
     val matching = groups.filter { group ->
         (!errorsOnly || group.incidentIds.isNotEmpty()) &&
             group.rawDetails.any { entry ->
@@ -41,24 +58,28 @@ internal fun projectAppLogs(entries: List<AppLogEntry>, groups: List<GroupedAppL
         warningEvents = entries.count { it.level == "W" || it.level == "E" || it.level == "F" },
         errorEvents = entries.count { it.level == "E" || it.level == "F" },
         tags = listOf("All tags") + entries.map { it.tag }.distinct().sorted(),
-        rows = visible.map { group ->
-            val line = group.entry.line()
-            AppLogRow(
-                // The representative may become an error later; the group's
-                // original event remains its identity as new records arrive.
-                key = group.rawDetails.firstOrNull()?.eventId ?: group.entry.eventId,
-                group = group,
-                preview = line.take(2000) +
-                    (if (line.length > 2000) "\n… Open raw details for the full event." else "") +
-                    (if (group.repetitions > 1) "\n× ${group.repetitions} · last ${java.time.Instant.ofEpochMilli(group.lastTime)}" else ""),
-                severity = classifyDiagnostic(group.entry.level, group.entry.tag, group.entry.message).severity,
-                hasDetails = group.repetitions > 1 || line.length > 2000
-            )
-        },
+        rows = visible.map(row),
         visibleEvents = visible.sumOf { it.repetitions },
-        visibleIssues = visible.flatMap { it.incidentIds }.distinct().size,
+        visibleIssues = visible.flatMap { it.unresolvedIncidentIds }.distinct().size,
         matchingRows = matching.size,
         pageIndex = page,
         hasOlderRows = (page + 1) * 100 < matching.size
+    )
+}
+
+private fun projectAppLogRow(group: GroupedAppLog): AppLogRow {
+    val line = group.entry.line()
+    val recovered = group.incidentIds.isNotEmpty() && group.unresolvedIncidentIds.isEmpty()
+    return AppLogRow(
+        // The representative may become an error later; the group's
+        // original event remains its identity as new records arrive.
+        key = group.rawDetails.firstOrNull()?.eventId ?: group.entry.eventId,
+        group = group,
+        preview = line.take(2000) +
+            (if (line.length > 2000) "\n… Open raw details for the full event." else "") +
+            (if (group.repetitions > 1) "\n× ${group.repetitions} · last ${java.time.Instant.ofEpochMilli(group.lastTime)}" else "") +
+            (if (recovered) "\nRecovered; original events retained." else ""),
+        severity = if (recovered) "info" else classifyDiagnostic(group.entry.level, group.entry.tag, group.entry.message).severity,
+        hasDetails = group.repetitions > 1 || line.length > 2000
     )
 }

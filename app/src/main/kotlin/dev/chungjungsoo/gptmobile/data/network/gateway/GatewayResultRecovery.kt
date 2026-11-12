@@ -20,6 +20,29 @@ import kotlinx.serialization.json.doubleOrNull
 /** A saved result is evidence, never permission to dispatch its tool calls again. */
 enum class GatewayResultDisposition { COMPLETE, PARTIAL, FAILED, WAITING, UNAVAILABLE }
 
+private val savedGatewayControlTag = Regex("<(/?)(think|analysis|reasoning|tool_call)(?:\\s[^>]*)?>", RegexOption.IGNORE_CASE)
+
+/** Older gateways retain inline control blocks in their raw result. Project only the answer, preserving its layout. */
+private fun String.visibleSavedGatewayAnswer(): String? {
+    val hiddenBlocks = ArrayDeque<String>()
+    val visible = StringBuilder(length)
+    var cursor = 0
+    for (tag in savedGatewayControlTag.findAll(this)) {
+        if (hiddenBlocks.isEmpty()) visible.append(this, cursor, tag.range.first)
+        val name = tag.groupValues[2].lowercase()
+        if (tag.groupValues[1].isEmpty()) {
+            hiddenBlocks.addLast(name)
+        } else if (hiddenBlocks.lastOrNull() == name) {
+            hiddenBlocks.removeLast()
+        }
+        cursor = tag.range.last + 1
+    }
+    // Unclosed or mismatched control blocks remain hidden. The raw receipt is
+    // unchanged and can still explain why no complete answer was recoverable.
+    if (hiddenBlocks.isEmpty()) visible.append(this, cursor, length)
+    return visible.toString().takeIf(String::isNotBlank)
+}
+
 /** Only the gateway's durable job envelope can prove that all of its model rounds excluded server tools. */
 val GatewayJobResult.hasClientOwnedExecutionProof: Boolean
     get() = job?.let {
@@ -31,13 +54,22 @@ val GatewayJobResult.hasClientOwnedExecutionProof: Boolean
     } == true
 
 val GatewayJobResult.recoverableContent: String?
-    get() = content?.takeIf(String::isNotBlank)
-        ?: result?.choices?.firstOrNull()?.effectiveDelta?.content?.takeIf(String::isNotBlank)
+    get() = (
+        content?.takeIf(String::isNotBlank)
+            ?: result?.choices?.firstOrNull()?.effectiveDelta?.content?.takeIf(String::isNotBlank)
+        )
+        ?.visibleSavedGatewayAnswer()
 
 val GatewayJobResult.recoveryDisposition: GatewayResultDisposition
     get() = when {
+        // Additive terminal receipts must agree with the retained status. They
+        // never authorize a model/tool replay, including malformed handoffs.
+        terminal == false && status.lowercase() in setOf("completed", "failed", "cancelled", "canceled", "interrupted") -> GatewayResultDisposition.UNAVAILABLE
+        terminal == true && status.lowercase() in setOf("queued", "pending", "running", "resuming", "waiting_for_client_tool") -> GatewayResultDisposition.UNAVAILABLE
+        continuationAllowed == true && !status.equals("waiting_for_client_tool", true) -> GatewayResultDisposition.UNAVAILABLE
         status.lowercase() in setOf("failed", "cancelled", "canceled", "interrupted") -> GatewayResultDisposition.FAILED
-        status.lowercase() in setOf("running", "resuming", "waiting_for_client_tool") -> GatewayResultDisposition.WAITING
+        status.lowercase() in setOf("queued", "pending", "running", "resuming", "waiting_for_client_tool") -> GatewayResultDisposition.WAITING
+        resultAvailable == false -> GatewayResultDisposition.UNAVAILABLE
         !status.equals("completed", true) || error != null || structuredError != null || result?.error != null || recoverableContent == null -> GatewayResultDisposition.UNAVAILABLE
         result?.choices.orEmpty().any { !it.effectiveDelta.toolCalls.isNullOrEmpty() } -> GatewayResultDisposition.UNAVAILABLE
         resultQuality == "partial" || result?.choices.orEmpty().any { it.finishReason == "length" } -> GatewayResultDisposition.PARTIAL

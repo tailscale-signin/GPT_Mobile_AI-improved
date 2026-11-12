@@ -113,3 +113,43 @@ restart, expiry, wrong verifiers, replay, uncertain exchange, redaction, hostile
 origins, HTTPS, request limits and rate limiting. Live app registration, consent,
 refresh rotation, organization SSO, passkeys and device acceptance remain separate
 release requirements.
+
+## Hosted Android issue reporting
+
+The Compact report dialog and Debug Mode prompt send approved reports to
+`POST /v1/issue-reports` on a project-owned HTTPS origin. The reporter runs
+independently of the OAuth broker. It creates issues only in
+`tailscale-signin/GPT_Mobile_AI-improved` and returns the issue number.
+
+Register a dedicated GitHub App, grant repository `Issues: write` and install
+it on the app repository. Set the following in the reporter's environment.
+
+| Variable | Value |
+| --- | --- |
+| `ISSUE_REPORT_ORIGIN` | Public HTTPS origin, such as `https://reports.example.org` |
+| `GITHUB_REPORT_APP_ID` | Reporting GitHub App ID |
+| `GITHUB_REPORT_APP_SLUG` | Reporting App slug used to match its issues during reconciliation |
+| `GITHUB_REPORT_INSTALLATION_ID` | Installation ID for the app repository |
+| `GITHUB_REPORT_PRIVATE_KEY_FILE` | Path to the reporter's server-only RSA private key |
+| `GITHUB_REPORT_RATE_KEY` | Secret with at least 32 bytes of key material for hashing client addresses |
+| `GITHUB_REPORT_STATE_DB` | SQLite file on a persistent private volume shared by the reporter's workers |
+
+Use the same hash-pinned dependencies as the OAuth broker and run
+`uvicorn authentication.issue_report_app:from_environment --factory --host 127.0.0.1 --port 8042 --no-access-log`.
+Place the reporter behind the trusted HTTPS reverse proxy. Configure the proxy
+to forward the canonical host and scheme, pass client addresses only from a
+trusted hop, limit bodies to 8 KiB and keep report bodies out of access logs.
+Check `/health/ready` against that origin. The database retains report IDs,
+payload digests, cooldowns and issue receipts. The issue body goes to GitHub.
+A request with an uncertain GitHub outcome remains pending while the service
+looks for the original issue.
+
+Deploy the reporter and its persistent database before shipping builds, then set
+the repository Actions variable `ISSUE_REPORT_ORIGIN` to its public HTTPS origin
+for release workflows. Production APK and bundle packaging requires a fixed
+HTTPS origin. Pull request compilation and lint can run before deployment. For local
+release builds, pass `-PISSUE_REPORT_ORIGIN=…` or set the environment variable
+`ISSUE_REPORT_ORIGIN`. Debug builds may omit it; the dialog reports that issue
+submission is unavailable in those builds. Validate the service with
+`python -m unittest authentication.test_app`. The hosted HTTP tests use a
+simulated GitHub publisher.

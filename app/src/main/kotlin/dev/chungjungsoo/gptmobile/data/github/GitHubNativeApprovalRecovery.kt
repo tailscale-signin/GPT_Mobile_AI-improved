@@ -14,7 +14,11 @@ import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.put
 
 /** WorkManager owns recovery. Durable task and conversation receipts supply all authority. */
 @Singleton
@@ -45,9 +49,28 @@ class GitHubNativeApprovalRecovery @Inject constructor(
         val task = engineering.task(taskId) ?: return true
         val frozen = engineering.run(taskId) ?: return true
         val chatId = GitHubApprovalBinding.originalChat(store, taskId) ?: return true
-        val scope = settings.getFeatureSettings().conversationGitHub[chatId] ?: return true
+        val originalScope = GitHubApprovalBinding.boundWorkspace(store, taskId, chatId, frozen.connectionUid, task.repositoryOwner, task.repositoryName, task.workingBranch, task.baseSha, frozen.patchDigest) ?: return true
+        val configuredScope = settings.getFeatureSettings().conversationGitHub[chatId]
+        val scope = configuredScope ?: originalScope
+        if (!scope.sameWorkspace(originalScope)) return true
         if (scope.connectionUid != frozen.connectionUid || !scope.owner.equals(task.repositoryOwner, true) || !scope.repo.equals(task.repositoryName, true)) return true
         val source = GitHubApprovalBinding.source(store, taskId, scope, task.workingBranch)?.takeIf { it.chatId == chatId } ?: return true
+        val expiresAt = frozen.approvalExpiresAtEpochMs
+        if (task.state in setOf("AWAITING_APPROVAL", "COMMITTING") &&
+            expiresAt != null &&
+            expiresAt <= System.currentTimeMillis() &&
+            GitHubApprovalBinding.events(store, taskId).none { (it["event"] as? JsonPrimitive)?.contentOrNull == "approval_card_expired" }
+        ) {
+            GitHubApprovalBinding.recordEvent(
+                store,
+                taskId,
+                "approval_card_expired",
+                buildJsonObject {
+                    put("branch", task.workingBranch)
+                    put("approval_expires_at_epoch_ms", expiresAt)
+                }
+            )
+        }
         val room = database.agentPersistenceDao().getChatRoom(chatId) ?: return true
         if (room.isArchived || room.activePlatform != listOf(scope.mainProfileUid)) return true
         val original = database.agentPersistenceDao().rawRecoveryMessage(source.messageId)?.takeIf { it.chatId == chatId && it.platformType == null } ?: return true
@@ -55,21 +78,44 @@ class GitHubNativeApprovalRecovery @Inject constructor(
         if (source.model != profile.model || source.profileContract != GitHubApprovalBinding.profileContract(profile.compatibleType.name, profile.apiUrl, profile.providerConnectionUid, profile.reasoning)) return true
         if (settings.providerActivationRequired(profile) || FreeProviderPreflight.check(profile) != null) return true
 
+        suspend fun workspaceStillCurrent(): Boolean {
+            val features = settings.getFeatureSettings()
+            val current = features.conversationGitHub[chatId]
+            if (current != null) return current.sameWorkspace(scope)
+            val selected = settings.fetchPlatformV2s().singleOrNull { it.uid == scope.mainProfileUid } ?: return false
+            return configuredScope == null &&
+                selected.enabled &&
+                !selected.disableAllTools &&
+                !selected.disableRemoteTools &&
+                selected.model == source.model &&
+                GitHubApprovalBinding.profileContract(selected.compatibleType.name, selected.apiUrl, selected.providerConnectionUid, selected.reasoning) == source.profileContract &&
+                features.remoteMcpConnections &&
+                features.isToolPluginEnabledForProfile(selected.uid, dev.chungjungsoo.gptmobile.data.model.ToolPluginId.GITHUB) &&
+                features.isToolPluginEnabledForProfile(selected.uid, dev.chungjungsoo.gptmobile.data.model.ToolPluginId.connection(scope.connectionUid)) &&
+                GitHubApprovalBinding.boundWorkspace(store, taskId, chatId, frozen.connectionUid, task.repositoryOwner, task.repositoryName, task.workingBranch, task.baseSha, frozen.patchDigest) == originalScope
+        }
+
+        suspend fun continuationPayload(bound: GitHubConversationContext) = PendingPromptPayload(
+            profileUids = listOf(profile.uid),
+            models = mapOf(profile.uid to profile.model),
+            // Ordinary-chat recovery keeps ordinary profile policy. Injecting a
+            // GitHub context here would also activate workspace tool/budget overrides.
+            tools = ChatMcpToolConfig(allowAllByDefault = false, enabledToolIds = setOf(scope.connectionUid), github = bound.takeIf { configuredScope != null }),
+            recovery = GitHubNativeContinuation.recovery(taskId, source, profile.uid, database.agentPersistenceDao().getMessages(chatId))
+        )
+
         suspend fun queuePublication(): Boolean {
             val publication = engineering.verifiedPublication(taskId) ?: return false
             val continuation = GitHubApprovalBinding.continuation(store, taskId, scope, task.workingBranch, publication) ?: return true
             val commit = continuation.sha
             val bound = if (scope.ref == continuation.branch) scope.copy(commitSha = commit, stagedFileCount = 0, recentCommits = emptyList(), observedAtMillis = null) else scope
-            if (settings.getFeatureSettings().conversationGitHub[chatId]?.sameWorkspace(scope) != true) return false
-            val text = "GitHub workspace: ${scope.owner}/${scope.repo}\nBranch: ${bound.ref}\n\nCommit $commit was approved and published. Continue from the saved task using this exact commit. Subscribe with github_watch_checks when CI is pending; do not repeat the commit."
+            if (!workspaceStillCurrent()) return false
+            val retainedFixture = GitHubApprovalBinding.fixtureKept(store, taskId)
+            val text = "GitHub workspace: ${scope.owner}/${scope.repo}\nBranch: ${bound.ref}\n\n" + GitHubNativeContinuation.publication(commit, retainedFixture)
             queue.enqueue(
                 chatId,
                 text,
-                PendingPromptPayload(
-                    profileUids = listOf(profile.uid),
-                    models = mapOf(profile.uid to profile.model),
-                    tools = ChatMcpToolConfig(allowAllByDefault = false, enabledToolIds = setOf(scope.connectionUid), github = bound)
-                ),
+                continuationPayload(bound),
                 "github-approved-commit:$commit"
             )
             GitHubApprovalBinding.continuationQueued(store, taskId, commit)
@@ -77,6 +123,37 @@ class GitHubNativeApprovalRecovery @Inject constructor(
         }
 
         if (queuePublication()) return true
+        val nativeState = engineering.approvalStatus(taskId, scope.connectionUid, GitHubEngineeringApi.root(scope.owner, scope.repo))
+        val nativeCancellationConfirmed = task.state == "CANCELLED" &&
+            nativeState?.let {
+                it["cancelled_before_publication"] == JsonPrimitive(true) && it["publication_may_have_started"] == JsonPrimitive(false)
+            } == true
+        val rejectionWasClicked = GitHubApprovalBinding.events(store, taskId).any { event ->
+            event["event"] == JsonPrimitive("approval_card_clicked") &&
+                (event["details"] as? JsonObject)?.get("choice") == JsonPrimitive("REJECT")
+        }
+        if (nativeCancellationConfirmed && rejectionWasClicked && !GitHubApprovalBinding.cancellationConfirmed(store, taskId)) {
+            GitHubApprovalBinding.markDecision(store, taskId, scope, task.workingBranch, automatic = false, cancellationConfirmed = true)
+        }
+        val cancelledBeforePublication = nativeCancellationConfirmed && GitHubApprovalBinding.cancellationConfirmed(store, taskId)
+        if (cancelledBeforePublication) {
+            val changes = GitHubEngineeringAuthorization.files(frozen.patchJson)
+            val isIntegrationFixture = GitHubTestChecklist.integration(original.content) &&
+                eligibleAutomaticEngineeringPatch(task.workingBranch, frozen.policyBranch, changes)
+            if (isIntegrationFixture && !GitHubApprovalBinding.cancellationContinuationQueued(store, taskId)) {
+                if (!workspaceStillCurrent()) return false
+                val retainFixture = GitHubApprovalBinding.fixtureKept(store, taskId)
+                val text = "GitHub workspace: ${scope.owner}/${scope.repo}\nBranch: ${scope.ref}\n\n" + GitHubNativeContinuation.cancellation(taskId, retainFixture)
+                queue.enqueue(
+                    chatId,
+                    text,
+                    continuationPayload(scope),
+                    "github-cancelled-approval-cleanup:$taskId"
+                )
+                GitHubApprovalBinding.markCancellationContinuationQueued(store, taskId)
+            }
+            return true
+        }
         if (!allowApproval || task.state !in setOf("AWAITING_APPROVAL", "COMMITTING")) return true
         val request = GitHubTaskContinuity.request(original.content)
         if (GitHubTaskContinuity.control(request) || GatewayOwnedTurnPolicy.scope(request) != "implement" || task.requiresHardwareVerification) return true
@@ -98,7 +175,7 @@ class GitHubNativeApprovalRecovery @Inject constructor(
         if (!authority()) return true
         val sourceRun = database.agentRunDao().getByChatId(chatId).lastOrNull { it.userMessageId == source.messageId && it.profileUid == scope.mainProfileUid } ?: return false
         if (sourceRun.status in setOf(AgentRunStatus.QUEUED, AgentRunStatus.RUNNING)) return false
-        if (sourceRun.status != AgentRunStatus.BLOCKED || !GitHubApprovalBinding.isApprovalPause(sourceRun.terminalError)) return true
+        if (sourceRun.status !in setOf(AgentRunStatus.BLOCKED, AgentRunStatus.WAITING_FOR_APPROVAL) || !GitHubApprovalBinding.isApprovalPause(sourceRun.terminalError)) return true
 
         if (task.state == "AWAITING_APPROVAL") {
             engineering.approve(taskId, frozen.patchDigest, ::authority)
@@ -119,9 +196,11 @@ class GitHubNativeApprovalRecovery @Inject constructor(
 
 internal fun eligibleAutomaticEngineeringPatch(branch: String, defaultBranch: String, changes: List<EngineeringFilePatch>): Boolean =
     branch.isNotBlank() &&
+        branch.matches(Regex("codex-self-test/[a-f0-9]{20}")) &&
         defaultBranch.isNotBlank() &&
         branch != defaultBranch &&
         changes.isNotEmpty() &&
+        changes.all { it.path.startsWith("docs/codex-self-test/${branch.substringAfterLast('/')}/") } &&
         changes.none {
             val path = it.path.lowercase(java.util.Locale.ROOT)
             it.delete || path.startsWith(".github/") || path in setOf(".gitmodules", "codeowners", "docs/codeowners")

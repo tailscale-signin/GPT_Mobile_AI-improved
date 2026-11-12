@@ -7,6 +7,8 @@ import io.ktor.client.engine.mock.respond
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -86,12 +88,158 @@ class GatewayJobClientTest {
                 calls++
                 assertEquals(HttpMethod.Get, request.method)
                 assertEquals("/v1/gateway/commands/persisted-command", request.url.encodedPath)
+                assertEquals("true", request.url.parameters["include_outcome"])
                 respond("Unknown command", HttpStatusCode.NotFound)
             }
         ) { install(HttpTimeout) }.use { http ->
             assertEquals(null, GatewayJobClient(http).command(config, "persisted-command"))
         }
         assertEquals(1, calls)
+    }
+
+    @Test fun durableRejectionRequiresOriginalCommandIdentityAndProofOfNoDispatch() = runBlocking {
+        val outcome = GatewayCommandRejection(1, "gateway", "owner", "command", "engineering", "rejected", "EXECUTION_MODEL_LOADING", 409, "provider_admission", "not_dispatched", false)
+        for (candidate in listOf(outcome, outcome.copy(commandId = "other-command"), outcome.copy(inferenceAttempted = true), outcome.copy(dispatchState = "unknown"))) {
+            HttpClient(
+                MockEngine { request ->
+                    assertEquals(HttpMethod.Get, request.method)
+                    respond(Json.encodeToString(candidate))
+                }
+            ) { install(HttpTimeout) }.use { http ->
+                val client = GatewayJobClient(http)
+                val failure = runCatching { client.command(config, "command") }.exceptionOrNull()
+                val passiveFailure = runCatching { client.observeCommand(config, "command") }.exceptionOrNull()
+                if (candidate == outcome) {
+                    assertTrue(failure is GatewayCommandRejected)
+                    assertTrue(passiveFailure is GatewayCommandRejected)
+                    assertEquals(outcome, (failure as GatewayCommandRejected).outcome)
+                    assertEquals("EXECUTION_MODEL_LOADING", failure.errorCode)
+                    assertEquals("provider_admission", failure.failedStage)
+                } else {
+                    assertTrue(failure is GatewayAdmissionException)
+                    assertTrue(passiveFailure is GatewayAdmissionException)
+                    assertEquals(GatewayAdmissionReason.INVALID_RESPONSE, (failure as GatewayAdmissionException).reason)
+                }
+            }
+        }
+    }
+
+    @Test fun passiveMissingCommandsBackOffToOneMinuteWithoutDispatchingOrForgettingThem() = runBlocking {
+        var now = 0L
+        var calls = 0
+        HttpClient(
+            MockEngine { request ->
+                calls++
+                assertEquals(HttpMethod.Get, request.method)
+                assertEquals("/v1/gateway/commands/persisted-command", request.url.encodedPath)
+                assertEquals("true", request.url.parameters["include_outcome"])
+                respond("Unknown command", HttpStatusCode.NotFound)
+            }
+        ) { install(HttpTimeout) }.use { http ->
+            val client = GatewayJobClient(http, now = { now })
+            for ((at, expected) in listOf(0L to 1, 4_999L to 1, 5_000L to 2, 14_999L to 2, 15_000L to 3, 34_999L to 3, 35_000L to 4, 74_999L to 4, 75_000L to 5, 134_999L to 5, 135_000L to 6)) {
+                now = at
+                assertEquals(null, client.observeCommand(config, "persisted-command"))
+                assertEquals("Polling at $at", expected, calls)
+            }
+        }
+    }
+
+    @Test fun explicitReconciliationBypassesAbsenceAndAcceptedReceiptsResetObserverBackoff() = runBlocking {
+        var now = 0L
+        var calls = 0
+        var accepted = false
+        HttpClient(
+            MockEngine { request ->
+                calls++
+                assertEquals(HttpMethod.Get, request.method)
+                if (accepted) {
+                    respond("""{"schema_version":1,"gateway_id":"gateway","principal_id":"owner","command_id":"saved","conversation_id":"conversation","job_kind":"generation","job_id":"job"}""")
+                } else {
+                    respond("Unknown command", HttpStatusCode.NotFound)
+                }
+            }
+        ) { install(HttpTimeout) }.use { http ->
+            val client = GatewayJobClient(http, now = { now })
+            assertEquals(null, client.observeCommand(config, "saved"))
+            accepted = true
+            assertEquals("job", client.command(config, "saved")?.jobId)
+            assertEquals(2, calls)
+            assertEquals("job", client.observeCommand(config, "saved")?.jobId)
+            assertEquals(3, calls)
+            accepted = false
+            assertEquals(null, client.observeCommand(config, "saved"))
+            assertEquals(4, calls)
+            now = 5_000
+            assertEquals(null, client.observeCommand(config, "saved"))
+            assertEquals(5, calls)
+        }
+    }
+
+    @Test fun passiveCommandAbsenceNeverCrossesEndpointCredentialsPrincipalOrCommandIdentity() = runBlocking {
+        var calls = 0
+        HttpClient(
+            MockEngine {
+                calls++
+                respond("Unknown command", HttpStatusCode.NotFound)
+            }
+        ) { install(HttpTimeout) }.use { http ->
+            val client = GatewayJobClient(http, now = { 0L })
+            val scopes = listOf(
+                config,
+                config.copy(apiUrl = "http://192.168.1.10:8090/v1"),
+                config.copy(token = "different-fixture-account"),
+                config.copy(extraHeaders = mapOf("X-Gateway-Principal-ID" to "other-owner")),
+                config.copy(extraHeaders = mapOf("X-Gateway-Installation-ID" to "other-installation"))
+            )
+            for ((index, scope) in scopes.withIndex()) {
+                assertEquals(null, client.observeCommand(scope, "saved"))
+                assertEquals(index + 1, calls)
+                assertEquals(null, client.observeCommand(scope, "saved"))
+                assertEquals(index + 1, calls)
+            }
+            assertEquals(null, client.observeCommand(config, "different-command"))
+            assertEquals(6, calls)
+        }
+    }
+
+    @Test fun concurrentPassiveObserversShareOneMissingCommandRead() = runBlocking {
+        var calls = 0
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        HttpClient(
+            MockEngine {
+                calls++
+                entered.complete(Unit)
+                release.await()
+                respond("Unknown command", HttpStatusCode.NotFound)
+            }
+        ) { install(HttpTimeout) }.use { http ->
+            val client = GatewayJobClient(http, now = { 0L })
+            val first = async { client.observeCommand(config, "saved") }
+            entered.await()
+            val second = async { client.observeCommand(config, "saved") }
+            release.complete(Unit)
+            assertEquals(null, first.await())
+            assertEquals(null, second.await())
+            assertEquals(1, calls)
+        }
+    }
+
+    @Test fun authenticationFailuresCannotBecomeCachedMissingCommands() = runBlocking {
+        var calls = 0
+        HttpClient(
+            MockEngine {
+                calls++
+                respond("Unauthorized", HttpStatusCode.Unauthorized)
+            }
+        ) { install(HttpTimeout) }.use { http ->
+            val client = GatewayJobClient(http, now = { 0L })
+            repeat(2) {
+                assertTrue(runCatching { client.observeCommand(config, "saved") }.exceptionOrNull() is GatewayAdmissionException)
+            }
+        }
+        assertEquals(2, calls)
     }
 
     @Test fun fullLargeTranscriptMessageUsesItsOwnBoundWithoutRelaxingCatalogLimits() = runBlocking {

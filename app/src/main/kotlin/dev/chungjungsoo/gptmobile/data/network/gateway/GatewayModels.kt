@@ -144,7 +144,11 @@ data class GatewayJobResult(
     @Serializable(with = GatewayEpochSecondsSerializer::class)
     val completedAt: Long? = null,
     val result: dev.chungjungsoo.gptmobile.data.dto.openai.response.ChatCompletionChunk? = null,
-    val job: GatewaySavedJob? = null
+    val job: GatewaySavedJob? = null,
+    val terminal: Boolean? = null,
+    @SerialName("result_available") val resultAvailable: Boolean? = null,
+    @SerialName("continuation_allowed") val continuationAllowed: Boolean? = null,
+    @SerialName("next_action") val nextAction: String? = null
 )
 
 @Serializable

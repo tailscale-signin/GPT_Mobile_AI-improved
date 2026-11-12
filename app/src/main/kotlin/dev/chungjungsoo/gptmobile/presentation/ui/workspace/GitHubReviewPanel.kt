@@ -46,7 +46,9 @@ import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
@@ -78,11 +80,22 @@ class GitHubReviewViewModel @Inject constructor(private val connections: ToolCon
     private val dismissedCommitTasks = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     internal val pendingEngineeringTask = MutableStateFlow<String?>(null)
     internal val decisionReceipts = MutableStateFlow<List<dev.chungjungsoo.gptmobile.data.github.GitHubNativeDecisionReceipt>>(emptyList())
+    internal val nativeApprovalProgress = MutableStateFlow<dev.chungjungsoo.gptmobile.data.github.GitHubNativeApprovalProgress?>(null)
+    internal val conversationApproval = MutableStateFlow<GitHubConversationApprovalState?>(null)
+    private val nativeProgressRevision = java.util.concurrent.atomic.AtomicLong()
+    private val conversationObservationRevision = java.util.concurrent.atomic.AtomicLong()
+    private var conversationApprovalConnections = emptySet<String>()
     internal val programmerScope = MutableStateFlow<dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext?>(null)
 
     @Volatile private var programmerChatId: Int? = null
     fun restrictTo(scope: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext?, chatId: Int? = null) {
+        conversationApproval.value = null
+        selectScope(scope, chatId)
+    }
+    private fun selectScope(scope: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext?, chatId: Int?, refresh: Boolean = true) {
         if (programmerScope.value == scope && programmerChatId == chatId) return
+        nativeProgressRevision.incrementAndGet()
+        nativeApprovalProgress.value = null
         programmerScope.value = scope
         programmerChatId = chatId
         engineeringTasks.value = emptyList()
@@ -93,39 +106,50 @@ class GitHubReviewViewModel @Inject constructor(private val connections: ToolCon
         review.value = null
         record.value = null
         notice.value = ""
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) { refreshEngineeringTasksNow() }
+        if (refresh) viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) { refreshEngineeringTasksNow() }
     }
     private suspend fun refreshEngineeringTasksNow() {
         val scope = programmerScope.value
         val chatId = programmerChatId
-        val recent = engineering.recent()
-        val tasks = recent.filter { task -> scope == null || belongsToWorkspace(task, scope) }
-        val receipts = mutableListOf<dev.chungjungsoo.gptmobile.data.github.GitHubNativeDecisionReceipt>()
-        if (scope != null && gitHubRepositoryState != null) {
-            tasks.forEach { task ->
-                val publication = engineering.verifiedPublication(task.taskId)
-                if (publication == null && task.state != "CANCELLED") return@forEach
-                val run = engineering.run(task.taskId) ?: return@forEach
-                val cancelled = task.state == "CANCELLED" &&
-                    engineering.approvalStatus(
+        val revision = nativeProgressRevision.incrementAndGet()
+        fun current() = programmerScope.value == scope && programmerChatId == chatId && nativeProgressRevision.get() == revision
+        try {
+            val recent = if (conversationApproval.value != null) engineering.recoveryTasks() else engineering.recent()
+            val tasks = recent.filter { task -> if (scope == null) chatId == null else belongsToWorkspace(task, scope) }
+            val receipts = mutableListOf<dev.chungjungsoo.gptmobile.data.github.GitHubNativeDecisionReceipt>()
+            val progressTasks = mutableListOf<dev.chungjungsoo.gptmobile.data.github.GitHubNativeApprovalProgress.Task>()
+            if (scope != null && gitHubRepositoryState != null) {
+                tasks.forEach { task ->
+                    val source = GitHubApprovalBinding.source(gitHubRepositoryState, task.taskId, scope, task.workingBranch)
+                    progressTasks += dev.chungjungsoo.gptmobile.data.github.GitHubNativeApprovalProgress.Task(task.taskId, task.workingBranch, task.state, source?.chatId, source?.messageId)
+                    val publication = engineering.verifiedPublication(task.taskId)
+                    if (publication == null && task.state != "CANCELLED") return@forEach
+                    val run = engineering.run(task.taskId) ?: return@forEach
+                    val cancelled = task.state == "CANCELLED" &&
+                        engineering.approvalStatus(
+                            task.taskId,
+                            scope.connectionUid,
+                            dev.chungjungsoo.gptmobile.data.agent.tool.GitHubEngineeringApi.root(scope.owner, scope.repo)
+                        )?.get("cancelled_before_publication") == kotlinx.serialization.json.JsonPrimitive(true)
+                    GitHubApprovalBinding.receipt(
+                        gitHubRepositoryState,
                         task.taskId,
-                        scope.connectionUid,
-                        dev.chungjungsoo.gptmobile.data.agent.tool.GitHubEngineeringApi.root(scope.owner, scope.repo)
-                    )?.get("cancelled_before_publication") == kotlinx.serialization.json.JsonPrimitive(true)
-                dev.chungjungsoo.gptmobile.data.github.GitHubApprovalBinding.receipt(
-                    gitHubRepositoryState,
-                    task.taskId,
-                    scope,
-                    task.workingBranch,
-                    run.commitMessage,
-                    publication,
-                    cancelled
-                )?.let(receipts::add)
+                        scope,
+                        task.workingBranch,
+                        run.commitMessage,
+                        publication,
+                        cancelled
+                    )?.let(receipts::add)
+                }
             }
-        }
-        if (programmerScope.value == scope && programmerChatId == chatId) {
-            engineeringTasks.value = tasks
-            decisionReceipts.value = receipts
+            if (current()) {
+                engineeringTasks.value = tasks
+                decisionReceipts.value = receipts
+                nativeApprovalProgress.value = scope?.let { dev.chungjungsoo.gptmobile.data.github.GitHubNativeApprovalProgress(it, chatId, progressTasks, receipts) }
+            }
+        } catch (error: Exception) {
+            if (current()) nativeApprovalProgress.value = null
+            throw error
         }
     }
     private suspend fun belongsToWorkspace(task: dev.chungjungsoo.gptmobile.data.agent.tool.EngineeringTaskRow, scope: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext): Boolean {
@@ -255,9 +279,37 @@ class GitHubReviewViewModel @Inject constructor(private val connections: ToolCon
         approveCommitNow(taskId, digest, onCommitted)
     }
 
+    fun recordApprovalEvent(taskId: String, event: String) {
+        val scope = programmerScope.value ?: return
+        val store = gitHubRepositoryState ?: return
+        val task = engineeringTasks.value.firstOrNull { it.taskId == taskId } ?: return
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching {
+                GitHubApprovalBinding.recordEvent(
+                    store,
+                    taskId,
+                    event,
+                    buildJsonObject {
+                        put("chat_id", programmerChatId ?: 0)
+                        put("branch", task.workingBranch)
+                        engineering.run(taskId)?.let { put("patch_digest", it.patchDigest) }
+                    }
+                )
+            }
+        }
+    }
+
+    fun keepFixture(taskId: String) = action {
+        val scope = requireNotNull(programmerScope.value) { "Open this approval from its saved GitHub chat." }
+        val task = engineeringTasks.value.single { it.taskId == taskId && it.workingBranch.matches(Regex("codex-self-test/[a-f0-9]{20}")) }
+        GitHubApprovalBinding.keepFixture(requireNotNull(gitHubRepositoryState), taskId, scope, task.workingBranch)
+        notice.value = "Fixture retained by request. Its branch will not be removed after this approval is resolved."
+    }
+
     private suspend fun approveCommitNow(taskId: String, digest: String, onCommitted: (String) -> Unit) {
         val task = engineeringTasks.value.single { it.taskId == taskId }
         val frozen = requireNotNull(engineering.run(taskId))
+        requireConversationApprovalBinding(task, frozen)
         val visible = requireNotNull(review.value)
         require(visible.owner == task.repositoryOwner && visible.repo == task.repositoryName && visible.branch == task.workingBranch && visible.head == task.baseSha)
         require(
@@ -267,8 +319,41 @@ class GitHubReviewViewModel @Inject constructor(private val connections: ToolCon
                 }
             ) == frozen.patchJson
         ) { "The visible patch changed; validate and review it again." }
+        programmerScope.value?.let { scope ->
+            gitHubRepositoryState?.let { store ->
+                runCatching {
+                    GitHubApprovalBinding.recordEvent(
+                        store,
+                        taskId,
+                        "approval_card_clicked",
+                        buildJsonObject {
+                            put("choice", "APPROVE_AND_COMMIT")
+                            put("branch", task.workingBranch)
+                            put("patch_digest", frozen.patchDigest)
+                        }
+                    )
+                }
+            }
+        }
         engineering.approve(taskId, digest)
         val sha = engineering.execute(taskId)
+        programmerScope.value?.let { scope ->
+            gitHubRepositoryState?.let { store ->
+                runCatching {
+                    GitHubApprovalBinding.recordEvent(
+                        store,
+                        taskId,
+                        "approval_card_approved",
+                        buildJsonObject {
+                            put("choice", "APPROVE_AND_COMMIT")
+                            put("branch", task.workingBranch)
+                            put("patch_digest", frozen.patchDigest)
+                            put("published_sha", sha)
+                        }
+                    )
+                }
+            }
+        }
         review.value?.let { proposal ->
             save(proposal.copy(head = sha, files = emptyList(), checks = JsonObject(emptyMap()), reviewNotes = "Commit $sha published; repository-required CI is being monitored."))
         }
@@ -308,7 +393,7 @@ class GitHubReviewViewModel @Inject constructor(private val connections: ToolCon
     fun reviewEngineering(taskId: String) = action { reviewEngineeringNow(taskId) }
     private suspend fun reviewEngineeringNow(taskId: String) {
         val scope = programmerScope.value
-        val task = engineering.recent().single { it.taskId == taskId }
+        val task = engineeringTasks.value.firstOrNull { it.taskId == taskId } ?: engineering.recent().single { it.taskId == taskId }
         val run = requireNotNull(engineering.run(taskId))
         require(scope == null || belongsToWorkspace(task, scope)) { "This proposal belongs to another workspace." }
         require(scope != null || review.value?.files?.none { it.changed } != false || selectedEngineeringRun.value?.taskId == taskId) { "Save or discard the current proposal before reviewing a saved task." }
@@ -352,22 +437,185 @@ class GitHubReviewViewModel @Inject constructor(private val connections: ToolCon
             }
         }
     }
+
+    /** A saved approval belongs to its source chat even when that chat has no GitHub display mode. */
+    suspend fun observeConversationApproval(chatId: Int, availableConnectionUids: Set<String>, requestedTaskId: String? = null) {
+        if (chatId <= 0) return
+        val revision = conversationObservationRevision.incrementAndGet()
+        conversationApprovalConnections = availableConnectionUids
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val authorization = settings?.observeFeatureSettings()
+                ?.map { it.toolPluginStates to it.profileBehavior.mapValues { entry -> entry.value.toolPluginStates } }
+                ?.distinctUntilChanged() ?: kotlinx.coroutines.flow.flowOf(null)
+            kotlinx.coroutines.flow.combine(engineering.observeChanges(), GitHubApprovalBinding.observeChanges(), authorization) { _, _, _ -> Unit }.collect {
+                try {
+                    busy.first { !it }
+                    if (conversationObservationRevision.get() != revision) return@collect
+                    refreshConversationApproval(chatId, availableConnectionUids, requestedTaskId)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    if (conversationObservationRevision.get() == revision) {
+                        pendingEngineeringTask.value = null
+                        conversationApproval.value = conversationApproval.value?.copy(
+                            message = "Saved GitHub review is temporarily unavailable. Reopen this conversation to restore the saved patch."
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    internal suspend fun refreshConversationApproval(chatId: Int, availableConnectionUids: Set<String>, requestedTaskId: String? = null) {
+        if (chatId <= 0 || busy.value) return
+        val revision = conversationObservationRevision.get()
+        busy.value = true
+        try {
+            conversationApprovalConnections = availableConnectionUids
+            if (conversationApproval.value?.chatId != chatId) {
+                conversationApproval.value = GitHubConversationApprovalState(chatId)
+                selectScope(null, chatId, refresh = false)
+            }
+            val store = gitHubRepositoryState ?: return
+            val tasks = engineering.recoveryTasks().toMutableList()
+            requestedTaskId?.takeIf { id -> tasks.none { it.taskId == id } }?.let { id -> engineering.task(id)?.let(tasks::add) }
+            val owned = tasks.mapNotNull { task ->
+                val frozen = engineering.run(task.taskId) ?: return@mapNotNull null
+                val scope = GitHubApprovalBinding.boundWorkspace(
+                    store, task.taskId, chatId, frozen.connectionUid, task.repositoryOwner, task.repositoryName,
+                    task.workingBranch, task.baseSha, frozen.patchDigest
+                ) ?: return@mapNotNull null
+                task to scope
+            }
+            if (conversationObservationRevision.get() != revision) return
+            val selected = if (requestedTaskId != null) {
+                owned.firstOrNull { it.first.taskId == requestedTaskId }
+            } else {
+                owned.firstOrNull { it.first.taskId == pendingEngineeringTask.value && it.first.state == "AWAITING_APPROVAL" }
+                    ?: owned.firstOrNull { it.first.state == "AWAITING_APPROVAL" }
+                    ?: owned.firstOrNull { it.first.taskId == conversationApproval.value?.taskId }
+                    ?: owned.firstOrNull()
+            }
+            if (selected == null) {
+                selectScope(null, chatId, refresh = false)
+                conversationApproval.value = GitHubConversationApprovalState(
+                    chatId,
+                    message = requestedTaskId?.let { "This saved approval is unavailable in this conversation. Open the conversation that created the patch." }
+                )
+                return
+            }
+            val (task, scope) = selected
+            selectScope(scope, chatId, refresh = false)
+            val pending = task.state == "AWAITING_APPROVAL"
+            val available = scope.connectionUid in availableConnectionUids && conversationConnectionAllowed(scope)
+            conversationApproval.value = GitHubConversationApprovalState(
+                chatId,
+                task.taskId,
+                pending,
+                available,
+                if (pending && !available) "Enable the saved GitHub connection to review this patch." else null
+            )
+            refreshEngineeringTasksNow()
+            if (!pending || !available) {
+                pendingEngineeringTask.value = null
+                return
+            }
+            if (pendingEngineeringTask.value != task.taskId && task.taskId !in dismissedCommitTasks) {
+                reviewEngineeringNow(task.taskId)
+                if (conversationObservationRevision.get() == revision) pendingEngineeringTask.value = task.taskId
+            }
+        } finally {
+            busy.value = false
+        }
+    }
+
+    fun reopenConversationApproval(taskId: String) = action {
+        val saved = requireNotNull(conversationApproval.value)
+        require(saved.taskId == taskId && saved.awaitingApproval && saved.available) { "Reopen the saved conversation before reviewing this patch." }
+        val task = requireNotNull(engineering.task(taskId))
+        val frozen = requireNotNull(engineering.run(taskId))
+        requireConversationApprovalBinding(task, frozen)
+        require(task.state == "AWAITING_APPROVAL") { "This patch is no longer awaiting approval." }
+        dismissedCommitTasks -= taskId
+        reviewEngineeringNow(taskId)
+        pendingEngineeringTask.value = taskId
+    }
+
+    private suspend fun requireConversationApprovalBinding(task: dev.chungjungsoo.gptmobile.data.agent.tool.EngineeringTaskRow, frozen: dev.chungjungsoo.gptmobile.data.agent.tool.EngineeringRunRow) {
+        val saved = conversationApproval.value ?: return
+        val scope = GitHubApprovalBinding.boundWorkspace(
+            requireNotNull(gitHubRepositoryState), task.taskId, saved.chatId, frozen.connectionUid,
+            task.repositoryOwner, task.repositoryName, task.workingBranch, task.baseSha, frozen.patchDigest
+        )
+        require(scope != null && scope == programmerScope.value && scope.connectionUid in conversationApprovalConnections) { "The saved approval binding changed. Reopen its original conversation to review the patch." }
+        require(conversationConnectionAllowed(scope)) { "Enable the saved profile's GitHub connection before approving this patch." }
+    }
+
+    private suspend fun conversationConnectionAllowed(scope: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext): Boolean {
+        val features = settings?.getFeatureSettings() ?: return true
+        return features.isToolPluginEnabledForProfile(scope.mainProfileUid, dev.chungjungsoo.gptmobile.data.model.ToolPluginId.GITHUB) &&
+            features.isToolPluginEnabledForProfile(scope.mainProfileUid, dev.chungjungsoo.gptmobile.data.model.ToolPluginId.connection(scope.connectionUid))
+    }
+
     fun rejectCommit(taskId: String) = action {
         val task = engineeringTasks.value.singleOrNull { it.taskId == taskId && it.state == "AWAITING_APPROVAL" } ?: return@action
-        programmerScope.value?.let { scope ->
-            gitHubRepositoryState?.let { GitHubApprovalBinding.markDecision(it, taskId, scope, task.workingBranch, automatic = false) }
+        requireConversationApprovalBinding(task, requireNotNull(engineering.run(taskId)))
+        val scope = programmerScope.value
+        val approvalStore = gitHubRepositoryState
+        if (scope != null && approvalStore != null) {
+            runCatching {
+                GitHubApprovalBinding.recordEvent(
+                    approvalStore,
+                    taskId,
+                    "approval_card_clicked",
+                    buildJsonObject {
+                        put("choice", "REJECT")
+                        put("branch", task.workingBranch)
+                    }
+                )
+            }
         }
         engineering.cancel(taskId)
+        val cancelledBeforePublication = scope?.let {
+            engineering.approvalStatus(taskId, it.connectionUid, dev.chungjungsoo.gptmobile.data.agent.tool.GitHubEngineeringApi.root(it.owner, it.repo))
+                ?.get("cancelled_before_publication") == kotlinx.serialization.json.JsonPrimitive(true)
+        } == true
+        if (scope != null && approvalStore != null && cancelledBeforePublication) {
+            GitHubApprovalBinding.markDecision(approvalStore, taskId, scope, task.workingBranch, automatic = false, cancellationConfirmed = true)
+        }
+        engineering.scheduleApprovalResolution(taskId)
         dismissedCommitTasks += taskId
         pendingEngineeringTask.value = null
         refreshEngineeringTasksNow()
-        notice.value = if (programmerChatId == null) "Patch rejected. No commit was sent." else ""
+        notice.value = when {
+            !cancelledBeforePublication -> "Rejection was recorded, but cancellation is not yet confirmed. The saved task will be reconciled before any cleanup."
+            task.workingBranch.startsWith("codex-self-test/") && scope != null && approvalStore != null && GitHubApprovalBinding.fixtureKept(approvalStore, taskId) -> "Approval cancelled. The fixture is retained by request."
+            task.workingBranch.startsWith("codex-self-test/") && scope != null && approvalStore != null -> "Approval cancelled. Fixture reconciliation and cleanup are queued; no staged commit will be replayed."
+            task.workingBranch.startsWith("codex-self-test/") -> "Approval cancelled. The fixture is retained until its saved binding can be reconciled."
+            programmerChatId == null -> "Patch rejected. No commit was sent."
+            else -> ""
+        }
     }
     private fun restageEditedCommit(taskId: String, proposal: GitHubReview) = action {
+        val task = requireNotNull(engineering.task(taskId))
         val old = requireNotNull(engineering.run(taskId))
+        val scope = programmerScope.value
+        val chatId = programmerChatId
+        require(task.state == "AWAITING_APPROVAL") { "The original patch is no longer awaiting review. Reconcile its saved state before editing." }
+        require(proposal.connectionUid == old.connectionUid && proposal.owner == task.repositoryOwner && proposal.repo == task.repositoryName && proposal.branch == task.workingBranch && proposal.head == task.baseSha) { "Review the original patch before editing its saved task." }
+        if (chatId != null) {
+            require(scope != null && gitHubRepositoryState != null && GitHubApprovalBinding.source(gitHubRepositoryState, taskId, scope, task.workingBranch)?.chatId == chatId) { "The original approval binding is unavailable. Its saved review has been retained." }
+        }
         val files = proposal.files.filter { it.changed }.map { dev.chungjungsoo.gptmobile.data.agent.tool.EngineeringFilePatch(it.path, it.before, it.after, it.delete) }
-        val replacement = engineering.prepare(proposal.connectionUid, proposal.owner, proposal.repo, proposal.branch, proposal.head, files, old.commitMessage)
-        engineering.cancel(taskId)
+        val replacement = engineering.prepare(proposal.connectionUid, proposal.owner, proposal.repo, proposal.branch, proposal.head, files, old.commitMessage, task.requiresHardwareVerification)
+        engineering.replacePendingReview(taskId, old.patchDigest, replacement) {
+            if (scope != null && gitHubRepositoryState != null && (chatId != null || GitHubApprovalBinding.source(gitHubRepositoryState, taskId, scope, task.workingBranch) != null)) {
+                GitHubApprovalBinding.bindReplacement(
+                    gitHubRepositoryState, taskId, replacement, scope, task.workingBranch,
+                    task.baseSha, old.patchDigest, requireNotNull(engineering.run(replacement)).patchDigest, chatId
+                )
+            }
+        }
         dismissedCommitTasks += taskId
         reviewEngineeringNow(replacement)
         pendingEngineeringTask.value = replacement
@@ -383,6 +631,10 @@ class GitHubReviewViewModel @Inject constructor(private val connections: ToolCon
             return
         }
         val edited = file.copy(after = file.after.replaceRange(at, at + search.length, replacement))
+        if (edited == file) {
+            notice.value = "The edited patch is unchanged. Its existing review has been retained."
+            return
+        }
         // Keep the visible frozen patch unchanged if validation fails.
         restageEditedCommit(taskId, proposal.copy(files = proposal.files.map { if (it.path == path) edited else it }))
     }

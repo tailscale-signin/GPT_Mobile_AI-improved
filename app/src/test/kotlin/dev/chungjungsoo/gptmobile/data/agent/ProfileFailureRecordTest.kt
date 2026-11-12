@@ -6,6 +6,38 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProfileFailureRecordTest {
+    @Test fun unavailableSavedViewRequiresSourceProofWithoutEnablingGenericRetry() {
+        val details = kotlinx.serialization.json.Json.parseToJsonElement("""{"retryable":true,"source_read_recovery":{"available":true}}""") as kotlinx.serialization.json.JsonObject
+        val failure = ProfileFailureRecord.fromProvider("The saved view expired", "SAVED_VIEW_UNAVAILABLE", details)
+        assertTrue(failure.isSavedViewUnavailable)
+        assertFalse(failure.retryAllowed)
+        assertEquals("inventory_pagination", failure.phase)
+        assertFalse(ProfileFailureRecord.classify("SAVED_VIEW_CURSOR_ALTERED").isSavedViewUnavailable)
+        assertFalse(ProfileFailureRecord.classify("SAVED_VIEW_WRONG_OPERATION").isSavedViewUnavailable)
+    }
+
+    @Test fun laterVerificationCodesAreMatchedAgainstTheActualFailureBeforeChoosingAStopReason() {
+        for (code in listOf("GITHUB_EXTRACTION_OUTPUT_LIMIT", "GITHUB_EXTRACTION_INVALID_RESPONSE", "GITHUB_TOOL_BUDGET_EXHAUSTED", "VERIFICATION_RESERVE_REACHED", "SAVED_VIEW_CURSOR_ALTERED", "DEPENDENCY_DEFERRED")) {
+            assertEquals(code, ProfileFailureRecord.classify("$code: retained verification work").category)
+        }
+    }
+
+    @Test fun explicitDispatchAndPositiveAcceptanceSurviveFailureClassification() {
+        for (facts in listOf("\"dispatch_state\":\"DISPATCHED\"", "\"remote_acceptance\":\"YES\"")) {
+            val details = kotlinx.serialization.json.Json.parseToJsonElement("""{"invocation_id":"request-1",$facts}""") as kotlinx.serialization.json.JsonObject
+            val failure = ProfileFailureRecord.fromProvider("Bounded output ended", "COMPLETION_REPAIR_BUDGET_EXHAUSTED", details)
+            assertEquals(true, failure.dispatched)
+            assertEquals("request-1", failure.invocationId)
+            assertEquals("provider_generation", failure.phase)
+            assertEquals("FAILED", AgentRunTerminalDiagnostics.from("FAILED", failure).executionState)
+            assertFalse(failure.retryAllowed)
+        }
+        val explicitPrecheck = kotlinx.serialization.json.Json.parseToJsonElement("""{"dispatch_state":"NOT_DISPATCHED","remote_acceptance":"YES"}""") as kotlinx.serialization.json.JsonObject
+        val rejected = ProfileFailureRecord.fromProvider("Admission stopped", "REQUEST_REJECTED", explicitPrecheck)
+        assertEquals(false, rejected.dispatched)
+        assertEquals(RemoteRequestAcceptance.NO, rejected.remoteAcceptance)
+    }
+
     @Test fun engineeringPreflightRetainsItsReasonAndRequiresChangedPrerequisites() {
         val failure = ProfileFailureRecord.fromProvider("Configure the approved test mapping", "ACCEPTANCE_PRODUCER_REQUIRED")
         assertEquals("ACCEPTANCE_PRODUCER_REQUIRED", failure.category)
@@ -29,6 +61,22 @@ class ProfileFailureRecordTest {
         assertEquals(null, TaskVerificationFailure.from(uncertain))
         assertEquals("TOOL_OUTCOME_UNKNOWN", uncertain.category)
         assertFalse(uncertain.retryAllowed)
+    }
+
+    @Test fun extractionStaleEvidenceAndBudgetStopsKeepDistinctVerificationRecoveryReasons() {
+        val cases = mapOf(
+            "GITHUB_EXTRACTION_OUTPUT_LIMIT" to "claim_extraction",
+            "GITHUB_EVIDENCE_ADVANCED_DURING_VERIFICATION" to "verification",
+            "GITHUB_TOOL_BUDGET_EXHAUSTED" to "verification"
+        )
+        for ((code, phase) in cases) {
+            val failure = ProfileFailureRecord.fromProvider("The saved task stopped at $code", code)
+            assertEquals(code, failure.category)
+            assertEquals(phase, failure.phase)
+            assertTrue(failure.isTaskVerification)
+            assertFalse(failure.retryAllowed)
+            assertEquals(null, failure.retryAfterMillis)
+        }
     }
 
     @Test fun gatewayContractReceiptsRetainStageAndDoNotBecomeRetryableConnectionFailures() {

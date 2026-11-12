@@ -184,6 +184,21 @@ class GitHubAuditEvidenceTest {
         assertEquals(JsonPrimitive(true), (observed["rules"] as JsonObject)["available"])
     }
 
+    @Test fun nestedProtection404RetainsUnknownPolicyEvenWhenRulesReturnRequiredChecks() = runBlocking {
+        val observed = GitHubInspection { path ->
+            when {
+                path.endsWith("/protection") -> throw GitHubRequestRejected(404, "Not found")
+                path.contains("/rules/branches/") -> JsonArray(listOf(json("""{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"Required verification"}]}}""")))
+                else -> json("""{"name":"main","protected":false}""")
+            }
+        }.execute("branch_context", "/repos/owner/repo", json("""{"branch":"main"}"""), 1)
+        val policy = observed["policy"] as JsonObject
+        assertEquals(JsonPrimitive(404), (observed["protection"] as JsonObject)["http_status"])
+        assertEquals(JsonPrimitive("UNKNOWN"), policy["required_checks_state"])
+        assertEquals(JsonPrimitive(false), policy["required_checks_complete"])
+        assertEquals(JsonArray(listOf(JsonPrimitive("Required verification"))), policy["observed_required_checks"])
+    }
+
     @Test fun runtimeQualificationIdentifiesExcludedCachedReceiptDespiteMatchingSha() {
         val runtime = json("""{"identity_source":"RUNNING_PROCESS_BUILD_CONFIG","application_id":"app","version_name":"1","version_code":1,"app_source_sha":"$head"}""")
         val cached = JsonObject(status() + mapOf("runtime_identity" to runtime, "evidence_origin" to JsonPrimitive("CACHED")))
@@ -282,7 +297,10 @@ class GitHubAuditEvidenceTest {
 
     @Test fun branchReviewCannotPassFromStatusFactsOrComparisonWithoutSource() {
         val request = "$task Baseline: $base"
-        val claims = listOf(json("""{"status":"VERIFIED"}"""))
+        val claims = listOf(
+            json("""{"status":"VERIFIED","kind":"fact","receipt_id":"source"}"""),
+            json("""{"status":"INFERRED","kind":"recommendation","receipt_id":"source"}""")
+        )
         val records = linkedMapOf("status" to status())
         fun complete() = GitHubRequestCompletion.evaluate(request, claims, json("{}"), records)["completion_verified"] == JsonPrimitive(true)
         assertFalse(complete())
